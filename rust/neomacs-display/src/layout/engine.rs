@@ -208,6 +208,59 @@ fn is_display_image_spec(val: &neovm_core::emacs_core::Value) -> bool {
     false
 }
 
+#[inline]
+fn next_tab_stop_col(current_col: usize, tab_width: i32, tab_stop_list: &[i32]) -> usize {
+    if !tab_stop_list.is_empty() {
+        if let Some(&stop) = tab_stop_list.iter().find(|&&stop| (stop as usize) > current_col) {
+            return stop as usize;
+        }
+        let last = *tab_stop_list.last().unwrap() as usize;
+        let tab_w = tab_width.max(1) as usize;
+        if current_col >= last {
+            return last + ((current_col - last) / tab_w + 1) * tab_w;
+        }
+        return last;
+    }
+
+    let tab_w = tab_width.max(1) as usize;
+    ((current_col / tab_w) + 1) * tab_w
+}
+
+#[inline]
+fn cursor_point_columns(text: &[u8], byte_idx: usize, col: i32, params: &WindowParams) -> usize {
+    if byte_idx >= text.len() {
+        return 1;
+    }
+
+    let (ch, _) = decode_utf8(&text[byte_idx..]);
+    match ch {
+        '\t' => {
+            let col_usize = col.max(0) as usize;
+            let next_tab = next_tab_stop_col(col_usize, params.tab_width, &params.tab_stop_list)
+                .max(col_usize + 1);
+            next_tab - col_usize
+        }
+        '\n' | '\r' => 1,
+        _ if is_wide_char(ch) => 2,
+        _ => 1,
+    }
+}
+
+#[inline]
+fn cursor_width_for_style(
+    style: CursorStyle,
+    text: &[u8],
+    byte_idx: usize,
+    col: i32,
+    params: &WindowParams,
+    face_char_w: f32,
+) -> f32 {
+    match style {
+        CursorStyle::Bar(w) => w,
+        _ => cursor_point_columns(text, byte_idx, col, params) as f32 * face_char_w,
+    }
+}
+
 /// Parse `:raise` factor from a display property value.
 ///
 /// Handles two forms:
@@ -2693,24 +2746,9 @@ impl LayoutEngine {
                     ccol = 0;
                     c_hscroll_remaining = hscroll;
                 } else if cch == '\t' {
-                    let next_tab = if !params.tab_stop_list.is_empty() {
-                        params.tab_stop_list.iter()
-                            .find(|&&stop| (stop as usize) > ccol)
-                            .map(|&stop| stop as usize)
-                            .unwrap_or_else(|| {
-                                let last = *params.tab_stop_list.last().unwrap() as usize;
-                                let tab_w = params.tab_width.max(1) as usize;
-                                if ccol >= last {
-                                    last + ((ccol - last) / tab_w + 1) * tab_w
-                                } else {
-                                    last
-                                }
-                            })
-                    } else {
-                        let tab_w = params.tab_width as usize;
-                        if tab_w > 0 { ((ccol / tab_w) + 1) * tab_w } else { ccol + 1 }
-                    };
-                    let next_tab = next_tab.max(ccol + 1);
+                    let next_tab =
+                        next_tab_stop_col(ccol, params.tab_width, &params.tab_stop_list)
+                            .max(ccol + 1);
                     cx += (next_tab - ccol) as f32 * cursor_char_w;
                     ccol = next_tab;
                 } else {
@@ -2730,10 +2768,14 @@ impl LayoutEngine {
             // Only emit cursor if it's within visible area
             if cy >= text_y && cy + char_h <= text_y + text_height {
                 if let Some(style) = CursorStyle::from_type(cursor_style_raw, params.cursor_bar_width) {
-                    let cursor_w = match style {
-                        CursorStyle::Bar(w) => w,
-                        _ => default_face_char_w,
-                    };
+                    let cursor_w = cursor_width_for_style(
+                        style,
+                        text,
+                        cbyte,
+                        ccol as i32,
+                        params,
+                        default_face_char_w,
+                    );
                     frame_glyphs.add_cursor(
                         params.window_id as i32,
                         cx, cy, cursor_w, char_h,
@@ -2757,13 +2799,8 @@ impl LayoutEngine {
                                 default_resolved.font_size,
                                 0, None, 0, None, 0, None, false,
                             );
-                            let ch_advance = if is_wide_char(cursor_ch) {
-                                2.0 * default_face_char_w
-                            } else {
-                                default_face_char_w
-                            };
                             frame_glyphs.add_char(
-                                cursor_ch, cx, cy, ch_advance, char_h,
+                                cursor_ch, cx, cy, cursor_w, char_h,
                                 default_face_ascent, false,
                             );
                             current_face_id += 1;
@@ -4990,11 +5027,19 @@ impl LayoutEngine {
                 };
 
                 if let Some(style) = cursor_style {
+                    let cursor_w = cursor_width_for_style(
+                        style,
+                        text,
+                        byte_idx,
+                        col,
+                        params,
+                        cursor_face_w,
+                    );
                     frame_glyphs.add_cursor(
                         params.window_id as i32,
                         cursor_px,
                         cursor_y,
-                        cursor_face_w,
+                        cursor_w,
                         face_h,
                         style,
                         face_fg,
@@ -5004,7 +5049,7 @@ impl LayoutEngine {
                         frame_glyphs.set_cursor_inverse(
                             cursor_px,
                             cursor_y,
-                            cursor_face_w,
+                            cursor_w,
                             face_h,
                             face_fg,
                             face_bg,
@@ -5890,11 +5935,19 @@ impl LayoutEngine {
                 };
 
                 if let Some(style) = cursor_style {
+                    let cursor_w = cursor_width_for_style(
+                        style,
+                        text,
+                        byte_idx,
+                        col,
+                        params,
+                        cursor_face_w,
+                    );
                     frame_glyphs.add_cursor(
                         params.window_id as i32,
                         cursor_px,
                         cursor_y,
-                        cursor_face_w,
+                        cursor_w,
                         face_h,
                         style,
                         face_fg,
@@ -5904,7 +5957,7 @@ impl LayoutEngine {
                         frame_glyphs.set_cursor_inverse(
                             cursor_px,
                             cursor_y,
-                            cursor_face_w,
+                            cursor_w,
                             face_h,
                             face_fg,
                             face_bg,
@@ -6077,11 +6130,19 @@ impl LayoutEngine {
                 };
 
                 if let Some(style) = cursor_style {
+                    let cursor_w = cursor_width_for_style(
+                        style,
+                        text,
+                        byte_idx,
+                        col,
+                        params,
+                        cursor_face_w,
+                    );
                     frame_glyphs.add_cursor(
                         params.window_id as i32,
                         cursor_px,
                         cursor_y,
-                        cursor_face_w,
+                        cursor_w,
                         face_h,
                         style,
                         face_fg,
@@ -6091,7 +6152,7 @@ impl LayoutEngine {
                         frame_glyphs.set_cursor_inverse(
                             cursor_px,
                             cursor_y,
-                            cursor_face_w,
+                            cursor_w,
                             face_h,
                             face_fg,
                             face_bg,
@@ -6432,11 +6493,19 @@ impl LayoutEngine {
                 };
 
                 if let Some(style) = cursor_style {
+                    let cursor_w = cursor_width_for_style(
+                        style,
+                        text,
+                        byte_idx,
+                        col,
+                        params,
+                        cursor_face_w,
+                    );
                     frame_glyphs.add_cursor(
                         params.window_id as i32,
                         cursor_px,
                         cursor_y,
-                        cursor_face_w,
+                        cursor_w,
                         face_h,
                         style,
                         face_fg,
@@ -6446,7 +6515,7 @@ impl LayoutEngine {
                         frame_glyphs.set_cursor_inverse(
                             cursor_px,
                             cursor_y,
-                            cursor_face_w,
+                            cursor_w,
                             face_h,
                             face_fg,
                             face_bg,
@@ -6832,6 +6901,58 @@ mod tests {
     use super::*;
     use crate::core::frame_glyphs::FrameGlyph;
 
+    fn test_window_params() -> WindowParams {
+        WindowParams {
+            window_id: 1,
+            buffer_id: 1,
+            bounds: Rect::new(0.0, 0.0, 800.0, 600.0),
+            text_bounds: Rect::new(0.0, 0.0, 800.0, 560.0),
+            selected: true,
+            is_minibuffer: false,
+            window_start: 1,
+            window_end: 0,
+            point: 1,
+            buffer_size: 1,
+            buffer_begv: 1,
+            hscroll: 0,
+            vscroll: 0,
+            truncate_lines: false,
+            word_wrap: false,
+            tab_width: 8,
+            tab_stop_list: vec![],
+            default_fg: 0xFFFFFF,
+            default_bg: 0x000000,
+            char_width: 8.0,
+            char_height: 16.0,
+            font_pixel_size: 14.0,
+            font_ascent: 12.0,
+            mode_line_height: 0.0,
+            header_line_height: 0.0,
+            tab_line_height: 0.0,
+            cursor_type: 0,
+            cursor_bar_width: 2,
+            left_fringe_width: 0.0,
+            right_fringe_width: 0.0,
+            indicate_empty_lines: 0,
+            show_trailing_whitespace: false,
+            trailing_ws_bg: 0,
+            fill_column_indicator: 0,
+            fill_column_indicator_char: '|',
+            fill_column_indicator_fg: 0,
+            extra_line_spacing: 0.0,
+            cursor_in_non_selected: false,
+            selective_display: 0,
+            escape_glyph_fg: 0,
+            nobreak_char_display: 0,
+            nobreak_char_fg: 0,
+            glyphless_char_fg: 0,
+            wrap_prefix: vec![],
+            line_prefix: vec![],
+            left_margin_width: 0.0,
+            right_margin_width: 0.0,
+        }
+    }
+
     #[test]
     fn test_ligature_run_buffer_new() {
         let buf = LigatureRunBuffer::new();
@@ -7170,5 +7291,41 @@ mod tests {
         run3.push('h', 8.0);
         run3.push('i', 8.0);
         assert!(!run_is_pure_ligature(&run3));
+    }
+
+    #[test]
+    fn test_cursor_point_columns_wide_char() {
+        let params = test_window_params();
+        let text = "你".as_bytes();
+        assert_eq!(cursor_point_columns(text, 0, 0, &params), 2);
+    }
+
+    #[test]
+    fn test_cursor_point_columns_tab_uses_tab_stop_list() {
+        let mut params = test_window_params();
+        params.tab_width = 8;
+        params.tab_stop_list = vec![4, 10];
+        let text = b"\t";
+
+        assert_eq!(cursor_point_columns(text, 0, 3, &params), 1);
+        assert_eq!(cursor_point_columns(text, 0, 4, &params), 6);
+    }
+
+    #[test]
+    fn test_cursor_width_for_style_bar_uses_bar_width() {
+        let params = test_window_params();
+        let text = "你".as_bytes();
+
+        let width = cursor_width_for_style(CursorStyle::Bar(2.5), text, 0, 0, &params, 7.0);
+        assert_eq!(width, 2.5);
+    }
+
+    #[test]
+    fn test_cursor_width_for_style_hbar_uses_glyph_columns() {
+        let params = test_window_params();
+        let text = "你".as_bytes();
+
+        let width = cursor_width_for_style(CursorStyle::Hbar(2.0), text, 0, 0, &params, 7.0);
+        assert_eq!(width, 14.0);
     }
 }
