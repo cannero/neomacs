@@ -54,6 +54,8 @@ mod catch_throw_advanced;
 mod catch_throw_patterns;
 #[path = "char-after.rs"]
 mod char_after;
+#[path = "char-before-operations.rs"]
+mod char_before_operations;
 #[path = "char-literal.rs"]
 mod char_literal;
 #[path = "char-literal-advanced.rs"]
@@ -99,6 +101,7 @@ mod combination_advanced;
 mod combination_advanced_error_handling;
 mod combination_algorithms;
 mod combination_algorithm_challenges;
+mod combination_alist_patterns;
 mod combination_buffer_advanced;
 mod combination_buffer_algorithms;
 mod combination_buffer_processing;
@@ -107,6 +110,7 @@ mod combination_closures;
 mod combination_closures_advanced;
 mod combination_collections;
 mod combination_compiler_patterns;
+mod combination_compression;
 mod combination_complex;
 mod combination_concurrent_patterns;
 mod combination_control_flow;
@@ -116,6 +120,7 @@ mod combination_data_structures_advanced;
 mod combination_data_transformations;
 mod combination_database_patterns;
 mod combination_design_patterns;
+mod combination_dynamic_programming;
 mod combination_elisp_idioms;
 mod combination_encoding_algorithms;
 mod combination_error_handling;
@@ -126,6 +131,7 @@ mod combination_functional;
 mod combination_functional_advanced;
 mod combination_functional_programming;
 mod combination_graph_algorithms;
+mod combination_graph_patterns;
 mod combination_hash_algorithms;
 mod combination_higher_order;
 mod combination_interpreter_advanced;
@@ -145,6 +151,7 @@ mod combination_parsing;
 mod combination_patterns;
 mod combination_problem_solving;
 mod combination_protocol_implementations;
+mod combination_property_list_patterns;
 mod combination_real_world;
 mod combination_real_world_elisp;
 mod combination_recursion;
@@ -152,6 +159,7 @@ mod combination_simulation;
 mod combination_sorting;
 mod combination_state_machines;
 mod combination_text_analysis;
+mod combination_text_formatting;
 mod combination_text_processing;
 mod combination_tree_algorithms;
 mod combination_type_systems;
@@ -176,8 +184,12 @@ mod copy_alist;
 mod copy_alist_advanced;
 mod coverage;
 mod coverage_manifest;
+#[path = "count-lines-advanced.rs"]
+mod count_lines_advanced;
 #[path = "current-buffer.rs"]
 mod current_buffer;
+#[path = "current-column-advanced.rs"]
+mod current_column_advanced;
 #[path = "defmacro-advanced.rs"]
 mod defmacro_advanced;
 #[path = "defmacro-macroexpand.rs"]
@@ -225,6 +237,8 @@ mod event_convert_list;
 mod event_convert_advanced;
 #[path = "fillarray-operations.rs"]
 mod fillarray_operations;
+#[path = "following-char-operations.rs"]
+mod following_char_operations;
 mod format;
 #[path = "format-advanced.rs"]
 mod format_advanced;
@@ -372,6 +386,8 @@ mod progn_ast;
 #[path = "property-list-advanced.rs"]
 mod property_list_advanced;
 mod put;
+#[path = "re-search-backward-advanced.rs"]
+mod re_search_backward_advanced;
 #[path = "re-search-forward.rs"]
 mod re_search_forward;
 #[path = "read-from-string-advanced.rs"]
@@ -400,6 +416,8 @@ mod save_excursion;
 mod save_excursion_advanced;
 #[path = "save-restriction-advanced.rs"]
 mod save_restriction_advanced;
+#[path = "search-backward-advanced.rs"]
+mod search_backward_advanced;
 #[path = "search-operations.rs"]
 mod search_operations;
 #[path = "sequence-operations.rs"]
