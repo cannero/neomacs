@@ -153,6 +153,7 @@ mod combination_data_transformations;
 mod combination_database_ops;
 mod combination_database_patterns;
 mod combination_dataflow_analysis;
+mod combination_dependency_resolver;
 mod combination_design_patterns;
 mod combination_diff_algorithm;
 mod combination_dynamic_programming;
@@ -160,6 +161,7 @@ mod combination_elisp_idioms;
 mod combination_encoding_algorithms;
 mod combination_error_handling;
 mod combination_event_driven;
+mod combination_event_system;
 mod combination_expression_evaluator;
 mod combination_finite_automata;
 mod combination_string_advanced;
@@ -193,6 +195,7 @@ mod combination_list_algorithms;
 mod combination_logic_engine;
 mod combination_logic_puzzles;
 mod combination_macro_patterns;
+mod combination_markup_parser;
 mod combination_mathematical_structures;
 mod combination_matrix_math;
 mod combination_matrix_operations;
@@ -213,6 +216,8 @@ mod combination_protocol_implementations;
 mod combination_queue_stack;
 mod combination_property_list_patterns;
 mod combination_reactive_patterns;
+mod combination_red_black_tree;
+mod combination_regex_engine;
 mod combination_ring_buffer;
 mod combination_real_world;
 mod combination_real_world_elisp;
@@ -235,6 +240,7 @@ mod combination_tree_algorithms;
 mod combination_trie_datastructure;
 mod combination_type_inference;
 mod combination_type_systems;
+mod combination_undo_system;
 mod combination_validation;
 mod combination_workflow;
 pub(crate) mod common;
@@ -407,6 +413,8 @@ mod let_star;
 mod let_star_advanced;
 #[path = "let-star-advanced-2.rs"]
 mod let_star_advanced_2;
+#[path = "let-binding-patterns.rs"]
+mod let_binding_patterns;
 mod list;
 #[path = "list-operations-advanced.rs"]
 mod list_operations_advanced;
@@ -426,6 +434,8 @@ mod make_symbol;
 mod make_vector_advanced;
 #[path = "map-operations.rs"]
 mod map_operations;
+#[path = "map-operations-advanced.rs"]
+mod map_operations_advanced;
 #[path = "mapc-operations.rs"]
 mod mapc_operations;
 mod mapcar;
@@ -468,6 +478,8 @@ mod nbutlast_butlast_advanced;
 mod nconc;
 #[path = "nconc-advanced.rs"]
 mod nconc_advanced;
+#[path = "nconc-nreverse-patterns.rs"]
+mod nconc_nreverse_patterns;
 #[path = "next-property-change-advanced.rs"]
 mod next_property_change_advanced;
 mod r#not;
@@ -511,6 +523,8 @@ mod progn_ast;
 mod property_list_advanced;
 #[path = "propertize-advanced.rs"]
 mod propertize_advanced;
+#[path = "proper-list-predicates.rs"]
+mod proper_list_predicates;
 mod put;
 #[path = "re-search-backward-advanced.rs"]
 mod re_search_backward_advanced;
@@ -546,6 +560,8 @@ mod safe_length_operations;
 mod save_excursion;
 #[path = "save-excursion-advanced.rs"]
 mod save_excursion_advanced;
+#[path = "save-excursion-patterns.rs"]
+mod save_excursion_patterns;
 #[path = "save-restriction-advanced.rs"]
 mod save_restriction_advanced;
 #[path = "search-backward-advanced.rs"]
@@ -667,6 +683,8 @@ mod unwind_protect_advanced;
 mod upcase_downcase;
 #[path = "upcase-downcase-advanced.rs"]
 mod upcase_downcase_advanced;
+#[path = "upcase-downcase-patterns.rs"]
+mod upcase_downcase_patterns;
 mod vector;
 #[path = "vconcat-operations.rs"]
 mod vconcat_operations;
