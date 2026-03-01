@@ -89,6 +89,8 @@ mod charset_advanced;
 mod cl_lib_patterns;
 #[path = "cl-lib-patterns-advanced.rs"]
 mod cl_lib_patterns_advanced;
+#[path = "cl-loop-patterns.rs"]
+mod cl_loop_patterns;
 mod closure;
 #[path = "closure-advanced.rs"]
 mod closure_advanced;
@@ -131,6 +133,7 @@ mod combination_bloom_filter;
 mod combination_bytevector_ops;
 mod combination_cache_strategies;
 mod combination_calculator_repl;
+mod combination_channel_patterns;
 mod combination_closures;
 mod combination_closures_advanced;
 mod combination_collections;
@@ -147,7 +150,9 @@ mod combination_cryptography;
 mod combination_data_structures;
 mod combination_data_structures_advanced;
 mod combination_data_transformations;
+mod combination_database_ops;
 mod combination_database_patterns;
+mod combination_dataflow_analysis;
 mod combination_design_patterns;
 mod combination_diff_algorithm;
 mod combination_dynamic_programming;
@@ -167,6 +172,7 @@ mod combination_functional;
 mod combination_functional_advanced;
 mod combination_functional_composition;
 mod combination_functional_programming;
+mod combination_genetic_algorithm;
 mod combination_graph_algorithms;
 mod combination_graph_patterns;
 mod combination_graph_traversal;
@@ -190,6 +196,7 @@ mod combination_macro_patterns;
 mod combination_mathematical_structures;
 mod combination_matrix_math;
 mod combination_matrix_operations;
+mod combination_memo_table;
 mod combination_metaprogramming;
 mod combination_mini_languages;
 mod combination_monad_patterns;
@@ -217,6 +224,7 @@ mod combination_set_operations;
 mod combination_signal_processing;
 mod combination_simulation;
 mod combination_sorting;
+mod combination_sparse_matrix;
 mod combination_state_machines;
 mod combination_symbolic_math;
 mod combination_text_analysis;
@@ -232,6 +240,8 @@ mod combination_workflow;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
 mod compare_strings;
+#[path = "compare-strings-advanced.rs"]
+mod compare_strings_advanced;
 mod comparison;
 #[path = "comparison-advanced.rs"]
 mod comparison_advanced;
@@ -402,6 +412,8 @@ mod list;
 mod list_operations_advanced;
 #[path = "looking-at-advanced.rs"]
 mod looking_at_advanced;
+#[path = "macroexpand-advanced.rs"]
+mod macroexpand_advanced;
 #[path = "make-list.rs"]
 mod make_list;
 #[path = "make-string.rs"]
@@ -431,6 +443,8 @@ mod match_data_advanced;
 mod match_end;
 #[path = "match-string-advanced.rs"]
 mod match_string_advanced;
+#[path = "matching-paren-advanced.rs"]
+mod matching_paren_advanced;
 #[path = "math-functions.rs"]
 mod math_functions;
 mod max;
@@ -603,8 +617,12 @@ mod string_to_char_advanced;
 mod string_to_number;
 #[path = "string-to-number-advanced.rs"]
 mod string_to_number_advanced;
+#[path = "string-trim-patterns.rs"]
+mod string_trim_patterns;
 #[path = "string-version-lessp.rs"]
 mod string_version_lessp;
+#[path = "string-version-lessp-advanced.rs"]
+mod string_version_lessp_advanced;
 #[path = "string-width-advanced.rs"]
 mod string_width_advanced;
 #[path = "subr-arity-advanced.rs"]
