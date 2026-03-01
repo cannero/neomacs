@@ -98,7 +98,9 @@ mod combination_compiler_patterns;
 mod combination_complex;
 mod combination_concurrent_patterns;
 mod combination_control_flow;
+mod combination_cryptography;
 mod combination_data_structures;
+mod combination_data_structures_advanced;
 mod combination_data_transformations;
 mod combination_database_patterns;
 mod combination_design_patterns;
@@ -260,6 +262,8 @@ mod make_list;
 mod make_string;
 #[path = "make-symbol.rs"]
 mod make_symbol;
+#[path = "make-vector-advanced.rs"]
+mod make_vector_advanced;
 #[path = "map-operations.rs"]
 mod map_operations;
 mod mapcar;
@@ -297,6 +301,8 @@ mod nthcdr_advanced;
 mod number_predicates;
 #[path = "number-to-string.rs"]
 mod number_to_string;
+#[path = "obarray-symbol-interning.rs"]
+mod obarray_symbol_interning;
 mod oclosure;
 #[path = "oclosure-advanced.rs"]
 mod oclosure_advanced;
