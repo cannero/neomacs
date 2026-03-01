@@ -47,6 +47,7 @@ mod coding_string;
 mod combination;
 mod combination_advanced;
 mod combination_complex;
+mod combination_elisp_idioms;
 mod combination_patterns;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
@@ -114,12 +115,14 @@ mod make_list;
 #[path = "make-string.rs"]
 mod make_string;
 mod mapcar;
-#[path = "math-functions.rs"]
-mod math_functions;
 #[path = "match-beginning.rs"]
 mod match_beginning;
+#[path = "match-data.rs"]
+mod match_data;
 #[path = "match-end.rs"]
 mod match_end;
+#[path = "math-functions.rs"]
+mod math_functions;
 mod max;
 mod member;
 mod memq;
@@ -147,29 +150,37 @@ mod progn_ast;
 mod put;
 #[path = "re-search-forward.rs"]
 mod re_search_forward;
+#[path = "read-print.rs"]
+mod read_print;
 mod recursion;
+#[path = "regexp-operations.rs"]
+mod regexp_operations;
 mod reverse;
+#[path = "save-excursion.rs"]
+mod save_excursion;
+mod sequencep;
 #[path = "set-buffer.rs"]
 mod set_buffer;
-mod sequencep;
 mod setcar;
 mod setcdr;
-mod signal;
 mod setq;
+mod signal;
 mod sort;
 #[path = "sort-extended.rs"]
 mod sort_extended;
 mod string;
-#[path = "string-manipulation.rs"]
-mod string_manipulation;
 #[path = "string-distance.rs"]
 mod string_distance;
 #[path = "string-equal.rs"]
 mod string_equal;
 #[path = "string-lessp.rs"]
 mod string_lessp;
+#[path = "string-manipulation.rs"]
+mod string_manipulation;
 #[path = "string-match.rs"]
 mod string_match;
+#[path = "string-match-p.rs"]
+mod string_match_p;
 #[path = "string-to-number.rs"]
 mod string_to_number;
 #[path = "string-version-lessp.rs"]
