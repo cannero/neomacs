@@ -23,6 +23,8 @@ mod buffer_name;
 mod buffer_string;
 #[path = "buffer-substring.rs"]
 mod buffer_substring;
+#[path = "aref-aset.rs"]
+mod aref_aset;
 #[path = "car-safe.rs"]
 mod car_safe;
 #[path = "car-cdr-combinations.rs"]
@@ -38,6 +40,8 @@ mod char_literal;
 mod char_table;
 #[path = "char-table-extra-slot.rs"]
 mod char_table_extra_slot;
+#[path = "char-operations.rs"]
+mod char_operations;
 #[path = "char-to-string.rs"]
 mod char_to_string;
 mod charset;
@@ -58,6 +62,7 @@ mod combination_advanced;
 mod combination_algorithms;
 mod combination_buffer_processing;
 mod combination_complex;
+mod combination_control_flow;
 mod combination_data_structures;
 mod combination_elisp_idioms;
 mod combination_functional;
@@ -118,6 +123,8 @@ mod hash_table;
 #[path = "hash-table-extended.rs"]
 mod hash_table_extended;
 mod r#if;
+#[path = "indirect-function.rs"]
+mod indirect_function;
 mod insert;
 #[path = "interactive-patterns.rs"]
 mod interactive_patterns;
@@ -127,6 +134,8 @@ mod keymap;
 #[path = "lambda-anonymous.rs"]
 mod lambda_anonymous;
 mod last;
+#[path = "length-operations.rs"]
+mod length_operations;
 mod r#let;
 #[path = "let-dynamic.rs"]
 mod let_dynamic;
@@ -187,6 +196,8 @@ mod regexp_operations;
 mod reverse;
 #[path = "save-excursion.rs"]
 mod save_excursion;
+#[path = "search-operations.rs"]
+mod search_operations;
 mod sequencep;
 #[path = "set-buffer.rs"]
 mod set_buffer;
@@ -194,6 +205,8 @@ mod setcar;
 mod setcdr;
 mod setq;
 mod signal;
+#[path = "skip-chars.rs"]
+mod skip_chars;
 mod sort;
 #[path = "sort-extended.rs"]
 mod sort_extended;
