@@ -13,6 +13,8 @@ mod backquote;
 #[path = "beginning-of-line.rs"]
 mod beginning_of_line;
 mod bitwise;
+#[path = "buffer-operations.rs"]
+mod buffer_operations;
 #[path = "buffer-name.rs"]
 mod buffer_name;
 #[path = "buffer-string.rs"]
@@ -49,7 +51,9 @@ mod coding_metadata;
 mod coding_string;
 mod combination;
 mod combination_advanced;
+mod combination_buffer_processing;
 mod combination_complex;
+mod combination_data_structures;
 mod combination_elisp_idioms;
 mod combination_functional;
 mod combination_patterns;
@@ -79,6 +83,8 @@ mod dotimes;
 #[path = "end-of-line.rs"]
 mod end_of_line;
 mod equality;
+#[path = "error-handling-patterns.rs"]
+mod error_handling_patterns;
 mod eval;
 mod event_convert_list;
 mod format;
@@ -185,6 +191,8 @@ mod string_lessp;
 mod string_manipulation;
 #[path = "string-match.rs"]
 mod string_match;
+#[path = "string-processing.rs"]
+mod string_processing;
 #[path = "string-match-p.rs"]
 mod string_match_p;
 #[path = "string-to-number.rs"]
