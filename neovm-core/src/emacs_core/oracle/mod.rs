@@ -154,13 +154,17 @@ mod combination_functional_programming;
 mod combination_graph_algorithms;
 mod combination_graph_patterns;
 mod combination_hash_algorithms;
+mod combination_heap_datastructure;
 mod combination_higher_order;
 mod combination_immutable_data;
 mod combination_interpreter_advanced;
+mod combination_interpreter_advanced2;
 mod combination_interpreter_patterns;
 mod combination_interpreters;
 mod combination_iterative_algorithms;
 mod combination_iterator_patterns;
+mod combination_lexer_patterns;
+mod combination_linked_list_ops;
 mod combination_list_algorithms;
 mod combination_logic_puzzles;
 mod combination_macro_patterns;
@@ -192,8 +196,10 @@ mod combination_sorting;
 mod combination_state_machines;
 mod combination_text_analysis;
 mod combination_text_formatting;
+mod combination_text_templating;
 mod combination_text_processing;
 mod combination_tree_algorithms;
+mod combination_trie_datastructure;
 mod combination_type_systems;
 mod combination_validation;
 mod combination_workflow;
@@ -284,6 +290,8 @@ mod format;
 mod format_advanced;
 #[path = "format-extended.rs"]
 mod format_extended;
+#[path = "format-extended-advanced.rs"]
+mod format_extended_advanced;
 #[path = "format-patterns.rs"]
 mod format_patterns;
 #[path = "forward-char.rs"]
@@ -336,6 +344,8 @@ mod lambda_anonymous_advanced;
 mod last;
 #[path = "length-operations.rs"]
 mod length_operations;
+#[path = "line-position-advanced.rs"]
+mod line_position_advanced;
 mod r#let;
 #[path = "let-advanced.rs"]
 mod let_advanced;
@@ -391,6 +401,8 @@ mod min;
 mod modify_syntax_entry;
 #[path = "move-to-column-advanced.rs"]
 mod move_to_column_advanced;
+#[path = "move-to-column-patterns.rs"]
+mod move_to_column_patterns;
 #[path = "narrow-advanced.rs"]
 mod narrow_advanced;
 #[path = "nbutlast-butlast-advanced.rs"]
@@ -437,6 +449,8 @@ mod progn_advanced;
 mod progn_ast;
 #[path = "property-list-advanced.rs"]
 mod property_list_advanced;
+#[path = "propertize-advanced.rs"]
+mod propertize_advanced;
 mod put;
 #[path = "re-search-backward-advanced.rs"]
 mod re_search_backward_advanced;
@@ -531,8 +545,12 @@ mod string_processing_advanced;
 mod string_replace;
 #[path = "string-match-p.rs"]
 mod string_match_p;
+#[path = "string-to-char-advanced.rs"]
+mod string_to_char_advanced;
 #[path = "string-to-number.rs"]
 mod string_to_number;
+#[path = "string-to-number-advanced.rs"]
+mod string_to_number_advanced;
 #[path = "string-version-lessp.rs"]
 mod string_version_lessp;
 #[path = "string-width-advanced.rs"]
