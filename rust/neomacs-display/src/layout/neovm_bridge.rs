@@ -113,6 +113,16 @@ pub fn window_params_from_neovm(
     // Mode-line: non-minibuffer windows get one line of mode-line.
     let mode_line_height = if is_minibuffer { 0.0 } else { char_height };
 
+    // Match Emacs echo-area/minibuffer behavior conservatively for this path:
+    // hide cursor in non-selected minibuffer windows.
+    let mini_nonselected_no_cursor = is_minibuffer && !is_selected;
+    let cursor_type = if mini_nonselected_no_cursor { 4 } else { 0 };
+    let cursor_in_non_selected = match buffer.properties.get("cursor-in-non-selected-windows") {
+        Some(Value::Nil) => false,
+        Some(_) => true,
+        None => true, // Emacs default is t
+    };
+
     // Header-line: show if header-line-format is non-nil
     let header_line_height = if buffer_local_bool(buffer, "header-line-format") {
         char_height
@@ -166,7 +176,7 @@ pub fn window_params_from_neovm(
         mode_line_height,
         header_line_height,
         tab_line_height,
-        cursor_type: 0,          // filled box default
+        cursor_type,
         cursor_bar_width: 2,
         left_fringe_width: left_fringe,
         right_fringe_width: right_fringe,
@@ -185,7 +195,7 @@ pub fn window_params_from_neovm(
             Some(Value::Float(f, _)) => *f as f32,
             _ => 0.0,
         },
-        cursor_in_non_selected: true,
+        cursor_in_non_selected,
         selective_display: match buffer.properties.get("selective-display") {
             Some(Value::Int(n)) => *n as i32,
             Some(Value::True) => i32::MAX, // t => CR hides rest of line, no indent threshold

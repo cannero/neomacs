@@ -261,6 +261,25 @@ fn cursor_width_for_style(
     }
 }
 
+#[inline]
+fn cursor_style_for_window(params: &WindowParams) -> Option<CursorStyle> {
+    if params.selected {
+        return CursorStyle::from_type(params.cursor_type, params.cursor_bar_width);
+    }
+
+    // Keep Emacs behavior for non-selected minibuffer/echo-area paths where
+    // C side resolves cursor_type to NO_CURSOR (4).
+    if params.cursor_type == 4 {
+        return None;
+    }
+
+    if params.cursor_in_non_selected {
+        Some(CursorStyle::Hollow)
+    } else {
+        None
+    }
+}
+
 /// Parse `:raise` factor from a display property value.
 ///
 /// Handles two forms:
@@ -2601,7 +2620,7 @@ impl LayoutEngine {
         // For simplicity, use default face metrics for cursor positioning
         // (the cursor position is approximate in this simplified layout).
         if params.point >= window_start && params.point <= charpos {
-            let cursor_style_raw = if params.selected { params.cursor_type } else { 3 }; // hollow for non-selected
+            let cursor_style = cursor_style_for_window(params);
 
             // Re-scan to find cursor position using default face metrics
             let mut cx = content_x;
@@ -2767,7 +2786,7 @@ impl LayoutEngine {
 
             // Only emit cursor if it's within visible area
             if cy >= text_y && cy + char_h <= text_y + text_height {
-                if let Some(style) = CursorStyle::from_type(cursor_style_raw, params.cursor_bar_width) {
+                if let Some(style) = cursor_style {
                     let cursor_w = cursor_width_for_style(
                         style,
                         text,
@@ -5018,13 +5037,7 @@ impl LayoutEngine {
                     char_w
                 };
 
-                let cursor_style = if params.selected {
-                    CursorStyle::from_type(params.cursor_type, params.cursor_bar_width)
-                } else if params.cursor_in_non_selected {
-                    Some(CursorStyle::Hollow)
-                } else {
-                    None
-                };
+                let cursor_style = cursor_style_for_window(params);
 
                 if let Some(style) = cursor_style {
                     let cursor_w = cursor_width_for_style(
@@ -5926,13 +5939,7 @@ impl LayoutEngine {
                     char_w
                 };
 
-                let cursor_style = if params.selected {
-                    CursorStyle::from_type(params.cursor_type, params.cursor_bar_width)
-                } else if params.cursor_in_non_selected {
-                    Some(CursorStyle::Hollow)
-                } else {
-                    None
-                };
+                let cursor_style = cursor_style_for_window(params);
 
                 if let Some(style) = cursor_style {
                     let cursor_w = cursor_width_for_style(
@@ -6121,13 +6128,7 @@ impl LayoutEngine {
                     char_w
                 };
 
-                let cursor_style = if params.selected {
-                    CursorStyle::from_type(params.cursor_type, params.cursor_bar_width)
-                } else if params.cursor_in_non_selected {
-                    Some(CursorStyle::Hollow)
-                } else {
-                    None
-                };
+                let cursor_style = cursor_style_for_window(params);
 
                 if let Some(style) = cursor_style {
                     let cursor_w = cursor_width_for_style(
@@ -6484,13 +6485,7 @@ impl LayoutEngine {
                     char_w
                 };
 
-                let cursor_style = if params.selected {
-                    CursorStyle::from_type(params.cursor_type, params.cursor_bar_width)
-                } else if params.cursor_in_non_selected {
-                    Some(CursorStyle::Hollow)
-                } else {
-                    None
-                };
+                let cursor_style = cursor_style_for_window(params);
 
                 if let Some(style) = cursor_style {
                     let cursor_w = cursor_width_for_style(

@@ -1468,6 +1468,14 @@ neomacs_layout_get_window_params (void *frame_ptr, int window_index,
     enum text_cursor_kinds cursor_kind = FILLED_BOX_CURSOR;
     int cursor_dim = 2;
     Lisp_Object ct = Qnil;
+    bool non_selected
+      = (w != XWINDOW (f->selected_window)
+         || f != FRAME_DISPLAY_INFO (f)->highlight_frame);
+    bool echo_area_cursor_window
+      = (cursor_in_echo_area
+         && FRAME_HAS_MINIBUF_P (f)
+         && EQ (FRAME_MINIBUF_WINDOW (f), echo_area_window)
+         && w == XWINDOW (echo_area_window));
 
     if (BUFFERP (w->contents))
       ct = BVAR (XBUFFER (w->contents), cursor_type);
@@ -1517,6 +1525,16 @@ neomacs_layout_get_window_params (void *frame_ptr, int window_index,
         /* Unknown cursor-type value → hollow box (matches Emacs behavior).  */
         cursor_kind = HOLLOW_BOX_CURSOR;
       }
+
+    /* Match Emacs get_window_cursor_type minibuffer behavior:
+       in a non-selected mini-window, hide cursor for inactive minibuffer
+       or echo-area message display, unless cursor-in-echo-area requests
+       a cursor in the echo-area window.  */
+    if (non_selected
+        && MINI_WINDOW_P (w)
+        && !echo_area_cursor_window
+        && (minibuf_level == 0 || is_minibuffer (0, w->contents)))
+      cursor_kind = NO_CURSOR;
 
     switch (cursor_kind)
       {
@@ -1626,7 +1644,11 @@ neomacs_layout_get_window_params (void *frame_ptr, int window_index,
     params->extra_line_spacing = (float) f->extra_line_spacing;
 
   /* Cursor in non-selected windows */
-  params->cursor_in_non_selected
+  if (BUFFERP (w->contents))
+    params->cursor_in_non_selected
+      = !NILP (BVAR (XBUFFER (w->contents), cursor_in_non_selected_windows));
+  else
+    params->cursor_in_non_selected
       = !NILP (BVAR (&buffer_defaults, cursor_in_non_selected_windows));
 
   /* escape-glyph face for control characters */
