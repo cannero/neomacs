@@ -124,7 +124,9 @@ mod commandp_functionp_advanced;
 mod combination;
 mod combination_abstract_algebra;
 mod combination_abstract_data_types;
+mod combination_abstract_interpreter;
 mod combination_abstract_machines;
+mod combination_abstract_syntax;
 mod combination_actor_model;
 mod combination_advanced;
 mod combination_advanced_error_handling;
@@ -249,11 +251,13 @@ mod combination_real_world;
 mod combination_real_world_elisp;
 mod combination_recursion;
 mod combination_rope_datastructure;
+mod combination_rope_operations;
 mod combination_scheduling;
 mod combination_serialization;
 mod combination_set_operations;
 mod combination_signal_processing;
 mod combination_simulation;
+mod combination_skip_list;
 mod combination_sorting;
 mod combination_sparse_matrix;
 mod combination_state_machines;
@@ -264,6 +268,8 @@ mod combination_text_templating;
 mod combination_text_processing;
 mod combination_topological_sort;
 mod combination_tree_algorithms;
+mod combination_treap;
+mod combination_trie_advanced;
 mod combination_trie_datastructure;
 mod combination_type_checker;
 mod combination_type_inference;
@@ -321,6 +327,8 @@ mod defmacro_patterns;
 mod defvar;
 #[path = "defvar-advanced.rs"]
 mod defvar_advanced;
+#[path = "define-key-advanced.rs"]
+mod define_key_advanced;
 #[path = "delete-and-extract-advanced.rs"]
 mod delete_and_extract_advanced;
 #[path = "delete-operations.rs"]
@@ -464,6 +472,8 @@ mod list;
 mod list_operations_advanced;
 #[path = "looking-at-advanced.rs"]
 mod looking_at_advanced;
+#[path = "lookup-key-advanced.rs"]
+mod lookup_key_advanced;
 #[path = "macroexpand-advanced.rs"]
 mod macroexpand_advanced;
 #[path = "make-hash-table-advanced.rs"]
@@ -569,6 +579,8 @@ mod predicates;
 #[path = "prin1-to-string-advanced.rs"]
 mod prin1_to_string_advanced;
 mod prog1;
+#[path = "prog1-prog2-advanced.rs"]
+mod prog1_prog2_advanced;
 mod progn;
 #[path = "progn-advanced.rs"]
 mod progn_advanced;
@@ -609,6 +621,8 @@ mod regexp_quote_advanced;
 mod regexp_replace_advanced;
 #[path = "replace-match-advanced.rs"]
 mod replace_match_advanced;
+#[path = "replace-match-patterns.rs"]
+mod replace_match_patterns;
 #[path = "replace-regexp-advanced.rs"]
 mod replace_regexp_advanced;
 mod reverse;
@@ -637,6 +651,8 @@ mod seq_operations_extended;
 mod sequencep;
 #[path = "set-buffer.rs"]
 mod set_buffer;
+#[path = "set-match-data-patterns.rs"]
+mod set_match_data_patterns;
 mod setcar;
 #[path = "setcar-setcdr-advanced.rs"]
 mod setcar_setcdr_advanced;
@@ -712,6 +728,8 @@ mod subr_arity_advanced;
 #[path = "subr-predicates.rs"]
 mod subr_predicates;
 mod substring;
+#[path = "substring-advanced.rs"]
+mod substring_advanced;
 mod symbol;
 #[path = "symbol-advanced.rs"]
 mod symbol_advanced;
