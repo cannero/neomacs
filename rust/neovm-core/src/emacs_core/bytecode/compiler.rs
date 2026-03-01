@@ -1,10 +1,35 @@
 //! Bytecode compiler: transforms Expr AST into ByteCodeFunction.
 
+use std::collections::HashSet;
+
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::{LambdaParams, Value, next_float_id};
+
+/// A stack-local variable (function parameter accessed via StackRef).
+struct StackLocal {
+    name: String,
+    slot: usize,
+}
+
+/// Lexical scope for function parameters on the VM stack.
+struct LexScope {
+    locals: Vec<StackLocal>,
+    /// Names shadowed by VarBind (let/let*) — these should use VarRef, not StackRef.
+    shadowed: HashSet<String>,
+}
+
+impl LexScope {
+    /// Find the stack slot for a name, returning None if shadowed.
+    fn find(&self, name: &str) -> Option<usize> {
+        if self.shadowed.contains(name) {
+            return None;
+        }
+        self.locals.iter().find(|l| l.name == name).map(|l| l.slot)
+    }
+}
 
 /// Compiler state.
 pub struct Compiler {
@@ -12,6 +37,10 @@ pub struct Compiler {
     lexical: bool,
     /// Set of known special (dynamically-scoped) variable names.
     specials: Vec<String>,
+    /// Lexical scope for the current function's parameters.
+    lex_scope: Option<LexScope>,
+    /// Current stack depth (tracked to compute StackRef offsets).
+    stack_depth: i32,
 }
 
 impl Compiler {
@@ -19,6 +48,8 @@ impl Compiler {
         Self {
             lexical,
             specials: Vec::new(),
+            lex_scope: None,
+            stack_depth: 0,
         }
     }
 
@@ -34,12 +65,19 @@ impl Compiler {
         self.specials.contains(&name.to_string())
     }
 
+    /// Emit an opcode and update the tracked stack depth.
+    fn emit_tracked(&mut self, func: &mut ByteCodeFunction, op: Op) {
+        self.stack_depth += stack_delta(&op);
+        func.emit(op);
+    }
+
     /// Compile a top-level expression (not a function body).
     pub fn compile_toplevel(&mut self, expr: &Expr) -> ByteCodeFunction {
         let mut func = ByteCodeFunction::new(LambdaParams::simple(vec![]));
+        self.stack_depth = 0;
         self.compile_expr(&mut func, expr, true);
-        func.emit(Op::Return);
-        self.compute_max_stack(&mut func);
+        self.emit_tracked(&mut func, Op::Return);
+        self.compute_max_stack(&mut func, 0);
         func
     }
 
@@ -47,19 +85,64 @@ impl Compiler {
     pub fn compile_lambda(&mut self, params: &LambdaParams, body: &[Expr]) -> ByteCodeFunction {
         let mut func = ByteCodeFunction::new(params.clone());
 
+        // Save outer scope state (handles nested lambdas)
+        let saved_lex_scope = self.lex_scope.take();
+        let saved_stack_depth = self.stack_depth;
+
+        // Build LexScope mapping each param to its stack slot
+        let mut locals = Vec::new();
+        let mut slot = 0usize;
+        for param in &params.required {
+            locals.push(StackLocal {
+                name: resolve_sym(*param).to_string(),
+                slot,
+            });
+            slot += 1;
+        }
+        for param in &params.optional {
+            locals.push(StackLocal {
+                name: resolve_sym(*param).to_string(),
+                slot,
+            });
+            slot += 1;
+        }
+        if let Some(rest) = params.rest {
+            locals.push(StackLocal {
+                name: resolve_sym(rest).to_string(),
+                slot,
+            });
+            slot += 1;
+        }
+
+        let num_param_slots = slot;
+        self.lex_scope = if num_param_slots > 0 {
+            Some(LexScope {
+                locals,
+                shadowed: HashSet::new(),
+            })
+        } else {
+            None
+        };
+        self.stack_depth = num_param_slots as i32;
+
         if body.is_empty() {
-            func.emit(Op::Nil);
+            self.emit_tracked(&mut func, Op::Nil);
         } else {
             for (i, form) in body.iter().enumerate() {
                 let is_last = i == body.len() - 1;
                 self.compile_expr(&mut func, form, is_last);
                 if !is_last {
-                    func.emit(Op::Pop);
+                    self.emit_tracked(&mut func, Op::Pop);
                 }
             }
         }
-        func.emit(Op::Return);
-        self.compute_max_stack(&mut func);
+        self.emit_tracked(&mut func, Op::Return);
+        self.compute_max_stack(&mut func, num_param_slots);
+
+        // Restore outer scope state
+        self.lex_scope = saved_lex_scope;
+        self.stack_depth = saved_stack_depth;
+
         func
     }
 
@@ -70,41 +153,41 @@ impl Compiler {
             Expr::Int(n) => {
                 if for_value {
                     let idx = func.add_constant(Value::Int(*n));
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 }
             }
             Expr::Float(f) => {
                 if for_value {
                     let idx = func.add_constant(Value::Float(*f, next_float_id()));
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 }
             }
             Expr::Str(s) => {
                 if for_value {
                     let idx = func.add_constant(Value::string(s.clone()));
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 }
             }
             Expr::Char(c) => {
                 if for_value {
                     let idx = func.add_constant(Value::Char(*c));
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 }
             }
             Expr::Keyword(id) => {
                 if for_value {
                     let idx = func.add_constant(Value::Keyword(*id));
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 }
             }
             Expr::Bool(true) => {
                 if for_value {
-                    func.emit(Op::True);
+                    self.emit_tracked(func, Op::True);
                 }
             }
             Expr::Bool(false) => {
                 if for_value {
-                    func.emit(Op::Nil);
+                    self.emit_tracked(func, Op::Nil);
                 }
             }
             Expr::Symbol(id) => {
@@ -121,14 +204,14 @@ impl Compiler {
                     if all_const {
                         let vals: Vec<Value> = items.iter().map(literal_to_value).collect();
                         let idx = func.add_constant(Value::vector(vals));
-                        func.emit(Op::Constant(idx));
+                        self.emit_tracked(func, Op::Constant(idx));
                     } else {
                         // Compile each element, then call `vector` builtin
                         for item in items {
                             self.compile_expr(func, item, true);
                         }
                         let name_idx = func.add_symbol("vector");
-                        func.emit(Op::CallBuiltin(name_idx, items.len() as u8));
+                        self.emit_tracked(func, Op::CallBuiltin(name_idx, items.len() as u8));
                     }
                 }
             }
@@ -142,23 +225,30 @@ impl Compiler {
             Expr::OpaqueValue(v) => {
                 if for_value {
                     let idx = func.add_constant(*v);
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 }
             }
         }
     }
 
-    fn compile_symbol_ref(&self, func: &mut ByteCodeFunction, name: &str) {
+    fn compile_symbol_ref(&mut self, func: &mut ByteCodeFunction, name: &str) {
         match name {
-            "nil" => func.emit(Op::Nil),
-            "t" => func.emit(Op::True),
+            "nil" => self.emit_tracked(func, Op::Nil),
+            "t" => self.emit_tracked(func, Op::True),
             _ if name.starts_with(':') => {
                 let idx = func.add_constant(Value::Keyword(intern(name)));
-                func.emit(Op::Constant(idx));
+                self.emit_tracked(func, Op::Constant(idx));
             }
             _ => {
+                // Check if name is a stack-local parameter
+                if let Some(slot) = self.lex_scope.as_ref().and_then(|s| s.find(name)) {
+                    let offset = self.stack_depth as usize - slot - 1;
+                    self.emit_tracked(func, Op::StackRef(offset as u16));
+                    return;
+                }
+                // Fall through to VarRef for globals
                 let idx = func.add_symbol(name);
-                func.emit(Op::VarRef(idx));
+                self.emit_tracked(func, Op::VarRef(idx));
             }
         }
     }
@@ -166,7 +256,7 @@ impl Compiler {
     fn compile_list(&mut self, func: &mut ByteCodeFunction, items: &[Expr], for_value: bool) {
         if items.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
@@ -190,14 +280,14 @@ impl Compiler {
             // General function call
             // Push function reference, then args
             let name_idx = func.add_symbol(name);
-            func.emit(Op::Constant(name_idx));
+            self.emit_tracked(func, Op::Constant(name_idx));
             for arg in tail {
                 self.compile_expr(func, arg, true);
             }
-            func.emit(Op::Call(tail.len() as u8));
+            self.emit_tracked(func, Op::Call(tail.len() as u8));
 
             if !for_value {
-                func.emit(Op::Pop);
+                self.emit_tracked(func, Op::Pop);
             }
             return;
         }
@@ -210,9 +300,9 @@ impl Compiler {
                     for arg in tail {
                         self.compile_expr(func, arg, true);
                     }
-                    func.emit(Op::Call(tail.len() as u8));
+                    self.emit_tracked(func, Op::Call(tail.len() as u8));
                     if !for_value {
-                        func.emit(Op::Pop);
+                        self.emit_tracked(func, Op::Pop);
                     }
                     return;
                 }
@@ -224,9 +314,9 @@ impl Compiler {
         for arg in tail {
             self.compile_expr(func, arg, true);
         }
-        func.emit(Op::Call(tail.len() as u8));
+        self.emit_tracked(func, Op::Call(tail.len() as u8));
         if !for_value {
-            func.emit(Op::Pop);
+            self.emit_tracked(func, Op::Pop);
         }
     }
 
@@ -244,9 +334,9 @@ impl Compiler {
                     if let Some(expr) = tail.first() {
                         let val = literal_to_value(expr);
                         let idx = func.add_constant(val);
-                        func.emit(Op::Constant(idx));
+                        self.emit_tracked(func, Op::Constant(idx));
                     } else {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                 }
                 true
@@ -258,7 +348,7 @@ impl Compiler {
             "prog1" => {
                 if tail.is_empty() {
                     if for_value {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                 } else {
                     self.compile_expr(func, &tail[0], for_value);
@@ -287,7 +377,7 @@ impl Compiler {
             "while" => {
                 self.compile_while(func, tail);
                 if for_value {
-                    func.emit(Op::Nil);
+                    self.emit_tracked(func, Op::Nil);
                 }
                 true
             }
@@ -324,16 +414,16 @@ impl Compiler {
             "funcall" => {
                 if tail.is_empty() {
                     if for_value {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                 } else {
                     self.compile_expr(func, &tail[0], true);
                     for arg in &tail[1..] {
                         self.compile_expr(func, arg, true);
                     }
-                    func.emit(Op::Call(tail.len().saturating_sub(1) as u8));
+                    self.emit_tracked(func, Op::Call(tail.len().saturating_sub(1) as u8));
                     if !for_value {
-                        func.emit(Op::Pop);
+                        self.emit_tracked(func, Op::Pop);
                     }
                 }
                 true
@@ -341,20 +431,20 @@ impl Compiler {
             "when" => {
                 if tail.is_empty() {
                     if for_value {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                 } else {
                     // (when COND BODY...) => (if COND (progn BODY...))
                     self.compile_expr(func, &tail[0], true);
                     let jump_false = func.current_offset();
-                    func.emit(Op::GotoIfNil(0)); // placeholder
+                    self.emit_tracked(func, Op::GotoIfNil(0)); // placeholder
                     self.compile_progn(func, &tail[1..], for_value);
                     let jump_end = func.current_offset();
-                    func.emit(Op::Goto(0)); // placeholder
+                    self.emit_tracked(func, Op::Goto(0)); // placeholder
                     let else_target = func.current_offset();
                     func.patch_jump(jump_false, else_target);
                     if for_value {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                     let end_target = func.current_offset();
                     func.patch_jump(jump_end, end_target);
@@ -364,19 +454,19 @@ impl Compiler {
             "unless" => {
                 if tail.is_empty() {
                     if for_value {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                 } else {
                     self.compile_expr(func, &tail[0], true);
                     let jump_true = func.current_offset();
-                    func.emit(Op::GotoIfNotNil(0)); // placeholder
+                    self.emit_tracked(func, Op::GotoIfNotNil(0)); // placeholder
                     self.compile_progn(func, &tail[1..], for_value);
                     let jump_end = func.current_offset();
-                    func.emit(Op::Goto(0)); // placeholder
+                    self.emit_tracked(func, Op::Goto(0)); // placeholder
                     let else_target = func.current_offset();
                     func.patch_jump(jump_true, else_target);
                     if for_value {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                     let end_target = func.current_offset();
                     func.patch_jump(jump_end, end_target);
@@ -398,7 +488,7 @@ impl Compiler {
             "interactive" | "declare" => {
                 // Ignored
                 if for_value {
-                    func.emit(Op::Nil);
+                    self.emit_tracked(func, Op::Nil);
                 }
                 true
             }
@@ -419,7 +509,7 @@ impl Compiler {
                 // Stub: skip buffer arg, compile body
                 if tail.is_empty() {
                     if for_value {
-                        func.emit(Op::Nil);
+                        self.emit_tracked(func, Op::Nil);
                     }
                 } else {
                     self.compile_expr(func, &tail[0], false); // eval buffer arg, discard
@@ -447,53 +537,53 @@ impl Compiler {
             ("+", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Add);
+                self.emit_tracked(func, Op::Add);
                 Some(())
             }
             ("-", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Sub);
+                self.emit_tracked(func, Op::Sub);
                 Some(())
             }
             ("*", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Mul);
+                self.emit_tracked(func, Op::Mul);
                 Some(())
             }
             ("/", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Div);
+                self.emit_tracked(func, Op::Div);
                 Some(())
             }
             ("%", 2) | ("mod", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Rem);
+                self.emit_tracked(func, Op::Rem);
                 Some(())
             }
             ("1+", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Add1);
+                self.emit_tracked(func, Op::Add1);
                 Some(())
             }
             ("1-", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Sub1);
+                self.emit_tracked(func, Op::Sub1);
                 Some(())
             }
             // Variadic + and *
             ("+", n) if n != 2 => {
                 if n == 0 {
                     let idx = func.add_constant(Value::Int(0));
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 } else {
                     self.compile_expr(func, &args[0], true);
                     for arg in &args[1..] {
                         self.compile_expr(func, arg, true);
-                        func.emit(Op::Add);
+                        self.emit_tracked(func, Op::Add);
                     }
                 }
                 Some(())
@@ -501,182 +591,182 @@ impl Compiler {
             ("*", n) if n != 2 => {
                 if n == 0 {
                     let idx = func.add_constant(Value::Int(1));
-                    func.emit(Op::Constant(idx));
+                    self.emit_tracked(func, Op::Constant(idx));
                 } else {
                     self.compile_expr(func, &args[0], true);
                     for arg in &args[1..] {
                         self.compile_expr(func, arg, true);
-                        func.emit(Op::Mul);
+                        self.emit_tracked(func, Op::Mul);
                     }
                 }
                 Some(())
             }
             ("-", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Negate);
+                self.emit_tracked(func, Op::Negate);
                 Some(())
             }
             // Comparisons
             ("=", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Eqlsign);
+                self.emit_tracked(func, Op::Eqlsign);
                 Some(())
             }
             (">", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Gtr);
+                self.emit_tracked(func, Op::Gtr);
                 Some(())
             }
             ("<", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Lss);
+                self.emit_tracked(func, Op::Lss);
                 Some(())
             }
             ("<=", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Leq);
+                self.emit_tracked(func, Op::Leq);
                 Some(())
             }
             (">=", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Geq);
+                self.emit_tracked(func, Op::Geq);
                 Some(())
             }
             ("/=", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Eqlsign);
-                func.emit(Op::Not);
+                self.emit_tracked(func, Op::Eqlsign);
+                self.emit_tracked(func, Op::Not);
                 Some(())
             }
             ("max", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Max);
+                self.emit_tracked(func, Op::Max);
                 Some(())
             }
             ("min", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Min);
+                self.emit_tracked(func, Op::Min);
                 Some(())
             }
             // List ops
             ("car", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Car);
+                self.emit_tracked(func, Op::Car);
                 Some(())
             }
             ("cdr", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Cdr);
+                self.emit_tracked(func, Op::Cdr);
                 Some(())
             }
             ("cons", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Cons);
+                self.emit_tracked(func, Op::Cons);
                 Some(())
             }
             ("list", _) => {
                 for arg in args {
                     self.compile_expr(func, arg, true);
                 }
-                func.emit(Op::List(args.len() as u16));
+                self.emit_tracked(func, Op::List(args.len() as u16));
                 Some(())
             }
             ("length", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Length);
+                self.emit_tracked(func, Op::Length);
                 Some(())
             }
             ("nth", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Nth);
+                self.emit_tracked(func, Op::Nth);
                 Some(())
             }
             ("nthcdr", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Nthcdr);
+                self.emit_tracked(func, Op::Nthcdr);
                 Some(())
             }
             ("setcar", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Setcar);
+                self.emit_tracked(func, Op::Setcar);
                 Some(())
             }
             ("setcdr", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Setcdr);
+                self.emit_tracked(func, Op::Setcdr);
                 Some(())
             }
             ("memq", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Memq);
+                self.emit_tracked(func, Op::Memq);
                 Some(())
             }
             ("assq", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Assq);
+                self.emit_tracked(func, Op::Assq);
                 Some(())
             }
             // Type predicates
             ("null", 1) | ("not", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Not);
+                self.emit_tracked(func, Op::Not);
                 Some(())
             }
             ("symbolp", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Symbolp);
+                self.emit_tracked(func, Op::Symbolp);
                 Some(())
             }
             ("consp", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Consp);
+                self.emit_tracked(func, Op::Consp);
                 Some(())
             }
             ("stringp", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Stringp);
+                self.emit_tracked(func, Op::Stringp);
                 Some(())
             }
             ("listp", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Listp);
+                self.emit_tracked(func, Op::Listp);
                 Some(())
             }
             ("integerp", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Integerp);
+                self.emit_tracked(func, Op::Integerp);
                 Some(())
             }
             ("numberp", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::Numberp);
+                self.emit_tracked(func, Op::Numberp);
                 Some(())
             }
             ("eq", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Eq);
+                self.emit_tracked(func, Op::Eq);
                 Some(())
             }
             ("equal", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Equal);
+                self.emit_tracked(func, Op::Equal);
                 Some(())
             }
             // String ops
@@ -684,7 +774,7 @@ impl Compiler {
                 for arg in args {
                     self.compile_expr(func, arg, true);
                 }
-                func.emit(Op::Concat(args.len() as u16));
+                self.emit_tracked(func, Op::Concat(args.len() as u16));
                 Some(())
             }
             ("substring", 2) | ("substring", 3) => {
@@ -693,69 +783,69 @@ impl Compiler {
                 }
                 // Use CallBuiltin for substring since it has variable args
                 let name_idx = func.add_symbol("substring");
-                func.emit(Op::CallBuiltin(name_idx, args.len() as u8));
+                self.emit_tracked(func, Op::CallBuiltin(name_idx, args.len() as u8));
                 Some(())
             }
             ("string-equal", 2) | ("string=", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::StringEqual);
+                self.emit_tracked(func, Op::StringEqual);
                 Some(())
             }
             ("string-lessp", 2) | ("string<", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::StringLessp);
+                self.emit_tracked(func, Op::StringLessp);
                 Some(())
             }
             // Vector ops
             ("aref", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Aref);
+                self.emit_tracked(func, Op::Aref);
                 Some(())
             }
             ("aset", 3) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
                 self.compile_expr(func, &args[2], true);
-                func.emit(Op::Aset);
+                self.emit_tracked(func, Op::Aset);
                 Some(())
             }
             // Symbol ops
             ("symbol-value", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::SymbolValue);
+                self.emit_tracked(func, Op::SymbolValue);
                 Some(())
             }
             ("symbol-function", 1) => {
                 self.compile_expr(func, &args[0], true);
-                func.emit(Op::SymbolFunction);
+                self.emit_tracked(func, Op::SymbolFunction);
                 Some(())
             }
             ("set", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Set);
+                self.emit_tracked(func, Op::Set);
                 Some(())
             }
             ("fset", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Fset);
+                self.emit_tracked(func, Op::Fset);
                 Some(())
             }
             ("get", 2) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
-                func.emit(Op::Get);
+                self.emit_tracked(func, Op::Get);
                 Some(())
             }
             ("put", 3) => {
                 self.compile_expr(func, &args[0], true);
                 self.compile_expr(func, &args[1], true);
                 self.compile_expr(func, &args[2], true);
-                func.emit(Op::Put);
+                self.emit_tracked(func, Op::Put);
                 Some(())
             }
             _ => None,
@@ -767,7 +857,7 @@ impl Compiler {
     fn compile_progn(&mut self, func: &mut ByteCodeFunction, forms: &[Expr], for_value: bool) {
         if forms.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
@@ -784,19 +874,19 @@ impl Compiler {
     fn compile_if(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.len() < 2 {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         // Compile condition
         self.compile_expr(func, &tail[0], true);
         let jump_false = func.current_offset();
-        func.emit(Op::GotoIfNil(0)); // placeholder
+        self.emit_tracked(func, Op::GotoIfNil(0)); // placeholder
 
         // Then branch
         self.compile_expr(func, &tail[1], for_value);
         let jump_end = func.current_offset();
-        func.emit(Op::Goto(0)); // placeholder
+        self.emit_tracked(func, Op::Goto(0)); // placeholder
 
         // Else branch
         let else_target = func.current_offset();
@@ -804,7 +894,7 @@ impl Compiler {
         if tail.len() > 2 {
             self.compile_progn(func, &tail[2..], for_value);
         } else if for_value {
-            func.emit(Op::Nil);
+            self.emit_tracked(func, Op::Nil);
         }
 
         let end_target = func.current_offset();
@@ -814,7 +904,7 @@ impl Compiler {
     fn compile_and(&mut self, func: &mut ByteCodeFunction, forms: &[Expr], for_value: bool) {
         if forms.is_empty() {
             if for_value {
-                func.emit(Op::True);
+                self.emit_tracked(func, Op::True);
             }
             return;
         }
@@ -828,18 +918,18 @@ impl Compiler {
             if !is_last {
                 if for_value {
                     let jump = func.current_offset();
-                    func.emit(Op::GotoIfNilElsePop(0));
+                    self.emit_tracked(func, Op::GotoIfNilElsePop(0));
                     jump_patches.push(jump);
                 } else {
                     let jump = func.current_offset();
-                    func.emit(Op::GotoIfNil(0));
+                    self.emit_tracked(func, Op::GotoIfNil(0));
                     jump_patches.push(jump);
                 }
             }
         }
 
         if !for_value {
-            func.emit(Op::Pop);
+            self.emit_tracked(func, Op::Pop);
         }
 
         let end = func.current_offset();
@@ -855,7 +945,7 @@ impl Compiler {
     fn compile_or(&mut self, func: &mut ByteCodeFunction, forms: &[Expr], for_value: bool) {
         if forms.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
@@ -869,18 +959,18 @@ impl Compiler {
             if !is_last {
                 if for_value {
                     let jump = func.current_offset();
-                    func.emit(Op::GotoIfNotNilElsePop(0));
+                    self.emit_tracked(func, Op::GotoIfNotNilElsePop(0));
                     jump_patches.push(jump);
                 } else {
                     let jump = func.current_offset();
-                    func.emit(Op::GotoIfNotNil(0));
+                    self.emit_tracked(func, Op::GotoIfNotNil(0));
                     jump_patches.push(jump);
                 }
             }
         }
 
         if !for_value {
-            func.emit(Op::Pop);
+            self.emit_tracked(func, Op::Pop);
         }
 
         let end = func.current_offset();
@@ -892,7 +982,7 @@ impl Compiler {
     fn compile_cond(&mut self, func: &mut ByteCodeFunction, clauses: &[Expr], for_value: bool) {
         if clauses.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
@@ -915,15 +1005,15 @@ impl Compiler {
                 // (cond (TEST)) - return test value if true
                 if is_last {
                     if !for_value {
-                        func.emit(Op::Pop);
+                        self.emit_tracked(func, Op::Pop);
                     }
                 } else if for_value {
                     let jump = func.current_offset();
-                    func.emit(Op::GotoIfNotNilElsePop(0));
+                    self.emit_tracked(func, Op::GotoIfNotNilElsePop(0));
                     end_patches.push(jump);
                 } else {
                     let jump = func.current_offset();
-                    func.emit(Op::GotoIfNotNil(0));
+                    self.emit_tracked(func, Op::GotoIfNotNil(0));
                     end_patches.push(jump);
                 }
             } else {
@@ -931,19 +1021,19 @@ impl Compiler {
                 if is_last {
                     // Last clause: run body if test passes, nil if not
                     let jump_skip = func.current_offset();
-                    func.emit(Op::GotoIfNil(0));
+                    self.emit_tracked(func, Op::GotoIfNil(0));
                     self.compile_progn(func, &items[1..], for_value);
                     let jump_end = func.current_offset();
-                    func.emit(Op::Goto(0)); // jump past trailing nil
+                    self.emit_tracked(func, Op::Goto(0)); // jump past trailing nil
                     end_patches.push(jump_end);
                     let skip_target = func.current_offset();
                     func.patch_jump(jump_skip, skip_target);
                 } else {
                     let jump_skip = func.current_offset();
-                    func.emit(Op::GotoIfNil(0));
+                    self.emit_tracked(func, Op::GotoIfNil(0));
                     self.compile_progn(func, &items[1..], for_value);
                     let jump_end = func.current_offset();
-                    func.emit(Op::Goto(0));
+                    self.emit_tracked(func, Op::Goto(0));
                     end_patches.push(jump_end);
                     let skip_target = func.current_offset();
                     func.patch_jump(jump_skip, skip_target);
@@ -953,7 +1043,7 @@ impl Compiler {
 
         // All remaining clauses fell through — push nil if needed
         if for_value {
-            func.emit(Op::Nil);
+            self.emit_tracked(func, Op::Nil);
         }
 
         let end = func.current_offset();
@@ -969,12 +1059,12 @@ impl Compiler {
         let loop_start = func.current_offset();
         self.compile_expr(func, &tail[0], true);
         let exit_jump = func.current_offset();
-        func.emit(Op::GotoIfNil(0));
+        self.emit_tracked(func, Op::GotoIfNil(0));
 
         for form in &tail[1..] {
             self.compile_expr(func, form, false);
         }
-        func.emit(Op::Goto(loop_start));
+        self.emit_tracked(func, Op::Goto(loop_start));
 
         let exit_target = func.current_offset();
         func.patch_jump(exit_jump, exit_target);
@@ -983,12 +1073,13 @@ impl Compiler {
     fn compile_let(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
 
         let mut bind_count = 0u16;
+        let mut shadowed_names: Vec<String> = Vec::new();
 
         match &tail[0] {
             Expr::List(entries) => {
@@ -997,7 +1088,7 @@ impl Compiler {
                 for binding in entries {
                     match binding {
                         Expr::Symbol(id) => {
-                            func.emit(Op::Nil);
+                            self.emit_tracked(func, Op::Nil);
                             names.push(resolve_sym(*id));
                         }
                         Expr::List(pair) if !pair.is_empty() => {
@@ -1007,7 +1098,7 @@ impl Compiler {
                             if pair.len() > 1 {
                                 self.compile_expr(func, &pair[1], true);
                             } else {
-                                func.emit(Op::Nil);
+                                self.emit_tracked(func, Op::Nil);
                             }
                             names.push(resolve_sym(*id));
                         }
@@ -1017,8 +1108,15 @@ impl Compiler {
                 // Now bind them all
                 for name in names.iter().rev() {
                     let idx = func.add_symbol(name);
-                    func.emit(Op::VarBind(idx));
+                    self.emit_tracked(func, Op::VarBind(idx));
                     bind_count += 1;
+                    // Shadow stack-local params so body uses VarRef
+                    if self.lex_scope.as_ref().is_some_and(|s| s.find(name).is_some()) {
+                        if let Some(ref mut scope) = self.lex_scope {
+                            scope.shadowed.insert(name.to_string());
+                        }
+                        shadowed_names.push(name.to_string());
+                    }
                 }
             }
             Expr::Symbol(id) if resolve_sym(*id) == "nil" => {} // (let nil ...)
@@ -1028,42 +1126,66 @@ impl Compiler {
         self.compile_progn(func, &tail[1..], for_value);
 
         if bind_count > 0 {
-            func.emit(Op::Unbind(bind_count));
+            self.emit_tracked(func, Op::Unbind(bind_count));
+        }
+
+        // Unshadow names
+        for name in &shadowed_names {
+            if let Some(ref mut scope) = self.lex_scope {
+                scope.shadowed.remove(name);
+            }
         }
     }
 
     fn compile_let_star(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
 
         let mut bind_count = 0u16;
+        let mut shadowed_names: Vec<String> = Vec::new();
 
         match &tail[0] {
             Expr::List(entries) => {
                 for binding in entries {
                     match binding {
                         Expr::Symbol(id) => {
-                            func.emit(Op::Nil);
-                            let idx = func.add_symbol(resolve_sym(*id));
-                            func.emit(Op::VarBind(idx));
+                            let name = resolve_sym(*id);
+                            self.emit_tracked(func, Op::Nil);
+                            let idx = func.add_symbol(name);
+                            self.emit_tracked(func, Op::VarBind(idx));
                             bind_count += 1;
+                            // Shadow stack-local params
+                            if self.lex_scope.as_ref().is_some_and(|s| s.find(name).is_some()) {
+                                if let Some(ref mut scope) = self.lex_scope {
+                                    scope.shadowed.insert(name.to_string());
+                                }
+                                shadowed_names.push(name.to_string());
+                            }
                         }
                         Expr::List(pair) if !pair.is_empty() => {
                             let Expr::Symbol(id) = &pair[0] else {
                                 continue;
                             };
+                            let name = resolve_sym(*id);
                             if pair.len() > 1 {
                                 self.compile_expr(func, &pair[1], true);
                             } else {
-                                func.emit(Op::Nil);
+                                self.emit_tracked(func, Op::Nil);
                             }
-                            let idx = func.add_symbol(resolve_sym(*id));
-                            func.emit(Op::VarBind(idx));
+                            let idx = func.add_symbol(name);
+                            self.emit_tracked(func, Op::VarBind(idx));
                             bind_count += 1;
+                            // Shadow stack-local params
+                            if self.lex_scope.as_ref().is_some_and(|s| s.find(name).is_some()) {
+                                if let Some(ref mut scope) = self.lex_scope {
+                                    scope.shadowed.insert(name.to_string());
+                                }
+                                shadowed_names.push(name.to_string());
+                            }
                         }
                         _ => {}
                     }
@@ -1076,14 +1198,21 @@ impl Compiler {
         self.compile_progn(func, &tail[1..], for_value);
 
         if bind_count > 0 {
-            func.emit(Op::Unbind(bind_count));
+            self.emit_tracked(func, Op::Unbind(bind_count));
+        }
+
+        // Unshadow names
+        for name in &shadowed_names {
+            if let Some(ref mut scope) = self.lex_scope {
+                scope.shadowed.remove(name);
+            }
         }
     }
 
     fn compile_setq(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
@@ -1094,13 +1223,21 @@ impl Compiler {
                 i += 2;
                 continue;
             };
+            let name = resolve_sym(*id);
             self.compile_expr(func, &tail[i + 1], true);
             let is_last_pair = i + 2 >= tail.len();
             if for_value && is_last_pair {
-                func.emit(Op::Dup);
+                self.emit_tracked(func, Op::Dup);
             }
-            let idx = func.add_symbol(resolve_sym(*id));
-            func.emit(Op::VarSet(idx));
+            // Check if target is a stack-local parameter
+            if let Some(slot) = self.lex_scope.as_ref().and_then(|s| s.find(name)) {
+                // StackSet(n): pops TOS, stores at stack[len-n] (after pop)
+                let n = self.stack_depth as usize - 1 - slot;
+                self.emit_tracked(func, Op::StackSet(n as u16));
+            } else {
+                let idx = func.add_symbol(name);
+                self.emit_tracked(func, Op::VarSet(idx));
+            }
             i += 2;
         }
     }
@@ -1108,13 +1245,13 @@ impl Compiler {
     fn compile_defun(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.len() < 3 {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         let Expr::Symbol(id) = &tail[0] else {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         };
@@ -1143,27 +1280,27 @@ impl Compiler {
         let name_idx = func.add_symbol(name);
 
         // (fset 'name <compiled-function>)
-        func.emit(Op::Constant(name_idx));
-        func.emit(Op::Constant(func_idx));
-        func.emit(Op::Fset);
+        self.emit_tracked(func, Op::Constant(name_idx));
+        self.emit_tracked(func, Op::Constant(func_idx));
+        self.emit_tracked(func, Op::Fset);
 
         if for_value {
-            func.emit(Op::Constant(name_idx));
+            self.emit_tracked(func, Op::Constant(name_idx));
         } else {
-            func.emit(Op::Pop); // fset returns the value, discard it
+            self.emit_tracked(func, Op::Pop); // fset returns the value, discard it
         }
     }
 
     fn compile_defvar(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         let Expr::Symbol(id) = &tail[0] else {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         };
@@ -1177,28 +1314,28 @@ impl Compiler {
         if tail.len() > 1 {
             self.compile_expr(func, &tail[1], true);
         } else {
-            func.emit(Op::Nil);
+            self.emit_tracked(func, Op::Nil);
         }
         let defvar_name = func.add_symbol("%%defvar");
-        func.emit(Op::Constant(name_idx)); // symbol name
+        self.emit_tracked(func, Op::Constant(name_idx)); // symbol name
                                            // Stack: [init-value, symbol-name]
                                            // Swap order for defvar builtin: needs (name value)
-        func.emit(Op::CallBuiltin(defvar_name, 2));
+        self.emit_tracked(func, Op::CallBuiltin(defvar_name, 2));
         if !for_value {
-            func.emit(Op::Pop);
+            self.emit_tracked(func, Op::Pop);
         }
     }
 
     fn compile_defconst(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.len() < 2 {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         let Expr::Symbol(id) = &tail[0] else {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         };
@@ -1209,10 +1346,10 @@ impl Compiler {
         let name_idx = func.add_symbol(name);
         self.compile_expr(func, &tail[1], true);
         let defconst_name = func.add_symbol("%%defconst");
-        func.emit(Op::Constant(name_idx));
-        func.emit(Op::CallBuiltin(defconst_name, 2));
+        self.emit_tracked(func, Op::Constant(name_idx));
+        self.emit_tracked(func, Op::CallBuiltin(defconst_name, 2));
         if !for_value {
-            func.emit(Op::Pop);
+            self.emit_tracked(func, Op::Pop);
         }
     }
 
@@ -1227,7 +1364,7 @@ impl Compiler {
             if let Some(Expr::Symbol(id)) = tail.first() {
                 // #'symbol — push function reference
                 let idx = func.add_symbol(resolve_sym(*id));
-                func.emit(Op::Constant(idx));
+                self.emit_tracked(func, Op::Constant(idx));
                 return;
             }
             if let Some(Expr::List(items)) = tail.first() {
@@ -1239,7 +1376,7 @@ impl Compiler {
                     }
                 }
             }
-            func.emit(Op::Nil);
+            self.emit_tracked(func, Op::Nil);
         } else {
             // bare `lambda`
             self.compile_raw_lambda(func, tail);
@@ -1248,7 +1385,7 @@ impl Compiler {
 
     fn compile_raw_lambda(&mut self, func: &mut ByteCodeFunction, tail: &[Expr]) {
         if tail.is_empty() {
-            func.emit(Op::Nil);
+            self.emit_tracked(func, Op::Nil);
             return;
         }
 
@@ -1268,17 +1405,17 @@ impl Compiler {
 
         if self.lexical {
             let idx = func.add_constant(bytecode_val);
-            func.emit(Op::MakeClosure(idx));
+            self.emit_tracked(func, Op::MakeClosure(idx));
         } else {
             let idx = func.add_constant(bytecode_val);
-            func.emit(Op::Constant(idx));
+            self.emit_tracked(func, Op::Constant(idx));
         }
     }
 
     fn compile_catch(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
@@ -1287,13 +1424,13 @@ impl Compiler {
 
         // Push handler
         let handler_jump = func.current_offset();
-        func.emit(Op::PushConditionCase(0)); // placeholder
+        self.emit_tracked(func, Op::PushConditionCase(0)); // placeholder
 
         // Compile body
         self.compile_progn(func, &tail[1..], true);
-        func.emit(Op::PopHandler);
+        self.emit_tracked(func, Op::PopHandler);
         let end_jump = func.current_offset();
-        func.emit(Op::Goto(0)); // placeholder
+        self.emit_tracked(func, Op::Goto(0)); // placeholder
 
         // Handler target: error value is on stack
         let handler_target = func.current_offset();
@@ -1304,7 +1441,7 @@ impl Compiler {
         func.patch_jump(end_jump, end_target);
 
         if !for_value {
-            func.emit(Op::Pop);
+            self.emit_tracked(func, Op::Pop);
         }
     }
 
@@ -1316,19 +1453,19 @@ impl Compiler {
     ) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
 
         let cleanup_jump = func.current_offset();
-        func.emit(Op::UnwindProtect(0)); // placeholder
+        self.emit_tracked(func, Op::UnwindProtect(0)); // placeholder
 
         // Protected form
         self.compile_expr(func, &tail[0], for_value);
 
         // Pop the unwind-protect handler
-        func.emit(Op::PopHandler);
+        self.emit_tracked(func, Op::PopHandler);
 
         // Run cleanup forms (result discarded)
         for form in &tail[1..] {
@@ -1336,7 +1473,7 @@ impl Compiler {
         }
 
         let skip_cleanup = func.current_offset();
-        func.emit(Op::Goto(0)); // skip cleanup re-execution on normal path
+        self.emit_tracked(func, Op::Goto(0)); // skip cleanup re-execution on normal path
 
         // Cleanup target (entered on non-local exit)
         let cleanup_target = func.current_offset();
@@ -1358,20 +1495,20 @@ impl Compiler {
     ) {
         if tail.len() < 3 {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
 
         // Push handler
         let handler_jump = func.current_offset();
-        func.emit(Op::PushConditionCase(0)); // placeholder
+        self.emit_tracked(func, Op::PushConditionCase(0)); // placeholder
 
         // Body
         self.compile_expr(func, &tail[1], true);
-        func.emit(Op::PopHandler);
+        self.emit_tracked(func, Op::PopHandler);
         let end_jump = func.current_offset();
-        func.emit(Op::Goto(0)); // jump past handlers
+        self.emit_tracked(func, Op::Goto(0)); // jump past handlers
 
         // Handlers
         let handler_target = func.current_offset();
@@ -1391,23 +1528,35 @@ impl Compiler {
             if handler_items.len() > 1 {
                 if let Some(ref var_name) = _var {
                     let var_idx = func.add_symbol(var_name);
-                    func.emit(Op::VarBind(var_idx));
+                    self.emit_tracked(func, Op::VarBind(var_idx));
+                    // Shadow stack-local param if applicable
+                    let need_unshadow = self.lex_scope.as_ref().is_some_and(|s| s.find(var_name).is_some());
+                    if need_unshadow {
+                        if let Some(ref mut scope) = self.lex_scope {
+                            scope.shadowed.insert(var_name.clone());
+                        }
+                    }
                     self.compile_progn(func, &handler_items[1..], for_value);
-                    func.emit(Op::Unbind(1));
+                    self.emit_tracked(func, Op::Unbind(1));
+                    if need_unshadow {
+                        if let Some(ref mut scope) = self.lex_scope {
+                            scope.shadowed.remove(var_name);
+                        }
+                    }
                 } else {
-                    func.emit(Op::Pop); // discard error value
+                    self.emit_tracked(func, Op::Pop); // discard error value
                     self.compile_progn(func, &handler_items[1..], for_value);
                 }
             } else {
-                func.emit(Op::Pop);
+                self.emit_tracked(func, Op::Pop);
                 if for_value {
-                    func.emit(Op::Nil);
+                    self.emit_tracked(func, Op::Nil);
                 }
             }
         } else {
-            func.emit(Op::Pop);
+            self.emit_tracked(func, Op::Pop);
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
         }
 
@@ -1423,20 +1572,20 @@ impl Compiler {
     ) {
         // Push handler
         let handler_jump = func.current_offset();
-        func.emit(Op::PushConditionCase(0));
+        self.emit_tracked(func, Op::PushConditionCase(0));
 
         // Body
         self.compile_progn(func, tail, for_value);
-        func.emit(Op::PopHandler);
+        self.emit_tracked(func, Op::PopHandler);
         let end_jump = func.current_offset();
-        func.emit(Op::Goto(0));
+        self.emit_tracked(func, Op::Goto(0));
 
         // Error handler: push nil
         let handler_target = func.current_offset();
         func.patch_jump(handler_jump, handler_target);
-        func.emit(Op::Pop); // discard error
+        self.emit_tracked(func, Op::Pop); // discard error
         if for_value {
-            func.emit(Op::Nil);
+            self.emit_tracked(func, Op::Nil);
         }
 
         let end = func.current_offset();
@@ -1446,25 +1595,25 @@ impl Compiler {
     fn compile_dotimes(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         let Expr::List(spec) = &tail[0] else {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         };
         if spec.len() < 2 {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         let Expr::Symbol(var_id) = &spec[0] else {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         };
@@ -1513,25 +1662,25 @@ impl Compiler {
     fn compile_dolist(&mut self, func: &mut ByteCodeFunction, tail: &[Expr], for_value: bool) {
         if tail.is_empty() {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         let Expr::List(spec) = &tail[0] else {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         };
         if spec.len() < 2 {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         }
         let Expr::Symbol(var_id) = &spec[0] else {
             if for_value {
-                func.emit(Op::Nil);
+                self.emit_tracked(func, Op::Nil);
             }
             return;
         };
@@ -1592,9 +1741,9 @@ impl Compiler {
     }
 
     /// Compute max stack depth by walking the instruction stream.
-    fn compute_max_stack(&self, func: &mut ByteCodeFunction) {
-        let mut depth: i32 = 0;
-        let mut max: i32 = 0;
+    fn compute_max_stack(&self, func: &mut ByteCodeFunction, num_param_slots: usize) {
+        let mut depth: i32 = num_param_slots as i32;
+        let mut max: i32 = depth;
 
         for op in &func.ops {
             let delta = stack_delta(op);

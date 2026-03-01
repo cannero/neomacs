@@ -106,14 +106,62 @@ impl<'a> Vm<'a> {
         let mut bind_count: usize = 0;
         let mut unbind_watch: Vec<(String, Value)> = Vec::new();
 
-        // Bind parameters
-        let param_binds = self.bind_params(&func.params, args, func_value)?;
-        if !param_binds.is_empty() {
-            // If closure, prepend onto lexenv alist; otherwise dynamic
+        // Unified calling convention: push args onto the stack.
+        // Both NeoVM-compiled and GNU-compiled bytecode use StackRef(n)
+        // for parameter access.
+        let nargs = args.len();
+        let n_required = func.params.required.len();
+        let n_optional = func.params.optional.len();
+        let has_rest = func.params.rest.is_some();
+        let nonrest = n_required + n_optional;
+
+        // No arity check here — the bytecode itself handles parameter layout
+        // via StackRef/StackSet. Missing args become nil-padded slots, extra
+        // args are collected into &rest or sit unused. This matches GNU Emacs
+        // bytecode calling convention behavior.
+
+        // Push required + optional args (pad with nil for missing optionals)
+        for i in 0..nonrest {
+            if i < nargs {
+                stack.push(args[i]);
+            } else {
+                stack.push(Value::Nil);
+            }
+        }
+
+        // If &rest, collect remaining args into a list
+        if has_rest {
+            let rest_list = if nargs > nonrest {
+                Value::list(args[nonrest..].to_vec())
+            } else {
+                Value::Nil
+            };
+            stack.push(rest_list);
+        }
+
+        // Push a dynamic frame mapping param names → values so that inner
+        // closures and VarRef lookups can find parameters by name.
+        let has_named_params = nonrest > 0 || has_rest;
+        if has_named_params {
+            let mut frame = OrderedSymMap::new();
+            let mut arg_idx = 0;
+            for param in &func.params.required {
+                frame.insert(*param, if arg_idx < nargs { args[arg_idx] } else { Value::Nil });
+                arg_idx += 1;
+            }
+            for param in &func.params.optional {
+                frame.insert(*param, if arg_idx < nargs { args[arg_idx] } else { Value::Nil });
+                arg_idx += 1;
+            }
+            if let Some(rest_name) = func.params.rest {
+                let rest_args: Vec<Value> = if arg_idx < nargs { args[arg_idx..].to_vec() } else { vec![] };
+                frame.insert(rest_name, Value::list(rest_args));
+            }
+
             if let Some(env) = func.env {
+                // Closure: prepend param bindings onto the captured lexenv
                 let saved_lexenv = std::mem::replace(self.lexenv, env);
-                // Prepend each param binding onto the captured env
-                for (sym_id, val) in param_binds.iter() {
+                for (sym_id, val) in frame.iter() {
                     *self.lexenv = lexenv_prepend(*self.lexenv, *sym_id, *val);
                 }
                 let result = self.run_loop(
@@ -128,7 +176,8 @@ impl<'a> Vm<'a> {
                 let cleanup = self.cleanup_varbind_unwind(&mut bind_count, &mut unbind_watch);
                 return merge_result_with_cleanup(result, cleanup);
             }
-            self.dynamic.push(param_binds);
+
+            self.dynamic.push(frame);
             let result = self.run_loop(
                 func,
                 &mut stack,
@@ -142,6 +191,9 @@ impl<'a> Vm<'a> {
             return merge_result_with_cleanup(result, cleanup);
         }
 
+        // No params: set up lexenv if closure, then run
+        let saved_lexenv = func.env.map(|env| std::mem::replace(self.lexenv, env));
+
         let result = self.run_loop(
             func,
             &mut stack,
@@ -150,6 +202,10 @@ impl<'a> Vm<'a> {
             &mut bind_count,
             &mut unbind_watch,
         );
+
+        if let Some(old) = saved_lexenv {
+            *self.lexenv = old;
+        }
         let cleanup = self.cleanup_varbind_unwind(&mut bind_count, &mut unbind_watch);
         merge_result_with_cleanup(result, cleanup)
     }

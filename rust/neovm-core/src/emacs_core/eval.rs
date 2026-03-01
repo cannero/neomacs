@@ -3735,6 +3735,33 @@ impl Evaluator {
         }
     }
 
+    /// Convert an `Expr` to a `Value`, treating everything as literal data
+    /// except `(byte-code-literal ...)` forms which are evaluated to produce
+    /// `Value::ByteCode`. This is needed because `.elc` constant vectors
+    /// contain literal values (lists, symbols, etc.) that must NOT be evaluated,
+    /// but may also contain nested `#[...]` compiled functions (parsed as
+    /// `(byte-code-literal VECTOR)`) that DO need evaluation.
+    fn quote_to_value_with_bytecode(&mut self, expr: &Expr) -> EvalResult {
+        match expr {
+            Expr::List(elts)
+                if matches!(
+                    elts.first(),
+                    Some(Expr::Symbol(s)) if *s == intern("byte-code-literal")
+                ) =>
+            {
+                self.eval(expr)
+            }
+            Expr::Vector(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for item in items {
+                    values.push(self.quote_to_value_with_bytecode(item)?);
+                }
+                Ok(Value::vector(values))
+            }
+            _ => Ok(quote_to_value(expr)),
+        }
+    }
+
     fn sf_byte_code_literal(&mut self, tail: &[Expr]) -> EvalResult {
         if tail.len() != 1 {
             return Err(signal(
@@ -3760,20 +3787,11 @@ impl Evaluator {
             return Ok(Value::vector(values));
         }
 
-        // Evaluate each element. Elements may contain nested byte-code-literal
-        // forms (inner lambdas) that need to be recursively evaluated.
+        // Convert each element to a Value. Constants are literal data,
+        // except nested #[...] (byte-code-literal) forms that need evaluation.
         let mut values = Vec::with_capacity(items.len());
         for item in items {
-            // For the constants vector (index 2), we need to eval sub-expressions
-            // to handle nested #[...]. For other positions, quote_to_value suffices
-            // for most cases, but some elements may also need evaluation.
-            // Use eval for list forms (which may be byte-code-literal calls),
-            // and quote_to_value for atoms.
-            let val = match item {
-                Expr::List(_) | Expr::DottedList(_, _) => self.eval(item)?,
-                _ => quote_to_value(item),
-            };
-            values.push(val);
+            values.push(self.quote_to_value_with_bytecode(item)?);
         }
 
         // Delegate to the shared make-byte-code construction.
@@ -3800,10 +3818,11 @@ impl Evaluator {
             ));
         }
 
-        // Evaluate arguments
-        let bytecode_str = self.eval(&tail[0])?;
-        let constants_vec = self.eval(&tail[1])?;
-        let maxdepth = self.eval(&tail[2])?;
+        // The bytecode string and maxdepth are simple literals — quote them.
+        // The constants vector may contain nested byte-code-literal forms.
+        let bytecode_str = quote_to_value(&tail[0]);
+        let constants_vec = self.quote_to_value_with_bytecode(&tail[1])?;
+        let maxdepth = quote_to_value(&tail[2]);
 
         // Build a temporary zero-arg ByteCodeFunction
         use crate::emacs_core::bytecode::decode::{
