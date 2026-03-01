@@ -13,6 +13,8 @@ mod apply_advanced;
 #[path = "apply-funcall-advanced.rs"]
 mod apply_funcall_advanced;
 mod arithmetic;
+#[path = "arithmetic-advanced.rs"]
+mod arithmetic_advanced;
 mod assoc;
 mod assq;
 mod backquote;
@@ -87,6 +89,7 @@ mod combination_elisp_idioms;
 mod combination_error_handling;
 mod combination_string_algorithms;
 mod combination_functional;
+mod combination_functional_programming;
 mod combination_graph_algorithms;
 mod combination_higher_order;
 mod combination_interpreters;
@@ -284,6 +287,8 @@ mod reverse;
 mod save_excursion;
 #[path = "save-excursion-advanced.rs"]
 mod save_excursion_advanced;
+#[path = "save-restriction-advanced.rs"]
+mod save_restriction_advanced;
 #[path = "search-operations.rs"]
 mod search_operations;
 #[path = "sequence-operations.rs"]
@@ -300,6 +305,8 @@ mod signal;
 #[path = "skip-chars.rs"]
 mod skip_chars;
 mod sort;
+#[path = "sort-algorithms.rs"]
+mod sort_algorithms;
 #[path = "sort-extended.rs"]
 mod sort_extended;
 mod string;
