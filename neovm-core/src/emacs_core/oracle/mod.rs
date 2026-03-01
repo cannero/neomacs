@@ -71,8 +71,10 @@ mod combination_complex;
 mod combination_control_flow;
 mod combination_data_structures;
 mod combination_elisp_idioms;
+mod combination_error_handling;
 mod combination_string_algorithms;
 mod combination_functional;
+mod combination_higher_order;
 mod combination_interpreters;
 mod combination_iterative_algorithms;
 mod combination_macro_patterns;
@@ -231,6 +233,8 @@ mod put;
 mod re_search_forward;
 #[path = "read-print.rs"]
 mod read_print;
+#[path = "read-print-advanced.rs"]
+mod read_print_advanced;
 mod recursion;
 #[path = "regexp-advanced.rs"]
 mod regexp_advanced;
@@ -289,6 +293,8 @@ mod syntax_table;
 mod take;
 #[path = "text-properties.rs"]
 mod text_properties;
+#[path = "text-properties-advanced.rs"]
+mod text_properties_advanced;
 mod trigonometry;
 mod r#throw;
 #[path = "type-of.rs"]
