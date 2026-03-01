@@ -64,6 +64,7 @@ mod coding_string;
 mod combination;
 mod combination_advanced;
 mod combination_algorithms;
+mod combination_buffer_algorithms;
 mod combination_buffer_processing;
 mod combination_closures;
 mod combination_complex;
@@ -144,6 +145,8 @@ mod r#if;
 #[path = "indirect-function.rs"]
 mod indirect_function;
 mod insert;
+#[path = "insert-advanced.rs"]
+mod insert_advanced;
 #[path = "interactive-patterns.rs"]
 mod interactive_patterns;
 #[path = "key-description.rs"]
@@ -171,6 +174,8 @@ mod make_symbol;
 #[path = "map-operations.rs"]
 mod map_operations;
 mod mapcar;
+#[path = "marker-operations.rs"]
+mod marker_operations;
 #[path = "match-beginning.rs"]
 mod match_beginning;
 #[path = "match-data.rs"]
