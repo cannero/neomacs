@@ -95,6 +95,7 @@ mod combination_control_flow;
 mod combination_data_structures;
 mod combination_data_transformations;
 mod combination_database_patterns;
+mod combination_design_patterns;
 mod combination_elisp_idioms;
 mod combination_error_handling;
 mod combination_string_algorithms;
@@ -189,6 +190,8 @@ mod funcall;
 mod r#get;
 #[path = "goto-char.rs"]
 mod goto_char;
+#[path = "goto-char-advanced.rs"]
+mod goto_char_advanced;
 #[path = "hash-table.rs"]
 mod hash_table;
 #[path = "hash-table-advanced.rs"]
@@ -273,6 +276,8 @@ mod number_predicates;
 #[path = "number-to-string.rs"]
 mod number_to_string;
 mod oclosure;
+#[path = "oclosure-advanced.rs"]
+mod oclosure_advanced;
 mod r#or;
 mod plist;
 #[path = "plist-advanced.rs"]
@@ -326,6 +331,8 @@ mod setq;
 #[path = "setq-advanced.rs"]
 mod setq_advanced;
 mod signal;
+#[path = "signal-advanced.rs"]
+mod signal_advanced;
 #[path = "skip-chars.rs"]
 mod skip_chars;
 mod sort;
