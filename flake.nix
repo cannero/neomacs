@@ -46,8 +46,8 @@
     in {
       # Overlay that provides wpewebkit (Linux only) and rust toolchain
       overlays.default = final: prev: {
-        # Rust nightly toolchain (needed for cbindgen [parse.expand] macro expansion)
-        rust-neomacs = final.rust-bin.nightly.latest.default.override {
+        # Rust toolchain from rust-toolchain.toml (with extra extensions)
+        rust-neomacs = (final.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
           extensions = [ "rust-src" "rust-analyzer" ];
         };
       } // (lib.optionalAttrs prev.stdenv.isLinux {
