@@ -139,6 +139,7 @@ mod combination_buffer_editing;
 mod combination_buffer_processing;
 mod combination_buffer_text_processing;
 mod combination_bloom_filter;
+mod combination_b_tree;
 mod combination_bytevector_ops;
 mod combination_cache_strategies;
 mod combination_calculator_repl;
@@ -158,6 +159,7 @@ mod combination_control_flow;
 mod combination_coroutine_patterns;
 mod combination_cps_transform;
 mod combination_cryptography;
+mod combination_csp_solver;
 mod combination_data_structures;
 mod combination_data_structures_advanced;
 mod combination_data_transformations;
@@ -168,6 +170,7 @@ mod combination_dependency_resolver;
 mod combination_design_patterns;
 mod combination_diff_algorithm;
 mod combination_dynamic_programming;
+mod combination_effect_system;
 mod combination_elisp_idioms;
 mod combination_encoding_algorithms;
 mod combination_error_handling;
@@ -256,11 +259,14 @@ mod combination_text_templating;
 mod combination_text_processing;
 mod combination_tree_algorithms;
 mod combination_trie_datastructure;
+mod combination_type_checker;
 mod combination_type_inference;
 mod combination_type_systems;
+mod combination_unification;
 mod combination_undo_system;
 mod combination_validation;
 mod combination_workflow;
+mod combination_zipper_datastructure;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
 mod compare_strings;
@@ -298,6 +304,8 @@ mod current_column_advanced;
 mod decode_char_encode_char_advanced;
 #[path = "defalias-advanced.rs"]
 mod defalias_advanced;
+#[path = "defalias-fset-patterns.rs"]
+mod defalias_fset_patterns;
 #[path = "defmacro-advanced.rs"]
 mod defmacro_advanced;
 #[path = "defmacro-macroexpand.rs"]
@@ -351,6 +359,8 @@ mod event_convert_list;
 mod event_convert_advanced;
 #[path = "expt-sqrt-log-patterns.rs"]
 mod expt_sqrt_log_patterns;
+#[path = "fillarray-advanced.rs"]
+mod fillarray_advanced;
 #[path = "fillarray-operations.rs"]
 mod fillarray_operations;
 #[path = "following-char-operations.rs"]
@@ -408,6 +418,8 @@ mod insert_char_operations;
 mod interactive_patterns;
 #[path = "interactive-patterns-advanced.rs"]
 mod interactive_patterns_advanced;
+#[path = "intern-soft-advanced.rs"]
+mod intern_soft_advanced;
 #[path = "internal-event-symbol-advanced.rs"]
 mod internal_event_symbol_advanced;
 #[path = "kbd-event-advanced.rs"]
@@ -562,6 +574,8 @@ mod re_search_forward;
 mod re_search_patterns;
 #[path = "read-from-string-advanced.rs"]
 mod read_from_string_advanced;
+#[path = "read-from-string-patterns.rs"]
+mod read_from_string_patterns;
 #[path = "read-print.rs"]
 mod read_print;
 #[path = "read-print-advanced.rs"]
@@ -586,6 +600,8 @@ mod replace_regexp_advanced;
 mod reverse;
 #[path = "safe-length-operations.rs"]
 mod safe_length_operations;
+#[path = "safe-length-patterns.rs"]
+mod safe_length_patterns;
 #[path = "save-excursion.rs"]
 mod save_excursion;
 #[path = "save-excursion-advanced.rs"]
@@ -681,6 +697,8 @@ mod substring;
 mod symbol;
 #[path = "symbol-advanced.rs"]
 mod symbol_advanced;
+#[path = "symbol-plist-patterns.rs"]
+mod symbol_plist_patterns;
 #[path = "symbol-properties-advanced.rs"]
 mod symbol_properties_advanced;
 #[path = "syntax-table.rs"]
