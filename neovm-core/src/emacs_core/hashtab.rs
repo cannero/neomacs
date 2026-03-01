@@ -377,8 +377,8 @@ fn internal_hash_table_diagnostic_hash(key: &HashKey, test: HashTableTest) -> u3
             // Eq tables carry pointer-identity keys; preserve that identity in
             // diagnostic hash output instead of collapsing through `nil`.
             HashKey::Ptr(ptr) => reduce_emacs_uint_to_hash_hash(*ptr as u64),
-            HashKey::ObjId(index, gen) => {
-                reduce_emacs_uint_to_hash_hash((*index as u64) ^ ((*gen as u64) << 32))
+            HashKey::ObjId(index, generation) => {
+                reduce_emacs_uint_to_hash_hash((*index as u64) ^ ((*generation as u64) << 32))
             }
             _ => {
                 let value = hash_key_to_value(key);
@@ -387,8 +387,8 @@ fn internal_hash_table_diagnostic_hash(key: &HashKey, test: HashTableTest) -> u3
         },
         HashTableTest::Eql => match key {
             HashKey::Ptr(ptr) => reduce_emacs_uint_to_hash_hash(*ptr as u64),
-            HashKey::ObjId(index, gen) => {
-                reduce_emacs_uint_to_hash_hash((*index as u64) ^ ((*gen as u64) << 32))
+            HashKey::ObjId(index, generation) => {
+                reduce_emacs_uint_to_hash_hash((*index as u64) ^ ((*generation as u64) << 32))
             }
             _ => {
                 let value = hash_key_to_value(key);

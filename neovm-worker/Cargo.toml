@@ -1,8 +1,9 @@
 [package]
 name = "neovm-worker"
-version = "0.1.0"
-edition = "2021"
-license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 description = "Worker runtime and scheduler scaffolding for NeoVM"
 
 [features]
@@ -11,5 +12,5 @@ core-backend-emacs-c = ["neovm-core/core-backend-emacs-c"]
 core-backend-rust = ["neovm-core/core-backend-rust"]
 
 [dependencies]
-neovm-core = { path = "../neovm-core", default-features = false }
-neovm-host-abi = { path = "../neovm-host-abi" }
+neovm-core.workspace = true
+neovm-host-abi.workspace = true

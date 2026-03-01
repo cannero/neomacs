@@ -2271,7 +2271,7 @@ pub(crate) fn builtin_match_data_translate_eval(
 
     if let Some(ref mut md) = eval.match_data {
         for group in md.groups.iter_mut() {
-            if let Some((ref mut start, ref mut end)) = group {
+            if let Some((start, end)) = group {
                 *start = (*start as i64 + n).max(0) as usize;
                 *end = (*end as i64 + n).max(0) as usize;
             }

@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "neomacs-bin"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "crossbeam-channel",
  "libc",
@@ -1897,7 +1897,7 @@ dependencies = [
 
 [[package]]
 name = "neomacs-display"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "alacritty_terminal",
  "arboard",
@@ -1937,7 +1937,7 @@ dependencies = [
 
 [[package]]
 name = "neovm-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dns-lookup",
  "libc",
@@ -1957,11 +1957,11 @@ dependencies = [
 
 [[package]]
 name = "neovm-host-abi"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "neovm-worker"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "neovm-core",
  "neovm-host-abi",

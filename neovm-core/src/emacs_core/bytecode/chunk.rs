@@ -70,13 +70,13 @@ impl ByteCodeFunction {
     pub fn patch_jump(&mut self, instr_idx: u32, target: u32) {
         let idx = instr_idx as usize;
         match &mut self.ops[idx] {
-            Op::Goto(ref mut addr)
-            | Op::GotoIfNil(ref mut addr)
-            | Op::GotoIfNotNil(ref mut addr)
-            | Op::GotoIfNilElsePop(ref mut addr)
-            | Op::GotoIfNotNilElsePop(ref mut addr)
-            | Op::PushConditionCase(ref mut addr)
-            | Op::UnwindProtect(ref mut addr) => {
+            Op::Goto(addr)
+            | Op::GotoIfNil(addr)
+            | Op::GotoIfNotNil(addr)
+            | Op::GotoIfNilElsePop(addr)
+            | Op::GotoIfNotNilElsePop(addr)
+            | Op::PushConditionCase(addr)
+            | Op::UnwindProtect(addr) => {
                 *addr = target;
             }
             _ => panic!("patch_jump on non-jump instruction at {}", idx),

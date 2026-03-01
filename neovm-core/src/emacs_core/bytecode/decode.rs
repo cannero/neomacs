@@ -512,13 +512,13 @@ fn patch_jumps(
 
         let target = instr_target as u32;
         match &mut ops[patch.instr_idx] {
-            Op::Goto(ref mut addr)
-            | Op::GotoIfNil(ref mut addr)
-            | Op::GotoIfNotNil(ref mut addr)
-            | Op::GotoIfNilElsePop(ref mut addr)
-            | Op::GotoIfNotNilElsePop(ref mut addr)
-            | Op::PushConditionCaseRaw(ref mut addr)
-            | Op::PushCatch(ref mut addr) => {
+            Op::Goto(addr)
+            | Op::GotoIfNil(addr)
+            | Op::GotoIfNotNil(addr)
+            | Op::GotoIfNilElsePop(addr)
+            | Op::GotoIfNotNilElsePop(addr)
+            | Op::PushConditionCaseRaw(addr)
+            | Op::PushCatch(addr) => {
                 *addr = target;
             }
             _ => unreachable!("jump patch on non-jump instruction"),

@@ -448,9 +448,9 @@ impl std::hash::Hash for HashKey {
             HashKey::Char(c) => c.hash(state),
             HashKey::Window(id) | HashKey::Frame(id) => id.hash(state),
             HashKey::Ptr(p) => p.hash(state),
-            HashKey::ObjId(idx, gen) => {
+            HashKey::ObjId(idx, generation) => {
                 idx.hash(state);
-                gen.hash(state);
+                generation.hash(state);
             }
             HashKey::EqualCons(car, cdr) => {
                 car.hash(state);

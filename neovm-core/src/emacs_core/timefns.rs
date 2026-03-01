@@ -440,8 +440,8 @@ impl ScopedTzEnv {
     fn new(spec: Option<&str>) -> Self {
         let previous = std::env::var_os("TZ");
         match spec {
-            Some(v) => std::env::set_var("TZ", v),
-            None => std::env::remove_var("TZ"),
+            Some(v) => unsafe { std::env::set_var("TZ", v) },
+            None => unsafe { std::env::remove_var("TZ") },
         }
         refresh_tz_env();
         Self { previous }
@@ -451,8 +451,8 @@ impl ScopedTzEnv {
 impl Drop for ScopedTzEnv {
     fn drop(&mut self) {
         match &self.previous {
-            Some(v) => std::env::set_var("TZ", v),
-            None => std::env::remove_var("TZ"),
+            Some(v) => unsafe { std::env::set_var("TZ", v) },
+            None => unsafe { std::env::remove_var("TZ") },
         }
         refresh_tz_env();
     }

@@ -305,7 +305,7 @@ impl WgpuGlyphAtlas {
             let mut entries: Vec<_> = self.cache.iter()
                 .map(|(k, v)| (k.clone(), v.last_accessed))
                 .collect();
-            entries.sort_by_key(|(_, gen)| *gen);
+            entries.sort_by_key(|(_, generation)| *generation);
             let evict_count = self.max_size / 4;
             for (k, _) in entries.into_iter().take(evict_count) {
                 self.cache.remove(&k);
@@ -313,7 +313,7 @@ impl WgpuGlyphAtlas {
         }
 
         // Insert into cache
-        let gen = self.generation;
+        let generation = self.generation;
         let cached_glyph = CachedGlyph {
             texture,
             view,
@@ -324,7 +324,7 @@ impl WgpuGlyphAtlas {
             bearing_y,
             is_color,
             advance_width,
-            last_accessed: gen,
+            last_accessed: generation,
         };
         self.cache.insert(key.clone(), cached_glyph);
         self.cache.get(key)
@@ -409,10 +409,10 @@ impl WgpuGlyphAtlas {
             ],
         });
 
-        let gen = self.generation;
+        let generation = self.generation;
         self.composed_cache.insert(key.clone(), CachedGlyph {
             texture, view, bind_group, width, height,
-            bearing_x, bearing_y, is_color, advance_width, last_accessed: gen,
+            bearing_x, bearing_y, is_color, advance_width, last_accessed: generation,
         });
         self.composed_cache.get(&key)
     }
