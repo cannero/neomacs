@@ -32,6 +32,10 @@ mod char_to_string;
 mod charset;
 mod closure;
 mod coding;
+#[path = "concat-extended.rs"]
+mod concat_extended;
+#[path = "copy-sequence.rs"]
+mod copy_sequence;
 #[path = "coding-metadata.rs"]
 mod coding_metadata;
 #[path = "coding-string.rs"]
@@ -69,6 +73,8 @@ mod format;
 mod forward_char;
 #[path = "forward-line.rs"]
 mod forward_line;
+#[path = "fset-symbol-function.rs"]
+mod fset_symbol_function;
 mod funcall;
 mod r#get;
 #[path = "goto-char.rs"]
@@ -77,6 +83,8 @@ mod goto_char;
 mod hash_table;
 mod r#if;
 mod insert;
+#[path = "interactive-patterns.rs"]
+mod interactive_patterns;
 #[path = "key-description.rs"]
 mod key_description;
 mod keymap;
@@ -84,6 +92,8 @@ mod keymap;
 mod lambda_anonymous;
 mod last;
 mod r#let;
+#[path = "let-dynamic.rs"]
+mod let_dynamic;
 #[path = "let-star.rs"]
 mod let_star;
 mod list;
@@ -127,8 +137,10 @@ mod recursion;
 mod reverse;
 #[path = "set-buffer.rs"]
 mod set_buffer;
+mod sequencep;
 mod setcar;
 mod setcdr;
+mod signal;
 mod setq;
 mod sort;
 mod string;
