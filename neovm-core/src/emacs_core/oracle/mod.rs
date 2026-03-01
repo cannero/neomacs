@@ -37,6 +37,8 @@ mod buffer_position;
 mod buffer_string;
 #[path = "buffer-substring.rs"]
 mod buffer_substring;
+#[path = "buffer-substring-advanced.rs"]
+mod buffer_substring_advanced;
 #[path = "aref-aset.rs"]
 mod aref_aset;
 #[path = "car-safe.rs"]
@@ -50,6 +52,8 @@ mod catch_throw_advanced;
 mod char_after;
 #[path = "char-literal.rs"]
 mod char_literal;
+#[path = "char-literal-advanced.rs"]
+mod char_literal_advanced;
 #[path = "char-table.rs"]
 mod char_table;
 #[path = "char-table-advanced.rs"]
@@ -89,6 +93,7 @@ mod combination_complex;
 mod combination_concurrent_patterns;
 mod combination_control_flow;
 mod combination_data_structures;
+mod combination_data_transformations;
 mod combination_database_patterns;
 mod combination_elisp_idioms;
 mod combination_error_handling;
@@ -150,6 +155,8 @@ mod dolist;
 mod dotimes;
 #[path = "dynamic-binding.rs"]
 mod dynamic_binding;
+#[path = "dynamic-binding-advanced.rs"]
+mod dynamic_binding_advanced;
 #[path = "end-of-line.rs"]
 mod end_of_line;
 mod equality;
