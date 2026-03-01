@@ -63,7 +63,7 @@ pub(super) fn emit_cursor_crosshair(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let mut cross_pos: Option<(f32, f32, f32, f32)> = None;
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         cross_pos = Some((anim.x, anim.y, anim.width, anim.height));
     } else {
         for glyph in &ctx.frame_glyphs.glyphs {
@@ -113,7 +113,7 @@ pub(super) fn emit_cursor_magnetism(
     let dur = std::time::Duration::from_millis(ctx.effects.cursor_magnetism.duration_ms as u64);
 
     // Detect cursor jump (large movement) and record
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         let cx = anim.x + anim.width / 2.0;
         let cy = anim.y + anim.height / 2.0;
         let should_add = entries.last()
@@ -174,7 +174,7 @@ pub(super) fn emit_line_number_pulse(ctx: &EffectCtx) -> (Vec<RectVertex>, bool)
     }
     let mut verts = Vec::new();
     let mut needs_redraw = false;
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         let now = std::time::Instant::now();
         let cycle = ctx.effects.line_number_pulse.cycle_ms as f64 / 1000.0;
         let elapsed = now.elapsed().as_secs_f64();
@@ -205,7 +205,7 @@ pub(super) fn emit_cursor_spotlight(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let mut verts = Vec::new();
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         let cx = anim.x + anim.width / 2.0;
         let cy = anim.y + anim.height / 2.0;
         let radius = ctx.effects.cursor_spotlight.radius;
@@ -242,7 +242,7 @@ pub(super) fn emit_cursor_comet(
     let fade_dur = std::time::Duration::from_millis(ctx.effects.cursor_comet.fade_ms as u64);
 
     // Record cursor position
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         // Only record if position changed
         let should_add = positions.last()
             .map(|(px, py, _, _, _)| {
@@ -303,7 +303,7 @@ pub(super) fn emit_cursor_particles(
     let lifetime = std::time::Duration::from_millis(ctx.effects.cursor_particles.lifetime_ms as u64);
 
     // Detect cursor movement and emit particles
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         let cur_pos = (anim.x + anim.width / 2.0, anim.y + anim.height / 2.0);
         if let Some(prev) = *prev_pos {
             let dx = (cur_pos.0 - prev.0).abs();
@@ -501,7 +501,7 @@ pub(super) fn emit_cursor_ripple_wave(
     let now = std::time::Instant::now();
 
     // Detect cursor movement and spawn ripple
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         let cx = anim.x + anim.width / 2.0;
         let cy = anim.y + anim.height / 2.0;
         // Spawn a new ripple on each frame where cursor moves (debounced by checking recent entries)
@@ -1444,7 +1444,7 @@ pub(super) fn emit_cursor_crystal(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let cx = anim.x + anim.width / 2.0;
@@ -1491,7 +1491,7 @@ pub(super) fn emit_cursor_water_drop(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1527,7 +1527,7 @@ pub(super) fn emit_cursor_pixel_dust(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1566,7 +1566,7 @@ pub(super) fn emit_cursor_candle_flame(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1617,7 +1617,7 @@ pub(super) fn emit_cursor_moth_flame(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1658,7 +1658,7 @@ pub(super) fn emit_cursor_sparkler(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1697,7 +1697,7 @@ pub(super) fn emit_cursor_plasma_ball(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1744,7 +1744,7 @@ pub(super) fn emit_cursor_quill_pen(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1793,7 +1793,7 @@ pub(super) fn emit_cursor_aurora_borealis(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1839,7 +1839,7 @@ pub(super) fn emit_cursor_feather(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1887,7 +1887,7 @@ pub(super) fn emit_cursor_stardust(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1919,7 +1919,7 @@ pub(super) fn emit_cursor_compass_needle(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1961,7 +1961,7 @@ pub(super) fn emit_cursor_galaxy(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -1995,7 +1995,7 @@ pub(super) fn emit_cursor_prism(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -2031,7 +2031,7 @@ pub(super) fn emit_cursor_moth(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -2075,7 +2075,7 @@ pub(super) fn emit_cursor_sparkle_burst(
         return (Vec::new(), false);
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return (Vec::new(), false),
     };
     let cx = anim.x + anim.width / 2.0;
@@ -2134,7 +2134,7 @@ pub(super) fn emit_cursor_compass_rose(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -2189,7 +2189,7 @@ pub(super) fn emit_cursor_dna_helix(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let now = std::time::Instant::now().duration_since(ctx.aurora_start).as_secs_f32();
@@ -2242,7 +2242,7 @@ pub(super) fn emit_cursor_pendulum(
         return (Vec::new(), false);
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return (Vec::new(), false),
     };
     let cx = anim.x + anim.width / 2.0;
@@ -2299,7 +2299,7 @@ pub(super) fn emit_cursor_drop_shadow(ctx: &EffectCtx) -> Vec<RectVertex> {
         return Vec::new();
     }
     let anim = match ctx.animated_cursor {
-        Some(ref anim) => anim,
+        Some(anim) => anim,
         None => return Vec::new(),
     };
     let sx = anim.x + ctx.effects.cursor_shadow.offset_x;

@@ -116,7 +116,7 @@ impl RenderApp {
 
     /// Get the "current" offscreen texture view and bind group
     pub(super) fn current_offscreen_view_and_bg(&self) -> Option<(&wgpu::TextureView, &wgpu::BindGroup)> {
-        let (_, ref view, ref bg) = if self.transitions.current_is_a {
+        let (_, view, bg) = if self.transitions.current_is_a {
             self.transitions.offscreen_a.as_ref()?
         } else {
             self.transitions.offscreen_b.as_ref()?
@@ -126,7 +126,7 @@ impl RenderApp {
 
     /// Get the "previous" offscreen texture, view, and bind group
     pub(super) fn previous_offscreen(&self) -> Option<(&wgpu::Texture, &wgpu::TextureView, &wgpu::BindGroup)> {
-        let (ref tex, ref view, ref bg) = if self.transitions.current_is_a {
+        let (tex, view, bg) = if self.transitions.current_is_a {
             self.transitions.offscreen_b.as_ref()?
         } else {
             self.transitions.offscreen_a.as_ref()?

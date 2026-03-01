@@ -101,7 +101,7 @@ pub(super) fn emit_typing_heatmap(
     let fade_dur = std::time::Duration::from_millis(ctx.effects.typing_heatmap.fade_ms as u64);
 
     // Detect cursor movement and record heat entry
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         let cur_pos = (anim.x, anim.y);
         if let Some(prev_pos) = *prev_cursor {
             let dx = (cur_pos.0 - prev_pos.0).abs();
@@ -429,7 +429,7 @@ pub(super) fn emit_cursor_ghost(
     let fade_dur = std::time::Duration::from_millis(ctx.effects.cursor_ghost.fade_ms as u64);
 
     // Detect cursor movement and spawn ghost
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         let should_spawn = ghost_entries.is_empty()
             || ghost_entries.last().map_or(true, |last| {
                 let dx = (anim.x - last.x).abs();
@@ -1090,7 +1090,7 @@ pub(super) fn emit_focus_mode(ctx: &EffectCtx) -> Vec<RectVertex> {
     // Find active cursor Y position
     let mut cursor_y: Option<f32> = None;
     let mut cursor_h: f32 = 0.0;
-    if let Some(ref anim) = ctx.animated_cursor {
+    if let Some(anim) = ctx.animated_cursor {
         cursor_y = Some(anim.y);
         cursor_h = anim.height;
     } else {

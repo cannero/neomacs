@@ -311,7 +311,7 @@ fn main() {
                                 );
                                 // Reposition minibuffer
                                 if let Some(mini_leaf) = &mut frame.minibuffer_leaf {
-                                    if let Window::Leaf { ref mut bounds, .. } = mini_leaf {
+                                    if let Window::Leaf { bounds, .. } = mini_leaf {
                                         bounds.y = mini_y;
                                         bounds.width = w as f32;
                                         bounds.height = mini_h;
@@ -436,12 +436,12 @@ fn bootstrap_buffers(eval: &mut Evaluator, width: u32, height: u32) -> Bootstrap
     let mini_y = height as f32 - mini_h;
     if let Some(frame) = eval.frame_manager_mut().selected_frame_mut() {
         // Shrink root window to leave room for minibuffer
-        if let Window::Leaf { ref mut bounds, .. } = &mut frame.root_window {
+        if let Window::Leaf { bounds, .. } = &mut frame.root_window {
             bounds.height = mini_y;
         }
         // Point the minibuffer leaf to *Minibuf-0* and set correct position
         if let Some(mini_leaf) = &mut frame.minibuffer_leaf {
-            if let Window::Leaf { buffer_id, window_start, point, ref mut bounds, .. } = mini_leaf {
+            if let Window::Leaf { buffer_id, window_start, point, bounds, .. } = mini_leaf {
                 *buffer_id = mini_id;
                 *window_start = 0;
                 *point = 0;

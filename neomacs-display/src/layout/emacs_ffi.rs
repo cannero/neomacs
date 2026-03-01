@@ -17,7 +17,7 @@ pub type EmacsWindow = *mut std::ffi::c_void;
 /// Opaque pointer to an Emacs buffer (struct buffer *)
 pub type EmacsBuffer = *mut std::ffi::c_void;
 
-extern "C" {
+unsafe extern "C" {
     // ========================================================================
     // Buffer text access
     // ========================================================================

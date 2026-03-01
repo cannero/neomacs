@@ -12,7 +12,7 @@ use super::*;
 ///
 /// Returns the window ID. The window will be created during the next poll_events call.
 /// Returns 0 if the backend is not available.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn neomacs_display_create_window(
     _handle: *mut NeomacsDisplay,
     _width: i32,
@@ -31,7 +31,7 @@ pub extern "C" fn neomacs_display_create_window(
 }
 
 /// Destroy a window by its ID.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_destroy_window(handle: *mut NeomacsDisplay, window_id: u32) {
     let display = &mut *handle;
 
@@ -41,7 +41,7 @@ pub unsafe extern "C" fn neomacs_display_destroy_window(handle: *mut NeomacsDisp
 }
 
 /// Show or hide a window.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_show_window(
     handle: *mut NeomacsDisplay,
     window_id: u32,
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn neomacs_display_show_window(
 }
 
 /// Set the title of a window.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_window_title(
     handle: *mut NeomacsDisplay,
     window_id: u32,
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn neomacs_display_set_window_title(
 }
 
 /// Set the size of a window.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_window_size(
     handle: *mut NeomacsDisplay,
     window_id: u32,
@@ -103,7 +103,7 @@ pub unsafe extern "C" fn neomacs_display_set_window_size(
 /// Begin a frame for a specific window.
 ///
 /// Clears the window's scene to prepare for new content.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_begin_frame_window(
     handle: *mut NeomacsDisplay,
     window_id: u32,
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn neomacs_display_begin_frame_window(
 /// End a frame for a specific window and present it.
 ///
 /// Renders the window's scene to its surface and presents it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_end_frame_window(
     handle: *mut NeomacsDisplay,
     window_id: u32,
@@ -174,7 +174,7 @@ pub unsafe extern "C" fn neomacs_display_end_frame_window(
 ///
 /// # Safety
 /// Must be called from the Emacs thread with valid parameters.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_create_os_window(
     _handle: *mut NeomacsDisplay,
     emacs_frame_id: u64,
@@ -203,7 +203,7 @@ pub unsafe extern "C" fn neomacs_display_create_os_window(
 ///
 /// # Safety
 /// Must be called from the Emacs thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_destroy_os_window(
     _handle: *mut NeomacsDisplay,
     emacs_frame_id: u64,

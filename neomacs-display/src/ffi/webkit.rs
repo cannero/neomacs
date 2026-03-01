@@ -26,7 +26,7 @@ thread_local! {
 /// `mode`: 0=Window, 1=Inline, 2=Floating
 /// `shell`: optional shell path (NULL for default)
 #[cfg(feature = "neo-term")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_terminal_create(
     cols: u16,
     rows: u16,
@@ -56,7 +56,7 @@ pub unsafe extern "C" fn neomacs_display_terminal_create(
 
 /// Write input data to a terminal (keyboard input from user).
 #[cfg(feature = "neo-term")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_terminal_write(
     terminal_id: u32,
     data: *const u8,
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn neomacs_display_terminal_write(
 
 /// Resize a terminal.
 #[cfg(feature = "neo-term")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_terminal_resize(
     terminal_id: u32,
     cols: u16,
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn neomacs_display_terminal_resize(
 
 /// Destroy a terminal.
 #[cfg(feature = "neo-term")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_terminal_destroy(
     terminal_id: u32,
 ) {
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn neomacs_display_terminal_destroy(
 
 /// Set floating terminal position and opacity.
 #[cfg(feature = "neo-term")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_terminal_set_float(
     terminal_id: u32,
     x: f32,
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn neomacs_display_terminal_set_float(
 /// Returns a malloc'd C string (caller must free with `free()`).
 /// Returns NULL on failure.
 #[cfg(feature = "neo-term")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_terminal_get_text(
     terminal_id: u32,
 ) -> *mut c_char {
@@ -164,7 +164,7 @@ pub unsafe extern "C" fn neomacs_display_terminal_get_text(
 pub type WebKitNewWindowCallback = extern "C" fn(u32, *const c_char, *const c_char) -> bool;
 
 /// Set callback for WebKit new window/tab requests
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_set_new_window_callback(
     callback: Option<extern "C" fn(u32, *const c_char, *const c_char) -> bool>,
 ) {
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_set_new_window_callback(
 pub type WebKitLoadCallback = extern "C" fn(u32, c_int, *const c_char);
 
 /// Set callback for WebKit page load events
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_set_load_callback(
     callback: Option<extern "C" fn(u32, c_int, *const c_char)>,
 ) {
@@ -207,7 +207,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_set_load_callback(
 }
 
 /// Initialize WebKit subsystem with EGL display
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_init(
     handle: *mut NeomacsDisplay,
     egl_display: *mut libc::c_void,
@@ -316,7 +316,7 @@ unsafe fn egl_get_current_display() -> *mut libc::c_void {
 }
 
 /// Create a new WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_create(
     _handle: *mut NeomacsDisplay,
     width: c_int,
@@ -347,7 +347,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_create(
 }
 
 /// Destroy a WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_destroy(
     _handle: *mut NeomacsDisplay,
     view_id: u32,
@@ -371,7 +371,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_destroy(
 }
 
 /// Load a URI in a WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_load_uri(
     _handle: *mut NeomacsDisplay,
     view_id: u32,
@@ -401,7 +401,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_load_uri(
 }
 
 /// Go back in a WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_go_back(
     _handle: *mut NeomacsDisplay,
     view_id: u32,
@@ -425,7 +425,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_go_back(
 }
 
 /// Go forward in a WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_go_forward(
     _handle: *mut NeomacsDisplay,
     view_id: u32,
@@ -449,7 +449,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_go_forward(
 }
 
 /// Reload a WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_reload(
     _handle: *mut NeomacsDisplay,
     view_id: u32,
@@ -473,7 +473,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_reload(
 }
 
 /// Resize a WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_resize(
     _handle: *mut NeomacsDisplay,
     view_id: u32,
@@ -503,7 +503,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_resize(
 }
 
 /// Execute JavaScript in a WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_execute_js(
     _handle: *mut NeomacsDisplay,
     view_id: u32,
@@ -539,7 +539,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_execute_js(
 }
 
 /// Set a floating WebKit view position and size
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_floating_webkit(
     handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -582,7 +582,7 @@ pub unsafe extern "C" fn neomacs_display_set_floating_webkit(
 }
 
 /// Hide a floating WebKit view
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_hide_floating_webkit(
     handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -602,7 +602,7 @@ pub unsafe extern "C" fn neomacs_display_hide_floating_webkit(
 }
 
 /// Find which webkit view (floating or inline) is at the given coordinates
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_at_position(
     handle: *mut NeomacsDisplay,
     x: c_int,
@@ -665,7 +665,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_at_position(
 }
 
 /// Send keyboard event to WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_send_key(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -697,7 +697,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_send_key(
 }
 
 /// Send pointer/mouse event to WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_send_pointer(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -733,7 +733,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_send_pointer(
 }
 
 /// Send scroll event to WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_send_scroll(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -765,7 +765,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_send_scroll(
 }
 
 /// Click in WebKit view (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_click(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -795,7 +795,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_click(
 }
 
 /// Scroll blit pixels in the pixel buffer (threaded mode only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_scroll_blit(
     _handle: *mut NeomacsDisplay,
     x: c_int,
@@ -829,7 +829,7 @@ pub unsafe extern "C" fn neomacs_display_scroll_blit(
 }
 
 /// Get WebKit view title
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_get_title(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -849,7 +849,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_get_title(
 }
 
 /// Get WebKit view URL
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_get_url(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -869,7 +869,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_get_url(
 }
 
 /// Get WebKit view loading progress
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_get_progress(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -889,7 +889,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_get_progress(
 }
 
 /// Check if WebKit view is loading
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_is_loading(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -909,7 +909,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_is_loading(
 }
 
 /// Free a string returned by webkit_get_title or webkit_get_url
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_free_string(s: *mut c_char) {
     if !s.is_null() {
         let _ = CString::from_raw(s);
@@ -917,7 +917,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_free_string(s: *mut c_char) {
 }
 
 /// Update WebKit view - no-op in threaded mode
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_update(
     _handle: *mut NeomacsDisplay,
     webkit_id: u32,
@@ -927,7 +927,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_update(
 }
 
 /// Update all WebKit views - no-op in threaded mode
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_webkit_update_all(
     _handle: *mut NeomacsDisplay,
 ) -> c_int {
@@ -935,7 +935,7 @@ pub unsafe extern "C" fn neomacs_display_webkit_update_all(
 }
 
 /// Add a WPE glyph to the current row
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_wpe_glyph(
     handle: *mut NeomacsDisplay,
     view_id: u32,

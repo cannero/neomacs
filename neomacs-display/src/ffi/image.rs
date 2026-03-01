@@ -96,7 +96,7 @@ fn apply_dimension_constraints(
 
 /// Centralized image loading function called from C.
 /// Replaces the ~170-line `neomacs_get_or_load_image()` in neomacsterm.c.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_load_image(
     info: *const NeomacsImageLoadInfo,
 ) -> NeomacsImageLoadResult {
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn neomacs_rust_load_image(
 // ============================================================================
 
 /// Add a video glyph to the current row
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_video_glyph(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn neomacs_display_add_video_glyph(
 }
 
 /// Load a video from file path (async - uses GStreamer)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_video(
     handle: *mut NeomacsDisplay,
     path: *const c_char,
@@ -297,7 +297,7 @@ pub unsafe extern "C" fn neomacs_display_load_video(
 }
 
 /// Play a loaded video
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_video_play(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -327,7 +327,7 @@ pub unsafe extern "C" fn neomacs_display_video_play(
 }
 
 /// Pause a video
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_video_pause(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -357,7 +357,7 @@ pub unsafe extern "C" fn neomacs_display_video_pause(
 }
 
 /// Stop a video
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_video_stop(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -387,7 +387,7 @@ pub unsafe extern "C" fn neomacs_display_video_stop(
 }
 
 /// Set video loop mode (-1 for infinite)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_video_set_loop(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -410,7 +410,7 @@ pub unsafe extern "C" fn neomacs_display_video_set_loop(
 }
 
 /// Process pending video frames (call each frame)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_video_update(
     handle: *mut NeomacsDisplay,
     _video_id: u32,
@@ -432,7 +432,7 @@ pub unsafe extern "C" fn neomacs_display_video_update(
 }
 
 /// Get video dimensions (works for pending and loaded videos)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_get_video_size(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -463,7 +463,7 @@ pub unsafe extern "C" fn neomacs_display_get_video_size(
 // ============================================================================
 
 /// Load an image from a file path (delegates to load_image_file)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image(
     handle: *mut NeomacsDisplay,
     path: *const c_char,
@@ -472,7 +472,7 @@ pub unsafe extern "C" fn neomacs_display_load_image(
 }
 
 /// Load an image from raw bytes (encoded image format)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_data(
     handle: *mut NeomacsDisplay,
     data: *const u8,
@@ -515,7 +515,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_data(
 }
 
 /// Load an image from raw bytes with optional scaling
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_data_scaled(
     handle: *mut NeomacsDisplay,
     data: *const u8,
@@ -565,7 +565,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_data_scaled(
 }
 
 /// Load an image from raw ARGB32 pixel data
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_argb32(
     handle: *mut NeomacsDisplay,
     data: *const u8,
@@ -614,7 +614,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_argb32(
 }
 
 /// Load an image from raw RGB24 pixel data
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_rgb24(
     handle: *mut NeomacsDisplay,
     data: *const u8,
@@ -663,7 +663,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_rgb24(
 }
 
 /// Load an image from a file path (async - returns ID immediately)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_file(
     handle: *mut NeomacsDisplay,
     path: *const c_char,
@@ -672,7 +672,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_file(
 }
 
 /// Load an image from a file path with scaling (async)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_file_scaled(
     handle: *mut NeomacsDisplay,
     path: *const c_char,
@@ -724,7 +724,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_file_scaled(
 }
 
 /// Load an image directly as texture (same as load_image_file)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_file_direct(
     handle: *mut NeomacsDisplay,
     path: *const c_char,
@@ -733,7 +733,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_file_direct(
 }
 
 /// Load an image directly as texture with scaling
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_load_image_file_direct_scaled(
     handle: *mut NeomacsDisplay,
     path: *const c_char,
@@ -744,7 +744,7 @@ pub unsafe extern "C" fn neomacs_display_load_image_file_direct_scaled(
 }
 
 /// Get image dimensions (works for pending and loaded images)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_get_image_size(
     handle: *mut NeomacsDisplay,
     image_id: u32,
@@ -789,7 +789,7 @@ pub unsafe extern "C" fn neomacs_display_get_image_size(
 }
 
 /// Query image file dimensions without loading (fast - reads header only)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_query_image_file_size(
     _handle: *mut NeomacsDisplay,
     path: *const c_char,
@@ -817,7 +817,7 @@ pub unsafe extern "C" fn neomacs_display_query_image_file_size(
 
 /// Query image data dimensions synchronously (reads header only, no GPU loading).
 /// Returns 0 on success, -1 on failure.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_query_image_data_size(
     _handle: *mut NeomacsDisplay,
     data: *const u8,
@@ -842,7 +842,7 @@ pub unsafe extern "C" fn neomacs_display_query_image_data_size(
 }
 
 /// Free an image from cache
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_free_image(
     handle: *mut NeomacsDisplay,
     image_id: u32,
@@ -869,7 +869,7 @@ pub unsafe extern "C" fn neomacs_display_free_image(
 }
 
 /// Set a floating video at a specific screen position
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_floating_video(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -899,7 +899,7 @@ pub unsafe extern "C" fn neomacs_display_set_floating_video(
 }
 
 /// Remove a floating video
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_clear_floating_video(
     handle: *mut NeomacsDisplay,
     video_id: u32,
@@ -913,7 +913,7 @@ pub unsafe extern "C" fn neomacs_display_clear_floating_video(
 }
 
 /// Set a floating image at a specific screen position
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_floating_image(
     handle: *mut NeomacsDisplay,
     image_id: u32,
@@ -943,7 +943,7 @@ pub unsafe extern "C" fn neomacs_display_set_floating_image(
 }
 
 /// Remove a floating image
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_clear_floating_image(
     handle: *mut NeomacsDisplay,
     image_id: u32,
@@ -958,7 +958,7 @@ pub unsafe extern "C" fn neomacs_display_clear_floating_image(
 
 /// Clear a rectangular area of the display.
 /// No-op with full-frame rebuild (buffer is rebuilt from scratch each frame).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_clear_area(
     _handle: *mut NeomacsDisplay,
     _x: c_int,
@@ -971,7 +971,7 @@ pub unsafe extern "C" fn neomacs_display_clear_area(
 
 /// Clear only media glyphs (Image, Video, WebKit) in a rectangular area.
 /// No-op with full-frame rebuild (buffer is rebuilt from scratch each frame).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_clear_media_in_area(
     _handle: *mut NeomacsDisplay,
     _x: c_int,
@@ -983,7 +983,7 @@ pub unsafe extern "C" fn neomacs_display_clear_media_in_area(
 }
 
 /// Clear all glyphs - used when frame layout changes
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_clear_all_glyphs(handle: *mut NeomacsDisplay) {
     if handle.is_null() {
         return;
@@ -998,7 +998,7 @@ pub unsafe extern "C" fn neomacs_display_clear_all_glyphs(handle: *mut NeomacsDi
 }
 
 /// Clear all cursors
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_clear_all_cursors(handle: *mut NeomacsDisplay) {
     if handle.is_null() {
         return;
@@ -1009,7 +1009,7 @@ pub unsafe extern "C" fn neomacs_display_clear_all_cursors(handle: *mut NeomacsD
 }
 
 /// Clear all borders (window dividers)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_clear_all_borders(handle: *mut NeomacsDisplay) {
     if handle.is_null() {
         return;
@@ -1021,7 +1021,7 @@ pub unsafe extern "C" fn neomacs_display_clear_all_borders(handle: *mut NeomacsD
 
 /// End frame and render
 /// Returns 0 on success, 1 if layout changed, -1 on error
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_end_frame(handle: *mut NeomacsDisplay) -> c_int {
     if handle.is_null() {
         return -1;

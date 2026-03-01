@@ -190,7 +190,7 @@ impl WgpuRenderer {
             } = glyph
             {
                 let face = faces.get(face_id);
-                let cached_opt = if let Some(ref text) = composed {
+                let cached_opt = if let Some(text) = composed {
                     glyph_atlas.get_or_create_composed(
                         &self.device, &self.queue,
                         text, *face_id, font_size.to_bits(), face,
@@ -242,7 +242,7 @@ impl WgpuRenderer {
                         None
                     };
 
-                    if let Some(ref text) = composed {
+                    if let Some(text) = composed {
                         let ckey = ComposedGlyphKey {
                             text: text.clone(),
                             face_id: *face_id,
@@ -612,7 +612,7 @@ impl WgpuRenderer {
                 pass.set_pipeline(&self.glyph_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-                for (ref ckey, verts) in &composed_mask_data {
+                for (ckey, verts) in &composed_mask_data {
                     if let Some(cached) = glyph_atlas.get_composed(ckey) {
                         let vbuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Content Composed Mask VB"),
@@ -631,7 +631,7 @@ impl WgpuRenderer {
                 pass.set_pipeline(&self.image_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-                for (ref ckey, verts) in &composed_color_data {
+                for (ckey, verts) in &composed_color_data {
                     if let Some(cached) = glyph_atlas.get_composed(ckey) {
                         let vbuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Content Composed Color VB"),

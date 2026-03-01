@@ -11,7 +11,7 @@ use super::*;
 // ============================================================================
 
 /// Start smooth scroll animation
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_smooth_scroll(
     handle: *mut NeomacsDisplay,
     window_id: c_int,
@@ -27,7 +27,7 @@ pub unsafe extern "C" fn neomacs_display_smooth_scroll(
 }
 
 /// Reset cursor blink (call when cursor moves)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_reset_cursor_blink(handle: *mut NeomacsDisplay) {
     if handle.is_null() {
         return;
@@ -41,7 +41,7 @@ pub unsafe extern "C" fn neomacs_display_reset_cursor_blink(handle: *mut Neomacs
 /// Types: 0=hidden, 1=default/arrow, 2=text/ibeam, 3=hand/pointer,
 ///        4=crosshair, 5=h-resize, 6=v-resize, 7=hourglass,
 ///        8=nwse-resize, 9=nesw-resize, 10=nesw-resize, 11=nwse-resize
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_mouse_cursor(
     _handle: *mut NeomacsDisplay,
     cursor_type: c_int,
@@ -55,7 +55,7 @@ pub unsafe extern "C" fn neomacs_display_set_mouse_cursor(
 }
 
 /// Warp (move) the mouse pointer to the given pixel position.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_warp_mouse(
     _handle: *mut NeomacsDisplay,
     x: c_int,
@@ -83,7 +83,7 @@ pub struct CPopupMenuItem {
 
 /// Show a popup menu at position (x, y) with the given items.
 /// The render thread will display the menu and send a MenuSelection event.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_show_popup_menu(
     _handle: *mut NeomacsDisplay,
     x: c_int,
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn neomacs_display_show_popup_menu(
 }
 
 /// Hide the active popup menu.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_hide_popup_menu(
     _handle: *mut NeomacsDisplay,
 ) {
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn neomacs_display_hide_popup_menu(
 }
 
 /// Show a tooltip at the given position with specified colors.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_show_tooltip(
     _handle: *mut NeomacsDisplay,
     x: f32,
@@ -204,7 +204,7 @@ pub unsafe extern "C" fn neomacs_display_show_tooltip(
 }
 
 /// Hide the active tooltip.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_hide_tooltip(
     _handle: *mut NeomacsDisplay,
 ) {
@@ -215,7 +215,7 @@ pub unsafe extern "C" fn neomacs_display_hide_tooltip(
 }
 
 /// Trigger visual bell flash effect.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_visual_bell(
     _handle: *mut NeomacsDisplay,
 ) {
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn neomacs_display_visual_bell(
 
 /// Remove a child frame from the render thread.
 /// Called when a child frame is deleted or unparented.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_remove_child_frame(
     _handle: *mut NeomacsDisplay,
     frame_id: u64,
@@ -239,7 +239,7 @@ pub unsafe extern "C" fn neomacs_display_remove_child_frame(
 }
 
 /// Configure child frame visual style (drop shadow, rounded corners).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_child_frame_style(
     _handle: *mut NeomacsDisplay,
     corner_radius: f32,
@@ -262,7 +262,7 @@ pub unsafe extern "C" fn neomacs_display_set_child_frame_style(
 
 /// Request window attention (urgency hint / taskbar flash).
 /// If urgent is non-zero, uses Critical attention type; otherwise Informational.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_request_attention(
     _handle: *mut NeomacsDisplay,
     urgent: c_int,
@@ -275,7 +275,7 @@ pub unsafe extern "C" fn neomacs_display_request_attention(
 
 /// Enable or disable scroll indicators and focus ring.
 /// enabled: non-zero = on, zero = off.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_scroll_indicators(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn neomacs_display_set_scroll_indicators(
 }
 
 /// Set the custom title bar height (0 = hidden)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_titlebar_height(
     _handle: *mut NeomacsDisplay,
     height: c_int,
@@ -299,7 +299,7 @@ pub unsafe extern "C" fn neomacs_display_set_titlebar_height(
 }
 
 /// Toggle FPS counter overlay
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_show_fps(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -311,7 +311,7 @@ pub unsafe extern "C" fn neomacs_display_set_show_fps(
 }
 
 /// Set window corner radius for borderless mode (0 = square corners)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_corner_radius(
     _handle: *mut NeomacsDisplay,
     radius: c_int,
@@ -323,7 +323,7 @@ pub unsafe extern "C" fn neomacs_display_set_corner_radius(
 }
 
 /// Set extra line spacing and letter spacing (in pixels)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_extra_spacing(
     _handle: *mut NeomacsDisplay,
     line_spacing: c_int,
@@ -342,7 +342,7 @@ pub unsafe extern "C" fn neomacs_display_set_extra_spacing(
 /// When enabled, the layout engine groups same-face character runs and emits
 /// them as composed glyphs so that cosmic-text/HarfBuzz can perform ligature
 /// substitution (e.g., -> becomes an arrow in JetBrains Mono).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_ligatures_enabled(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -373,7 +373,7 @@ pub unsafe extern "C" fn neomacs_display_set_ligatures_enabled(
 /// Set background gradient (top and bottom colors, sRGB 0-255)
 /// Macro to generate FFI effect setter functions.
 ///
-/// Generates a `#[no_mangle] pub unsafe extern "C" fn` that wraps the closure body
+/// Generates a `#[unsafe(no_mangle)] pub unsafe extern "C" fn` that wraps the closure body
 /// in `RenderCommand::UpdateEffect(EffectUpdater(...))` boilerplate.
 ///
 /// Usage:
@@ -385,7 +385,7 @@ pub unsafe extern "C" fn neomacs_display_set_ligatures_enabled(
 /// ```
 macro_rules! effect_setter {
     ($fn_name:ident($($param:ident : $ptype:ty),* $(,)?) |$eff:ident| { $($body:tt)* }) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $fn_name(
             _handle: *mut NeomacsDisplay,
             $($param: $ptype),*
@@ -417,7 +417,7 @@ effect_setter!(neomacs_display_set_scroll_bar_config(width: c_int, thumb_radius:
 
 
 /// Configure indent guide rendering
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_indent_guides(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -437,7 +437,7 @@ pub unsafe extern "C" fn neomacs_display_set_indent_guides(
 /// Configure rainbow indent guide colors (up to 6 cycling colors by depth)
 /// Each color is passed as R,G,B (0-255) with opacity (0-100).
 /// num_colors specifies how many color slots are used (max 6).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_indent_guide_rainbow(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -467,7 +467,7 @@ pub unsafe extern "C" fn neomacs_display_set_indent_guide_rainbow(
 }
 
 /// Configure current line highlight rendering
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_line_highlight(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -485,7 +485,7 @@ pub unsafe extern "C" fn neomacs_display_set_line_highlight(
 }
 
 /// Configure visible whitespace rendering
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_show_whitespace(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -671,7 +671,7 @@ effect_setter!(neomacs_display_set_window_watermark(enabled: c_int, opacity: c_i
 
 
 /// Configure cursor trail fade effect
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_cursor_trail_fade(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -689,7 +689,7 @@ pub unsafe extern "C" fn neomacs_display_set_cursor_trail_fade(
 }
 
 /// Configure idle screen dimming after inactivity
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_idle_dim(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -863,7 +863,7 @@ effect_setter!(neomacs_display_set_typing_heatmap(enabled: c_int, r: c_int, g: c
 
 
 /// Configure smooth theme transition (crossfade on background color change)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_theme_transition(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -941,7 +941,7 @@ effect_setter!(neomacs_display_set_padding_gradient(enabled: c_int, r: c_int, g:
 
 
 /// Configure smooth cursor size transition on text-scale-adjust
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_cursor_size_transition(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -970,7 +970,7 @@ effect_setter!(neomacs_display_set_mode_line_separator(style: c_int, r: c_int, g
 
 
 /// Set the window title (threaded mode)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_title(
     _handle: *mut NeomacsDisplay,
     title: *const c_char,
@@ -988,7 +988,7 @@ pub unsafe extern "C" fn neomacs_display_set_title(
 
 /// Set fullscreen mode (threaded mode)
 /// mode: 0=none, 1=width, 2=height, 3=both, 4=maximized
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_fullscreen(
     _handle: *mut NeomacsDisplay,
     mode: c_int,
@@ -1000,7 +1000,7 @@ pub unsafe extern "C" fn neomacs_display_set_fullscreen(
 }
 
 /// Minimize/iconify the window (threaded mode)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_minimized(
     _handle: *mut NeomacsDisplay,
     minimized: c_int,
@@ -1012,7 +1012,7 @@ pub unsafe extern "C" fn neomacs_display_set_minimized(
 }
 
 /// Set window position (threaded mode)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_position(
     _handle: *mut NeomacsDisplay,
     x: c_int,
@@ -1025,7 +1025,7 @@ pub unsafe extern "C" fn neomacs_display_set_position(
 }
 
 /// Request window inner size change (threaded mode)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_request_size(
     _handle: *mut NeomacsDisplay,
     width: c_int,
@@ -1038,7 +1038,7 @@ pub unsafe extern "C" fn neomacs_display_request_size(
 }
 
 /// Set window decorations (threaded mode)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_decorated(
     _handle: *mut NeomacsDisplay,
     decorated: c_int,
@@ -1050,7 +1050,7 @@ pub unsafe extern "C" fn neomacs_display_set_decorated(
 }
 
 /// Configure cursor blinking (enable/disable and interval)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_cursor_blink(
     handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -1070,7 +1070,7 @@ pub unsafe extern "C" fn neomacs_display_set_cursor_blink(
 }
 
 /// Configure cursor animation (smooth motion)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_cursor_animation(
     _handle: *mut NeomacsDisplay,
     enabled: c_int,
@@ -1086,7 +1086,7 @@ pub unsafe extern "C" fn neomacs_display_set_cursor_animation(
 }
 
 /// Configure all animation settings
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_animation_config(
     _handle: *mut NeomacsDisplay,
     cursor_enabled: c_int,
@@ -1125,7 +1125,7 @@ pub unsafe extern "C" fn neomacs_display_set_animation_config(
 }
 
 /// Check if animations are active
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_has_animations(handle: *mut NeomacsDisplay) -> c_int {
     if handle.is_null() {
         return 0;
@@ -1140,7 +1140,7 @@ pub unsafe extern "C" fn neomacs_display_has_animations(handle: *mut NeomacsDisp
 // ============================================================================
 
 /// Set an animation configuration option (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_animation_option(
     _handle: *mut NeomacsDisplay,
     _key: *const c_char,
@@ -1150,7 +1150,7 @@ pub unsafe extern "C" fn neomacs_display_set_animation_option(
 }
 
 /// Get an animation configuration option (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_get_animation_option(
     _handle: *mut NeomacsDisplay,
     _key: *const c_char,
@@ -1159,7 +1159,7 @@ pub unsafe extern "C" fn neomacs_display_get_animation_option(
 }
 
 /// Free a string returned by neomacs_display_get_animation_option
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_free_string(s: *mut c_char) {
     if !s.is_null() {
         let _ = CString::from_raw(s);
@@ -1167,7 +1167,7 @@ pub unsafe extern "C" fn neomacs_display_free_string(s: *mut c_char) {
 }
 
 /// Update cursor animation state (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_update_animation(
     _handle: *mut NeomacsDisplay,
     _dt: c_double,
@@ -1176,7 +1176,7 @@ pub unsafe extern "C" fn neomacs_display_update_animation(
 }
 
 /// Check if animation needs continuous redraw (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_animation_active(
     _handle: *mut NeomacsDisplay,
 ) -> c_int {
@@ -1184,7 +1184,7 @@ pub unsafe extern "C" fn neomacs_display_animation_active(
 }
 
 /// Trigger a buffer transition animation (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_start_buffer_transition(
     _handle: *mut NeomacsDisplay,
     _effect: *const c_char,
@@ -1194,7 +1194,7 @@ pub unsafe extern "C" fn neomacs_display_start_buffer_transition(
 }
 
 /// Prepare for buffer transition (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_prepare_buffer_transition(
     _handle: *mut NeomacsDisplay,
 ) -> c_int {
@@ -1202,7 +1202,7 @@ pub unsafe extern "C" fn neomacs_display_prepare_buffer_transition(
 }
 
 /// Trigger buffer transition animation (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_trigger_buffer_transition(
     _handle: *mut NeomacsDisplay,
 ) -> c_int {
@@ -1210,7 +1210,7 @@ pub unsafe extern "C" fn neomacs_display_trigger_buffer_transition(
 }
 
 /// Check if buffer transition is ready (stub)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_has_transition_snapshot(
     _handle: *mut NeomacsDisplay,
 ) -> c_int {
@@ -1302,7 +1302,7 @@ thread_local! {
 }
 
 /// Begin collecting toolbar items. Call before add_item calls.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_tool_bar_begin(
     _handle: *mut NeomacsDisplay,
     count: c_int,
@@ -1319,7 +1319,7 @@ pub unsafe extern "C" fn neomacs_display_tool_bar_begin(
 }
 
 /// Add a single toolbar item.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_tool_bar_add_item(
     _handle: *mut NeomacsDisplay,
     index: c_int,
@@ -1360,7 +1360,7 @@ pub unsafe extern "C" fn neomacs_display_tool_bar_add_item(
 }
 
 /// Finish collecting toolbar items and send to render thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_tool_bar_end(
     _handle: *mut NeomacsDisplay,
     fg_color: u32,
@@ -1389,7 +1389,7 @@ pub unsafe extern "C" fn neomacs_display_tool_bar_end(
 }
 
 /// Configure toolbar appearance.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_tool_bar_config(
     _handle: *mut NeomacsDisplay,
     icon_size: c_int,
@@ -1413,7 +1413,7 @@ thread_local! {
 }
 
 /// Begin collecting menu bar items. Call before add_item calls.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_menu_bar_begin(
     _handle: *mut NeomacsDisplay,
     count: c_int,
@@ -1430,7 +1430,7 @@ pub unsafe extern "C" fn neomacs_display_menu_bar_begin(
 }
 
 /// Add a single menu bar item.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_menu_bar_add_item(
     _handle: *mut NeomacsDisplay,
     index: c_int,
@@ -1458,7 +1458,7 @@ pub unsafe extern "C" fn neomacs_display_menu_bar_add_item(
 }
 
 /// Finish collecting menu bar items and send to render thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_menu_bar_end(
     _handle: *mut NeomacsDisplay,
     fg_color: u32,

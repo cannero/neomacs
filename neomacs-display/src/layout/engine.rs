@@ -6777,7 +6777,7 @@ unsafe fn char_advance(
     let face_w = if face_char_w > 0.0 { face_char_w } else { char_w };
 
     // Cosmic-text path: use FontMetricsService for measurement
-    if let Some(ref mut svc) = font_metrics_svc {
+    if let Some(svc) = font_metrics_svc {
         let font_size_f = font_size as f32;
         return svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
     }

@@ -9,7 +9,7 @@ use super::*;
 // ============================================================================
 
 /// Begin a new glyph row for the current window
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_begin_row(
     handle: *mut NeomacsDisplay,
     y: c_int,  // Frame-absolute Y coordinate
@@ -37,7 +37,7 @@ pub unsafe extern "C" fn neomacs_display_begin_row(
 }
 
 /// Add a character glyph to the current row
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_char_glyph(
     handle: *mut NeomacsDisplay,
     charcode: u32,
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn neomacs_display_add_char_glyph(
 }
 
 /// Add a stretch (whitespace) glyph to the current row
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_stretch_glyph(
     handle: *mut NeomacsDisplay,
     pixel_width: c_int,
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn neomacs_display_add_stretch_glyph(
 }
 
 /// Add an image glyph to the current row
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_image_glyph(
     handle: *mut NeomacsDisplay,
     image_id: u32,
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn neomacs_display_add_image_glyph(
 }
 
 /// End the current row
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_end_row(handle: *mut NeomacsDisplay) {
     // Currently a no-op, but could be used for row finalization
     let _ = handle;
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn neomacs_display_end_row(handle: *mut NeomacsDisplay) {
 
 /// Register or update a face
 /// Colors are in 0xRRGGBB format
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_face(
     handle: *mut NeomacsDisplay,
     face_id: u32,
@@ -377,7 +377,7 @@ pub unsafe extern "C" fn neomacs_display_set_face(
 
 /// Set the frame/scene background color
 /// Color is in 0xRRGGBB format
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_background(
     handle: *mut NeomacsDisplay,
     color: u32,  // 0xRRGGBB
@@ -405,7 +405,7 @@ pub unsafe extern "C" fn neomacs_display_set_background(
 
 /// Set the frame/scene background alpha (for transparent backgrounds).
 /// alpha is 0.0 (fully transparent) to 1.0 (fully opaque).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_background_alpha(
     handle: *mut NeomacsDisplay,
     alpha: f32,

@@ -65,7 +65,7 @@ pub fn match_pattern(
             Opcode::Succeed => {
                 // Match succeeded
                 reg_ends[0] = pos as i64;
-                if let Some(ref mut r) = regs {
+                if let Some(r) = regs {
                     let n = r.num_regs.min(num_regs);
                     for i in 0..n {
                         r.starts[i] = reg_starts[i];
@@ -646,7 +646,7 @@ pub fn search(
 
             if let Some(end_pos) = match_pattern(pattern, input, pos, props, regs) {
                 // Update register 0 with match start
-                if let Some(ref mut r) = regs {
+                if let Some(r) = regs {
                     r.starts[0] = pos as i64;
                     r.ends[0] = end_pos as i64;
                 }
@@ -666,7 +666,7 @@ pub fn search(
             }
 
             if let Some(end_pos) = match_pattern(pattern, input, pos, props, regs) {
-                if let Some(ref mut r) = regs {
+                if let Some(r) = regs {
                     r.starts[0] = pos as i64;
                     r.ends[0] = end_pos as i64;
                 }

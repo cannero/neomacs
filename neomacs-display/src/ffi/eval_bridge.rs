@@ -16,7 +16,7 @@ static mut RUST_EVALUATOR: Option<neovm_core::emacs_core::Evaluator> = None;
 /// # Safety
 /// Must be called from the Emacs main thread before any other eval_bridge
 /// functions.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_eval_init() -> c_int {
     if (*std::ptr::addr_of!(RUST_EVALUATOR)).is_some() {
         return 0; // already initialized
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn neomacs_rust_eval_init() -> c_int {
 ///
 /// # Safety
 /// `input` must be a valid, NUL-terminated UTF-8 C string.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_eval_string(input: *const c_char) -> *mut c_char {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if input.is_null() {
@@ -128,7 +128,7 @@ pub unsafe extern "C" fn neomacs_rust_eval_string(input: *const c_char) -> *mut 
 /// # Safety
 /// `s` must be a pointer returned by `neomacs_rust_eval_string`, or NULL.
 /// Each pointer must be freed exactly once.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_free_string(s: *mut c_char) {
     if !s.is_null() {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -147,7 +147,7 @@ pub unsafe extern "C" fn neomacs_rust_free_string(s: *mut c_char) {
 /// # Safety
 /// May be called from any thread, but the result is only meaningful on the
 /// Emacs main thread (where initialization happens).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_eval_ready() -> c_int {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if (*std::ptr::addr_of!(RUST_EVALUATOR)).is_some() {
@@ -175,7 +175,7 @@ pub unsafe extern "C" fn neomacs_rust_eval_ready() -> c_int {
 ///
 /// # Safety
 /// `path` must be a valid, NUL-terminated C string.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_load_file(path: *const c_char) -> c_int {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if path.is_null() {
@@ -271,7 +271,7 @@ const XK_END: c_int = 0xFF57;
 ///
 /// # Safety
 /// Must be called from the Emacs main thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_handle_key(
     keysym: c_int,
     modifiers: c_int,
@@ -460,7 +460,7 @@ pub(crate) unsafe fn get_evaluator_mut() -> Option<&'static mut neovm_core::emac
 ///
 /// # Safety
 /// Must be called from the Emacs main thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_bootstrap_frame(
     width: c_int,
     height: c_int,
@@ -583,7 +583,7 @@ pub unsafe extern "C" fn neomacs_rust_bootstrap_frame(
 ///
 /// # Safety
 /// Must be called from the Emacs main thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_sync_frame_size(
     width: c_int,
     height: c_int,
@@ -637,7 +637,7 @@ pub unsafe extern "C" fn neomacs_rust_sync_frame_size(
 ///
 /// # Safety
 /// `paths` must be a valid, NUL-terminated C string.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_set_load_path(paths: *const c_char) -> c_int {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if paths.is_null() {

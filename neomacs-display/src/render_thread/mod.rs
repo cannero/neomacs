@@ -2311,7 +2311,7 @@ impl RenderApp {
         if !self.child_frames.is_empty() {
             for &child_id in self.child_frames.sorted_for_rendering() {
                 if let Some(child_entry) = self.child_frames.frames.get(&child_id) {
-                    if let (Some(ref renderer), Some(ref mut glyph_atlas)) =
+                    if let (Some(renderer), Some(glyph_atlas)) =
                         (&self.renderer, &mut self.glyph_atlas)
                     {
                         // Pass animated cursor only if it belongs to this child frame
@@ -2340,7 +2340,7 @@ impl RenderApp {
 
         // Render breadcrumb/path bar overlay
         if self.effects.breadcrumb.enabled {
-            if let (Some(ref mut renderer), Some(ref mut glyph_atlas), Some(ref frame)) =
+            if let (Some(renderer), Some(glyph_atlas), Some(frame)) =
                 (&mut self.renderer, &mut self.glyph_atlas, &self.current_frame)
             {
                 renderer.render_breadcrumbs(&surface_view, frame, glyph_atlas);
@@ -2349,7 +2349,7 @@ impl RenderApp {
 
         // Render scroll position indicators and focus ring
         if self.scroll_indicators_enabled {
-            if let (Some(ref renderer), Some(ref frame)) =
+            if let (Some(renderer), Some(frame)) =
                 (&self.renderer, &self.current_frame)
             {
                 renderer.render_scroll_indicators(
@@ -2361,7 +2361,7 @@ impl RenderApp {
 
         // Render window watermarks for empty/small buffers
         if self.effects.window_watermark.enabled {
-            if let (Some(ref renderer), Some(ref mut glyph_atlas), Some(ref frame)) =
+            if let (Some(renderer), Some(glyph_atlas), Some(frame)) =
                 (&self.renderer, &mut self.glyph_atlas, &self.current_frame)
             {
                 renderer.render_window_watermarks(&surface_view, frame, glyph_atlas);
@@ -2372,7 +2372,7 @@ impl RenderApp {
         tracing::debug!("CSD state: decorations_enabled={} is_fullscreen={} titlebar_height={}",
             self.chrome.decorations_enabled, self.chrome.is_fullscreen, self.chrome.titlebar_height);
         if !self.chrome.decorations_enabled && !self.chrome.is_fullscreen && self.chrome.titlebar_height > 0.0 {
-            if let (Some(ref renderer), Some(ref mut glyph_atlas)) =
+            if let (Some(renderer), Some(glyph_atlas)) =
                 (&self.renderer, &mut self.glyph_atlas)
             {
                 let frame_bg = self.current_frame.as_ref()
@@ -2400,7 +2400,7 @@ impl RenderApp {
 
         // Render menu bar overlay
         if self.menu_bar_height > 0.0 && !self.menu_bar_items.is_empty() {
-            if let (Some(ref renderer), Some(ref mut glyph_atlas)) =
+            if let (Some(renderer), Some(glyph_atlas)) =
                 (&self.renderer, &mut self.glyph_atlas)
             {
                 renderer.render_menu_bar(
@@ -2440,7 +2440,7 @@ impl RenderApp {
 
         // Render popup menu overlay (topmost layer)
         if let Some(ref menu) = self.popup_menu {
-            if let (Some(ref renderer), Some(ref mut glyph_atlas)) =
+            if let (Some(renderer), Some(glyph_atlas)) =
                 (&self.renderer, &mut self.glyph_atlas)
             {
                 renderer.render_popup_menu(&surface_view, menu, glyph_atlas, self.width, self.height);
@@ -2449,7 +2449,7 @@ impl RenderApp {
 
         // Render tooltip overlay (above everything including popup menu)
         if let Some(ref tip) = self.tooltip {
-            if let (Some(ref renderer), Some(ref mut glyph_atlas)) =
+            if let (Some(renderer), Some(glyph_atlas)) =
                 (&self.renderer, &mut self.glyph_atlas)
             {
                 renderer.render_tooltip(&surface_view, tip, glyph_atlas, self.width, self.height);
@@ -2458,7 +2458,7 @@ impl RenderApp {
 
         // Render IME preedit text overlay at cursor position
         if self.ime_preedit_active && !self.ime_preedit_text.is_empty() {
-            if let (Some(ref renderer), Some(ref mut glyph_atlas), Some(ref target)) =
+            if let (Some(renderer), Some(glyph_atlas), Some(target)) =
                 (&self.renderer, &mut self.glyph_atlas, &self.cursor.target)
             {
                 renderer.render_ime_preedit(
@@ -2516,7 +2516,7 @@ impl RenderApp {
                     transition_count, self.width, self.height),
             ];
 
-            if let (Some(ref renderer), Some(ref mut glyph_atlas)) =
+            if let (Some(renderer), Some(glyph_atlas)) =
                 (&self.renderer, &mut self.glyph_atlas)
             {
                 renderer.render_fps_overlay(
@@ -2552,7 +2552,7 @@ impl RenderApp {
             self.displayed_wpm += (target_wpm as f32 - self.displayed_wpm) * alpha;
             if self.displayed_wpm < 0.5 { self.displayed_wpm = 0.0; }
 
-            if let (Some(ref renderer), Some(ref mut glyph_atlas), Some(ref frame)) =
+            if let (Some(renderer), Some(glyph_atlas), Some(frame)) =
                 (&self.renderer, &mut self.glyph_atlas, &self.current_frame)
             {
                 renderer.render_typing_speed(&surface_view, frame, glyph_atlas, self.displayed_wpm);

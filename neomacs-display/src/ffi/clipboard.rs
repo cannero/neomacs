@@ -8,7 +8,7 @@ use super::*;
 
 /// Set clipboard text.  The text is a UTF-8 C string.
 /// Returns 0 on success, -1 on failure.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_clipboard_set_text(text: *const c_char) -> c_int {
     if text.is_null() {
         return -1;
@@ -35,7 +35,7 @@ pub unsafe extern "C" fn neomacs_clipboard_set_text(text: *const c_char) -> c_in
 /// Get clipboard text.  Returns a newly allocated UTF-8 C string
 /// that the caller must free with neomacs_clipboard_free_text(),
 /// or NULL if the clipboard is empty or an error occurred.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_clipboard_get_text() -> *mut c_char {
     match arboard::Clipboard::new() {
         Ok(mut clipboard) => match clipboard.get_text() {
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn neomacs_clipboard_get_text() -> *mut c_char {
 }
 
 /// Free a string returned by neomacs_clipboard_get_text().
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_clipboard_free_text(text: *mut c_char) {
     if !text.is_null() {
         drop(CString::from_raw(text));
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn neomacs_clipboard_free_text(text: *mut c_char) {
 /// Set primary selection text.  The text is a UTF-8 C string.
 /// Returns 0 on success, -1 on failure.
 #[cfg(target_os = "linux")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_primary_selection_set_text(text: *const c_char) -> c_int {
     use arboard::{LinuxClipboardKind, SetExtLinux};
     if text.is_null() {
@@ -99,7 +99,7 @@ pub unsafe extern "C" fn neomacs_primary_selection_set_text(text: *const c_char)
 }
 
 #[cfg(not(target_os = "linux"))]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_primary_selection_set_text(_text: *const c_char) -> c_int {
     -1
 }
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn neomacs_primary_selection_set_text(_text: *const c_char
 /// that the caller must free with neomacs_clipboard_free_text(),
 /// or NULL if the selection is empty or an error occurred.
 #[cfg(target_os = "linux")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_primary_selection_get_text() -> *mut c_char {
     use arboard::{GetExtLinux, LinuxClipboardKind};
     match arboard::Clipboard::new() {
@@ -133,7 +133,7 @@ pub unsafe extern "C" fn neomacs_primary_selection_get_text() -> *mut c_char {
 }
 
 #[cfg(not(target_os = "linux"))]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_primary_selection_get_text() -> *mut c_char {
     ptr::null_mut()
 }

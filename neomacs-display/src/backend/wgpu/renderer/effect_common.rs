@@ -60,7 +60,7 @@ pub(super) fn find_cursor_pos(
     animated_cursor: &Option<AnimatedCursor>,
     frame_glyphs: &FrameGlyphBuffer,
 ) -> Option<(f32, f32, f32, f32)> {
-    if let Some(ref anim) = animated_cursor {
+    if let Some(anim) = animated_cursor {
         return Some((anim.x, anim.y, anim.width, anim.height));
     }
     for glyph in &frame_glyphs.glyphs {

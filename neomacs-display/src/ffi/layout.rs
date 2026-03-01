@@ -26,7 +26,7 @@ pub(crate) static mut PENDING_COSMIC_METRICS: Option<bool> = None;
 ///
 /// # Safety
 /// Must be called on the Emacs thread. All pointers must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_layout_frame(
     handle: *mut NeomacsDisplay,
     frame_ptr: *mut c_void,
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn neomacs_rust_layout_frame(
 ///
 /// # Safety
 /// Must be called on the Emacs main thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_rust_layout_frame_neovm() -> c_int {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Get the evaluator (mutable for fontification pass)
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn neomacs_rust_layout_frame_neovm() -> c_int {
 ///
 /// # Safety
 /// Must be called on the Emacs thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_layout_charpos_at_pixel(
     px: f32,
     py: f32,
@@ -240,7 +240,7 @@ pub unsafe extern "C" fn neomacs_layout_charpos_at_pixel(
 ///
 /// # Safety
 /// Must be called on the Emacs thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_layout_window_charpos(
     window_id: i64,
     wx: f32,
@@ -261,7 +261,7 @@ pub unsafe extern "C" fn neomacs_layout_window_charpos(
 ///
 /// # Safety
 /// Must be called on the Emacs thread.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_font_backend(
     _handle: *mut NeomacsDisplay,
     backend: c_int,

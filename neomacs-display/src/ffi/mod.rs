@@ -124,7 +124,7 @@ impl NeomacsDisplay {
 ///
 /// # Safety
 /// The handle must have been returned by neomacs_display_init_threaded.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_shutdown(handle: *mut NeomacsDisplay) {
     if handle.is_null() {
         return;
@@ -144,7 +144,7 @@ pub unsafe extern "C" fn neomacs_display_shutdown(handle: *mut NeomacsDisplay) {
 // ============================================================================
 
 /// Get backend name
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_backend_name(handle: *mut NeomacsDisplay) -> *const c_char {
     if handle.is_null() {
         return b"null\0".as_ptr() as *const c_char;
@@ -159,7 +159,7 @@ pub unsafe extern "C" fn neomacs_display_backend_name(handle: *mut NeomacsDispla
 }
 
 /// Check if backend is initialized
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_is_initialized(handle: *mut NeomacsDisplay) -> c_int {
     if handle.is_null() {
         return 0;
@@ -179,7 +179,7 @@ pub type ResizeCallbackFn = extern "C" fn(user_data: *mut c_void, width: c_int, 
 /// Set the resize callback for winit windows.
 ///
 /// The callback will be invoked when the window is resized.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_resize_callback(
     callback: ResizeCallbackFn,
     user_data: *mut c_void,

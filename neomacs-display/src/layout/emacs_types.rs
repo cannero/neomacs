@@ -708,7 +708,7 @@ impl Default for StructOffsets {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     fn neomacs_get_struct_offsets(out: *mut StructOffsets);
     fn neomacs_layout_marker_position(marker: LispObject) -> i64;
 }

@@ -1434,7 +1434,7 @@ impl WgpuRenderer {
                         let face = faces.get(face_id);
 
                         // Look up or create the glyph texture
-                        let cached_opt = if let Some(ref text) = composed {
+                        let cached_opt = if let Some(text) = composed {
                             // Composed grapheme cluster (emoji ZWJ, combining marks, etc.)
                             glyph_atlas.get_or_create_composed(
                                 &self.device, &self.queue,
@@ -1494,7 +1494,7 @@ impl WgpuRenderer {
                             if !want_overlay && (glyph_y + glyph_h > 24.0 && glyph_y < 32.0) {
                                 tracing::debug!(
                                     "glyph_near_y27: char='{}' face={} pos=({:.1},{:.1}) size=({:.1},{:.1}) ascent={:.1} bottom={:.1} fg=({:.3},{:.3},{:.3},{:.3}) is_color={} cell=({:.1},{:.1},{:.1})",
-                                    if let Some(ref text) = composed { text.to_string() } else { format!("{}", *char as u8 as char) },
+                                    if let Some(text) = composed { text.to_string() } else { format!("{}", *char as u8 as char) },
                                     face_id, glyph_x, glyph_y, glyph_w, glyph_h, *ascent,
                                     glyph_y + glyph_h,
                                     color[0], color[1], color[2], color[3],
@@ -1505,7 +1505,7 @@ impl WgpuRenderer {
                             if !want_overlay && *y < 1.0 {
                                 tracing::debug!(
                                     "first_row_glyph: char='{}' face={} cell=({:.1},{:.1},{:.1}) glyph_pos=({:.1},{:.1}) glyph_size=({:.1},{:.1}) ascent={:.1} fg=({:.3},{:.3},{:.3})",
-                                    if let Some(ref text) = composed { text.to_string() } else { format!("{}", *char as u8 as char) },
+                                    if let Some(text) = composed { text.to_string() } else { format!("{}", *char as u8 as char) },
                                     face_id, *x, *y, *width,
                                     glyph_x, glyph_y, glyph_w, glyph_h, *ascent,
                                     color[0], color[1], color[2],
@@ -1539,7 +1539,7 @@ impl WgpuRenderer {
                                 None
                             };
 
-                            if let Some(ref text) = composed {
+                            if let Some(text) = composed {
                                 let ckey = ComposedGlyphKey {
                                     text: text.clone(),
                                     face_id: *face_id,
@@ -1683,7 +1683,7 @@ impl WgpuRenderer {
                     render_pass.set_pipeline(&self.glyph_pipeline);
                     render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-                    for (ref ckey, verts) in &composed_mask_data {
+                    for (ckey, verts) in &composed_mask_data {
                         if let Some(cached) = glyph_atlas.get_composed(ckey) {
                             let vbuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                 label: Some("Composed Glyph VB"),
@@ -1702,7 +1702,7 @@ impl WgpuRenderer {
                     render_pass.set_pipeline(&self.image_pipeline);
                     render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-                    for (ref ckey, verts) in &composed_color_data {
+                    for (ckey, verts) in &composed_color_data {
                         if let Some(cached) = glyph_atlas.get_composed(ckey) {
                             let vbuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                 label: Some("Composed Color Glyph VB"),

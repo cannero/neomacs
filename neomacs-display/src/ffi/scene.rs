@@ -9,7 +9,7 @@ use super::*;
 // ============================================================================
 
 /// Resize the display
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_resize(
     handle: *mut NeomacsDisplay,
     width: c_int,
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn neomacs_display_resize(
 }
 
 /// Begin building a new frame
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_begin_frame(handle: *mut NeomacsDisplay) {
     if handle.is_null() {
         return;
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn neomacs_display_begin_frame(handle: *mut NeomacsDisplay
 
 /// Set frame identity for child frame support.
 /// Called after begin_frame_window, before glyphs are added.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_frame_identity(
     handle: *mut NeomacsDisplay,
     frame_id: u64,
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn neomacs_display_set_frame_identity(
 }
 
 /// Add a window to the current frame
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_window(
     handle: *mut NeomacsDisplay,
     window_id: c_int,
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn neomacs_display_add_window(
 }
 
 /// Add per-window metadata for animation detection
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_window_info(
     handle: *mut NeomacsDisplay,
     window_id: i64,
@@ -211,7 +211,7 @@ pub unsafe extern "C" fn neomacs_display_add_window_info(
 }
 
 /// Set cursor for a specific window
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_cursor(
     handle: *mut NeomacsDisplay,
     window_id: c_int,
@@ -282,7 +282,7 @@ pub unsafe extern "C" fn neomacs_display_set_cursor(
 /// Called from C for style 0 (filled box) cursors. Provides the cursor
 /// background color (the cursor rect) and cursor foreground color (for
 /// redrawing the character under the cursor in inverse video).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_set_cursor_inverse(
     handle: *mut NeomacsDisplay,
     x: f32,
@@ -305,7 +305,7 @@ pub unsafe extern "C" fn neomacs_display_set_cursor_inverse(
 }
 
 /// Draw a border rectangle (for window dividers)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_draw_border(
     handle: *mut NeomacsDisplay,
     x: c_int,
@@ -341,7 +341,7 @@ pub unsafe extern "C" fn neomacs_display_draw_border(
 }
 
 /// Add a GPU-rendered scroll bar
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn neomacs_display_add_scroll_bar(
     handle: *mut NeomacsDisplay,
     horizontal: c_int,

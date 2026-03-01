@@ -61,7 +61,7 @@ struct IteratorState {
 // ============================================================================
 
 /// Create a new interval tree. Returns an opaque handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn rust_itree_create() -> *mut RustItreeTree {
     let tree = Box::new(ItreeTree::new());
     Box::into_raw(tree) as *mut RustItreeTree
@@ -71,7 +71,7 @@ pub extern "C" fn rust_itree_create() -> *mut RustItreeTree {
 ///
 /// # Safety
 /// `tree` must be a valid pointer returned by `rust_itree_create`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_destroy(tree: *mut RustItreeTree) {
     if tree.is_null() {
         return;
@@ -83,7 +83,7 @@ pub unsafe extern "C" fn rust_itree_destroy(tree: *mut RustItreeTree) {
 ///
 /// # Safety
 /// `tree` must be a valid pointer.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_clear(tree: *mut RustItreeTree) {
     if tree.is_null() {
         return;
@@ -96,7 +96,7 @@ pub unsafe extern "C" fn rust_itree_clear(tree: *mut RustItreeTree) {
 ///
 /// # Safety
 /// `tree` must be a valid pointer.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_size(tree: *mut RustItreeTree) -> i64 {
     if tree.is_null() {
         return 0;
@@ -109,7 +109,7 @@ pub unsafe extern "C" fn rust_itree_size(tree: *mut RustItreeTree) -> i64 {
 ///
 /// # Safety
 /// `tree` must be a valid pointer or null.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_empty_p(tree: *mut RustItreeTree) -> c_int {
     if tree.is_null() {
         return 1;
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn rust_itree_empty_p(tree: *mut RustItreeTree) -> c_int {
 ///
 /// # Safety
 /// `tree` must be a valid pointer.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_create(
     tree: *mut RustItreeTree,
     front_advance: c_int,
@@ -145,7 +145,7 @@ pub unsafe extern "C" fn rust_itree_node_create(
 ///
 /// # Safety
 /// `tree` must be valid. `node` must be a valid handle for a node not in the tree.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_destroy(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -167,7 +167,7 @@ pub unsafe extern "C" fn rust_itree_node_destroy(
 ///
 /// # Safety
 /// `tree` and `node` must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_begin(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn rust_itree_node_begin(
 ///
 /// # Safety
 /// `tree` and `node` must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_end(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -207,7 +207,7 @@ pub unsafe extern "C" fn rust_itree_node_end(
 ///
 /// # Safety
 /// `tree` and `node` must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_data(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn rust_itree_node_data(
 ///
 /// # Safety
 /// `tree` and `node` must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_front_advance(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -247,7 +247,7 @@ pub unsafe extern "C" fn rust_itree_node_front_advance(
 ///
 /// # Safety
 /// `tree` and `node` must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_rear_advance(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -271,7 +271,7 @@ pub unsafe extern "C" fn rust_itree_node_rear_advance(
 ///
 /// # Safety
 /// `tree` must be valid. `node` must be a valid handle not currently in the tree.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_insert(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -293,7 +293,7 @@ pub unsafe extern "C" fn rust_itree_insert(
 ///
 /// # Safety
 /// `tree` must be valid. `node` must be in the tree.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_remove(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -314,7 +314,7 @@ pub unsafe extern "C" fn rust_itree_remove(
 ///
 /// # Safety
 /// `tree` must be valid. `node` must be in the tree.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_node_set_region(
     tree: *mut RustItreeTree,
     node: RustItreeNodeHandle,
@@ -336,7 +336,7 @@ pub unsafe extern "C" fn rust_itree_node_set_region(
 ///
 /// # Safety
 /// `tree` must be valid or null.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_insert_gap(
     tree: *mut RustItreeTree,
     pos: i64,
@@ -354,7 +354,7 @@ pub unsafe extern "C" fn rust_itree_insert_gap(
 ///
 /// # Safety
 /// `tree` must be valid or null.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_delete_gap(
     tree: *mut RustItreeTree,
     pos: i64,
@@ -376,7 +376,7 @@ pub unsafe extern "C" fn rust_itree_delete_gap(
 ///
 /// # Safety
 /// `tree` must be valid and non-null.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_iterator_start(
     tree: *mut RustItreeTree,
     begin: i64,
@@ -403,7 +403,7 @@ pub unsafe extern "C" fn rust_itree_iterator_start(
 ///
 /// # Safety
 /// `tree` and `iter` must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_iterator_next(
     tree: *mut RustItreeTree,
     iter: *mut RustItreeIterator,
@@ -442,7 +442,7 @@ pub unsafe extern "C" fn rust_itree_iterator_next(
 ///
 /// # Safety
 /// `iter` must be valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_iterator_narrow(
     iter: *mut RustItreeIterator,
     begin: i64,
@@ -464,7 +464,7 @@ pub unsafe extern "C" fn rust_itree_iterator_narrow(
 ///
 /// # Safety
 /// `iter` must have been returned by `rust_itree_iterator_start`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn rust_itree_iterator_destroy(iter: *mut RustItreeIterator) {
     if iter.is_null() {
         return;
