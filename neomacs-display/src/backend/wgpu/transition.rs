@@ -210,7 +210,7 @@ mod tests {
     // Returns None if no GPU adapter is available (headless CI, etc.).
     // ---------------------------------------------------------------
     fn make_test_textures() -> Option<(Arc<wgpu::Texture>, Arc<wgpu::Texture>)> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -218,13 +218,12 @@ mod tests {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
-        }))?;
+        })).ok()?;
         let (device, _queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("test device"),
                 ..Default::default()
             },
-            None,
         ))
         .ok()?;
 

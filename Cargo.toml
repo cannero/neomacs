@@ -50,8 +50,8 @@ image = "0.24"
 
 # GPU / windowing
 winit = "0.30"
-wgpu = "23"
-wgpu-hal = { version = "23", features = ["vulkan"] }
+wgpu = "28"
+wgpu-hal = { version = "28", features = ["vulkan"] }
 raw-window-handle = "0.6"
 ash = "0.38"
 pollster = "0.4"

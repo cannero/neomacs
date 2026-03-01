@@ -130,7 +130,7 @@ impl MultiWindowManager {
                     let phys = window.inner_size();
 
                     // Create surface for this window
-                    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
                         backends: wgpu::Backends::all(),
                         ..Default::default()
                     });

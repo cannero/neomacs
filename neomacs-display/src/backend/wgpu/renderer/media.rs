@@ -221,10 +221,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load, // Preserve existing content
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.opaque_image_pipeline);

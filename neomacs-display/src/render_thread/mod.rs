@@ -470,7 +470,7 @@ impl RenderApp {
         tracing::info!("Initializing wgpu for render thread");
 
         // Create wgpu instance
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -490,9 +490,9 @@ impl RenderApp {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         })) {
-            Some(a) => a,
-            None => {
-                tracing::error!("Failed to find suitable GPU adapter");
+            Ok(a) => a,
+            Err(e) => {
+                tracing::error!("Failed to find suitable GPU adapter: {:?}", e);
                 return;
             }
         };
@@ -513,8 +513,9 @@ impl RenderApp {
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
             },
-            None,
         )) {
             Ok((d, q)) => (d, q),
             Err(e) => {

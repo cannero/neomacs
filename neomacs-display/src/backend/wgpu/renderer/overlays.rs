@@ -73,10 +73,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
 
                 // --- Drop shadow ---
@@ -139,10 +141,12 @@ impl WgpuRenderer {
                                     load: wgpu::LoadOp::Load,
                                     store: wgpu::StoreOp::Store,
                                 },
+                                depth_slice: None,
                             })],
                             depth_stencil_attachment: None,
                             timestamp_writes: None,
                             occlusion_query_set: None,
+                            multiview_mask: None,
                         });
                         let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Child Frame BG Buffer"),
@@ -166,10 +170,12 @@ impl WgpuRenderer {
                                 load: wgpu::LoadOp::Load,
                                 store: wgpu::StoreOp::Store,
                             },
+                            depth_slice: None,
                         })],
                         depth_stencil_attachment: None,
                         timestamp_writes: None,
                         occlusion_query_set: None,
+                        multiview_mask: None,
                     });
                     let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Child Frame BG Buffer"),
@@ -208,10 +214,12 @@ impl WgpuRenderer {
                                 load: wgpu::LoadOp::Load,
                                 store: wgpu::StoreOp::Store,
                             },
+                            depth_slice: None,
                         })],
                         depth_stencil_attachment: None,
                         timestamp_writes: None,
                         occlusion_query_set: None,
+                        multiview_mask: None,
                     });
                     let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Child Frame Border Buffer"),
@@ -275,10 +283,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load, // Don't clear - render on top
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.image_pipeline);
@@ -490,10 +500,12 @@ impl WgpuRenderer {
                                 load: wgpu::LoadOp::Load,
                                 store: wgpu::StoreOp::Store,
                             },
+                            depth_slice: None,
                         })],
                         depth_stencil_attachment: None,
                         timestamp_writes: None,
                         occlusion_query_set: None,
+                        multiview_mask: None,
                     });
                     pass.set_pipeline(&self.rect_pipeline);
                     pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -653,10 +665,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.glyph_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -812,10 +826,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.image_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -931,10 +947,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1096,10 +1114,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1257,10 +1277,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.rect_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1338,10 +1360,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1423,10 +1447,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.corner_mask_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1671,10 +1697,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1770,10 +1798,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1851,10 +1881,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.rect_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1931,10 +1963,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.rect_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -2022,10 +2056,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -2160,10 +2196,12 @@ impl WgpuRenderer {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -2187,10 +2225,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.image_pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);

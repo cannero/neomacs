@@ -432,7 +432,7 @@ impl WgpuRenderer {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Rect Pipeline Layout"),
             bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         // Determine the target format
@@ -474,8 +474,8 @@ impl WgpuRenderer {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         // Load rounded rect shader (SDF-based rounded borders)
@@ -519,8 +519,8 @@ impl WgpuRenderer {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         // Corner mask pipeline: uses the same SDF rounded rect shader but with
@@ -572,8 +572,8 @@ impl WgpuRenderer {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         // Load glyph shader
@@ -610,7 +610,7 @@ impl WgpuRenderer {
         let glyph_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Glyph Pipeline Layout"),
             bind_group_layouts: &[&bind_group_layout, &glyph_bind_group_layout],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         // Create glyph pipeline
@@ -648,8 +648,8 @@ impl WgpuRenderer {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         // Create image cache (also creates its bind group layout)
@@ -676,7 +676,7 @@ impl WgpuRenderer {
         let image_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Image Pipeline Layout"),
             bind_group_layouts: &[&bind_group_layout, image_cache.bind_group_layout()],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         // Create image pipeline (similar to glyph but for RGBA textures)
@@ -714,8 +714,8 @@ impl WgpuRenderer {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         // Opaque image pipeline — for XRGB/BGRX DMA-BUF textures where alpha=0x00.
@@ -754,8 +754,8 @@ impl WgpuRenderer {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         // Create surface_config from format if we have a surface
@@ -886,7 +886,7 @@ impl WgpuRenderer {
         height: u32,
     ) -> Result<Self, String> {
         // Create wgpu instance
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -899,7 +899,7 @@ impl WgpuRenderer {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or_else(|| "Failed to find a suitable GPU adapter".to_string())?;
+            .map_err(|e| format!("Failed to find a suitable GPU adapter: {}", e))?;
 
         // Request device and queue
         let (device, queue) = adapter
@@ -909,8 +909,9 @@ impl WgpuRenderer {
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
                     memory_hints: Default::default(),
+                    experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                    trace: wgpu::Trace::Off,
                 },
-                None,
             )
             .await
             .map_err(|e| format!("Failed to create device: {}", e))?;
@@ -1162,10 +1163,12 @@ impl WgpuRenderer {
                         }),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.rect_pipeline);
@@ -1533,10 +1536,12 @@ impl WgpuRenderer {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.image_pipeline);

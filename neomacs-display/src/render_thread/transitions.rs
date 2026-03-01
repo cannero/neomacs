@@ -146,13 +146,13 @@ impl RenderApp {
             label: Some("Snapshot Copy Encoder"),
         });
         encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: prev_tex,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &snap,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,

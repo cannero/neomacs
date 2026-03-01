@@ -159,7 +159,7 @@ impl WinitBackend {
         }
 
         // Create wgpu instance
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -170,7 +170,7 @@ impl WinitBackend {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
-        .ok_or_else(|| DisplayError::InitFailed("Failed to find a suitable GPU adapter".to_string()))?;
+        .map_err(|e| DisplayError::InitFailed(format!("Failed to find a suitable GPU adapter: {}", e)))?;
 
         // Store adapter info for GPU device identification (needed for WPE WebKit)
         let adapter_info = adapter.get_info();
@@ -185,8 +185,9 @@ impl WinitBackend {
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
             },
-            None,
         ))
         .map_err(|e| DisplayError::InitFailed(format!("Failed to create device: {}", e)))?;
 
@@ -324,7 +325,7 @@ impl WinitBackend {
         self.height = size.height;
 
         // Create wgpu instance
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -342,7 +343,7 @@ impl WinitBackend {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         }))
-        .ok_or_else(|| DisplayError::InitFailed("Failed to find a suitable GPU adapter".to_string()))?;
+        .map_err(|e| DisplayError::InitFailed(format!("Failed to find a suitable GPU adapter: {}", e)))?;
 
         // Store adapter info for GPU device identification (needed for WPE WebKit)
         let adapter_info = adapter.get_info();
@@ -357,8 +358,9 @@ impl WinitBackend {
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                trace: wgpu::Trace::Off,
             },
-            None,
         ))
         .map_err(|e| DisplayError::InitFailed(format!("Failed to create device: {}", e)))?;
 
