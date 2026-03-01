@@ -5071,6 +5071,88 @@ fn oracle_prop_combination_subr_plus_anonymous_around_lifecycle_matrix() {
 }
 
 #[test]
+fn oracle_prop_combination_subr_cross_target_same_name_override_isolation_matrix() {
+    return_if_neovm_enable_oracle_proptest_not_set!();
+
+    let form = format!(
+        "(progn
+           (fset 'neovm--combo-ct-name-ov-plus (lambda (x y) x))
+           (fset 'neovm--combo-ct-name-ov-minus (lambda (x y) y))
+           (unwind-protect
+               (list
+                 (progn
+                   (advice-add '+ :override 'neovm--combo-ct-name-ov-plus '((name . neovm--combo-ct-name-shared)))
+                   (list
+                     (+ {a} {b})
+                     (funcall '+ {a} {b})
+                     (apply '+ (list {a} {b}))
+                     (- {a} {b})
+                     (funcall '- {a} {b})
+                     (apply '- (list {a} {b}))
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '-) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '-) t nil)))
+                 (progn
+                   (advice-add '- :override 'neovm--combo-ct-name-ov-minus '((name . neovm--combo-ct-name-shared)))
+                   (list
+                     (+ {a} {b})
+                     (funcall '+ {a} {b})
+                     (apply '+ (list {a} {b}))
+                     (- {a} {b})
+                     (funcall '- {a} {b})
+                     (apply '- (list {a} {b}))
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '-) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '-) t nil)))
+                 (progn
+                   (advice-remove '+ 'neovm--combo-ct-name-ov-plus)
+                   (list
+                     (+ {a} {b})
+                     (funcall '+ {a} {b})
+                     (apply '+ (list {a} {b}))
+                     (- {a} {b})
+                     (funcall '- {a} {b})
+                     (apply '- (list {a} {b}))
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '-) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '-) t nil)))
+                 (progn
+                   (advice-remove '- 'neovm--combo-ct-name-ov-minus)
+                   (list
+                     (+ {a} {b})
+                     (funcall '+ {a} {b})
+                     (apply '+ (list {a} {b}))
+                     (- {a} {b})
+                     (funcall '- {a} {b})
+                     (apply '- (list {a} {b}))
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '+) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-plus '-) t nil)
+                     (if (advice-member-p 'neovm--combo-ct-name-ov-minus '-) t nil))))
+             (condition-case nil
+                 (advice-remove '+ 'neovm--combo-ct-name-ov-plus)
+               (error nil))
+             (condition-case nil
+                 (advice-remove '+ 'neovm--combo-ct-name-ov-minus)
+               (error nil))
+             (condition-case nil
+                 (advice-remove '- 'neovm--combo-ct-name-ov-plus)
+               (error nil))
+             (condition-case nil
+                 (advice-remove '- 'neovm--combo-ct-name-ov-minus)
+               (error nil))
+             (fmakunbound 'neovm--combo-ct-name-ov-plus)
+             (fmakunbound 'neovm--combo-ct-name-ov-minus)))",
+        a = 8i64,
+        b = 3i64,
+    );
+    assert_oracle_parity(&form);
+}
+
+#[test]
 fn oracle_prop_combination_subr_plus_same_name_override_replacement_matrix() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
@@ -7917,6 +7999,91 @@ proptest! {
                    (condition-case nil
                        (advice-remove '+ adv)
                      (error nil)))))",
+            a = a,
+            b = b,
+        );
+        assert_oracle_parity(&form);
+    }
+
+    #[test]
+    fn oracle_prop_combination_subr_cross_target_same_name_override_isolation_consistency(
+        a in -1_000i64..1_000i64,
+        b in -1_000i64..1_000i64,
+    ) {
+        return_if_neovm_enable_oracle_proptest_not_set!(Ok(()));
+
+        let form = format!(
+            "(progn
+               (fset 'neovm--combo-prop-ct-name-ov-plus (lambda (x y) x))
+               (fset 'neovm--combo-prop-ct-name-ov-minus (lambda (x y) y))
+               (unwind-protect
+                   (list
+                     (progn
+                       (advice-add '+ :override 'neovm--combo-prop-ct-name-ov-plus '((name . neovm--combo-prop-ct-name-shared)))
+                       (list
+                         (+ {a} {b})
+                         (funcall '+ {a} {b})
+                         (apply '+ (list {a} {b}))
+                         (- {a} {b})
+                         (funcall '- {a} {b})
+                         (apply '- (list {a} {b}))
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '-) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '-) t nil)))
+                     (progn
+                       (advice-add '- :override 'neovm--combo-prop-ct-name-ov-minus '((name . neovm--combo-prop-ct-name-shared)))
+                       (list
+                         (+ {a} {b})
+                         (funcall '+ {a} {b})
+                         (apply '+ (list {a} {b}))
+                         (- {a} {b})
+                         (funcall '- {a} {b})
+                         (apply '- (list {a} {b}))
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '-) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '-) t nil)))
+                     (progn
+                       (advice-remove '+ 'neovm--combo-prop-ct-name-ov-plus)
+                       (list
+                         (+ {a} {b})
+                         (funcall '+ {a} {b})
+                         (apply '+ (list {a} {b}))
+                         (- {a} {b})
+                         (funcall '- {a} {b})
+                         (apply '- (list {a} {b}))
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '-) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '-) t nil)))
+                     (progn
+                       (advice-remove '- 'neovm--combo-prop-ct-name-ov-minus)
+                       (list
+                         (+ {a} {b})
+                         (funcall '+ {a} {b})
+                         (apply '+ (list {a} {b}))
+                         (- {a} {b})
+                         (funcall '- {a} {b})
+                         (apply '- (list {a} {b}))
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '+) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-plus '-) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-ct-name-ov-minus '-) t nil))))
+                 (condition-case nil
+                     (advice-remove '+ 'neovm--combo-prop-ct-name-ov-plus)
+                   (error nil))
+                 (condition-case nil
+                     (advice-remove '+ 'neovm--combo-prop-ct-name-ov-minus)
+                   (error nil))
+                 (condition-case nil
+                     (advice-remove '- 'neovm--combo-prop-ct-name-ov-plus)
+                   (error nil))
+                 (condition-case nil
+                     (advice-remove '- 'neovm--combo-prop-ct-name-ov-minus)
+                   (error nil))
+                 (fmakunbound 'neovm--combo-prop-ct-name-ov-plus)
+                 (fmakunbound 'neovm--combo-prop-ct-name-ov-minus)))",
             a = a,
             b = b,
         );
