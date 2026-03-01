@@ -124,9 +124,11 @@ mod combination_dynamic_programming;
 mod combination_elisp_idioms;
 mod combination_encoding_algorithms;
 mod combination_error_handling;
+mod combination_finite_automata;
 mod combination_string_advanced;
 mod combination_string_algorithms;
 mod combination_string_formatting;
+mod combination_string_parsing;
 mod combination_functional;
 mod combination_functional_advanced;
 mod combination_functional_programming;
@@ -142,6 +144,7 @@ mod combination_list_algorithms;
 mod combination_logic_puzzles;
 mod combination_macro_patterns;
 mod combination_mathematical_structures;
+mod combination_matrix_operations;
 mod combination_metaprogramming;
 mod combination_mini_languages;
 mod combination_numeric_algorithms;
@@ -151,10 +154,12 @@ mod combination_parsing;
 mod combination_patterns;
 mod combination_problem_solving;
 mod combination_protocol_implementations;
+mod combination_queue_stack;
 mod combination_property_list_patterns;
 mod combination_real_world;
 mod combination_real_world_elisp;
 mod combination_recursion;
+mod combination_serialization;
 mod combination_simulation;
 mod combination_sorting;
 mod combination_state_machines;
@@ -163,6 +168,7 @@ mod combination_text_formatting;
 mod combination_text_processing;
 mod combination_tree_algorithms;
 mod combination_type_systems;
+mod combination_validation;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
 mod compare_strings;
@@ -190,6 +196,8 @@ mod count_lines_advanced;
 mod current_buffer;
 #[path = "current-column-advanced.rs"]
 mod current_column_advanced;
+#[path = "defalias-advanced.rs"]
+mod defalias_advanced;
 #[path = "defmacro-advanced.rs"]
 mod defmacro_advanced;
 #[path = "defmacro-macroexpand.rs"]
@@ -320,7 +328,11 @@ mod make_symbol;
 mod make_vector_advanced;
 #[path = "map-operations.rs"]
 mod map_operations;
+#[path = "mapc-operations.rs"]
+mod mapc_operations;
 mod mapcar;
+#[path = "mapconcat-advanced.rs"]
+mod mapconcat_advanced;
 #[path = "marker-operations.rs"]
 mod marker_operations;
 #[path = "match-beginning.rs"]
@@ -403,10 +415,14 @@ mod recursion_advanced;
 mod regexp_advanced;
 #[path = "regexp-operations.rs"]
 mod regexp_operations;
+#[path = "regexp-operations-advanced.rs"]
+mod regexp_operations_advanced;
 #[path = "regexp-quote-advanced.rs"]
 mod regexp_quote_advanced;
 #[path = "regexp-replace-advanced.rs"]
 mod regexp_replace_advanced;
+#[path = "replace-match-advanced.rs"]
+mod replace_match_advanced;
 mod reverse;
 #[path = "safe-length-operations.rs"]
 mod safe_length_operations;
@@ -475,6 +491,8 @@ mod string_match_p;
 mod string_to_number;
 #[path = "string-version-lessp.rs"]
 mod string_version_lessp;
+#[path = "string-width-advanced.rs"]
+mod string_width_advanced;
 #[path = "subr-predicates.rs"]
 mod subr_predicates;
 mod substring;
