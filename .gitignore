@@ -400,6 +400,7 @@ exec/*.s.s
 src/macuvs.h
 
 # Rust build artifacts
+rust/target/
 rust/neomacs-display/target/
 rust/neomacs-bin/target/
 rust/neovm-*/target/
