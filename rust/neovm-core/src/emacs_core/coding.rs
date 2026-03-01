@@ -1827,6 +1827,45 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
         "latin-extra-code-table",
         Value::vector(vec![Value::Nil; 256]),
     );
+
+    // coding.c:11927 — DEFVAR_LISP (Vcoding_system_list)
+    obarray.set_symbol_value("coding-system-list", Value::Nil);
+    // coding.c:11930 — DEFVAR_LISP (Vcoding_system_alist)
+    obarray.set_symbol_value("coding-system-alist", Value::Nil);
+    // coding.c:11935 — DEFVAR_LISP (Vcoding_category_list)
+    obarray.set_symbol_value("coding-category-list", Value::Nil);
+    // coding.c:11941 — DEFVAR_LISP (Vcoding_system_for_read)
+    obarray.set_symbol_value("coding-system-for-read", Value::Nil);
+    // coding.c:11949 — DEFVAR_LISP (Vcoding_system_for_write)
+    obarray.set_symbol_value("coding-system-for-write", Value::Nil);
+    // coding.c:11959 — DEFVAR_LISP (Vlast_code_conversion_error)
+    obarray.set_symbol_value("last-code-conversion-error", Value::Nil);
+    // coding.c:11999 — DEFVAR_LISP (Vlocale_coding_system)
+    obarray.set_symbol_value("locale-coding-system", Value::Nil);
+    // coding.c:12014 — DEFVAR_LISP (Veol_mnemonic_unix)
+    obarray.set_symbol_value("eol-mnemonic-unix", Value::string(":"));
+    // coding.c:12019 — DEFVAR_LISP (Veol_mnemonic_dos)
+    obarray.set_symbol_value("eol-mnemonic-dos", Value::string("\\"));
+    // coding.c:12024 — DEFVAR_LISP (Veol_mnemonic_mac)
+    obarray.set_symbol_value("eol-mnemonic-mac", Value::string("/"));
+    // coding.c:12029 — DEFVAR_LISP (Veol_mnemonic_undecided)
+    obarray.set_symbol_value("eol-mnemonic-undecided", Value::string(":"));
+    // coding.c:12036 — DEFVAR_LISP (Venable_character_translation)
+    obarray.set_symbol_value("enable-character-translation", Value::True);
+    // coding.c:12046 — DEFVAR_LISP (Vstandard_translation_table_for_decode)
+    obarray.set_symbol_value("standard-translation-table-for-decode", Value::Nil);
+    // coding.c:12050 — DEFVAR_LISP (Vstandard_translation_table_for_encode)
+    obarray.set_symbol_value("standard-translation-table-for-encode", Value::Nil);
+    // coding.c:12054 — DEFVAR_LISP (Vcharset_revision_table)
+    obarray.set_symbol_value("charset-revision-table", Value::Nil);
+    // coding.c:12072 — DEFVAR_LISP (Vselect_safe_coding_system_function)
+    obarray.set_symbol_value("select-safe-coding-system-function", Value::Nil);
+    // coding.c:12085 — DEFVAR_LISP (Vtranslation_table_for_input)
+    obarray.set_symbol_value("translation-table-for-input", Value::Nil);
+    // coding.c:11993 — DEFVAR_LISP (Vnetwork_coding_system_alist)
+    obarray.set_symbol_value("network-coding-system-alist", Value::Nil);
+    // coding.c:11996 — DEFVAR_LISP (Vprocess_coding_system_alist)
+    obarray.set_symbol_value("process-coding-system-alist", Value::Nil);
 }
 
 // ===========================================================================
