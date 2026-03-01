@@ -2,6 +2,8 @@
 
 mod abs;
 mod advice;
+#[path = "alist-get.rs"]
+mod alist_get;
 mod r#and;
 mod apply;
 mod arithmetic;
@@ -30,6 +32,8 @@ mod char_table_extra_slot;
 #[path = "char-to-string.rs"]
 mod char_to_string;
 mod charset;
+#[path = "cl-lib-patterns.rs"]
+mod cl_lib_patterns;
 mod closure;
 mod coding;
 #[path = "concat-extended.rs"]
@@ -41,6 +45,7 @@ mod coding_metadata;
 #[path = "coding-string.rs"]
 mod coding_string;
 mod combination;
+mod combination_advanced;
 mod combination_complex;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
@@ -102,6 +107,8 @@ mod make_list;
 #[path = "make-string.rs"]
 mod make_string;
 mod mapcar;
+#[path = "math-functions.rs"]
+mod math_functions;
 #[path = "match-beginning.rs"]
 mod match_beginning;
 #[path = "match-end.rs"]
@@ -144,6 +151,8 @@ mod signal;
 mod setq;
 mod sort;
 mod string;
+#[path = "string-manipulation.rs"]
+mod string_manipulation;
 #[path = "string-distance.rs"]
 mod string_distance;
 #[path = "string-equal.rs"]
@@ -161,6 +170,8 @@ mod symbol;
 #[path = "syntax-table.rs"]
 mod syntax_table;
 mod take;
+#[path = "text-properties.rs"]
+mod text_properties;
 mod r#throw;
 #[path = "type-of.rs"]
 mod type_of;
@@ -172,3 +183,5 @@ mod upcase_downcase;
 mod vector;
 mod when;
 mod r#while;
+#[path = "with-temp-buffer.rs"]
+mod with_temp_buffer;
