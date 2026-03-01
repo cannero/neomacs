@@ -47,6 +47,7 @@ mod coding_string;
 mod combination;
 mod combination_advanced;
 mod combination_complex;
+mod combination_patterns;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
 mod compare_strings;
@@ -54,6 +55,8 @@ mod comparison;
 mod cond;
 #[path = "condition-case.rs"]
 mod condition_case;
+#[path = "condition-case-extended.rs"]
+mod condition_case_extended;
 #[path = "copy-alist.rs"]
 mod copy_alist;
 mod coverage;
@@ -74,6 +77,8 @@ mod equality;
 mod eval;
 mod event_convert_list;
 mod format;
+#[path = "format-extended.rs"]
+mod format_extended;
 #[path = "forward-char.rs"]
 mod forward_char;
 #[path = "forward-line.rs"]
@@ -86,6 +91,8 @@ mod r#get;
 mod goto_char;
 #[path = "hash-table.rs"]
 mod hash_table;
+#[path = "hash-table-extended.rs"]
+mod hash_table_extended;
 mod r#if;
 mod insert;
 #[path = "interactive-patterns.rs"]
@@ -150,6 +157,8 @@ mod setcdr;
 mod signal;
 mod setq;
 mod sort;
+#[path = "sort-extended.rs"]
+mod sort_extended;
 mod string;
 #[path = "string-manipulation.rs"]
 mod string_manipulation;
