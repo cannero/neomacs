@@ -388,7 +388,7 @@ _FRAME is ignored; the menu opens on the selected frame."
   "Toggle scroll position indicators and active window focus ring."
   :global t
   :group 'frames
-  :init-value t
+  :init-value nil
   (neomacs-set-scroll-indicators neomacs-scroll-indicator-mode))
 
 ;;; Desktop notifications

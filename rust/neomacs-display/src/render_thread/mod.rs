@@ -447,7 +447,7 @@ impl RenderApp {
             ime_preedit_active: false,
             ime_preedit_text: String::new(),
             last_ime_cursor_area: None,
-            scroll_indicators_enabled: true,
+            scroll_indicators_enabled: false,
             chrome: WindowChrome::default(),
             fps: FpsCounter::default(),
             extra_line_spacing: 0.0,
