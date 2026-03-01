@@ -849,6 +849,345 @@ pub fn register_bootstrap_vars(obarray: &mut super::symbol::Obarray) {
     obarray.set_symbol_value("macroexp--dynvars", Value::Nil);
 }
 
+/// Create an Evaluator with the full Emacs bootstrap loaded (like GNU
+/// Emacs's dumped state).  Mirrors the loadup.el boot sequence.
+pub fn create_bootstrap_evaluator() -> Result<super::eval::Evaluator, EvalError> {
+    // Discover the project root (contains lisp/ directory).
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    assert!(
+        lisp_dir.is_dir(),
+        "lisp/ directory not found at {}",
+        lisp_dir.display()
+    );
+
+    let mut eval = super::eval::Evaluator::new();
+
+    // Set up load-path with lisp/ and its subdirectories.
+    let subdirs = [
+        "", "emacs-lisp", "progmodes", "language", "international",
+        "textmodes", "vc", "leim",
+    ];
+    let mut load_path_entries = Vec::new();
+    for sub in &subdirs {
+        let dir = if sub.is_empty() {
+            lisp_dir.clone()
+        } else {
+            lisp_dir.join(sub)
+        };
+        if dir.is_dir() {
+            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+        }
+    }
+    eval.set_variable("load-path", Value::list(load_path_entries));
+    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+    eval.set_variable("purify-flag", Value::Nil);
+    eval.set_variable("max-lisp-eval-depth", Value::Int(4200));
+    eval.set_variable("inhibit-load-charset-map", Value::True);
+    // data-directory: directory of machine-independent data files (etc/)
+    let etc_dir = project_root.join("etc");
+    eval.set_variable(
+        "data-directory",
+        Value::string(format!("{}/", etc_dir.to_string_lossy())),
+    );
+    // source-directory: top-level source tree
+    eval.set_variable(
+        "source-directory",
+        Value::string(format!("{}/", project_root.to_string_lossy())),
+    );
+    eval.set_variable(
+        "installation-directory",
+        Value::string(format!("{}/", project_root.to_string_lossy())),
+    );
+
+    // exec-path: list of dirs from PATH env var (C: callproc.c init_callproc_1)
+    let path_dirs: Vec<Value> = std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .filter(|s| !s.is_empty())
+        .map(|s| Value::string(s.to_string()))
+        .collect();
+    eval.set_variable("exec-path", Value::list(path_dirs));
+    eval.set_variable("exec-suffixes", Value::Nil);
+    eval.set_variable("exec-directory", Value::Nil);
+
+    // menu-bar-final-items: list of menu-bar items to put at end (C: xmenu.c)
+    eval.set_variable(
+        "menu-bar-final-items",
+        Value::list(vec![Value::symbol("help-menu")]),
+    );
+
+    // glyphless-char-display: char-table for glyphless character display
+    // (C: xdisp.c syms_of_xdisp). First register extra slots, then create.
+    {
+        let stubs = [
+            "(put 'glyphless-char-display 'char-table-extra-slots 1)",
+            "(setq glyphless-char-display (make-char-table 'glyphless-char-display nil))",
+            "(set-char-table-extra-slot glyphless-char-display 0 'empty-box)",
+        ];
+        for stub in &stubs {
+            if let Ok(forms) = crate::emacs_core::parser::parse_forms(stub) {
+                let _ = eval.eval_forms(&forms);
+            }
+        }
+    }
+
+    // Suppress eager macro expansion during the bootstrap phase
+    // (mirrors real Emacs loadup.el which wraps pcase loading with
+    // `(let ((macroexp--pending-eager-loads '(skip))) ...)`.
+    eval.set_variable(
+        "macroexp--pending-eager-loads",
+        Value::list(vec![Value::symbol("skip")]),
+    );
+
+    // The files loadup.el loads, in order (excluding conditional
+    // blocks we can't satisfy yet).
+    let files = [
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+        "keymap",
+        "version",
+        "widget",
+        "custom",
+        "emacs-lisp/map-ynp",
+        "international/mule",
+        "international/mule-conf",
+        "env",
+        "format",
+        "bindings",
+        "window",
+        "files",
+        "emacs-lisp/macroexp",
+        "emacs-lisp/pcase",
+        "!enable-eager-expansion",
+        "emacs-lisp/macroexp",  // Re-load
+        "emacs-lisp/inline",
+        "cus-face",
+        "faces",
+        "!bootstrap-cl-preloaded-stubs",
+        "!require-gv",
+        "!load-ldefs-boot",
+        "button",
+        "emacs-lisp/cl-preloaded",
+        "emacs-lisp/oclosure",
+        "obarray",
+        "abbrev",
+        "help",
+        "jka-cmpr-hook",
+        "epa-hook",
+        "international/mule-cmds",
+        "case-table",
+        "international/characters",
+        "composite",
+        "language/chinese",
+        "language/cyrillic",
+        "language/indian",
+        "language/sinhala",
+        "language/english",
+        "language/ethiopic",
+        "language/european",
+        "language/czech",
+        "language/slovak",
+        "language/romanian",
+        "language/greek",
+        "language/hebrew",
+        "international/cp51932",
+        "international/eucjp-ms",
+        "language/japanese",
+        "language/korean",
+        "language/lao",
+        "language/tai-viet",
+        "language/thai",
+        "language/tibetan",
+        "language/vietnamese",
+        "language/misc-lang",
+        "language/utf-8-lang",
+        "language/georgian",
+        "language/khmer",
+        "language/burmese",
+        "language/cham",
+        "language/philippine",
+        "language/indonesian",
+        "indent",
+        "emacs-lisp/cl-generic",
+        "simple",
+        "emacs-lisp/seq",
+        "emacs-lisp/nadvice",
+        "emacs-lisp/cl-lib",
+        "minibuffer",
+        "frame",
+        "startup",
+        "term/tty-colors",
+        "font-core",
+        "emacs-lisp/syntax",
+        "font-lock",
+        "jit-lock",
+        "mouse",
+        "select",
+        "emacs-lisp/timer",
+        "emacs-lisp/easymenu",
+        "isearch",
+        "rfn-eshadow",
+        "menu-bar",
+        "tab-bar",
+        "emacs-lisp/lisp",
+        "textmodes/page",
+        "register",
+        "textmodes/paragraphs",
+        "progmodes/prog-mode",
+        "emacs-lisp/rx",
+        "emacs-lisp/lisp-mode",
+        "textmodes/text-mode",
+        "textmodes/fill",
+        "newcomment",
+        "replace",
+        "emacs-lisp/tabulated-list",
+        "buff-menu",
+        "fringe",
+        "emacs-lisp/regexp-opt",
+        "image",
+        "international/fontset",
+        "dnd",
+        "tool-bar",
+        "progmodes/elisp-mode",
+        "emacs-lisp/float-sup",
+        "vc/vc-hooks",
+        "vc/ediff-hook",
+        "uniquify",
+        "electric",
+        "paren",
+        "emacs-lisp/shorthands",
+        "emacs-lisp/eldoc",
+        "emacs-lisp/cconv",
+        "tooltip",
+        "international/iso-transl",
+        "emacs-lisp/rmc",
+    ];
+
+    let load_path = get_load_path(&eval.obarray());
+    let total_files = files.len();
+
+    for (file_idx, name) in files.iter().enumerate() {
+        // Handle sentinel that enables eager expansion.
+        if *name == "!enable-eager-expansion" {
+            eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
+            tracing::info!("--- eager macro expansion ENABLED ---");
+            continue;
+        }
+        // Handle sentinel for loading ldefs-boot.el (autoload definitions).
+        if *name == "!load-ldefs-boot" {
+            let ldefs_path = lisp_dir.join("ldefs-boot.el");
+            if ldefs_path.exists() {
+                tracing::info!("LOADING: ldefs-boot.el ...");
+                let start = std::time::Instant::now();
+                match load_file(&mut eval, &ldefs_path) {
+                    Ok(_) => {
+                        tracing::info!("  OK: ldefs-boot.el ({:.2?})", start.elapsed());
+                    }
+                    Err(e) => {
+                        let msg = format!("{e:?}");
+                        tracing::error!("FAIL: ldefs-boot.el => {msg}");
+                        return Err(e);
+                    }
+                }
+            } else {
+                tracing::warn!("SKIP: ldefs-boot.el (not found)");
+            }
+            continue;
+        }
+        // Pre-define minimal cl-preloaded stubs so cl-macs can load.
+        if *name == "!bootstrap-cl-preloaded-stubs" {
+            let stubs = [
+                "(defmacro cl--find-class (type) `(get ,type 'cl--class))",
+                "(defun cl--builtin-type-p (name) nil)",
+                "(defun cl--struct-name-p (name) (and name (symbolp name) (not (keywordp name))))",
+                "(defvar cl-struct-cl-structure-object-tags nil)",
+                "(defvar cl--struct-default-parent nil)",
+                "(defun cl-struct-define (name docstring parent type named slots children-sym tag print) (when children-sym (if (boundp children-sym) (add-to-list children-sym tag) (set children-sym (list tag)))))",
+                "(defun cl--define-derived-type (name expander predicate &optional parents) nil)",
+                "(defmacro cl-function (func) `(function ,func))",
+            ];
+            for stub in &stubs {
+                match crate::emacs_core::parser::parse_forms(stub) {
+                    Ok(forms) => {
+                        let results = eval.eval_forms(&forms);
+                        for r in &results {
+                            if let Err(e) = r {
+                                tracing::error!("bootstrap stub failed: {stub} => {e:?}");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("bootstrap stub parse failed: {stub} => {e:?}");
+                    }
+                }
+            }
+            tracing::info!("--- cl-preloaded bootstrap stubs defined ---");
+            continue;
+        }
+        // Handle sentinel for (require 'gv) — mirrors loadup.el line 199.
+        if *name == "!require-gv" {
+            tracing::info!("LOADING: (require 'gv) ...");
+            let start = std::time::Instant::now();
+            match eval.require_value(Value::symbol("gv"), None, None) {
+                Ok(_) => {
+                    tracing::info!("  OK: (require 'gv) ({:.2?})", start.elapsed());
+                }
+                Err(e) => {
+                    let msg = format!("{e:?}");
+                    tracing::warn!("  WARN: (require 'gv) failed: {msg}");
+                }
+            }
+            continue;
+        }
+        tracing::info!("[{}/{}] LOADING: {name} ...", file_idx + 1, total_files);
+        let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
+        let start = std::time::Instant::now();
+        match find_file_in_load_path(name, &load_path) {
+            Some(path) => match load_file(&mut eval, &path) {
+                Ok(_) => {
+                    let dh = eval.macro_cache_hits - h0;
+                    let dm = eval.macro_cache_misses - m0;
+                    tracing::info!("  OK: {name} ({:.2?}) [cache hit={dh} miss={dm}]", start.elapsed());
+                }
+                Err(e) => {
+                    let msg = match &e {
+                        EvalError::Signal { symbol, data } => {
+                            let sym = super::intern::resolve_sym(*symbol);
+                            let data_strs: Vec<String> =
+                                data.iter().map(|v| format!("{v}")).collect();
+                            format!("({sym} {})", data_strs.join(" "))
+                        }
+                        EvalError::UncaughtThrow { tag, value } => {
+                            format!("(throw {tag} {value})")
+                        }
+                    };
+                    tracing::error!("FAIL: {name} => {msg}");
+                    return Err(e);
+                }
+            },
+            None => {
+                tracing::error!("SKIP: {name} (not found in load-path)");
+                return Err(EvalError::Signal {
+                    symbol: intern("error"),
+                    data: vec![Value::string(format!(
+                        "loadup bootstrap: file not found: {name}"
+                    ))],
+                });
+            }
+        }
+    }
+
+    tracing::info!("\n=== LOADUP BOOTSTRAP COMPLETE ===");
+    Ok(eval)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1631,377 +1970,8 @@ mod tests {
             .with_test_writer()
             .try_init();
 
-        // Discover the project root (contains lisp/ directory).
-        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let project_root = manifest
-            .parent()
-            .and_then(|p| p.parent())
-            .expect("project root");
-        let lisp_dir = project_root.join("lisp");
-        assert!(
-            lisp_dir.is_dir(),
-            "lisp/ directory not found at {}",
-            lisp_dir.display()
-        );
-
-        let mut eval = crate::emacs_core::eval::Evaluator::new();
-
-        // Set up load-path with lisp/ and its subdirectories.
-        let subdirs = [
-            "", "emacs-lisp", "progmodes", "language", "international",
-            "textmodes", "vc", "leim",
-        ];
-        let mut load_path_entries = Vec::new();
-        for sub in &subdirs {
-            let dir = if sub.is_empty() {
-                lisp_dir.clone()
-            } else {
-                lisp_dir.join(sub)
-            };
-            if dir.is_dir() {
-                load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
-            }
-        }
-        eval.set_variable("load-path", Value::list(load_path_entries));
-        eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-        eval.set_variable("purify-flag", Value::Nil);
-        eval.set_variable("max-lisp-eval-depth", Value::Int(4200));
-        eval.set_variable("inhibit-load-charset-map", Value::True);
-        // data-directory: directory of machine-independent data files (etc/)
-        let etc_dir = project_root.join("etc");
-        eval.set_variable(
-            "data-directory",
-            Value::string(format!("{}/", etc_dir.to_string_lossy())),
-        );
-        // source-directory: top-level source tree
-        eval.set_variable(
-            "source-directory",
-            Value::string(format!("{}/", project_root.to_string_lossy())),
-        );
-        eval.set_variable(
-            "installation-directory",
-            Value::string(format!("{}/", project_root.to_string_lossy())),
-        );
-
-        // exec-path: list of dirs from PATH env var (C: callproc.c init_callproc_1)
-        let path_dirs: Vec<Value> = std::env::var("PATH")
-            .unwrap_or_default()
-            .split(':')
-            .filter(|s| !s.is_empty())
-            .map(|s| Value::string(s.to_string()))
-            .collect();
-        eval.set_variable("exec-path", Value::list(path_dirs));
-        eval.set_variable("exec-suffixes", Value::Nil);
-        eval.set_variable("exec-directory", Value::Nil);
-
-        // menu-bar-final-items: list of menu-bar items to put at end (C: xmenu.c)
-        eval.set_variable(
-            "menu-bar-final-items",
-            Value::list(vec![Value::symbol("help-menu")]),
-        );
-
-        // glyphless-char-display: char-table for glyphless character display
-        // (C: xdisp.c syms_of_xdisp). First register extra slots, then create.
-        {
-            let stubs = [
-                "(put 'glyphless-char-display 'char-table-extra-slots 1)",
-                "(setq glyphless-char-display (make-char-table 'glyphless-char-display nil))",
-                "(set-char-table-extra-slot glyphless-char-display 0 'empty-box)",
-            ];
-            for stub in &stubs {
-                if let Ok(forms) = crate::emacs_core::parser::parse_forms(stub) {
-                    let _ = eval.eval_forms(&forms);
-                }
-            }
-        }
-
-        // Suppress eager macro expansion during the bootstrap phase
-        // (mirrors real Emacs loadup.el which wraps pcase loading with
-        // `(let ((macroexp--pending-eager-loads '(skip))) ...)`.
-        // Without this, nested loads from files.el would try to eagerly
-        // expand using the un-preexpanded macroexp--expand-all, which is
-        // extremely slow because each call triggers pcase re-expansion.
-        eval.set_variable(
-            "macroexp--pending-eager-loads",
-            Value::list(vec![Value::symbol("skip")]),
-        );
-
-        // The files loadup.el loads, in order (excluding conditional
-        // blocks we can't satisfy yet).
-        let files = [
-            "emacs-lisp/debug-early",
-            "emacs-lisp/byte-run",
-            "emacs-lisp/backquote",
-            "subr",
-            "keymap",
-            "version",
-            "widget",
-            "custom",
-            "emacs-lisp/map-ynp",
-            "international/mule",
-            "international/mule-conf",
-            "env",
-            "format",
-            "bindings",
-            "window",
-            "files",
-            "emacs-lisp/macroexp",
-            "emacs-lisp/pcase",
-            // Enable eager expansion and re-load macroexp.  This mirrors
-            // real Emacs loadup.el lines 160-161: the re-load eagerly
-            // expands macroexp--expand-all's body (replacing pcase patterns
-            // with pre-expanded code), so all subsequent macroexpand-all
-            // calls are fast.
-            "!enable-eager-expansion",
-            "emacs-lisp/macroexp",  // Re-load
-            "emacs-lisp/inline",  // Provides define-inline (needed by cl-macs.el via cl-preloaded.el)
-            "cus-face",
-            "faces",
-            // cl-preloaded ↔ cl-lib circular dependency:
-            // cl-preloaded.el defines cl--struct-name-p, cl--find-class, etc.
-            // cl-macs (required by cl-lib during bootstrap) needs these stubs.
-            "!bootstrap-cl-preloaded-stubs",
-            // gv is needed by setf in subr.el and cl-preloaded.
-            "!require-gv",
-            // loaddefs — provides autoload stubs for regexp-opt, etc.
-            // Official Emacs loads this before button and cl-preloaded.
-            "!load-ldefs-boot",
-            "button",
-            // Match official Emacs loadup.el order:
-            // cl-preloaded → oclosure (before cl-generic).
-            "emacs-lisp/cl-preloaded",
-            "emacs-lisp/oclosure",
-            "obarray",
-            "abbrev",
-            "help",
-            "jka-cmpr-hook",
-            "epa-hook",
-            "international/mule-cmds",
-            "case-table",
-            "international/characters",
-            "composite",
-            "language/chinese",
-            "language/cyrillic",
-            "language/indian",
-            "language/sinhala",
-            "language/english",
-            "language/ethiopic",
-            "language/european",
-            "language/czech",
-            "language/slovak",
-            "language/romanian",
-            "language/greek",
-            "language/hebrew",
-            "international/cp51932",
-            "international/eucjp-ms",
-            "language/japanese",
-            "language/korean",
-            "language/lao",
-            "language/tai-viet",
-            "language/thai",
-            "language/tibetan",
-            "language/vietnamese",
-            "language/misc-lang",
-            "language/utf-8-lang",
-            "language/georgian",
-            "language/khmer",
-            "language/burmese",
-            "language/cham",
-            "language/philippine",
-            "language/indonesian",
-            "indent",
-            "emacs-lisp/cl-generic",
-            "simple",
-            "emacs-lisp/seq",
-            "emacs-lisp/nadvice",
-            // cl-lib depends on cl-generic, seq, nadvice — load AFTER them.
-            // Official Emacs doesn't load cl-lib during bootstrap, but NeoVM
-            // loads .el source which triggers require chains that need it.
-            "emacs-lisp/cl-lib",
-            "minibuffer",
-            "frame",
-            "startup",
-            "term/tty-colors",
-            "font-core",
-            "emacs-lisp/syntax",
-            "font-lock",
-            "jit-lock",
-            "mouse",
-            "select",
-            "emacs-lisp/timer",
-            "emacs-lisp/easymenu",
-            "isearch",
-            "rfn-eshadow",
-            "menu-bar",
-            "tab-bar",
-            "emacs-lisp/lisp",
-            "textmodes/page",
-            "register",
-            "textmodes/paragraphs",
-            "progmodes/prog-mode",
-            "emacs-lisp/rx",
-            "emacs-lisp/lisp-mode",
-            "textmodes/text-mode",
-            "textmodes/fill",
-            "newcomment",
-            "replace",
-            "emacs-lisp/tabulated-list",
-            "buff-menu",
-            "fringe",
-            "emacs-lisp/regexp-opt",
-            "image",
-            "international/fontset",
-            "dnd",
-            "tool-bar",
-            "progmodes/elisp-mode",
-            "emacs-lisp/float-sup",
-            "vc/vc-hooks",
-            "vc/ediff-hook",
-            "uniquify",
-            "electric",
-            "paren",
-            "emacs-lisp/shorthands",
-            "emacs-lisp/eldoc",
-            "emacs-lisp/cconv",
-            "tooltip",
-            "international/iso-transl",
-            "emacs-lisp/rmc",
-        ];
-
-        let load_path = get_load_path(&eval.obarray());
-        let mut succeeded = Vec::new();
-        let total_files = files.len();
-
-        for (file_idx, name) in files.iter().enumerate() {
-            // Handle sentinel that enables eager expansion.
-            if *name == "!enable-eager-expansion" {
-                eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
-                tracing::info!("--- eager macro expansion ENABLED ---");
-                continue;
-            }
-            // Handle sentinel for loading ldefs-boot.el (autoload definitions).
-            if *name == "!load-ldefs-boot" {
-                let ldefs_path = lisp_dir.join("ldefs-boot.el");
-                if ldefs_path.exists() {
-                    tracing::info!("LOADING: ldefs-boot.el ...");
-                    let start = std::time::Instant::now();
-                    match load_file(&mut eval, &ldefs_path) {
-                        Ok(_) => {
-                            tracing::info!("  OK: ldefs-boot.el ({:.2?})", start.elapsed());
-                            succeeded.push("ldefs-boot.el");
-                        }
-                        Err(e) => {
-                            let msg = format!("{e:?}");
-                            tracing::error!("FAIL: ldefs-boot.el => {msg}");
-                            panic!("loadup failed immediately: ldefs-boot.el => {msg}");
-                        }
-                    }
-                } else {
-                    tracing::warn!("SKIP: ldefs-boot.el (not found)");
-                }
-                continue;
-            }
-            // Pre-define minimal cl-preloaded stubs so cl-macs can load.
-            // cl-macs.el's cl-defstruct needs cl--struct-name-p and
-            // cl--find-class.  cl-preloaded.el will redefine them properly later.
-            if *name == "!bootstrap-cl-preloaded-stubs" {
-                let stubs = [
-                    // cl--find-class: macro that expands to (get TYPE 'cl--class)
-                    "(defmacro cl--find-class (type) `(get ,type 'cl--class))",
-                    // cl--builtin-type-p: during early bootstrap, no built-in types
-                    "(defun cl--builtin-type-p (name) nil)",
-                    // cl--struct-name-p: validates struct names
-                    "(defun cl--struct-name-p (name) (and name (symbolp name) (not (keywordp name))))",
-                    // Variables needed by cl-defstruct expansion
-                    "(defvar cl-struct-cl-structure-object-tags nil)",
-                    "(defvar cl--struct-default-parent nil)",
-                    // cl-struct-define: minimal stub for cl-defstruct eval-and-compile.
-                    // cl-preloaded.el will redefine this properly later.
-                    "(defun cl-struct-define (name docstring parent type named slots children-sym tag print) (when children-sym (if (boundp children-sym) (add-to-list children-sym tag) (set children-sym (list tag)))))",
-                    // cl--define-derived-type: stub for define-derived-mode's cl-deftype expansion.
-                    // Real signature: (name expander predicate &optional parents)
-                    "(defun cl--define-derived-type (name expander predicate &optional parents) nil)",
-                    // cl-function: minimal stub so cl-generic.el can macroexpand
-                    // `(cl-function (lambda ...))` to `(function (lambda ...))`.
-                    // cl-macs.el will redefine this properly later.
-                    "(defmacro cl-function (func) `(function ,func))",
-                ];
-                for stub in &stubs {
-                    match crate::emacs_core::parser::parse_forms(stub) {
-                        Ok(forms) => {
-                            let results = eval.eval_forms(&forms);
-                            for r in &results {
-                                if let Err(e) = r {
-                                    tracing::error!("bootstrap stub failed: {stub} => {e:?}");
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("bootstrap stub parse failed: {stub} => {e:?}");
-                        }
-                    }
-                }
-                tracing::info!("--- cl-preloaded bootstrap stubs defined ---");
-                continue;
-            }
-            // Handle sentinel for (require 'gv) — mirrors loadup.el line 199.
-            if *name == "!require-gv" {
-                tracing::info!("LOADING: (require 'gv) ...");
-                let start = std::time::Instant::now();
-                match eval.require_value(Value::symbol("gv"), None, None) {
-                    Ok(_) => {
-                        tracing::info!("  OK: (require 'gv) ({:.2?})", start.elapsed());
-                    }
-                    Err(e) => {
-                        let msg = format!("{e:?}");
-                        tracing::warn!("  WARN: (require 'gv) failed: {msg}");
-                    }
-                }
-                continue;
-            }
-            tracing::info!("[{}/{}] LOADING: {name} ...", file_idx + 1, total_files);
-            let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
-            let start = std::time::Instant::now();
-            match find_file_in_load_path(name, &load_path) {
-                Some(path) => match load_file(&mut eval, &path) {
-                    Ok(_) => {
-                        let dh = eval.macro_cache_hits - h0;
-                        let dm = eval.macro_cache_misses - m0;
-                        tracing::info!("  OK: {name} ({:.2?}) [cache hit={dh} miss={dm}]", start.elapsed());
-                        succeeded.push(*name);
-                    }
-                    Err(e) => {
-                        let msg = match &e {
-                            EvalError::Signal { symbol, data } => {
-                                let sym = resolve_sym(*symbol);
-                                let data_strs: Vec<String> =
-                                    data.iter().map(|v| format!("{v}")).collect();
-                                format!("({sym} {})", data_strs.join(" "))
-                            }
-                            EvalError::UncaughtThrow { tag, value } => {
-                                format!("(throw {tag} {value})")
-                            }
-                        };
-                        tracing::error!("FAIL: {name} => {msg}");
-                        panic!("loadup failed immediately: {name} => {msg}");
-                    }
-                },
-                None => {
-                    tracing::error!("SKIP: {name} (not found in load-path)");
-                    panic!("loadup failed immediately: {name} => file not found");
-                }
-            }
-        }
-
-        tracing::info!("\n=== LOADUP BOOTSTRAP RESULTS ===");
-        tracing::info!("Succeeded: {}/{}", succeeded.len(), files.len());
-        if !succeeded.is_empty() {
-            tracing::info!("\nSucceeded files:");
-            for name in &succeeded {
-                tracing::info!("  OK: {name}");
-            }
-        }
-        tracing::info!("================================\n");
+        let _eval = create_bootstrap_evaluator()
+            .expect("loadup bootstrap should succeed");
     }
 
     /// Minimal test: load enough files to get macroexpand-all + pcase working,

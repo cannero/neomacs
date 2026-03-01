@@ -110,7 +110,55 @@ pub(crate) fn run_oracle_eval(form: &str) -> Result<String, String> {
 }
 
 pub(crate) fn run_neovm_eval(form: &str) -> Result<String, String> {
+    run_neovm_eval_with_load(form, &[])
+}
+
+/// Run a NeoVM evaluation after pre-loading Elisp files.
+///
+/// `load_files` are paths relative to the project `lisp/` directory,
+/// loaded in order.  The caller is responsible for listing dependencies
+/// before dependents (e.g. `"emacs-lisp/oclosure.el"` before
+/// `"emacs-lisp/nadvice.el"`).
+pub(crate) fn run_neovm_eval_with_load(
+    form: &str,
+    load_files: &[&str],
+) -> Result<String, String> {
     let mut eval = Evaluator::new();
+
+    if !load_files.is_empty() {
+        // Set up load-path from the project's lisp/ tree so that any
+        // `require` calls inside the loaded files can find dependencies.
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let project_root = manifest
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("project root");
+        let lisp_dir = project_root.join("lisp");
+        let subdirs = [
+            "", "emacs-lisp", "progmodes", "language", "international",
+            "textmodes", "vc", "leim",
+        ];
+        let mut load_path_entries = Vec::new();
+        for sub in &subdirs {
+            let dir = if sub.is_empty() {
+                lisp_dir.clone()
+            } else {
+                lisp_dir.join(sub)
+            };
+            if dir.is_dir() {
+                load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+            }
+        }
+        eval.set_variable("load-path", Value::list(load_path_entries));
+
+        for file in load_files {
+            let path = lisp_dir.join(file);
+            eval.load_file_internal(&path).map_err(|e| {
+                format!("failed to load '{}': {e:?}", path.display())
+            })?;
+        }
+    }
+
     let forms = parse_forms(form).map_err(|e| format!("parse error: {e}"))?;
     let Some(first) = forms.first() else {
         return Err("no form parsed".to_string());
@@ -149,6 +197,46 @@ pub(crate) fn assert_ok_eq(expected_payload: &str, oracle: &str, neovm: &str) {
 
 pub(crate) fn assert_oracle_parity(form: &str) {
     let (oracle, neovm) = eval_oracle_and_neovm(form);
+    assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
+}
+
+pub(crate) fn assert_oracle_parity_with_load(form: &str, load_files: &[&str]) {
+    let oracle = run_oracle_eval(form).expect("oracle eval should run");
+    let neovm = run_neovm_eval_with_load(form, load_files).expect("neovm eval should run");
+    assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
+}
+
+/// Run a NeoVM evaluation using a fully bootstrapped evaluator.
+pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String> {
+    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator()
+        .map_err(|e| format!("bootstrap failed: {e:?}"))?;
+
+    let forms = parse_forms(form).map_err(|e| format!("parse error: {e}"))?;
+    let Some(first) = forms.first() else {
+        return Err("no form parsed".to_string());
+    };
+    let rendered = match eval.eval_expr(first) {
+        Ok(value) => format!("OK {}", print_value(&value)),
+        Err(EvalError::Signal { symbol, data }) => {
+            let mut values = Vec::with_capacity(data.len() + 1);
+            values.push(Value::Symbol(symbol));
+            values.extend(data);
+            format!("ERR {}", print_value(&Value::list(values)))
+        }
+        Err(EvalError::UncaughtThrow { tag, value }) => {
+            format!(
+                "ERR (no-catch {} {})",
+                print_value(&tag),
+                print_value(&value),
+            )
+        }
+    };
+    Ok(rendered)
+}
+
+pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
+    let oracle = run_oracle_eval(form).expect("oracle eval should run");
+    let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
     assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
 }
 
