@@ -21,6 +21,8 @@ mod apply_funcall_patterns;
 mod arithmetic;
 #[path = "arithmetic-advanced.rs"]
 mod arithmetic_advanced;
+#[path = "ash-logand-logior-patterns.rs"]
+mod ash_logand_logior_patterns;
 mod assoc;
 mod assq;
 #[path = "assoc-assq-advanced.rs"]
@@ -82,6 +84,8 @@ mod char_operations;
 mod char_syntax_advanced;
 #[path = "char-to-string.rs"]
 mod char_to_string;
+#[path = "char-width-advanced.rs"]
+mod char_width_advanced;
 mod charset;
 #[path = "charset-advanced.rs"]
 mod charset_advanced;
@@ -121,10 +125,12 @@ mod combination;
 mod combination_abstract_algebra;
 mod combination_abstract_data_types;
 mod combination_abstract_machines;
+mod combination_actor_model;
 mod combination_advanced;
 mod combination_advanced_error_handling;
 mod combination_algorithms;
 mod combination_algorithm_challenges;
+mod combination_automaton_patterns;
 mod combination_avl_tree;
 mod combination_alist_patterns;
 mod combination_buffer_advanced;
@@ -145,6 +151,7 @@ mod combination_compression;
 mod combination_complex;
 mod combination_consensus;
 mod combination_concurrent_patterns;
+mod combination_config_system;
 mod combination_constraint_solving;
 mod combination_contract_system;
 mod combination_control_flow;
@@ -211,13 +218,16 @@ mod combination_mini_languages;
 mod combination_monad_patterns;
 mod combination_numeric_algorithms;
 mod combination_numeric_patterns;
+mod combination_object_system;
 mod combination_oop_patterns;
 mod combination_parser_combinators;
+mod combination_parser_recursive_descent;
 mod combination_parsing;
 mod combination_pattern_matching;
 mod combination_patterns;
 mod combination_persistent_data;
 mod combination_problem_solving;
+mod combination_promise_patterns;
 mod combination_protocol_fsm;
 mod combination_protocol_implementations;
 mod combination_query_language;
@@ -339,6 +349,8 @@ mod eval_advanced_2;
 mod event_convert_list;
 #[path = "event-convert-advanced.rs"]
 mod event_convert_advanced;
+#[path = "expt-sqrt-log-patterns.rs"]
+mod expt_sqrt_log_patterns;
 #[path = "fillarray-operations.rs"]
 mod fillarray_operations;
 #[path = "following-char-operations.rs"]
@@ -350,6 +362,8 @@ mod format_advanced;
 mod format_extended;
 #[path = "format-extended-advanced.rs"]
 mod format_extended_advanced;
+#[path = "format-message-patterns.rs"]
+mod format_message_patterns;
 #[path = "format-patterns.rs"]
 mod format_patterns;
 #[path = "forward-char.rs"]
@@ -444,6 +458,8 @@ mod make_string_advanced;
 mod make_symbol;
 #[path = "make-vector-advanced.rs"]
 mod make_vector_advanced;
+#[path = "make-vector-patterns.rs"]
+mod make_vector_patterns;
 #[path = "map-operations.rs"]
 mod map_operations;
 #[path = "map-operations-advanced.rs"]
@@ -621,6 +637,8 @@ mod string;
 mod string_distance;
 #[path = "string-distance-advanced.rs"]
 mod string_distance_advanced;
+#[path = "string-distance-patterns.rs"]
+mod string_distance_patterns;
 #[path = "string-equal.rs"]
 mod string_equal;
 #[path = "string-lessp.rs"]
