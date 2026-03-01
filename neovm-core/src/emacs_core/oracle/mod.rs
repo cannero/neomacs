@@ -74,6 +74,7 @@ mod combination_elisp_idioms;
 mod combination_string_algorithms;
 mod combination_functional;
 mod combination_interpreters;
+mod combination_iterative_algorithms;
 mod combination_macro_patterns;
 mod combination_patterns;
 mod combination_real_world;
@@ -130,6 +131,8 @@ mod format_advanced;
 mod format_extended;
 #[path = "forward-char.rs"]
 mod forward_char;
+#[path = "forward-comment.rs"]
+mod forward_comment;
 #[path = "forward-line.rs"]
 mod forward_line;
 #[path = "fset-symbol-function.rs"]
@@ -267,6 +270,8 @@ mod string_manipulation;
 mod string_match;
 #[path = "string-processing.rs"]
 mod string_processing;
+#[path = "string-replace.rs"]
+mod string_replace;
 #[path = "string-match-p.rs"]
 mod string_match_p;
 #[path = "string-to-number.rs"]
