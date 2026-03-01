@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use super::abbrev::AbbrevManager;
-use super::advice::{AdviceManager, VariableWatcherList};
+use super::advice::VariableWatcherList;
 use super::autoload::AutoloadManager;
 use super::bookmark::BookmarkManager;
 use super::builtins;
@@ -165,8 +165,6 @@ pub struct Evaluator {
     /// Network manager — owns network connections, filters, and sentinels.
     /// Timer manager — owns all timers.
     pub(crate) timers: TimerManager,
-    /// Advice manager — function advice (before/after/around/etc.).
-    pub(crate) advice: AdviceManager,
     /// Variable watcher list — callbacks on variable changes.
     pub(crate) watchers: VariableWatcherList,
     /// Current buffer-local keymap (set by `use-local-map`).
@@ -1545,7 +1543,6 @@ impl Evaluator {
             match_data: None,
             processes: ProcessManager::new(),
             timers: TimerManager::new(),
-            advice: AdviceManager::new(),
             watchers: VariableWatcherList::new(),
             current_local_map: Value::Nil,
             registers: RegisterManager::new(),
@@ -1640,7 +1637,6 @@ impl Evaluator {
         self.obarray.trace_roots(&mut roots);
         self.processes.trace_roots(&mut roots);
         self.timers.trace_roots(&mut roots);
-        self.advice.trace_roots(&mut roots);
         self.watchers.trace_roots(&mut roots);
         self.registers.trace_roots(&mut roots);
         self.custom.trace_roots(&mut roots);
@@ -2318,19 +2314,6 @@ impl Evaluator {
                     let writeback_args = args.clone();
                     let result =
                         self.apply_named_callable(name, args, Value::Subr(intern(name)), false);
-                    self.restore_temp_roots(args_saved);
-                    if let Ok(value) = &result {
-                        self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
-                    }
-                    return result;
-                }
-                // If the function has advice, route through the named-call
-                // advice path so that :before/:after/:around/etc. get applied.
-                if self.advice.has_advice(name) {
-                    let writeback_args = args.clone();
-                    let result = self.apply_named_callable_with_advice(
-                        name, args, func, false,
-                    );
                     self.restore_temp_roots(args_saved);
                     if let Ok(value) = &result {
                         self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
@@ -4357,7 +4340,6 @@ impl Evaluator {
                     &mut self.features,
                     &mut self.buffers,
                     &mut self.match_data,
-                    &mut self.advice,
                     &mut self.watchers,
                     &mut self.catch_tags,
                 );
@@ -4494,87 +4476,7 @@ impl Evaluator {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        if self.advice.has_advice(name) {
-            return self.apply_named_callable_with_advice(
-                name,
-                args,
-                invalid_fn,
-                rewrite_builtin_wrong_arity,
-            );
-        }
         self.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
-    }
-
-    fn apply_named_callable_with_advice(
-        &mut self,
-        name: &str,
-        args: Vec<Value>,
-        invalid_fn: Value,
-        rewrite_builtin_wrong_arity: bool,
-    ) -> EvalResult {
-        let advices: Vec<super::advice::Advice> = self
-            .advice
-            .get_advice(name)
-            .into_iter()
-            .cloned()
-            .collect();
-        let mut call_args = args;
-
-        for advice in advices.iter().filter(|a| {
-            matches!(a.advice_type, super::advice::AdviceType::FilterArgs)
-        }) {
-            let new_args = self.apply(advice.function, vec![Value::list(call_args)])?;
-            call_args = list_to_vec(&new_args).ok_or_else(|| {
-                signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("listp"), new_args],
-                )
-            })?;
-        }
-
-        for advice in advices
-            .iter()
-            .filter(|a| matches!(a.advice_type, super::advice::AdviceType::Before))
-        {
-            let _ = self.apply(advice.function, call_args.clone())?;
-        }
-
-        let mut result = if let Some(advice) = advices
-            .iter()
-            .find(|a| matches!(a.advice_type, super::advice::AdviceType::Override))
-        {
-            self.apply(advice.function, call_args.clone())?
-        } else if let Some(advice) = advices
-            .iter()
-            .find(|a| matches!(a.advice_type, super::advice::AdviceType::Around))
-        {
-            let original_callable = self
-                .obarray
-                .symbol_function(name)
-                .cloned()
-                .unwrap_or(Value::Subr(intern(name)));
-            let mut around_args = Vec::with_capacity(call_args.len() + 1);
-            around_args.push(original_callable);
-            around_args.extend(call_args.clone());
-            self.apply(advice.function, around_args)?
-        } else {
-            self.apply_named_callable_core(name, call_args.clone(), invalid_fn, rewrite_builtin_wrong_arity)?
-        };
-
-        for advice in advices
-            .iter()
-            .filter(|a| matches!(a.advice_type, super::advice::AdviceType::After))
-        {
-            let _ = self.apply(advice.function, call_args.clone())?;
-        }
-
-        for advice in advices.iter().filter(|a| {
-            matches!(a.advice_type, super::advice::AdviceType::FilterReturn)
-        }) {
-            result = self.apply(advice.function, vec![result])?;
-        }
-
-        Ok(result)
     }
 
     fn apply_named_callable_core(
@@ -7979,177 +7881,6 @@ mod tests {
     }
 
     #[test]
-    fn advice_add_around_basic() {
-        // Test that :around advice passes the original function as first arg.
-        // This is the pattern used by cl-macs.el for pcase--mutually-exclusive-p.
-        let results = eval_all(
-            r#"
-            (defun my-adv-base (a b) (+ a b))
-            (my-adv-base 1 2)
-            (advice-add 'my-adv-base :around
-                        (lambda (orig a b) (+ 100 (funcall orig a b))))
-            (my-adv-base 1 2)
-            "#,
-        );
-        // Before advice: 1 + 2 = 3
-        assert_eq!(results[1], "OK 3", "base function should return 3");
-        // After :around advice: 100 + (1 + 2) = 103
-        assert_eq!(results[3], "OK 103", ":around advice should wrap original fn");
-    }
-
-    #[test]
-    fn advice_add_around_diagnosis() {
-        // Diagnose what happens with advice-add
-        let results = eval_all(
-            r#"
-            (defun my-diag (a b) (+ a b))
-            (my-diag 1 2)
-            (advice-add 'my-diag :around
-                        (lambda (orig a b) (+ 100 (funcall orig a b))))
-            (symbol-function 'my-diag)
-            (functionp (symbol-function 'my-diag))
-            (type-of (symbol-function 'my-diag))
-            (my-diag 1 2)
-            "#,
-        );
-        for (i, r) in results.iter().enumerate() {
-            eprintln!("result[{i}]: {r}");
-        }
-    }
-
-    #[test]
-    fn advice_gv_ref_chain_diagnosis() {
-        // Step-by-step diagnosis of the gv-ref/gv-deref/setf chain
-        let results = eval_all(
-            r#"
-            (defun my-gv-test (a b) (+ a b))
-
-            ;; Step 1: Does gv-ref create a proper getter/setter pair?
-            (let ((ref (gv-ref (symbol-function 'my-gv-test))))
-              (list (consp ref)
-                    (functionp (car ref))
-                    (functionp (cdr ref))))
-
-            ;; Step 2: Does gv-deref return current value?
-            (let ((ref (gv-ref (symbol-function 'my-gv-test))))
-              (eq (gv-deref ref) (symbol-function 'my-gv-test)))
-
-            ;; Step 3: Does setf on gv-deref actually call fset?
-            (let ((ref (gv-ref (symbol-function 'my-gv-test))))
-              (setf (gv-deref ref) (lambda (x) (* x 10)))
-              (my-gv-test 5))
-
-            ;; Step 4: Was symbol-function actually updated?
-            (symbol-function 'my-gv-test)
-            "#,
-        );
-        for (i, r) in results.iter().enumerate() {
-            eprintln!("gv-chain[{i}]: {r}");
-        }
-    }
-
-    #[test]
-    fn advice_fset_direct_diagnosis() {
-        // Test if fset itself works correctly
-        let results = eval_all(
-            r#"
-            (defun my-fset-test (a b) (+ a b))
-            (my-fset-test 1 2)
-            (fset 'my-fset-test (lambda (a b) (+ 100 a b)))
-            (my-fset-test 1 2)
-            (symbol-function 'my-fset-test)
-            "#,
-        );
-        for (i, r) in results.iter().enumerate() {
-            eprintln!("fset-direct[{i}]: {r}");
-        }
-    }
-
-    #[test]
-    fn advice_add_function_diagnosis() {
-        // Test add-function macro expansion and execution
-        let results = eval_all(
-            r#"
-            (defun my-af-test (a b) (+ a b))
-
-            ;; Check what add-function expands to
-            (macroexpand '(add-function :around (symbol-function 'my-af-test)
-                                        (lambda (orig a b) (+ 100 (funcall orig a b)))))
-
-            ;; Check advice--normalize-place
-            (macroexpand '(add-function :around #'my-af-test
-                                        (lambda (orig a b) (+ 100 (funcall orig a b)))))
-
-            ;; Actually run add-function
-            (add-function :around (symbol-function 'my-af-test)
-                          (lambda (orig a b) (+ 100 (funcall orig a b))))
-
-            ;; Check if it worked
-            (symbol-function 'my-af-test)
-            (my-af-test 1 2)
-            "#,
-        );
-        for (i, r) in results.iter().enumerate() {
-            eprintln!("add-fn[{i}]: {r}");
-        }
-    }
-
-    #[test]
-    fn advice_condition_case_diagnosis() {
-        // Check if condition-case-unless-debug is swallowing errors in advice-add
-        let results = eval_all(
-            r#"
-            (defun my-cc-test (a b) (+ a b))
-
-            ;; Try advice-add and capture any error
-            (condition-case err
-                (advice-add 'my-cc-test :around
-                            (lambda (orig a b) (+ 100 (funcall orig a b))))
-              (error (list 'caught-error err)))
-
-            ;; Check symbol-function
-            (symbol-function 'my-cc-test)
-            (my-cc-test 1 2)
-            "#,
-        );
-        for (i, r) in results.iter().enumerate() {
-            eprintln!("cond-case[{i}]: {r}");
-        }
-    }
-
-    #[test]
-    fn advice_around_via_funcall() {
-        // Test that :around advice works when the advised function is called
-        // via funcall with a symbol (the pattern used in pcase)
-        let results = eval_all(
-            r#"
-            (defun my-pred-test (a b) (and (eq a b) t))
-            ;; advice wraps: (orig a b) → (or (custom-check) (funcall orig a b))
-            (defun my-pred-advice (orig a b)
-              (if (and (eq a 'special) (eq b 'special))
-                  'matched-special
-                (funcall orig a b)))
-            (advice-add 'my-pred-test :around #'my-pred-advice)
-            ;; Direct call
-            (my-pred-test 'x 'x)
-            (my-pred-test 'special 'special)
-            ;; Via funcall with symbol
-            (funcall 'my-pred-test 'x 'x)
-            (funcall 'my-pred-test 'special 'special)
-            "#,
-        );
-        for (i, r) in results.iter().enumerate() {
-            eprintln!("funcall-advice[{i}]: {r}");
-        }
-        // Direct calls should apply advice
-        assert_eq!(results[3], "OK t");
-        assert_eq!(results[4], "OK matched-special");
-        // funcall with symbol should also apply advice
-        assert_eq!(results[5], "OK t");
-        assert_eq!(results[6], "OK matched-special");
-    }
-
-    #[test]
     fn advice_around_compiler_macro_pattern() {
         // Reproduce the cl-macs pattern: macroexp--compiler-macro calls a
         // compiler-macro handler. condition-case-unless-debug should catch
@@ -8244,35 +7975,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn advice_define_inline_pcase_pattern() {
-        // Test the actual pattern from cl-macs.el define-inline:
-        // pcase--mutually-exclusive-p gets :around advice from cl-macs
-        let results = eval_all(
-            r#"
-            ;; Define base predicate (2 params)
-            (defun my-pcase-excl-p (pred1 pred2)
-              (and (eq pred1 pred2) t))
-
-            ;; Define around advice (3 params: orig + 2)
-            (defun my-cl-pcase-excl-p (orig pred1 pred2)
-              (or (and (eq pred1 'cl-type) (eq pred2 'cl-type))
-                  (funcall orig pred1 pred2)))
-
-            ;; Install advice
-            (advice-add 'my-pcase-excl-p :around #'my-cl-pcase-excl-p)
-
-            ;; Call with 2 args (should work via advice)
-            (my-pcase-excl-p 'a 'a)
-            (my-pcase-excl-p 'cl-type 'cl-type)
-            (my-pcase-excl-p 'a 'b)
-            "#,
-        );
-        for (i, r) in results.iter().enumerate() {
-            eprintln!("pcase-excl[{i}]: {r}");
-        }
-        assert_eq!(results[3], "OK t");
-        assert_eq!(results[4], "OK t");
-        assert_eq!(results[5], "OK nil");
-    }
 }

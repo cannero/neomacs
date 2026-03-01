@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
 use crate::buffer::BufferManager;
-use crate::emacs_core::advice::{AdviceManager, VariableWatcherList};
+use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
 use crate::emacs_core::error::*;
 use crate::emacs_core::regex::MatchData;
@@ -37,7 +37,6 @@ pub struct Vm<'a> {
     features: &'a mut Vec<SymId>,
     buffers: &'a mut BufferManager,
     match_data: &'a mut Option<MatchData>,
-    advice: &'a mut AdviceManager,
     watchers: &'a mut VariableWatcherList,
     /// Active catch tags from the evaluator — shared with interpreter
     /// so throws can check for matching catches across eval/VM boundaries.
@@ -54,7 +53,6 @@ impl<'a> Vm<'a> {
         features: &'a mut Vec<SymId>,
         buffers: &'a mut BufferManager,
         match_data: &'a mut Option<MatchData>,
-        advice: &'a mut AdviceManager,
         watchers: &'a mut VariableWatcherList,
         catch_tags: &'a mut Vec<Value>,
     ) -> Self {
@@ -65,7 +63,6 @@ impl<'a> Vm<'a> {
             features,
             buffers,
             match_data,
-            advice,
             watchers,
             catch_tags,
             depth: 0,
@@ -1309,7 +1306,6 @@ impl<'a> Vm<'a> {
         eval.features = self.features.clone();
         eval.buffers = self.buffers.clone();
         eval.match_data = self.match_data.clone();
-        std::mem::swap(self.advice, &mut eval.advice);
         std::mem::swap(self.watchers, &mut eval.watchers);
 
         let result = builtins::dispatch_builtin(&mut eval, name, args);
@@ -1320,7 +1316,6 @@ impl<'a> Vm<'a> {
         std::mem::swap(self.features, &mut eval.features);
         std::mem::swap(self.buffers, &mut eval.buffers);
         std::mem::swap(self.match_data, &mut eval.match_data);
-        std::mem::swap(self.advice, &mut eval.advice);
         std::mem::swap(self.watchers, &mut eval.watchers);
 
         // Swap the heap data back to its original location so the parent
@@ -1703,7 +1698,6 @@ mod tests {
         let mut features: Vec<SymId> = Vec::new();
         let mut buffers = crate::buffer::BufferManager::new();
         let mut match_data: Option<MatchData> = None;
-        let mut advice = AdviceManager::new();
         let mut watchers = VariableWatcherList::new();
         let mut catch_tags: Vec<Value> = Vec::new();
 
@@ -1717,7 +1711,6 @@ mod tests {
                 &mut features,
                 &mut buffers,
                 &mut match_data,
-                &mut advice,
                 &mut watchers,
                 &mut catch_tags,
             );

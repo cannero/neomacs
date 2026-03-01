@@ -1552,10 +1552,6 @@ pub(crate) fn dispatch_builtin(
         "cancel-timer" => return Some(super::timer::builtin_cancel_timer(eval, args)),
         "timer-activate" => return Some(super::timer::builtin_timer_activate(eval, args)),
         "sleep-for" => return Some(super::timer::builtin_sleep_for(args)),
-        // Advice system: advice-add, advice-remove, advice-member-p
-        "advice-add" => return Some(super::advice::builtin_advice_add(eval, args)),
-        "advice-remove" => return Some(super::advice::builtin_advice_remove(eval, args)),
-        "advice-member-p" => return Some(super::advice::builtin_advice_member_p(eval, args)),
         // Variable watchers
         "add-variable-watcher" => {
             return Some(super::advice::builtin_add_variable_watcher(eval, args))
