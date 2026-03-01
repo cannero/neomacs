@@ -33,6 +33,8 @@ mod beginning_of_line;
 mod bitwise;
 #[path = "bool-vector-operations.rs"]
 mod bool_vector_operations;
+#[path = "buffer-multi-operations.rs"]
+mod buffer_multi_operations;
 #[path = "buffer-operations.rs"]
 mod buffer_operations;
 #[path = "buffer-operations-advanced.rs"]
@@ -128,6 +130,7 @@ mod combination_buffer_text_processing;
 mod combination_bloom_filter;
 mod combination_bytevector_ops;
 mod combination_cache_strategies;
+mod combination_calculator_repl;
 mod combination_closures;
 mod combination_closures_advanced;
 mod combination_collections;
@@ -137,6 +140,7 @@ mod combination_complex;
 mod combination_consensus;
 mod combination_concurrent_patterns;
 mod combination_constraint_solving;
+mod combination_contract_system;
 mod combination_control_flow;
 mod combination_coroutine_patterns;
 mod combination_cryptography;
@@ -157,6 +161,7 @@ mod combination_string_advanced;
 mod combination_string_algorithms;
 mod combination_string_algorithms_advanced;
 mod combination_string_formatting;
+mod combination_string_interning;
 mod combination_string_parsing;
 mod combination_functional;
 mod combination_functional_advanced;
@@ -183,6 +188,7 @@ mod combination_logic_engine;
 mod combination_logic_puzzles;
 mod combination_macro_patterns;
 mod combination_mathematical_structures;
+mod combination_matrix_math;
 mod combination_matrix_operations;
 mod combination_metaprogramming;
 mod combination_mini_languages;
@@ -195,6 +201,7 @@ mod combination_parsing;
 mod combination_pattern_matching;
 mod combination_patterns;
 mod combination_problem_solving;
+mod combination_protocol_fsm;
 mod combination_protocol_implementations;
 mod combination_queue_stack;
 mod combination_property_list_patterns;
@@ -211,6 +218,7 @@ mod combination_signal_processing;
 mod combination_simulation;
 mod combination_sorting;
 mod combination_state_machines;
+mod combination_symbolic_math;
 mod combination_text_analysis;
 mod combination_text_formatting;
 mod combination_text_templating;
@@ -232,6 +240,8 @@ mod cond;
 mod cond_advanced;
 #[path = "condition-case.rs"]
 mod condition_case;
+#[path = "condition-case-advanced2.rs"]
+mod condition_case_advanced2;
 #[path = "condition-case-extended.rs"]
 mod condition_case_extended;
 #[path = "condition-case-patterns.rs"]
@@ -340,6 +350,8 @@ mod hash_table_advanced;
 mod hash_table_extended;
 #[path = "hash-table-patterns.rs"]
 mod hash_table_patterns;
+#[path = "hash-table-operations-extended.rs"]
+mod hash_table_operations_extended;
 mod r#if;
 #[path = "if-advanced.rs"]
 mod if_advanced;
@@ -363,6 +375,8 @@ mod key_description;
 mod keymap;
 #[path = "keymap-advanced.rs"]
 mod keymap_advanced;
+#[path = "keymap-operations-extended.rs"]
+mod keymap_operations_extended;
 #[path = "lambda-anonymous.rs"]
 mod lambda_anonymous;
 #[path = "lambda-anonymous-advanced.rs"]
@@ -392,6 +406,8 @@ mod looking_at_advanced;
 mod make_list;
 #[path = "make-string.rs"]
 mod make_string;
+#[path = "make-string-advanced.rs"]
+mod make_string_advanced;
 #[path = "make-symbol.rs"]
 mod make_symbol;
 #[path = "make-vector-advanced.rs"]
@@ -646,6 +662,8 @@ mod when;
 mod r#while;
 #[path = "while-advanced.rs"]
 mod while_advanced;
+#[path = "while-loop-patterns.rs"]
+mod while_loop_patterns;
 #[path = "while-patterns.rs"]
 mod while_patterns;
 #[path = "with-temp-buffer.rs"]
