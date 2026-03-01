@@ -414,3 +414,6 @@ rust/neovm-*/target/
 /neomacs-build-test/windows/.known_hosts
 /neomacs-build-test/macos/artifacts/
 /neomacs-build-test/macos/.known_hosts
+result
+rust/target
+target
