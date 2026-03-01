@@ -69,6 +69,8 @@ mod char_to_string;
 mod charset;
 #[path = "cl-lib-patterns.rs"]
 mod cl_lib_patterns;
+#[path = "cl-lib-patterns-advanced.rs"]
+mod cl_lib_patterns_advanced;
 mod closure;
 #[path = "closure-advanced.rs"]
 mod closure_advanced;
@@ -99,6 +101,7 @@ mod combination_data_transformations;
 mod combination_database_patterns;
 mod combination_design_patterns;
 mod combination_elisp_idioms;
+mod combination_encoding_algorithms;
 mod combination_error_handling;
 mod combination_string_algorithms;
 mod combination_functional;
@@ -169,6 +172,8 @@ mod end_of_line;
 mod equality;
 #[path = "error-handling-patterns.rs"]
 mod error_handling_patterns;
+#[path = "error-handling-patterns-advanced.rs"]
+mod error_handling_patterns_advanced;
 mod eval;
 #[path = "eval-advanced.rs"]
 mod eval_advanced;
@@ -225,6 +230,8 @@ mod keymap;
 mod keymap_advanced;
 #[path = "lambda-anonymous.rs"]
 mod lambda_anonymous;
+#[path = "lambda-anonymous-advanced.rs"]
+mod lambda_anonymous_advanced;
 mod last;
 #[path = "length-operations.rs"]
 mod length_operations;
