@@ -81,6 +81,7 @@ mod combination_algorithms;
 mod combination_buffer_algorithms;
 mod combination_buffer_processing;
 mod combination_closures;
+mod combination_compiler_patterns;
 mod combination_complex;
 mod combination_concurrent_patterns;
 mod combination_control_flow;
@@ -185,6 +186,8 @@ mod hash_table_extended;
 #[path = "hash-table-patterns.rs"]
 mod hash_table_patterns;
 mod r#if;
+#[path = "if-advanced.rs"]
+mod if_advanced;
 #[path = "indirect-function.rs"]
 mod indirect_function;
 mod insert;
@@ -203,6 +206,8 @@ mod last;
 #[path = "length-operations.rs"]
 mod length_operations;
 mod r#let;
+#[path = "let-advanced.rs"]
+mod let_advanced;
 #[path = "let-dynamic.rs"]
 mod let_dynamic;
 #[path = "let-star.rs"]
@@ -329,6 +334,8 @@ mod string_manipulation_advanced;
 mod string_match;
 #[path = "string-processing.rs"]
 mod string_processing;
+#[path = "string-processing-advanced.rs"]
+mod string_processing_advanced;
 #[path = "string-replace.rs"]
 mod string_replace;
 #[path = "string-match-p.rs"]
