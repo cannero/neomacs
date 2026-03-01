@@ -56,6 +56,7 @@ mod combination_complex;
 mod combination_data_structures;
 mod combination_elisp_idioms;
 mod combination_functional;
+mod combination_interpreters;
 mod combination_patterns;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
@@ -80,6 +81,8 @@ mod delete_region;
 mod delq;
 mod dolist;
 mod dotimes;
+#[path = "dynamic-binding.rs"]
+mod dynamic_binding;
 #[path = "end-of-line.rs"]
 mod end_of_line;
 mod equality;
@@ -159,6 +162,8 @@ mod predicates;
 mod prog1;
 mod progn;
 mod progn_ast;
+#[path = "property-list-advanced.rs"]
+mod property_list_advanced;
 mod put;
 #[path = "re-search-forward.rs"]
 mod re_search_forward;
