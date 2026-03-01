@@ -172,6 +172,7 @@ mod combination_dataflow_analysis;
 mod combination_dependency_resolver;
 mod combination_design_patterns;
 mod combination_diff_algorithm;
+mod combination_difference_list;
 mod combination_dynamic_programming;
 mod combination_effect_system;
 mod combination_elisp_idioms;
@@ -193,6 +194,7 @@ mod combination_functional_composition;
 mod combination_functional_programming;
 mod combination_genetic_algorithm;
 mod combination_graph_algorithms;
+mod combination_graph_coloring;
 mod combination_graph_patterns;
 mod combination_graph_traversal;
 mod combination_hash_algorithms;
@@ -215,6 +217,7 @@ mod combination_linked_list_ops;
 mod combination_list_algorithms;
 mod combination_logic_engine;
 mod combination_logic_puzzles;
+mod combination_lru_cache;
 mod combination_macro_patterns;
 mod combination_markup_parser;
 mod combination_mathematical_structures;
@@ -223,6 +226,7 @@ mod combination_matrix_operations;
 mod combination_memo_table;
 mod combination_metaprogramming;
 mod combination_mini_languages;
+mod combination_minimax;
 mod combination_monad_patterns;
 mod combination_numeric_algorithms;
 mod combination_numeric_patterns;
@@ -231,6 +235,7 @@ mod combination_oop_patterns;
 mod combination_parser_combinators;
 mod combination_parser_recursive_descent;
 mod combination_parsing;
+mod combination_pattern_language;
 mod combination_pattern_matching;
 mod combination_patterns;
 mod combination_persistent_data;
@@ -243,6 +248,7 @@ mod combination_protocol_implementations;
 mod combination_query_language;
 mod combination_queue_stack;
 mod combination_property_list_patterns;
+mod combination_railroad_diagram;
 mod combination_reactive_patterns;
 mod combination_red_black_tree;
 mod combination_regex_engine;
@@ -331,6 +337,8 @@ mod defvar_advanced;
 mod define_key_advanced;
 #[path = "delete-and-extract-advanced.rs"]
 mod delete_and_extract_advanced;
+#[path = "delete-char-patterns.rs"]
+mod delete_char_patterns;
 #[path = "delete-operations.rs"]
 mod delete_operations;
 #[path = "delete-operations-advanced.rs"]
@@ -352,6 +360,8 @@ mod dynamic_binding_advanced;
 mod elt_aref_aset_patterns;
 #[path = "end-of-line.rs"]
 mod end_of_line;
+#[path = "encode-decode-coding-advanced.rs"]
+mod encode_decode_coding_advanced;
 mod equality;
 #[path = "equality-advanced.rs"]
 mod equality_advanced;
@@ -522,6 +532,8 @@ mod max;
 mod max_char_operations;
 mod member;
 mod memq;
+#[path = "message-format-advanced.rs"]
+mod message_format_advanced;
 mod min;
 #[path = "modify-syntax-entry.rs"]
 mod modify_syntax_entry;
@@ -617,6 +629,8 @@ mod regexp_operations;
 mod regexp_operations_advanced;
 #[path = "regexp-quote-advanced.rs"]
 mod regexp_quote_advanced;
+#[path = "regexp-quote-patterns.rs"]
+mod regexp_quote_patterns;
 #[path = "regexp-replace-advanced.rs"]
 mod regexp_replace_advanced;
 #[path = "replace-match-advanced.rs"]
@@ -760,6 +774,8 @@ mod r#throw;
 mod type_of;
 #[path = "type-of-advanced.rs"]
 mod type_of_advanced;
+#[path = "type-of-patterns.rs"]
+mod type_of_patterns;
 #[path = "type-predicates.rs"]
 mod type_predicates;
 #[path = "type-predicates-advanced.rs"]
@@ -776,6 +792,8 @@ mod upcase_downcase_advanced;
 #[path = "upcase-downcase-patterns.rs"]
 mod upcase_downcase_patterns;
 mod vector;
+#[path = "vconcat-advanced.rs"]
+mod vconcat_advanced;
 #[path = "vconcat-operations.rs"]
 mod vconcat_operations;
 #[path = "vector-advanced.rs"]
