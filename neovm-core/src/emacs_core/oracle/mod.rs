@@ -79,6 +79,8 @@ mod coding;
 mod coding_advanced;
 #[path = "concat-extended.rs"]
 mod concat_extended;
+#[path = "concat-extended-advanced.rs"]
+mod concat_extended_advanced;
 #[path = "copy-sequence.rs"]
 mod copy_sequence;
 #[path = "coding-metadata.rs"]
@@ -112,6 +114,7 @@ mod combination_interpreters;
 mod combination_iterative_algorithms;
 mod combination_logic_puzzles;
 mod combination_macro_patterns;
+mod combination_mathematical_structures;
 mod combination_mini_languages;
 mod combination_numeric_algorithms;
 mod combination_oop_patterns;
@@ -120,6 +123,7 @@ mod combination_patterns;
 mod combination_real_world;
 mod combination_real_world_elisp;
 mod combination_recursion;
+mod combination_simulation;
 mod combination_state_machines;
 mod combination_text_processing;
 mod combination_type_systems;
@@ -421,6 +425,8 @@ mod unwind_protect;
 mod unwind_protect_advanced;
 #[path = "upcase-downcase.rs"]
 mod upcase_downcase;
+#[path = "upcase-downcase-advanced.rs"]
+mod upcase_downcase_advanced;
 mod vector;
 #[path = "vector-advanced.rs"]
 mod vector_advanced;
