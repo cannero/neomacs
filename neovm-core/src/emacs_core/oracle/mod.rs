@@ -4,6 +4,8 @@ mod abs;
 mod advice;
 #[path = "alist-get.rs"]
 mod alist_get;
+#[path = "alist-operations.rs"]
+mod alist_operations;
 mod r#and;
 mod apply;
 #[path = "apply-advanced.rs"]
@@ -65,6 +67,7 @@ mod combination_complex;
 mod combination_control_flow;
 mod combination_data_structures;
 mod combination_elisp_idioms;
+mod combination_string_algorithms;
 mod combination_functional;
 mod combination_interpreters;
 mod combination_patterns;
@@ -150,6 +153,8 @@ mod make_list;
 mod make_string;
 #[path = "make-symbol.rs"]
 mod make_symbol;
+#[path = "map-operations.rs"]
+mod map_operations;
 mod mapcar;
 #[path = "match-beginning.rs"]
 mod match_beginning;
@@ -169,6 +174,10 @@ mod nconc;
 mod r#not;
 mod nreverse;
 mod nthcdr;
+#[path = "nthcdr-advanced.rs"]
+mod nthcdr_advanced;
+#[path = "number-predicates.rs"]
+mod number_predicates;
 #[path = "number-to-string.rs"]
 mod number_to_string;
 mod oclosure;
@@ -204,6 +213,8 @@ mod set_buffer;
 mod setcar;
 mod setcdr;
 mod setq;
+#[path = "setq-advanced.rs"]
+mod setq_advanced;
 mod signal;
 #[path = "skip-chars.rs"]
 mod skip_chars;
@@ -229,6 +240,8 @@ mod string_match_p;
 mod string_to_number;
 #[path = "string-version-lessp.rs"]
 mod string_version_lessp;
+#[path = "subr-predicates.rs"]
+mod subr_predicates;
 mod substring;
 mod symbol;
 #[path = "syntax-table.rs"]
