@@ -139,6 +139,7 @@ mod combination_buffer_editing;
 mod combination_buffer_processing;
 mod combination_buffer_text_processing;
 mod combination_bloom_filter;
+mod combination_bloom_filter_advanced;
 mod combination_b_tree;
 mod combination_bytevector_ops;
 mod combination_cache_strategies;
@@ -199,8 +200,10 @@ mod combination_huffman_coding;
 mod combination_immutable_data;
 mod combination_interpreter_advanced;
 mod combination_interpreter_advanced2;
+mod combination_interpreter_calculus;
 mod combination_interpreter_patterns;
 mod combination_interpreters;
+mod combination_interval_tree;
 mod combination_iterative_algorithms;
 mod combination_iterator_patterns;
 mod combination_json_processor;
@@ -229,6 +232,8 @@ mod combination_parsing;
 mod combination_pattern_matching;
 mod combination_patterns;
 mod combination_persistent_data;
+mod combination_persistent_queue;
+mod combination_pratt_parser;
 mod combination_problem_solving;
 mod combination_promise_patterns;
 mod combination_protocol_fsm;
@@ -257,6 +262,7 @@ mod combination_text_analysis;
 mod combination_text_formatting;
 mod combination_text_templating;
 mod combination_text_processing;
+mod combination_topological_sort;
 mod combination_tree_algorithms;
 mod combination_trie_datastructure;
 mod combination_type_checker;
@@ -460,6 +466,8 @@ mod list_operations_advanced;
 mod looking_at_advanced;
 #[path = "macroexpand-advanced.rs"]
 mod macroexpand_advanced;
+#[path = "make-hash-table-advanced.rs"]
+mod make_hash_table_advanced;
 #[path = "make-list.rs"]
 mod make_list;
 #[path = "make-string.rs"]
@@ -481,6 +489,8 @@ mod mapc_operations;
 mod mapcar;
 #[path = "mapconcat-advanced.rs"]
 mod mapconcat_advanced;
+#[path = "mapconcat-patterns.rs"]
+mod mapconcat_patterns;
 #[path = "marker-operations.rs"]
 mod marker_operations;
 #[path = "match-beginning.rs"]
@@ -531,6 +541,8 @@ mod nthcdr_advanced;
 mod number_predicates;
 #[path = "number-predicates-advanced.rs"]
 mod number_predicates_advanced;
+#[path = "number-sequence-advanced.rs"]
+mod number_sequence_advanced;
 #[path = "number-sequence-operations.rs"]
 mod number_sequence_operations;
 #[path = "number-to-string.rs"]
@@ -546,6 +558,8 @@ mod r#or;
 mod plist;
 #[path = "plist-advanced.rs"]
 mod plist_advanced;
+#[path = "plist-member-advanced.rs"]
+mod plist_member_advanced;
 mod point;
 #[path = "point-max.rs"]
 mod point_max;
@@ -648,7 +662,11 @@ mod sort_algorithms;
 mod sort_extended;
 #[path = "split-string-advanced.rs"]
 mod split_string_advanced;
+#[path = "split-string-patterns.rs"]
+mod split_string_patterns;
 mod string;
+#[path = "string-bytes-width-advanced.rs"]
+mod string_bytes_width_advanced;
 #[path = "string-distance.rs"]
 mod string_distance;
 #[path = "string-distance-advanced.rs"]
