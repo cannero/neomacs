@@ -46,6 +46,8 @@ mod char_after;
 mod char_literal;
 #[path = "char-table.rs"]
 mod char_table;
+#[path = "char-table-advanced.rs"]
+mod char_table_advanced;
 #[path = "char-table-extra-slot.rs"]
 mod char_table_extra_slot;
 #[path = "char-operations.rs"]
@@ -59,6 +61,8 @@ mod closure;
 #[path = "closure-advanced.rs"]
 mod closure_advanced;
 mod coding;
+#[path = "coding-advanced.rs"]
+mod coding_advanced;
 #[path = "concat-extended.rs"]
 mod concat_extended;
 #[path = "copy-sequence.rs"]
@@ -74,6 +78,7 @@ mod combination_buffer_algorithms;
 mod combination_buffer_processing;
 mod combination_closures;
 mod combination_complex;
+mod combination_concurrent_patterns;
 mod combination_control_flow;
 mod combination_data_structures;
 mod combination_elisp_idioms;
@@ -103,6 +108,8 @@ mod cond_advanced;
 mod condition_case;
 #[path = "condition-case-extended.rs"]
 mod condition_case_extended;
+#[path = "condition-case-patterns.rs"]
+mod condition_case_patterns;
 #[path = "copy-alist.rs"]
 mod copy_alist;
 mod coverage;
