@@ -1,11 +1,13 @@
 //! Oracle-backed Elisp parity tests.
 
+mod abs;
 mod advice;
 mod r#and;
 mod apply;
 mod arithmetic;
 mod assoc;
 mod assq;
+mod backquote;
 #[path = "beginning-of-line.rs"]
 mod beginning_of_line;
 #[path = "buffer-name.rs"]
@@ -25,13 +27,17 @@ mod char_literal;
 mod char_table;
 #[path = "char-table-extra-slot.rs"]
 mod char_table_extra_slot;
+#[path = "char-to-string.rs"]
+mod char_to_string;
 mod charset;
+mod closure;
 mod coding;
 #[path = "coding-metadata.rs"]
 mod coding_metadata;
 #[path = "coding-string.rs"]
 mod coding_string;
 mod combination;
+mod combination_complex;
 pub(crate) mod common;
 #[path = "compare-strings.rs"]
 mod compare_strings;
@@ -51,6 +57,8 @@ mod defvar;
 #[path = "delete-region.rs"]
 mod delete_region;
 mod delq;
+mod dolist;
+mod dotimes;
 #[path = "end-of-line.rs"]
 mod end_of_line;
 mod equality;
@@ -74,10 +82,16 @@ mod key_description;
 mod keymap;
 #[path = "lambda-anonymous.rs"]
 mod lambda_anonymous;
+mod last;
 mod r#let;
 #[path = "let-star.rs"]
 mod let_star;
 mod list;
+#[path = "make-list.rs"]
+mod make_list;
+#[path = "make-string.rs"]
+mod make_string;
+mod mapcar;
 #[path = "match-beginning.rs"]
 mod match_beginning;
 #[path = "match-end.rs"]
@@ -92,8 +106,11 @@ mod nconc;
 mod r#not;
 mod nreverse;
 mod nthcdr;
+#[path = "number-to-string.rs"]
+mod number_to_string;
 mod oclosure;
 mod r#or;
+mod plist;
 mod point;
 #[path = "point-max.rs"]
 mod point_max;
@@ -106,6 +123,8 @@ mod progn_ast;
 mod put;
 #[path = "re-search-forward.rs"]
 mod re_search_forward;
+mod recursion;
+mod reverse;
 #[path = "set-buffer.rs"]
 mod set_buffer;
 mod setcar;
@@ -125,14 +144,19 @@ mod string_match;
 mod string_to_number;
 #[path = "string-version-lessp.rs"]
 mod string_version_lessp;
+mod substring;
 mod symbol;
 #[path = "syntax-table.rs"]
 mod syntax_table;
 mod take;
 mod r#throw;
+#[path = "type-of.rs"]
+mod type_of;
 mod unless;
 #[path = "unwind-protect.rs"]
 mod unwind_protect;
+#[path = "upcase-downcase.rs"]
+mod upcase_downcase;
 mod vector;
 mod when;
 mod r#while;
