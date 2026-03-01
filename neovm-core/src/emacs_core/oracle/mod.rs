@@ -6,6 +6,8 @@ mod advice;
 mod alist_get;
 mod r#and;
 mod apply;
+#[path = "apply-advanced.rs"]
+mod apply_advanced;
 mod arithmetic;
 mod assoc;
 mod assq;
@@ -26,6 +28,8 @@ mod car_safe;
 #[path = "car-cdr-combinations.rs"]
 mod car_cdr_combinations;
 mod r#catch;
+#[path = "catch-throw-advanced.rs"]
+mod catch_throw_advanced;
 #[path = "char-after.rs"]
 mod char_after;
 #[path = "char-literal.rs"]
@@ -51,6 +55,7 @@ mod coding_metadata;
 mod coding_string;
 mod combination;
 mod combination_advanced;
+mod combination_algorithms;
 mod combination_buffer_processing;
 mod combination_complex;
 mod combination_data_structures;
@@ -89,6 +94,8 @@ mod equality;
 #[path = "error-handling-patterns.rs"]
 mod error_handling_patterns;
 mod eval;
+#[path = "eval-advanced.rs"]
+mod eval_advanced;
 mod event_convert_list;
 mod format;
 #[path = "format-extended.rs"]
