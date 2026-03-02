@@ -86,18 +86,20 @@ pub fn reorder_row_bidi(
 
     // Step 1: Collect character glyphs on this row
     let mut row_chars: Vec<RowCharInfo> = Vec::new();
+    let mut row_max_ascent: f32 = 0.0;
     for idx in glyph_start..glyph_end {
         if idx >= frame_glyphs.glyphs.len() {
             break;
         }
         match &frame_glyphs.glyphs[idx] {
-            FrameGlyph::Char { char: ch, x, width, .. } => {
+            FrameGlyph::Char { char: ch, x, width, ascent, .. } => {
                 row_chars.push(RowCharInfo {
                     glyph_idx: idx,
                     ch: *ch,
                     x: *x,
                     width: *width,
                 });
+                row_max_ascent = row_max_ascent.max(*ascent);
             }
             _ => {
                 // Skip non-character glyphs (Stretch, Cursor, etc.)
@@ -108,6 +110,16 @@ pub fn reorder_row_bidi(
 
     if row_chars.is_empty() {
         return;
+    }
+
+    // Normalize all character glyphs in this row to the row max ascent.
+    // Emacs row geometry is anchored by row->ascent, not per-glyph ascent.
+    if row_max_ascent > 0.0 {
+        for info in &row_chars {
+            if let FrameGlyph::Char { ascent, .. } = &mut frame_glyphs.glyphs[info.glyph_idx] {
+                *ascent = row_max_ascent;
+            }
+        }
     }
 
     // Step 2: Fast-path check — skip bidi if no RTL characters
@@ -236,6 +248,13 @@ mod tests {
         }
     }
 
+    fn get_char_ascent(glyph: &FrameGlyph) -> f32 {
+        match glyph {
+            FrameGlyph::Char { ascent, .. } => *ascent,
+            _ => panic!("expected Char glyph"),
+        }
+    }
+
     #[test]
     fn test_pure_ltr_no_reorder() {
         let mut buf = FrameGlyphBuffer::default();
@@ -247,6 +266,28 @@ mod tests {
         // Should be unchanged
         assert_eq!(get_char_x(&buf.glyphs[0]), 0.0);
         assert_eq!(get_char_x(&buf.glyphs[1]), 8.0);
+    }
+
+    #[test]
+    fn test_row_ascent_normalized_even_without_rtl() {
+        let mut buf = FrameGlyphBuffer::default();
+        let mut g1 = make_char_glyph('A', 0.0, 8.0);
+        let mut g2 = make_char_glyph('B', 8.0, 8.0);
+        if let FrameGlyph::Char { ascent, .. } = &mut g1 {
+            *ascent = 9.0;
+        }
+        if let FrameGlyph::Char { ascent, .. } = &mut g2 {
+            *ascent = 13.0;
+        }
+        buf.glyphs.push(g1);
+        buf.glyphs.push(g2);
+
+        reorder_row_bidi(&mut buf, 0, 2, 0.0);
+
+        assert_eq!(get_char_x(&buf.glyphs[0]), 0.0);
+        assert_eq!(get_char_x(&buf.glyphs[1]), 8.0);
+        assert_eq!(get_char_ascent(&buf.glyphs[0]), 13.0);
+        assert_eq!(get_char_ascent(&buf.glyphs[1]), 13.0);
     }
 
     #[test]

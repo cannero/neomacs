@@ -270,7 +270,6 @@ unsafe fn cursor_point_advance(
     face_char_w: f32,
     face_space_w: f32,
     char_w: f32,
-    overstrike: bool,
     face_id: u32,
     font_size: i32,
     window: EmacsWindow,
@@ -299,24 +298,20 @@ unsafe fn cursor_point_advance(
         _ if ch < ' ' || ch == '\x7F' => Some(face_w),
         _ => {
             let char_cols = if is_wide_char(ch) { 2 } else { 1 };
-            if overstrike {
-                Some(char_cols as f32 * char_w)
-            } else {
-                Some(char_advance(
-                    ascii_width_cache,
-                    font_metrics_svc,
-                    ch,
-                    char_cols,
-                    char_w,
-                    face_id,
-                    font_size,
-                    face_char_w,
-                    window,
-                    font_family,
-                    font_weight,
-                    font_italic,
-                ))
-            }
+            Some(char_advance(
+                ascii_width_cache,
+                font_metrics_svc,
+                ch,
+                char_cols,
+                char_w,
+                face_id,
+                font_size,
+                face_char_w,
+                window,
+                font_family,
+                font_weight,
+                font_italic,
+            ))
         }
     }
 }
@@ -533,10 +528,6 @@ pub struct LayoutEngine {
     run_buf: LigatureRunBuffer,
     /// Whether ligatures are enabled
     pub ligatures_enabled: bool,
-    /// Default face font family (set during first face resolution of each window).
-    /// Used for overstrike: when bold variant unavailable, renderer uses this
-    /// family instead of the proportional fallback.
-    default_font_family: String,
     /// Resolved font family name for the current face.
     /// When a font_file_path is available and cosmic-text metrics are active,
     /// this holds the fontdb-registered family name. Otherwise it mirrors
@@ -561,7 +552,6 @@ impl LayoutEngine {
             hit_data: Vec::new(),
             run_buf: LigatureRunBuffer::new(),
             ligatures_enabled: false,
-            default_font_family: String::new(),
             current_resolved_family: String::new(),
             resolved_family_face_id: u32::MAX,
             font_metrics: None,
@@ -3260,16 +3250,6 @@ impl LayoutEngine {
             None
         };
 
-        // When overstrike is set, Emacs couldn't find a bold variant of the
-        // font, so it kept the regular (non-bold) font. Use the default
-        // face's font family for rendering so the renderer draws with the
-        // monospace font (matching official Emacs behavior).
-        let effective_family = if overstrike && !self.default_font_family.is_empty() {
-            &self.default_font_family
-        } else {
-            font_family
-        };
-
         let underline_color = if face.underline_style > 0 {
             Some(Color::from_pixel(face.underline_color))
         } else {
@@ -3292,7 +3272,7 @@ impl LayoutEngine {
             face.face_id,
             fg,
             Some(bg),
-            effective_family,
+            font_family,
             font_weight,
             italic,
             face.font_size as f32,
@@ -3324,7 +3304,7 @@ impl LayoutEngine {
             overline_color,
             strike_through_color: strike_color,
             box_color: if face.box_type > 0 { Some(Color::from_pixel(face.box_color)) } else { None },
-            font_family: effective_family.to_string(),
+            font_family: font_family.to_string(),
             font_size: face.font_size as f32,
             font_weight,
             attributes: attrs,
@@ -3571,9 +3551,6 @@ impl LayoutEngine {
         // Face resolution state: we only call face_at_pos when charpos >= next_face_check
         let mut current_face_id: i32 = -1; // force first lookup
         let mut next_face_check: i64 = 0;
-        // Overstrike: when Emacs can't find bold variant, it sets face->overstrike
-        // and keeps the regular font. We use default font metrics for layout.
-        let mut overstrike = false;
         let mut face_fg = default_fg;
         let mut face_bg = default_bg;
 
@@ -5046,22 +5023,6 @@ impl LayoutEngine {
                             face_h = char_h;
                             face_ascent = ascent;
                         }
-                        // On first face resolution (at/before window_start),
-                        // capture the default font family for overstrike.
-                        if charpos <= window_start {
-                            let family = if !self.face_data.font_family.is_null() {
-                                CStr::from_ptr(self.face_data.font_family)
-                                    .to_str().unwrap_or("monospace")
-                            } else {
-                                "monospace"
-                            };
-                            self.default_font_family = family.to_string();
-                        }
-
-                        // Overstrike: Emacs sets this when bold variant is
-                        // unavailable. Use default font metrics for layout.
-                        overstrike = self.face_data.overstrike != 0;
-
                         self.apply_face(&self.face_data, frame, frame_glyphs);
 
                         // Track last face with :extend on this row
@@ -5154,7 +5115,6 @@ impl LayoutEngine {
                             cursor_face_w,
                             face_space_w,
                             char_w,
-                            overstrike,
                             self.face_data.face_id,
                             self.face_data.font_size,
                             window,
@@ -5763,45 +5723,38 @@ impl LayoutEngine {
 
                     // Normal character — compute advance width
                     let char_cols = if is_wide_char(ch) { 2 } else { 1 };
-                    let advance = if overstrike {
-                        // Overstrike: Emacs couldn't find bold variant, kept
-                        // regular font. Use default monospace width for grid
-                        // alignment (matching official Emacs behavior).
-                        char_cols as f32 * char_w
-                    } else {
-                        let face_id = self.face_data.face_id;
-                        let font_size = self.face_data.font_size;
-                        let face_char_w = self.face_data.font_char_width;
-                        // Resolve effective family once per face change (not per char)
-                        if face_id != self.resolved_family_face_id {
-                            let font_family = if !self.face_data.font_family.is_null() {
-                                CStr::from_ptr(self.face_data.font_family).to_str().unwrap_or("")
-                            } else {
-                                ""
-                            };
-                            let font_file_path_str = if !self.face_data.font_file_path.is_null() {
-                                CStr::from_ptr(self.face_data.font_file_path).to_str().ok()
-                                    .filter(|s| !s.is_empty())
-                            } else {
-                                None
-                            };
-                            self.current_resolved_family = if let Some(ref mut svc) = self.font_metrics {
-                                svc.resolve_family(font_family, font_file_path_str)
-                            } else {
-                                font_family.to_string()
-                            };
-                            self.resolved_family_face_id = face_id;
-                        }
-                        let font_weight = self.face_data.font_weight as u16;
-                        let font_italic = self.face_data.italic != 0;
-                        char_advance(
-                            &mut self.ascii_width_cache,
-                            &mut self.font_metrics,
-                            ch, char_cols, char_w,
-                            face_id, font_size, face_char_w, window,
-                            &self.current_resolved_family, font_weight, font_italic,
-                        )
-                    };
+                    let face_id = self.face_data.face_id;
+                    let font_size = self.face_data.font_size;
+                    let face_char_w = self.face_data.font_char_width;
+                    // Resolve effective family once per face change (not per char)
+                    if face_id != self.resolved_family_face_id {
+                        let font_family = if !self.face_data.font_family.is_null() {
+                            CStr::from_ptr(self.face_data.font_family).to_str().unwrap_or("")
+                        } else {
+                            ""
+                        };
+                        let font_file_path_str = if !self.face_data.font_file_path.is_null() {
+                            CStr::from_ptr(self.face_data.font_file_path).to_str().ok()
+                                .filter(|s| !s.is_empty())
+                        } else {
+                            None
+                        };
+                        self.current_resolved_family = if let Some(ref mut svc) = self.font_metrics {
+                            svc.resolve_family(font_family, font_file_path_str)
+                        } else {
+                            font_family.to_string()
+                        };
+                        self.resolved_family_face_id = face_id;
+                    }
+                    let font_weight = self.face_data.font_weight as u16;
+                    let font_italic = self.face_data.italic != 0;
+                    let advance = char_advance(
+                        &mut self.ascii_width_cache,
+                        &mut self.font_metrics,
+                        ch, char_cols, char_w,
+                        face_id, font_size, face_char_w, window,
+                        &self.current_resolved_family, font_weight, font_italic,
+                    );
 
                     if x_offset + advance > avail_width {
                         // Flush ligature run before line wrap/truncation
@@ -6901,10 +6854,7 @@ unsafe fn char_advance(
     if let Some(svc) = font_metrics_svc {
         let font_size_f = font_size as f32;
         let measured = svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
-        // Keep wide chars at least grid-width wide (2 columns in fixed-pitch
-        // Emacs semantics). This keeps Rust layout aligned with cursor geometry
-        // computed by Emacs core.
-        return if char_cols > 1 { measured.max(min_grid_advance) } else { measured };
+        return if measured > 0.0 { measured } else { min_grid_advance };
     }
 
     // C FFI path (default): use pre-warmed Emacs font metrics
@@ -6931,11 +6881,7 @@ unsafe fn char_advance(
 
     // Non-ASCII: query individually via text_extents()
     let w = neomacs_layout_char_width(window, cp as c_int, face_id as c_int);
-    if w > 0.0 {
-        if char_cols > 1 { w.max(min_grid_advance) } else { w }
-    } else {
-        min_grid_advance
-    }
+    if w > 0.0 { w } else { min_grid_advance }
 }
 
 /// Map Emacs standard fringe bitmap IDs to Unicode characters.
