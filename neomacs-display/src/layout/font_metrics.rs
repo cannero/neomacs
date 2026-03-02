@@ -125,8 +125,10 @@ impl FontMetricsService {
             }
         };
 
-        // Font weight (CSS 100-900)
-        attrs = attrs.weight(Weight(weight));
+        // Font weight (CSS 100-900): clamp to closest available in this family.
+        let effective_weight =
+            crate::font_match::resolve_weight_in_family(&self.font_system, family, weight, italic);
+        attrs = attrs.weight(Weight(effective_weight));
 
         // Font style
         if italic {

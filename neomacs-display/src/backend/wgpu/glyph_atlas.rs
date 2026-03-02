@@ -791,6 +791,10 @@ impl WgpuGlyphAtlas {
         let mut attrs = Attrs::new();
 
         if let Some(f) = face {
+            let italic = f
+                .attributes
+                .contains(crate::core::face::FaceAttributes::ITALIC);
+
             // Resolve effective family name: prefer fontdb family from exact file path
             let effective_family = if let Some(ref path) = f.font_file_path {
                 self.font_file_cache
@@ -815,7 +819,8 @@ impl WgpuGlyphAtlas {
                     {
                         existing
                     } else {
-                        let leaked: &'static str = Box::leak(effective_family.into_boxed_str());
+                        let leaked: &'static str =
+                            Box::leak(effective_family.clone().into_boxed_str());
                         self.interned_families.insert(leaked);
                         leaked
                     };
@@ -823,13 +828,27 @@ impl WgpuGlyphAtlas {
                 }
             };
 
-            // Font weight
-            attrs = attrs.weight(Weight(f.font_weight));
+            // Font weight: clamp to the closest available weight in this family,
+            // so missing weights stay within-family instead of jumping to unrelated
+            // common fallback families.
+            let effective_weight = crate::font_match::resolve_weight_in_family(
+                &self.font_system,
+                &effective_family,
+                f.font_weight,
+                italic,
+            );
+            if effective_weight != f.font_weight {
+                tracing::debug!(
+                    "weight normalize: family='{}' requested={} -> resolved={}",
+                    effective_family,
+                    f.font_weight,
+                    effective_weight
+                );
+            }
+            attrs = attrs.weight(Weight(effective_weight));
 
             // Font style (italic)
-            if f.attributes
-                .contains(crate::core::face::FaceAttributes::ITALIC)
-            {
+            if italic {
                 attrs = attrs.style(Style::Italic);
             }
         } else {

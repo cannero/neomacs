@@ -18,6 +18,7 @@ pub mod backend;
 pub mod core;
 pub mod effect_config;
 pub mod ffi;
+pub mod font_match;
 pub mod layout;
 pub mod text;
 pub mod thread_comm;
