@@ -45,6 +45,8 @@ mod buffer_operations_advanced;
 mod buffer_name;
 #[path = "buffer-position.rs"]
 mod buffer_position;
+#[path = "buffer-position-patterns.rs"]
+mod buffer_position_patterns;
 #[path = "buffer-string.rs"]
 mod buffer_string;
 #[path = "buffer-substring.rs"]
@@ -147,6 +149,7 @@ mod combination_bytevector_ops;
 mod combination_cache_strategies;
 mod combination_calculator_repl;
 mod combination_channel_patterns;
+mod combination_church_encoding;
 mod combination_closures;
 mod combination_closures_advanced;
 mod combination_collections;
@@ -156,6 +159,7 @@ mod combination_complex;
 mod combination_consensus;
 mod combination_concurrent_patterns;
 mod combination_config_system;
+mod combination_constraint_propagation;
 mod combination_constraint_solving;
 mod combination_contract_system;
 mod combination_control_flow;
@@ -174,6 +178,7 @@ mod combination_design_patterns;
 mod combination_diff_algorithm;
 mod combination_difference_list;
 mod combination_dynamic_programming;
+mod combination_earley_parser;
 mod combination_effect_system;
 mod combination_elisp_idioms;
 mod combination_encoding_algorithms;
@@ -223,6 +228,7 @@ mod combination_markup_parser;
 mod combination_mathematical_structures;
 mod combination_matrix_math;
 mod combination_matrix_operations;
+mod combination_matrix_operations_advanced;
 mod combination_memo_table;
 mod combination_metaprogramming;
 mod combination_mini_languages;
@@ -277,11 +283,13 @@ mod combination_tree_algorithms;
 mod combination_treap;
 mod combination_trie_advanced;
 mod combination_trie_datastructure;
+mod combination_trie_router;
 mod combination_type_checker;
 mod combination_type_inference;
 mod combination_type_systems;
-mod combination_unification;
 mod combination_undo_system;
+mod combination_unification;
+mod combination_union_find;
 mod combination_validation;
 mod combination_workflow;
 mod combination_zipper_datastructure;
@@ -304,10 +312,14 @@ mod condition_case_advanced2;
 mod condition_case_extended;
 #[path = "condition-case-patterns.rs"]
 mod condition_case_patterns;
+#[path = "condition-case-patterns-advanced.rs"]
+mod condition_case_patterns_advanced;
 #[path = "copy-alist.rs"]
 mod copy_alist;
 #[path = "copy-alist-advanced.rs"]
 mod copy_alist_advanced;
+#[path = "copy-alist-sequence-patterns.rs"]
+mod copy_alist_sequence_patterns;
 #[path = "copy-keymap-advanced.rs"]
 mod copy_keymap_advanced;
 mod coverage;
@@ -683,6 +695,8 @@ mod single_key_description_advanced;
 mod skip_chars;
 #[path = "skip-chars-advanced.rs"]
 mod skip_chars_advanced;
+#[path = "skip-chars-patterns.rs"]
+mod skip_chars_patterns;
 #[path = "skip-syntax-advanced.rs"]
 mod skip_syntax_advanced;
 mod sort;
@@ -690,6 +704,8 @@ mod sort;
 mod sort_algorithms;
 #[path = "sort-extended.rs"]
 mod sort_extended;
+#[path = "sort-stable-patterns.rs"]
+mod sort_stable_patterns;
 #[path = "split-string-advanced.rs"]
 mod split_string_advanced;
 #[path = "split-string-patterns.rs"]
@@ -810,5 +826,7 @@ mod while_advanced;
 mod while_loop_patterns;
 #[path = "while-patterns.rs"]
 mod while_patterns;
+#[path = "with-current-buffer-patterns.rs"]
+mod with_current_buffer_patterns;
 #[path = "with-temp-buffer.rs"]
 mod with_temp_buffer;
