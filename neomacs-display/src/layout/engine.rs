@@ -6775,11 +6775,16 @@ unsafe fn char_advance(
     // Use the face-specific character width when available (handles
     // faces with :height attribute that use a differently-sized font).
     let face_w = if face_char_w > 0.0 { face_char_w } else { char_w };
+    let min_grid_advance = char_cols as f32 * face_w;
 
     // Cosmic-text path: use FontMetricsService for measurement
     if let Some(svc) = font_metrics_svc {
         let font_size_f = font_size as f32;
-        return svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
+        let measured = svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
+        // Keep wide chars at least grid-width wide (2 columns in fixed-pitch
+        // Emacs semantics). This keeps Rust layout aligned with cursor geometry
+        // computed by Emacs core.
+        return if char_cols > 1 { measured.max(min_grid_advance) } else { measured };
     }
 
     // C FFI path (default): use pre-warmed Emacs font metrics
@@ -6806,7 +6811,11 @@ unsafe fn char_advance(
 
     // Non-ASCII: query individually via text_extents()
     let w = neomacs_layout_char_width(window, cp as c_int, face_id as c_int);
-    if w > 0.0 { w } else { char_cols as f32 * face_w }
+    if w > 0.0 {
+        if char_cols > 1 { w.max(min_grid_advance) } else { w }
+    } else {
+        min_grid_advance
+    }
 }
 
 /// Map Emacs standard fringe bitmap IDs to Unicode characters.

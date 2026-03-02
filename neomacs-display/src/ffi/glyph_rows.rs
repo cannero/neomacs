@@ -186,6 +186,7 @@ pub unsafe extern "C" fn neomacs_display_set_face(
     font_descent: c_int, // FONT_DESCENT(font) in pixels
     ul_position: c_int,  // font->underline_position
     ul_thickness: c_int, // font->underline_thickness
+    font_file_path: *const c_char, // Absolute resolved font path from Emacs (or NULL)
 ) {
     if handle.is_null() {
         return;
@@ -201,6 +202,15 @@ pub unsafe extern "C" fn neomacs_display_set_face(
         match std::ffi::CStr::from_ptr(font_family).to_str() {
             Ok(s) if !s.is_empty() => s.to_string(),
             _ => "monospace".to_string(),
+        }
+    };
+
+    let font_file_path_str = if font_file_path.is_null() {
+        None
+    } else {
+        match std::ffi::CStr::from_ptr(font_file_path).to_str() {
+            Ok(s) if !s.is_empty() => Some(s.to_string()),
+            _ => None,
         }
     };
 
@@ -334,7 +344,7 @@ pub unsafe extern "C" fn neomacs_display_set_face(
         box_border_style: 0,
         box_border_speed: 1.0,
         box_color2: None,
-        font_file_path: None,
+        font_file_path: font_file_path_str,
         font_ascent,
         font_descent,
         underline_position: if ul_position > 0 { ul_position } else { 1 },

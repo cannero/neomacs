@@ -1107,7 +1107,8 @@ void neomacs_display_set_face(struct NeomacsDisplay *handle,
                               int fontAscent,
                               int fontDescent,
                               int ulPosition,
-                              int ulThickness);
+                              int ulThickness,
+                              const char *fontFilePath);
 
 /**
  * Set the frame/scene background color

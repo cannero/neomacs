@@ -1514,13 +1514,38 @@ impl WgpuRenderer {
                                 );
                             }
 
+                            // Keep glyph ink within its cell to avoid visible spillover
+                            // (most noticeable on CJK where raster bbox can exceed advance).
+                            let mut quad_x0 = glyph_x;
+                            let mut quad_x1 = glyph_x + glyph_w;
+                            let mut tex_u0 = 0.0f32;
+                            let mut tex_u1 = 1.0f32;
+
+                            if glyph_w > 0.0 {
+                                let cell_x0 = *x;
+                                let cell_x1 = *x + *width;
+                                let clipped_x0 = quad_x0.max(cell_x0);
+                                let clipped_x1 = quad_x1.min(cell_x1);
+
+                                if clipped_x1 <= clipped_x0 {
+                                    continue;
+                                }
+
+                                if clipped_x0 > quad_x0 || clipped_x1 < quad_x1 {
+                                    tex_u0 = (clipped_x0 - quad_x0) / glyph_w;
+                                    tex_u1 = (clipped_x1 - quad_x0) / glyph_w;
+                                    quad_x0 = clipped_x0;
+                                    quad_x1 = clipped_x1;
+                                }
+                            }
+
                             let vertices = [
-                                GlyphVertex { position: [glyph_x, glyph_y], tex_coords: [0.0, 0.0], color },
-                                GlyphVertex { position: [glyph_x + glyph_w, glyph_y], tex_coords: [1.0, 0.0], color },
-                                GlyphVertex { position: [glyph_x + glyph_w, glyph_y + glyph_h], tex_coords: [1.0, 1.0], color },
-                                GlyphVertex { position: [glyph_x, glyph_y], tex_coords: [0.0, 0.0], color },
-                                GlyphVertex { position: [glyph_x + glyph_w, glyph_y + glyph_h], tex_coords: [1.0, 1.0], color },
-                                GlyphVertex { position: [glyph_x, glyph_y + glyph_h], tex_coords: [0.0, 1.0], color },
+                                GlyphVertex { position: [quad_x0, glyph_y], tex_coords: [tex_u0, 0.0], color },
+                                GlyphVertex { position: [quad_x1, glyph_y], tex_coords: [tex_u1, 0.0], color },
+                                GlyphVertex { position: [quad_x1, glyph_y + glyph_h], tex_coords: [tex_u1, 1.0], color },
+                                GlyphVertex { position: [quad_x0, glyph_y], tex_coords: [tex_u0, 0.0], color },
+                                GlyphVertex { position: [quad_x1, glyph_y + glyph_h], tex_coords: [tex_u1, 1.0], color },
+                                GlyphVertex { position: [quad_x0, glyph_y + glyph_h], tex_coords: [tex_u0, 1.0], color },
                             ];
 
                             // Overstrike: simulate bold by drawing the
@@ -1530,12 +1555,12 @@ impl WgpuRenderer {
                             let overstrike_vertices = if *overstrike {
                                 let ox = 1.0 / self.scale_factor;
                                 Some([
-                                    GlyphVertex { position: [glyph_x + ox, glyph_y], tex_coords: [0.0, 0.0], color },
-                                    GlyphVertex { position: [glyph_x + ox + glyph_w, glyph_y], tex_coords: [1.0, 0.0], color },
-                                    GlyphVertex { position: [glyph_x + ox + glyph_w, glyph_y + glyph_h], tex_coords: [1.0, 1.0], color },
-                                    GlyphVertex { position: [glyph_x + ox, glyph_y], tex_coords: [0.0, 0.0], color },
-                                    GlyphVertex { position: [glyph_x + ox + glyph_w, glyph_y + glyph_h], tex_coords: [1.0, 1.0], color },
-                                    GlyphVertex { position: [glyph_x + ox, glyph_y + glyph_h], tex_coords: [0.0, 1.0], color },
+                                    GlyphVertex { position: [quad_x0 + ox, glyph_y], tex_coords: [tex_u0, 0.0], color },
+                                    GlyphVertex { position: [quad_x1 + ox, glyph_y], tex_coords: [tex_u1, 0.0], color },
+                                    GlyphVertex { position: [quad_x1 + ox, glyph_y + glyph_h], tex_coords: [tex_u1, 1.0], color },
+                                    GlyphVertex { position: [quad_x0 + ox, glyph_y], tex_coords: [tex_u0, 0.0], color },
+                                    GlyphVertex { position: [quad_x1 + ox, glyph_y + glyph_h], tex_coords: [tex_u1, 1.0], color },
+                                    GlyphVertex { position: [quad_x0 + ox, glyph_y + glyph_h], tex_coords: [tex_u0, 1.0], color },
                                 ])
                             } else {
                                 None

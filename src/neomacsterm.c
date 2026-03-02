@@ -1013,6 +1013,7 @@ neomacs_send_face (void *handle, struct frame *f, struct face *face)
   int font_descent = 0;
   int ul_position = 1;
   int ul_thickness = 1;
+  const char *font_file_path = NULL;
   if (face->font)
     {
       font_size = face->font->pixel_size;
@@ -1022,6 +1023,10 @@ neomacs_send_face (void *handle, struct frame *f, struct face *face)
         ul_position = face->font->underline_position;
       if (face->font->underline_thickness > 0)
         ul_thickness = face->font->underline_thickness;
+
+      Lisp_Object file_attr = face->font->props[FONT_FILE_INDEX];
+      if (!NILP (file_attr) && STRINGP (file_attr))
+        font_file_path = SSDATA (file_attr);
     }
 
   neomacs_display_set_face (handle, face->id,
@@ -1033,7 +1038,8 @@ neomacs_send_face (void *handle, struct frame *f, struct face *face)
                             strike_through, strike_through_color,
                             overline, overline_color,
                             font_ascent, font_descent,
-                            ul_position, ul_thickness);
+                            ul_position, ul_thickness,
+                            font_file_path);
 }
 
 /* ============================================================================
