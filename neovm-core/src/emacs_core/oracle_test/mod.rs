@@ -19,6 +19,8 @@ mod apply;
 mod apply_advanced;
 #[path = "apply-funcall-advanced.rs"]
 mod apply_funcall_advanced;
+#[path = "apply-funcall-comprehensive.rs"]
+mod apply_funcall_comprehensive;
 #[path = "apply-funcall-patterns.rs"]
 mod apply_funcall_patterns;
 mod arithmetic;
@@ -145,6 +147,7 @@ mod combination_actor_model;
 mod combination_advanced;
 mod combination_advanced_error_handling;
 mod combination_algorithms;
+mod combination_a_star_search;
 mod combination_algorithm_challenges;
 mod combination_automaton_patterns;
 mod combination_avl_tree;
@@ -206,6 +209,7 @@ mod combination_event_driven;
 mod combination_event_system;
 mod combination_expression_evaluator;
 mod combination_expression_tree;
+mod combination_fenwick_tree;
 mod combination_finite_automata;
 mod combination_finger_tree;
 mod combination_string_advanced;
@@ -266,6 +270,7 @@ mod combination_object_system;
 mod combination_oop_patterns;
 mod combination_parser_combinators;
 mod combination_parser_ll1;
+mod combination_parser_lr;
 mod combination_parser_peg;
 mod combination_parser_recursive_descent;
 mod combination_parser_state_machine;
@@ -291,6 +296,7 @@ mod combination_reactive_patterns;
 mod combination_red_black_tree;
 mod combination_red_black_tree_advanced;
 mod combination_regex_engine;
+mod combination_regex_nfa;
 mod combination_register_machine;
 mod combination_ring_buffer;
 mod combination_real_world;
@@ -307,8 +313,10 @@ mod combination_simulation;
 mod combination_skip_list;
 mod combination_sorting;
 mod combination_sparse_matrix;
+mod combination_splay_tree;
 mod combination_state_machines;
 mod combination_suffix_array;
+mod combination_suffix_tree;
 mod combination_symbolic_differentiation;
 mod combination_symbolic_math;
 mod combination_term_rewriting;
@@ -337,6 +345,8 @@ pub(crate) mod common;
 mod compare_strings;
 #[path = "compare-strings-advanced.rs"]
 mod compare_strings_advanced;
+#[path = "compare-strings-comprehensive.rs"]
+mod compare_strings_comprehensive;
 mod comparison;
 #[path = "comparison-advanced.rs"]
 mod comparison_advanced;
@@ -449,6 +459,8 @@ mod following_char_operations;
 mod format;
 #[path = "format-advanced.rs"]
 mod format_advanced;
+#[path = "format-comprehensive-patterns.rs"]
+mod format_comprehensive_patterns;
 #[path = "format-extended.rs"]
 mod format_extended;
 #[path = "format-extended-advanced.rs"]
@@ -700,6 +712,8 @@ mod recursion;
 mod recursion_advanced;
 #[path = "regexp-advanced.rs"]
 mod regexp_advanced;
+#[path = "regexp-comprehensive-patterns.rs"]
+mod regexp_comprehensive_patterns;
 #[path = "regexp-operations.rs"]
 mod regexp_operations;
 #[path = "regexp-operations-advanced.rs"]
@@ -826,6 +840,8 @@ mod string_to_char_advanced;
 mod string_to_number;
 #[path = "string-to-number-advanced.rs"]
 mod string_to_number_advanced;
+#[path = "string-to-number-comprehensive.rs"]
+mod string_to_number_comprehensive;
 #[path = "string-trim-patterns.rs"]
 mod string_trim_patterns;
 #[path = "string-version-lessp.rs"]
@@ -854,6 +870,8 @@ mod symbol_properties_advanced;
 mod syntax_table;
 #[path = "syntax-table-advanced.rs"]
 mod syntax_table_advanced;
+#[path = "syntax-table-comprehensive.rs"]
+mod syntax_table_comprehensive;
 #[path = "syntax-table-operations.rs"]
 mod syntax_table_operations;
 mod take;
