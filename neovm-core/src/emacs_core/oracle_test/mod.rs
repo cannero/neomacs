@@ -95,6 +95,8 @@ mod char_table_range_advanced;
 mod char_table_patterns;
 #[path = "char-operations.rs"]
 mod char_operations;
+#[path = "char-operations-comprehensive.rs"]
+mod char_operations_comprehensive;
 #[path = "char-syntax-advanced.rs"]
 mod char_syntax_advanced;
 #[path = "char-to-string.rs"]
@@ -186,6 +188,7 @@ mod combination_config_system;
 mod combination_constraint_logic;
 mod combination_constraint_propagation;
 mod combination_constraint_solving;
+mod combination_consistent_hashing;
 mod combination_continuation_passing;
 mod combination_contract_system;
 mod combination_control_flow;
@@ -215,6 +218,7 @@ mod combination_encoding_algorithms;
 mod combination_error_handling;
 mod combination_event_driven;
 mod combination_event_system;
+mod combination_expression_compiler;
 mod combination_expression_evaluator;
 mod combination_expression_tree;
 mod combination_fenwick_tree;
@@ -255,6 +259,7 @@ mod combination_json_processor;
 mod combination_kd_tree;
 mod combination_knuth_morris_pratt;
 mod combination_lambda_calculus;
+mod combination_lambda_calculus_advanced;
 mod combination_lazy_evaluation;
 mod combination_lexer_patterns;
 mod combination_linked_list_ops;
@@ -268,6 +273,7 @@ mod combination_markup_parser;
 mod combination_markov_chain;
 mod combination_mathematical_structures;
 mod combination_matrix_math;
+mod combination_matrix_decomposition;
 mod combination_matrix_operations;
 mod combination_matrix_operations_advanced;
 mod combination_memo_table;
@@ -315,6 +321,7 @@ mod combination_real_world_elisp;
 mod combination_recursion;
 mod combination_rope_datastructure;
 mod combination_rope_operations;
+mod combination_sat_solver;
 mod combination_scheduling;
 mod combination_segment_tree;
 mod combination_serialization;
@@ -344,6 +351,7 @@ mod combination_trie_datastructure;
 mod combination_trie_router;
 mod combination_type_checker;
 mod combination_type_inference;
+mod combination_type_inference_hm;
 mod combination_type_systems;
 mod combination_undo_system;
 mod combination_unification;
@@ -540,6 +548,8 @@ mod key_description;
 mod keymap;
 #[path = "keymap-advanced.rs"]
 mod keymap_advanced;
+#[path = "keymap-comprehensive-patterns.rs"]
+mod keymap_comprehensive_patterns;
 #[path = "keymap-operations-extended.rs"]
 mod keymap_operations_extended;
 #[path = "keymap-prompt-patterns.rs"]
@@ -579,6 +589,8 @@ mod looking_at_advanced;
 mod lookup_key_advanced;
 #[path = "macroexpand-advanced.rs"]
 mod macroexpand_advanced;
+#[path = "macro-comprehensive-patterns.rs"]
+mod macro_comprehensive_patterns;
 #[path = "make-hash-table-advanced.rs"]
 mod make_hash_table_advanced;
 #[path = "make-list.rs"]
@@ -610,6 +622,8 @@ mod mapconcat_patterns;
 mod maphash_patterns;
 #[path = "marker-operations.rs"]
 mod marker_operations;
+#[path = "marker-comprehensive-patterns.rs"]
+mod marker_comprehensive_patterns;
 #[path = "match-beginning.rs"]
 mod match_beginning;
 #[path = "match-data.rs"]
@@ -685,6 +699,8 @@ mod r#or;
 mod plist;
 #[path = "plist-advanced.rs"]
 mod plist_advanced;
+#[path = "plist-comprehensive-patterns.rs"]
+mod plist_comprehensive_patterns;
 #[path = "plist-member-advanced.rs"]
 mod plist_member_advanced;
 mod point;
@@ -777,6 +793,8 @@ mod sequence_operations;
 mod seq_comprehensive_patterns;
 #[path = "seq-operations-advanced.rs"]
 mod seq_operations_advanced;
+#[path = "seq-operations-comprehensive.rs"]
+mod seq_operations_comprehensive;
 #[path = "seq-operations-extended.rs"]
 mod seq_operations_extended;
 mod sequencep;
