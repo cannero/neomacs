@@ -417,3 +417,4 @@ neovm-*/target/
 /neomacs-build-test/macos/artifacts/
 /neomacs-build-test/macos/.known_hosts
 result
+/neovm-core/proptest-regressions/emacs_core/oracle_test/
