@@ -11,15 +11,14 @@ use crate::emacs_core::{parse_forms, print_value, EvalError, Evaluator, Value};
 pub(crate) const ORACLE_PROP_CASES: u32 = 10;
 
 pub(crate) fn oracle_prop_enabled() -> bool {
-    std::env::var_os("NEOVM_ENABLE_ORACLE_PROPTEST").is_some()
-        || std::env::var_os("NEOVM_FORCE_ORACLE_PATH").is_some()
+    std::env::var_os("NEOVM_FORCE_ORACLE_PATH").is_some()
 }
 
 macro_rules! return_if_neovm_enable_oracle_proptest_not_set {
     () => {
         if !$crate::emacs_core::oracle::common::oracle_prop_enabled() {
             tracing::info!(
-                "skipping {}:{}: set NEOVM_ENABLE_ORACLE_PROPTEST=1 or NEOVM_FORCE_ORACLE_PATH=/path/to/emacs",
+                "skipping {}:{}: set NEOVM_FORCE_ORACLE_PATH=/path/to/emacs",
                 module_path!(),
                 line!()
             );
@@ -29,7 +28,7 @@ macro_rules! return_if_neovm_enable_oracle_proptest_not_set {
     ($ret:expr) => {
         if !$crate::emacs_core::oracle::common::oracle_prop_enabled() {
             tracing::info!(
-                "skipping {}:{}: set NEOVM_ENABLE_ORACLE_PROPTEST=1 or NEOVM_FORCE_ORACLE_PATH=/path/to/emacs",
+                "skipping {}:{}: set NEOVM_FORCE_ORACLE_PATH=/path/to/emacs",
                 module_path!(),
                 line!()
             );

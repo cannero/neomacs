@@ -68,7 +68,6 @@ jobs:
       - name: Run oracle coverage gate
         if: ${{ steps.emacs.outputs.available == 'true' }}
         env:
-          NEOVM_ENABLE_ORACLE_PROPTEST: "1"
           NEOVM_FORCE_ORACLE_PATH: ${{ steps.emacs.outputs.path }}
           NEOVM_ORACLE_MIN_PRIMITIVE_COVERAGE_PCT: ${{ inputs.min_primitive_coverage_pct }}
           NEOVM_ORACLE_MIN_SPECIAL_FORM_COVERAGE_PCT: ${{ inputs.min_special_form_coverage_pct }}
@@ -80,7 +79,6 @@ jobs:
       - name: Run oracle property tests
         if: ${{ steps.emacs.outputs.available == 'true' }}
         env:
-          NEOVM_ENABLE_ORACLE_PROPTEST: "1"
           NEOVM_FORCE_ORACLE_PATH: ${{ steps.emacs.outputs.path }}
           NEOVM_ORACLE_MIN_PRIMITIVE_COVERAGE_PCT: ${{ inputs.min_primitive_coverage_pct }}
           NEOVM_ORACLE_MIN_SPECIAL_FORM_COVERAGE_PCT: ${{ inputs.min_special_form_coverage_pct }}
