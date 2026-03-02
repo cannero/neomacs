@@ -138,6 +138,8 @@ mod coding_metadata;
 mod coding_string;
 #[path = "coding-string-advanced.rs"]
 mod coding_string_advanced;
+#[path = "coding-system-comprehensive.rs"]
+mod coding_system_comprehensive;
 #[path = "coding-system-put-advanced.rs"]
 mod coding_system_put_advanced;
 #[path = "commandp-functionp-advanced.rs"]
@@ -146,6 +148,7 @@ mod combination;
 mod combination_abstract_algebra;
 mod combination_abstract_algebra_advanced;
 mod combination_abstract_data_types;
+mod combination_abstract_interpretation;
 mod combination_abstract_interpreter;
 mod combination_abstract_machine;
 mod combination_abstract_machine_warren;
@@ -172,6 +175,7 @@ mod combination_bloom_filter_advanced;
 mod combination_binomial_heap;
 mod combination_bitset_operations;
 mod combination_b_tree;
+mod combination_bytecode_interpreter;
 mod combination_bytevector_ops;
 mod combination_cache_strategies;
 mod combination_calculator_repl;
@@ -283,6 +287,7 @@ mod combination_memo_table;
 mod combination_metaprogramming;
 mod combination_mini_languages;
 mod combination_minimax;
+mod combination_minimax_advanced;
 mod combination_monad_patterns;
 mod combination_monoid_patterns;
 mod combination_network_flow;
@@ -291,10 +296,12 @@ mod combination_numeric_patterns;
 mod combination_object_system;
 mod combination_oop_patterns;
 mod combination_parser_combinators;
+mod combination_parser_json;
 mod combination_parser_ll1;
 mod combination_parser_lr;
 mod combination_parser_peg;
 mod combination_parser_recursive_descent;
+mod combination_recursive_descent_advanced;
 mod combination_parser_state_machine;
 mod combination_parsing;
 mod combination_pattern_language;
@@ -302,6 +309,7 @@ mod combination_pattern_matching;
 mod combination_patterns;
 mod combination_petri_net;
 mod combination_persistent_data;
+mod combination_persistent_data_advanced;
 mod combination_persistent_queue;
 mod combination_polynomial_arithmetic;
 mod combination_pratt_parser;
@@ -438,6 +446,8 @@ mod delete_operations_advanced;
 mod delete_region;
 #[path = "delete-region-advanced.rs"]
 mod delete_region_advanced;
+#[path = "delete-region-comprehensive.rs"]
+mod delete_region_comprehensive;
 mod delq;
 #[path = "dolist-dotimes-advanced.rs"]
 mod dolist_dotimes_advanced;
@@ -756,6 +766,8 @@ mod read_print_advanced;
 mod recursion;
 #[path = "recursion-advanced.rs"]
 mod recursion_advanced;
+#[path = "recursion-comprehensive-patterns.rs"]
+mod recursion_comprehensive_patterns;
 #[path = "regexp-advanced.rs"]
 mod regexp_advanced;
 #[path = "regexp-comprehensive-patterns.rs"]
@@ -912,6 +924,8 @@ mod substring_advanced;
 mod symbol;
 #[path = "symbol-advanced.rs"]
 mod symbol_advanced;
+#[path = "symbol-comprehensive-patterns.rs"]
+mod symbol_comprehensive_patterns;
 #[path = "symbol-plist-patterns.rs"]
 mod symbol_plist_patterns;
 #[path = "symbol-properties-advanced.rs"]
@@ -931,6 +945,8 @@ mod text_properties;
 mod text_properties_advanced;
 #[path = "text-properties-comprehensive.rs"]
 mod text_properties_comprehensive;
+#[path = "text-property-comprehensive.rs"]
+mod text_property_comprehensive;
 #[path = "text-properties-patterns.rs"]
 mod text_properties_patterns;
 #[path = "text-property-manipulation.rs"]
@@ -949,6 +965,8 @@ mod type_of_patterns;
 mod type_predicates;
 #[path = "type-predicates-advanced.rs"]
 mod type_predicates_advanced;
+#[path = "type-predicates-comprehensive.rs"]
+mod type_predicates_comprehensive;
 mod unless;
 #[path = "unwind-protect.rs"]
 mod unwind_protect;
