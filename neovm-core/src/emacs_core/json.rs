@@ -213,6 +213,8 @@ fn value_matches(a: &Value, b: &Value) -> bool {
         (Value::Int(x), Value::Int(y)) => x == y,
         (Value::Float(x, _), Value::Float(y, _)) => x.to_bits() == y.to_bits(),
         (Value::Symbol(x), Value::Symbol(y)) => x == y,
+        (Value::Symbol(x), Value::Keyword(y)) => x == y,
+        (Value::Keyword(x), Value::Symbol(y)) => x == y,
         (Value::Keyword(x), Value::Keyword(y)) => x == y,
         (Value::Str(x), Value::Str(y)) => with_heap(|h| h.get_string(*x) == h.get_string(*y)),
         (Value::Char(x), Value::Char(y)) => x == y,

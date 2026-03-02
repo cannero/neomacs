@@ -40,6 +40,8 @@ impl ByteCodeFunction {
             match (&value, existing) {
                 (Value::Int(a), Value::Int(b)) if a == b => return i as u16,
                 (Value::Symbol(a), Value::Symbol(b)) if a == b => return i as u16,
+                (Value::Symbol(a), Value::Keyword(b)) if a == b => return i as u16,
+                (Value::Keyword(a), Value::Symbol(b)) if a == b => return i as u16,
                 (Value::Nil, Value::Nil) => return i as u16,
                 (Value::True, Value::True) => return i as u16,
                 (Value::Keyword(a), Value::Keyword(b)) if a == b => return i as u16,

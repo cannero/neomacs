@@ -1953,6 +1953,10 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
 pub(crate) fn is_dispatch_builtin_name(name: &str) -> bool {
     DISPATCH_BUILTIN_NAMES.contains(&name)
 }
+
+pub(crate) fn dispatch_builtin_names() -> &'static [&'static str] {
+    DISPATCH_BUILTIN_NAMES
+}
 #[cfg(test)]
 #[path = "builtin_registry_test.rs"]
 mod tests;

@@ -291,6 +291,12 @@ impl Evaluator {
         super::timefns::reset_timefns_thread_locals();
 
         let mut obarray = Obarray::new();
+        // Mirror GNU Emacs startup: primitive names exist in the initial
+        // obarray, so `(intern-soft "floatp")` etc are non-nil during
+        // bootstrap macroexpansion (e.g. cl-preloaded).
+        for &name in super::builtin_registry::dispatch_builtin_names() {
+            obarray.intern(name);
+        }
         let default_directory = std::env::current_dir()
             .ok()
             .and_then(|p| p.to_str().map(|s| s.to_string()))

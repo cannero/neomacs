@@ -768,8 +768,35 @@ fn neovm_loadup_bootstrap() {
         .with_test_writer()
         .try_init();
 
-    let _eval = create_bootstrap_evaluator()
-        .expect("loadup bootstrap should succeed");
+    let mut eval = create_bootstrap_evaluator().expect("loadup bootstrap should succeed");
+    let form = crate::emacs_core::parser::parse_forms(
+        "(list (not (null (cl--find-class 'float))) (not (null (cl--find-class 'integer))))",
+    )
+    .expect("parse cl class probe");
+    let result = eval.eval_expr(&form[0]).expect("evaluate cl class probe");
+    let items = crate::emacs_core::value::list_to_vec(&result).expect("result list");
+    assert_eq!(
+        items,
+        vec![Value::True, Value::True],
+        "expected float/integer CL classes to be registered, got {result}"
+    );
+
+    let float_pred = eval
+        .obarray()
+        .get_property("float", "cl-deftype-satisfies")
+        .copied();
+    let integer_pred = eval
+        .obarray()
+        .get_property("integer", "cl-deftype-satisfies")
+        .copied();
+    assert!(
+        float_pred.is_some_and(|v| !v.is_nil()),
+        "expected float cl-deftype-satisfies property to be non-nil, got {float_pred:?}"
+    );
+    assert!(
+        integer_pred.is_some_and(|v| !v.is_nil()),
+        "expected integer cl-deftype-satisfies property to be non-nil, got {integer_pred:?}"
+    );
 }
 
 /// Minimal test: load enough files to get macroexpand-all + pcase working,

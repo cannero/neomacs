@@ -97,6 +97,21 @@ fn eq_float_corner_cases_match_oracle_shape() {
 }
 
 #[test]
+fn intern_keyword_matches_reader_keyword_for_eq_and_memq() {
+    assert_eq!(
+        eval_one(
+            r#"(let* ((k (intern ":beginning"))
+                      (keys (list k (intern ":end") (intern ":value"))))
+                 (list (keywordp k)
+                       (eq k :beginning)
+                       (if (memq :beginning keys) t nil)
+                       (eq (intern-soft ":beginning") :beginning)))"#
+        ),
+        "OK (t t t t)"
+    );
+}
+
+#[test]
 fn comparisons() {
     assert_eq!(eval_one("(< 1 2)"), "OK t");
     assert_eq!(eval_one("(> 1 2)"), "OK nil");

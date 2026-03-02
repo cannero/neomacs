@@ -45,6 +45,30 @@ fn eq_identity() {
 }
 
 #[test]
+fn keyword_identity_is_consistent_across_constructors() {
+    with_test_heap(|| {
+        let keyword_from_symbol_ctor = Value::symbol(":kw");
+        let keyword_from_keyword_ctor = Value::keyword(":kw");
+        let legacy_symbol_variant = Value::Symbol(intern(":kw"));
+
+        assert!(matches!(keyword_from_symbol_ctor, Value::Keyword(_)));
+        assert!(eq_value(&keyword_from_symbol_ctor, &keyword_from_keyword_ctor));
+        assert!(eq_value(&keyword_from_symbol_ctor, &legacy_symbol_variant));
+        assert!(equal_value(
+            &keyword_from_symbol_ctor,
+            &legacy_symbol_variant,
+            0
+        ));
+
+        for test in [HashTableTest::Eq, HashTableTest::Eql, HashTableTest::Equal] {
+            let left = keyword_from_symbol_ctor.to_hash_key(&test);
+            let right = legacy_symbol_variant.to_hash_key(&test);
+            assert_eq!(left, right);
+        }
+    });
+}
+
+#[test]
 fn equal_structural() {
     with_test_heap(|| {
         let a = Value::list(vec![Value::Int(1), Value::Int(2)]);
