@@ -58,10 +58,10 @@ mod bool_vector_comprehensive;
 mod bool_vector_operations;
 #[path = "buffer-local-variable-patterns.rs"]
 mod buffer_local_variable_patterns;
-#[path = "buffer-multi-operations.rs"]
-mod buffer_multi_operations;
 #[path = "buffer-modification-comprehensive.rs"]
 mod buffer_modification_comprehensive;
+#[path = "buffer-multi-operations.rs"]
+mod buffer_multi_operations;
 #[path = "buffer-name.rs"]
 mod buffer_name;
 #[path = "buffer-operations.rs"]
@@ -150,18 +150,6 @@ mod closure_lexical_comprehensive;
 mod coding;
 #[path = "coding-advanced.rs"]
 mod coding_advanced;
-#[path = "concat-extended.rs"]
-mod concat_extended;
-#[path = "concat-extended-advanced.rs"]
-mod concat_extended_advanced;
-#[path = "cons-list-dotted-comprehensive.rs"]
-mod cons_list_dotted_comprehensive;
-#[path = "copy-sequence.rs"]
-mod copy_sequence;
-#[path = "copy-sequence-advanced.rs"]
-mod copy_sequence_advanced;
-#[path = "copy-syntax-table-advanced.rs"]
-mod copy_syntax_table_advanced;
 #[path = "coding-metadata.rs"]
 mod coding_metadata;
 #[path = "coding-string.rs"]
@@ -488,6 +476,10 @@ mod comparison;
 mod comparison_advanced;
 #[path = "concat-extended.rs"]
 mod concat_extended;
+#[path = "concat-extended.rs"]
+mod concat_extended;
+#[path = "concat-extended-advanced.rs"]
+mod concat_extended_advanced;
 #[path = "concat-extended-advanced.rs"]
 mod concat_extended_advanced;
 mod cond;
@@ -507,6 +499,8 @@ mod condition_case_extended;
 mod condition_case_patterns;
 #[path = "condition-case-patterns-advanced.rs"]
 mod condition_case_patterns_advanced;
+#[path = "cons-list-dotted-comprehensive.rs"]
+mod cons_list_dotted_comprehensive;
 #[path = "copy-alist.rs"]
 mod copy_alist;
 #[path = "copy-alist-advanced.rs"]
@@ -517,8 +511,14 @@ mod copy_alist_sequence_patterns;
 mod copy_keymap_advanced;
 #[path = "copy-sequence.rs"]
 mod copy_sequence;
+#[path = "copy-sequence.rs"]
+mod copy_sequence;
 #[path = "copy-sequence-advanced.rs"]
 mod copy_sequence_advanced;
+#[path = "copy-sequence-advanced.rs"]
+mod copy_sequence_advanced;
+#[path = "copy-syntax-table-advanced.rs"]
+mod copy_syntax_table_advanced;
 #[path = "copy-syntax-table-advanced.rs"]
 mod copy_syntax_table_advanced;
 #[path = "count-lines-advanced.rs"]
@@ -852,12 +852,12 @@ mod nreverse;
 mod nthcdr;
 #[path = "nthcdr-advanced.rs"]
 mod nthcdr_advanced;
+#[path = "number-arithmetic-comprehensive.rs"]
+mod number_arithmetic_comprehensive;
 #[path = "number-conversion-comprehensive.rs"]
 mod number_conversion_comprehensive;
 #[path = "number-operations-comprehensive.rs"]
 mod number_operations_comprehensive;
-#[path = "number-arithmetic-comprehensive.rs"]
-mod number_arithmetic_comprehensive;
 #[path = "number-predicates.rs"]
 mod number_predicates;
 #[path = "number-predicates-advanced.rs"]
@@ -912,8 +912,6 @@ mod progn;
 #[path = "progn-advanced.rs"]
 mod progn_advanced;
 mod progn_ast;
-#[path = "property-list-comprehensive.rs"]
-mod property_list_comprehensive;
 #[path = "progn-prog1-prog2-comprehensive.rs"]
 mod progn_prog1_prog2_comprehensive;
 #[path = "proper-list-predicates.rs"]
@@ -922,6 +920,8 @@ mod proper_list_predicates;
 mod propertize_advanced;
 #[path = "property-list-advanced.rs"]
 mod property_list_advanced;
+#[path = "property-list-comprehensive.rs"]
+mod property_list_comprehensive;
 #[path = "provide-require-comprehensive.rs"]
 mod provide_require_comprehensive;
 mod put;
@@ -1001,8 +1001,6 @@ mod save_restriction_comprehensive;
 mod search_backward_advanced;
 #[path = "search-operations.rs"]
 mod search_operations;
-#[path = "sequence-sorting-comprehensive.rs"]
-mod sequence_sorting_comprehensive;
 #[path = "seq-comprehensive-patterns.rs"]
 mod seq_comprehensive_patterns;
 #[path = "seq-library-comprehensive.rs"]
@@ -1015,6 +1013,8 @@ mod seq_operations_comprehensive;
 mod seq_operations_extended;
 #[path = "sequence-operations.rs"]
 mod sequence_operations;
+#[path = "sequence-sorting-comprehensive.rs"]
+mod sequence_sorting_comprehensive;
 mod sequencep;
 #[path = "set-buffer.rs"]
 mod set_buffer;

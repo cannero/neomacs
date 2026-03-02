@@ -18,7 +18,7 @@ fn oracle_prop_buffer_mod_insert_multi_strings_and_chars() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // insert with no args, single string, multiple strings, chars, mixed
-    let form = r#"(with-temp-buffer
+    let form = r##"(with-temp-buffer
   (insert)
   (let ((r1 (buffer-string)))
     (insert "hello")
@@ -468,7 +468,7 @@ fn oracle_prop_buffer_mod_structured_document_building() {
           (goto-char (point-min))
           (insert "# Config file\n")
           (let ((r4 (buffer-string)))
-            (list r1 r2 r3 r4)))))))"#;
+            (list r1 r2 r3 r4)))))))"##;
     assert_oracle_parity(form);
 }
 

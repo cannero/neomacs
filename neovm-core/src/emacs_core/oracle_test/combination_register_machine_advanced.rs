@@ -168,7 +168,8 @@ fn rm_cleanup() -> &'static str {
 fn oracle_prop_register_machine_adv_div_mod_instructions() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       (let ((results nil))
@@ -224,7 +225,8 @@ fn oracle_prop_register_machine_adv_div_mod_instructions() {
 fn oracle_prop_register_machine_adv_jgt_jlt_instructions() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Find the maximum of three values using JGT/JLT
@@ -265,7 +267,8 @@ fn oracle_prop_register_machine_adv_jgt_jlt_instructions() {
 fn oracle_prop_register_machine_adv_stack_operations() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       (let ((results nil))
@@ -327,7 +330,8 @@ fn oracle_prop_register_machine_adv_stack_operations() {
 fn oracle_prop_register_machine_adv_subroutine_call_ret() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Program with a subroutine that doubles a register value
@@ -379,7 +383,8 @@ fn oracle_prop_register_machine_adv_subroutine_call_ret() {
 fn oracle_prop_register_machine_adv_nested_subroutines() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; subroutine A calls subroutine B
@@ -421,7 +426,8 @@ fn oracle_prop_register_machine_adv_nested_subroutines() {
 fn oracle_prop_register_machine_adv_factorial_with_subroutine() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Main calls factorial subroutine.
@@ -509,7 +515,8 @@ fn oracle_prop_register_machine_adv_factorial_with_subroutine() {
 fn oracle_prop_register_machine_adv_fibonacci_with_trace() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Step-by-step runner that records register values at each step
   (fset 'neovm--rma-run-trace
@@ -575,7 +582,8 @@ fn oracle_prop_register_machine_adv_fibonacci_with_trace() {
 fn oracle_prop_register_machine_adv_gcd_with_div_mod() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; GCD subroutine using MOD:
@@ -621,7 +629,8 @@ fn oracle_prop_register_machine_adv_gcd_with_div_mod() {
 fn oracle_prop_register_machine_adv_overflow_detection() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Repeatedly multiply by 2 and count steps until exceeding a threshold
@@ -661,7 +670,8 @@ fn oracle_prop_register_machine_adv_overflow_detection() {
 fn oracle_prop_register_machine_adv_bubble_sort() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Sort 5 values in registers using bubble sort logic
@@ -742,7 +752,8 @@ fn oracle_prop_register_machine_adv_bubble_sort() {
 fn oracle_prop_register_machine_adv_power_subroutine() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Main calls power subroutine with base in 'base' and exp in 'exp'
@@ -805,7 +816,8 @@ fn oracle_prop_register_machine_adv_power_subroutine() {
 fn oracle_prop_register_machine_adv_sum_1_to_n() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Compute sum = 1 + 2 + ... + N using a register machine loop
@@ -847,7 +859,8 @@ fn oracle_prop_register_machine_adv_sum_1_to_n() {
 fn oracle_prop_register_machine_adv_collatz_sequence() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Collatz: if n is even, n/=2; if odd, n=3*n+1. Count steps to reach 1.
@@ -965,7 +978,8 @@ fn oracle_prop_register_machine_adv_collatz_sequence() {
 fn oracle_prop_register_machine_adv_multi_subroutine_expression() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Compute: square(3) + square(4) using a square subroutine
@@ -1007,7 +1021,8 @@ fn oracle_prop_register_machine_adv_multi_subroutine_expression() {
 fn oracle_prop_register_machine_adv_popcount() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       ;; Count bits set in register 'val' using shift and mask

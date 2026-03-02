@@ -389,7 +389,7 @@ fn oracle_prop_lexdyn_lambda_factory_with_state() {
       (funcall set2 'y)        ;; y
       (funcall set1 'c)        ;; c
       (funcall get1)           ;; c
-      (funcall get2))))"#;     ;; y
+      (funcall get2))))"#; // y
     assert_oracle_parity(form);
 }
 

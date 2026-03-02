@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::value::{LambdaData, LambdaParams};

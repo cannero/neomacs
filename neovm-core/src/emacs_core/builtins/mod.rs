@@ -1473,7 +1473,9 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         "set-process-inherit-coding-system-flag" => {
-            return Some(super::process::builtin_set_process_inherit_coding_system_flag(eval, args));
+            return Some(
+                super::process::builtin_set_process_inherit_coding_system_flag(eval, args),
+            );
         }
         "set-process-thread" => {
             return Some(super::process::builtin_set_process_thread(eval, args));
@@ -2441,7 +2443,9 @@ pub(crate) fn dispatch_builtin(
             return Some(super::display::builtin_x_display_mm_width_eval(eval, args));
         }
         "x-display-monitor-attributes-list" => {
-            return Some(super::display::builtin_x_display_monitor_attributes_list_eval(eval, args));
+            return Some(
+                super::display::builtin_x_display_monitor_attributes_list_eval(eval, args),
+            );
         }
         "x-display-planes" => {
             return Some(super::display::builtin_x_display_planes_eval(eval, args));

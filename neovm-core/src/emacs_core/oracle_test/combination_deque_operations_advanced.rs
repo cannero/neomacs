@@ -127,7 +127,8 @@ const DEQUE_CLEANUP: &str = r#"
 fn oracle_prop_deque_circular_buffer() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   ;; Circular buffer: push-back evicts front when capacity exceeded
@@ -179,7 +180,8 @@ fn oracle_prop_deque_circular_buffer() {
     (fmakunbound 'neovm--dqa-cbuf-push)
     (fmakunbound 'neovm--dqa-cbuf-contents)
     (fmakunbound 'neovm--dqa-cbuf-size)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -191,7 +193,8 @@ fn oracle_prop_deque_circular_buffer() {
 fn oracle_prop_deque_sliding_window_min() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   (fset 'neovm--dqa-sliding-min
@@ -237,7 +240,8 @@ fn oracle_prop_deque_sliding_window_min() {
        ;; Window of 4 with negative values
        (funcall 'neovm--dqa-sliding-min '(-2 3 -5 1 4 -3 2 0) 4))
     (fmakunbound 'neovm--dqa-sliding-min)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -249,7 +253,8 @@ fn oracle_prop_deque_sliding_window_min() {
 fn oracle_prop_deque_reverse_rotate() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   ;; Reverse deque in place: pop all from front, push to front of new deque
@@ -302,7 +307,8 @@ fn oracle_prop_deque_reverse_rotate() {
     (fmakunbound 'neovm--dqa-reverse)
     (fmakunbound 'neovm--dqa-rotate-left)
     (fmakunbound 'neovm--dqa-rotate-right)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -314,7 +320,8 @@ fn oracle_prop_deque_reverse_rotate() {
 fn oracle_prop_deque_work_stealing_sim() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   (unwind-protect
@@ -354,7 +361,8 @@ fn oracle_prop_deque_work_stealing_sim() {
                 all-work
                 (length all-work)
                 (funcall 'neovm--dqa-empty-p owner-deque))))
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -366,7 +374,8 @@ fn oracle_prop_deque_work_stealing_sim() {
 fn oracle_prop_deque_bfs_graph() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   (fset 'neovm--dqa-bfs
@@ -407,7 +416,8 @@ fn oracle_prop_deque_bfs_graph() {
          ;; Single node
          (funcall 'neovm--dqa-bfs '((x)) 'x)))
     (fmakunbound 'neovm--dqa-bfs)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -419,7 +429,8 @@ fn oracle_prop_deque_bfs_graph() {
 fn oracle_prop_deque_priority_advanced() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   (fset 'neovm--dqa-pdq-insert
@@ -461,7 +472,8 @@ fn oracle_prop_deque_priority_advanced() {
                     after-insert
                     (funcall 'neovm--dqa-size pdq))))))
     (fmakunbound 'neovm--dqa-pdq-insert)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -473,7 +485,8 @@ fn oracle_prop_deque_priority_advanced() {
 fn oracle_prop_deque_stress_many_elements() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
   (unwind-protect
       (let ((dq (funcall 'neovm--dqa-make)))
@@ -499,7 +512,8 @@ fn oracle_prop_deque_stress_many_elements() {
                       (nreverse back-25)
                       (funcall 'neovm--dqa-size dq)
                       (length remaining)))))))
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -511,7 +525,8 @@ fn oracle_prop_deque_stress_many_elements() {
 fn oracle_prop_deque_palindrome_advanced() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   (fset 'neovm--dqa-palindrome-p
@@ -553,7 +568,8 @@ fn oracle_prop_deque_palindrome_advanced() {
        (funcall 'neovm--dqa-palindrome-p "No lemon, no melon")
        (funcall 'neovm--dqa-palindrome-p "not a palindrome"))
     (fmakunbound 'neovm--dqa-palindrome-p)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -565,7 +581,8 @@ fn oracle_prop_deque_palindrome_advanced() {
 fn oracle_prop_deque_sliding_window_max_min() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   (fset 'neovm--dqa-sliding-maxmin
@@ -607,7 +624,8 @@ fn oracle_prop_deque_sliding_window_max_min() {
        (funcall 'neovm--dqa-sliding-maxmin '(1 2 3 4 5) 5)
        (funcall 'neovm--dqa-sliding-maxmin '(9 1 8 2 7 3 6 4 5) 3))
     (fmakunbound 'neovm--dqa-sliding-maxmin)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }
 
@@ -619,7 +637,8 @@ fn oracle_prop_deque_sliding_window_max_min() {
 fn oracle_prop_deque_interleave_and_split() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {DEQUE_PREAMBLE}
 
   ;; Interleave two deques: take alternately from each
@@ -672,6 +691,7 @@ fn oracle_prop_deque_interleave_and_split() {
                     (funcall 'neovm--dqa-to-list merged2))))))
     (fmakunbound 'neovm--dqa-interleave)
     (fmakunbound 'neovm--dqa-split)
-    {DEQUE_CLEANUP}))"#);
+    {DEQUE_CLEANUP}))"#
+    );
     assert_oracle_parity(&form);
 }

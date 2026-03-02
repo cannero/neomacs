@@ -72,7 +72,8 @@ fn pn_cleanup() -> &'static str {
 fn oracle_prop_petri_net_adv_firing_sequence_deterministic() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       (let* ((marking '((p1 . 5) (p2 . 0) (p3 . 0) (p4 . 0)))
@@ -118,7 +119,8 @@ fn oracle_prop_petri_net_adv_firing_sequence_deterministic() {
 fn oracle_prop_petri_net_adv_reachability_bfs() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Marking equality: sort alist by car before comparing
   (fset 'neovm--pna-marking-equal
@@ -198,7 +200,8 @@ fn oracle_prop_petri_net_adv_reachability_bfs() {
 fn oracle_prop_petri_net_adv_deadlock_detection_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Run simulation and check for deadlock at each step
   (fset 'neovm--pna-detect-deadlock-trace
@@ -270,7 +273,8 @@ fn oracle_prop_petri_net_adv_deadlock_detection_comprehensive() {
 fn oracle_prop_petri_net_adv_p_invariant_verification() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Compute weighted sum for a place invariant
   (fset 'neovm--pna-invariant-sum
@@ -355,7 +359,8 @@ fn oracle_prop_petri_net_adv_p_invariant_verification() {
 fn oracle_prop_petri_net_adv_conflict_detection() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Detect conflicts: two transitions are in conflict if they share an input place
   ;; and both are enabled but cannot both fire (insufficient tokens)
@@ -464,7 +469,8 @@ fn oracle_prop_petri_net_adv_conflict_detection() {
 fn oracle_prop_petri_net_adv_coverability_check() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Check if marking m1 covers m2 (every place in m2 has >= tokens in m1)
   (fset 'neovm--pna-covers-p
@@ -547,7 +553,8 @@ fn oracle_prop_petri_net_adv_coverability_check() {
 fn oracle_prop_petri_net_adv_boundedness_check() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Check if a net is k-bounded: no place ever exceeds k tokens
   (fset 'neovm--pna-check-bounded
@@ -627,7 +634,8 @@ fn oracle_prop_petri_net_adv_boundedness_check() {
 fn oracle_prop_petri_net_adv_chemical_reaction_network() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   (unwind-protect
       (let ((results nil))
@@ -705,7 +713,8 @@ fn oracle_prop_petri_net_adv_chemical_reaction_network() {
 fn oracle_prop_petri_net_adv_liveness_analysis() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Check which transitions can fire at least once from initial marking
   ;; by exploring reachable markings
@@ -777,7 +786,8 @@ fn oracle_prop_petri_net_adv_liveness_analysis() {
 fn oracle_prop_petri_net_adv_concurrent_interleaving() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Simulate with round-robin among enabled transitions
   (fset 'neovm--pna-round-robin-sim
@@ -845,7 +855,8 @@ fn oracle_prop_petri_net_adv_concurrent_interleaving() {
 fn oracle_prop_petri_net_adv_state_space_statistics() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = format!(r#"(progn
+    let form = format!(
+        r#"(progn
   {defs}
   ;; Compute statistics about the state space
   (fset 'neovm--pna-state-stats
