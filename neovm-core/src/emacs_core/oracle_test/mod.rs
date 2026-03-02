@@ -13,6 +13,8 @@ mod advice_patterns_advanced;
 mod alist_get;
 #[path = "alist-operations.rs"]
 mod alist_operations;
+#[path = "alist-operations-comprehensive.rs"]
+mod alist_operations_comprehensive;
 mod r#and;
 mod apply;
 #[path = "apply-advanced.rs"]
@@ -54,6 +56,8 @@ mod buffer_name;
 mod buffer_position;
 #[path = "buffer-position-patterns.rs"]
 mod buffer_position_patterns;
+#[path = "buffer-search-comprehensive.rs"]
+mod buffer_search_comprehensive;
 #[path = "buffer-string.rs"]
 mod buffer_string;
 #[path = "buffer-substring.rs"]
@@ -104,6 +108,8 @@ mod charset_advanced;
 mod cl_lib_patterns;
 #[path = "cl-lib-patterns-advanced.rs"]
 mod cl_lib_patterns_advanced;
+#[path = "cl-loop-comprehensive.rs"]
+mod cl_loop_comprehensive;
 #[path = "cl-loop-patterns.rs"]
 mod cl_loop_patterns;
 mod closure;
@@ -149,6 +155,7 @@ mod combination_advanced_error_handling;
 mod combination_algorithms;
 mod combination_a_star_search;
 mod combination_algorithm_challenges;
+mod combination_automaton_cellular;
 mod combination_automaton_patterns;
 mod combination_avl_tree;
 mod combination_alist_patterns;
@@ -199,6 +206,7 @@ mod combination_deque_operations;
 mod combination_design_patterns;
 mod combination_diff_algorithm;
 mod combination_difference_list;
+mod combination_disjoint_set;
 mod combination_dynamic_programming;
 mod combination_earley_parser;
 mod combination_effect_system;
@@ -212,6 +220,7 @@ mod combination_expression_tree;
 mod combination_fenwick_tree;
 mod combination_finite_automata;
 mod combination_finger_tree;
+mod combination_stream_processing;
 mod combination_string_advanced;
 mod combination_string_algorithms;
 mod combination_string_algorithms_advanced;
@@ -243,6 +252,8 @@ mod combination_interval_tree;
 mod combination_iterative_algorithms;
 mod combination_iterator_patterns;
 mod combination_json_processor;
+mod combination_kd_tree;
+mod combination_knuth_morris_pratt;
 mod combination_lambda_calculus;
 mod combination_lazy_evaluation;
 mod combination_lexer_patterns;
@@ -328,6 +339,7 @@ mod combination_topological_sort;
 mod combination_tree_algorithms;
 mod combination_treap;
 mod combination_trie_advanced;
+mod combination_trie_compressed;
 mod combination_trie_datastructure;
 mod combination_trie_router;
 mod combination_type_checker;
@@ -434,6 +446,8 @@ mod equality_advanced;
 mod erase_buffer_advanced;
 #[path = "erase-buffer-patterns.rs"]
 mod erase_buffer_patterns;
+#[path = "error-handling-comprehensive.rs"]
+mod error_handling_comprehensive;
 #[path = "error-handling-patterns.rs"]
 mod error_handling_patterns;
 #[path = "error-handling-patterns-advanced.rs"]
@@ -555,6 +569,8 @@ mod let_binding_patterns;
 #[path = "let-lexical-dynamic-patterns.rs"]
 mod let_lexical_dynamic_patterns;
 mod list;
+#[path = "list-manipulation-comprehensive.rs"]
+mod list_manipulation_comprehensive;
 #[path = "list-operations-advanced.rs"]
 mod list_operations_advanced;
 #[path = "looking-at-advanced.rs"]
@@ -644,6 +660,8 @@ mod nreverse;
 mod nthcdr;
 #[path = "nthcdr-advanced.rs"]
 mod nthcdr_advanced;
+#[path = "number-operations-comprehensive.rs"]
+mod number_operations_comprehensive;
 #[path = "number-predicates.rs"]
 mod number_predicates;
 #[path = "number-predicates-advanced.rs"]
