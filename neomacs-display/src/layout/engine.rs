@@ -262,6 +262,66 @@ fn cursor_width_for_style(
 }
 
 #[inline]
+unsafe fn cursor_point_advance(
+    text: &[u8],
+    byte_idx: usize,
+    col: i32,
+    params: &WindowParams,
+    face_char_w: f32,
+    face_space_w: f32,
+    char_w: f32,
+    overstrike: bool,
+    face_id: u32,
+    font_size: i32,
+    window: EmacsWindow,
+    font_family: &str,
+    font_weight: u16,
+    font_italic: bool,
+    ascii_width_cache: &mut std::collections::HashMap<(u32, i32), [f32; 128]>,
+    font_metrics_svc: &mut Option<FontMetricsService>,
+) -> Option<f32> {
+    if byte_idx >= text.len() {
+        return None;
+    }
+
+    let face_w = if face_char_w > 0.0 { face_char_w } else { char_w };
+    let (ch, _) = decode_utf8(&text[byte_idx..]);
+    match ch {
+        '\n' | '\r' => Some(face_w),
+        '\t' => {
+            let col_usize = col.max(0) as usize;
+            let next_tab = next_tab_stop_col(col_usize, params.tab_width, &params.tab_stop_list)
+                .max(col_usize + 1);
+            let tab_cols = next_tab.saturating_sub(col_usize).max(1);
+            let space_w = if face_space_w > 0.0 { face_space_w } else { face_w };
+            Some(tab_cols as f32 * space_w)
+        }
+        _ if ch < ' ' || ch == '\x7F' => Some(face_w),
+        _ => {
+            let char_cols = if is_wide_char(ch) { 2 } else { 1 };
+            if overstrike {
+                Some(char_cols as f32 * char_w)
+            } else {
+                Some(char_advance(
+                    ascii_width_cache,
+                    font_metrics_svc,
+                    ch,
+                    char_cols,
+                    char_w,
+                    face_id,
+                    font_size,
+                    face_char_w,
+                    window,
+                    font_family,
+                    font_weight,
+                    font_italic,
+                ))
+            }
+        }
+    }
+}
+
+#[inline]
 fn cursor_style_for_window(params: &WindowParams) -> Option<CursorStyle> {
     if params.selected {
         return CursorStyle::from_type(params.cursor_type, params.cursor_bar_width);
@@ -5056,14 +5116,57 @@ impl LayoutEngine {
                 let cursor_style = cursor_style_for_window(params);
 
                 if let Some(style) = cursor_style {
-                    let cursor_w = cursor_width_for_style(
-                        style,
-                        text,
-                        byte_idx,
-                        col,
-                        params,
-                        cursor_face_w,
+                    let fallback_cursor_w = cursor_width_for_style(
+                        style, text, byte_idx, col, params, cursor_face_w,
                     );
+                    let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
+                        fallback_cursor_w
+                    } else {
+                        // Match Emacs cursor geometry: use the actual width of the
+                        // display element at point (glyph->pixel_width), not just
+                        // columns * nominal face width.
+                        let face_id = self.face_data.face_id;
+                        if face_id != self.resolved_family_face_id {
+                            let font_family = if !self.face_data.font_family.is_null() {
+                                CStr::from_ptr(self.face_data.font_family).to_str().unwrap_or("")
+                            } else {
+                                ""
+                            };
+                            let font_file_path_str = if !self.face_data.font_file_path.is_null() {
+                                CStr::from_ptr(self.face_data.font_file_path).to_str().ok()
+                                    .filter(|s| !s.is_empty())
+                            } else {
+                                None
+                            };
+                            self.current_resolved_family = if let Some(ref mut svc) = self.font_metrics {
+                                svc.resolve_family(font_family, font_file_path_str)
+                            } else {
+                                font_family.to_string()
+                            };
+                            self.resolved_family_face_id = face_id;
+                        }
+
+                        cursor_point_advance(
+                            text,
+                            byte_idx,
+                            col,
+                            params,
+                            cursor_face_w,
+                            face_space_w,
+                            char_w,
+                            overstrike,
+                            self.face_data.face_id,
+                            self.face_data.font_size,
+                            window,
+                            &self.current_resolved_family,
+                            self.face_data.font_weight as u16,
+                            self.face_data.italic != 0,
+                            &mut self.ascii_width_cache,
+                            &mut self.font_metrics,
+                        )
+                        .unwrap_or(fallback_cursor_w)
+                    }
+                    .max(1.0);
                     frame_glyphs.add_cursor(
                         params.window_id as i32,
                         cursor_px,
