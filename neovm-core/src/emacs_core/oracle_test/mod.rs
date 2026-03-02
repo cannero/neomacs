@@ -15,6 +15,8 @@ mod advice_patterns_advanced;
 mod alist_get;
 #[path = "alist-operations.rs"]
 mod alist_operations;
+#[path = "alist-operations-advanced-patterns.rs"]
+mod alist_operations_advanced_patterns;
 #[path = "alist-operations-comprehensive.rs"]
 mod alist_operations_comprehensive;
 mod r#and;
@@ -58,6 +60,8 @@ mod byte_operations_comprehensive;
 mod buffer_local_variable_patterns;
 #[path = "buffer-multi-operations.rs"]
 mod buffer_multi_operations;
+#[path = "buffer-modification-comprehensive.rs"]
+mod buffer_modification_comprehensive;
 #[path = "buffer-operations.rs"]
 mod buffer_operations;
 #[path = "buffer-operations-advanced.rs"]
@@ -150,6 +154,8 @@ mod coding_advanced;
 mod concat_extended;
 #[path = "concat-extended-advanced.rs"]
 mod concat_extended_advanced;
+#[path = "cons-list-dotted-comprehensive.rs"]
+mod cons_list_dotted_comprehensive;
 #[path = "copy-sequence.rs"]
 mod copy_sequence;
 #[path = "copy-sequence-advanced.rs"]
@@ -240,6 +246,7 @@ mod combination_contract_system;
 mod combination_control_flow;
 mod combination_coroutine_patterns;
 mod combination_cps_transform;
+mod combination_cps_transform_advanced;
 mod combination_cryptography;
 mod combination_cryptography_advanced;
 mod combination_csp_solver;
@@ -317,6 +324,7 @@ mod combination_interpreter_register_vm;
 mod combination_interpreters;
 mod combination_interval_arithmetic;
 mod combination_interval_tree;
+mod combination_interval_tree_advanced;
 mod combination_iterative_algorithms;
 mod combination_iterator_patterns;
 mod combination_json_processor;
@@ -339,6 +347,7 @@ mod combination_macro_patterns;
 mod combination_markup_parser;
 mod combination_markov_chain;
 mod combination_mathematical_structures;
+mod combination_matrix_computation;
 mod combination_matrix_math;
 mod combination_matrix_decomposition;
 mod combination_matrix_operations;
@@ -378,6 +387,7 @@ mod combination_pattern_language;
 mod combination_pattern_matching;
 mod combination_patterns;
 mod combination_petri_net;
+mod combination_petri_net_advanced;
 mod combination_persistent_data;
 mod combination_persistent_data_advanced;
 mod combination_persistent_queue;
@@ -393,6 +403,7 @@ mod combination_proof_assistant;
 mod combination_protocol_fsm;
 mod combination_protocol_implementations;
 mod combination_protocol_state_advanced;
+mod combination_protocol_verification;
 mod combination_query_language;
 mod combination_queue_stack;
 mod combination_property_list_patterns;
@@ -405,6 +416,7 @@ mod combination_red_black_tree_advanced;
 mod combination_regex_engine;
 mod combination_regex_nfa;
 mod combination_register_machine;
+mod combination_register_machine_advanced;
 mod combination_ring_buffer;
 mod combination_real_world;
 mod combination_real_world_elisp;
@@ -822,6 +834,8 @@ mod nthcdr_advanced;
 mod number_conversion_comprehensive;
 #[path = "number-operations-comprehensive.rs"]
 mod number_operations_comprehensive;
+#[path = "number-arithmetic-comprehensive.rs"]
+mod number_arithmetic_comprehensive;
 #[path = "number-predicates.rs"]
 mod number_predicates;
 #[path = "number-predicates-advanced.rs"]
@@ -914,6 +928,8 @@ mod recursion_advanced;
 mod recursion_comprehensive_patterns;
 #[path = "regexp-advanced.rs"]
 mod regexp_advanced;
+#[path = "regexp-comprehensive-advanced.rs"]
+mod regexp_comprehensive_advanced;
 #[path = "regexp-comprehensive-patterns.rs"]
 mod regexp_comprehensive_patterns;
 #[path = "regexp-operations.rs"]
@@ -1026,6 +1042,8 @@ mod string_distance;
 mod string_distance_advanced;
 #[path = "string-distance-patterns.rs"]
 mod string_distance_patterns;
+#[path = "string-encoding-comprehensive.rs"]
+mod string_encoding_comprehensive;
 #[path = "string-equal.rs"]
 mod string_equal;
 #[path = "string-join-patterns.rs"]
