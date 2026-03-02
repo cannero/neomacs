@@ -493,12 +493,42 @@ impl WgpuGlyphAtlas {
     /// Returns a `RasterizeResult` containing pixel data and metrics:
     /// - For mask glyphs: pixel_data is R8 alpha, is_color=false
     /// - For color glyphs: pixel_data is RGBA, is_color=true
+    ///
+    /// Instrumented to debug font resolution mismatches (e.g. weight 700 vs 800)
+    /// between requested face attrs and the concrete font selected by cosmic-text.
+    #[tracing::instrument(
+        level = "trace",
+        skip(self, face),
+        fields(
+            text = %text,
+            req_family = tracing::field::Empty,
+            req_weight = tracing::field::Empty,
+            req_italic = tracing::field::Empty,
+            req_size = tracing::field::Empty
+        )
+    )]
     fn rasterize_text(&mut self, text: &str, face: Option<&Face>) -> Option<RasterizeResult> {
+        let req_family = face.map(|f| f.font_family.as_str()).unwrap_or("monospace");
+        let req_weight = face.map(|f| f.font_weight).unwrap_or(400);
+        let req_italic = face
+            .map(|f| {
+                f.attributes
+                    .contains(crate::core::face::FaceAttributes::ITALIC)
+            })
+            .unwrap_or(false);
+        let req_size = face.map(|f| f.font_size).unwrap_or(self.default_font_size);
+
+        let span = tracing::Span::current();
+        span.record("req_family", tracing::field::display(req_family));
+        span.record("req_weight", tracing::field::display(req_weight));
+        span.record("req_italic", tracing::field::display(req_italic));
+        span.record("req_size", tracing::field::display(req_size));
+
         // Create attributes from face
         let attrs = self.face_to_attrs(face);
 
         // Use font_size from face if available, otherwise default
-        let font_size = face.map(|f| f.font_size).unwrap_or(self.default_font_size);
+        let font_size = req_size;
 
         // Create metrics with the face's font size
         let line_height = font_size * 1.3;
@@ -529,11 +559,55 @@ impl WgpuGlyphAtlas {
             for glyph in run.glyphs.iter() {
                 let advance_w = glyph.w * self.scale_factor;
                 let physical_glyph = glyph.physical((0.0, 0.0), self.scale_factor);
+                let cache_key = physical_glyph.cache_key;
 
-                if let Some(image) = self
-                    .swash_cache
-                    .get_image(&mut self.font_system, physical_glyph.cache_key)
-                {
+                // Instrumentation for font resolution: log requested attrs and
+                // the concrete selected font face/glyph per shaped glyph.
+                if tracing::enabled!(tracing::Level::DEBUG) {
+                    let cluster = text.get(glyph.start..glyph.end).unwrap_or("<?>");
+                    if let Some(face_info) = self.font_system.db().face(cache_key.font_id) {
+                        let selected_family = face_info
+                            .families
+                            .first()
+                            .map(|(name, _lang)| name.as_str())
+                            .unwrap_or("<unknown>");
+                        tracing::debug!(
+                            req_family = %req_family,
+                            req_weight = req_weight,
+                            req_italic = req_italic,
+                            req_size = req_size,
+                            glyph_cluster = %cluster,
+                            glyph_start = glyph.start,
+                            glyph_end = glyph.end,
+                            glyph_id = cache_key.glyph_id,
+                            glyph_advance = glyph.w,
+                            cache_weight = cache_key.font_weight.0,
+                            font_id = ?cache_key.font_id,
+                            selected_family = %selected_family,
+                            selected_postscript = %face_info.post_script_name,
+                            selected_weight = face_info.weight.0,
+                            selected_style = ?face_info.style,
+                            "cosmic selected glyph font"
+                        );
+                    } else {
+                        tracing::debug!(
+                            req_family = %req_family,
+                            req_weight = req_weight,
+                            req_italic = req_italic,
+                            req_size = req_size,
+                            glyph_cluster = %cluster,
+                            glyph_start = glyph.start,
+                            glyph_end = glyph.end,
+                            glyph_id = cache_key.glyph_id,
+                            glyph_advance = glyph.w,
+                            cache_weight = cache_key.font_weight.0,
+                            font_id = ?cache_key.font_id,
+                            "cosmic selected glyph font (face_info missing)"
+                        );
+                    }
+                }
+
+                if let Some(image) = self.swash_cache.get_image(&mut self.font_system, cache_key) {
                     let width = image.placement.width as u32;
                     let height = image.placement.height as u32;
 
