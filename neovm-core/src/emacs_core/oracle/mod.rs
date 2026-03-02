@@ -35,6 +35,8 @@ mod beginning_of_line;
 mod bitwise;
 #[path = "bool-vector-operations.rs"]
 mod bool_vector_operations;
+#[path = "buffer-local-variable-patterns.rs"]
+mod buffer_local_variable_patterns;
 #[path = "buffer-multi-operations.rs"]
 mod buffer_multi_operations;
 #[path = "buffer-operations.rs"]
@@ -132,7 +134,9 @@ mod combination_abstract_algebra;
 mod combination_abstract_data_types;
 mod combination_abstract_interpreter;
 mod combination_abstract_machine;
+mod combination_abstract_machine_warren;
 mod combination_abstract_machines;
+mod combination_abstract_set;
 mod combination_abstract_syntax;
 mod combination_actor_model;
 mod combination_advanced;
@@ -166,6 +170,7 @@ mod combination_complex;
 mod combination_consensus;
 mod combination_concurrent_patterns;
 mod combination_config_system;
+mod combination_constraint_logic;
 mod combination_constraint_propagation;
 mod combination_constraint_solving;
 mod combination_continuation_passing;
@@ -208,6 +213,7 @@ mod combination_functional;
 mod combination_functional_advanced;
 mod combination_functional_composition;
 mod combination_functional_programming;
+mod combination_functional_reactive;
 mod combination_genetic_algorithm;
 mod combination_graph_algorithms;
 mod combination_graph_coloring;
@@ -256,6 +262,7 @@ mod combination_parser_combinators;
 mod combination_parser_ll1;
 mod combination_parser_peg;
 mod combination_parser_recursive_descent;
+mod combination_parser_state_machine;
 mod combination_parsing;
 mod combination_pattern_language;
 mod combination_pattern_matching;
@@ -263,6 +270,7 @@ mod combination_patterns;
 mod combination_petri_net;
 mod combination_persistent_data;
 mod combination_persistent_queue;
+mod combination_polynomial_arithmetic;
 mod combination_pratt_parser;
 mod combination_problem_solving;
 mod combination_promise_patterns;
@@ -369,6 +377,8 @@ mod defmacro_patterns;
 mod defvar;
 #[path = "defvar-advanced.rs"]
 mod defvar_advanced;
+#[path = "defvar-setq-comprehensive.rs"]
+mod defvar_setq_comprehensive;
 #[path = "define-key-advanced.rs"]
 mod define_key_advanced;
 #[path = "delete-and-extract-advanced.rs"]
@@ -619,6 +629,8 @@ mod number_sequence_operations;
 mod number_to_string;
 #[path = "number-to-string-advanced.rs"]
 mod number_to_string_advanced;
+#[path = "obarray-patterns.rs"]
+mod obarray_patterns;
 #[path = "obarray-symbol-interning.rs"]
 mod obarray_symbol_interning;
 mod oclosure;
@@ -807,6 +819,8 @@ mod string_version_lessp_advanced;
 mod string_width_advanced;
 #[path = "subr-arity-advanced.rs"]
 mod subr_arity_advanced;
+#[path = "subr-arity-patterns.rs"]
+mod subr_arity_patterns;
 #[path = "subr-predicates.rs"]
 mod subr_predicates;
 mod substring;
@@ -830,6 +844,8 @@ mod take;
 mod text_properties;
 #[path = "text-properties-advanced.rs"]
 mod text_properties_advanced;
+#[path = "text-properties-comprehensive.rs"]
+mod text_properties_comprehensive;
 #[path = "text-properties-patterns.rs"]
 mod text_properties_patterns;
 #[path = "text-property-manipulation.rs"]
@@ -859,6 +875,8 @@ mod upcase_downcase;
 mod upcase_downcase_advanced;
 #[path = "upcase-downcase-patterns.rs"]
 mod upcase_downcase_patterns;
+#[path = "upcase-initials-patterns.rs"]
+mod upcase_initials_patterns;
 mod vector;
 #[path = "vconcat-advanced.rs"]
 mod vconcat_advanced;
