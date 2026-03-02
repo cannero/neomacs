@@ -147,8 +147,9 @@ impl FontMetricsService {
         buffer.set_text(
             &mut self.font_system,
             &text,
-            attrs,
+            &attrs,
             cosmic_text::Shaping::Advanced,
+            None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
 
@@ -222,8 +223,9 @@ impl FontMetricsService {
             buffer.set_text(
                 &mut self.font_system,
                 " ",
-                attrs,
+                &attrs,
                 cosmic_text::Shaping::Advanced,
+                None,
             );
             buffer.shape_until_scroll(&mut self.font_system, false);
             let mut w = font_size * 0.6;
@@ -253,8 +255,9 @@ impl FontMetricsService {
             buffer.set_text(
                 &mut self.font_system,
                 &text,
-                attrs,
+                &attrs,
                 cosmic_text::Shaping::Advanced,
+                None,
             );
             buffer.shape_until_scroll(&mut self.font_system, false);
 
@@ -293,8 +296,9 @@ impl FontMetricsService {
         buffer.set_text(
             &mut self.font_system,
             " ",
-            attrs,
+            &attrs,
             cosmic_text::Shaping::Advanced,
+            None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
 

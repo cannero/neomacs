@@ -84,7 +84,13 @@ impl TextEngine {
         let metrics = self.metrics();
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(&mut self.font_system, Some(100.0), Some(50.0));
-        buffer.set_text(&mut self.font_system, &c.to_string(), attrs, cosmic_text::Shaping::Advanced);
+        buffer.set_text(
+            &mut self.font_system,
+            &c.to_string(),
+            &attrs,
+            cosmic_text::Shaping::Advanced,
+            None,
+        );
         buffer.shape_until_scroll(&mut self.font_system, false);
 
         // Get the glyph info
@@ -128,7 +134,13 @@ impl TextEngine {
 
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(&mut self.font_system, Some(10000.0), Some(100.0));
-        buffer.set_text(&mut self.font_system, text, attrs, cosmic_text::Shaping::Advanced);
+        buffer.set_text(
+            &mut self.font_system,
+            text,
+            &attrs,
+            cosmic_text::Shaping::Advanced,
+            None,
+        );
         buffer.shape_until_scroll(&mut self.font_system, false);
 
         for run in buffer.layout_runs() {

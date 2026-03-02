@@ -449,8 +449,9 @@ impl WgpuGlyphAtlas {
         buffer.set_text(
             &mut self.font_system,
             text,
-            attrs,
+            &attrs,
             cosmic_text::Shaping::Advanced,
+            None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
 

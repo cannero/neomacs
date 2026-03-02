@@ -56,8 +56,8 @@ raw-window-handle = "0.6"
 ash = "0.38"
 pollster = "0.4"
 resvg = "0.44"
-cosmic-text = "0.12"
-fontdb = "0.16"
+cosmic-text = "0.18.2"
+fontdb = "0.23"
 arboard = "3.4"
 
 # GStreamer (video)
