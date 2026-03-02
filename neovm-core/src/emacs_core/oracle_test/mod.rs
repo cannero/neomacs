@@ -1,6 +1,8 @@
 //! Oracle-backed Elisp parity tests.
 #![allow(non_snake_case)]
 
+#[path = "abbrev-comprehensive-patterns.rs"]
+mod abbrev_comprehensive_patterns;
 mod abs;
 mod advice;
 #[path = "advice-advanced.rs"]
@@ -185,6 +187,7 @@ mod combination_church_encoding;
 mod combination_closures;
 mod combination_closures_advanced;
 mod combination_collections;
+mod combination_compiler_optimizer;
 mod combination_compiler_patterns;
 mod combination_compression;
 mod combination_complex;
@@ -193,6 +196,7 @@ mod combination_concurrent_patterns;
 mod combination_config_system;
 mod combination_constraint_logic;
 mod combination_constraint_propagation;
+mod combination_constraint_solver_advanced;
 mod combination_constraint_solving;
 mod combination_consistent_hashing;
 mod combination_continuation_passing;
@@ -243,6 +247,7 @@ mod combination_functional_composition;
 mod combination_functional_programming;
 mod combination_functional_reactive;
 mod combination_genetic_algorithm;
+mod combination_graph_algorithm_advanced;
 mod combination_graph_algorithms;
 mod combination_graph_coloring;
 mod combination_graph_patterns;
@@ -291,6 +296,7 @@ mod combination_minimax_advanced;
 mod combination_monad_patterns;
 mod combination_monoid_patterns;
 mod combination_network_flow;
+mod combination_neural_network_sim;
 mod combination_numeric_algorithms;
 mod combination_numeric_patterns;
 mod combination_object_system;
@@ -316,6 +322,7 @@ mod combination_pratt_parser;
 mod combination_priority_queue;
 mod combination_problem_solving;
 mod combination_promise_patterns;
+mod combination_proof_assistant;
 mod combination_protocol_fsm;
 mod combination_protocol_implementations;
 mod combination_query_language;
@@ -366,6 +373,7 @@ mod combination_trie_router;
 mod combination_type_checker;
 mod combination_type_inference;
 mod combination_type_inference_hm;
+mod combination_type_system_advanced;
 mod combination_type_systems;
 mod combination_undo_system;
 mod combination_unification;
@@ -708,6 +716,8 @@ mod number_sequence_operations;
 mod number_to_string;
 #[path = "number-to-string-advanced.rs"]
 mod number_to_string_advanced;
+#[path = "obarray-comprehensive-patterns.rs"]
+mod obarray_comprehensive_patterns;
 #[path = "obarray-patterns.rs"]
 mod obarray_patterns;
 #[path = "obarray-symbol-interning.rs"]
@@ -733,6 +743,8 @@ mod predicates;
 mod prin1_comprehensive_patterns;
 #[path = "prin1-to-string-advanced.rs"]
 mod prin1_to_string_advanced;
+#[path = "process-string-comprehensive.rs"]
+mod process_string_comprehensive;
 mod prog1;
 #[path = "prog1-prog2-advanced.rs"]
 mod prog1_prog2_advanced;
@@ -793,6 +805,8 @@ mod replace_match_patterns;
 #[path = "replace-regexp-advanced.rs"]
 mod replace_regexp_advanced;
 mod reverse;
+#[path = "ring-buffer-comprehensive.rs"]
+mod ring_buffer_comprehensive;
 #[path = "safe-length-operations.rs"]
 mod safe_length_operations;
 #[path = "safe-length-patterns.rs"]
@@ -951,6 +965,8 @@ mod text_property_comprehensive;
 mod text_properties_patterns;
 #[path = "text-property-manipulation.rs"]
 mod text_property_manipulation;
+#[path = "timer-list-comprehensive.rs"]
+mod timer_list_comprehensive;
 mod trigonometry;
 #[path = "trigonometry-advanced.rs"]
 mod trigonometry_advanced;
@@ -1005,6 +1021,8 @@ mod while_loop_patterns;
 mod while_patterns;
 #[path = "while-dolist-dotimes-patterns.rs"]
 mod while_dolist_dotimes_patterns;
+#[path = "window-operations-comprehensive.rs"]
+mod window_operations_comprehensive;
 #[path = "with-current-buffer-patterns.rs"]
 mod with_current_buffer_patterns;
 #[path = "with-temp-buffer.rs"]
