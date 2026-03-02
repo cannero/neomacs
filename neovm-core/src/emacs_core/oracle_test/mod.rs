@@ -44,6 +44,8 @@ mod beginning_of_line;
 mod bitwise;
 #[path = "bool-vector-operations.rs"]
 mod bool_vector_operations;
+#[path = "byte-operations-comprehensive.rs"]
+mod byte_operations_comprehensive;
 #[path = "buffer-local-variable-patterns.rs"]
 mod buffer_local_variable_patterns;
 #[path = "buffer-multi-operations.rs"]
@@ -75,6 +77,8 @@ mod car_cdr_combinations;
 mod r#catch;
 #[path = "catch-throw-advanced.rs"]
 mod catch_throw_advanced;
+#[path = "catch-throw-comprehensive.rs"]
+mod catch_throw_comprehensive;
 #[path = "catch-throw-patterns.rs"]
 mod catch_throw_patterns;
 #[path = "char-after.rs"]
@@ -149,10 +153,12 @@ mod commandp_functionp_advanced;
 mod combination;
 mod combination_abstract_algebra;
 mod combination_abstract_algebra_advanced;
+mod combination_abstract_algebra_groups;
 mod combination_abstract_data_types;
 mod combination_abstract_interpretation;
 mod combination_abstract_interpreter;
 mod combination_abstract_machine;
+mod combination_abstract_machine_secd;
 mod combination_abstract_machine_warren;
 mod combination_abstract_machines;
 mod combination_abstract_set;
@@ -212,6 +218,7 @@ mod combination_data_structures_advanced;
 mod combination_data_transformations;
 mod combination_database_ops;
 mod combination_database_patterns;
+mod combination_database_relational;
 mod combination_datalog;
 mod combination_dataflow_analysis;
 mod combination_dependency_resolver;
@@ -234,6 +241,7 @@ mod combination_expression_tree;
 mod combination_fenwick_tree;
 mod combination_finite_automata;
 mod combination_finger_tree;
+mod combination_formal_language;
 mod combination_stream_processing;
 mod combination_string_advanced;
 mod combination_string_algorithms;
@@ -262,6 +270,7 @@ mod combination_interpreter_advanced;
 mod combination_interpreter_advanced2;
 mod combination_interpreter_calculus;
 mod combination_interpreter_patterns;
+mod combination_interpreter_register_vm;
 mod combination_interpreters;
 mod combination_interval_arithmetic;
 mod combination_interval_tree;
@@ -293,6 +302,7 @@ mod combination_metaprogramming;
 mod combination_mini_languages;
 mod combination_minimax;
 mod combination_minimax_advanced;
+mod combination_model_checker;
 mod combination_monad_patterns;
 mod combination_monoid_patterns;
 mod combination_network_flow;
@@ -435,6 +445,8 @@ mod defmacro_advanced;
 mod defmacro_macroexpand;
 #[path = "defmacro-patterns.rs"]
 mod defmacro_patterns;
+#[path = "defun-comprehensive-patterns.rs"]
+mod defun_comprehensive_patterns;
 mod defvar;
 #[path = "defvar-advanced.rs"]
 mod defvar_advanced;
@@ -738,6 +750,8 @@ mod point;
 mod point_max;
 #[path = "point-min.rs"]
 mod point_min;
+#[path = "predicate-logic-comprehensive.rs"]
+mod predicate_logic_comprehensive;
 mod predicates;
 #[path = "prin1-comprehensive-patterns.rs"]
 mod prin1_comprehensive_patterns;
@@ -748,6 +762,8 @@ mod process_string_comprehensive;
 mod prog1;
 #[path = "prog1-prog2-advanced.rs"]
 mod prog1_prog2_advanced;
+#[path = "progn-prog1-prog2-comprehensive.rs"]
+mod progn_prog1_prog2_comprehensive;
 mod progn;
 #[path = "progn-advanced.rs"]
 mod progn_advanced;
@@ -930,6 +946,8 @@ mod string_width_advanced;
 mod subr_arity_advanced;
 #[path = "subr-arity-patterns.rs"]
 mod subr_arity_patterns;
+#[path = "subr-operations-comprehensive.rs"]
+mod subr_operations_comprehensive;
 #[path = "subr-predicates.rs"]
 mod subr_predicates;
 mod substring;
