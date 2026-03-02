@@ -102,6 +102,8 @@ mod cl_loop_patterns;
 mod closure;
 #[path = "closure-advanced.rs"]
 mod closure_advanced;
+#[path = "closure-capture-patterns.rs"]
+mod closure_capture_patterns;
 mod coding;
 #[path = "coding-advanced.rs"]
 mod coding_advanced;
@@ -178,6 +180,7 @@ mod combination_data_structures_advanced;
 mod combination_data_transformations;
 mod combination_database_ops;
 mod combination_database_patterns;
+mod combination_datalog;
 mod combination_dataflow_analysis;
 mod combination_dependency_resolver;
 mod combination_design_patterns;
@@ -192,6 +195,7 @@ mod combination_error_handling;
 mod combination_event_driven;
 mod combination_event_system;
 mod combination_expression_evaluator;
+mod combination_expression_tree;
 mod combination_finite_automata;
 mod combination_finger_tree;
 mod combination_string_advanced;
@@ -229,10 +233,12 @@ mod combination_lexer_patterns;
 mod combination_linked_list_ops;
 mod combination_list_algorithms;
 mod combination_logic_engine;
+mod combination_logic_programming;
 mod combination_logic_puzzles;
 mod combination_lru_cache;
 mod combination_macro_patterns;
 mod combination_markup_parser;
+mod combination_markov_chain;
 mod combination_mathematical_structures;
 mod combination_matrix_math;
 mod combination_matrix_operations;
@@ -286,6 +292,7 @@ mod combination_sorting;
 mod combination_sparse_matrix;
 mod combination_state_machines;
 mod combination_suffix_array;
+mod combination_symbolic_differentiation;
 mod combination_symbolic_math;
 mod combination_term_rewriting;
 mod combination_text_analysis;
@@ -305,6 +312,7 @@ mod combination_undo_system;
 mod combination_unification;
 mod combination_union_find;
 mod combination_validation;
+mod combination_virtual_machine_advanced;
 mod combination_workflow;
 mod combination_zipper_datastructure;
 pub(crate) mod common;
@@ -487,6 +495,8 @@ mod keymap;
 mod keymap_advanced;
 #[path = "keymap-operations-extended.rs"]
 mod keymap_operations_extended;
+#[path = "keymap-prompt-patterns.rs"]
+mod keymap_prompt_patterns;
 #[path = "lambda-anonymous.rs"]
 mod lambda_anonymous;
 #[path = "lambda-anonymous-advanced.rs"]
@@ -545,6 +555,8 @@ mod mapcar;
 mod mapconcat_advanced;
 #[path = "mapconcat-patterns.rs"]
 mod mapconcat_patterns;
+#[path = "maphash-patterns.rs"]
+mod maphash_patterns;
 #[path = "marker-operations.rs"]
 mod marker_operations;
 #[path = "match-beginning.rs"]
@@ -700,6 +712,8 @@ mod search_backward_advanced;
 mod search_operations;
 #[path = "sequence-operations.rs"]
 mod sequence_operations;
+#[path = "seq-comprehensive-patterns.rs"]
+mod seq_comprehensive_patterns;
 #[path = "seq-operations-advanced.rs"]
 mod seq_operations_advanced;
 #[path = "seq-operations-extended.rs"]
@@ -753,6 +767,8 @@ mod string_distance_advanced;
 mod string_distance_patterns;
 #[path = "string-equal.rs"]
 mod string_equal;
+#[path = "string-join-patterns.rs"]
+mod string_join_patterns;
 #[path = "string-lessp.rs"]
 mod string_lessp;
 #[path = "string-manipulation.rs"]
@@ -765,6 +781,8 @@ mod string_match;
 mod string_processing;
 #[path = "string-processing-advanced.rs"]
 mod string_processing_advanced;
+#[path = "string-prefix-suffix-patterns.rs"]
+mod string_prefix_suffix_patterns;
 #[path = "string-replace.rs"]
 mod string_replace;
 #[path = "string-replace-patterns.rs"]
