@@ -122,6 +122,8 @@ mod cl_defstruct_comprehensive;
 mod cl_lib_patterns;
 #[path = "cl-lib-patterns-advanced.rs"]
 mod cl_lib_patterns_advanced;
+#[path = "cl-loop-advanced-patterns.rs"]
+mod cl_loop_advanced_patterns;
 #[path = "cl-loop-comprehensive.rs"]
 mod cl_loop_comprehensive;
 #[path = "cl-loop-patterns.rs"]
@@ -205,6 +207,8 @@ mod combination_collections;
 mod combination_compiler_codegen;
 mod combination_compiler_optimizer;
 mod combination_compiler_patterns;
+mod combination_compiler_ssa;
+mod combination_computer_algebra;
 mod combination_compression;
 mod combination_complex;
 mod combination_consensus;
@@ -317,6 +321,7 @@ mod combination_matrix_decomposition;
 mod combination_matrix_operations;
 mod combination_matrix_operations_advanced;
 mod combination_memo_table;
+mod combination_memory_allocator;
 mod combination_metaprogramming;
 mod combination_mini_languages;
 mod combination_minimax;
@@ -325,6 +330,7 @@ mod combination_model_checker;
 mod combination_monad_patterns;
 mod combination_monoid_patterns;
 mod combination_network_flow;
+mod combination_network_protocol_sim;
 mod combination_neural_network_sim;
 mod combination_numeric_algorithms;
 mod combination_numeric_patterns;
@@ -380,6 +386,7 @@ mod combination_segment_tree;
 mod combination_serialization;
 mod combination_set_operations;
 mod combination_signal_processing;
+mod combination_signal_processing_advanced;
 mod combination_simulation;
 mod combination_skip_list;
 mod combination_sorting;
@@ -396,6 +403,7 @@ mod combination_text_analysis;
 mod combination_text_formatting;
 mod combination_text_templating;
 mod combination_text_processing;
+mod combination_theorem_prover;
 mod combination_topological_sort;
 mod combination_topological_sort_advanced;
 mod combination_tree_algorithms;
@@ -603,6 +611,8 @@ mod indirect_function;
 mod insert;
 #[path = "insert-advanced.rs"]
 mod insert_advanced;
+#[path = "insert-buffer-comprehensive.rs"]
+mod insert_buffer_comprehensive;
 #[path = "insert-char-operations.rs"]
 mod insert_char_operations;
 #[path = "interactive-patterns.rs"]
@@ -780,6 +790,8 @@ mod oclosure;
 #[path = "oclosure-advanced.rs"]
 mod oclosure_advanced;
 mod r#or;
+#[path = "pcase-comprehensive-patterns.rs"]
+mod pcase_comprehensive_patterns;
 mod plist;
 #[path = "plist-advanced.rs"]
 mod plist_advanced;
@@ -854,6 +866,8 @@ mod regexp_quote_advanced;
 mod regexp_quote_patterns;
 #[path = "regexp-replace-advanced.rs"]
 mod regexp_replace_advanced;
+#[path = "regexp-replace-comprehensive.rs"]
+mod regexp_replace_comprehensive;
 #[path = "remove-text-properties-patterns.rs"]
 mod remove_text_properties_patterns;
 #[path = "rename-buffer-patterns.rs"]
@@ -889,6 +903,8 @@ mod search_operations;
 mod sequence_operations;
 #[path = "seq-comprehensive-patterns.rs"]
 mod seq_comprehensive_patterns;
+#[path = "seq-library-comprehensive.rs"]
+mod seq_library_comprehensive;
 #[path = "seq-operations-advanced.rs"]
 mod seq_operations_advanced;
 #[path = "seq-operations-comprehensive.rs"]
@@ -998,6 +1014,8 @@ mod subr_arity_patterns;
 mod subr_operations_comprehensive;
 #[path = "subr-predicates.rs"]
 mod subr_predicates;
+#[path = "subr-x-comprehensive.rs"]
+mod subr_x_comprehensive;
 mod substring;
 #[path = "substring-advanced.rs"]
 mod substring_advanced;
