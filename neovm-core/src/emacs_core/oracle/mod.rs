@@ -127,6 +127,7 @@ mod combination;
 mod combination_abstract_algebra;
 mod combination_abstract_data_types;
 mod combination_abstract_interpreter;
+mod combination_abstract_machine;
 mod combination_abstract_machines;
 mod combination_abstract_syntax;
 mod combination_actor_model;
@@ -144,6 +145,7 @@ mod combination_buffer_processing;
 mod combination_buffer_text_processing;
 mod combination_bloom_filter;
 mod combination_bloom_filter_advanced;
+mod combination_binomial_heap;
 mod combination_b_tree;
 mod combination_bytevector_ops;
 mod combination_cache_strategies;
@@ -187,6 +189,7 @@ mod combination_event_driven;
 mod combination_event_system;
 mod combination_expression_evaluator;
 mod combination_finite_automata;
+mod combination_finger_tree;
 mod combination_string_advanced;
 mod combination_string_algorithms;
 mod combination_string_algorithms_advanced;
@@ -217,6 +220,7 @@ mod combination_iterative_algorithms;
 mod combination_iterator_patterns;
 mod combination_json_processor;
 mod combination_lambda_calculus;
+mod combination_lazy_evaluation;
 mod combination_lexer_patterns;
 mod combination_linked_list_ops;
 mod combination_list_algorithms;
@@ -239,6 +243,7 @@ mod combination_numeric_patterns;
 mod combination_object_system;
 mod combination_oop_patterns;
 mod combination_parser_combinators;
+mod combination_parser_peg;
 mod combination_parser_recursive_descent;
 mod combination_parsing;
 mod combination_pattern_language;
@@ -273,6 +278,7 @@ mod combination_skip_list;
 mod combination_sorting;
 mod combination_sparse_matrix;
 mod combination_state_machines;
+mod combination_suffix_array;
 mod combination_symbolic_math;
 mod combination_text_analysis;
 mod combination_text_formatting;
@@ -390,6 +396,8 @@ mod eval;
 mod eval_advanced;
 #[path = "eval-advanced-2.rs"]
 mod eval_advanced_2;
+#[path = "eval-apply-advanced.rs"]
+mod eval_apply_advanced;
 mod event_convert_list;
 #[path = "event-convert-advanced.rs"]
 mod event_convert_advanced;
@@ -489,6 +497,8 @@ mod let_star_advanced;
 mod let_star_advanced_2;
 #[path = "let-binding-patterns.rs"]
 mod let_binding_patterns;
+#[path = "let-lexical-dynamic-patterns.rs"]
+mod let_lexical_dynamic_patterns;
 mod list;
 #[path = "list-operations-advanced.rs"]
 mod list_operations_advanced;
@@ -645,6 +655,10 @@ mod regexp_quote_advanced;
 mod regexp_quote_patterns;
 #[path = "regexp-replace-advanced.rs"]
 mod regexp_replace_advanced;
+#[path = "remove-text-properties-patterns.rs"]
+mod remove_text_properties_patterns;
+#[path = "rename-buffer-patterns.rs"]
+mod rename_buffer_patterns;
 #[path = "replace-match-advanced.rs"]
 mod replace_match_advanced;
 #[path = "replace-match-patterns.rs"]
@@ -689,6 +703,8 @@ mod setq_advanced;
 mod signal;
 #[path = "signal-advanced.rs"]
 mod signal_advanced;
+#[path = "signal-throw-patterns.rs"]
+mod signal_throw_patterns;
 #[path = "single-key-description-advanced.rs"]
 mod single_key_description_advanced;
 #[path = "skip-chars.rs"]
@@ -826,6 +842,8 @@ mod while_advanced;
 mod while_loop_patterns;
 #[path = "while-patterns.rs"]
 mod while_patterns;
+#[path = "while-dolist-dotimes-patterns.rs"]
+mod while_dolist_dotimes_patterns;
 #[path = "with-current-buffer-patterns.rs"]
 mod with_current_buffer_patterns;
 #[path = "with-temp-buffer.rs"]
