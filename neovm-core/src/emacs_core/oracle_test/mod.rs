@@ -46,6 +46,8 @@ mod backquote_comprehensive_patterns;
 #[path = "beginning-of-line.rs"]
 mod beginning_of_line;
 mod bitwise;
+#[path = "bool-vector-comprehensive.rs"]
+mod bool_vector_comprehensive;
 #[path = "bool-vector-operations.rs"]
 mod bool_vector_operations;
 #[path = "byte-operations-comprehensive.rs"]
@@ -97,6 +99,8 @@ mod char_literal_advanced;
 mod char_table;
 #[path = "char-table-advanced.rs"]
 mod char_table_advanced;
+#[path = "char-table-comprehensive-patterns.rs"]
+mod char_table_comprehensive_patterns;
 #[path = "char-table-extra-slot.rs"]
 mod char_table_extra_slot;
 #[path = "char-table-range-advanced.rs"]
@@ -118,6 +122,8 @@ mod charset;
 mod charset_advanced;
 #[path = "cl-defstruct-comprehensive.rs"]
 mod cl_defstruct_comprehensive;
+#[path = "cl-lib-comprehensive.rs"]
+mod cl_lib_comprehensive;
 #[path = "cl-lib-patterns.rs"]
 mod cl_lib_patterns;
 #[path = "cl-lib-patterns-advanced.rs"]
@@ -188,6 +194,7 @@ mod combination_buffer_algorithms;
 mod combination_buffer_editing;
 mod combination_buffer_processing;
 mod combination_buffer_text_processing;
+mod combination_blockchain_sim;
 mod combination_bloom_filter;
 mod combination_bloom_filter_advanced;
 mod combination_binomial_heap;
@@ -276,6 +283,7 @@ mod combination_functional_reactive;
 mod combination_game_theory;
 mod combination_garbage_collector_sim;
 mod combination_genetic_algorithm;
+mod combination_genetic_programming;
 mod combination_graph_algorithm_advanced;
 mod combination_graph_algorithms;
 mod combination_graph_coloring;
@@ -337,6 +345,7 @@ mod combination_numeric_patterns;
 mod combination_object_system;
 mod combination_oop_patterns;
 mod combination_operating_system_sim;
+mod combination_parser_combinator_advanced;
 mod combination_parser_combinators;
 mod combination_parser_earley_advanced;
 mod combination_parser_json;
@@ -354,6 +363,7 @@ mod combination_petri_net;
 mod combination_persistent_data;
 mod combination_persistent_data_advanced;
 mod combination_persistent_queue;
+mod combination_physics_sim;
 mod combination_polynomial_arithmetic;
 mod combination_pratt_parser;
 mod combination_priority_queue;
@@ -367,7 +377,9 @@ mod combination_query_language;
 mod combination_queue_stack;
 mod combination_property_list_patterns;
 mod combination_railroad_diagram;
+mod combination_ray_tracer;
 mod combination_reactive_patterns;
+mod combination_reactive_system;
 mod combination_red_black_tree;
 mod combination_red_black_tree_advanced;
 mod combination_regex_engine;
@@ -515,6 +527,8 @@ mod dotimes;
 mod dynamic_binding;
 #[path = "dynamic-binding-advanced.rs"]
 mod dynamic_binding_advanced;
+#[path = "eieio-comprehensive.rs"]
+mod eieio_comprehensive;
 #[path = "elt-aref-aset-patterns.rs"]
 mod elt_aref_aset_patterns;
 #[path = "end-of-line.rs"]
@@ -740,6 +754,8 @@ mod modify_syntax_entry;
 mod move_to_column_advanced;
 #[path = "move-to-column-patterns.rs"]
 mod move_to_column_patterns;
+#[path = "multibyte-string-comprehensive.rs"]
+mod multibyte_string_comprehensive;
 #[path = "narrow-advanced.rs"]
 mod narrow_advanced;
 #[path = "narrow-widen-comprehensive.rs"]
@@ -790,6 +806,8 @@ mod oclosure;
 #[path = "oclosure-advanced.rs"]
 mod oclosure_advanced;
 mod r#or;
+#[path = "overlay-comprehensive-patterns.rs"]
+mod overlay_comprehensive_patterns;
 #[path = "pcase-comprehensive-patterns.rs"]
 mod pcase_comprehensive_patterns;
 mod plist;
