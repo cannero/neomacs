@@ -143,7 +143,7 @@ fn oracle_prop_bufalgo_word_stats() {
 fn oracle_prop_bufalgo_markdown_toc() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(with-temp-buffer
+    let form = r####"(with-temp-buffer
                     (insert "# Introduction\n\nSome text.\n\n")
                     (insert "## Background\n\nMore text.\n\n")
                     (insert "## Methods\n\n### Data Collection\n\n")
@@ -169,7 +169,7 @@ fn oracle_prop_bufalgo_markdown_toc() {
                                    (nth 1 entry)
                                    (nth 2 entry))))
                        (nreverse toc)
-                       "\n")))"#;
+                       "\n")))"####;
     assert_oracle_parity(form);
 }
 
