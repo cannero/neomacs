@@ -255,6 +255,19 @@
   '((t :inherit (bold italic)))
   "Inherits from bold and italic faces.")
 
+;; --- Font family / height / weight matrix ---
+(defvar neomacs-face-test-font-combo-families
+  '("JetBrains Mono" "Hack" "DejaVu Sans Mono" "Noto Sans Mono")
+  "Font families used in family/height/weight combination tests.")
+
+(defvar neomacs-face-test-font-combo-heights
+  '(0.9 1.0 1.2 1.6)
+  "Relative font heights used in family/height/weight combination tests.")
+
+(defvar neomacs-face-test-font-combo-weights
+  '(normal semi-bold bold extra-bold)
+  "Font weights used in family/height/weight combination tests.")
+
 ;; ============================================================================
 ;; Build the test buffer
 ;; ============================================================================
@@ -271,6 +284,14 @@
   (insert (format "  %-35s " label))
   (let ((start (point)))
     (insert "The quick brown fox jumps over the lazy dog 0123456789")
+    (put-text-property start (point) 'face face-name))
+  (insert "\n"))
+
+(defun neomacs-face-test--insert-sample-text (label face-name text)
+  "Insert a sample line with LABEL using FACE-NAME over TEXT."
+  (insert (format "  %-35s " label))
+  (let ((start (point)))
+    (insert text)
     (put-text-property start (point) 'face face-name))
   (insert "\n"))
 
@@ -337,6 +358,42 @@
     (neomacs-face-test--insert-sample "Serif:" 'neomacs-test-serif)
     (neomacs-face-test--insert-sample "Sans-serif:" 'neomacs-test-sans)
     (neomacs-face-test--insert-sample "Monospace (explicit):" 'neomacs-test-mono)
+
+    ;; === FONT FAMILY / HEIGHT / WEIGHT COMBINATIONS ===
+    (neomacs-face-test--insert-section "FONT FAMILY x HEIGHT x WEIGHT (ASCII + CJK)")
+    (insert "  Matrix rows exercise mixed family/height/weight combinations.\n")
+    (insert "  Verify spacing/alignment for both ASCII and CJK text across transitions.\n")
+    (insert "  Sample text: a好好b  ABCXYZ 0123456789  -> <= >=\n\n")
+    (dolist (family neomacs-face-test-font-combo-families)
+      (let ((start (point)))
+        (insert (format "  -- family: %s --\n" family))
+        (put-text-property start (point) 'face '(:weight bold :foreground "light steel blue")))
+      (dolist (height neomacs-face-test-font-combo-heights)
+        (dolist (weight neomacs-face-test-font-combo-weights)
+          (neomacs-face-test--insert-sample-text
+           (format "h=%s w=%s:" height weight)
+           `(:family ,family :height ,height :weight ,weight)
+           "a好好b  ABCXYZ 0123456789  -> <= >=")))
+      (insert "\n"))
+
+    (insert "  Adjacent transitions (no gaps expected): ")
+    (let ((s (point)))
+      (insert "A好")
+      (put-text-property s (point) 'face
+                         '(:family "JetBrains Mono" :height 1.0 :weight normal)))
+    (let ((s (point)))
+      (insert "B好")
+      (put-text-property s (point) 'face
+                         '(:family "Hack" :height 1.2 :weight semi-bold)))
+    (let ((s (point)))
+      (insert "C好")
+      (put-text-property s (point) 'face
+                         '(:family "DejaVu Sans Mono" :height 1.6 :weight bold)))
+    (let ((s (point)))
+      (insert "D好")
+      (put-text-property s (point) 'face
+                         '(:family "Noto Sans Mono" :height 0.9 :weight extra-bold)))
+    (insert "\n")
 
     ;; === FONT WIDTH ===
     (neomacs-face-test--insert-section "FONT WIDTH (condensed/expanded)")
