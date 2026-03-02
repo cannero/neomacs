@@ -1,4 +1,5 @@
 //! Oracle-backed Elisp parity tests.
+#![allow(non_snake_case)]
 
 mod abs;
 mod advice;
