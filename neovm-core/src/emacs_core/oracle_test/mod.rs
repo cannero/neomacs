@@ -175,12 +175,14 @@ mod combination_abstract_algebra_groups;
 mod combination_abstract_data_types;
 mod combination_abstract_domain;
 mod combination_abstract_interpretation;
+mod combination_abstract_interpretation_advanced;
 mod combination_abstract_interpreter;
 mod combination_abstract_machine;
 mod combination_abstract_machine_cek;
 mod combination_abstract_machine_secd;
 mod combination_abstract_machine_warren;
 mod combination_abstract_machines;
+mod combination_abstract_rewriting;
 mod combination_abstract_set;
 mod combination_abstract_syntax;
 mod combination_actor_model;
@@ -252,6 +254,7 @@ mod combination_datalog;
 mod combination_decision_tree;
 mod combination_deductive_database;
 mod combination_dataflow_analysis;
+mod combination_dataflow_analysis_advanced;
 mod combination_dependency_resolver;
 mod combination_deque_operations;
 mod combination_design_patterns;
@@ -298,6 +301,7 @@ mod combination_graph_coloring;
 mod combination_graph_patterns;
 mod combination_graph_shortest_path;
 mod combination_graph_traversal;
+mod combination_graph_theory_advanced;
 mod combination_hash_algorithms;
 mod combination_heap_datastructure;
 mod combination_higher_order;
@@ -320,6 +324,7 @@ mod combination_kd_tree;
 mod combination_knuth_morris_pratt;
 mod combination_lambda_calculus;
 mod combination_lambda_calculus_advanced;
+mod combination_lattice_theory;
 mod combination_lazy_evaluation;
 mod combination_lexer_patterns;
 mod combination_linear_algebra;
@@ -426,6 +431,7 @@ mod combination_symbolic_differentiation;
 mod combination_symbolic_execution;
 mod combination_symbolic_math;
 mod combination_term_rewriting;
+mod combination_term_rewriting_advanced;
 mod combination_text_analysis;
 mod combination_text_formatting;
 mod combination_text_templating;
@@ -509,6 +515,8 @@ mod defmacro_advanced;
 mod defmacro_macroexpand;
 #[path = "defmacro-patterns.rs"]
 mod defmacro_patterns;
+#[path = "defmacro-comprehensive-patterns.rs"]
+mod defmacro_comprehensive_patterns;
 #[path = "defun-comprehensive-patterns.rs"]
 mod defun_comprehensive_patterns;
 mod defvar;
@@ -603,6 +611,8 @@ mod format_extended_advanced;
 mod format_message_patterns;
 #[path = "format-patterns.rs"]
 mod format_patterns;
+#[path = "format-string-advanced-patterns.rs"]
+mod format_string_advanced_patterns;
 #[path = "forward-char.rs"]
 mod forward_char;
 #[path = "forward-comment.rs"]
@@ -746,6 +756,8 @@ mod mapcar_mapc_comprehensive;
 mod mapconcat_advanced;
 #[path = "mapconcat-patterns.rs"]
 mod mapconcat_patterns;
+#[path = "mapatoms-obarray-comprehensive.rs"]
+mod mapatoms_obarray_comprehensive;
 #[path = "maphash-patterns.rs"]
 mod maphash_patterns;
 #[path = "marker-operations.rs"]
@@ -1068,6 +1080,8 @@ mod subr_operations_comprehensive;
 mod subr_predicates;
 #[path = "subr-x-comprehensive.rs"]
 mod subr_x_comprehensive;
+#[path = "subst-char-in-string-comprehensive.rs"]
+mod subst_char_in_string_comprehensive;
 mod substring;
 #[path = "substring-advanced.rs"]
 mod substring_advanced;
@@ -1101,6 +1115,8 @@ mod text_property_comprehensive;
 mod text_properties_patterns;
 #[path = "text-property-manipulation.rs"]
 mod text_property_manipulation;
+#[path = "thing-at-point-comprehensive.rs"]
+mod thing_at_point_comprehensive;
 #[path = "timer-list-comprehensive.rs"]
 mod timer_list_comprehensive;
 mod trigonometry;
@@ -1155,6 +1171,8 @@ mod when_unless_comprehensive;
 mod r#while;
 #[path = "while-advanced.rs"]
 mod while_advanced;
+#[path = "while-loop-advanced-patterns.rs"]
+mod while_loop_advanced_patterns;
 #[path = "while-loop-comprehensive.rs"]
 mod while_loop_comprehensive;
 #[path = "while-loop-patterns.rs"]
