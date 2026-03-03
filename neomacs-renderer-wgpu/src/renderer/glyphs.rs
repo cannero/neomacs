@@ -89,6 +89,15 @@ struct BoxSpan {
     bg: Option<Color>,
 }
 
+#[derive(Default)]
+struct OverlayGlyphBatches {
+    mask_data: Vec<(GlyphKey, [GlyphVertex; 6])>,
+    color_data: Vec<(GlyphKey, [GlyphVertex; 6])>,
+    // Composed glyphs rendered individually (each is unique, no batching).
+    composed_mask_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
+    composed_color_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
+}
+
 impl WgpuRenderer {
     /// Render frame glyphs to a texture view
     ///
@@ -4116,11 +4125,7 @@ impl WgpuRenderer {
             want_overlay,
         );
 
-        let mut mask_data: Vec<(GlyphKey, [GlyphVertex; 6])> = Vec::new();
-        let mut color_data: Vec<(GlyphKey, [GlyphVertex; 6])> = Vec::new();
-        // Composed glyphs rendered individually (each is unique, no batching)
-        let mut composed_mask_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])> = Vec::new();
-        let mut composed_color_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])> = Vec::new();
+        let mut batches = OverlayGlyphBatches::default();
 
         self.collect_overlay_pass_glyph_data(
             frame_glyphs,
@@ -4129,10 +4134,7 @@ impl WgpuRenderer {
             has_line_anims,
             cursor_visible,
             want_overlay,
-            &mut mask_data,
-            &mut color_data,
-            &mut composed_mask_data,
-            &mut composed_color_data,
+            &mut batches,
         );
 
         self.draw_overlay_pass_batches_and_decorations(
@@ -4144,10 +4146,7 @@ impl WgpuRenderer {
             has_line_anims,
             want_overlay,
             logical_w,
-            &mut mask_data,
-            &mut color_data,
-            &composed_mask_data,
-            &composed_color_data,
+            &mut batches,
         );
     }
 
@@ -4161,17 +4160,19 @@ impl WgpuRenderer {
         has_line_anims: bool,
         want_overlay: bool,
         logical_w: f32,
-        mask_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        color_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        composed_mask_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
-        composed_color_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
+        batches: &mut OverlayGlyphBatches,
     ) {
-        self.log_overlay_pass_batch_debug(mask_data, color_data, want_overlay, logical_w);
+        self.log_overlay_pass_batch_debug(
+            &batches.mask_data,
+            &batches.color_data,
+            want_overlay,
+            logical_w,
+        );
 
-        self.draw_mask_glyph_batch(render_pass, glyph_atlas, mask_data);
-        self.draw_color_glyph_batch(render_pass, glyph_atlas, color_data);
-        self.draw_composed_mask_glyphs(render_pass, glyph_atlas, &composed_mask_data);
-        self.draw_composed_color_glyphs(render_pass, glyph_atlas, &composed_color_data);
+        self.draw_mask_glyph_batch(render_pass, glyph_atlas, &mut batches.mask_data);
+        self.draw_color_glyph_batch(render_pass, glyph_atlas, &mut batches.color_data);
+        self.draw_composed_mask_glyphs(render_pass, glyph_atlas, &batches.composed_mask_data);
+        self.draw_composed_color_glyphs(render_pass, glyph_atlas, &batches.composed_color_data);
 
         self.draw_text_decorations_and_borders(
             render_pass,
@@ -4191,10 +4192,7 @@ impl WgpuRenderer {
         has_line_anims: bool,
         cursor_visible: bool,
         want_overlay: bool,
-        mask_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        color_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        composed_mask_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
-        composed_color_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
+        batches: &mut OverlayGlyphBatches,
     ) {
         for glyph in &frame_glyphs.glyphs {
             if let FrameGlyph::Char {
@@ -4234,10 +4232,7 @@ impl WgpuRenderer {
                     *face_id,
                     *font_size,
                     *overstrike,
-                    mask_data,
-                    color_data,
-                    composed_mask_data,
-                    composed_color_data,
+                    batches,
                 );
             }
         }
@@ -4296,10 +4291,7 @@ impl WgpuRenderer {
         face_id: u32,
         font_size: f32,
         overstrike: bool,
-        mask_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        color_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        composed_mask_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
-        composed_color_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
+        batches: &mut OverlayGlyphBatches,
     ) {
         let face = faces.get(&face_id);
 
@@ -4374,10 +4366,7 @@ impl WgpuRenderer {
                 cached.is_color,
                 vertices,
                 overstrike_vertices,
-                mask_data,
-                color_data,
-                composed_mask_data,
-                composed_color_data,
+                batches,
             );
         }
     }
@@ -4535,10 +4524,7 @@ impl WgpuRenderer {
         is_color: bool,
         vertices: [GlyphVertex; 6],
         overstrike_vertices: Option<[GlyphVertex; 6]>,
-        mask_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        color_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
-        composed_mask_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
-        composed_color_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
+        batches: &mut OverlayGlyphBatches,
     ) {
         if let Some(text) = composed_text {
             let ckey = ComposedGlyphKey {
@@ -4549,14 +4535,14 @@ impl WgpuRenderer {
                 y_bin,
             };
             if is_color {
-                composed_color_data.push((ckey.clone(), vertices));
+                batches.composed_color_data.push((ckey.clone(), vertices));
                 if let Some(ov) = overstrike_vertices {
-                    composed_color_data.push((ckey, ov));
+                    batches.composed_color_data.push((ckey, ov));
                 }
             } else {
-                composed_mask_data.push((ckey.clone(), vertices));
+                batches.composed_mask_data.push((ckey.clone(), vertices));
                 if let Some(ov) = overstrike_vertices {
-                    composed_mask_data.push((ckey, ov));
+                    batches.composed_mask_data.push((ckey, ov));
                 }
             }
         } else {
@@ -4568,14 +4554,14 @@ impl WgpuRenderer {
                 y_bin,
             };
             if is_color {
-                color_data.push((key.clone(), vertices));
+                batches.color_data.push((key.clone(), vertices));
                 if let Some(ov) = overstrike_vertices {
-                    color_data.push((key, ov));
+                    batches.color_data.push((key, ov));
                 }
             } else {
-                mask_data.push((key.clone(), vertices));
+                batches.mask_data.push((key.clone(), vertices));
                 if let Some(ov) = overstrike_vertices {
-                    mask_data.push((key, ov));
+                    batches.mask_data.push((key, ov));
                 }
             }
         }
