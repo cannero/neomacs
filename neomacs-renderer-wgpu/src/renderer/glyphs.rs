@@ -4423,143 +4423,10 @@ impl WgpuRenderer {
                 }
             }
 
-            // Draw mask glyphs with glyph pipeline (alpha tinted with foreground)
-            // Sort by GlyphKey so identical characters batch into single draw calls,
-            // significantly reducing GPU state changes (set_bind_group calls).
-            if !mask_data.is_empty() {
-                mask_data.sort_by(|(a, _), (b, _)| {
-                    a.face_id
-                        .cmp(&b.face_id)
-                        .then(a.font_size_bits.cmp(&b.font_size_bits))
-                        .then(a.charcode.cmp(&b.charcode))
-                });
-
-                render_pass.set_pipeline(&self.glyph_pipeline);
-                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-                let all_vertices: Vec<GlyphVertex> = mask_data
-                    .iter()
-                    .flat_map(|(_, verts)| verts.iter().copied())
-                    .collect();
-
-                let glyph_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Glyph Vertex Buffer"),
-                            contents: bytemuck::cast_slice(&all_vertices),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-
-                render_pass.set_vertex_buffer(0, glyph_buffer.slice(..));
-
-                // Batch consecutive glyphs sharing the same texture
-                let mut i = 0;
-                while i < mask_data.len() {
-                    let (ref key, _) = mask_data[i];
-                    if let Some(cached) = glyph_atlas.get(key) {
-                        let batch_start = i;
-                        i += 1;
-                        while i < mask_data.len() && mask_data[i].0 == *key {
-                            i += 1;
-                        }
-                        let vert_start = (batch_start * 6) as u32;
-                        let vert_end = (i * 6) as u32;
-                        render_pass.set_bind_group(1, &cached.bind_group, &[]);
-                        render_pass.draw(vert_start..vert_end, 0..1);
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-
-            // Draw color glyphs with image pipeline (direct RGBA, e.g. color emoji)
-            if !color_data.is_empty() {
-                color_data.sort_by(|(a, _), (b, _)| {
-                    a.face_id
-                        .cmp(&b.face_id)
-                        .then(a.font_size_bits.cmp(&b.font_size_bits))
-                        .then(a.charcode.cmp(&b.charcode))
-                });
-
-                render_pass.set_pipeline(&self.image_pipeline);
-                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-                let all_vertices: Vec<GlyphVertex> = color_data
-                    .iter()
-                    .flat_map(|(_, verts)| verts.iter().copied())
-                    .collect();
-
-                let color_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Color Glyph Vertex Buffer"),
-                            contents: bytemuck::cast_slice(&all_vertices),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-
-                render_pass.set_vertex_buffer(0, color_buffer.slice(..));
-
-                // Batch consecutive color glyphs sharing the same texture
-                let mut i = 0;
-                while i < color_data.len() {
-                    let (ref key, _) = color_data[i];
-                    if let Some(cached) = glyph_atlas.get(key) {
-                        let batch_start = i;
-                        i += 1;
-                        while i < color_data.len() && color_data[i].0 == *key {
-                            i += 1;
-                        }
-                        let vert_start = (batch_start * 6) as u32;
-                        let vert_end = (i * 6) as u32;
-                        render_pass.set_bind_group(1, &cached.bind_group, &[]);
-                        render_pass.draw(vert_start..vert_end, 0..1);
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-
-            // Draw composed mask glyphs (each unique, no batching)
-            if !composed_mask_data.is_empty() {
-                render_pass.set_pipeline(&self.glyph_pipeline);
-                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-                for (ckey, verts) in &composed_mask_data {
-                    if let Some(cached) = glyph_atlas.get_composed(ckey) {
-                        let vbuf =
-                            self.device
-                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("Composed Glyph VB"),
-                                    contents: bytemuck::cast_slice(verts),
-                                    usage: wgpu::BufferUsages::VERTEX,
-                                });
-                        render_pass.set_vertex_buffer(0, vbuf.slice(..));
-                        render_pass.set_bind_group(1, &cached.bind_group, &[]);
-                        render_pass.draw(0..6, 0..1);
-                    }
-                }
-            }
-
-            // Draw composed color glyphs (emoji ZWJ sequences, etc.)
-            if !composed_color_data.is_empty() {
-                render_pass.set_pipeline(&self.image_pipeline);
-                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-                for (ckey, verts) in &composed_color_data {
-                    if let Some(cached) = glyph_atlas.get_composed(ckey) {
-                        let vbuf =
-                            self.device
-                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("Composed Color Glyph VB"),
-                                    contents: bytemuck::cast_slice(verts),
-                                    usage: wgpu::BufferUsages::VERTEX,
-                                });
-                        render_pass.set_vertex_buffer(0, vbuf.slice(..));
-                        render_pass.set_bind_group(1, &cached.bind_group, &[]);
-                        render_pass.draw(0..6, 0..1);
-                    }
-                }
-            }
+            self.draw_mask_glyph_batch(render_pass, glyph_atlas, &mut mask_data);
+            self.draw_color_glyph_batch(render_pass, glyph_atlas, &mut color_data);
+            self.draw_composed_mask_glyphs(render_pass, glyph_atlas, &composed_mask_data);
+            self.draw_composed_color_glyphs(render_pass, glyph_atlas, &composed_color_data);
 
             self.draw_text_decorations_and_borders(
                 render_pass,
@@ -4569,6 +4436,180 @@ impl WgpuRenderer {
                 has_line_anims,
                 want_overlay,
             );
+        }
+    }
+
+    fn draw_mask_glyph_batch(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        glyph_atlas: &WgpuGlyphAtlas,
+        mask_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
+    ) {
+        // Draw mask glyphs with glyph pipeline (alpha tinted with foreground)
+        // Sort by GlyphKey so identical characters batch into single draw calls,
+        // significantly reducing GPU state changes (set_bind_group calls).
+        if mask_data.is_empty() {
+            return;
+        }
+
+        mask_data.sort_by(|(a, _), (b, _)| {
+            a.face_id
+                .cmp(&b.face_id)
+                .then(a.font_size_bits.cmp(&b.font_size_bits))
+                .then(a.charcode.cmp(&b.charcode))
+        });
+
+        render_pass.set_pipeline(&self.glyph_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+        let all_vertices: Vec<GlyphVertex> = mask_data
+            .iter()
+            .flat_map(|(_, verts)| verts.iter().copied())
+            .collect();
+
+        let glyph_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Glyph Vertex Buffer"),
+                contents: bytemuck::cast_slice(&all_vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        render_pass.set_vertex_buffer(0, glyph_buffer.slice(..));
+
+        // Batch consecutive glyphs sharing the same texture.
+        let mut i = 0;
+        while i < mask_data.len() {
+            let (ref key, _) = mask_data[i];
+            if let Some(cached) = glyph_atlas.get(key) {
+                let batch_start = i;
+                i += 1;
+                while i < mask_data.len() && mask_data[i].0 == *key {
+                    i += 1;
+                }
+                let vert_start = (batch_start * 6) as u32;
+                let vert_end = (i * 6) as u32;
+                render_pass.set_bind_group(1, &cached.bind_group, &[]);
+                render_pass.draw(vert_start..vert_end, 0..1);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    fn draw_color_glyph_batch(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        glyph_atlas: &WgpuGlyphAtlas,
+        color_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
+    ) {
+        // Draw color glyphs with image pipeline (direct RGBA, e.g. color emoji).
+        if color_data.is_empty() {
+            return;
+        }
+
+        color_data.sort_by(|(a, _), (b, _)| {
+            a.face_id
+                .cmp(&b.face_id)
+                .then(a.font_size_bits.cmp(&b.font_size_bits))
+                .then(a.charcode.cmp(&b.charcode))
+        });
+
+        render_pass.set_pipeline(&self.image_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+        let all_vertices: Vec<GlyphVertex> = color_data
+            .iter()
+            .flat_map(|(_, verts)| verts.iter().copied())
+            .collect();
+
+        let color_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Color Glyph Vertex Buffer"),
+                contents: bytemuck::cast_slice(&all_vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        render_pass.set_vertex_buffer(0, color_buffer.slice(..));
+
+        // Batch consecutive color glyphs sharing the same texture.
+        let mut i = 0;
+        while i < color_data.len() {
+            let (ref key, _) = color_data[i];
+            if let Some(cached) = glyph_atlas.get(key) {
+                let batch_start = i;
+                i += 1;
+                while i < color_data.len() && color_data[i].0 == *key {
+                    i += 1;
+                }
+                let vert_start = (batch_start * 6) as u32;
+                let vert_end = (i * 6) as u32;
+                render_pass.set_bind_group(1, &cached.bind_group, &[]);
+                render_pass.draw(vert_start..vert_end, 0..1);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    fn draw_composed_mask_glyphs(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        glyph_atlas: &WgpuGlyphAtlas,
+        composed_mask_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
+    ) {
+        // Draw composed mask glyphs (each unique, no batching).
+        if composed_mask_data.is_empty() {
+            return;
+        }
+
+        render_pass.set_pipeline(&self.glyph_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+        for (ckey, verts) in composed_mask_data {
+            if let Some(cached) = glyph_atlas.get_composed(ckey) {
+                let vbuf = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Composed Glyph VB"),
+                        contents: bytemuck::cast_slice(verts),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                render_pass.set_vertex_buffer(0, vbuf.slice(..));
+                render_pass.set_bind_group(1, &cached.bind_group, &[]);
+                render_pass.draw(0..6, 0..1);
+            }
+        }
+    }
+
+    fn draw_composed_color_glyphs(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        glyph_atlas: &WgpuGlyphAtlas,
+        composed_color_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
+    ) {
+        // Draw composed color glyphs (emoji ZWJ sequences, etc.).
+        if composed_color_data.is_empty() {
+            return;
+        }
+
+        render_pass.set_pipeline(&self.image_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+        for (ckey, verts) in composed_color_data {
+            if let Some(cached) = glyph_atlas.get_composed(ckey) {
+                let vbuf = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Composed Color Glyph VB"),
+                        contents: bytemuck::cast_slice(verts),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                render_pass.set_vertex_buffer(0, vbuf.slice(..));
+                render_pass.set_bind_group(1, &cached.bind_group, &[]);
+                render_pass.draw(0..6, 0..1);
+            }
         }
     }
 
