@@ -293,9 +293,12 @@ impl WgpuRenderer {
 
                 if let Some(cached) = cached_opt {
                     let sf = self.scale_factor;
-                    let glyph_x = *x + offset_x + cached.bearing_x / sf;
+                    // Snap glyph positions to physical pixel boundaries to prevent
+                    // blurry text from Linear texture filtering at fractional offsets.
+                    // Multiply by scale_factor → round to physical pixel → divide back.
+                    let glyph_x = ((*x + offset_x + cached.bearing_x / sf) * sf).round() / sf;
                     let baseline = *y + offset_y + *ascent;
-                    let glyph_y = baseline - cached.bearing_y / sf;
+                    let glyph_y = ((baseline - cached.bearing_y / sf) * sf).round() / sf;
                     let glyph_w = cached.width as f32 / sf;
                     let glyph_h = cached.height as f32 / sf;
 
