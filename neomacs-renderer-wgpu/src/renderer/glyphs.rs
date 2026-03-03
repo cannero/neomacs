@@ -4408,37 +4408,9 @@ impl WgpuRenderer {
             let glyph_w = cached.width as f32 / sf;
             let glyph_h = cached.height as f32 / sf;
 
-            // Determine effective foreground color.
-            // For the character under a filled box cursor, swap to
-            // cursor_fg (inverse video) when cursor is visible.
-            let effective_fg = if cursor_visible {
-                if let Some(ref inv) = frame_glyphs.cursor_inverse {
-                    // Match if char cell overlaps cursor inverse position
-                    if (x - inv.x).abs() < 1.0 && (y - inv.y).abs() < 1.0 {
-                        &inv.cursor_fg
-                    } else {
-                        fg
-                    }
-                } else {
-                    fg
-                }
-            } else {
-                fg
-            };
-
-            // Color glyphs use white vertex color (no tinting),
-            // mask glyphs use foreground color for tinting
-            let fade_alpha = self.text_fade_alpha(x, y) * self.mode_line_fade_alpha(x, y);
-            let color = if cached.is_color {
-                [1.0, 1.0, 1.0, fade_alpha]
-            } else {
-                [
-                    effective_fg.r,
-                    effective_fg.g,
-                    effective_fg.b,
-                    effective_fg.a * fade_alpha,
-                ]
-            };
+            let effective_fg =
+                self.resolve_effective_foreground(frame_glyphs, cursor_visible, x, y, fg);
+            let color = self.resolve_glyph_vertex_color(cached.is_color, effective_fg, x, y);
 
             self.log_overlay_char_debug(
                 want_overlay,
@@ -4547,6 +4519,51 @@ impl WgpuRenderer {
                 composed_mask_data,
                 composed_color_data,
             );
+        }
+    }
+
+    fn resolve_effective_foreground<'a>(
+        &self,
+        frame_glyphs: &'a FrameGlyphBuffer,
+        cursor_visible: bool,
+        x: f32,
+        y: f32,
+        fg: &'a Color,
+    ) -> &'a Color {
+        // For the character under a filled box cursor, swap to cursor_fg
+        // (inverse video) when cursor is visible.
+        if !cursor_visible {
+            return fg;
+        }
+        let Some(ref inv) = frame_glyphs.cursor_inverse else {
+            return fg;
+        };
+        if (x - inv.x).abs() < 1.0 && (y - inv.y).abs() < 1.0 {
+            &inv.cursor_fg
+        } else {
+            fg
+        }
+    }
+
+    fn resolve_glyph_vertex_color(
+        &self,
+        is_color_glyph: bool,
+        effective_fg: &Color,
+        x: f32,
+        y: f32,
+    ) -> [f32; 4] {
+        // Color glyphs use white vertex color (no tinting),
+        // mask glyphs use foreground color for tinting.
+        let fade_alpha = self.text_fade_alpha(x, y) * self.mode_line_fade_alpha(x, y);
+        if is_color_glyph {
+            [1.0, 1.0, 1.0, fade_alpha]
+        } else {
+            [
+                effective_fg.r,
+                effective_fg.g,
+                effective_fg.b,
+                effective_fg.a * fade_alpha,
+            ]
         }
     }
 
