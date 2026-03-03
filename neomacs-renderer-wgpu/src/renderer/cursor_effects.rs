@@ -1540,7 +1540,7 @@ pub(super) fn emit_cursor_snowflake(
                 for i in 0..ctx.effects.cursor_snowflake.count {
                     let mut h = i.wrapping_mul(2654435761);
                     h ^= h >> 16;
-                    let offset_x = ((h % 60) as f32 - 30.0);
+                    let offset_x = (h % 60) as f32 - 30.0;
                     let drift = ((h >> 8) % 20) as f32 * 0.1 - 1.0;
                     let fall_y = elapsed * fall_speed * (0.5 + (h % 100) as f32 / 100.0);
                     let px = cx + offset_x + drift * elapsed * 5.0;
@@ -1591,7 +1591,7 @@ pub(super) fn emit_cursor_flame(ctx: &EffectCtx) -> Vec<RectVertex> {
             let mut h = i.wrapping_mul(2654435761);
             h ^= h >> 16;
             let t_offset = (h % 100) as f32 / 100.0;
-            let flicker = ((now * 8.0 + t_offset * std::f32::consts::TAU).sin() * 0.5 + 0.5);
+            let flicker = (now * 8.0 + t_offset * std::f32::consts::TAU).sin() * 0.5 + 0.5;
             let rise = (now * 3.0 + t_offset * 10.0) % 1.0;
             let px = cx + ((h % 20) as f32 - 10.0) * flicker;
             let py = cy - rise * flame_h;
@@ -1875,7 +1875,7 @@ pub(super) fn emit_cursor_sparkler(ctx: &EffectCtx) -> Vec<RectVertex> {
 
     for i in 0..spark_count {
         let angle = (i as f32 / spark_count as f32) * std::f32::consts::TAU + now * burn * 2.0;
-        let life = ((now * burn * 3.0 + i as f32 * 1.7) % 1.0);
+        let life = (now * burn * 3.0 + i as f32 * 1.7) % 1.0;
         let r = 5.0 + life * 25.0;
         let sx = cx + angle.cos() * r;
         let sy = cy + angle.sin() * r;
@@ -2125,7 +2125,7 @@ pub(super) fn emit_cursor_stardust(ctx: &EffectCtx) -> Vec<RectVertex> {
         let x = cx + spread + (now * 0.3 + phase).sin() * 3.0;
         let y = cy + t * 25.0;
         let alpha = opacity * (1.0 - t / 2.0);
-        let twinkle = ((now * 5.0 + phase * 3.0).sin() * 0.5 + 0.5);
+        let twinkle = (now * 5.0 + phase * 3.0).sin() * 0.5 + 0.5;
         let size = 1.0 + twinkle * 2.0;
         let c = Color::new(sr, sg * (0.8 + twinkle * 0.2), sb, alpha * twinkle);
         push_rect(&mut verts, x - size / 2.0, y - size / 2.0, size, size, &c);

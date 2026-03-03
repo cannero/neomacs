@@ -1986,7 +1986,7 @@ impl WgpuRenderer {
 
         let dir = direction as f32;
         let offset = scroll_distance * eased_t;
-        let speed = (1.0 - eased_t); // High at start, low at end
+        let speed = 1.0 - eased_t; // High at start, low at end
         let num_strips = 20;
         let strip_h = bounds.height / num_strips as f32;
         let uv_strip_h = (uv_b - uv_t) / num_strips as f32;
@@ -2028,9 +2028,8 @@ impl WgpuRenderer {
                     }
                     ScrollEffect::CRTScanlines => {
                         // Scanline brightness modulation
-                        let scanline = ((nt * num_strips as f32 * 2.0 + elapsed_secs * 20.0).sin()
-                            * 0.5
-                            + 0.5);
+                        let scanline =
+                            (nt * num_strips as f32 * 2.0 + elapsed_secs * 20.0).sin() * 0.5 + 0.5;
                         let intensity = 1.0 - speed * 0.15 * scanline;
                         r = intensity;
                         g = intensity;
