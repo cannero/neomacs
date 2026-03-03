@@ -1,6 +1,6 @@
 //! Glyphs methods for WgpuRenderer.
 
-use super::super::glyph_atlas::{ComposedGlyphKey, GlyphKey, WgpuGlyphAtlas};
+use super::super::glyph_atlas::{CachedGlyph, ComposedGlyphKey, GlyphKey, WgpuGlyphAtlas};
 use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex, Uniforms};
 use super::WgpuRenderer;
 use super::{
@@ -4375,32 +4375,18 @@ impl WgpuRenderer {
         let (x_int, x_bin) = SubpixelBin::new(phys_x);
         let (y_int, y_bin) = SubpixelBin::new(phys_y);
 
-        // Look up or create the glyph texture
-        let cached_opt = if let Some(text) = composed_text {
-            // Composed grapheme cluster (emoji ZWJ, combining marks, etc.)
-            glyph_atlas.get_or_create_composed(
-                &self.device,
-                &self.queue,
-                text,
-                face_id,
-                font_size.to_bits(),
-                face,
-                x_bin,
-                y_bin,
-            )
-        } else {
-            // Single character
-            let key = GlyphKey {
-                charcode: char_code as u32,
-                face_id,
-                font_size_bits: font_size.to_bits(),
-                x_bin,
-                y_bin,
-            };
-            glyph_atlas.get_or_create(&self.device, &self.queue, &key, face)
-        };
+        let cached = self.lookup_overlay_cached_glyph(
+            glyph_atlas,
+            face,
+            composed_text,
+            char_code,
+            face_id,
+            font_size.to_bits(),
+            x_bin,
+            y_bin,
+        );
 
-        if let Some(cached) = cached_opt {
+        if let Some(cached) = cached {
             // Vertex positions from integer physical pixels + bearing,
             // converted back to logical pixels.
             let glyph_x = (x_int as f32 + cached.bearing_x) / sf;
@@ -4450,6 +4436,42 @@ impl WgpuRenderer {
                 composed_mask_data,
                 composed_color_data,
             );
+        }
+    }
+
+    fn lookup_overlay_cached_glyph<'a>(
+        &self,
+        glyph_atlas: &'a mut WgpuGlyphAtlas,
+        face: Option<&Face>,
+        composed_text: Option<&str>,
+        char_code: char,
+        face_id: u32,
+        font_size_bits: u32,
+        x_bin: SubpixelBin,
+        y_bin: SubpixelBin,
+    ) -> Option<&'a CachedGlyph> {
+        if let Some(text) = composed_text {
+            // Composed grapheme cluster (emoji ZWJ, combining marks, etc.).
+            glyph_atlas.get_or_create_composed(
+                &self.device,
+                &self.queue,
+                text,
+                face_id,
+                font_size_bits,
+                face,
+                x_bin,
+                y_bin,
+            )
+        } else {
+            // Single character.
+            let key = GlyphKey {
+                charcode: char_code as u32,
+                face_id,
+                font_size_bits,
+                x_bin,
+                y_bin,
+            };
+            glyph_atlas.get_or_create(&self.device, &self.queue, &key, face)
         }
     }
 
