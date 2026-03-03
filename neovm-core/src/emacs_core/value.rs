@@ -723,11 +723,11 @@ impl Value {
     }
 
     pub fn is_number(&self) -> bool {
-        matches!(self, Value::Int(_) | Value::Float(_, _))
+        matches!(self, Value::Int(_) | Value::Char(_) | Value::Float(_, _))
     }
 
     pub fn is_integer(&self) -> bool {
-        matches!(self, Value::Int(_))
+        matches!(self, Value::Int(_) | Value::Char(_))
     }
 
     pub fn is_float(&self) -> bool {

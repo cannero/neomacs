@@ -904,6 +904,171 @@ fn macroexpand_all_pcase_terminates() {
     tracing::debug!("All macroexpand-all pcase tests completed");
 }
 
+/// Test pcase with integer literal patterns — reproduces the
+/// "Unknown pattern '32'" error from rx.el line 1284.
+#[test]
+fn pcase_integer_literal_pattern() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug")),
+        )
+        .with_test_writer()
+        .try_init();
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("root");
+    let lisp_dir = project_root.join("lisp");
+    assert!(lisp_dir.is_dir());
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let subdirs = ["", "emacs-lisp"];
+    let mut load_path_entries = Vec::new();
+    for sub in &subdirs {
+        let dir = if sub.is_empty() {
+            lisp_dir.clone()
+        } else {
+            lisp_dir.join(sub)
+        };
+        if dir.is_dir() {
+            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+        }
+    }
+    eval.set_variable("load-path", Value::list(load_path_entries));
+    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+    eval.set_variable("purify-flag", Value::Nil);
+    eval.set_variable("max-lisp-eval-depth", Value::Int(4200));
+
+    let load_path = get_load_path(&eval.obarray());
+    let load_and_report =
+        |eval: &mut crate::emacs_core::eval::Evaluator, name: &str, load_path: &[String]| {
+            let path = find_file_in_load_path(name, load_path).expect(name);
+            load_file(eval, &path).unwrap_or_else(|e| {
+                let msg = match &e {
+                    EvalError::Signal { symbol, data } => {
+                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
+                        let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
+                        format!("({sym} {})", data_strs.join(" "))
+                    }
+                    other => format!("{other:?}"),
+                };
+                panic!("Failed to load {name}: {msg}");
+            });
+            tracing::info!("  loaded: {name}");
+        };
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+        "emacs-lisp/macroexp",
+        "emacs-lisp/pcase",
+    ] {
+        load_and_report(&mut eval, name, &load_path);
+    }
+
+    // Test 1: basic integer pattern
+    tracing::info!("Test 1: pcase with integer literal 32");
+    let form1 = r#"(pcase 32 (32 "matched") (_ "no-match"))"#;
+    let expr1 = &crate::emacs_core::parser::parse_forms(form1).unwrap()[0];
+    match eval.eval_expr(expr1) {
+        Ok(v) => tracing::info!("  Test 1 OK: {v}"),
+        Err(e) => tracing::error!("  Test 1 FAILED: {e:?}"),
+    }
+
+    // Test 2: (or 'sym int) pattern — exact pattern from rx.el:1284
+    tracing::info!("Test 2: pcase with (or 'sym int) — rx.el pattern");
+    let form2 = r#"(pcase ?\s ((or '\? ?\s) "matched") (_ "no-match"))"#;
+    let expr2 = &crate::emacs_core::parser::parse_forms(form2).unwrap()[0];
+    match eval.eval_expr(expr2) {
+        Ok(v) => tracing::info!("  Test 2 OK: {v}"),
+        Err(e) => tracing::error!("  Test 2 FAILED: {e:?}"),
+    }
+
+    // Test 3: (or int int) pattern
+    tracing::info!("Test 3: pcase with (or int int)");
+    let form3 = r#"(pcase 32 ((or 32 63) "matched") (_ "no-match"))"#;
+    let expr3 = &crate::emacs_core::parser::parse_forms(form3).unwrap()[0];
+    match eval.eval_expr(expr3) {
+        Ok(v) => tracing::info!("  Test 3 OK: {v}"),
+        Err(e) => tracing::error!("  Test 3 FAILED: {e:?}"),
+    }
+
+    // Test 4: pcase inside a defun then call it (simulates rx--translate-form)
+    tracing::info!("Test 4: pcase inside defun");
+    let form4 = r#"(progn
+      (defun test-pcase-int (x)
+        (pcase x
+          ((or '\? ?\s) "question-or-space")
+          ('seq "seq")
+          (_ "other")))
+      (list (test-pcase-int 'seq)
+            (test-pcase-int ?\s)
+            (test-pcase-int '\?)
+            (test-pcase-int 'foo)))"#;
+    let expr4 = &crate::emacs_core::parser::parse_forms(form4).unwrap()[0];
+    match eval.eval_expr(expr4) {
+        Ok(v) => tracing::info!("  Test 4 OK: {v}"),
+        Err(e) => tracing::error!("  Test 4 FAILED: {e:?}"),
+    }
+
+    // Test 5: get the actual error message
+    tracing::info!("Test 5: capture error message from (or 'sym int)");
+    let form5 = r#"(condition-case err
+        (pcase ?\s ((or '\? ?\s) "matched") (_ "no-match"))
+      (error (error-message-string err)))"#;
+    let expr5 = &crate::emacs_core::parser::parse_forms(form5).unwrap()[0];
+    match eval.eval_expr(expr5) {
+        Ok(v) => tracing::info!("  Test 5 result: {v}"),
+        Err(e) => tracing::error!("  Test 5 FAILED: {e:?}"),
+    }
+
+    // Test 6: (or 'sym 'sym) — should work fine
+    tracing::info!("Test 6: (or 'sym 'sym)");
+    let form6 = r#"(pcase 'foo ((or 'foo 'bar) "matched") (_ "no"))"#;
+    let expr6 = &crate::emacs_core::parser::parse_forms(form6).unwrap()[0];
+    match eval.eval_expr(expr6) {
+        Ok(v) => tracing::info!("  Test 6 OK: {v}"),
+        Err(e) => tracing::error!("  Test 6 FAILED: {e:?}"),
+    }
+
+    // Test 7: (or int 'sym) — reversed order
+    tracing::info!("Test 7: (or int 'sym) — reversed");
+    let form7 = r#"(pcase 32 ((or 32 'foo) "matched") (_ "no"))"#;
+    let expr7 = &crate::emacs_core::parser::parse_forms(form7).unwrap()[0];
+    match eval.eval_expr(expr7) {
+        Ok(v) => tracing::info!("  Test 7 OK: {v}"),
+        Err(e) => tracing::error!("  Test 7 FAILED: {e:?}"),
+    }
+
+    // Test 8: just macroexpand the problematic form
+    tracing::info!("Test 8: macroexpand-1 the (or 'sym int) pcase");
+    let form8 = r#"(macroexpand '(pcase x ((or '\? 32) "yes") (_ "no")))"#;
+    let expr8 = &crate::emacs_core::parser::parse_forms(form8).unwrap()[0];
+    match eval.eval_expr(expr8) {
+        Ok(v) => tracing::info!("  Test 8 expansion: {v}"),
+        Err(e) => tracing::error!("  Test 8 FAILED: {e:?}"),
+    }
+
+    // Test 9: check what pcase--macroexpand does with integer
+    tracing::info!("Test 9: pcase--macroexpand on raw integer");
+    let form9 = r#"(pcase--macroexpand 32)"#;
+    let expr9 = &crate::emacs_core::parser::parse_forms(form9).unwrap()[0];
+    match eval.eval_expr(expr9) {
+        Ok(v) => tracing::info!("  Test 9 result: {v}"),
+        Err(e) => tracing::error!("  Test 9 FAILED: {e:?}"),
+    }
+
+    // Test 10: check pcase--self-quoting-p
+    tracing::info!("Test 10: pcase--self-quoting-p 32");
+    let form10 = r#"(pcase--self-quoting-p 32)"#;
+    let expr10 = &crate::emacs_core::parser::parse_forms(form10).unwrap()[0];
+    match eval.eval_expr(expr10) {
+        Ok(v) => tracing::info!("  Test 10 result: {v}"),
+        Err(e) => tracing::error!("  Test 10 FAILED: {e:?}"),
+    }
+
+    tracing::info!("pcase integer literal tests completed");
+}
+
 #[test]
 fn key_parse_modifier_bits() {
     let _ = tracing_subscriber::fmt()
