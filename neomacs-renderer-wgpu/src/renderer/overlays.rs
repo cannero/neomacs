@@ -494,7 +494,7 @@ impl WgpuRenderer {
         };
 
         let padding = 4.0_f32;
-        let font_size = glyph_atlas.default_font_size();
+        let _font_size = glyph_atlas.default_font_size();
         let char_width = glyph_atlas.default_char_width();
         let font_size_bits = 0.0_f32.to_bits();
 

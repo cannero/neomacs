@@ -33,16 +33,13 @@ impl WgpuRenderer {
         frame: &FrameGlyphBuffer,
         glyph_atlas: &mut WgpuGlyphAtlas,
         faces: &HashMap<u32, Face>,
-        surface_width: u32,
-        surface_height: u32,
+        _surface_width: u32,
+        _surface_height: u32,
         offset_x: f32,
         offset_y: f32,
         cursor_visible: bool,
         animated_cursor: Option<AnimatedCursor>,
     ) {
-        let logical_w = surface_width as f32 / self.scale_factor;
-        let logical_h = surface_height as f32 / self.scale_factor;
-
         tracing::debug!(
             "render_frame_content: frame={}x{} offset=({:.1},{:.1}) {} glyphs",
             frame.width,

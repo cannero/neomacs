@@ -301,6 +301,10 @@ impl DmaBufBuffer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Option<wgpu::Texture> {
+        #[cfg(not(feature = "video"))]
+        let _ = (device, queue, self.num_planes);
+
+        #[cfg(feature = "video")]
         let n = self.num_planes as usize;
 
         // Build import params with all planes — the Vulkan driver query

@@ -69,7 +69,7 @@ impl WgpuRenderer {
             },
         ];
 
-        let vertex_buffer = self
+        let _vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Crossfade Vertex Buffer"),
@@ -997,7 +997,7 @@ impl WgpuRenderer {
         old_bind_group: &wgpu::BindGroup,
         new_bind_group: &wgpu::BindGroup,
         t: f32,
-        elapsed_secs: f32,
+        _elapsed_secs: f32,
         direction: i32,
         bounds: &neomacs_display_protocol::types::Rect,
         scroll_distance: f32,
@@ -1016,7 +1016,7 @@ impl WgpuRenderer {
         let dir = direction as f32;
         let stagger = 0.06; // 60ms stagger per line
 
-        let make_cascade_strips = |bind: &wgpu::BindGroup, is_new: bool| -> Vec<GlyphVertex> {
+        let make_cascade_strips = |_bind: &wgpu::BindGroup, is_new: bool| -> Vec<GlyphVertex> {
             let mut verts = Vec::with_capacity(num_strips * 6);
             for i in 0..num_strips {
                 let line_delay = i as f32 * stagger;
@@ -1337,7 +1337,7 @@ impl WgpuRenderer {
             let mut verts = Vec::with_capacity(num_strips * 6);
             for i in 0..num_strips {
                 let nt = i as f32 / num_strips as f32;
-                let nt1 = (i + 1) as f32 / num_strips as f32;
+                let _nt1 = (i + 1) as f32 / num_strips as f32;
 
                 let curl_pos = if direction > 0 { nt } else { 1.0 - nt };
                 let (x_off, y_off, alpha) = page_curl_transform(curl_pos, t, bounds.height);
@@ -1405,7 +1405,7 @@ impl WgpuRenderer {
         old_bind_group: &wgpu::BindGroup,
         new_bind_group: &wgpu::BindGroup,
         t: f32,
-        direction: i32,
+        _direction: i32,
         bounds: &neomacs_display_protocol::types::Rect,
         _scroll_distance: f32,
         surface_width: u32,
@@ -1589,7 +1589,7 @@ impl WgpuRenderer {
         old_bind_group: &wgpu::BindGroup,
         new_bind_group: &wgpu::BindGroup,
         t: f32,
-        elapsed_secs: f32,
+        _elapsed_secs: f32,
         direction: i32,
         bounds: &neomacs_display_protocol::types::Rect,
         scroll_distance: f32,
@@ -1769,7 +1769,7 @@ impl WgpuRenderer {
         surface_view: &wgpu::TextureView,
         old_bind_group: &wgpu::BindGroup,
         new_bind_group: &wgpu::BindGroup,
-        t: f32,
+        _t: f32,
         elapsed_secs: f32,
         direction: i32,
         bounds: &neomacs_display_protocol::types::Rect,
@@ -1966,7 +1966,7 @@ impl WgpuRenderer {
         surface_view: &wgpu::TextureView,
         old_bind_group: &wgpu::BindGroup,
         new_bind_group: &wgpu::BindGroup,
-        raw_t: f32,
+        _raw_t: f32,
         eased_t: f32,
         elapsed_secs: f32,
         direction: i32,
@@ -1991,7 +1991,7 @@ impl WgpuRenderer {
         let strip_h = bounds.height / num_strips as f32;
         let uv_strip_h = (uv_b - uv_t) / num_strips as f32;
 
-        let make_postprocess = |y_base_off: f32, is_old: bool| -> Vec<GlyphVertex> {
+        let make_postprocess = |y_base_off: f32, _is_old: bool| -> Vec<GlyphVertex> {
             let mut verts = Vec::with_capacity(num_strips * 6);
             for i in 0..num_strips {
                 let nt = i as f32 / num_strips as f32;
@@ -2001,7 +2001,7 @@ impl WgpuRenderer {
                 let mut g = 1.0_f32;
                 let mut b = 1.0_f32;
                 let mut alpha = 1.0_f32;
-                let mut dx = 0.0_f32;
+                let dx = 0.0_f32;
 
                 match effect {
                     ScrollEffect::MotionBlur => {
@@ -2110,8 +2110,8 @@ impl WgpuRenderer {
         old_bind_group: &wgpu::BindGroup,
         new_bind_group: &wgpu::BindGroup,
         t: f32,
-        elapsed_secs: f32,
-        direction: i32,
+        _elapsed_secs: f32,
+        _direction: i32,
         bounds: &neomacs_display_protocol::types::Rect,
         _scroll_distance: f32,
         surface_width: u32,
@@ -2123,7 +2123,6 @@ impl WgpuRenderer {
                 None => return,
             };
 
-        let dir = direction as f32;
         let num_strips = 20;
         let strip_h = bounds.height / num_strips as f32;
         let uv_strip_h = (uv_b - uv_t) / num_strips as f32;

@@ -1150,8 +1150,6 @@ pub(super) fn emit_focus_mode(ctx: &EffectCtx) -> Vec<RectVertex> {
         None => return Vec::new(),
     };
 
-    let char_h = ctx.frame_glyphs.char_height.max(1.0);
-
     // Collect unique row Y positions within the selected window
     let mut row_ys: Vec<(f32, f32, bool)> = Vec::new();
     let mut last_y: f32 = -9999.0;
@@ -1615,7 +1613,7 @@ pub(super) fn emit_minimap(ctx: &EffectCtx) -> Vec<RectVertex> {
                 x,
                 y,
                 width,
-                height,
+                height: _,
                 fg,
                 char: ch,
                 is_overlay,
@@ -1689,16 +1687,16 @@ pub(super) fn emit_header_shadow(ctx: &EffectCtx) -> Vec<RectVertex> {
         let mut header_bottom: Option<f32> = None;
         for g in &ctx.frame_glyphs.glyphs {
             if let FrameGlyph::Char {
-                x,
-                y,
-                height,
+                x: _,
+                y: _,
+                height: _,
                 is_overlay: true,
                 ..
             }
             | FrameGlyph::Stretch {
-                x,
-                y,
-                height,
+                x: _,
+                y: _,
+                height: _,
                 is_overlay: true,
                 ..
             } = g
@@ -2338,7 +2336,7 @@ pub(super) fn emit_vignette(ctx: &EffectCtx) -> Vec<RectVertex> {
 /// Window switch highlight fade.
 /// Returns (vertices, needs_continuous_redraw).
 pub(super) fn emit_window_switch_fade(
-    ctx: &EffectCtx,
+    _ctx: &EffectCtx,
     active_window_fades: &mut Vec<WindowFadeEntry>,
 ) -> (Vec<RectVertex>, bool) {
     if active_window_fades.is_empty() {
