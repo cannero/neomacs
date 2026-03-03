@@ -59,6 +59,7 @@ pollster = "0.4"
 resvg = "0.44"
 cosmic-text = "0.18.2"
 fontdb = "0.23"
+ttf-parser = "0.25"
 arboard = "3.4"
 
 # GStreamer (video)
@@ -91,3 +92,6 @@ tempfile = "3"
 [profile.release]
 lto = true
 codegen-units = 1
+
+[patch.crates-io]
+cosmic-text = { git = "https://github.com/eval-exec/cosmic-text", rev = "5dd3fec8572e771794e3f203ab6780d828e9ce09" }

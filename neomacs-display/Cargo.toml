@@ -14,6 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # Text rendering - Pure Rust stack
 cosmic-text.workspace = true
 fontdb.workspace = true
+ttf-parser.workspace = true
 
 # Vulkan for DMA-BUF import (WPE WebKit integration)
 ash.workspace = true

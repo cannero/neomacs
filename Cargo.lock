@@ -635,8 +635,7 @@ dependencies = [
 [[package]]
 name = "cosmic-text"
 version = "0.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbe782a9e7520cc7de2232c957a47f99d3a35e855552677d07a557bc1a3b66ed"
+source = "git+https://github.com/eval-exec/cosmic-text?rev=5dd3fec8572e771794e3f203ab6780d828e9ce09#5dd3fec8572e771794e3f203ab6780d828e9ce09"
 dependencies = [
  "bitflags 2.11.0",
  "fontdb 0.23.0",
@@ -1977,6 +1976,7 @@ dependencies = [
  "tracing",
  "tracing-log",
  "tracing-subscriber",
+ "ttf-parser 0.25.1",
  "wgpu",
  "wgpu-hal",
  "which",
