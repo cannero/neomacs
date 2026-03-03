@@ -98,6 +98,11 @@ pub unsafe extern "C" fn neomacs_rust_layout_frame(
             divider_last_fg,
         };
 
+        // Rust layout path emits transition hints directly from the layout
+        // engine; clear C-side hint tracking to avoid stale topology state.
+        display.transition_prev_window_infos.clear();
+        display.transition_curr_window_infos.clear();
+
         engine.layout_frame(frame_ptr, &frame_params, &mut display.frame_glyphs);
     }));
 
@@ -186,6 +191,11 @@ pub unsafe extern "C" fn neomacs_rust_layout_frame_neovm() -> c_int {
                 return -1;
             }
         };
+
+        // Rust layout path emits transition hints directly from the layout
+        // engine; clear C-side hint tracking to avoid stale topology state.
+        display.transition_prev_window_infos.clear();
+        display.transition_curr_window_infos.clear();
 
         // Run layout using neovm-core data
         engine.layout_frame_rust(evaluator, frame_id, &mut display.frame_glyphs);

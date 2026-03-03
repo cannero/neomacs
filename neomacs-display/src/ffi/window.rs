@@ -131,6 +131,7 @@ pub unsafe extern "C" fn neomacs_display_begin_frame_window(
         14.0
     };
     display.frame_glyphs.background = display.scene.background;
+    display.begin_transition_hint_frame();
     display.frame_glyphs.clear_all();
 
     if let Some(ref mut backend) = display.winit_backend {
@@ -149,6 +150,7 @@ pub unsafe extern "C" fn neomacs_display_end_frame_window(
     let display = &mut *handle;
 
     if let Some(state) = (*std::ptr::addr_of!(super::THREADED_STATE)).as_ref() {
+        display.finalize_transition_hints();
         // Matrix-based full-frame rendering: always send the complete frame.
         // The buffer was cleared at begin_frame and rebuilt by the matrix walker,
         // so it always contains the complete visible state.

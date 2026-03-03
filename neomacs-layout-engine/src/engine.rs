@@ -16,7 +16,10 @@ use super::status_line::*;
 use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
-use neomacs_display_protocol::frame_glyphs::{CursorStyle, FrameGlyphBuffer, StipplePattern};
+use neomacs_display_protocol::frame_glyphs::{
+    CursorStyle, FrameGlyphBuffer, StipplePattern, WindowInfo, WindowTransitionHint,
+    WindowTransitionKind,
+};
 use neomacs_display_protocol::types::{Color, Rect};
 
 /// Maximum number of characters in a ligature run before forced flush.
@@ -637,6 +640,8 @@ pub struct LayoutEngine {
     font_metrics: Option<FontMetricsService>,
     /// Whether to use cosmic-text for font metrics instead of C FFI
     pub use_cosmic_metrics: bool,
+    /// Previous frame's per-window metadata for transition hint derivation.
+    prev_window_infos: std::collections::HashMap<i64, WindowInfo>,
 }
 
 impl LayoutEngine {
@@ -653,7 +658,71 @@ impl LayoutEngine {
             resolved_family_face_id: u32::MAX,
             font_metrics: None,
             use_cosmic_metrics: true,
+            prev_window_infos: std::collections::HashMap::new(),
         }
+    }
+
+    fn record_transition_hint_from_latest_window_info(
+        &self,
+        frame_glyphs: &mut FrameGlyphBuffer,
+        curr_window_infos: &mut std::collections::HashMap<i64, WindowInfo>,
+    ) {
+        if let Some(curr) = frame_glyphs.window_infos.last().cloned() {
+            if let Some(prev) = self.prev_window_infos.get(&curr.window_id) {
+                if let Some(hint) = FrameGlyphBuffer::derive_transition_hint(prev, &curr) {
+                    frame_glyphs.add_transition_hint(hint);
+                }
+            }
+            curr_window_infos.insert(curr.window_id, curr);
+        }
+    }
+
+    fn maybe_add_topology_transition_hint(
+        &self,
+        frame_glyphs: &mut FrameGlyphBuffer,
+        curr_window_infos: &std::collections::HashMap<i64, WindowInfo>,
+    ) {
+        if self.prev_window_infos.is_empty() {
+            return;
+        }
+
+        let prev_non_mini: std::collections::HashSet<i64> = self
+            .prev_window_infos
+            .iter()
+            .filter(|(_, info)| !info.is_minibuffer)
+            .map(|(window_id, _)| *window_id)
+            .collect();
+        let curr_non_mini: std::collections::HashSet<i64> = curr_window_infos
+            .iter()
+            .filter(|(_, info)| !info.is_minibuffer)
+            .map(|(window_id, _)| *window_id)
+            .collect();
+
+        if prev_non_mini.is_empty() || curr_non_mini.is_empty() || prev_non_mini == curr_non_mini {
+            return;
+        }
+
+        if frame_glyphs
+            .transition_hints
+            .iter()
+            .any(|hint| hint.window_id == 0 && matches!(hint.kind, WindowTransitionKind::Crossfade))
+        {
+            return;
+        }
+
+        let full_h = frame_glyphs
+            .window_infos
+            .iter()
+            .find(|w| w.is_minibuffer)
+            .map_or(frame_glyphs.height, |w| w.bounds.y);
+
+        frame_glyphs.add_transition_hint(WindowTransitionHint {
+            window_id: 0,
+            bounds: Rect::new(0.0, 0.0, frame_glyphs.width, full_h),
+            kind: WindowTransitionKind::Crossfade,
+            effect: None,
+            easing: None,
+        });
     }
 
     // char_advance is a standalone function (below) to avoid borrow conflicts
@@ -674,6 +743,8 @@ impl LayoutEngine {
     ) {
         // Build a complete fresh frame every redisplay cycle.
         frame_glyphs.clear_all();
+        let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
+            std::collections::HashMap::new();
 
         // Set up frame dimensions
         frame_glyphs.width = frame_params.width;
@@ -863,6 +934,10 @@ impl LayoutEngine {
                 buffer_file_name,
                 wp.modified != 0,
             );
+            self.record_transition_hint_from_latest_window_info(
+                frame_glyphs,
+                &mut curr_window_infos,
+            );
 
             // Layout this window's content
             self.layout_window(&params, &wp, frame, frame_glyphs);
@@ -938,6 +1013,9 @@ impl LayoutEngine {
             }
         }
 
+        self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
+        self.prev_window_infos = curr_window_infos;
+
         // Publish hit-test data for mouse interaction queries
         unsafe {
             *std::ptr::addr_of_mut!(FRAME_HIT_DATA) = Some(std::mem::take(&mut self.hit_data));
@@ -986,6 +1064,8 @@ impl LayoutEngine {
 
         // Clear previous frame's glyphs before building new frame
         frame_glyphs.clear_all();
+        let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
+            std::collections::HashMap::new();
 
         // Set up frame dimensions
         frame_glyphs.width = frame_params.width;
@@ -1121,6 +1201,10 @@ impl LayoutEngine {
                 buffer_file_name,
                 modified,
             );
+            self.record_transition_hint_from_latest_window_info(
+                frame_glyphs,
+                &mut curr_window_infos,
+            );
 
             // Simplified layout for this window (no face resolution, no overlays)
             self.layout_window_rust(
@@ -1172,6 +1256,9 @@ impl LayoutEngine {
                 frame_glyphs.add_stretch(x0, y0, w, dw, mid_fg, 0, false);
             }
         }
+
+        self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
+        self.prev_window_infos = curr_window_infos;
     }
 
     /// Simplified window layout using neovm-core data.

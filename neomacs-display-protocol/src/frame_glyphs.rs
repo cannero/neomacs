@@ -5,6 +5,7 @@
 //! incremental overlap tracking is needed.
 
 use crate::face::Face;
+use crate::scroll_animation::{ScrollEasing, ScrollEffect};
 use crate::types::{Color, Rect};
 use std::collections::HashMap;
 
@@ -263,6 +264,35 @@ pub struct WindowInfo {
     pub modified: bool,
 }
 
+/// Transition kind emitted by authoritative layout producers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WindowTransitionKind {
+    /// Crossfade the window bounds.
+    Crossfade,
+    /// Slide old content by a scroll delta.
+    ScrollSlide {
+        /// +1 = scroll down (content moves up), -1 = scroll up.
+        direction: i32,
+        /// Pixel distance to slide.
+        scroll_distance: f32,
+    },
+}
+
+/// Explicit transition hint from layout producers to render thread.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowTransitionHint {
+    /// Target window id.
+    pub window_id: i64,
+    /// Target bounds in frame coordinates.
+    pub bounds: Rect,
+    /// Transition kind payload.
+    pub kind: WindowTransitionKind,
+    /// Optional effect override. `None` means "use current policy default".
+    pub effect: Option<ScrollEffect>,
+    /// Optional easing override. `None` means "use current policy default".
+    pub easing: Option<ScrollEasing>,
+}
+
 /// Buffer collecting glyphs for current frame.
 ///
 /// With matrix-based rendering, this buffer is cleared and rebuilt from scratch
@@ -312,6 +342,9 @@ pub struct FrameGlyphBuffer {
 
     /// Per-window metadata for animation detection
     pub window_infos: Vec<WindowInfo>,
+
+    /// Explicit transition requests emitted by layout producers.
+    pub transition_hints: Vec<WindowTransitionHint>,
 
     /// Inverse video info for filled box cursor (set by C for style 0)
     pub cursor_inverse: Option<CursorInverseInfo>,
@@ -365,6 +398,7 @@ impl FrameGlyphBuffer {
             window_regions: Vec::with_capacity(16),
             prev_window_regions: Vec::with_capacity(16),
             window_infos: Vec::with_capacity(16),
+            transition_hints: Vec::with_capacity(16),
             cursor_inverse: None,
             layout_changed: false,
             current_face_id: 0,
@@ -401,6 +435,7 @@ impl FrameGlyphBuffer {
         self.glyphs.clear();
         self.window_regions.clear();
         self.window_infos.clear();
+        self.transition_hints.clear();
         self.cursor_inverse = None;
         self.stipple_patterns.clear();
         self.faces.clear();
@@ -430,6 +465,7 @@ impl FrameGlyphBuffer {
         self.height = height;
         self.background = background;
         self.glyphs.clear();
+        self.transition_hints.clear();
         self.cursor_inverse = None;
         self.stipple_patterns.clear();
         self.faces.clear();
@@ -800,6 +836,86 @@ impl FrameGlyphBuffer {
         });
     }
 
+    /// Add an explicit transition hint.
+    pub fn add_transition_hint(&mut self, hint: WindowTransitionHint) {
+        self.transition_hints.push(hint);
+    }
+
+    /// Derive a transition hint by comparing previous/current window metadata.
+    ///
+    /// This centralizes transition geometry decisions outside the renderer.
+    pub fn derive_transition_hint(
+        prev: &WindowInfo,
+        curr: &WindowInfo,
+    ) -> Option<WindowTransitionHint> {
+        if curr.is_minibuffer {
+            return None;
+        }
+
+        if prev.buffer_id != 0 && curr.buffer_id != 0 && prev.buffer_id != curr.buffer_id {
+            return Some(WindowTransitionHint {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+                kind: WindowTransitionKind::Crossfade,
+                effect: None,
+                easing: None,
+            });
+        }
+
+        if prev.window_start != curr.window_start {
+            let top_chrome = curr.tab_line_height + curr.header_line_height;
+            let content_height = curr.bounds.height - curr.mode_line_height - top_chrome;
+            if content_height < 50.0 {
+                return None;
+            }
+
+            let direction = if curr.window_start > prev.window_start {
+                1
+            } else {
+                -1
+            };
+
+            let content_bounds = Rect::new(
+                curr.bounds.x,
+                curr.bounds.y + top_chrome,
+                curr.bounds.width,
+                content_height,
+            );
+
+            // Keep legacy estimate shape to preserve current feel.
+            let cols = (curr.bounds.width / curr.char_height).max(1.0);
+            let char_delta = (curr.window_start - prev.window_start).unsigned_abs() as f32;
+            let est_lines = (char_delta / cols).max(1.0);
+            let scroll_px = (est_lines * curr.char_height).min(content_height);
+
+            return Some(WindowTransitionHint {
+                window_id: curr.window_id,
+                bounds: content_bounds,
+                kind: WindowTransitionKind::ScrollSlide {
+                    direction,
+                    scroll_distance: scroll_px,
+                },
+                effect: None,
+                easing: None,
+            });
+        }
+
+        if (prev.char_height - curr.char_height).abs() > 1.0
+            || (prev.bounds.width - curr.bounds.width).abs() > 2.0
+            || (prev.bounds.height - curr.bounds.height).abs() > 2.0
+        {
+            return Some(WindowTransitionHint {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+                kind: WindowTransitionKind::Crossfade,
+                effect: None,
+                easing: None,
+            });
+        }
+
+        None
+    }
+
     /// Set cursor inverse video info (for filled box cursor)
     pub fn set_cursor_inverse(
         &mut self,
@@ -897,6 +1013,30 @@ mod tests {
             actual,
             expected,
         );
+    }
+
+    fn make_window_info(
+        window_id: i64,
+        buffer_id: u64,
+        window_start: i64,
+        bounds: Rect,
+    ) -> WindowInfo {
+        WindowInfo {
+            window_id,
+            buffer_id,
+            window_start,
+            window_end: window_start + 200,
+            buffer_size: 10_000,
+            bounds,
+            mode_line_height: 20.0,
+            header_line_height: 0.0,
+            tab_line_height: 0.0,
+            selected: false,
+            is_minibuffer: false,
+            char_height: 16.0,
+            buffer_file_name: String::new(),
+            modified: false,
+        }
     }
 
     // =======================================================================
@@ -1059,6 +1199,22 @@ mod tests {
 
         buf.begin_frame(800.0, 600.0, Color::BLACK);
         assert!(buf.cursor_inverse.is_none());
+    }
+
+    #[test]
+    fn begin_frame_clears_transition_hints() {
+        let mut buf = FrameGlyphBuffer::new();
+        buf.add_transition_hint(WindowTransitionHint {
+            window_id: 1,
+            bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+            kind: WindowTransitionKind::Crossfade,
+            effect: None,
+            easing: None,
+        });
+        assert_eq!(buf.transition_hints.len(), 1);
+
+        buf.begin_frame(800.0, 600.0, Color::BLACK);
+        assert!(buf.transition_hints.is_empty());
     }
 
     #[test]
@@ -1556,6 +1712,45 @@ mod tests {
         assert!(info.is_minibuffer);
         assert!(!info.selected);
         assert_eq!(info.buffer_file_name, "");
+    }
+
+    #[test]
+    fn derive_transition_hint_buffer_switch_crossfade() {
+        let prev = make_window_info(1, 100, 10, Rect::new(0.0, 0.0, 800.0, 600.0));
+        let curr = make_window_info(1, 200, 10, Rect::new(0.0, 0.0, 800.0, 600.0));
+
+        let hint = FrameGlyphBuffer::derive_transition_hint(&prev, &curr).unwrap();
+        assert_eq!(hint.window_id, 1);
+        assert_eq!(hint.bounds, curr.bounds);
+        assert!(matches!(hint.kind, WindowTransitionKind::Crossfade));
+    }
+
+    #[test]
+    fn derive_transition_hint_scroll_slide() {
+        let prev = make_window_info(1, 100, 10, Rect::new(0.0, 0.0, 800.0, 600.0));
+        let curr = make_window_info(1, 100, 42, Rect::new(0.0, 0.0, 800.0, 600.0));
+
+        let hint = FrameGlyphBuffer::derive_transition_hint(&prev, &curr).unwrap();
+        assert_eq!(hint.window_id, 1);
+        match hint.kind {
+            WindowTransitionKind::ScrollSlide {
+                direction,
+                scroll_distance,
+            } => {
+                assert_eq!(direction, 1);
+                assert!(scroll_distance > 0.0);
+            }
+            other => panic!("expected ScrollSlide, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn derive_transition_hint_skips_minibuffer() {
+        let prev = make_window_info(1, 100, 10, Rect::new(0.0, 0.0, 800.0, 600.0));
+        let mut curr = make_window_info(1, 100, 20, Rect::new(0.0, 0.0, 800.0, 600.0));
+        curr.is_minibuffer = true;
+
+        assert!(FrameGlyphBuffer::derive_transition_hint(&prev, &curr).is_none());
     }
 
     // =======================================================================

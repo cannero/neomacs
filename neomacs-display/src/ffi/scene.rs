@@ -74,6 +74,7 @@ pub unsafe extern "C" fn neomacs_display_begin_frame(handle: *mut NeomacsDisplay
     display.frame_glyphs.width = display.scene.width;
     display.frame_glyphs.height = display.scene.height;
     display.frame_glyphs.background = display.scene.background;
+    display.begin_transition_hint_frame();
     display.frame_glyphs.clear_all();
 }
 
@@ -227,6 +228,9 @@ pub unsafe extern "C" fn neomacs_display_add_window_info(
         file_name,
         modified != 0,
     );
+    if let Some(curr) = display.frame_glyphs.window_infos.last().cloned() {
+        display.record_transition_hint_window(&curr);
+    }
 }
 
 /// Set cursor for a specific window

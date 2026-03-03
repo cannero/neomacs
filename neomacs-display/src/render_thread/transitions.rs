@@ -1,8 +1,7 @@
 //! Window transition state (crossfade and scroll animations).
 
 use super::RenderApp;
-#[allow(unused_imports)]
-use crate::core::frame_glyphs::FrameGlyph;
+use crate::core::frame_glyphs::{FrameGlyph, WindowTransitionHint, WindowTransitionKind};
 use crate::core::types::Rect;
 use neomacs_display_protocol::{ScrollEasing, ScrollEffect, TransitionPolicy};
 use std::collections::HashMap;
@@ -166,7 +165,92 @@ impl RenderApp {
         Some((snap, snap_view, snap_bg))
     }
 
-    /// Detect transitions by comparing current and previous window infos
+    fn apply_transition_hint(&mut self, hint: &WindowTransitionHint, now: std::time::Instant) {
+        match hint.kind {
+            WindowTransitionKind::Crossfade => {
+                if !self.transitions.policy.crossfade_enabled {
+                    return;
+                }
+
+                self.transitions.crossfades.remove(&hint.window_id);
+                self.transitions.scroll_slides.remove(&hint.window_id);
+
+                if let Some((tex, view, bg)) = self.snapshot_prev_texture() {
+                    let effect = hint
+                        .effect
+                        .unwrap_or(self.transitions.policy.crossfade_effect);
+                    let easing = hint
+                        .easing
+                        .unwrap_or(self.transitions.policy.crossfade_easing);
+                    tracing::debug!(
+                        "Starting crossfade for window {} (effect={:?}, easing={:?})",
+                        hint.window_id,
+                        effect,
+                        easing
+                    );
+                    self.transitions.crossfades.insert(
+                        hint.window_id,
+                        CrossfadeTransition {
+                            started: now,
+                            duration: self.transitions.policy.crossfade_duration(),
+                            bounds: hint.bounds,
+                            effect,
+                            easing,
+                            old_texture: tex,
+                            old_view: view,
+                            old_bind_group: bg,
+                        },
+                    );
+                }
+            }
+            WindowTransitionKind::ScrollSlide {
+                direction,
+                scroll_distance,
+            } => {
+                if !self.transitions.policy.scroll_enabled {
+                    return;
+                }
+                if hint.bounds.height < 50.0 {
+                    return;
+                }
+
+                self.transitions.crossfades.remove(&hint.window_id);
+                self.transitions.scroll_slides.remove(&hint.window_id);
+
+                let dir = if direction >= 0 { 1 } else { -1 };
+                let scroll_px = scroll_distance.max(0.0).min(hint.bounds.height);
+                if let Some((tex, view, bg)) = self.snapshot_prev_texture() {
+                    let effect = hint.effect.unwrap_or(self.transitions.policy.scroll_effect);
+                    let easing = hint.easing.unwrap_or(self.transitions.policy.scroll_easing);
+                    tracing::debug!(
+                        "Starting scroll slide for window {} (dir={}, effect={:?}, easing={:?}, scroll_px={})",
+                        hint.window_id,
+                        dir,
+                        effect,
+                        easing,
+                        scroll_px
+                    );
+                    self.transitions.scroll_slides.insert(
+                        hint.window_id,
+                        ScrollTransition {
+                            started: now,
+                            duration: self.transitions.policy.scroll_duration(),
+                            bounds: hint.bounds,
+                            direction: dir,
+                            scroll_distance: scroll_px,
+                            effect,
+                            easing,
+                            old_texture: tex,
+                            old_view: view,
+                            old_bind_group: bg,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Detect transitions from producer-emitted hints and apply non-transition effects.
     pub(super) fn detect_transitions(&mut self) {
         let frame = match self.current_frame.as_ref() {
             Some(f) => f,
@@ -174,61 +258,26 @@ impl RenderApp {
         };
 
         let now = std::time::Instant::now();
+        let transition_hints = frame.transition_hints.clone();
 
         for info in &frame.window_infos {
-            // Minibuffer (echo area) never participates in per-window
-            // transitions.  It rapidly alternates between echo_area_buffer[0]
-            // and [1] on every message() call, and its char_height changes
-            // when the default face changes (theme loading).  Crossfading
-            // these blends old/new text at slightly different glyph positions
-            // (due to cache rebuild), creating visible text doubling.
             if info.is_minibuffer {
                 continue;
             }
             if let Some(prev) = self.transitions.prev_window_infos.get(&info.window_id) {
                 if prev.buffer_id != 0 && info.buffer_id != 0 {
                     if prev.buffer_id != info.buffer_id {
-                        // Text fade-in on buffer switch
                         if self.effects.text_fade_in.enabled {
                             if let Some(renderer) = self.renderer.as_mut() {
                                 renderer.trigger_text_fade_in(info.window_id, info.bounds, now);
-                            }
-                        }
-                        // Buffer switch → crossfade (minibuffer already skipped above)
-                        if self.transitions.policy.crossfade_enabled && info.bounds.height >= 50.0 {
-                            // Cancel existing transition for this window
-                            self.transitions.crossfades.remove(&info.window_id);
-                            self.transitions.scroll_slides.remove(&info.window_id);
-
-                            if let Some((tex, view, bg)) = self.snapshot_prev_texture() {
-                                tracing::debug!(
-                                    "Starting crossfade for window {} (buffer changed, effect={:?})",
-                                    info.window_id,
-                                    self.transitions.policy.crossfade_effect
-                                );
-                                self.transitions.crossfades.insert(
-                                    info.window_id,
-                                    CrossfadeTransition {
-                                        started: now,
-                                        duration: self.transitions.policy.crossfade_duration(),
-                                        bounds: info.bounds,
-                                        effect: self.transitions.policy.crossfade_effect,
-                                        easing: self.transitions.policy.crossfade_easing,
-                                        old_texture: tex,
-                                        old_view: view,
-                                        old_bind_group: bg,
-                                    },
-                                );
                             }
                         }
                     } else if prev.window_start != info.window_start {
-                        // Text fade-in on scroll
                         if self.effects.text_fade_in.enabled {
                             if let Some(renderer) = self.renderer.as_mut() {
                                 renderer.trigger_text_fade_in(info.window_id, info.bounds, now);
                             }
                         }
-                        // Scroll line spacing animation (accordion effect)
                         if self.effects.scroll_line_spacing.enabled {
                             let dir = if info.window_start > prev.window_start {
                                 1
@@ -244,7 +293,6 @@ impl RenderApp {
                                 );
                             }
                         }
-                        // Scroll momentum indicator
                         if self.effects.scroll_momentum.enabled {
                             let dir = if info.window_start > prev.window_start {
                                 1
@@ -260,7 +308,6 @@ impl RenderApp {
                                 );
                             }
                         }
-                        // Scroll velocity fade overlay
                         if self.effects.scroll_velocity_fade.enabled {
                             let delta =
                                 (info.window_start - prev.window_start).unsigned_abs() as f32;
@@ -273,109 +320,12 @@ impl RenderApp {
                                 );
                             }
                         }
-                        // Scroll → slide (text content area only, excluding
-                        // tab-line, header-line, and mode-line)
-                        let top_chrome = info.tab_line_height + info.header_line_height;
-                        let content_height =
-                            info.bounds.height - info.mode_line_height - top_chrome;
-                        if self.transitions.policy.scroll_enabled && content_height >= 50.0 {
-                            // Cancel existing transition for this window
-                            self.transitions.crossfades.remove(&info.window_id);
-                            self.transitions.scroll_slides.remove(&info.window_id);
-
-                            let dir = if info.window_start > prev.window_start {
-                                1
-                            } else {
-                                -1
-                            };
-
-                            // Content bounds: skip tab-line and header-line at top,
-                            // and mode-line at bottom
-                            let content_bounds = Rect::new(
-                                info.bounds.x,
-                                info.bounds.y + top_chrome,
-                                info.bounds.width,
-                                content_height,
-                            );
-
-                            // Compute scroll distance proportional to lines scrolled,
-                            // clamped to the content area height.  Estimate line count
-                            // from window_start delta and average line width (cols).
-                            let cols = (info.bounds.width / info.char_height).max(1.0);
-                            let char_delta =
-                                (info.window_start - prev.window_start).unsigned_abs() as f32;
-                            let est_lines = (char_delta / cols).max(1.0);
-                            let scroll_px = (est_lines * info.char_height).min(content_height);
-
-                            if let Some((tex, view, bg)) = self.snapshot_prev_texture() {
-                                tracing::debug!(
-                                    "Starting scroll slide for window {} (dir={}, effect={:?}, content_h={}, scroll_px={})",
-                                    info.window_id,
-                                    dir,
-                                    self.transitions.policy.scroll_effect,
-                                    content_height,
-                                    scroll_px
-                                );
-                                self.transitions.scroll_slides.insert(
-                                    info.window_id,
-                                    ScrollTransition {
-                                        started: now,
-                                        duration: self.transitions.policy.scroll_duration(),
-                                        bounds: content_bounds,
-                                        direction: dir,
-                                        scroll_distance: scroll_px,
-                                        effect: self.transitions.policy.scroll_effect,
-                                        easing: self.transitions.policy.scroll_easing,
-                                        old_texture: tex,
-                                        old_view: view,
-                                        old_bind_group: bg,
-                                    },
-                                );
-                            }
-                        }
-                    } else if (prev.char_height - info.char_height).abs() > 1.0 {
-                        // Font size changed (text-scale-adjust) → crossfade
-                        if self.transitions.policy.crossfade_enabled {
-                            self.transitions.crossfades.remove(&info.window_id);
-                            self.transitions.scroll_slides.remove(&info.window_id);
-
-                            if let Some((tex, view, bg)) = self.snapshot_prev_texture() {
-                                tracing::debug!(
-                                    "Starting font-size crossfade for window {} (char_height {} → {})",
-                                    info.window_id,
-                                    prev.char_height,
-                                    info.char_height
-                                );
-                                self.transitions.crossfades.insert(
-                                    info.window_id,
-                                    CrossfadeTransition {
-                                        started: now,
-                                        duration: std::time::Duration::from_millis(200),
-                                        bounds: info.bounds,
-                                        effect: self.transitions.policy.crossfade_effect,
-                                        easing: self.transitions.policy.crossfade_easing,
-                                        old_texture: tex,
-                                        old_view: view,
-                                        old_bind_group: bg,
-                                    },
-                                );
-                            }
-                        }
                     } else if self.effects.line_animation.enabled
                         && prev.buffer_size != info.buffer_size
                     {
-                        // Buffer size changed with same window_start → line insertion/deletion
-                        // Find cursor Y from frame glyphs as the edit point
                         let mut cursor_y: Option<f32> = None;
                         for g in &frame.glyphs {
-                            if let crate::core::frame_glyphs::FrameGlyph::Cursor {
-                                x,
-                                y,
-                                style,
-                                ..
-                            } = g
-                            {
-                                // Check cursor is within this window
+                            if let FrameGlyph::Cursor { x, y, style, .. } = g {
                                 if *x >= info.bounds.x
                                     && *x < info.bounds.x + info.bounds.width
                                     && *y >= info.bounds.y
@@ -390,55 +340,14 @@ impl RenderApp {
                         if let Some(edit_y) = cursor_y {
                             let ch = info.char_height;
                             let delta = info.buffer_size - prev.buffer_size;
-                            // Positive delta = insertion (lines move down), negative = deletion (lines move up)
                             let offset = if delta > 0 { -ch } else { ch };
                             if let Some(renderer) = self.renderer.as_mut() {
                                 renderer.start_line_animation(
                                     info.bounds,
-                                    edit_y + ch, // animate rows below cursor
+                                    edit_y + ch,
                                     offset,
                                     self.effects.line_animation.duration_ms,
                                 );
-                            }
-                        }
-                    } else if (prev.bounds.width - info.bounds.width).abs() > 2.0
-                        || (prev.bounds.height - info.bounds.height).abs() > 2.0
-                    {
-                        // Window resized (balance-windows, divider drag) → crossfade
-                        if self.transitions.policy.crossfade_enabled {
-                            self.transitions.crossfades.remove(&info.window_id);
-                            self.transitions.scroll_slides.remove(&info.window_id);
-
-                            // Use full-frame crossfade (window_id 0) since
-                            // all windows resize together during balance.
-                            // Exclude minibuffer area: during rapid echo area
-                            // updates (e.g. package loading), old echo text
-                            // from the snapshot would overlap with current text.
-                            let full_h = frame
-                                .window_infos
-                                .iter()
-                                .find(|w| w.is_minibuffer)
-                                .map_or(frame.height, |w| w.bounds.y);
-                            let full_bounds = Rect::new(0.0, 0.0, frame.width, full_h);
-                            if !self.transitions.crossfades.contains_key(&0) {
-                                if let Some((tex, view, bg)) = self.snapshot_prev_texture() {
-                                    tracing::debug!(
-                                        "Starting window-resize crossfade (bounds changed)"
-                                    );
-                                    self.transitions.crossfades.insert(
-                                        0,
-                                        CrossfadeTransition {
-                                            started: now,
-                                            duration: std::time::Duration::from_millis(150),
-                                            bounds: full_bounds,
-                                            effect: self.transitions.policy.crossfade_effect,
-                                            easing: self.transitions.policy.crossfade_easing,
-                                            old_texture: tex,
-                                            old_view: view,
-                                            old_bind_group: bg,
-                                        },
-                                    );
-                                }
                             }
                         }
                     }
@@ -446,58 +355,6 @@ impl RenderApp {
             }
         }
 
-        // Detect window split/delete (window count or IDs changed)
-        if self.transitions.policy.crossfade_enabled
-            && !self.transitions.prev_window_infos.is_empty()
-        {
-            let curr_ids: std::collections::HashSet<i64> = frame
-                .window_infos
-                .iter()
-                .filter(|i| !i.is_minibuffer)
-                .map(|i| i.window_id)
-                .collect();
-            let prev_non_mini: std::collections::HashSet<i64> = self
-                .transitions
-                .prev_window_infos
-                .iter()
-                .filter(|(_, v)| !v.is_minibuffer)
-                .map(|(k, _)| *k)
-                .collect();
-
-            if prev_non_mini != curr_ids && prev_non_mini.len() > 0 && curr_ids.len() > 0 {
-                // Window layout changed — full-frame crossfade
-                // Use a synthetic window_id (0) for the full-frame transition.
-                // Exclude minibuffer to prevent echo area text overlap.
-                let full_h = frame
-                    .window_infos
-                    .iter()
-                    .find(|w| w.is_minibuffer)
-                    .map_or(frame.height, |w| w.bounds.y);
-                let full_bounds = Rect::new(0.0, 0.0, frame.width, full_h);
-                if let Some((tex, view, bg)) = self.snapshot_prev_texture() {
-                    tracing::debug!(
-                        "Starting window split/delete crossfade ({} → {} windows)",
-                        prev_non_mini.len(),
-                        curr_ids.len()
-                    );
-                    self.transitions.crossfades.insert(
-                        0,
-                        CrossfadeTransition {
-                            started: now,
-                            duration: std::time::Duration::from_millis(200),
-                            bounds: full_bounds,
-                            effect: self.transitions.policy.crossfade_effect,
-                            easing: self.transitions.policy.crossfade_easing,
-                            old_texture: tex,
-                            old_view: view,
-                            old_bind_group: bg,
-                        },
-                    );
-                }
-            }
-        }
-
-        // Detect window switch (selected window changed) → highlight fade
         if self.effects.window_switch_fade.enabled {
             let mut new_selected: Option<(i64, Rect)> = None;
             for info in &frame.window_infos {
@@ -517,7 +374,6 @@ impl RenderApp {
             }
         }
 
-        // Detect theme change (background color changed significantly)
         if self.effects.theme_transition.enabled {
             let bg = &frame.background;
             let new_bg = (bg.r, bg.g, bg.b, bg.a);
@@ -525,10 +381,7 @@ impl RenderApp {
                 let dr = (new_bg.0 - old_bg.0).abs();
                 let dg = (new_bg.1 - old_bg.1).abs();
                 let db = (new_bg.2 - old_bg.2).abs();
-                // Threshold: any channel changed by more than ~2% means theme switch
                 if dr > 0.02 || dg > 0.02 || db > 0.02 {
-                    // Exclude minibuffer to prevent echo area text overlap
-                    // during theme changes (glyph cache rebuild shifts positions).
                     let full_h = frame
                         .window_infos
                         .iter()
@@ -558,12 +411,15 @@ impl RenderApp {
             self.prev_background = Some(new_bg);
         }
 
-        // Update prev_window_infos from current frame
         self.transitions.prev_window_infos.clear();
         for info in &frame.window_infos {
             self.transitions
                 .prev_window_infos
                 .insert(info.window_id, info.clone());
+        }
+
+        for hint in &transition_hints {
+            self.apply_transition_hint(hint, now);
         }
     }
 

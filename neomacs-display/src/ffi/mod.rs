@@ -63,7 +63,9 @@ pub(crate) static TERMINAL_TITLES: std::sync::Mutex<Vec<(u32, String)>> =
 use crate::backend::tty::TtyBackend;
 use crate::core::animation::AnimationManager;
 use crate::core::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
-use crate::core::frame_glyphs::{FrameGlyph, FrameGlyphBuffer};
+use crate::core::frame_glyphs::{
+    FrameGlyph, FrameGlyphBuffer, WindowInfo, WindowTransitionHint, WindowTransitionKind,
+};
 use crate::core::scene::{CursorState, Scene, SceneCursorStyle, WindowScene};
 use crate::core::types::{Color, Rect};
 
@@ -83,6 +85,8 @@ pub struct NeomacsDisplay {
     pub(crate) frame_counter: u64,     // Frame counter for tracking row updates
     pub(crate) current_render_window_id: u32, // Winit window ID being rendered to (0 = legacy rendering)
     pub(crate) faces: HashMap<u32, Face>,
+    pub(crate) transition_prev_window_infos: HashMap<i64, WindowInfo>,
+    pub(crate) transition_curr_window_infos: HashMap<i64, WindowInfo>,
 }
 
 impl NeomacsDisplay {
@@ -111,6 +115,73 @@ impl NeomacsDisplay {
             }
         }
         &mut self.scene
+    }
+
+    pub(crate) fn begin_transition_hint_frame(&mut self) {
+        std::mem::swap(
+            &mut self.transition_prev_window_infos,
+            &mut self.transition_curr_window_infos,
+        );
+        self.transition_curr_window_infos.clear();
+    }
+
+    pub(crate) fn record_transition_hint_window(&mut self, info: &WindowInfo) {
+        if let Some(prev) = self.transition_prev_window_infos.get(&info.window_id) {
+            if let Some(hint) = FrameGlyphBuffer::derive_transition_hint(prev, info) {
+                self.frame_glyphs.add_transition_hint(hint);
+            }
+        }
+        self.transition_curr_window_infos
+            .insert(info.window_id, info.clone());
+    }
+
+    pub(crate) fn finalize_transition_hints(&mut self) {
+        if self.transition_prev_window_infos.is_empty() {
+            return;
+        }
+
+        let prev_non_mini: std::collections::HashSet<i64> = self
+            .transition_prev_window_infos
+            .iter()
+            .filter(|(_, info)| !info.is_minibuffer)
+            .map(|(window_id, _)| *window_id)
+            .collect();
+        let curr_non_mini: std::collections::HashSet<i64> = self
+            .transition_curr_window_infos
+            .iter()
+            .filter(|(_, info)| !info.is_minibuffer)
+            .map(|(window_id, _)| *window_id)
+            .collect();
+
+        if prev_non_mini.is_empty() || curr_non_mini.is_empty() || prev_non_mini == curr_non_mini {
+            return;
+        }
+
+        if self
+            .frame_glyphs
+            .transition_hints
+            .iter()
+            .any(|hint| hint.window_id == 0 && matches!(hint.kind, WindowTransitionKind::Crossfade))
+        {
+            return;
+        }
+
+        // Window topology changed (split/delete): request a full-frame crossfade,
+        // excluding the minibuffer area to avoid echo-area overlap artifacts.
+        let full_h = self
+            .frame_glyphs
+            .window_infos
+            .iter()
+            .find(|w| w.is_minibuffer)
+            .map_or(self.frame_glyphs.height, |w| w.bounds.y);
+
+        self.frame_glyphs.add_transition_hint(WindowTransitionHint {
+            window_id: 0,
+            bounds: Rect::new(0.0, 0.0, self.frame_glyphs.width, full_h),
+            kind: WindowTransitionKind::Crossfade,
+            effect: None,
+            easing: None,
+        });
     }
 }
 

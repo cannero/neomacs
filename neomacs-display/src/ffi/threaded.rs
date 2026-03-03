@@ -168,6 +168,8 @@ pub unsafe extern "C" fn neomacs_display_init_threaded(
         frame_counter: 0,
         current_render_window_id: 0,
         faces: HashMap::new(),
+        transition_prev_window_infos: HashMap::new(),
+        transition_curr_window_infos: HashMap::new(),
     });
     let display_ptr = Box::into_raw(display);
 
@@ -614,12 +616,14 @@ pub unsafe extern "C" fn neomacs_display_send_frame(handle: *mut NeomacsDisplay)
         return;
     }
 
-    let display = &*handle;
+    let display = &mut *handle;
 
     let state = match threaded_state() {
         Some(s) => s,
         None => return,
     };
+
+    display.finalize_transition_hints();
 
     // Clone frame glyphs and send to render thread
     let frame = display.frame_glyphs.clone();
