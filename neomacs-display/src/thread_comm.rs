@@ -15,7 +15,9 @@ pub type WakeupFd = RawFd;
 pub type WakeupFd = RawHandle;
 
 use crate::core::frame_glyphs::FrameGlyphBuffer;
-pub use neomacs_display_protocol::{EffectsConfig, MenuBarItem, PopupMenuItem, ToolBarItem};
+pub use neomacs_display_protocol::{
+    EffectsConfig, MenuBarItem, PopupMenuItem, ToolBarItem, TransitionPolicy,
+};
 
 /// Input event from render thread to Emacs
 #[derive(Debug, Clone)]
@@ -324,15 +326,8 @@ pub enum RenderCommand {
         cursor_speed: f32,
         cursor_style: crate::core::types::CursorAnimStyle,
         cursor_duration_ms: u32,
-        crossfade_enabled: bool,
-        crossfade_duration_ms: u32,
-        scroll_enabled: bool,
-        scroll_duration_ms: u32,
-        scroll_effect: u32,
-        scroll_easing: u32,
+        transition_policy: TransitionPolicy,
         trail_size: f32,
-        crossfade_effect: u32,
-        crossfade_easing: u32,
     },
     /// Create a terminal
     #[cfg(feature = "neo-term")]
@@ -1736,15 +1731,8 @@ mod tests {
             cursor_speed: 0.9,
             cursor_style: crate::core::types::CursorAnimStyle::EaseOutCubic,
             cursor_duration_ms: 150,
-            crossfade_enabled: true,
-            crossfade_duration_ms: 200,
-            scroll_enabled: true,
-            scroll_duration_ms: 150,
-            scroll_effect: 1,
-            scroll_easing: 2,
+            transition_policy: TransitionPolicy::from_indices(true, 200, 0, 0, true, 150, 1, 2),
             trail_size: 0.5,
-            crossfade_effect: 0,
-            crossfade_easing: 0,
         };
         match cmd {
             RenderCommand::SetAnimationConfig {
@@ -1752,15 +1740,8 @@ mod tests {
                 cursor_speed,
                 cursor_style,
                 cursor_duration_ms,
-                crossfade_enabled,
-                crossfade_duration_ms,
-                scroll_enabled,
-                scroll_duration_ms,
-                scroll_effect,
-                scroll_easing,
+                transition_policy,
                 trail_size,
-                crossfade_effect,
-                crossfade_easing,
             } => {
                 assert!(cursor_enabled);
                 assert_eq!(cursor_speed, 0.9);
@@ -1769,15 +1750,19 @@ mod tests {
                     crate::core::types::CursorAnimStyle::EaseOutCubic
                 );
                 assert_eq!(cursor_duration_ms, 150);
-                assert!(crossfade_enabled);
-                assert_eq!(crossfade_duration_ms, 200);
-                assert!(scroll_enabled);
-                assert_eq!(scroll_duration_ms, 150);
-                assert_eq!(scroll_effect, 1);
-                assert_eq!(scroll_easing, 2);
+                assert!(transition_policy.crossfade_enabled);
+                assert_eq!(transition_policy.crossfade_duration_ms, 200);
+                assert!(transition_policy.scroll_enabled);
+                assert_eq!(transition_policy.scroll_duration_ms, 150);
+                assert_eq!(
+                    transition_policy.scroll_effect,
+                    neomacs_display_protocol::ScrollEffect::Crossfade
+                );
+                assert_eq!(
+                    transition_policy.scroll_easing,
+                    neomacs_display_protocol::ScrollEasing::Spring
+                );
                 assert_eq!(trail_size, 0.5);
-                assert_eq!(crossfade_effect, 0);
-                assert_eq!(crossfade_easing, 0);
             }
             other => panic!("Expected SetAnimationConfig, got {:?}", other),
         }

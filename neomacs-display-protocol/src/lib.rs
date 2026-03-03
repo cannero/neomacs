@@ -5,6 +5,7 @@ pub mod face;
 pub mod frame_glyphs;
 pub mod scene;
 pub mod scroll_animation;
+pub mod transition_policy;
 pub mod types;
 pub mod ui_types;
 
@@ -13,5 +14,6 @@ pub use face::*;
 pub use frame_glyphs::*;
 pub use scene::*;
 pub use scroll_animation::*;
+pub use transition_policy::*;
 pub use types::*;
 pub use ui_types::*;

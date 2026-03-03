@@ -3,40 +3,23 @@
 mod animation;
 mod backend;
 mod events;
-pub(crate) mod external_buffer;
-mod glyph_atlas;
-mod image_cache;
-mod renderer;
 pub mod toolbar_icons;
 mod transition;
-mod vertex;
 mod window_state;
-mod xbm;
-mod xpm;
-
-#[cfg(all(feature = "video", target_os = "linux"))]
-mod vulkan_dmabuf;
-
-#[cfg(all(feature = "video", target_os = "linux"))]
-mod va_dmabuf_export;
-
-#[cfg(feature = "video")]
-mod video_cache;
 
 pub mod media_budget;
 
 #[cfg(feature = "video")]
-pub use video_cache::{CachedVideo, DecodedFrame, VideoCache, VideoState};
+pub use neomacs_renderer_wgpu::{CachedVideo, DecodedFrame, VideoCache, VideoState};
 
 pub use backend::{Callbacks, NeomacsApp, UserEvent, WinitBackend, run_event_loop};
-pub use glyph_atlas::{CachedGlyph, GlyphKey, WgpuGlyphAtlas};
-pub use image_cache::{CachedImage, ImageCache, ImageDimensions, ImageState};
-pub use renderer::WgpuRenderer;
-pub use vertex::GlyphVertex;
+pub use neomacs_renderer_wgpu::{
+    BufferFormat, CachedGlyph, CachedImage, ExternalBuffer, GlyphKey, GlyphVertex, ImageCache,
+    ImageDimensions, ImageState, PlatformBuffer, SharedMemoryBuffer, WgpuGlyphAtlas, WgpuRenderer,
+};
 
 #[cfg(target_os = "linux")]
-pub use external_buffer::DmaBufBuffer;
-pub use external_buffer::{BufferFormat, ExternalBuffer, PlatformBuffer, SharedMemoryBuffer};
+pub use neomacs_renderer_wgpu::DmaBufBuffer;
 
 pub use animation::{AnimatedProperty, Animation, AnimationEngine, AnimationTarget, Easing};
 pub use events::{
@@ -52,10 +35,7 @@ pub use transition::{BufferTransition, TransitionManager, TransitionType};
 pub use window_state::WindowState;
 
 #[cfg(all(feature = "wpe-webkit", target_os = "linux"))]
-mod webkit_cache;
-
-#[cfg(all(feature = "wpe-webkit", target_os = "linux"))]
-pub use webkit_cache::{CachedWebKitView, WgpuWebKitCache};
+pub use neomacs_renderer_wgpu::{CachedWebKitView, WgpuWebKitCache};
 
 // DRM device discovery for GPU device path mapping
 #[cfg(target_os = "linux")]

@@ -1172,6 +1172,7 @@ pub unsafe extern "C" fn neomacs_display_set_animation_config(
     crossfade_easing: u32,
 ) {
     use crate::core::types::CursorAnimStyle;
+    use neomacs_display_protocol::TransitionPolicy;
     let cmd = RenderCommand::SetAnimationConfig {
         cursor_enabled: cursor_enabled != 0,
         cursor_speed: if cursor_speed > 0.0 {
@@ -1185,23 +1186,17 @@ pub unsafe extern "C" fn neomacs_display_set_animation_config(
         } else {
             150
         },
-        crossfade_enabled: crossfade_enabled != 0,
-        crossfade_duration_ms: if crossfade_duration_ms > 0 {
-            crossfade_duration_ms
-        } else {
-            200
-        },
-        scroll_enabled: scroll_enabled != 0,
-        scroll_duration_ms: if scroll_duration_ms > 0 {
-            scroll_duration_ms
-        } else {
-            150
-        },
-        scroll_effect,
-        scroll_easing,
+        transition_policy: TransitionPolicy::from_indices(
+            crossfade_enabled != 0,
+            crossfade_duration_ms,
+            crossfade_effect,
+            crossfade_easing,
+            scroll_enabled != 0,
+            scroll_duration_ms,
+            scroll_effect,
+            scroll_easing,
+        ),
         trail_size: if trail_size >= 0.0 { trail_size } else { 0.7 },
-        crossfade_effect,
-        crossfade_easing,
     };
     if let Some(ref state) = THREADED_STATE {
         let _ = state.emacs_comms.cmd_tx.try_send(cmd);

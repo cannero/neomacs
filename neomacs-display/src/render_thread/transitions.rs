@@ -4,7 +4,7 @@ use super::RenderApp;
 #[allow(unused_imports)]
 use crate::core::frame_glyphs::FrameGlyph;
 use crate::core::types::Rect;
-use neomacs_display_protocol::{ScrollEasing, ScrollEffect};
+use neomacs_display_protocol::{ScrollEasing, ScrollEffect, TransitionPolicy};
 use std::collections::HashMap;
 
 /// State for an active crossfade transition
@@ -40,14 +40,7 @@ pub(super) struct ScrollTransition {
 /// Groups configuration, double-buffer textures, and active transition maps.
 pub(super) struct TransitionState {
     // Configuration
-    pub(super) crossfade_enabled: bool,
-    pub(super) crossfade_duration: std::time::Duration,
-    pub(super) crossfade_effect: ScrollEffect,
-    pub(super) crossfade_easing: ScrollEasing,
-    pub(super) scroll_enabled: bool,
-    pub(super) scroll_duration: std::time::Duration,
-    pub(super) scroll_effect: ScrollEffect,
-    pub(super) scroll_easing: ScrollEasing,
+    pub(super) policy: TransitionPolicy,
 
     // Double-buffer offscreen textures
     pub(super) offscreen_a: Option<(wgpu::Texture, wgpu::TextureView, wgpu::BindGroup)>,
@@ -65,14 +58,7 @@ pub(super) struct TransitionState {
 impl Default for TransitionState {
     fn default() -> Self {
         Self {
-            crossfade_enabled: true,
-            crossfade_duration: std::time::Duration::from_millis(200),
-            crossfade_effect: ScrollEffect::Crossfade,
-            crossfade_easing: ScrollEasing::EaseOutQuad,
-            scroll_enabled: true,
-            scroll_duration: std::time::Duration::from_millis(150),
-            scroll_effect: ScrollEffect::default(),
-            scroll_easing: ScrollEasing::default(),
+            policy: TransitionPolicy::default(),
             offscreen_a: None,
             offscreen_b: None,
             current_is_a: true,
@@ -209,7 +195,7 @@ impl RenderApp {
                             }
                         }
                         // Buffer switch → crossfade (minibuffer already skipped above)
-                        if self.transitions.crossfade_enabled && info.bounds.height >= 50.0 {
+                        if self.transitions.policy.crossfade_enabled && info.bounds.height >= 50.0 {
                             // Cancel existing transition for this window
                             self.transitions.crossfades.remove(&info.window_id);
                             self.transitions.scroll_slides.remove(&info.window_id);
@@ -218,16 +204,16 @@ impl RenderApp {
                                 tracing::debug!(
                                     "Starting crossfade for window {} (buffer changed, effect={:?})",
                                     info.window_id,
-                                    self.transitions.crossfade_effect
+                                    self.transitions.policy.crossfade_effect
                                 );
                                 self.transitions.crossfades.insert(
                                     info.window_id,
                                     CrossfadeTransition {
                                         started: now,
-                                        duration: self.transitions.crossfade_duration,
+                                        duration: self.transitions.policy.crossfade_duration(),
                                         bounds: info.bounds,
-                                        effect: self.transitions.crossfade_effect,
-                                        easing: self.transitions.crossfade_easing,
+                                        effect: self.transitions.policy.crossfade_effect,
+                                        easing: self.transitions.policy.crossfade_easing,
                                         old_texture: tex,
                                         old_view: view,
                                         old_bind_group: bg,
@@ -292,7 +278,7 @@ impl RenderApp {
                         let top_chrome = info.tab_line_height + info.header_line_height;
                         let content_height =
                             info.bounds.height - info.mode_line_height - top_chrome;
-                        if self.transitions.scroll_enabled && content_height >= 50.0 {
+                        if self.transitions.policy.scroll_enabled && content_height >= 50.0 {
                             // Cancel existing transition for this window
                             self.transitions.crossfades.remove(&info.window_id);
                             self.transitions.scroll_slides.remove(&info.window_id);
@@ -326,7 +312,7 @@ impl RenderApp {
                                     "Starting scroll slide for window {} (dir={}, effect={:?}, content_h={}, scroll_px={})",
                                     info.window_id,
                                     dir,
-                                    self.transitions.scroll_effect,
+                                    self.transitions.policy.scroll_effect,
                                     content_height,
                                     scroll_px
                                 );
@@ -334,12 +320,12 @@ impl RenderApp {
                                     info.window_id,
                                     ScrollTransition {
                                         started: now,
-                                        duration: self.transitions.scroll_duration,
+                                        duration: self.transitions.policy.scroll_duration(),
                                         bounds: content_bounds,
                                         direction: dir,
                                         scroll_distance: scroll_px,
-                                        effect: self.transitions.scroll_effect,
-                                        easing: self.transitions.scroll_easing,
+                                        effect: self.transitions.policy.scroll_effect,
+                                        easing: self.transitions.policy.scroll_easing,
                                         old_texture: tex,
                                         old_view: view,
                                         old_bind_group: bg,
@@ -349,7 +335,7 @@ impl RenderApp {
                         }
                     } else if (prev.char_height - info.char_height).abs() > 1.0 {
                         // Font size changed (text-scale-adjust) → crossfade
-                        if self.transitions.crossfade_enabled {
+                        if self.transitions.policy.crossfade_enabled {
                             self.transitions.crossfades.remove(&info.window_id);
                             self.transitions.scroll_slides.remove(&info.window_id);
 
@@ -366,8 +352,8 @@ impl RenderApp {
                                         started: now,
                                         duration: std::time::Duration::from_millis(200),
                                         bounds: info.bounds,
-                                        effect: self.transitions.crossfade_effect,
-                                        easing: self.transitions.crossfade_easing,
+                                        effect: self.transitions.policy.crossfade_effect,
+                                        easing: self.transitions.policy.crossfade_easing,
                                         old_texture: tex,
                                         old_view: view,
                                         old_bind_group: bg,
@@ -419,7 +405,7 @@ impl RenderApp {
                         || (prev.bounds.height - info.bounds.height).abs() > 2.0
                     {
                         // Window resized (balance-windows, divider drag) → crossfade
-                        if self.transitions.crossfade_enabled {
+                        if self.transitions.policy.crossfade_enabled {
                             self.transitions.crossfades.remove(&info.window_id);
                             self.transitions.scroll_slides.remove(&info.window_id);
 
@@ -445,8 +431,8 @@ impl RenderApp {
                                             started: now,
                                             duration: std::time::Duration::from_millis(150),
                                             bounds: full_bounds,
-                                            effect: self.transitions.crossfade_effect,
-                                            easing: self.transitions.crossfade_easing,
+                                            effect: self.transitions.policy.crossfade_effect,
+                                            easing: self.transitions.policy.crossfade_easing,
                                             old_texture: tex,
                                             old_view: view,
                                             old_bind_group: bg,
@@ -461,7 +447,9 @@ impl RenderApp {
         }
 
         // Detect window split/delete (window count or IDs changed)
-        if self.transitions.crossfade_enabled && !self.transitions.prev_window_infos.is_empty() {
+        if self.transitions.policy.crossfade_enabled
+            && !self.transitions.prev_window_infos.is_empty()
+        {
             let curr_ids: std::collections::HashSet<i64> = frame
                 .window_infos
                 .iter()
@@ -498,8 +486,8 @@ impl RenderApp {
                             started: now,
                             duration: std::time::Duration::from_millis(200),
                             bounds: full_bounds,
-                            effect: self.transitions.crossfade_effect,
-                            easing: self.transitions.crossfade_easing,
+                            effect: self.transitions.policy.crossfade_effect,
+                            easing: self.transitions.policy.crossfade_easing,
                             old_texture: tex,
                             old_view: view,
                             old_bind_group: bg,
@@ -556,8 +544,8 @@ impl RenderApp {
                                     started: now,
                                     duration: self.effects.theme_transition.duration,
                                     bounds: full_bounds,
-                                    effect: self.transitions.crossfade_effect,
-                                    easing: self.transitions.crossfade_easing,
+                                    effect: self.transitions.policy.crossfade_effect,
+                                    easing: self.transitions.policy.crossfade_easing,
                                     old_texture: tex,
                                     old_view: view,
                                     old_bind_group: bg_group,
@@ -701,51 +689,51 @@ mod tests {
     #[test]
     fn default_crossfade_enabled() {
         let ts = TransitionState::default();
-        assert!(ts.crossfade_enabled);
+        assert!(ts.policy.crossfade_enabled);
     }
 
     #[test]
     fn default_crossfade_duration_is_200ms() {
         let ts = TransitionState::default();
-        assert_eq!(ts.crossfade_duration, Duration::from_millis(200));
+        assert_eq!(ts.policy.crossfade_duration(), Duration::from_millis(200));
     }
 
     #[test]
     fn default_crossfade_effect_is_crossfade() {
         let ts = TransitionState::default();
-        assert_eq!(ts.crossfade_effect, ScrollEffect::Crossfade);
+        assert_eq!(ts.policy.crossfade_effect, ScrollEffect::Crossfade);
     }
 
     #[test]
     fn default_crossfade_easing_is_ease_out_quad() {
         let ts = TransitionState::default();
-        assert_eq!(ts.crossfade_easing, ScrollEasing::EaseOutQuad);
+        assert_eq!(ts.policy.crossfade_easing, ScrollEasing::EaseOutQuad);
     }
 
     #[test]
     fn default_scroll_enabled() {
         let ts = TransitionState::default();
-        assert!(ts.scroll_enabled);
+        assert!(ts.policy.scroll_enabled);
     }
 
     #[test]
     fn default_scroll_duration_is_150ms() {
         let ts = TransitionState::default();
-        assert_eq!(ts.scroll_duration, Duration::from_millis(150));
+        assert_eq!(ts.policy.scroll_duration(), Duration::from_millis(150));
     }
 
     #[test]
     fn default_scroll_effect_is_slide() {
         let ts = TransitionState::default();
         // ScrollEffect::default() is Slide
-        assert_eq!(ts.scroll_effect, ScrollEffect::Slide);
+        assert_eq!(ts.policy.scroll_effect, ScrollEffect::Slide);
     }
 
     #[test]
     fn default_scroll_easing_is_ease_out_quad() {
         let ts = TransitionState::default();
         // ScrollEasing::default() is EaseOutQuad
-        assert_eq!(ts.scroll_easing, ScrollEasing::EaseOutQuad);
+        assert_eq!(ts.policy.scroll_easing, ScrollEasing::EaseOutQuad);
     }
 
     #[test]
@@ -1633,57 +1621,57 @@ mod tests {
     #[test]
     fn can_disable_crossfade() {
         let mut ts = TransitionState::default();
-        ts.crossfade_enabled = false;
-        assert!(!ts.crossfade_enabled);
+        ts.policy.crossfade_enabled = false;
+        assert!(!ts.policy.crossfade_enabled);
     }
 
     #[test]
     fn can_disable_scroll() {
         let mut ts = TransitionState::default();
-        ts.scroll_enabled = false;
-        assert!(!ts.scroll_enabled);
+        ts.policy.scroll_enabled = false;
+        assert!(!ts.policy.scroll_enabled);
     }
 
     #[test]
     fn can_change_crossfade_duration() {
         let mut ts = TransitionState::default();
-        ts.crossfade_duration = Duration::from_millis(500);
-        assert_eq!(ts.crossfade_duration, Duration::from_millis(500));
+        ts.policy.crossfade_duration_ms = 500;
+        assert_eq!(ts.policy.crossfade_duration(), Duration::from_millis(500));
     }
 
     #[test]
     fn can_change_scroll_duration() {
         let mut ts = TransitionState::default();
-        ts.scroll_duration = Duration::from_millis(300);
-        assert_eq!(ts.scroll_duration, Duration::from_millis(300));
+        ts.policy.scroll_duration_ms = 300;
+        assert_eq!(ts.policy.scroll_duration(), Duration::from_millis(300));
     }
 
     #[test]
     fn can_change_crossfade_effect() {
         let mut ts = TransitionState::default();
-        ts.crossfade_effect = ScrollEffect::ScaleZoom;
-        assert_eq!(ts.crossfade_effect, ScrollEffect::ScaleZoom);
+        ts.policy.crossfade_effect = ScrollEffect::ScaleZoom;
+        assert_eq!(ts.policy.crossfade_effect, ScrollEffect::ScaleZoom);
     }
 
     #[test]
     fn can_change_scroll_effect() {
         let mut ts = TransitionState::default();
-        ts.scroll_effect = ScrollEffect::Wobbly;
-        assert_eq!(ts.scroll_effect, ScrollEffect::Wobbly);
+        ts.policy.scroll_effect = ScrollEffect::Wobbly;
+        assert_eq!(ts.policy.scroll_effect, ScrollEffect::Wobbly);
     }
 
     #[test]
     fn can_change_crossfade_easing() {
         let mut ts = TransitionState::default();
-        ts.crossfade_easing = ScrollEasing::Spring;
-        assert_eq!(ts.crossfade_easing, ScrollEasing::Spring);
+        ts.policy.crossfade_easing = ScrollEasing::Spring;
+        assert_eq!(ts.policy.crossfade_easing, ScrollEasing::Spring);
     }
 
     #[test]
     fn can_change_scroll_easing() {
         let mut ts = TransitionState::default();
-        ts.scroll_easing = ScrollEasing::EaseOutCubic;
-        assert_eq!(ts.scroll_easing, ScrollEasing::EaseOutCubic);
+        ts.policy.scroll_easing = ScrollEasing::EaseOutCubic;
+        assert_eq!(ts.policy.scroll_easing, ScrollEasing::EaseOutCubic);
     }
 
     #[test]
@@ -1900,13 +1888,13 @@ mod tests {
     #[test]
     fn crossfade_uses_configured_duration() {
         let ts = TransitionState::default();
-        assert_eq!(ts.crossfade_duration, Duration::from_millis(200));
+        assert_eq!(ts.policy.crossfade_duration(), Duration::from_millis(200));
     }
 
     #[test]
     fn scroll_uses_configured_duration() {
         let ts = TransitionState::default();
-        assert_eq!(ts.scroll_duration, Duration::from_millis(150));
+        assert_eq!(ts.policy.scroll_duration(), Duration::from_millis(150));
     }
 
     #[test]

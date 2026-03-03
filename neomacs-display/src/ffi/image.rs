@@ -785,7 +785,7 @@ pub unsafe extern "C" fn neomacs_display_query_image_file_size(
     };
 
     {
-        use crate::backend::wgpu::WgpuRenderer;
+        use neomacs_renderer_wgpu::WgpuRenderer;
         if let Some((w, h)) = WgpuRenderer::query_image_file_size(path_str) {
             *width = w as c_int;
             *height = h as c_int;
@@ -811,7 +811,7 @@ pub unsafe extern "C" fn neomacs_display_query_image_data_size(
     let bytes = std::slice::from_raw_parts(data, len);
 
     {
-        use crate::backend::wgpu::WgpuRenderer;
+        use neomacs_renderer_wgpu::WgpuRenderer;
         if let Some((w, h)) = WgpuRenderer::query_image_data_size(bytes) {
             *width = w as c_int;
             *height = h as c_int;

@@ -24,8 +24,7 @@ use winit::platform::wayland::EventLoopBuilderExtWayland;
 use winit::platform::x11::EventLoopBuilderExtX11;
 
 use crate::backend::wgpu::{
-    NEOMACS_CTRL_MASK, NEOMACS_META_MASK, NEOMACS_SHIFT_MASK, NEOMACS_SUPER_MASK, WgpuGlyphAtlas,
-    WgpuRenderer,
+    NEOMACS_CTRL_MASK, NEOMACS_META_MASK, NEOMACS_SHIFT_MASK, NEOMACS_SUPER_MASK,
 };
 use crate::core::face::Face;
 use crate::core::frame_glyphs::{FrameGlyph, FrameGlyphBuffer};
@@ -37,8 +36,9 @@ use crate::thread_comm::{
     InputEvent, MenuBarItem, PopupMenuItem, RenderCommand, RenderComms, ToolBarItem,
 };
 use cursor::{CornerSpring, CursorState, CursorTarget};
-use neomacs_display_protocol::{EffectsConfig, ScrollEasing, ScrollEffect};
+use neomacs_display_protocol::EffectsConfig;
 pub(crate) use neomacs_renderer_wgpu::{MenuPanel, PopupMenuState, TooltipState};
+use neomacs_renderer_wgpu::{WgpuGlyphAtlas, WgpuRenderer};
 use transitions::{CrossfadeTransition, ScrollTransition, TransitionState};
 
 #[cfg(all(feature = "wpe-webkit", wpe_platform_available))]
@@ -1156,40 +1156,9 @@ impl RenderApp {
                     cursor_speed,
                     cursor_style,
                     cursor_duration_ms,
-                    crossfade_enabled,
-                    crossfade_duration_ms,
-                    scroll_enabled,
-                    scroll_duration_ms,
-                    scroll_effect,
-                    scroll_easing,
+                    transition_policy,
                     trail_size,
-                    crossfade_effect,
-                    crossfade_easing,
                 } => {
-                    let effect = ScrollEffect::ALL
-                        .get(scroll_effect as usize)
-                        .copied()
-                        .unwrap_or(ScrollEffect::Slide);
-                    let easing = match scroll_easing {
-                        0 => ScrollEasing::EaseOutQuad,
-                        1 => ScrollEasing::EaseOutCubic,
-                        2 => ScrollEasing::Spring,
-                        3 => ScrollEasing::Linear,
-                        4 => ScrollEasing::EaseInOutCubic,
-                        _ => ScrollEasing::EaseOutQuad,
-                    };
-                    let cf_effect = ScrollEffect::ALL
-                        .get(crossfade_effect as usize)
-                        .copied()
-                        .unwrap_or(ScrollEffect::Crossfade);
-                    let cf_easing = match crossfade_easing {
-                        0 => ScrollEasing::EaseOutQuad,
-                        1 => ScrollEasing::EaseOutCubic,
-                        2 => ScrollEasing::Spring,
-                        3 => ScrollEasing::Linear,
-                        4 => ScrollEasing::EaseInOutCubic,
-                        _ => ScrollEasing::EaseOutQuad,
-                    };
                     tracing::debug!(
                         "Animation config: cursor={}/{}/style={:?}/{}ms/trail={}, crossfade={}/{}ms/effect={:?}/easing={:?}, scroll={}/{}ms/effect={:?}/easing={:?}",
                         cursor_enabled,
@@ -1197,37 +1166,28 @@ impl RenderApp {
                         cursor_style,
                         cursor_duration_ms,
                         trail_size,
-                        crossfade_enabled,
-                        crossfade_duration_ms,
-                        cf_effect,
-                        cf_easing,
-                        scroll_enabled,
-                        scroll_duration_ms,
-                        effect,
-                        easing
+                        transition_policy.crossfade_enabled,
+                        transition_policy.crossfade_duration_ms,
+                        transition_policy.crossfade_effect,
+                        transition_policy.crossfade_easing,
+                        transition_policy.scroll_enabled,
+                        transition_policy.scroll_duration_ms,
+                        transition_policy.scroll_effect,
+                        transition_policy.scroll_easing
                     );
                     self.cursor.anim_enabled = cursor_enabled;
                     self.cursor.anim_speed = cursor_speed;
                     self.cursor.anim_style = cursor_style;
                     self.cursor.anim_duration = cursor_duration_ms as f32 / 1000.0;
                     self.cursor.trail_size = trail_size.clamp(0.0, 1.0);
-                    self.transitions.crossfade_enabled = crossfade_enabled;
-                    self.transitions.crossfade_duration =
-                        std::time::Duration::from_millis(crossfade_duration_ms as u64);
-                    self.transitions.crossfade_effect = cf_effect;
-                    self.transitions.crossfade_easing = cf_easing;
-                    self.transitions.scroll_enabled = scroll_enabled;
-                    self.transitions.scroll_duration =
-                        std::time::Duration::from_millis(scroll_duration_ms as u64);
-                    self.transitions.scroll_effect = effect;
-                    self.transitions.scroll_easing = easing;
+                    self.transitions.policy = transition_policy;
                     if !cursor_enabled {
                         self.cursor.animating = false;
                     }
-                    if !crossfade_enabled {
+                    if !transition_policy.crossfade_enabled {
                         self.transitions.crossfades.clear();
                     }
-                    if !scroll_enabled {
+                    if !transition_policy.scroll_enabled {
                         self.transitions.scroll_slides.clear();
                     }
                 }
@@ -1973,8 +1933,8 @@ impl RenderApp {
     /// Process webkit frames and import to wgpu textures
     #[cfg(all(feature = "wpe-webkit", target_os = "linux"))]
     fn process_webkit_frames(&mut self) {
-        use crate::backend::wgpu::external_buffer::DmaBufBuffer;
         use crate::backend::wpe::DmaBufData;
+        use neomacs_renderer_wgpu::DmaBufBuffer;
 
         // Get mutable reference to renderer - we need to update its internal webkit cache
         let renderer = match &mut self.renderer {
@@ -2706,7 +2666,7 @@ impl RenderApp {
         };
 
         // Check if we need offscreen rendering (for transitions)
-        let need_offscreen = self.transitions.crossfade_enabled || self.transitions.scroll_enabled;
+        let need_offscreen = self.transitions.policy.needs_offscreen();
 
         if need_offscreen {
             // Swap: previous ← current

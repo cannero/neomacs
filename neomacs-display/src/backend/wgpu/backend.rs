@@ -13,8 +13,9 @@ use winit::keyboard::{Key, NamedKey};
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window, WindowId};
 
+use neomacs_renderer_wgpu::{WgpuGlyphAtlas, WgpuRenderer};
+
 use super::events::*;
-use super::glyph_atlas::WgpuGlyphAtlas;
 
 use crate::backend::DisplayBackend;
 use crate::core::error::{DisplayError, DisplayResult};
@@ -22,7 +23,6 @@ use crate::core::face::Face;
 use crate::core::frame_glyphs::FrameGlyphBuffer;
 use crate::core::scene::Scene;
 
-use super::WgpuRenderer;
 use super::window_state::WindowState;
 
 /// Custom user events for the event loop.
