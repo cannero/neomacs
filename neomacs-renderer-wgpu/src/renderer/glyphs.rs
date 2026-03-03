@@ -3801,7 +3801,24 @@ impl WgpuRenderer {
         frame_glyphs: &FrameGlyphBuffer,
         overlay_y: Option<f32>,
     ) {
-        // Draw inline images
+        self.draw_inline_images(render_pass, frame_glyphs, overlay_y);
+
+        #[cfg(feature = "video")]
+        {
+            self.prepare_inline_video_state(frame_glyphs);
+            self.draw_inline_videos(render_pass, frame_glyphs, overlay_y);
+        }
+
+        #[cfg(feature = "wpe-webkit")]
+        self.draw_inline_webkits(render_pass, frame_glyphs, overlay_y);
+    }
+
+    fn draw_inline_images(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        frame_glyphs: &FrameGlyphBuffer,
+        overlay_y: Option<f32>,
+    ) {
         render_pass.set_pipeline(&self.image_pipeline);
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
@@ -3816,8 +3833,6 @@ impl WgpuRenderer {
             {
                 let (clipped_height, tex_v_max) =
                     self.clip_inline_media_to_overlay(*y, *height, overlay_y);
-
-                // Skip if fully clipped
                 if clipped_height <= 0.0 {
                     continue;
                 }
@@ -3831,7 +3846,6 @@ impl WgpuRenderer {
                     height,
                     clipped_height
                 );
-                // Check if image texture is ready
                 if let Some(cached) = self.image_cache.get(*image_id) {
                     let vertices =
                         self.build_inline_media_vertices(*x, *y, *width, clipped_height, tex_v_max);
@@ -3844,9 +3858,11 @@ impl WgpuRenderer {
                 }
             }
         }
+    }
 
-        // Apply video loop_count and autoplay before rendering
-        #[cfg(feature = "video")]
+    #[cfg(feature = "video")]
+    fn prepare_inline_video_state(&mut self, frame_glyphs: &FrameGlyphBuffer) {
+        // Apply video loop_count and autoplay before rendering.
         for glyph in &frame_glyphs.glyphs {
             if let FrameGlyph::Video {
                 video_id,
@@ -3870,9 +3886,18 @@ impl WgpuRenderer {
                 }
             }
         }
+    }
 
-        // Draw inline videos
-        #[cfg(feature = "video")]
+    #[cfg(feature = "video")]
+    fn draw_inline_videos(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        frame_glyphs: &FrameGlyphBuffer,
+        overlay_y: Option<f32>,
+    ) {
+        render_pass.set_pipeline(&self.image_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
         for glyph in &frame_glyphs.glyphs {
             if let FrameGlyph::Video {
                 video_id,
@@ -3885,13 +3910,10 @@ impl WgpuRenderer {
             {
                 let (clipped_height, tex_v_max) =
                     self.clip_inline_media_to_overlay(*y, *height, overlay_y);
-
-                // Skip if fully clipped
                 if clipped_height <= 0.0 {
                     continue;
                 }
 
-                // Check if video texture is ready
                 if let Some(cached) = self.video_cache.get(*video_id) {
                     tracing::trace!(
                         "Rendering video {} at ({}, {}) size {}x{} (clipped to {}), frame_count={}",
@@ -3925,78 +3947,74 @@ impl WgpuRenderer {
                 }
             }
         }
+    }
 
-        // Draw inline webkit views (use opaque pipeline — DMA-BUF XRGB has alpha=0)
-        #[cfg(feature = "wpe-webkit")]
-        {
-            render_pass.set_pipeline(&self.opaque_image_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+    #[cfg(feature = "wpe-webkit")]
+    fn draw_inline_webkits(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        frame_glyphs: &FrameGlyphBuffer,
+        overlay_y: Option<f32>,
+    ) {
+        // Draw inline webkit views (use opaque pipeline — DMA-BUF XRGB has alpha=0).
+        render_pass.set_pipeline(&self.opaque_image_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-            for glyph in &frame_glyphs.glyphs {
-                if let FrameGlyph::WebKit {
+        for glyph in &frame_glyphs.glyphs {
+            if let FrameGlyph::WebKit {
+                webkit_id,
+                x,
+                y,
+                width,
+                height,
+            } = glyph
+            {
+                tracing::trace!(
+                    "WebKit clip check: webkit {} at y={}, height={}, y+h={}, overlay_y={:?}",
                     webkit_id,
-                    x,
                     y,
-                    width,
                     height,
-                } = glyph
+                    y + height,
+                    overlay_y
+                );
+                let (clipped_height, tex_v_max) =
+                    self.clip_inline_media_to_overlay(*y, *height, overlay_y);
+                if let Some(oy) = overlay_y
+                    && *y + *height > oy
                 {
-                    // Clip to mode-line boundary if needed
                     tracing::trace!(
-                        "WebKit clip check: webkit {} at y={}, height={}, y+h={}, overlay_y={:?}",
+                        "WebKit {} clipped: y={} + h={} > overlay_y={}, clipped_height={}",
                         webkit_id,
                         y,
                         height,
-                        y + height,
-                        overlay_y
+                        oy,
+                        clipped_height
                     );
-                    let (clipped_height, tex_v_max) =
-                        self.clip_inline_media_to_overlay(*y, *height, overlay_y);
-                    if let Some(oy) = overlay_y
-                        && *y + *height > oy
-                    {
-                        tracing::trace!(
-                            "WebKit {} clipped: y={} + h={} > overlay_y={}, clipped_height={}",
-                            webkit_id,
-                            y,
-                            height,
-                            oy,
-                            clipped_height
-                        );
-                    }
+                }
+                if clipped_height <= 0.0 {
+                    continue;
+                }
 
-                    // Skip if fully clipped
-                    if clipped_height <= 0.0 {
-                        continue;
-                    }
-
-                    // Check if webkit texture is ready
-                    if let Some(cached) = self.webkit_cache.get(*webkit_id) {
-                        tracing::debug!(
-                            "Rendering webkit {} at ({}, {}) size {}x{} (clipped to {})",
-                            webkit_id,
-                            x,
-                            y,
-                            width,
-                            height,
-                            clipped_height
-                        );
-                        let vertices = self.build_inline_media_vertices(
-                            *x,
-                            *y,
-                            *width,
-                            clipped_height,
-                            tex_v_max,
-                        );
-                        self.draw_inline_media_quad(
-                            render_pass,
-                            &cached.bind_group,
-                            &vertices,
-                            "WebKit Vertex Buffer",
-                        );
-                    } else {
-                        tracing::debug!("WebKit {} not found in cache", webkit_id);
-                    }
+                if let Some(cached) = self.webkit_cache.get(*webkit_id) {
+                    tracing::debug!(
+                        "Rendering webkit {} at ({}, {}) size {}x{} (clipped to {})",
+                        webkit_id,
+                        x,
+                        y,
+                        width,
+                        height,
+                        clipped_height
+                    );
+                    let vertices =
+                        self.build_inline_media_vertices(*x, *y, *width, clipped_height, tex_v_max);
+                    self.draw_inline_media_quad(
+                        render_pass,
+                        &cached.bind_group,
+                        &vertices,
+                        "WebKit Vertex Buffer",
+                    );
+                } else {
+                    tracing::debug!("WebKit {} not found in cache", webkit_id);
                 }
             }
         }
