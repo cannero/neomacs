@@ -15,15 +15,16 @@ use super::video_cache::VideoCache;
 #[cfg(feature = "wpe-webkit")]
 use super::webkit_cache::WgpuWebKitCache;
 
+mod child_frames;
 mod content;
 mod cursor_effects;
 mod effect_common;
 mod effects_state;
 mod glyphs;
 mod media;
-mod overlays;
 mod pattern_effects;
 mod transitions;
+mod ui_overlays;
 mod window_effects;
 
 /// GPU-accelerated renderer using wgpu.

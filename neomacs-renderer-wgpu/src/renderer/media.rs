@@ -1,7 +1,7 @@
 //! Media methods for WgpuRenderer.
 
 use super::super::image_cache::ImageCache;
-#[cfg(feature = "wpe-webkit")]
+#[cfg(any(feature = "video", feature = "wpe-webkit"))]
 use super::super::vertex::GlyphVertex;
 use super::WgpuRenderer;
 
@@ -204,6 +204,116 @@ impl WgpuRenderer {
         self.video_cache.get(id)
     }
 
+    /// Render floating videos from the scene.
+    ///
+    /// This renders video frames at fixed screen positions (not inline with text).
+    #[cfg(feature = "video")]
+    pub fn render_floating_videos(
+        &self,
+        view: &wgpu::TextureView,
+        floating_videos: &[neomacs_display_protocol::scene::FloatingVideo],
+    ) {
+        use wgpu::util::DeviceExt;
+
+        if floating_videos.is_empty() {
+            return;
+        }
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Floating Video Encoder"),
+            });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Floating Video Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // Don't clear - render on top
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            render_pass.set_pipeline(&self.image_pipeline);
+            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+
+            for fv in floating_videos {
+                tracing::debug!(
+                    "Rendering floating video {} at ({}, {}) size {}x{}",
+                    fv.video_id,
+                    fv.x,
+                    fv.y,
+                    fv.width,
+                    fv.height
+                );
+
+                if let Some(cached) = self.video_cache.get(fv.video_id) {
+                    if let Some(ref bind_group) = cached.bind_group {
+                        let vertices = [
+                            GlyphVertex {
+                                position: [fv.x, fv.y],
+                                tex_coords: [0.0, 0.0],
+                                color: [1.0, 1.0, 1.0, 1.0],
+                            },
+                            GlyphVertex {
+                                position: [fv.x + fv.width, fv.y],
+                                tex_coords: [1.0, 0.0],
+                                color: [1.0, 1.0, 1.0, 1.0],
+                            },
+                            GlyphVertex {
+                                position: [fv.x + fv.width, fv.y + fv.height],
+                                tex_coords: [1.0, 1.0],
+                                color: [1.0, 1.0, 1.0, 1.0],
+                            },
+                            GlyphVertex {
+                                position: [fv.x, fv.y],
+                                tex_coords: [0.0, 0.0],
+                                color: [1.0, 1.0, 1.0, 1.0],
+                            },
+                            GlyphVertex {
+                                position: [fv.x + fv.width, fv.y + fv.height],
+                                tex_coords: [1.0, 1.0],
+                                color: [1.0, 1.0, 1.0, 1.0],
+                            },
+                            GlyphVertex {
+                                position: [fv.x, fv.y + fv.height],
+                                tex_coords: [0.0, 1.0],
+                                color: [1.0, 1.0, 1.0, 1.0],
+                            },
+                        ];
+
+                        let video_buffer =
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Floating Video Vertex Buffer"),
+                                    contents: bytemuck::cast_slice(&vertices),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                });
+
+                        render_pass.set_bind_group(1, bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, video_buffer.slice(..));
+                        render_pass.draw(0..6, 0..1);
+                    } else {
+                        tracing::debug!("Video {} has no bind_group yet", fv.video_id);
+                    }
+                } else {
+                    tracing::debug!("Video {} not found in cache", fv.video_id);
+                }
+            }
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
     /// Update a webkit view in the cache from a DMA-BUF buffer.
     /// Returns true if successful.
     #[cfg(feature = "wpe-webkit")]
@@ -250,6 +360,27 @@ impl WgpuRenderer {
     pub fn process_webkit_frames(&mut self) {
         // In threaded mode, frame processing happens in render_thread.rs
         // The render thread calls update_webkit_view_dmabuf/update_webkit_view_pixels directly
+    }
+
+    /// Render a WebKit view texture at the given bounds.
+    ///
+    /// This method renders the WebKit view content (from a wgpu texture)
+    /// to the screen at the specified rectangle.
+    ///
+    /// # Arguments
+    /// * `_encoder` - The command encoder to use for rendering
+    /// * `_view` - The output texture view to render to
+    /// * `_webkit_bind_group` - The bind group containing the WebKit texture
+    /// * `_bounds` - The rectangle where the WebKit view should be rendered
+    #[cfg(feature = "wpe-webkit")]
+    pub fn render_webkit_view(
+        &mut self,
+        _encoder: &mut wgpu::CommandEncoder,
+        _view: &wgpu::TextureView,
+        _webkit_bind_group: &wgpu::BindGroup,
+        _bounds: neomacs_display_protocol::types::Rect,
+    ) {
+        // TODO: Implement texture rendering
     }
 
     /// Render floating webkit views to the screen.
