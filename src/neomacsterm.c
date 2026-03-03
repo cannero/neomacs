@@ -61,6 +61,37 @@ static void neomacs_compute_glyph_string_overhangs (struct glyph_string *s);
 static void neomacs_clear_under_internal_border (struct frame *f);
 static void neomacs_display_wakeup_handler (int fd, void *data);
 
+/* Keep fallback sizing aligned with Emacs's Monospace-10 default.  */
+#define NEOMACS_DEFAULT_FONT_PT 10.0f
+#define NEOMACS_DEFAULT_DPI 96.0f
+#define NEOMACS_DEFAULT_ASCENT_RATIO 0.85f
+
+static float
+neomacs_default_font_pixel_size (struct frame *f)
+{
+  struct neomacs_display_info *dpyinfo = FRAME_NEOMACS_DISPLAY_INFO (f);
+  float dpi = (dpyinfo && dpyinfo->resy > 0)
+    ? (float) dpyinfo->resy
+    : NEOMACS_DEFAULT_DPI;
+  return NEOMACS_DEFAULT_FONT_PT * (dpi / 72.0f);
+}
+
+static float
+neomacs_frame_font_pixel_size (struct frame *f)
+{
+  if (FRAME_FONT (f))
+    return (float) FRAME_FONT (f)->pixel_size;
+  return neomacs_default_font_pixel_size (f);
+}
+
+static float
+neomacs_frame_font_ascent (struct frame *f)
+{
+  if (FRAME_FONT (f))
+    return (float) FONT_BASE (FRAME_FONT (f));
+  return neomacs_frame_font_pixel_size (f) * NEOMACS_DEFAULT_ASCENT_RATIO;
+}
+
 /* Rust layout engine FFI entry point (defined in layout/engine.rs via ffi.rs) */
 extern void neomacs_rust_layout_frame (void *display_handle, void *frame_ptr,
                                        float width, float height,
@@ -796,7 +827,7 @@ neomacs_update_begin (struct frame *f)
         neomacs_display_begin_frame_window (dpyinfo->display_handle, output->window_id,
                                             (float) FRAME_COLUMN_WIDTH (f),
                                             (float) FRAME_LINE_HEIGHT (f),
-                                            FRAME_FONT (f) ? (float) FRAME_FONT (f)->pixel_size : 14.0f);
+                                            neomacs_frame_font_pixel_size (f));
       else
         neomacs_display_begin_frame (dpyinfo->display_handle);
 
@@ -1235,10 +1266,8 @@ neomacs_layout_get_window_params (void *frame_ptr, int window_index,
       {
         params->char_width = (float) FRAME_COLUMN_WIDTH (f);
         params->char_height = (float) FRAME_LINE_HEIGHT (f);
-        params->font_pixel_size = FRAME_FONT (f)
-          ? (float) FRAME_FONT (f)->pixel_size : 14.0f;
-        params->font_ascent = FRAME_FONT (f)
-          ? (float) FONT_BASE (FRAME_FONT (f)) : 12.0f;
+        params->font_pixel_size = neomacs_frame_font_pixel_size (f);
+        params->font_ascent = neomacs_frame_font_ascent (f);
       }
 
   }
@@ -5024,7 +5053,7 @@ neomacs_update_end (struct frame *f)
             {
               float cw0 = (float) FRAME_COLUMN_WIDTH (f);
               float ch0 = (float) FRAME_LINE_HEIGHT (f);
-              float fps0 = FRAME_FONT (f) ? (float) FRAME_FONT (f)->pixel_size : 14.0f;
+              float fps0 = neomacs_frame_font_pixel_size (f);
               neomacs_rust_bootstrap_frame (
                   FRAME_PIXEL_WIDTH (f), FRAME_PIXEL_HEIGHT (f),
                   cw0, ch0, fps0);
@@ -5033,7 +5062,7 @@ neomacs_update_end (struct frame *f)
 
           float cw = (float) FRAME_COLUMN_WIDTH (f);
           float ch = (float) FRAME_LINE_HEIGHT (f);
-          float fps = FRAME_FONT (f) ? (float) FRAME_FONT (f)->pixel_size : 14.0f;
+          float fps = neomacs_frame_font_pixel_size (f);
           neomacs_rust_sync_frame_size (
               FRAME_PIXEL_WIDTH (f), FRAME_PIXEL_HEIGHT (f),
               cw, ch, fps);
@@ -5049,7 +5078,7 @@ neomacs_update_end (struct frame *f)
               (float) FRAME_PIXEL_HEIGHT (f),
               (float) FRAME_COLUMN_WIDTH (f),
               (float) FRAME_LINE_HEIGHT (f),
-              FRAME_FONT (f) ? (float) FRAME_FONT (f)->pixel_size : 14.0f,
+              neomacs_frame_font_pixel_size (f),
               bg_rgb,
               vb_rgb,
               rdw, bdw,
@@ -5086,7 +5115,7 @@ neomacs_update_end (struct frame *f)
                 (float) FRAME_PIXEL_HEIGHT (f),
                 (float) FRAME_COLUMN_WIDTH (f),
                 (float) FRAME_LINE_HEIGHT (f),
-                FRAME_FONT (f) ? (float) FRAME_FONT (f)->pixel_size : 14.0f,
+                neomacs_frame_font_pixel_size (f),
                 bg_rgb,
                 vb_rgb,
                 rdw, bdw,
@@ -5103,7 +5132,7 @@ neomacs_update_end (struct frame *f)
                 (float) FRAME_PIXEL_HEIGHT (f),
                 (float) FRAME_COLUMN_WIDTH (f),
                 (float) FRAME_LINE_HEIGHT (f),
-                FRAME_FONT (f) ? (float) FRAME_FONT (f)->pixel_size : 14.0f,
+                neomacs_frame_font_pixel_size (f),
                 bg_rgb,
                 vb_rgb,
                 rdw, bdw,
