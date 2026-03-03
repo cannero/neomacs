@@ -3477,6 +3477,16 @@ impl WgpuRenderer {
         render_pass: &mut wgpu::RenderPass<'_>,
         ctx: &super::effect_common::EffectCtx<'_>,
     ) {
+        self.draw_pre_content_effects_core_head(render_pass, ctx);
+        self.draw_pre_content_effects_core_mid(render_pass, ctx);
+        self.draw_pre_content_effects_core_tail(render_pass, ctx);
+    }
+
+    fn draw_pre_content_effects_core_head(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Step 1c: Cursor glow ===
         draw_effect!(
             self,
@@ -3539,7 +3549,13 @@ impl WgpuRenderer {
             "Depth Shadow",
             super::window_effects::emit_window_depth_shadow(&ctx)
         );
+    }
 
+    fn draw_pre_content_effects_core_mid(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Step 1i_modeline_grad: Mode-line gradient background ===
         draw_effect!(
             self,
@@ -3587,8 +3603,6 @@ impl WgpuRenderer {
             "Breathing Border",
             super::window_effects::emit_window_breathing_border(&ctx)
         );
-
-        self.draw_pre_content_effects_core_tail(render_pass, ctx);
     }
 
     fn draw_pre_content_effects_core_tail(
