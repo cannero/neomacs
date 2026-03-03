@@ -10,12 +10,23 @@ description = "WGPU text renderer primitives for Neomacs"
 default = ["core-backend-emacs-c"]
 core-backend-emacs-c = ["neomacs-layout-engine/core-backend-emacs-c"]
 core-backend-rust = ["neomacs-layout-engine/core-backend-rust"]
+video = ["gstreamer", "gstreamer-video", "gstreamer-app", "gstreamer-allocators"]
+wpe-webkit = []
 
 [dependencies]
 cosmic-text.workspace = true
 fontdb.workspace = true
 wgpu.workspace = true
+wgpu-hal.workspace = true
 tracing.workspace = true
 bytemuck.workspace = true
+ash.workspace = true
+image.workspace = true
+resvg.workspace = true
+libc.workspace = true
+gstreamer = { workspace = true, optional = true }
+gstreamer-video = { workspace = true, optional = true }
+gstreamer-app = { workspace = true, optional = true }
+gstreamer-allocators = { workspace = true, optional = true }
 neomacs-display-protocol.workspace = true
 neomacs-layout-engine = { workspace = true, default-features = false }

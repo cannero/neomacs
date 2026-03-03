@@ -89,9 +89,15 @@ core-backend-rust = [
 ]
 tty-backend = []
 # Video with GStreamer
-video = ["gstreamer", "gstreamer-video", "gstreamer-app", "gstreamer-allocators"]
+video = [
+    "gstreamer",
+    "gstreamer-video",
+    "gstreamer-app",
+    "gstreamer-allocators",
+    "neomacs-renderer-wgpu/video",
+]
 # WPE WebKit integration
-wpe-webkit = []
+wpe-webkit = ["neomacs-renderer-wgpu/wpe-webkit"]
 # GPU-accelerated terminal emulator
 neo-term = [
     "alacritty_terminal",

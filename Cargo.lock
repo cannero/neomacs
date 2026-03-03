@@ -2009,13 +2009,22 @@ dependencies = [
 name = "neomacs-renderer-wgpu"
 version = "0.0.1"
 dependencies = [
+ "ash",
  "bytemuck",
  "cosmic-text",
  "fontdb 0.23.0",
+ "gstreamer",
+ "gstreamer-allocators",
+ "gstreamer-app",
+ "gstreamer-video",
+ "image 0.24.9",
+ "libc",
  "neomacs-display-protocol",
  "neomacs-layout-engine",
+ "resvg",
  "tracing",
  "wgpu",
+ "wgpu-hal",
 ]
 
 [[package]]
