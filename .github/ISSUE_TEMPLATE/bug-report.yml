@@ -19,9 +19,7 @@ body:
            ```bash
            RUST_LOG=debug NEOMACS_LOG=info ./src/emacs -Q 2>&1 | tee neomacs-debug.log
            ```
-        3. Paste key log excerpts below.
-        4. If full logs are needed, upload `neomacs-debug.log` to a gist/file host and paste the URL,
-           or add a follow-up issue comment with the file attached.
+        3. In **Extra context**, upload `neomacs-debug.log` (or paste key excerpts).
 
   - type: textarea
     id: summary
@@ -73,30 +71,9 @@ body:
       required: true
 
   - type: textarea
-    id: debug_log
-    attributes:
-      label: Verbose debug log
-      description: |
-        Paste key excerpts from `neomacs-debug.log`.
-        Command used:
-        `RUST_LOG=debug NEOMACS_LOG=info ./src/emacs -Q 2>&1 | tee neomacs-debug.log`
-      render: shell
-    validations:
-      required: false
-
-  - type: input
-    id: debug_log_url
-    attributes:
-      label: Full debug log URL (optional)
-      description: Paste a URL to the full `neomacs-debug.log` (gist/paste/file host), if available.
-      placeholder: https://gist.github.com/... or https://...
-    validations:
-      required: false
-
-  - type: textarea
     id: extra
     attributes:
       label: Extra context
-      description: Screenshots, videos, bisect results, related issues, etc.
+      description: Screenshots, videos, bisect results, related issues, and verbose logs (`neomacs-debug.log`).
     validations:
       required: false
