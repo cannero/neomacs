@@ -128,8 +128,7 @@ pub fn reorder_row_bidi(
         let cursor_offset: Option<f32> = if let Some(ref inv) = frame_glyphs.cursor_inverse {
             let mut found_offset = None;
             for info in &row_chars {
-                if let FrameGlyph::Char { x, y, ascent, .. } =
-                    &frame_glyphs.glyphs[info.glyph_idx]
+                if let FrameGlyph::Char { x, y, ascent, .. } = &frame_glyphs.glyphs[info.glyph_idx]
                 {
                     if (*x - inv.x).abs() < 1.0 && (*y - inv.y).abs() < 1.0 {
                         found_offset = Some(row_max_ascent - *ascent);
@@ -144,9 +143,7 @@ pub fn reorder_row_bidi(
 
         // Step B: Adjust each glyph's y for baseline alignment, keeping original ascent.
         for info in &row_chars {
-            if let FrameGlyph::Char { y, ascent, .. } =
-                &mut frame_glyphs.glyphs[info.glyph_idx]
-            {
+            if let FrameGlyph::Char { y, ascent, .. } = &mut frame_glyphs.glyphs[info.glyph_idx] {
                 let offset = row_max_ascent - *ascent;
                 *y += offset;
                 // ascent stays as the face's original ascent

@@ -3105,7 +3105,17 @@ impl LayoutEngine {
             // Capture cursor metrics at point position during the main layout
             // so cursor emission uses the correct per-face height/width.
             if cursor_info.is_none() && charpos == params.point {
-                cursor_info = Some((x, y, face_char_w, face_h, face_ascent_val, current_fg, current_bg, byte_idx, col));
+                cursor_info = Some((
+                    x,
+                    y,
+                    face_char_w,
+                    face_h,
+                    face_ascent_val,
+                    current_fg,
+                    current_bg,
+                    byte_idx,
+                    col,
+                ));
             }
 
             // --- Overlay before-strings ---
@@ -3226,7 +3236,17 @@ impl LayoutEngine {
 
         // Capture cursor at end-of-buffer position
         if cursor_info.is_none() && charpos == params.point {
-            cursor_info = Some((x, y, face_char_w, face_h, face_ascent_val, current_fg, current_bg, byte_idx, col));
+            cursor_info = Some((
+                x,
+                y,
+                face_char_w,
+                face_h,
+                face_ascent_val,
+                current_fg,
+                current_bg,
+                byte_idx,
+                col,
+            ));
         }
 
         // Close any remaining box face region at end of text
@@ -3452,7 +3472,18 @@ impl LayoutEngine {
         if params.point >= window_start && params.point <= charpos {
             let cursor_style = cursor_style_for_window(params);
 
-            if let Some((cx, cy, cursor_face_w, cursor_face_h, _cursor_face_ascent, cursor_fg, cursor_face_bg, cbyte, ccol)) = cursor_info {
+            if let Some((
+                cx,
+                cy,
+                cursor_face_w,
+                cursor_face_h,
+                _cursor_face_ascent,
+                cursor_fg,
+                cursor_face_bg,
+                cbyte,
+                ccol,
+            )) = cursor_info
+            {
                 // Cursor position and face metrics captured during the main layout loop
                 if cy >= text_y && cy + cursor_face_h <= text_y + text_height {
                     if let Some(style) = cursor_style {
@@ -3479,213 +3510,232 @@ impl LayoutEngine {
                         if matches!(style, CursorStyle::FilledBox) {
                             tracing::debug!(
                                 "cursor_inverse: cx={:.1} cy={:.1} w={:.1} h={:.1} fg=({:.3},{:.3},{:.3}) bg=({:.3},{:.3},{:.3})",
-                                cx, cy, cursor_w, cursor_face_h,
-                                cursor_fg.r, cursor_fg.g, cursor_fg.b,
-                                cursor_face_bg.r, cursor_face_bg.g, cursor_face_bg.b,
+                                cx,
+                                cy,
+                                cursor_w,
+                                cursor_face_h,
+                                cursor_fg.r,
+                                cursor_fg.g,
+                                cursor_fg.b,
+                                cursor_face_bg.r,
+                                cursor_face_bg.g,
+                                cursor_face_bg.b,
                             );
                             frame_glyphs.set_cursor_inverse(
-                                cx, cy, cursor_w, cursor_face_h, cursor_fg, cursor_face_bg,
+                                cx,
+                                cy,
+                                cursor_w,
+                                cursor_face_h,
+                                cursor_fg,
+                                cursor_face_bg,
                             );
                         }
                     }
                 }
             } else {
-            // Fallback: re-scan to find cursor position using default face metrics
-            let mut cx = content_x;
-            let mut cy = text_y;
-            let mut cpos = window_start;
-            let mut cbyte = 0usize;
-            let mut ccol = 0usize;
+                // Fallback: re-scan to find cursor position using default face metrics
+                let mut cx = content_x;
+                let mut cy = text_y;
+                let mut cpos = window_start;
+                let mut cbyte = 0usize;
+                let mut ccol = 0usize;
 
-            let cursor_char_w = default_face_char_w;
+                let cursor_char_w = default_face_char_w;
 
-            let mut cinvis_next_check: i64 = window_start;
-            let mut cdisplay_next_check: i64 = window_start;
-            let mut c_hscroll_remaining = hscroll;
+                let mut cinvis_next_check: i64 = window_start;
+                let mut cdisplay_next_check: i64 = window_start;
+                let mut c_hscroll_remaining = hscroll;
 
-            while cbyte < text.len() && cpos < params.point {
-                // Skip invisible text in cursor scan
-                if cpos >= cinvis_next_check {
-                    let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
-                    let (cinvis, cnext) = text_props.check_invisible(cpos);
-                    if cinvis {
-                        let skip_to = cnext.min(params.point);
-                        while cpos < skip_to && cbyte < text.len() {
-                            let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                            cbyte += ch_len;
-                            cpos += 1;
+                while cbyte < text.len() && cpos < params.point {
+                    // Skip invisible text in cursor scan
+                    if cpos >= cinvis_next_check {
+                        let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
+                        let (cinvis, cnext) = text_props.check_invisible(cpos);
+                        if cinvis {
+                            let skip_to = cnext.min(params.point);
+                            while cpos < skip_to && cbyte < text.len() {
+                                let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
+                                cbyte += ch_len;
+                                cpos += 1;
+                            }
+                            cinvis_next_check = cnext;
+                            continue;
                         }
                         cinvis_next_check = cnext;
+                    }
+
+                    // Handle hscroll in cursor scan: skip columns consumed by horizontal scroll
+                    if c_hscroll_remaining > 0 {
+                        let (cch, ch_len) = decode_utf8(&text[cbyte..]);
+                        cbyte += ch_len;
+                        cpos += 1;
+
+                        if cch == '\n' {
+                            cx = content_x;
+                            cy += char_h;
+                            ccol = 0;
+                            c_hscroll_remaining = hscroll;
+                        } else {
+                            let ch_cols: i32 = if cch == '\t' {
+                                let tab_w = params.tab_width.max(1) as i32;
+                                let consumed = hscroll - c_hscroll_remaining;
+                                ((consumed / tab_w + 1) * tab_w) - consumed
+                            } else if is_wide_char(cch) {
+                                2
+                            } else {
+                                1
+                            };
+                            c_hscroll_remaining -= ch_cols.min(c_hscroll_remaining);
+
+                            // After hscroll is exhausted, account for the $ indicator
+                            if c_hscroll_remaining <= 0 && show_left_trunc {
+                                ccol = 1; // $ takes 1 column
+                                cx = content_x + cursor_char_w;
+                            }
+                        }
                         continue;
                     }
-                    cinvis_next_check = cnext;
-                }
 
-                // Handle hscroll in cursor scan: skip columns consumed by horizontal scroll
-                if c_hscroll_remaining > 0 {
-                    let (cch, ch_len) = decode_utf8(&text[cbyte..]);
-                    cbyte += ch_len;
-                    cpos += 1;
+                    // Account for display property width in cursor position
+                    if cpos >= cdisplay_next_check {
+                        let display_prop_val: Option<neovm_core::emacs_core::Value> = {
+                            let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
+                            let (dp, next_change) = text_props.check_display_prop(cpos);
+                            cdisplay_next_check = next_change;
+                            dp.copied()
+                        };
+
+                        if let Some(prop_val) = display_prop_val {
+                            if let Some(replacement) = prop_val.as_str() {
+                                // String replacement: advance cursor by replacement width
+                                let rep_cols: usize = replacement
+                                    .chars()
+                                    .map(|rc| if is_wide_char(rc) { 2 } else { 1 })
+                                    .sum();
+                                cx += rep_cols as f32 * cursor_char_w;
+                                ccol += rep_cols;
+                                // Skip covered buffer text
+                                let skip_to = cdisplay_next_check.min(params.point);
+                                while cpos < skip_to && cbyte < text.len() {
+                                    let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
+                                    cbyte += ch_len;
+                                    cpos += 1;
+                                }
+                                continue;
+                            } else if is_display_space_spec(&prop_val) {
+                                let space_width = parse_display_space_width(
+                                    &prop_val,
+                                    cursor_char_w,
+                                    cx,
+                                    content_x,
+                                );
+                                cx += space_width;
+                                ccol += (space_width / cursor_char_w).ceil() as usize;
+                                let skip_to = cdisplay_next_check.min(params.point);
+                                while cpos < skip_to && cbyte < text.len() {
+                                    let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
+                                    cbyte += ch_len;
+                                    cpos += 1;
+                                }
+                                continue;
+                            } else if is_display_image_spec(&prop_val) {
+                                let placeholder_len = 5; // "[img]"
+                                cx += placeholder_len as f32 * cursor_char_w;
+                                ccol += placeholder_len;
+                                let skip_to = cdisplay_next_check.min(params.point);
+                                while cpos < skip_to && cbyte < text.len() {
+                                    let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
+                                    cbyte += ch_len;
+                                    cpos += 1;
+                                }
+                                continue;
+                            }
+                        }
+                    }
+
+                    let cch = match std::str::from_utf8(&text[cbyte..]) {
+                        Ok(s) => {
+                            let c = s.chars().next().unwrap_or('\u{FFFD}');
+                            cbyte += c.len_utf8();
+                            c
+                        }
+                        Err(e) => {
+                            let valid_up_to = e.valid_up_to();
+                            if valid_up_to > 0 {
+                                if let Ok(s) =
+                                    std::str::from_utf8(&text[cbyte..cbyte + valid_up_to])
+                                {
+                                    let c = s.chars().next().unwrap_or('\u{FFFD}');
+                                    cbyte += c.len_utf8();
+                                    c
+                                } else {
+                                    cbyte += 1;
+                                    '\u{FFFD}'
+                                }
+                            } else {
+                                cbyte += 1;
+                                '\u{FFFD}'
+                            }
+                        }
+                    };
 
                     if cch == '\n' {
                         cx = content_x;
                         cy += char_h;
                         ccol = 0;
                         c_hscroll_remaining = hscroll;
+                    } else if cch == '\t' {
+                        let next_tab =
+                            next_tab_stop_col(ccol, params.tab_width, &params.tab_stop_list)
+                                .max(ccol + 1);
+                        cx += (next_tab - ccol) as f32 * cursor_char_w;
+                        ccol = next_tab;
                     } else {
-                        let ch_cols: i32 = if cch == '\t' {
-                            let tab_w = params.tab_width.max(1) as i32;
-                            let consumed = hscroll - c_hscroll_remaining;
-                            ((consumed / tab_w + 1) * tab_w) - consumed
-                        } else if is_wide_char(cch) {
-                            2
-                        } else {
-                            1
-                        };
-                        c_hscroll_remaining -= ch_cols.min(c_hscroll_remaining);
-
-                        // After hscroll is exhausted, account for the $ indicator
-                        if c_hscroll_remaining <= 0 && show_left_trunc {
-                            ccol = 1; // $ takes 1 column
-                            cx = content_x + cursor_char_w;
+                        let c_cols = if is_wide_char(cch) { 2 } else { 1 };
+                        let c_advance = c_cols as f32 * cursor_char_w;
+                        if !params.truncate_lines
+                            && cx + c_advance > content_x + (text_width - lnum_pixel_width)
+                        {
+                            cx = content_x;
+                            cy += char_h;
+                            ccol = 0;
                         }
+                        cx += c_advance;
+                        ccol += c_cols as usize;
                     }
-                    continue;
+                    cpos += 1;
                 }
 
-                // Account for display property width in cursor position
-                if cpos >= cdisplay_next_check {
-                    let display_prop_val: Option<neovm_core::emacs_core::Value> = {
-                        let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
-                        let (dp, next_change) = text_props.check_display_prop(cpos);
-                        cdisplay_next_check = next_change;
-                        dp.copied()
-                    };
-
-                    if let Some(prop_val) = display_prop_val {
-                        if let Some(replacement) = prop_val.as_str() {
-                            // String replacement: advance cursor by replacement width
-                            let rep_cols: usize = replacement
-                                .chars()
-                                .map(|rc| if is_wide_char(rc) { 2 } else { 1 })
-                                .sum();
-                            cx += rep_cols as f32 * cursor_char_w;
-                            ccol += rep_cols;
-                            // Skip covered buffer text
-                            let skip_to = cdisplay_next_check.min(params.point);
-                            while cpos < skip_to && cbyte < text.len() {
-                                let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                                cbyte += ch_len;
-                                cpos += 1;
-                            }
-                            continue;
-                        } else if is_display_space_spec(&prop_val) {
-                            let space_width =
-                                parse_display_space_width(&prop_val, cursor_char_w, cx, content_x);
-                            cx += space_width;
-                            ccol += (space_width / cursor_char_w).ceil() as usize;
-                            let skip_to = cdisplay_next_check.min(params.point);
-                            while cpos < skip_to && cbyte < text.len() {
-                                let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                                cbyte += ch_len;
-                                cpos += 1;
-                            }
-                            continue;
-                        } else if is_display_image_spec(&prop_val) {
-                            let placeholder_len = 5; // "[img]"
-                            cx += placeholder_len as f32 * cursor_char_w;
-                            ccol += placeholder_len;
-                            let skip_to = cdisplay_next_check.min(params.point);
-                            while cpos < skip_to && cbyte < text.len() {
-                                let (_ch, ch_len) = decode_utf8(&text[cbyte..]);
-                                cbyte += ch_len;
-                                cpos += 1;
-                            }
-                            continue;
-                        }
-                    }
-                }
-
-                let cch = match std::str::from_utf8(&text[cbyte..]) {
-                    Ok(s) => {
-                        let c = s.chars().next().unwrap_or('\u{FFFD}');
-                        cbyte += c.len_utf8();
-                        c
-                    }
-                    Err(e) => {
-                        let valid_up_to = e.valid_up_to();
-                        if valid_up_to > 0 {
-                            if let Ok(s) = std::str::from_utf8(&text[cbyte..cbyte + valid_up_to]) {
-                                let c = s.chars().next().unwrap_or('\u{FFFD}');
-                                cbyte += c.len_utf8();
-                                c
-                            } else {
-                                cbyte += 1;
-                                '\u{FFFD}'
-                            }
-                        } else {
-                            cbyte += 1;
-                            '\u{FFFD}'
-                        }
-                    }
-                };
-
-                if cch == '\n' {
-                    cx = content_x;
-                    cy += char_h;
-                    ccol = 0;
-                    c_hscroll_remaining = hscroll;
-                } else if cch == '\t' {
-                    let next_tab = next_tab_stop_col(ccol, params.tab_width, &params.tab_stop_list)
-                        .max(ccol + 1);
-                    cx += (next_tab - ccol) as f32 * cursor_char_w;
-                    ccol = next_tab;
-                } else {
-                    let c_cols = if is_wide_char(cch) { 2 } else { 1 };
-                    let c_advance = c_cols as f32 * cursor_char_w;
-                    if !params.truncate_lines
-                        && cx + c_advance > content_x + (text_width - lnum_pixel_width)
-                    {
-                        cx = content_x;
-                        cy += char_h;
-                        ccol = 0;
-                    }
-                    cx += c_advance;
-                    ccol += c_cols as usize;
-                }
-                cpos += 1;
-            }
-
-            // Only emit cursor if it's within visible area
-            if cy >= text_y && cy + char_h <= text_y + text_height {
-                if let Some(style) = cursor_style {
-                    let cursor_w = cursor_width_for_style(
-                        style,
-                        text,
-                        cbyte,
-                        ccol as i32,
-                        params,
-                        default_face_char_w,
-                    );
-                    frame_glyphs.add_cursor(
-                        params.window_id as i32,
-                        cx,
-                        cy,
-                        cursor_w,
-                        char_h,
-                        style,
-                        default_fg,
-                    );
-
-                    // For FilledBox cursor, use the renderer's cursor_inverse system
-                    // to swap fg/bg of the character under the cursor.
-                    if matches!(style, CursorStyle::FilledBox) {
-                        frame_glyphs.set_cursor_inverse(
-                            cx, cy, cursor_w, char_h, default_fg, default_bg,
+                // Only emit cursor if it's within visible area
+                if cy >= text_y && cy + char_h <= text_y + text_height {
+                    if let Some(style) = cursor_style {
+                        let cursor_w = cursor_width_for_style(
+                            style,
+                            text,
+                            cbyte,
+                            ccol as i32,
+                            params,
+                            default_face_char_w,
                         );
+                        frame_glyphs.add_cursor(
+                            params.window_id as i32,
+                            cx,
+                            cy,
+                            cursor_w,
+                            char_h,
+                            style,
+                            default_fg,
+                        );
+
+                        // For FilledBox cursor, use the renderer's cursor_inverse system
+                        // to swap fg/bg of the character under the cursor.
+                        if matches!(style, CursorStyle::FilledBox) {
+                            frame_glyphs.set_cursor_inverse(
+                                cx, cy, cursor_w, char_h, default_fg, default_bg,
+                            );
+                        }
                     }
                 }
-            }
             } // end else (fallback re-scan)
         }
 

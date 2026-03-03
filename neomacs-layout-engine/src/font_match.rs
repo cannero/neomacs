@@ -120,7 +120,8 @@ fn family_weight_info_for_style(db: &Database, family: &str, style: DbStyle) -> 
             continue;
         }
 
-        let mut discrete_weights: Vec<u16> = matching_faces.iter().map(|face| face.weight.0).collect();
+        let mut discrete_weights: Vec<u16> =
+            matching_faces.iter().map(|face| face.weight.0).collect();
         discrete_weights.sort_unstable();
         discrete_weights.dedup();
 
