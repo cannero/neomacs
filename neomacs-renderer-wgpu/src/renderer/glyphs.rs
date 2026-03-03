@@ -5145,6 +5145,16 @@ impl WgpuRenderer {
         ctx: &super::effect_common::EffectCtx<'_>,
         faces: &HashMap<u32, Face>,
     ) {
+        self.draw_post_content_effects_part1(render_pass, ctx);
+        self.draw_post_content_effects_part2(render_pass, ctx, faces);
+        self.draw_post_content_effects_part3(render_pass, ctx);
+    }
+
+    fn draw_post_content_effects_part1(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Draw mode-line separators ===
         draw_effect!(
             self,
@@ -5249,7 +5259,14 @@ impl WgpuRenderer {
             "Inactive Tint Buffer",
             super::window_effects::emit_inactive_window_tint(ctx)
         );
+    }
 
+    fn draw_post_content_effects_part2(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+        faces: &HashMap<u32, Face>,
+    ) {
         // === Zen mode: draw margin overlays for centered content ===
         draw_effect!(
             self,
@@ -5337,7 +5354,13 @@ impl WgpuRenderer {
             "Window Content Shadow Buffer",
             super::window_effects::emit_window_content_shadow(ctx)
         );
+    }
 
+    fn draw_post_content_effects_part3(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Resize padding transition overlay ===
         {
             let pad = self.resize_padding_amount();
