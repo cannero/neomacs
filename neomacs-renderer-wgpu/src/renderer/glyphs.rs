@@ -4111,65 +4111,13 @@ impl WgpuRenderer {
         for overlay_pass in 0..2 {
             let want_overlay = overlay_pass == 1;
 
-            // === Step 3: Draw overlay backgrounds before overlay text ===
-            if want_overlay && !overlay_rect_vertices.is_empty() {
-                let rect_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Overlay Rect Buffer"),
-                            contents: bytemuck::cast_slice(&overlay_rect_vertices),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        });
-
-                render_pass.set_pipeline(&self.rect_pipeline);
-                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, rect_buffer.slice(..));
-                render_pass.draw(0..overlay_rect_vertices.len() as u32, 0..1);
-            }
-
-            // Draw filled rounded rect backgrounds for overlay ROUNDED boxed spans.
-            if want_overlay {
-                let mut overlay_box_fill: Vec<RoundedRectVertex> = Vec::new();
-                for span in box_spans {
-                    if !span.is_overlay {
-                        continue;
-                    }
-                    if let Some(ref bg_color) = span.bg {
-                        if let Some(face) = faces.get(&span.face_id) {
-                            if face.box_corner_radius <= 0 {
-                                continue;
-                            }
-                            let radius = (face.box_corner_radius as f32)
-                                .min(span.height * 0.45)
-                                .min(span.width * 0.45);
-                            let fill_bw = span.height.max(span.width);
-                            self.add_rounded_rect(
-                                &mut overlay_box_fill,
-                                span.x,
-                                span.y,
-                                span.width,
-                                span.height,
-                                fill_bw,
-                                radius,
-                                bg_color,
-                            );
-                        }
-                    }
-                }
-                if !overlay_box_fill.is_empty() {
-                    let fill_buffer =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Overlay Box Fill Buffer"),
-                                contents: bytemuck::cast_slice(&overlay_box_fill),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
-                    render_pass.set_pipeline(&self.rounded_rect_pipeline);
-                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, fill_buffer.slice(..));
-                    render_pass.draw(0..overlay_box_fill.len() as u32, 0..1);
-                }
-            }
+            self.draw_overlay_backgrounds(
+                render_pass,
+                faces,
+                box_spans,
+                overlay_rect_vertices,
+                want_overlay,
+            );
 
             let mut mask_data: Vec<(GlyphKey, [GlyphVertex; 6])> = Vec::new();
             let mut color_data: Vec<(GlyphKey, [GlyphVertex; 6])> = Vec::new();
@@ -4613,371 +4561,459 @@ impl WgpuRenderer {
                 }
             }
 
-            // === Draw text decorations (underline, overline, strike-through) ===
-            // Rendered after text so decorations appear on top of glyphs.
-            // Box borders are handled separately via merged box_spans below.
-            {
-                let mut decoration_vertices: Vec<RectVertex> = Vec::new();
+            self.draw_text_decorations_and_borders(
+                render_pass,
+                frame_glyphs,
+                faces,
+                box_spans,
+                has_line_anims,
+                want_overlay,
+            );
+        }
+    }
 
-                for glyph in &frame_glyphs.glyphs {
-                    if let FrameGlyph::Char {
-                        x,
-                        y,
-                        baseline,
-                        width,
-                        height,
-                        ascent,
-                        fg,
-                        face_id,
-                        underline,
-                        underline_color,
-                        strike_through,
-                        strike_through_color,
-                        overline,
-                        overline_color,
-                        is_overlay,
-                        ..
-                    } = glyph
-                    {
-                        if *is_overlay != want_overlay {
-                            continue;
-                        }
+    fn draw_text_decorations_and_borders(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        frame_glyphs: &FrameGlyphBuffer,
+        faces: &HashMap<u32, Face>,
+        box_spans: &[BoxSpan],
+        has_line_anims: bool,
+        want_overlay: bool,
+    ) {
+        // === Draw text decorations (underline, overline, strike-through) ===
+        // Rendered after text so decorations appear on top of glyphs.
+        // Box borders are handled separately via merged box_spans below.
+        {
+            let mut decoration_vertices: Vec<RectVertex> = Vec::new();
 
-                        let y_offset = if has_line_anims {
-                            self.line_y_offset(*x, *y)
-                        } else {
-                            0.0
-                        };
-                        let ya = *y + y_offset;
-                        let baseline_y = *baseline + y_offset;
+            for glyph in &frame_glyphs.glyphs {
+                if let FrameGlyph::Char {
+                    x,
+                    y,
+                    baseline,
+                    width,
+                    height,
+                    ascent,
+                    fg,
+                    face_id,
+                    underline,
+                    underline_color,
+                    strike_through,
+                    strike_through_color,
+                    overline,
+                    overline_color,
+                    is_overlay,
+                    ..
+                } = glyph
+                {
+                    if *is_overlay != want_overlay {
+                        continue;
+                    }
 
-                        // Get per-face font metrics for proper decoration positioning
-                        let (ul_pos, ul_thick) = frame_glyphs
-                            .faces
-                            .get(face_id)
-                            .map(|f| (f.underline_position as f32, f.underline_thickness as f32))
-                            .unwrap_or((1.0, 1.0));
+                    let y_offset = if has_line_anims {
+                        self.line_y_offset(*x, *y)
+                    } else {
+                        0.0
+                    };
+                    let ya = *y + y_offset;
+                    let baseline_y = *baseline + y_offset;
 
-                        // --- Underline ---
-                        if *underline > 0 {
-                            let ul_color = underline_color.as_ref().unwrap_or(fg);
-                            let ul_y = baseline_y + ul_pos;
-                            let line_thickness = ul_thick.max(1.0);
+                    // Get per-face font metrics for proper decoration positioning
+                    let (ul_pos, ul_thick) = frame_glyphs
+                        .faces
+                        .get(face_id)
+                        .map(|f| (f.underline_position as f32, f.underline_thickness as f32))
+                        .unwrap_or((1.0, 1.0));
 
-                            match underline {
-                                1 => {
-                                    // Single solid line
+                    // --- Underline ---
+                    if *underline > 0 {
+                        let ul_color = underline_color.as_ref().unwrap_or(fg);
+                        let ul_y = baseline_y + ul_pos;
+                        let line_thickness = ul_thick.max(1.0);
+
+                        match underline {
+                            1 => {
+                                // Single solid line
+                                self.add_rect(
+                                    &mut decoration_vertices,
+                                    *x,
+                                    ul_y,
+                                    *width,
+                                    line_thickness,
+                                    ul_color,
+                                );
+                            }
+                            2 => {
+                                // Wave: smooth sine wave underline
+                                let amplitude: f32 = 2.0;
+                                let wavelength: f32 = 8.0;
+                                let seg_w: f32 = 1.0;
+                                let mut cx = *x;
+                                while cx < *x + *width {
+                                    let sw = seg_w.min(*x + *width - cx);
+                                    let phase = (cx - *x) * std::f32::consts::TAU / wavelength;
+                                    let offset = phase.sin() * amplitude;
                                     self.add_rect(
                                         &mut decoration_vertices,
-                                        *x,
-                                        ul_y,
-                                        *width,
+                                        cx,
+                                        ul_y + offset,
+                                        sw,
                                         line_thickness,
                                         ul_color,
                                     );
-                                }
-                                2 => {
-                                    // Wave: smooth sine wave underline
-                                    let amplitude: f32 = 2.0;
-                                    let wavelength: f32 = 8.0;
-                                    let seg_w: f32 = 1.0;
-                                    let mut cx = *x;
-                                    while cx < *x + *width {
-                                        let sw = seg_w.min(*x + *width - cx);
-                                        let phase = (cx - *x) * std::f32::consts::TAU / wavelength;
-                                        let offset = phase.sin() * amplitude;
-                                        self.add_rect(
-                                            &mut decoration_vertices,
-                                            cx,
-                                            ul_y + offset,
-                                            sw,
-                                            line_thickness,
-                                            ul_color,
-                                        );
-                                        cx += seg_w;
-                                    }
-                                }
-                                3 => {
-                                    // Double line
-                                    self.add_rect(
-                                        &mut decoration_vertices,
-                                        *x,
-                                        ul_y,
-                                        *width,
-                                        line_thickness,
-                                        ul_color,
-                                    );
-                                    self.add_rect(
-                                        &mut decoration_vertices,
-                                        *x,
-                                        ul_y + line_thickness + 1.0,
-                                        *width,
-                                        line_thickness,
-                                        ul_color,
-                                    );
-                                }
-                                4 => {
-                                    // Dots (dot size = thickness, gap = 2px)
-                                    let mut cx = *x;
-                                    while cx < *x + *width {
-                                        let dw = line_thickness.min(*x + *width - cx);
-                                        self.add_rect(
-                                            &mut decoration_vertices,
-                                            cx,
-                                            ul_y,
-                                            dw,
-                                            line_thickness,
-                                            ul_color,
-                                        );
-                                        cx += line_thickness + 2.0;
-                                    }
-                                }
-                                5 => {
-                                    // Dashes (4px with 3px gap)
-                                    let mut cx = *x;
-                                    while cx < *x + *width {
-                                        let dw = 4.0_f32.min(*x + *width - cx);
-                                        self.add_rect(
-                                            &mut decoration_vertices,
-                                            cx,
-                                            ul_y,
-                                            dw,
-                                            line_thickness,
-                                            ul_color,
-                                        );
-                                        cx += 7.0;
-                                    }
-                                }
-                                _ => {
-                                    // Fallback: single line
-                                    self.add_rect(
-                                        &mut decoration_vertices,
-                                        *x,
-                                        ul_y,
-                                        *width,
-                                        line_thickness,
-                                        ul_color,
-                                    );
+                                    cx += seg_w;
                                 }
                             }
-                        }
-
-                        // --- Overline ---
-                        if *overline > 0 {
-                            let ol_color = overline_color.as_ref().unwrap_or(fg);
-                            self.add_rect(
-                                &mut decoration_vertices,
-                                *x,
-                                ya,
-                                *width,
-                                ul_thick.max(1.0),
-                                ol_color,
-                            );
-                        }
-
-                        // --- Strike-through ---
-                        if *strike_through > 0 {
-                            let st_color = strike_through_color.as_ref().unwrap_or(fg);
-                            // Position at ~1/3 of ascent above baseline (standard typographic position)
-                            let st_y = baseline_y - *ascent / 3.0;
-                            self.add_rect(
-                                &mut decoration_vertices,
-                                *x,
-                                st_y,
-                                *width,
-                                ul_thick.max(1.0),
-                                st_color,
-                            );
+                            3 => {
+                                // Double line
+                                self.add_rect(
+                                    &mut decoration_vertices,
+                                    *x,
+                                    ul_y,
+                                    *width,
+                                    line_thickness,
+                                    ul_color,
+                                );
+                                self.add_rect(
+                                    &mut decoration_vertices,
+                                    *x,
+                                    ul_y + line_thickness + 1.0,
+                                    *width,
+                                    line_thickness,
+                                    ul_color,
+                                );
+                            }
+                            4 => {
+                                // Dots (dot size = thickness, gap = 2px)
+                                let mut cx = *x;
+                                while cx < *x + *width {
+                                    let dw = line_thickness.min(*x + *width - cx);
+                                    self.add_rect(
+                                        &mut decoration_vertices,
+                                        cx,
+                                        ul_y,
+                                        dw,
+                                        line_thickness,
+                                        ul_color,
+                                    );
+                                    cx += line_thickness + 2.0;
+                                }
+                            }
+                            5 => {
+                                // Dashes (4px with 3px gap)
+                                let mut cx = *x;
+                                while cx < *x + *width {
+                                    let dw = 4.0_f32.min(*x + *width - cx);
+                                    self.add_rect(
+                                        &mut decoration_vertices,
+                                        cx,
+                                        ul_y,
+                                        dw,
+                                        line_thickness,
+                                        ul_color,
+                                    );
+                                    cx += 7.0;
+                                }
+                            }
+                            _ => {
+                                // Fallback: single line
+                                self.add_rect(
+                                    &mut decoration_vertices,
+                                    *x,
+                                    ul_y,
+                                    *width,
+                                    line_thickness,
+                                    ul_color,
+                                );
+                            }
                         }
                     }
-                }
 
-                if !decoration_vertices.is_empty() {
-                    let decoration_buffer =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Decoration Rect Buffer"),
-                                contents: bytemuck::cast_slice(&decoration_vertices),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
+                    // --- Overline ---
+                    if *overline > 0 {
+                        let ol_color = overline_color.as_ref().unwrap_or(fg);
+                        self.add_rect(
+                            &mut decoration_vertices,
+                            *x,
+                            ya,
+                            *width,
+                            ul_thick.max(1.0),
+                            ol_color,
+                        );
+                    }
 
-                    render_pass.set_pipeline(&self.rect_pipeline);
-                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, decoration_buffer.slice(..));
-                    render_pass.draw(0..decoration_vertices.len() as u32, 0..1);
+                    // --- Strike-through ---
+                    if *strike_through > 0 {
+                        let st_color = strike_through_color.as_ref().unwrap_or(fg);
+                        // Position at ~1/3 of ascent above baseline (standard typographic position)
+                        let st_y = baseline_y - *ascent / 3.0;
+                        self.add_rect(
+                            &mut decoration_vertices,
+                            *x,
+                            st_y,
+                            *width,
+                            ul_thick.max(1.0),
+                            st_color,
+                        );
+                    }
                 }
             }
 
-            // === Draw box borders (merged spans) ===
-            // Standard boxes (corner_radius=0): merged rect borders (top/bottom/left/right).
-            // Rounded boxes (corner_radius>0): SDF border ring.
-            {
-                // Sharp box borders as merged rect spans
-                let mut sharp_border_vertices: Vec<RectVertex> = Vec::new();
-                // Rounded box borders via SDF
-                let mut rounded_border_vertices: Vec<RoundedRectVertex> = Vec::new();
+            if !decoration_vertices.is_empty() {
+                let decoration_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Decoration Rect Buffer"),
+                            contents: bytemuck::cast_slice(&decoration_vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
 
-                // Filter spans for this overlay pass
-                let pass_spans: Vec<usize> = box_spans
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, s)| s.is_overlay == want_overlay)
-                    .map(|(i, _)| i)
-                    .collect();
+                render_pass.set_pipeline(&self.rect_pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, decoration_buffer.slice(..));
+                render_pass.draw(0..decoration_vertices.len() as u32, 0..1);
+            }
+        }
 
-                for (idx_in_pass, &span_idx) in pass_spans.iter().enumerate() {
-                    let span = &box_spans[span_idx];
-                    if let Some(face) = faces.get(&span.face_id) {
-                        let bx_color = face.box_color.as_ref().unwrap_or(&face.foreground);
-                        let bw = face.box_line_width as f32;
+        // === Draw box borders (merged spans) ===
+        // Standard boxes (corner_radius=0): merged rect borders (top/bottom/left/right).
+        // Rounded boxes (corner_radius>0): SDF border ring.
+        {
+            // Sharp box borders as merged rect spans
+            let mut sharp_border_vertices: Vec<RectVertex> = Vec::new();
+            // Rounded box borders via SDF
+            let mut rounded_border_vertices: Vec<RoundedRectVertex> = Vec::new();
 
-                        if face.box_corner_radius > 0 {
-                            // Rounded border via SDF (with optional fancy style)
-                            let radius = (face.box_corner_radius as f32)
-                                .min(span.height * 0.45)
-                                .min(span.width * 0.45);
-                            let color2 = face.box_color2.as_ref().unwrap_or(bx_color);
-                            self.add_rounded_rect_styled(
-                                &mut rounded_border_vertices,
-                                span.x,
-                                span.y,
-                                span.width,
-                                span.height,
-                                bw,
-                                radius,
-                                bx_color,
-                                face.box_border_style,
-                                face.box_border_speed,
-                                color2,
-                            );
-                            if face.box_border_style > 0 {
-                                self.has_animated_borders = true;
-                            }
-                        } else {
-                            // Sharp border — for overlay spans (mode-line), suppress
-                            // internal left/right borders between adjacent spans for
-                            // continuity. For non-overlay spans, always draw all 4 borders.
-                            let suppress_internal = span.is_overlay;
-                            let has_left_neighbor = suppress_internal && idx_in_pass > 0 && {
-                                let prev = &box_spans[pass_spans[idx_in_pass - 1]];
-                                (prev.y - span.y).abs() < 0.5
-                                    && ((prev.x + prev.width) - span.x).abs() < 1.5
+            // Filter spans for this overlay pass
+            let pass_spans: Vec<usize> = box_spans
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.is_overlay == want_overlay)
+                .map(|(i, _)| i)
+                .collect();
+
+            for (idx_in_pass, &span_idx) in pass_spans.iter().enumerate() {
+                let span = &box_spans[span_idx];
+                if let Some(face) = faces.get(&span.face_id) {
+                    let bx_color = face.box_color.as_ref().unwrap_or(&face.foreground);
+                    let bw = face.box_line_width as f32;
+
+                    if face.box_corner_radius > 0 {
+                        // Rounded border via SDF (with optional fancy style)
+                        let radius = (face.box_corner_radius as f32)
+                            .min(span.height * 0.45)
+                            .min(span.width * 0.45);
+                        let color2 = face.box_color2.as_ref().unwrap_or(bx_color);
+                        self.add_rounded_rect_styled(
+                            &mut rounded_border_vertices,
+                            span.x,
+                            span.y,
+                            span.width,
+                            span.height,
+                            bw,
+                            radius,
+                            bx_color,
+                            face.box_border_style,
+                            face.box_border_speed,
+                            color2,
+                        );
+                        if face.box_border_style > 0 {
+                            self.has_animated_borders = true;
+                        }
+                    } else {
+                        // Sharp border — for overlay spans (mode-line), suppress
+                        // internal left/right borders between adjacent spans for
+                        // continuity. For non-overlay spans, always draw all 4 borders.
+                        let suppress_internal = span.is_overlay;
+                        let has_left_neighbor = suppress_internal && idx_in_pass > 0 && {
+                            let prev = &box_spans[pass_spans[idx_in_pass - 1]];
+                            (prev.y - span.y).abs() < 0.5
+                                && ((prev.x + prev.width) - span.x).abs() < 1.5
+                        };
+                        let has_right_neighbor =
+                            suppress_internal && idx_in_pass + 1 < pass_spans.len() && {
+                                let next = &box_spans[pass_spans[idx_in_pass + 1]];
+                                (next.y - span.y).abs() < 0.5
+                                    && (next.x - (span.x + span.width)).abs() < 1.5
                             };
-                            let has_right_neighbor =
-                                suppress_internal && idx_in_pass + 1 < pass_spans.len() && {
-                                    let next = &box_spans[pass_spans[idx_in_pass + 1]];
-                                    (next.y - span.y).abs() < 0.5
-                                        && (next.x - (span.x + span.width)).abs() < 1.5
+
+                        // Compute edge colors for 3D box types
+                        let (top_left_color, bottom_right_color) = match face.box_type {
+                            BoxType::Raised3D => {
+                                let light = Color {
+                                    r: (bx_color.r * 1.4).min(1.0),
+                                    g: (bx_color.g * 1.4).min(1.0),
+                                    b: (bx_color.b * 1.4).min(1.0),
+                                    a: bx_color.a,
                                 };
+                                let dark = Color {
+                                    r: bx_color.r * 0.6,
+                                    g: bx_color.g * 0.6,
+                                    b: bx_color.b * 0.6,
+                                    a: bx_color.a,
+                                };
+                                (light, dark)
+                            }
+                            BoxType::Sunken3D => {
+                                let light = Color {
+                                    r: (bx_color.r * 1.4).min(1.0),
+                                    g: (bx_color.g * 1.4).min(1.0),
+                                    b: (bx_color.b * 1.4).min(1.0),
+                                    a: bx_color.a,
+                                };
+                                let dark = Color {
+                                    r: bx_color.r * 0.6,
+                                    g: bx_color.g * 0.6,
+                                    b: bx_color.b * 0.6,
+                                    a: bx_color.a,
+                                };
+                                (dark, light)
+                            }
+                            _ => (bx_color.clone(), bx_color.clone()),
+                        };
 
-                            // Compute edge colors for 3D box types
-                            let (top_left_color, bottom_right_color) = match face.box_type {
-                                BoxType::Raised3D => {
-                                    let light = Color {
-                                        r: (bx_color.r * 1.4).min(1.0),
-                                        g: (bx_color.g * 1.4).min(1.0),
-                                        b: (bx_color.b * 1.4).min(1.0),
-                                        a: bx_color.a,
-                                    };
-                                    let dark = Color {
-                                        r: bx_color.r * 0.6,
-                                        g: bx_color.g * 0.6,
-                                        b: bx_color.b * 0.6,
-                                        a: bx_color.a,
-                                    };
-                                    (light, dark)
-                                }
-                                BoxType::Sunken3D => {
-                                    let light = Color {
-                                        r: (bx_color.r * 1.4).min(1.0),
-                                        g: (bx_color.g * 1.4).min(1.0),
-                                        b: (bx_color.b * 1.4).min(1.0),
-                                        a: bx_color.a,
-                                    };
-                                    let dark = Color {
-                                        r: bx_color.r * 0.6,
-                                        g: bx_color.g * 0.6,
-                                        b: bx_color.b * 0.6,
-                                        a: bx_color.a,
-                                    };
-                                    (dark, light)
-                                }
-                                _ => (bx_color.clone(), bx_color.clone()),
-                            };
-
-                            // Top
+                        // Top
+                        self.add_rect(
+                            &mut sharp_border_vertices,
+                            span.x,
+                            span.y,
+                            span.width,
+                            bw,
+                            &top_left_color,
+                        );
+                        // Bottom
+                        self.add_rect(
+                            &mut sharp_border_vertices,
+                            span.x,
+                            span.y + span.height - bw,
+                            span.width,
+                            bw,
+                            &bottom_right_color,
+                        );
+                        // Left (only if no adjacent span to the left on same row)
+                        if !has_left_neighbor {
                             self.add_rect(
                                 &mut sharp_border_vertices,
                                 span.x,
                                 span.y,
-                                span.width,
                                 bw,
+                                span.height,
                                 &top_left_color,
                             );
-                            // Bottom
+                        }
+                        // Right (only if no adjacent span to the right on same row)
+                        if !has_right_neighbor {
                             self.add_rect(
                                 &mut sharp_border_vertices,
-                                span.x,
-                                span.y + span.height - bw,
-                                span.width,
+                                span.x + span.width - bw,
+                                span.y,
                                 bw,
+                                span.height,
                                 &bottom_right_color,
                             );
-                            // Left (only if no adjacent span to the left on same row)
-                            if !has_left_neighbor {
-                                self.add_rect(
-                                    &mut sharp_border_vertices,
-                                    span.x,
-                                    span.y,
-                                    bw,
-                                    span.height,
-                                    &top_left_color,
-                                );
-                            }
-                            // Right (only if no adjacent span to the right on same row)
-                            if !has_right_neighbor {
-                                self.add_rect(
-                                    &mut sharp_border_vertices,
-                                    span.x + span.width - bw,
-                                    span.y,
-                                    bw,
-                                    span.height,
-                                    &bottom_right_color,
-                                );
-                            }
                         }
                     }
                 }
+            }
 
-                // Draw sharp box borders
-                if !sharp_border_vertices.is_empty() {
-                    let sharp_buffer =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Sharp Box Border Buffer"),
-                                contents: bytemuck::cast_slice(&sharp_border_vertices),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
-                    render_pass.set_pipeline(&self.rect_pipeline);
-                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, sharp_buffer.slice(..));
-                    render_pass.draw(0..sharp_border_vertices.len() as u32, 0..1);
-                }
+            // Draw sharp box borders
+            if !sharp_border_vertices.is_empty() {
+                let sharp_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Sharp Box Border Buffer"),
+                            contents: bytemuck::cast_slice(&sharp_border_vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                render_pass.set_pipeline(&self.rect_pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, sharp_buffer.slice(..));
+                render_pass.draw(0..sharp_border_vertices.len() as u32, 0..1);
+            }
 
-                // Draw rounded box borders
-                if !rounded_border_vertices.is_empty() {
-                    let rounded_buffer =
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Rounded Box Border Buffer"),
-                                contents: bytemuck::cast_slice(&rounded_border_vertices),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
-                    render_pass.set_pipeline(&self.rounded_rect_pipeline);
-                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, rounded_buffer.slice(..));
-                    render_pass.draw(0..rounded_border_vertices.len() as u32, 0..1);
+            // Draw rounded box borders
+            if !rounded_border_vertices.is_empty() {
+                let rounded_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Rounded Box Border Buffer"),
+                            contents: bytemuck::cast_slice(&rounded_border_vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                render_pass.set_pipeline(&self.rounded_rect_pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, rounded_buffer.slice(..));
+                render_pass.draw(0..rounded_border_vertices.len() as u32, 0..1);
+            }
+        }
+    }
+
+    fn draw_overlay_backgrounds(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        faces: &HashMap<u32, Face>,
+        box_spans: &[BoxSpan],
+        overlay_rect_vertices: &[RectVertex],
+        want_overlay: bool,
+    ) {
+        // === Step 3: Draw overlay backgrounds before overlay text ===
+        if want_overlay && !overlay_rect_vertices.is_empty() {
+            let rect_buffer = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Overlay Rect Buffer"),
+                    contents: bytemuck::cast_slice(overlay_rect_vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+            render_pass.set_pipeline(&self.rect_pipeline);
+            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, rect_buffer.slice(..));
+            render_pass.draw(0..overlay_rect_vertices.len() as u32, 0..1);
+        }
+
+        // Draw filled rounded rect backgrounds for overlay ROUNDED boxed spans.
+        if want_overlay {
+            let mut overlay_box_fill: Vec<RoundedRectVertex> = Vec::new();
+            for span in box_spans {
+                if !span.is_overlay {
+                    continue;
                 }
+                if let Some(ref bg_color) = span.bg {
+                    if let Some(face) = faces.get(&span.face_id) {
+                        if face.box_corner_radius <= 0 {
+                            continue;
+                        }
+                        let radius = (face.box_corner_radius as f32)
+                            .min(span.height * 0.45)
+                            .min(span.width * 0.45);
+                        let fill_bw = span.height.max(span.width);
+                        self.add_rounded_rect(
+                            &mut overlay_box_fill,
+                            span.x,
+                            span.y,
+                            span.width,
+                            span.height,
+                            fill_bw,
+                            radius,
+                            bg_color,
+                        );
+                    }
+                }
+            }
+            if !overlay_box_fill.is_empty() {
+                let fill_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Overlay Box Fill Buffer"),
+                            contents: bytemuck::cast_slice(&overlay_box_fill),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                render_pass.set_pipeline(&self.rounded_rect_pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, fill_buffer.slice(..));
+                render_pass.draw(0..overlay_box_fill.len() as u32, 0..1);
             }
         }
     }
