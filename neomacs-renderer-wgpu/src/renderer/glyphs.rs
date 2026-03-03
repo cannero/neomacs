@@ -6107,6 +6107,15 @@ impl WgpuRenderer {
         render_pass: &mut wgpu::RenderPass<'_>,
         ctx: &super::effect_common::EffectCtx<'_>,
     ) {
+        self.draw_post_content_effects_part1_window_chrome(render_pass, ctx);
+        self.draw_post_content_effects_part1_focus_and_dimming(render_pass, ctx);
+    }
+
+    fn draw_post_content_effects_part1_window_chrome(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Draw mode-line separators ===
         draw_effect!(
             self,
@@ -6159,7 +6168,13 @@ impl WgpuRenderer {
                 self.border_transition_duration,
             )
         );
+    }
 
+    fn draw_post_content_effects_part1_focus_and_dimming(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Frosted glass effect on mode-lines ===
         draw_effect!(
             self,
@@ -6219,6 +6234,16 @@ impl WgpuRenderer {
         ctx: &super::effect_common::EffectCtx<'_>,
         faces: &HashMap<u32, Face>,
     ) {
+        self.draw_post_content_effects_part2_highlights(render_pass, ctx, faces);
+        self.draw_post_content_effects_part2_navigation(render_pass, ctx);
+    }
+
+    fn draw_post_content_effects_part2_highlights(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+        faces: &HashMap<u32, Face>,
+    ) {
         // === Zen mode: draw margin overlays for centered content ===
         draw_effect!(
             self,
@@ -6266,7 +6291,13 @@ impl WgpuRenderer {
                 self.typing_ripple_duration,
             )
         );
+    }
 
+    fn draw_post_content_effects_part2_navigation(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Minimap: code overview column on right side of each window ===
         draw_effect!(
             self,
@@ -6309,6 +6340,15 @@ impl WgpuRenderer {
     }
 
     fn draw_post_content_effects_part3(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
+        self.draw_post_content_effects_part3_resize_and_input(render_pass, ctx);
+        self.draw_post_content_effects_part3_overlays(render_pass, ctx);
+    }
+
+    fn draw_post_content_effects_part3_resize_and_input(
         &mut self,
         render_pass: &mut wgpu::RenderPass<'_>,
         ctx: &super::effect_common::EffectCtx<'_>,
@@ -6359,7 +6399,13 @@ impl WgpuRenderer {
             "Edge Snap Buffer",
             super::window_effects::emit_edge_snap(ctx, &mut self.edge_snaps,)
         );
+    }
 
+    fn draw_post_content_effects_part3_overlays(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Line wrap indicator overlay ===
         draw_effect!(
             self,
