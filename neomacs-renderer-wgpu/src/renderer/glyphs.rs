@@ -3759,6 +3759,15 @@ impl WgpuRenderer {
         render_pass: &mut wgpu::RenderPass<'_>,
         ctx: &super::effect_common::EffectCtx<'_>,
     ) {
+        self.draw_pre_content_effects_extended_part1_head(render_pass, ctx);
+        self.draw_pre_content_effects_extended_part1_tail(render_pass, ctx);
+    }
+
+    fn draw_pre_content_effects_extended_part1_head(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // Aurora/northern lights effect
         draw_stateful!(
             self,
@@ -3893,7 +3902,13 @@ impl WgpuRenderer {
             super::pattern_effects::emit_kaleidoscope(&ctx),
             continuous
         );
+    }
 
+    fn draw_pre_content_effects_extended_part1_tail(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Cursor ripple ring effect ===
         draw_stateful!(
             self,
@@ -4007,6 +4022,15 @@ impl WgpuRenderer {
     }
 
     fn draw_pre_content_effects_extended_part2(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
+        self.draw_pre_content_effects_extended_part2_head(render_pass, ctx);
+        self.draw_pre_content_effects_extended_part2_tail(render_pass, ctx);
+    }
+
+    fn draw_pre_content_effects_extended_part2_head(
         &mut self,
         render_pass: &mut wgpu::RenderPass<'_>,
         ctx: &super::effect_common::EffectCtx<'_>,
@@ -4147,7 +4171,13 @@ impl WgpuRenderer {
             super::cursor_effects::emit_cursor_water_drop(&ctx),
             continuous
         );
+    }
 
+    fn draw_pre_content_effects_extended_part2_tail(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Guilloche overlay effect ===
         draw_effect!(
             self,
@@ -4294,6 +4324,15 @@ impl WgpuRenderer {
         render_pass: &mut wgpu::RenderPass<'_>,
         ctx: &super::effect_common::EffectCtx<'_>,
     ) {
+        self.draw_pre_content_effects_extended_part3_head(render_pass, ctx);
+        self.draw_pre_content_effects_extended_part3_tail(render_pass, ctx);
+    }
+
+    fn draw_pre_content_effects_extended_part3_head(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Plaid pattern overlay effect ===
         draw_effect!(
             self,
@@ -4381,7 +4420,13 @@ impl WgpuRenderer {
             super::cursor_effects::emit_cursor_moth(&ctx),
             continuous
         );
+    }
 
+    fn draw_pre_content_effects_extended_part3_tail(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        ctx: &super::effect_common::EffectCtx<'_>,
+    ) {
         // === Hex grid overlay effect ===
         draw_effect!(
             self,
