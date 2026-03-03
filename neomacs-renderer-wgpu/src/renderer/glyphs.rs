@@ -5050,6 +5050,16 @@ impl WgpuRenderer {
         overlay_rect_vertices: &[RectVertex],
         want_overlay: bool,
     ) {
+        self.draw_overlay_rect_backgrounds(render_pass, overlay_rect_vertices, want_overlay);
+        self.draw_overlay_rounded_box_fills(render_pass, faces, box_spans, want_overlay);
+    }
+
+    fn draw_overlay_rect_backgrounds(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        overlay_rect_vertices: &[RectVertex],
+        want_overlay: bool,
+    ) {
         // === Step 3: Draw overlay backgrounds before overlay text ===
         if want_overlay && !overlay_rect_vertices.is_empty() {
             let rect_buffer = self
@@ -5065,7 +5075,15 @@ impl WgpuRenderer {
             render_pass.set_vertex_buffer(0, rect_buffer.slice(..));
             render_pass.draw(0..overlay_rect_vertices.len() as u32, 0..1);
         }
+    }
 
+    fn draw_overlay_rounded_box_fills(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        faces: &HashMap<u32, Face>,
+        box_spans: &[BoxSpan],
+        want_overlay: bool,
+    ) {
         // Draw filled rounded rect backgrounds for overlay ROUNDED boxed spans.
         if want_overlay {
             let mut overlay_box_fill: Vec<RoundedRectVertex> = Vec::new();
