@@ -2058,7 +2058,7 @@ impl LayoutEngine {
                                 x,
                                 y,
                                 right_edge - x,
-                                char_h,
+                                row_max_height,
                                 ext_bg,
                                 ext_face_id,
                                 false,
@@ -3034,7 +3034,15 @@ impl LayoutEngine {
                     .get(row)
                     .copied()
                     .unwrap_or(text_y + row as f32 * char_h + row_extra_y);
-                frame_glyphs.add_stretch(x, ry, right_edge - x, char_h, ext_bg, ext_face_id, false);
+                frame_glyphs.add_stretch(
+                    x,
+                    ry,
+                    right_edge - x,
+                    row_max_height,
+                    ext_bg,
+                    ext_face_id,
+                    false,
+                );
             }
             // Then fill completely empty rows below
             let start_row = (row + 1).min(max_rows);
@@ -4916,7 +4924,13 @@ impl LayoutEngine {
                                                 let gx = content_x + x_offset;
                                                 let gy = row_y[row as usize];
                                                 frame_glyphs.add_stretch(
-                                                    gx, gy, remaining, char_h, ext_bg, 0, false,
+                                                    gx,
+                                                    gy,
+                                                    remaining,
+                                                    row_max_height,
+                                                    ext_bg,
+                                                    0,
+                                                    false,
                                                 );
                                             }
                                         }
@@ -5047,7 +5061,13 @@ impl LayoutEngine {
                                                 let gx = content_x + x_offset;
                                                 let gy = row_y[row as usize];
                                                 frame_glyphs.add_stretch(
-                                                    gx, gy, remaining, char_h, ext_bg, 0, false,
+                                                    gx,
+                                                    gy,
+                                                    remaining,
+                                                    row_max_height,
+                                                    ext_bg,
+                                                    0,
+                                                    false,
                                                 );
                                             }
                                         }
@@ -5324,8 +5344,15 @@ impl LayoutEngine {
                                 {
                                     let gx = content_x + x_offset;
                                     let gy = row_y[row as usize];
-                                    frame_glyphs
-                                        .add_stretch(gx, gy, remaining, char_h, ext_bg, 0, false);
+                                    frame_glyphs.add_stretch(
+                                        gx,
+                                        gy,
+                                        remaining,
+                                        row_max_height,
+                                        ext_bg,
+                                        0,
+                                        false,
+                                    );
                                 }
                             }
                             reorder_row_bidi(
@@ -6171,10 +6198,25 @@ impl LayoutEngine {
                             (default_bg, 0)
                         };
                         if fill_face != 0 {
-                            frame_glyphs
-                                .add_stretch(gx, gy, remaining, char_h, fill_bg, fill_face, false);
+                            frame_glyphs.add_stretch(
+                                gx,
+                                gy,
+                                remaining,
+                                row_max_height,
+                                fill_bg,
+                                fill_face,
+                                false,
+                            );
                         } else {
-                            frame_glyphs.add_stretch(gx, gy, remaining, char_h, fill_bg, 0, false);
+                            frame_glyphs.add_stretch(
+                                gx,
+                                gy,
+                                remaining,
+                                row_max_height,
+                                fill_bg,
+                                0,
+                                false,
+                            );
                         }
                     }
 
@@ -6906,7 +6948,7 @@ impl LayoutEngine {
                                     gx,
                                     gy,
                                     fill_w,
-                                    char_h,
+                                    row_max_height,
                                     face_bg,
                                     self.face_data.face_id,
                                     false,
@@ -6980,7 +7022,7 @@ impl LayoutEngine {
                                     gx,
                                     gy,
                                     remaining,
-                                    char_h,
+                                    row_max_height,
                                     face_bg,
                                     self.face_data.face_id,
                                     false,
@@ -7250,8 +7292,15 @@ impl LayoutEngine {
                             {
                                 let gx = content_x + x_offset;
                                 let gy = row_y[row as usize];
-                                frame_glyphs
-                                    .add_stretch(gx, gy, remaining, char_h, ext_bg, 0, false);
+                                frame_glyphs.add_stretch(
+                                    gx,
+                                    gy,
+                                    remaining,
+                                    row_max_height,
+                                    ext_bg,
+                                    0,
+                                    false,
+                                );
                             }
                         }
                         reorder_row_bidi(
@@ -7531,8 +7580,15 @@ impl LayoutEngine {
                             {
                                 let gx = content_x + x_offset;
                                 let gy = row_y[row as usize];
-                                frame_glyphs
-                                    .add_stretch(gx, gy, remaining, char_h, ext_bg, 0, false);
+                                frame_glyphs.add_stretch(
+                                    gx,
+                                    gy,
+                                    remaining,
+                                    row_max_height,
+                                    ext_bg,
+                                    0,
+                                    false,
+                                );
                             }
                         }
                         reorder_row_bidi(
@@ -7687,8 +7743,15 @@ impl LayoutEngine {
                             {
                                 let gx = content_x + x_offset;
                                 let gy = row_y[row as usize];
-                                frame_glyphs
-                                    .add_stretch(gx, gy, remaining, char_h, ext_bg, 0, false);
+                                frame_glyphs.add_stretch(
+                                    gx,
+                                    gy,
+                                    remaining,
+                                    row_max_height,
+                                    ext_bg,
+                                    0,
+                                    false,
+                                );
                             }
                         }
                         reorder_row_bidi(
@@ -7787,7 +7850,15 @@ impl LayoutEngine {
                 } else {
                     (default_bg, 0)
                 };
-                frame_glyphs.add_stretch(gx, gy, remaining, char_h, fill_bg, fill_face, false);
+                frame_glyphs.add_stretch(
+                    gx,
+                    gy,
+                    remaining,
+                    row_max_height,
+                    fill_bg,
+                    fill_face,
+                    false,
+                );
             }
         }
 
