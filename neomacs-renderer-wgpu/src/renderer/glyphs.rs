@@ -4233,31 +4233,7 @@ impl WgpuRenderer {
         composed_mask_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
         composed_color_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
     ) {
-        tracing::trace!(
-            "render_frame_glyphs: overlay={} {} mask glyphs, {} color glyphs",
-            want_overlay,
-            mask_data.len(),
-            color_data.len()
-        );
-        // Debug: dump first few glyph positions
-        if !mask_data.is_empty() && !want_overlay {
-            for (i, (key, verts)) in mask_data.iter().take(3).enumerate() {
-                let p0 = verts[0].position;
-                let c0 = verts[0].color;
-                tracing::debug!(
-                    "  glyph[{}]: charcode={} pos=({:.1},{:.1}) color=({:.3},{:.3},{:.3},{:.3}) logical_w={:.1}",
-                    i,
-                    key.charcode,
-                    p0[0],
-                    p0[1],
-                    c0[0],
-                    c0[1],
-                    c0[2],
-                    c0[3],
-                    logical_w
-                );
-            }
-        }
+        self.log_overlay_pass_batch_debug(mask_data, color_data, want_overlay, logical_w);
 
         self.draw_mask_glyph_batch(render_pass, glyph_atlas, mask_data);
         self.draw_color_glyph_batch(render_pass, glyph_atlas, color_data);
@@ -4329,6 +4305,40 @@ impl WgpuRenderer {
                     color_data,
                     composed_mask_data,
                     composed_color_data,
+                );
+            }
+        }
+    }
+
+    fn log_overlay_pass_batch_debug(
+        &self,
+        mask_data: &[(GlyphKey, [GlyphVertex; 6])],
+        color_data: &[(GlyphKey, [GlyphVertex; 6])],
+        want_overlay: bool,
+        logical_w: f32,
+    ) {
+        tracing::trace!(
+            "render_frame_glyphs: overlay={} {} mask glyphs, {} color glyphs",
+            want_overlay,
+            mask_data.len(),
+            color_data.len()
+        );
+        // Debug: dump first few glyph positions.
+        if !mask_data.is_empty() && !want_overlay {
+            for (i, (key, verts)) in mask_data.iter().take(3).enumerate() {
+                let p0 = verts[0].position;
+                let c0 = verts[0].color;
+                tracing::debug!(
+                    "  glyph[{}]: charcode={} pos=({:.1},{:.1}) color=({:.3},{:.3},{:.3},{:.3}) logical_w={:.1}",
+                    i,
+                    key.charcode,
+                    p0[0],
+                    p0[1],
+                    c0[0],
+                    c0[1],
+                    c0[2],
+                    c0[3],
+                    logical_w
                 );
             }
         }
