@@ -1,0 +1,21 @@
+[package]
+name = "neomacs-renderer-wgpu"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "WGPU text renderer primitives for Neomacs"
+
+[features]
+default = ["core-backend-emacs-c"]
+core-backend-emacs-c = ["neomacs-layout-engine/core-backend-emacs-c"]
+core-backend-rust = ["neomacs-layout-engine/core-backend-rust"]
+
+[dependencies]
+cosmic-text.workspace = true
+fontdb.workspace = true
+wgpu.workspace = true
+tracing.workspace = true
+bytemuck.workspace = true
+neomacs-display-protocol.workspace = true
+neomacs-layout-engine = { workspace = true, default-features = false }

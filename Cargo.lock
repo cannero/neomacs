@@ -1965,6 +1965,7 @@ dependencies = [
  "libc",
  "neomacs-display-protocol",
  "neomacs-layout-engine",
+ "neomacs-renderer-wgpu",
  "neovm-core",
  "once_cell",
  "os_pipe",
@@ -2002,6 +2003,19 @@ dependencies = [
  "neomacs-display-protocol",
  "neovm-core",
  "tracing",
+]
+
+[[package]]
+name = "neomacs-renderer-wgpu"
+version = "0.0.1"
+dependencies = [
+ "bytemuck",
+ "cosmic-text",
+ "fontdb 0.23.0",
+ "neomacs-display-protocol",
+ "neomacs-layout-engine",
+ "tracing",
+ "wgpu",
 ]
 
 [[package]]

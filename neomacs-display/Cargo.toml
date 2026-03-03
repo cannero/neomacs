@@ -60,6 +60,7 @@ libc.workspace = true
 neovm-core.workspace = true
 neomacs-display-protocol.workspace = true
 neomacs-layout-engine.workspace = true
+neomacs-renderer-wgpu.workspace = true
 
 # Terminal emulation (neo-term)
 alacritty_terminal = { workspace = true, optional = true }
@@ -79,10 +80,12 @@ default = ["video", "neo-term", "core-backend-emacs-c"]
 core-backend-emacs-c = [
     "neovm-core/core-backend-emacs-c",
     "neomacs-layout-engine/core-backend-emacs-c",
+    "neomacs-renderer-wgpu/core-backend-emacs-c",
 ]
 core-backend-rust = [
     "neovm-core/core-backend-rust",
     "neomacs-layout-engine/core-backend-rust",
+    "neomacs-renderer-wgpu/core-backend-rust",
 ]
 tty-backend = []
 # Video with GStreamer

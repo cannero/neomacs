@@ -4,6 +4,7 @@ members = [
     "neomacs-display",
     "neomacs-display-protocol",
     "neomacs-layout-engine",
+    "neomacs-renderer-wgpu",
     "neovm-core",
     "neovm-host-abi",
     "neovm-worker",
@@ -23,6 +24,7 @@ neovm-host-abi = { path = "neovm-host-abi" }
 neomacs-display = { path = "neomacs-display", default-features = false }
 neomacs-display-protocol = { path = "neomacs-display-protocol", default-features = false }
 neomacs-layout-engine = { path = "neomacs-layout-engine", default-features = false }
+neomacs-renderer-wgpu = { path = "neomacs-renderer-wgpu", default-features = false }
 
 # Logging / tracing
 tracing = { version = "0.1", features = ["attributes"] }
