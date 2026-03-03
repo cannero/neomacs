@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use cosmic_text::{
-    Attrs, Buffer, Family, FontSystem, Metrics, ShapeBuffer, Style, SwashCache, Weight,
+    Attrs, Buffer, Family, FontSystem, Metrics, ShapeBuffer, Style, SubpixelBin, SwashCache, Weight,
 };
 
 use crate::core::face::Face;
@@ -21,6 +21,10 @@ pub struct GlyphKey {
     /// Font size in pixels (for text-scale-increase support)
     /// Using u32 bits of f32 for hashing
     pub font_size_bits: u32,
+    /// Subpixel X bin (fractional physical-pixel offset baked into rasterization)
+    pub x_bin: SubpixelBin,
+    /// Subpixel Y bin (fractional physical-pixel offset baked into rasterization)
+    pub y_bin: SubpixelBin,
 }
 
 /// Key for composed (multi-codepoint) glyph cache lookup.
@@ -33,6 +37,10 @@ pub struct ComposedGlyphKey {
     pub face_id: u32,
     /// Font size in pixels (using u32 bits of f32 for hashing)
     pub font_size_bits: u32,
+    /// Subpixel X bin (fractional physical-pixel offset baked into rasterization)
+    pub x_bin: SubpixelBin,
+    /// Subpixel Y bin (fractional physical-pixel offset baked into rasterization)
+    pub y_bin: SubpixelBin,
 }
 
 /// Result of rasterizing a glyph or text sequence.
@@ -214,7 +222,7 @@ impl WgpuGlyphAtlas {
             return None;
         }
 
-        let result = self.rasterize_glyph(c, face);
+        let result = self.rasterize_glyph(c, face, key.x_bin, key.y_bin);
         if result.is_none() {
             tracing::warn!(
                 "glyph_atlas: failed to rasterize '{}' (U+{:04X}) face_id={} has_face={}",
@@ -372,11 +380,15 @@ impl WgpuGlyphAtlas {
         face_id: u32,
         font_size_bits: u32,
         face: Option<&Face>,
+        x_bin: SubpixelBin,
+        y_bin: SubpixelBin,
     ) -> Option<&CachedGlyph> {
         let key = ComposedGlyphKey {
             text: text.into(),
             face_id,
             font_size_bits,
+            x_bin,
+            y_bin,
         };
 
         // Check cache first
@@ -387,7 +399,7 @@ impl WgpuGlyphAtlas {
         }
 
         // Rasterize the composed text
-        let result = self.rasterize_text(text, face);
+        let result = self.rasterize_text(text, face, x_bin, y_bin);
         if result.is_none() {
             tracing::warn!("glyph_atlas: failed to rasterize composed text '{}'", text);
             return None;
@@ -507,7 +519,13 @@ impl WgpuGlyphAtlas {
             req_size = tracing::field::Empty
         )
     )]
-    fn rasterize_text(&mut self, text: &str, face: Option<&Face>) -> Option<RasterizeResult> {
+    fn rasterize_text(
+        &mut self,
+        text: &str,
+        face: Option<&Face>,
+        x_bin: SubpixelBin,
+        y_bin: SubpixelBin,
+    ) -> Option<RasterizeResult> {
         let req_family = face.map(|f| f.font_family.as_str()).unwrap_or("monospace");
         let req_weight = face.map(|f| f.font_weight).unwrap_or(400);
         let req_italic = face
@@ -559,7 +577,9 @@ impl WgpuGlyphAtlas {
             for glyph in run.glyphs.iter() {
                 let advance_w = glyph.w * self.scale_factor;
                 let physical_glyph = glyph.physical((0.0, 0.0), self.scale_factor);
-                let cache_key = physical_glyph.cache_key;
+                let mut cache_key = physical_glyph.cache_key;
+                cache_key.x_bin = x_bin;
+                cache_key.y_bin = y_bin;
 
                 // Instrumentation for font resolution: log requested attrs and
                 // the concrete selected font face/glyph per shaped glyph.
@@ -778,8 +798,14 @@ impl WgpuGlyphAtlas {
     }
 
     /// Rasterize a single glyph and return pixel data (convenience wrapper)
-    fn rasterize_glyph(&mut self, c: char, face: Option<&Face>) -> Option<RasterizeResult> {
-        self.rasterize_text(&c.to_string(), face)
+    fn rasterize_glyph(
+        &mut self,
+        c: char,
+        face: Option<&Face>,
+        x_bin: SubpixelBin,
+        y_bin: SubpixelBin,
+    ) -> Option<RasterizeResult> {
+        self.rasterize_text(&c.to_string(), face, x_bin, y_bin)
     }
 
     /// Convert Face to cosmic-text Attrs.

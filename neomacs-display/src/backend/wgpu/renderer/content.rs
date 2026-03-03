@@ -9,6 +9,7 @@
 //! thumbs), Image, Video, WebKit.
 
 use super::super::glyph_atlas::{ComposedGlyphKey, GlyphKey, WgpuGlyphAtlas};
+use cosmic_text::SubpixelBin;
 use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex};
 use super::WgpuRenderer;
 use crate::core::face::{BoxType, Face, FaceAttributes};
@@ -273,6 +274,17 @@ impl WgpuRenderer {
             } = glyph
             {
                 let face = faces.get(face_id);
+
+                // Decompose physical-pixel positions into integer + subpixel bin.
+                // The bin is baked into the rasterized bitmap by swash for subpixel
+                // accuracy; vertex positions stay on integer pixels (no Linear blur).
+                let sf = self.scale_factor;
+                let phys_x = (*x + offset_x) * sf;
+                let baseline = *y + offset_y + *ascent;
+                let phys_y = baseline * sf;
+                let (x_int, x_bin) = SubpixelBin::new(phys_x);
+                let (y_int, y_bin) = SubpixelBin::new(phys_y);
+
                 let cached_opt = if let Some(text) = composed {
                     glyph_atlas.get_or_create_composed(
                         &self.device,
@@ -281,24 +293,25 @@ impl WgpuRenderer {
                         *face_id,
                         font_size.to_bits(),
                         face,
+                        x_bin,
+                        y_bin,
                     )
                 } else {
                     let key = GlyphKey {
                         charcode: *ch as u32,
                         face_id: *face_id,
                         font_size_bits: font_size.to_bits(),
+                        x_bin,
+                        y_bin,
                     };
                     glyph_atlas.get_or_create(&self.device, &self.queue, &key, face)
                 };
 
                 if let Some(cached) = cached_opt {
-                    let sf = self.scale_factor;
-                    // Snap glyph positions to physical pixel boundaries to prevent
-                    // blurry text from Linear texture filtering at fractional offsets.
-                    // Multiply by scale_factor → round to physical pixel → divide back.
-                    let glyph_x = ((*x + offset_x + cached.bearing_x / sf) * sf).round() / sf;
-                    let baseline = *y + offset_y + *ascent;
-                    let glyph_y = ((baseline - cached.bearing_y / sf) * sf).round() / sf;
+                    // Vertex positions from integer physical pixels + bearing,
+                    // converted back to logical pixels.
+                    let glyph_x = (x_int as f32 + cached.bearing_x) / sf;
+                    let glyph_y = (y_int as f32 - cached.bearing_y) / sf;
                     let glyph_w = cached.width as f32 / sf;
                     let glyph_h = cached.height as f32 / sf;
 
@@ -385,6 +398,8 @@ impl WgpuRenderer {
                             text: text.clone(),
                             face_id: *face_id,
                             font_size_bits: font_size.to_bits(),
+                            x_bin,
+                            y_bin,
                         };
                         if cached.is_color {
                             composed_color_data.push((ckey.clone(), vertices));
@@ -402,6 +417,8 @@ impl WgpuRenderer {
                             charcode: *ch as u32,
                             face_id: *face_id,
                             font_size_bits: font_size.to_bits(),
+                            x_bin,
+                            y_bin,
                         };
                         if cached.is_color {
                             color_data.push((key.clone(), vertices));

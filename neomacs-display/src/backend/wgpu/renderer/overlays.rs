@@ -1,6 +1,7 @@
 //! Overlays methods for WgpuRenderer.
 
 use super::super::glyph_atlas::{GlyphKey, WgpuGlyphAtlas};
+use cosmic_text::SubpixelBin;
 use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex, Uniforms};
 use super::TitleFadeEntry;
 use super::WgpuRenderer;
@@ -626,6 +627,8 @@ impl WgpuRenderer {
                             charcode: ch as u32,
                             face_id: 0,
                             font_size_bits,
+                            x_bin: SubpixelBin::Zero,
+                            y_bin: SubpixelBin::Zero,
                         };
                         glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                         overlay_glyphs.push((
@@ -657,6 +660,8 @@ impl WgpuRenderer {
                         charcode: ch as u32,
                         face_id: 0,
                         font_size_bits,
+                        x_bin: SubpixelBin::Zero,
+                        y_bin: SubpixelBin::Zero,
                     };
                     glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                     overlay_glyphs.push((key, label_x + (ci as f32) * char_width, iy + 2.0, color));
@@ -670,6 +675,8 @@ impl WgpuRenderer {
                             charcode: ch as u32,
                             face_id: 0,
                             font_size_bits,
+                            x_bin: SubpixelBin::Zero,
+                            y_bin: SubpixelBin::Zero,
                         };
                         glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                         overlay_glyphs.push((
@@ -687,6 +694,8 @@ impl WgpuRenderer {
                         charcode: '\u{25B8}' as u32,
                         face_id: 0,
                         font_size_bits,
+                        x_bin: SubpixelBin::Zero,
+                        y_bin: SubpixelBin::Zero,
                     };
                     glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                     overlay_glyphs.push((key, arrow_x, iy + 2.0, text_color));
@@ -921,6 +930,8 @@ impl WgpuRenderer {
                     charcode: ch as u32,
                     face_id: 0,
                     font_size_bits,
+                    x_bin: SubpixelBin::Zero,
+                    y_bin: SubpixelBin::Zero,
                 };
                 glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                 overlay_glyphs.push((key, start_x + ci as f32 * char_width, start_y, color, scale));
@@ -1176,6 +1187,8 @@ impl WgpuRenderer {
                     charcode: ch as u32,
                     face_id: 0,
                     font_size_bits,
+                    x_bin: SubpixelBin::Zero,
+                    y_bin: SubpixelBin::Zero,
                 };
                 glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                 overlay_glyphs.push((key, tx + padding + (ci as f32) * char_width, ly, text_color));
@@ -1380,6 +1393,8 @@ impl WgpuRenderer {
                 charcode: ch as u32,
                 face_id: 0,
                 font_size_bits,
+                x_bin: SubpixelBin::Zero,
+                y_bin: SubpixelBin::Zero,
             };
             glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
             overlay_glyphs.push((key, title_x + ci as f32 * char_width, title_y, text_color));
@@ -1409,6 +1424,8 @@ impl WgpuRenderer {
             charcode: 0x2500,
             face_id: 0,
             font_size_bits,
+            x_bin: SubpixelBin::Zero,
+            y_bin: SubpixelBin::Zero,
         };
         glyph_atlas.get_or_create(&self.device, &self.queue, &min_key, None);
         overlay_glyphs.push((min_key, min_icon_x, btn_center_y, min_color));
@@ -1419,6 +1436,8 @@ impl WgpuRenderer {
             charcode: 0x25A1,
             face_id: 0,
             font_size_bits,
+            x_bin: SubpixelBin::Zero,
+            y_bin: SubpixelBin::Zero,
         };
         glyph_atlas.get_or_create(&self.device, &self.queue, &max_key, None);
         overlay_glyphs.push((max_key, max_icon_x, btn_center_y, max_color));
@@ -1429,6 +1448,8 @@ impl WgpuRenderer {
             charcode: 0x00D7,
             face_id: 0,
             font_size_bits,
+            x_bin: SubpixelBin::Zero,
+            y_bin: SubpixelBin::Zero,
         };
         glyph_atlas.get_or_create(&self.device, &self.queue, &close_key, None);
         overlay_glyphs.push((close_key, close_icon_x, btn_center_y, close_color));
@@ -1674,6 +1695,8 @@ impl WgpuRenderer {
                 charcode: ch as u32,
                 face_id: 0,
                 font_size_bits,
+                x_bin: SubpixelBin::Zero,
+                y_bin: SubpixelBin::Zero,
             };
             glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
             overlay_glyphs.push((key, px + 2.0 + (ci as f32) * char_width, py, text_color));
@@ -1963,6 +1986,8 @@ impl WgpuRenderer {
                         charcode: ch as u32,
                         face_id: 0,
                         font_size_bits,
+                        x_bin: SubpixelBin::Zero,
+                        y_bin: SubpixelBin::Zero,
                     };
                     glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                     let base = if is_dim {
@@ -1988,6 +2013,8 @@ impl WgpuRenderer {
                         charcode: ch as u32,
                         face_id: 0,
                         font_size_bits,
+                        x_bin: SubpixelBin::Zero,
+                        y_bin: SubpixelBin::Zero,
                     };
                     glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                     let base = if is_dim {
@@ -2043,6 +2070,8 @@ impl WgpuRenderer {
                         charcode: ch as u32,
                         face_id: 0,
                         font_size_bits,
+                        x_bin: SubpixelBin::Zero,
+                        y_bin: SubpixelBin::Zero,
                     };
                     glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                     all_text_glyphs.push((
@@ -2162,6 +2191,8 @@ impl WgpuRenderer {
                 charcode: ch as u32,
                 face_id: 0,
                 font_size_bits,
+                x_bin: SubpixelBin::Zero,
+                y_bin: SubpixelBin::Zero,
             };
             glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
             text_glyphs.push((key, cx, text_y, text_color));
@@ -2304,6 +2335,8 @@ impl WgpuRenderer {
                     charcode: ch as u32,
                     face_id: 0,
                     font_size_bits,
+                    x_bin: SubpixelBin::Zero,
+                    y_bin: SubpixelBin::Zero,
                 };
                 glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                 overlay_glyphs.push((
@@ -2529,6 +2562,8 @@ impl WgpuRenderer {
                     charcode: ch as u32,
                     face_id: 0,
                     font_size_bits,
+                    x_bin: SubpixelBin::Zero,
+                    y_bin: SubpixelBin::Zero,
                 };
                 glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
                 overlay_glyphs.push((key, label_x + (ci as f32) * char_width, text_y, text_color));

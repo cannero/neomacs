@@ -3,6 +3,7 @@
 use super::super::glyph_atlas::{ComposedGlyphKey, GlyphKey, WgpuGlyphAtlas};
 use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex, Uniforms};
 use super::WgpuRenderer;
+use cosmic_text::SubpixelBin;
 use super::{
     ClickHaloEntry, CursorGhostEntry, CursorParticle, EdgeGlowEntry, EdgeSnapEntry, HeatMapEntry,
     LineAnimEntry, MatrixColumn, ModeLineFadeEntry, RainDrop, RippleWaveEntry, ScrollMomentumEntry,
@@ -2472,6 +2473,21 @@ impl WgpuRenderer {
 
                         let face = faces.get(face_id);
 
+                        // Decompose physical-pixel positions into integer + subpixel bin.
+                        // The bin is baked into the rasterized bitmap by swash for subpixel
+                        // accuracy; vertex positions stay on integer pixels (no Linear blur).
+                        let sf = self.scale_factor;
+                        let ya = if has_line_anims {
+                            *y + self.line_y_offset(*x, *y)
+                        } else {
+                            *y
+                        };
+                        let phys_x = (*x) * sf;
+                        let baseline = ya + *ascent;
+                        let phys_y = baseline * sf;
+                        let (x_int, x_bin) = SubpixelBin::new(phys_x);
+                        let (y_int, y_bin) = SubpixelBin::new(phys_y);
+
                         // Look up or create the glyph texture
                         let cached_opt = if let Some(text) = composed {
                             // Composed grapheme cluster (emoji ZWJ, combining marks, etc.)
@@ -2482,6 +2498,8 @@ impl WgpuRenderer {
                                 *face_id,
                                 font_size.to_bits(),
                                 face,
+                                x_bin,
+                                y_bin,
                             )
                         } else {
                             // Single character
@@ -2489,23 +2507,17 @@ impl WgpuRenderer {
                                 charcode: *char as u32,
                                 face_id: *face_id,
                                 font_size_bits: font_size.to_bits(),
+                                x_bin,
+                                y_bin,
                             };
                             glyph_atlas.get_or_create(&self.device, &self.queue, &key, face)
                         };
 
                         if let Some(cached) = cached_opt {
-                            // Cached glyphs are rasterized at physical resolution (scale_factor).
-                            // Divide bearing/size by scale_factor to get logical pixel positions
-                            // that match Emacs coordinate space.
-                            let sf = self.scale_factor;
-                            let ya = if has_line_anims {
-                                *y + self.line_y_offset(*x, *y)
-                            } else {
-                                *y
-                            };
-                            let glyph_x = *x + cached.bearing_x / sf;
-                            let baseline = ya + *ascent;
-                            let glyph_y = baseline - cached.bearing_y / sf;
+                            // Vertex positions from integer physical pixels + bearing,
+                            // converted back to logical pixels.
+                            let glyph_x = (x_int as f32 + cached.bearing_x) / sf;
+                            let glyph_y = (y_int as f32 - cached.bearing_y) / sf;
                             let glyph_w = cached.width as f32 / sf;
                             let glyph_h = cached.height as f32 / sf;
 
@@ -2697,6 +2709,8 @@ impl WgpuRenderer {
                                     text: text.clone(),
                                     face_id: *face_id,
                                     font_size_bits: font_size.to_bits(),
+                                    x_bin,
+                                    y_bin,
                                 };
                                 if cached.is_color {
                                     composed_color_data.push((ckey.clone(), vertices));
@@ -2714,6 +2728,8 @@ impl WgpuRenderer {
                                     charcode: *char as u32,
                                     face_id: *face_id,
                                     font_size_bits: font_size.to_bits(),
+                                    x_bin,
+                                    y_bin,
                                 };
                                 if cached.is_color {
                                     color_data.push((key.clone(), vertices));
