@@ -7,7 +7,7 @@
 //! rendered glyph widths — eliminating gaps and overlaps caused by the
 //! C fontconfig and cosmic-text resolving different font files.
 
-use crate::core::font_loader::FontFileCache;
+use crate::font_loader::FontFileCache;
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Style, Weight};
 use std::collections::HashMap;
 

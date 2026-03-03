@@ -18,8 +18,6 @@ pub mod backend;
 pub mod core;
 pub mod effect_config;
 pub mod ffi;
-pub mod font_match;
-pub mod layout;
 pub mod text;
 pub mod thread_comm;
 
@@ -27,6 +25,16 @@ pub mod render_thread;
 
 #[cfg(feature = "neo-term")]
 pub mod terminal;
+
+/// Layout-facing font matching helpers (kept under the legacy module path).
+pub mod font_match {
+    pub use neomacs_layout_engine::font_match::*;
+}
+
+/// Rust layout engine API (kept under the legacy module path).
+pub mod layout {
+    pub use neomacs_layout_engine::*;
+}
 
 pub use crate::backend::DisplayBackend;
 pub use crate::core::*;

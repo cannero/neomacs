@@ -3,7 +3,6 @@
 use super::super::glyph_atlas::{ComposedGlyphKey, GlyphKey, WgpuGlyphAtlas};
 use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex, Uniforms};
 use super::WgpuRenderer;
-use cosmic_text::SubpixelBin;
 use super::{
     ClickHaloEntry, CursorGhostEntry, CursorParticle, EdgeGlowEntry, EdgeSnapEntry, HeatMapEntry,
     LineAnimEntry, MatrixColumn, ModeLineFadeEntry, RainDrop, RippleWaveEntry, ScrollMomentumEntry,
@@ -13,6 +12,7 @@ use super::{
 use crate::core::face::{BoxType, Face, FaceAttributes};
 use crate::core::frame_glyphs::{CursorStyle, FrameGlyph, FrameGlyphBuffer, StipplePattern};
 use crate::core::types::{AnimatedCursor, Color, Rect};
+use cosmic_text::SubpixelBin;
 use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 

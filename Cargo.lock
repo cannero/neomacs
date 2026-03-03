@@ -1963,6 +1963,8 @@ dependencies = [
  "gstreamer-video",
  "image 0.24.9",
  "libc",
+ "neomacs-display-protocol",
+ "neomacs-layout-engine",
  "neovm-core",
  "once_cell",
  "os_pipe",
@@ -1982,6 +1984,24 @@ dependencies = [
  "which",
  "windows-sys 0.59.0",
  "winit",
+]
+
+[[package]]
+name = "neomacs-display-protocol"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.11.0",
+]
+
+[[package]]
+name = "neomacs-layout-engine"
+version = "0.0.1"
+dependencies = [
+ "cosmic-text",
+ "fontdb 0.23.0",
+ "neomacs-display-protocol",
+ "neovm-core",
+ "tracing",
 ]
 
 [[package]]

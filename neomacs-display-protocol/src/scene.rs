@@ -1,7 +1,7 @@
 //! Scene graph for display rendering.
 
-use crate::core::face::Face;
-use crate::core::types::{Color, Rect, Transform};
+use crate::face::Face;
+use crate::types::{Color, Rect, Transform};
 use std::collections::HashMap;
 
 /// Scene graph node types

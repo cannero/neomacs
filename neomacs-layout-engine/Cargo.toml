@@ -1,0 +1,20 @@
+[package]
+name = "neomacs-layout-engine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Rust layout engine crate for Neomacs"
+
+[features]
+default = ["core-backend-emacs-c"]
+core-backend-emacs-c = ["neovm-core/core-backend-emacs-c"]
+core-backend-rust = ["neovm-core/core-backend-rust"]
+neo-term = ["neomacs-display-protocol/neo-term"]
+
+[dependencies]
+neomacs-display-protocol = { workspace = true }
+neovm-core.workspace = true
+cosmic-text.workspace = true
+fontdb.workspace = true
+tracing.workspace = true

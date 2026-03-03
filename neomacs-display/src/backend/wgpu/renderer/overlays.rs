@@ -1,7 +1,6 @@
 //! Overlays methods for WgpuRenderer.
 
 use super::super::glyph_atlas::{GlyphKey, WgpuGlyphAtlas};
-use cosmic_text::SubpixelBin;
 use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex, Uniforms};
 use super::TitleFadeEntry;
 use super::WgpuRenderer;
@@ -11,6 +10,7 @@ use crate::core::types::{AnimatedCursor, Color, Rect};
 use crate::render_thread::PopupMenuState;
 use crate::render_thread::TooltipState;
 use crate::thread_comm::{MenuBarItem, ToolBarItem};
+use cosmic_text::SubpixelBin;
 use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 

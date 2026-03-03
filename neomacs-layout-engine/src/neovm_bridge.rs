@@ -13,7 +13,7 @@ use neovm_core::face::{
 use neovm_core::window::{Frame, FrameId, Window};
 
 use super::types::{FrameParams, WindowParams};
-use crate::core::types::Rect;
+use neomacs_display_protocol::types::Rect;
 
 /// Build `FrameParams` from a neovm-core `Frame`, reading default face
 /// colors from the face table.

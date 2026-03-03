@@ -7,8 +7,8 @@ use super::emacs_ffi::*;
 use super::engine::LayoutEngine;
 use super::types::*;
 use super::unicode::decode_utf8;
-use crate::core::frame_glyphs::FrameGlyphBuffer;
-use crate::core::types::Color;
+use neomacs_display_protocol::frame_glyphs::FrameGlyphBuffer;
+use neomacs_display_protocol::types::Color;
 
 /// Which kind of status line to render.
 pub(crate) enum StatusLineKind {
@@ -555,8 +555,8 @@ impl LayoutEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::frame_glyphs::FrameGlyph;
-    use crate::core::types::Color;
+    use neomacs_display_protocol::frame_glyphs::FrameGlyph;
+    use neomacs_display_protocol::types::Color;
 
     // ---------------------------------------------------------------
     // Helper: build a 10-byte face run record (native-endian)

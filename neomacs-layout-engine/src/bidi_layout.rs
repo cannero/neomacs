@@ -7,8 +7,8 @@
 //! have been laid out left-to-right, this module reorders their X positions
 //! so that RTL runs appear in the correct visual order.
 
-use crate::core::bidi::{self, BidiDir};
-use crate::core::frame_glyphs::{CursorStyle, FrameGlyph, FrameGlyphBuffer};
+use crate::bidi::{self, BidiDir};
+use neomacs_display_protocol::frame_glyphs::{CursorStyle, FrameGlyph, FrameGlyphBuffer};
 
 /// Quick check whether a character is in an RTL script range.
 /// Used as a fast-path: if no character on a line is RTL, we skip
@@ -252,7 +252,7 @@ pub fn reorder_row_bidi(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::Color;
+    use neomacs_display_protocol::types::Color;
 
     /// Helper to create a minimal Char glyph for testing.
     fn make_char_glyph(ch: char, x: f32, width: f32) -> FrameGlyph {

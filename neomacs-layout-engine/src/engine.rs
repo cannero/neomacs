@@ -15,9 +15,9 @@ use super::hit_test::*;
 use super::status_line::*;
 use super::types::*;
 use super::unicode::*;
-use crate::core::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
-use crate::core::frame_glyphs::{CursorStyle, FrameGlyphBuffer, StipplePattern};
-use crate::core::types::{Color, Rect};
+use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
+use neomacs_display_protocol::frame_glyphs::{CursorStyle, FrameGlyphBuffer, StipplePattern};
+use neomacs_display_protocol::types::{Color, Rect};
 
 /// Maximum number of characters in a ligature run before forced flush.
 const MAX_LIGATURE_RUN_LEN: usize = 64;
@@ -8336,7 +8336,7 @@ unsafe fn render_fringe_bitmap(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::frame_glyphs::FrameGlyph;
+    use neomacs_display_protocol::frame_glyphs::FrameGlyph;
 
     fn test_window_params() -> WindowParams {
         WindowParams {

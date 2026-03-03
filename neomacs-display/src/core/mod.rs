@@ -2,7 +2,6 @@
 
 pub mod animation;
 pub mod animation_config;
-pub mod bidi;
 pub mod buffer_transition;
 pub mod casefiddle;
 pub mod casetab;
@@ -12,22 +11,20 @@ pub mod chartab;
 pub mod composite;
 pub mod cursor_animation;
 pub mod error;
-pub mod face;
-pub mod font_loader;
-pub mod frame_glyphs;
 pub mod gap_buffer;
 pub mod itree;
 pub mod marker;
 pub mod profiler;
 pub mod regex;
 pub mod region_cache;
-pub mod scene;
 pub mod scroll_animation;
 pub mod search;
 pub mod syntax_table;
 pub mod textprop;
-pub mod types;
 pub mod undo;
+
+pub use neomacs_display_protocol::{face, frame_glyphs, scene, types};
+pub use neomacs_layout_engine::{bidi, font_loader};
 
 pub use animation::*;
 pub use animation_config::*;

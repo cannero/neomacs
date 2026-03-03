@@ -4,7 +4,7 @@
 //! The layout engine produces LayoutOutput which is then converted to
 //! FrameGlyphBuffer for the existing renderer.
 
-use crate::core::types::{Color, Rect};
+use neomacs_display_protocol::types::{Color, Rect};
 
 /// Complete layout output for one frame.
 /// Produced by the layout engine, consumed by the renderer.

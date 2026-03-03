@@ -1,6 +1,6 @@
 //! Face (text styling) types.
 
-use crate::core::types::Color;
+use crate::types::Color;
 use bitflags::bitflags;
 
 bitflags! {

@@ -4,8 +4,8 @@
 //! Emacs's current_matrix and rebuilds this buffer from scratch. No
 //! incremental overlap tracking is needed.
 
-use crate::core::face::Face;
-use crate::core::types::{Color, Rect};
+use crate::face::Face;
+use crate::types::{Color, Rect};
 use std::collections::HashMap;
 
 /// Cursor visual style, carrying bar/hbar dimensions.

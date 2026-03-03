@@ -1,6 +1,6 @@
 //! Basic types used throughout the display engine.
 
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Sub};
 
 /// RGBA color with f32 components (0.0 - 1.0)
 #[repr(C)]

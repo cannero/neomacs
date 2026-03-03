@@ -58,6 +58,8 @@ libc.workspace = true
 
 # NeoVM Elisp evaluator
 neovm-core.workspace = true
+neomacs-display-protocol.workspace = true
+neomacs-layout-engine.workspace = true
 
 # Terminal emulation (neo-term)
 alacritty_terminal = { workspace = true, optional = true }
@@ -74,15 +76,27 @@ pkg-config.workspace = true
 # Default: all features enabled
 default = ["video", "neo-term", "core-backend-emacs-c"]
 # Core backend selection (chosen by configure/Makefile feature flag)
-core-backend-emacs-c = ["neovm-core/core-backend-emacs-c"]
-core-backend-rust = ["neovm-core/core-backend-rust"]
+core-backend-emacs-c = [
+    "neovm-core/core-backend-emacs-c",
+    "neomacs-layout-engine/core-backend-emacs-c",
+]
+core-backend-rust = [
+    "neovm-core/core-backend-rust",
+    "neomacs-layout-engine/core-backend-rust",
+]
 tty-backend = []
 # Video with GStreamer
 video = ["gstreamer", "gstreamer-video", "gstreamer-app", "gstreamer-allocators"]
 # WPE WebKit integration
 wpe-webkit = []
 # GPU-accelerated terminal emulator
-neo-term = ["alacritty_terminal", "parking_lot", "portable-pty"]
+neo-term = [
+    "alacritty_terminal",
+    "parking_lot",
+    "portable-pty",
+    "neomacs-display-protocol/neo-term",
+    "neomacs-layout-engine/neo-term",
+]
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "neomacs-display-protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Shared display protocol types for Neomacs layout/render/runtime"
+
+[features]
+default = []
+neo-term = []
+
+[dependencies]
+bitflags.workspace = true
