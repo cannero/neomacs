@@ -2002,7 +2002,9 @@ dependencies = [
  "fontdb 0.23.0",
  "neomacs-display-protocol",
  "neovm-core",
+ "once_cell",
  "tracing",
+ "ttf-parser 0.25.1",
 ]
 
 [[package]]
