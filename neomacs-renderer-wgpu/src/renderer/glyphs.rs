@@ -4823,27 +4823,13 @@ impl WgpuRenderer {
         composed_mask_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
     ) {
         // Draw composed mask glyphs (each unique, no batching).
-        if composed_mask_data.is_empty() {
-            return;
-        }
-
-        render_pass.set_pipeline(&self.glyph_pipeline);
-        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-        for (ckey, verts) in composed_mask_data {
-            if let Some(cached) = glyph_atlas.get_composed(ckey) {
-                let vbuf = self
-                    .device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Composed Glyph VB"),
-                        contents: bytemuck::cast_slice(verts),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
-                render_pass.set_vertex_buffer(0, vbuf.slice(..));
-                render_pass.set_bind_group(1, &cached.bind_group, &[]);
-                render_pass.draw(0..6, 0..1);
-            }
-        }
+        self.draw_composed_glyphs(
+            render_pass,
+            glyph_atlas,
+            composed_mask_data,
+            false,
+            "Composed Glyph VB",
+        );
     }
 
     fn draw_composed_color_glyphs(
@@ -4853,19 +4839,39 @@ impl WgpuRenderer {
         composed_color_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
     ) {
         // Draw composed color glyphs (emoji ZWJ sequences, etc.).
-        if composed_color_data.is_empty() {
+        self.draw_composed_glyphs(
+            render_pass,
+            glyph_atlas,
+            composed_color_data,
+            true,
+            "Composed Color Glyph VB",
+        );
+    }
+
+    fn draw_composed_glyphs(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        glyph_atlas: &WgpuGlyphAtlas,
+        composed_data: &[(ComposedGlyphKey, [GlyphVertex; 6])],
+        use_image_pipeline: bool,
+        vertex_buffer_label: &'static str,
+    ) {
+        if composed_data.is_empty() {
             return;
         }
-
-        render_pass.set_pipeline(&self.image_pipeline);
+        if use_image_pipeline {
+            render_pass.set_pipeline(&self.image_pipeline);
+        } else {
+            render_pass.set_pipeline(&self.glyph_pipeline);
+        }
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-        for (ckey, verts) in composed_color_data {
+        for (ckey, verts) in composed_data {
             if let Some(cached) = glyph_atlas.get_composed(ckey) {
                 let vbuf = self
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Composed Color Glyph VB"),
+                        label: Some(vertex_buffer_label),
                         contents: bytemuck::cast_slice(verts),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
