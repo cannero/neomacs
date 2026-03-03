@@ -145,6 +145,7 @@ pub struct WgpuRenderer {
     pub(super) cursor_snowflake_last_y: f32,
     pub(super) edge_glow_entries: Vec<EdgeGlowEntry>,
     pub(super) rain_drops: Vec<RainDrop>,
+    #[allow(dead_code)]
     pub(super) rain_last_spawn: std::time::Instant,
     pub(super) cursor_ripple_waves: Vec<RippleWaveEntry>,
     pub(super) aurora_start: std::time::Instant,
@@ -281,8 +282,10 @@ pub(super) struct WindowFadeEntry {
 /// Entry for an active title/breadcrumb crossfade animation
 pub(super) struct TitleFadeEntry {
     pub(super) window_id: i64,
+    #[allow(dead_code)]
     pub(super) bounds: Rect,
     pub(super) old_text: String,
+    #[allow(dead_code)]
     pub(super) new_text: String,
     pub(super) started: std::time::Instant,
     pub(super) duration: std::time::Duration,

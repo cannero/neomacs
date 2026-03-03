@@ -1778,52 +1778,6 @@ impl WgpuRenderer {
         self.queue.submit(Some(encoder.finish()));
     }
 
-    /// Build breadcrumb display chars from a file path
-    /// Map a file extension to a distinct HSL-based accent color (linear RGB)
-    pub(super) fn extension_to_color(ext: &str) -> (f32, f32, f32) {
-        // Well-known extensions get specific colors
-        match ext {
-            "rs" => (0.8, 0.3, 0.1),                             // Rust - orange
-            "el" | "lisp" | "scm" => (0.6, 0.2, 0.8),            // Lisp - purple
-            "c" | "h" => (0.2, 0.5, 0.8),                        // C - blue
-            "cpp" | "cc" | "hpp" => (0.2, 0.4, 0.7),             // C++ - darker blue
-            "py" => (0.2, 0.6, 0.2),                             // Python - green
-            "js" | "jsx" => (0.9, 0.8, 0.2),                     // JavaScript - yellow
-            "ts" | "tsx" => (0.2, 0.5, 0.9),                     // TypeScript - blue
-            "rb" => (0.8, 0.2, 0.2),                             // Ruby - red
-            "go" => (0.0, 0.6, 0.7),                             // Go - teal
-            "java" => (0.7, 0.3, 0.1),                           // Java - brown-orange
-            "html" | "htm" => (0.9, 0.3, 0.2),                   // HTML - red-orange
-            "css" | "scss" => (0.2, 0.4, 0.9),                   // CSS - blue
-            "json" | "yaml" | "yml" | "toml" => (0.5, 0.5, 0.5), // Config - gray
-            "md" | "org" | "txt" => (0.4, 0.7, 0.4),             // Text - green
-            "sh" | "bash" | "zsh" => (0.3, 0.7, 0.3),            // Shell - green
-            _ => {
-                // Hash-based color for unknown extensions
-                let mut hash: u32 = 5381;
-                for byte in ext.bytes() {
-                    hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
-                }
-                let hue = (hash % 360) as f32 / 360.0;
-                // Simple HSL to RGB (saturation=0.6, lightness=0.5)
-                let s = 0.6_f32;
-                let l = 0.5_f32;
-                let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-                let x = c * (1.0 - ((hue * 6.0) % 2.0 - 1.0).abs());
-                let m = l - c / 2.0;
-                let (r, g, b) = match (hue * 6.0) as i32 {
-                    0 => (c, x, 0.0),
-                    1 => (x, c, 0.0),
-                    2 => (0.0, c, x),
-                    3 => (0.0, x, c),
-                    4 => (x, 0.0, c),
-                    _ => (c, 0.0, x),
-                };
-                (r + m, g + m, b + m)
-            }
-        }
-    }
-
     pub(super) fn breadcrumb_display_chars(path: &str) -> Vec<(char, bool)> {
         let separator = " \u{203A} "; // " › "
         let components: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
