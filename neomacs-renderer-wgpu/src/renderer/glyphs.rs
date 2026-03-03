@@ -778,7 +778,6 @@ impl WgpuRenderer {
                 }
             }
         }
-
         // --- Collect overlay backgrounds ---
         let mut overlay_rect_vertices: Vec<RectVertex> = Vec::new();
 
@@ -2960,6 +2959,335 @@ impl WgpuRenderer {
                 && gy >= s.y - box_margin - 0.5
                 && gy < s.y + s.height + box_margin + 0.5
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn collect_non_overlay_background_vertices(
+        &mut self,
+        frame_glyphs: &FrameGlyphBuffer,
+        faces: &HashMap<u32, Face>,
+        box_spans: &[BoxSpan],
+        box_margin: f32,
+        logical_w: f32,
+        logical_h: f32,
+        background_gradient: Option<((f32, f32, f32), (f32, f32, f32))>,
+    ) -> (Vec<RectVertex>, bool) {
+        let mut non_overlay_rect_vertices: Vec<RectVertex> = Vec::new();
+
+        // Background gradient (rendered behind everything).
+        if let Some((top, bottom)) = background_gradient {
+            let top_color = Color::new(top.0, top.1, top.2, 1.0).srgb_to_linear();
+            let bot_color = Color::new(bottom.0, bottom.1, bottom.2, 1.0).srgb_to_linear();
+            let tc = [top_color.r, top_color.g, top_color.b, top_color.a];
+            let bc = [bot_color.r, bot_color.g, bot_color.b, bot_color.a];
+            // Two triangles forming a fullscreen quad with gradient.
+            // Top-left, top-right, bottom-left (triangle 1)
+            non_overlay_rect_vertices.push(RectVertex {
+                position: [0.0, 0.0],
+                color: tc,
+            });
+            non_overlay_rect_vertices.push(RectVertex {
+                position: [logical_w, 0.0],
+                color: tc,
+            });
+            non_overlay_rect_vertices.push(RectVertex {
+                position: [0.0, logical_h],
+                color: bc,
+            });
+            // Top-right, bottom-right, bottom-left (triangle 2)
+            non_overlay_rect_vertices.push(RectVertex {
+                position: [logical_w, 0.0],
+                color: tc,
+            });
+            non_overlay_rect_vertices.push(RectVertex {
+                position: [logical_w, logical_h],
+                color: bc,
+            });
+            non_overlay_rect_vertices.push(RectVertex {
+                position: [0.0, logical_h],
+                color: bc,
+            });
+        }
+
+        // Window backgrounds.
+        for glyph in &frame_glyphs.glyphs {
+            if let FrameGlyph::Background { bounds, color } = glyph {
+                self.add_rect(
+                    &mut non_overlay_rect_vertices,
+                    bounds.x,
+                    bounds.y,
+                    bounds.width,
+                    bounds.height,
+                    color,
+                );
+            }
+        }
+
+        // Non-overlay stretches (skip those inside a rounded box span).
+        let has_line_anims =
+            !self.active_line_anims.is_empty() || !self.active_scroll_spacings.is_empty();
+        for glyph in &frame_glyphs.glyphs {
+            if let FrameGlyph::Stretch {
+                x,
+                y,
+                width,
+                height,
+                bg,
+                is_overlay,
+                stipple_id,
+                stipple_fg,
+                ..
+            } = glyph
+            {
+                if !*is_overlay
+                    && !Self::overlaps_rounded_box_span(*x, *y, false, box_spans, faces, box_margin)
+                {
+                    let ya = if has_line_anims {
+                        *y + self.line_y_offset(*x, *y)
+                    } else {
+                        *y
+                    };
+                    self.add_rect(&mut non_overlay_rect_vertices, *x, ya, *width, *height, bg);
+                    if *stipple_id > 0 {
+                        if let (Some(fg), Some(pat)) =
+                            (stipple_fg, frame_glyphs.stipple_patterns.get(stipple_id))
+                        {
+                            self.render_stipple_pattern(
+                                &mut non_overlay_rect_vertices,
+                                *x,
+                                ya,
+                                *width,
+                                *height,
+                                fg,
+                                pat,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Non-overlay char backgrounds (skip boxed chars — they get rounded bg instead).
+        for glyph in &frame_glyphs.glyphs {
+            if let FrameGlyph::Char {
+                x,
+                y,
+                width,
+                height,
+                bg,
+                is_overlay,
+                ..
+            } = glyph
+            {
+                if !*is_overlay
+                    && let Some(bg_color) = bg
+                    && !Self::overlaps_rounded_box_span(*x, *y, false, box_spans, faces, box_margin)
+                {
+                    let ya = if has_line_anims {
+                        *y + self.line_y_offset(*x, *y)
+                    } else {
+                        *y
+                    };
+                    self.add_rect(
+                        &mut non_overlay_rect_vertices,
+                        *x,
+                        ya,
+                        *width,
+                        *height,
+                        bg_color,
+                    );
+                }
+            }
+        }
+
+        // Current line highlight.
+        if self.effects.line_highlight.enabled {
+            let (lr, lg, lb, la) = self.effects.line_highlight.color;
+            let hl_color = Color::new(lr, lg, lb, la);
+
+            // Find the active cursor (non-hollow, i.e. active window).
+            for glyph in &frame_glyphs.glyphs {
+                if let FrameGlyph::Cursor {
+                    y, height, style, ..
+                } = glyph
+                    && !style.is_hollow()
+                {
+                    // Find the window this cursor belongs to.
+                    for info in &frame_glyphs.window_infos {
+                        if info.selected {
+                            self.add_rect(
+                                &mut non_overlay_rect_vertices,
+                                info.bounds.x,
+                                *y,
+                                info.bounds.width,
+                                *height,
+                                &hl_color,
+                            );
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Indent guides.
+        if self.effects.indent_guides.enabled {
+            let (ig_r, ig_g, ig_b, ig_a) = self.effects.indent_guides.color;
+            let guide_color = Color::new(ig_r, ig_g, ig_b, ig_a);
+            let guide_width = 1.0_f32;
+            let char_w = frame_glyphs.char_width.max(1.0);
+            let tab_w = 4;
+
+            struct RowInfo {
+                y: f32,
+                height: f32,
+                first_non_space_x: f32,
+                text_start_x: f32,
+            }
+
+            let mut rows: Vec<RowInfo> = Vec::new();
+            let mut current_row_y: f32 = -1.0;
+            let mut current_row_h: f32 = 0.0;
+            let mut first_non_space_x: f32 = f32::MAX;
+            let mut text_start_x: f32 = f32::MAX;
+            let mut has_chars = false;
+            for glyph in &frame_glyphs.glyphs {
+                if let FrameGlyph::Char {
+                    x,
+                    y,
+                    width: _,
+                    height,
+                    char: ch,
+                    is_overlay,
+                    ..
+                } = glyph
+                {
+                    if *is_overlay {
+                        continue;
+                    }
+                    let gy = *y;
+                    if (gy - current_row_y).abs() > 0.5 {
+                        if has_chars && first_non_space_x > text_start_x + char_w {
+                            rows.push(RowInfo {
+                                y: current_row_y,
+                                height: current_row_h,
+                                first_non_space_x,
+                                text_start_x,
+                            });
+                        }
+                        current_row_y = gy;
+                        current_row_h = *height;
+                        first_non_space_x = f32::MAX;
+                        text_start_x = f32::MAX;
+                        has_chars = false;
+                    }
+                    has_chars = true;
+                    if *x < text_start_x {
+                        text_start_x = *x;
+                    }
+                    if *ch != ' ' && *ch != '\t' && *x < first_non_space_x {
+                        first_non_space_x = *x;
+                    }
+                }
+            }
+            if has_chars && first_non_space_x > text_start_x + char_w {
+                rows.push(RowInfo {
+                    y: current_row_y,
+                    height: current_row_h,
+                    first_non_space_x,
+                    text_start_x,
+                });
+            }
+
+            let tab_px = char_w * tab_w as f32;
+            let use_rainbow = self.effects.indent_guides.rainbow_enabled
+                && !self.effects.indent_guides.rainbow_colors.is_empty();
+            for row in &rows {
+                let mut col_x = row.text_start_x + tab_px;
+                let mut depth: usize = 0;
+                while col_x < row.first_non_space_x - 1.0 {
+                    let color = if use_rainbow {
+                        let (r, g, b, a) = self.effects.indent_guides.rainbow_colors
+                            [depth % self.effects.indent_guides.rainbow_colors.len()];
+                        Color::new(r, g, b, a)
+                    } else {
+                        guide_color
+                    };
+                    self.add_rect(
+                        &mut non_overlay_rect_vertices,
+                        col_x,
+                        row.y,
+                        guide_width,
+                        row.height,
+                        &color,
+                    );
+                    col_x += tab_px;
+                    depth += 1;
+                }
+            }
+        }
+
+        // Visible whitespace dots.
+        if self.effects.show_whitespace.enabled {
+            let (wr, wg, wb, wa) = self.effects.show_whitespace.color;
+            let ws_color = Color::new(wr, wg, wb, wa);
+            let dot_size = 1.5_f32;
+
+            for glyph in &frame_glyphs.glyphs {
+                if let FrameGlyph::Char {
+                    char: ch,
+                    x,
+                    y,
+                    width,
+                    height: _,
+                    ascent,
+                    is_overlay,
+                    ..
+                } = glyph
+                {
+                    if *is_overlay {
+                        continue;
+                    }
+                    if *ch == ' ' {
+                        let dot_x = *x + (*width - dot_size) / 2.0;
+                        let dot_y = *y + (*ascent - dot_size / 2.0);
+                        self.add_rect(
+                            &mut non_overlay_rect_vertices,
+                            dot_x,
+                            dot_y,
+                            dot_size,
+                            dot_size,
+                            &ws_color,
+                        );
+                    } else if *ch == '\t' {
+                        let arrow_h = 1.5_f32;
+                        let arrow_y = *y + (*ascent - arrow_h / 2.0);
+                        let arrow_w = (*width - 4.0).max(4.0);
+                        let arrow_x = *x + 2.0;
+                        self.add_rect(
+                            &mut non_overlay_rect_vertices,
+                            arrow_x,
+                            arrow_y,
+                            arrow_w,
+                            arrow_h,
+                            &ws_color,
+                        );
+                        let tip_x = arrow_x + arrow_w;
+                        self.add_rect(
+                            &mut non_overlay_rect_vertices,
+                            tip_x - 3.0,
+                            arrow_y - 1.5,
+                            3.0,
+                            arrow_h + 3.0,
+                            &ws_color,
+                        );
+                    }
+                }
+            }
+        }
+
+        (non_overlay_rect_vertices, has_line_anims)
     }
 
     fn should_use_shared_content_path(
