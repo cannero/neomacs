@@ -4565,43 +4565,76 @@ impl WgpuRenderer {
                 None
             };
 
-            if let Some(text) = composed_text {
-                let ckey = ComposedGlyphKey {
-                    text: text.into(),
-                    face_id,
-                    font_size_bits: font_size.to_bits(),
-                    x_bin,
-                    y_bin,
-                };
-                if cached.is_color {
-                    composed_color_data.push((ckey.clone(), vertices));
-                    if let Some(ov) = overstrike_vertices {
-                        composed_color_data.push((ckey, ov));
-                    }
-                } else {
-                    composed_mask_data.push((ckey.clone(), vertices));
-                    if let Some(ov) = overstrike_vertices {
-                        composed_mask_data.push((ckey, ov));
-                    }
+            self.append_glyph_vertices_to_batches(
+                composed_text,
+                char_code,
+                face_id,
+                font_size.to_bits(),
+                x_bin,
+                y_bin,
+                cached.is_color,
+                vertices,
+                overstrike_vertices,
+                mask_data,
+                color_data,
+                composed_mask_data,
+                composed_color_data,
+            );
+        }
+    }
+
+    fn append_glyph_vertices_to_batches(
+        &mut self,
+        composed_text: Option<&str>,
+        char_code: char,
+        face_id: u32,
+        font_size_bits: u32,
+        x_bin: SubpixelBin,
+        y_bin: SubpixelBin,
+        is_color: bool,
+        vertices: [GlyphVertex; 6],
+        overstrike_vertices: Option<[GlyphVertex; 6]>,
+        mask_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
+        color_data: &mut Vec<(GlyphKey, [GlyphVertex; 6])>,
+        composed_mask_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
+        composed_color_data: &mut Vec<(ComposedGlyphKey, [GlyphVertex; 6])>,
+    ) {
+        if let Some(text) = composed_text {
+            let ckey = ComposedGlyphKey {
+                text: text.into(),
+                face_id,
+                font_size_bits,
+                x_bin,
+                y_bin,
+            };
+            if is_color {
+                composed_color_data.push((ckey.clone(), vertices));
+                if let Some(ov) = overstrike_vertices {
+                    composed_color_data.push((ckey, ov));
                 }
             } else {
-                let key = GlyphKey {
-                    charcode: char_code as u32,
-                    face_id,
-                    font_size_bits: font_size.to_bits(),
-                    x_bin,
-                    y_bin,
-                };
-                if cached.is_color {
-                    color_data.push((key.clone(), vertices));
-                    if let Some(ov) = overstrike_vertices {
-                        color_data.push((key, ov));
-                    }
-                } else {
-                    mask_data.push((key.clone(), vertices));
-                    if let Some(ov) = overstrike_vertices {
-                        mask_data.push((key, ov));
-                    }
+                composed_mask_data.push((ckey.clone(), vertices));
+                if let Some(ov) = overstrike_vertices {
+                    composed_mask_data.push((ckey, ov));
+                }
+            }
+        } else {
+            let key = GlyphKey {
+                charcode: char_code as u32,
+                face_id,
+                font_size_bits,
+                x_bin,
+                y_bin,
+            };
+            if is_color {
+                color_data.push((key.clone(), vertices));
+                if let Some(ov) = overstrike_vertices {
+                    color_data.push((key, ov));
+                }
+            } else {
+                mask_data.push((key.clone(), vertices));
+                if let Some(ov) = overstrike_vertices {
+                    mask_data.push((key, ov));
                 }
             }
         }
