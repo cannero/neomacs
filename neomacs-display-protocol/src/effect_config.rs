@@ -17,7 +17,7 @@ macro_rules! effect_config {
         }
     ) => {
         $(#[$meta])*
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, PartialEq)]
         pub struct $name {
             $(pub $field: $ty),*
         }
@@ -3860,7 +3860,7 @@ mod tests {
 ///
 /// Shared between `RenderApp` (stores for persistence/replay)
 /// and `WgpuRenderer` (uses for actual rendering).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct EffectsConfig {
     pub accent_strip: AccentStripConfig,
     pub argyle_pattern: ArgylePatternConfig,

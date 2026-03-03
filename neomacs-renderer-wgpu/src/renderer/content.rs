@@ -65,6 +65,7 @@ impl WgpuRenderer {
         //   5. Inline media (images, videos, webkit)
         //   6. Cursors, borders, scroll bars (on top)
         let mut bg_vertices: Vec<RectVertex> = Vec::new();
+        let mut cursor_bg_vertices: Vec<RectVertex> = Vec::new();
         let mut cursor_vertices: Vec<RectVertex> = Vec::new();
         let mut scroll_bar_thumbs: Vec<(f32, f32, f32, f32, f32, Color)> = Vec::new();
 
@@ -225,7 +226,7 @@ impl WgpuRenderer {
                     };
                     match style {
                         CursorStyle::FilledBox => {
-                            self.add_rect(&mut cursor_vertices, gx, gy, gw, gh, color);
+                            self.add_rect(&mut cursor_bg_vertices, gx, gy, gw, gh, color);
                         }
                         CursorStyle::Bar(bar_w) => {
                             self.add_rect(&mut cursor_vertices, gx, gy, *bar_w, gh, color);
@@ -316,10 +317,31 @@ impl WgpuRenderer {
                     let glyph_w = cached.width as f32 / sf;
                     let glyph_h = cached.height as f32 / sf;
 
+                    // Inverse-video cursor support: when the filled box cursor is
+                    // visible, draw the covered character with cursor_fg.
+                    let effective_fg = if cursor_visible {
+                        if let Some(ref inv) = frame.cursor_inverse {
+                            if (*x - inv.x).abs() < 1.0 && (*y - inv.y).abs() < 1.0 {
+                                &inv.cursor_fg
+                            } else {
+                                fg
+                            }
+                        } else {
+                            fg
+                        }
+                    } else {
+                        fg
+                    };
+
                     let color = if cached.is_color {
                         [1.0, 1.0, 1.0, 1.0]
                     } else {
-                        [fg.r, fg.g, fg.b, fg.a]
+                        [
+                            effective_fg.r,
+                            effective_fg.g,
+                            effective_fg.b,
+                            effective_fg.a,
+                        ]
                     };
 
                     let vertices = [
@@ -782,6 +804,22 @@ impl WgpuRenderer {
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..bg_vertices.len() as u32, 0..1);
+            }
+
+            // Filled-box cursor backgrounds must be below text so the covered
+            // glyph can be drawn with inverse foreground on top.
+            if !cursor_bg_vertices.is_empty() {
+                let buffer = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Content Cursor BG Buffer"),
+                        contents: bytemuck::cast_slice(&cursor_bg_vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..cursor_bg_vertices.len() as u32, 0..1);
             }
 
             // --- Draw rounded box fills ---
