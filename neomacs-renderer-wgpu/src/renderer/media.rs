@@ -1,6 +1,7 @@
 //! Media methods for WgpuRenderer.
 
 use super::super::image_cache::ImageCache;
+#[cfg(feature = "wpe-webkit")]
 use super::super::vertex::GlyphVertex;
 use super::WgpuRenderer;
 

@@ -1,11 +1,11 @@
 //! Effects State methods for WgpuRenderer.
 
+#[cfg(test)]
+use super::ModeLineFadeEntry;
 use super::WgpuRenderer;
 use super::{
-    ClickHaloEntry, CursorGhostEntry, CursorParticle, EdgeGlowEntry, EdgeSnapEntry, HeatMapEntry,
-    LineAnimEntry, MatrixColumn, ModeLineFadeEntry, RainDrop, RippleWaveEntry, ScrollMomentumEntry,
-    ScrollSpacingEntry, ScrollVelocityFadeEntry, SonarPingEntry, SparkleBurstEntry, TextFadeEntry,
-    TitleFadeEntry, WindowFadeEntry,
+    ClickHaloEntry, EdgeGlowEntry, EdgeSnapEntry, LineAnimEntry, ScrollMomentumEntry,
+    ScrollSpacingEntry, ScrollVelocityFadeEntry, SonarPingEntry, TextFadeEntry, WindowFadeEntry,
 };
 use neomacs_display_protocol::types::{Color, Rect};
 

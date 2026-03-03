@@ -2,8 +2,6 @@
 
 use super::super::vertex::GlyphVertex;
 use super::WgpuRenderer;
-use neomacs_display_protocol::scroll_animation::{ScrollEasing, ScrollEffect};
-use neomacs_display_protocol::types::{Color, Rect};
 use wgpu::util::DeviceExt;
 
 impl WgpuRenderer {
@@ -666,7 +664,6 @@ impl WgpuRenderer {
         sw: u32,
         sh: u32,
     ) {
-        use wgpu::util::DeviceExt;
         let old_vb = self.create_scroll_vb(old_vertices);
         let new_vb = self.create_scroll_vb(new_vertices);
 
