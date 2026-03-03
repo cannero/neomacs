@@ -64,7 +64,8 @@ use crate::backend::tty::TtyBackend;
 use crate::core::animation::AnimationManager;
 use crate::core::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use crate::core::frame_glyphs::{
-    FrameGlyph, FrameGlyphBuffer, WindowInfo, WindowTransitionHint, WindowTransitionKind,
+    FrameGlyph, FrameGlyphBuffer, WindowEffectHint, WindowInfo, WindowTransitionHint,
+    WindowTransitionKind,
 };
 use crate::core::scene::{CursorState, Scene, SceneCursorStyle, WindowScene};
 use crate::core::types::{Color, Rect};
@@ -87,6 +88,8 @@ pub struct NeomacsDisplay {
     pub(crate) faces: HashMap<u32, Face>,
     pub(crate) transition_prev_window_infos: HashMap<i64, WindowInfo>,
     pub(crate) transition_curr_window_infos: HashMap<i64, WindowInfo>,
+    pub(crate) prev_selected_window_id: i64,
+    pub(crate) prev_background: Option<(f32, f32, f32, f32)>,
 }
 
 impl NeomacsDisplay {
@@ -131,8 +134,152 @@ impl NeomacsDisplay {
                 self.frame_glyphs.add_transition_hint(hint);
             }
         }
+        self.record_effect_hints_window(info);
         self.transition_curr_window_infos
             .insert(info.window_id, info.clone());
+    }
+
+    pub(crate) fn record_effect_hints_window(&mut self, info: &WindowInfo) {
+        if info.is_minibuffer {
+            return;
+        }
+
+        let Some(prev) = self.transition_prev_window_infos.get(&info.window_id) else {
+            return;
+        };
+
+        if prev.buffer_id == 0 || info.buffer_id == 0 {
+            return;
+        }
+
+        if prev.buffer_id != info.buffer_id {
+            self.frame_glyphs
+                .add_effect_hint(WindowEffectHint::TextFadeIn {
+                    window_id: info.window_id,
+                    bounds: info.bounds,
+                });
+            return;
+        }
+
+        if prev.window_start != info.window_start {
+            let direction = if info.window_start > prev.window_start {
+                1
+            } else {
+                -1
+            };
+            let delta = (info.window_start - prev.window_start).unsigned_abs() as f32;
+            self.frame_glyphs
+                .add_effect_hint(WindowEffectHint::TextFadeIn {
+                    window_id: info.window_id,
+                    bounds: info.bounds,
+                });
+            self.frame_glyphs
+                .add_effect_hint(WindowEffectHint::ScrollLineSpacing {
+                    window_id: info.window_id,
+                    bounds: info.bounds,
+                    direction,
+                });
+            self.frame_glyphs
+                .add_effect_hint(WindowEffectHint::ScrollMomentum {
+                    window_id: info.window_id,
+                    bounds: info.bounds,
+                    direction,
+                });
+            self.frame_glyphs
+                .add_effect_hint(WindowEffectHint::ScrollVelocityFade {
+                    window_id: info.window_id,
+                    bounds: info.bounds,
+                    delta,
+                });
+        }
+    }
+
+    fn find_window_cursor_y(&self, info: &WindowInfo) -> Option<f32> {
+        for glyph in &self.frame_glyphs.glyphs {
+            if let FrameGlyph::Cursor { x, y, style, .. } = glyph {
+                if *x >= info.bounds.x
+                    && *x < info.bounds.x + info.bounds.width
+                    && *y >= info.bounds.y
+                    && *y < info.bounds.y + info.bounds.height
+                    && !style.is_hollow()
+                {
+                    return Some(*y);
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn finalize_effect_hints(&mut self) {
+        if self.transition_curr_window_infos.is_empty() {
+            return;
+        }
+
+        for (window_id, info) in &self.transition_curr_window_infos {
+            if info.is_minibuffer {
+                continue;
+            }
+            let Some(prev) = self.transition_prev_window_infos.get(window_id) else {
+                continue;
+            };
+            if prev.buffer_id == 0 || info.buffer_id == 0 {
+                continue;
+            }
+            if prev.buffer_id == info.buffer_id
+                && prev.window_start == info.window_start
+                && prev.buffer_size != info.buffer_size
+            {
+                if let Some(edit_y) = self.find_window_cursor_y(info) {
+                    let offset = if info.buffer_size > prev.buffer_size {
+                        -info.char_height
+                    } else {
+                        info.char_height
+                    };
+                    self.frame_glyphs
+                        .add_effect_hint(WindowEffectHint::LineAnimation {
+                            window_id: info.window_id,
+                            bounds: info.bounds,
+                            edit_y: edit_y + info.char_height,
+                            offset,
+                        });
+                }
+            }
+        }
+
+        let new_selected = self
+            .frame_glyphs
+            .window_infos
+            .iter()
+            .find(|info| info.selected && !info.is_minibuffer)
+            .map(|info| (info.window_id, info.bounds));
+        if let Some((window_id, bounds)) = new_selected {
+            if self.prev_selected_window_id != 0 && self.prev_selected_window_id != window_id {
+                self.frame_glyphs
+                    .add_effect_hint(WindowEffectHint::WindowSwitchFade { window_id, bounds });
+            }
+            self.prev_selected_window_id = window_id;
+        }
+
+        let bg = &self.frame_glyphs.background;
+        let new_bg = (bg.r, bg.g, bg.b, bg.a);
+        if let Some(old_bg) = self.prev_background {
+            let dr = (new_bg.0 - old_bg.0).abs();
+            let dg = (new_bg.1 - old_bg.1).abs();
+            let db = (new_bg.2 - old_bg.2).abs();
+            if dr > 0.02 || dg > 0.02 || db > 0.02 {
+                let full_h = self
+                    .frame_glyphs
+                    .window_infos
+                    .iter()
+                    .find(|w| w.is_minibuffer)
+                    .map_or(self.frame_glyphs.height, |w| w.bounds.y);
+                self.frame_glyphs
+                    .add_effect_hint(WindowEffectHint::ThemeTransition {
+                        bounds: Rect::new(0.0, 0.0, self.frame_glyphs.width, full_h),
+                    });
+            }
+        }
+        self.prev_background = Some(new_bg);
     }
 
     pub(crate) fn finalize_transition_hints(&mut self) {
@@ -182,6 +329,11 @@ impl NeomacsDisplay {
             effect: None,
             easing: None,
         });
+    }
+
+    pub(crate) fn finalize_frame_hints(&mut self) {
+        self.finalize_transition_hints();
+        self.finalize_effect_hints();
     }
 }
 

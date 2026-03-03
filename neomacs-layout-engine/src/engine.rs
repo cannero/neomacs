@@ -17,8 +17,8 @@ use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, FrameGlyphBuffer, StipplePattern, WindowInfo, WindowTransitionHint,
-    WindowTransitionKind,
+    CursorStyle, FrameGlyphBuffer, StipplePattern, WindowEffectHint, WindowInfo,
+    WindowTransitionHint, WindowTransitionKind,
 };
 use neomacs_display_protocol::types::{Color, Rect};
 
@@ -642,6 +642,10 @@ pub struct LayoutEngine {
     pub use_cosmic_metrics: bool,
     /// Previous frame's per-window metadata for transition hint derivation.
     prev_window_infos: std::collections::HashMap<i64, WindowInfo>,
+    /// Previous selected window id for switch-fade detection.
+    prev_selected_window_id: i64,
+    /// Previous frame background for theme-transition detection.
+    prev_background: Option<(f32, f32, f32, f32)>,
 }
 
 impl LayoutEngine {
@@ -659,6 +663,8 @@ impl LayoutEngine {
             font_metrics: None,
             use_cosmic_metrics: true,
             prev_window_infos: std::collections::HashMap::new(),
+            prev_selected_window_id: 0,
+            prev_background: None,
         }
     }
 
@@ -675,6 +681,149 @@ impl LayoutEngine {
             }
             curr_window_infos.insert(curr.window_id, curr);
         }
+    }
+
+    fn record_effect_hints_from_latest_window_info(&self, frame_glyphs: &mut FrameGlyphBuffer) {
+        let Some(curr) = frame_glyphs.window_infos.last().cloned() else {
+            return;
+        };
+        if curr.is_minibuffer {
+            return;
+        }
+
+        let Some(prev) = self.prev_window_infos.get(&curr.window_id) else {
+            return;
+        };
+        if prev.buffer_id == 0 || curr.buffer_id == 0 {
+            return;
+        }
+
+        if prev.buffer_id != curr.buffer_id {
+            frame_glyphs.add_effect_hint(WindowEffectHint::TextFadeIn {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+            });
+            return;
+        }
+
+        if prev.window_start != curr.window_start {
+            let direction = if curr.window_start > prev.window_start {
+                1
+            } else {
+                -1
+            };
+            let delta = (curr.window_start - prev.window_start).unsigned_abs() as f32;
+            frame_glyphs.add_effect_hint(WindowEffectHint::TextFadeIn {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+            });
+            frame_glyphs.add_effect_hint(WindowEffectHint::ScrollLineSpacing {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+                direction,
+            });
+            frame_glyphs.add_effect_hint(WindowEffectHint::ScrollMomentum {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+                direction,
+            });
+            frame_glyphs.add_effect_hint(WindowEffectHint::ScrollVelocityFade {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+                delta,
+            });
+        }
+    }
+
+    fn find_window_cursor_y(frame_glyphs: &FrameGlyphBuffer, info: &WindowInfo) -> Option<f32> {
+        for glyph in &frame_glyphs.glyphs {
+            if let neomacs_display_protocol::frame_glyphs::FrameGlyph::Cursor {
+                x, y, style, ..
+            } = glyph
+            {
+                if *x >= info.bounds.x
+                    && *x < info.bounds.x + info.bounds.width
+                    && *y >= info.bounds.y
+                    && *y < info.bounds.y + info.bounds.height
+                    && !style.is_hollow()
+                {
+                    return Some(*y);
+                }
+            }
+        }
+        None
+    }
+
+    fn add_line_animation_hints(
+        &self,
+        frame_glyphs: &mut FrameGlyphBuffer,
+        curr_window_infos: &std::collections::HashMap<i64, WindowInfo>,
+    ) {
+        for (window_id, curr) in curr_window_infos {
+            if curr.is_minibuffer {
+                continue;
+            }
+            let Some(prev) = self.prev_window_infos.get(window_id) else {
+                continue;
+            };
+            if prev.buffer_id == 0 || curr.buffer_id == 0 {
+                continue;
+            }
+            if prev.buffer_id == curr.buffer_id
+                && prev.window_start == curr.window_start
+                && prev.buffer_size != curr.buffer_size
+            {
+                if let Some(edit_y) = Self::find_window_cursor_y(frame_glyphs, curr) {
+                    let offset = if curr.buffer_size > prev.buffer_size {
+                        -curr.char_height
+                    } else {
+                        curr.char_height
+                    };
+                    frame_glyphs.add_effect_hint(WindowEffectHint::LineAnimation {
+                        window_id: curr.window_id,
+                        bounds: curr.bounds,
+                        edit_y: edit_y + curr.char_height,
+                        offset,
+                    });
+                }
+            }
+        }
+    }
+
+    fn update_window_switch_hint(&mut self, frame_glyphs: &mut FrameGlyphBuffer) {
+        let new_selected = frame_glyphs
+            .window_infos
+            .iter()
+            .find(|info| info.selected && !info.is_minibuffer)
+            .map(|info| (info.window_id, info.bounds));
+        if let Some((window_id, bounds)) = new_selected {
+            if self.prev_selected_window_id != 0 && self.prev_selected_window_id != window_id {
+                frame_glyphs
+                    .add_effect_hint(WindowEffectHint::WindowSwitchFade { window_id, bounds });
+            }
+            self.prev_selected_window_id = window_id;
+        }
+    }
+
+    fn update_theme_transition_hint(&mut self, frame_glyphs: &mut FrameGlyphBuffer) {
+        let bg = &frame_glyphs.background;
+        let new_bg = (bg.r, bg.g, bg.b, bg.a);
+        if let Some(old_bg) = self.prev_background {
+            let dr = (new_bg.0 - old_bg.0).abs();
+            let dg = (new_bg.1 - old_bg.1).abs();
+            let db = (new_bg.2 - old_bg.2).abs();
+            if dr > 0.02 || dg > 0.02 || db > 0.02 {
+                let full_h = frame_glyphs
+                    .window_infos
+                    .iter()
+                    .find(|w| w.is_minibuffer)
+                    .map_or(frame_glyphs.height, |w| w.bounds.y);
+                frame_glyphs.add_effect_hint(WindowEffectHint::ThemeTransition {
+                    bounds: Rect::new(0.0, 0.0, frame_glyphs.width, full_h),
+                });
+            }
+        }
+        self.prev_background = Some(new_bg);
     }
 
     fn maybe_add_topology_transition_hint(
@@ -938,6 +1087,7 @@ impl LayoutEngine {
                 frame_glyphs,
                 &mut curr_window_infos,
             );
+            self.record_effect_hints_from_latest_window_info(frame_glyphs);
 
             // Layout this window's content
             self.layout_window(&params, &wp, frame, frame_glyphs);
@@ -1013,6 +1163,9 @@ impl LayoutEngine {
             }
         }
 
+        self.add_line_animation_hints(frame_glyphs, &curr_window_infos);
+        self.update_window_switch_hint(frame_glyphs);
+        self.update_theme_transition_hint(frame_glyphs);
         self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
         self.prev_window_infos = curr_window_infos;
 
@@ -1205,6 +1358,7 @@ impl LayoutEngine {
                 frame_glyphs,
                 &mut curr_window_infos,
             );
+            self.record_effect_hints_from_latest_window_info(frame_glyphs);
 
             // Simplified layout for this window (no face resolution, no overlays)
             self.layout_window_rust(
@@ -1257,6 +1411,9 @@ impl LayoutEngine {
             }
         }
 
+        self.add_line_animation_hints(frame_glyphs, &curr_window_infos);
+        self.update_window_switch_hint(frame_glyphs);
+        self.update_theme_transition_hint(frame_glyphs);
         self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
         self.prev_window_infos = curr_window_infos;
     }

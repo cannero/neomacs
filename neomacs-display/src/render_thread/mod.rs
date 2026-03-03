@@ -362,8 +362,6 @@ struct RenderApp {
     extra_line_spacing: f32,
     /// Extra letter spacing in pixels (added between characters)
     extra_letter_spacing: f32,
-    prev_selected_window_id: i64,
-    prev_background: Option<(f32, f32, f32, f32)>,
     last_activity_time: std::time::Instant,
     idle_dim_current_alpha: f32, // current dimming alpha 0.0 (none) to opacity (full)
     idle_dim_active: bool,       // true when dimmed or fading
@@ -460,10 +458,8 @@ impl RenderApp {
             fps: FpsCounter::default(),
             extra_line_spacing: 0.0,
             extra_letter_spacing: 0.0,
-            prev_selected_window_id: 0,
             key_press_times: Vec::new(),
             displayed_wpm: 0.0,
-            prev_background: None,
             last_activity_time: std::time::Instant::now(),
             idle_dim_current_alpha: 0.0,
             idle_dim_active: false,

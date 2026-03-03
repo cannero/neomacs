@@ -150,7 +150,7 @@ pub unsafe extern "C" fn neomacs_display_end_frame_window(
     let display = &mut *handle;
 
     if let Some(state) = (*std::ptr::addr_of!(super::THREADED_STATE)).as_ref() {
-        display.finalize_transition_hints();
+        display.finalize_frame_hints();
         // Matrix-based full-frame rendering: always send the complete frame.
         // The buffer was cleared at begin_frame and rebuilt by the matrix walker,
         // so it always contains the complete visible state.

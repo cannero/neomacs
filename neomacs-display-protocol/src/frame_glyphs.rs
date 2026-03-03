@@ -293,6 +293,42 @@ pub struct WindowTransitionHint {
     pub easing: Option<ScrollEasing>,
 }
 
+/// Explicit effect hint from layout producers to render thread.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WindowEffectHint {
+    /// Fade in newly shown text in a window region.
+    TextFadeIn { window_id: i64, bounds: Rect },
+    /// Animate per-line spacing during scroll.
+    ScrollLineSpacing {
+        window_id: i64,
+        bounds: Rect,
+        direction: i32,
+    },
+    /// Show scroll momentum glow.
+    ScrollMomentum {
+        window_id: i64,
+        bounds: Rect,
+        direction: i32,
+    },
+    /// Velocity-based fade intensity during scroll.
+    ScrollVelocityFade {
+        window_id: i64,
+        bounds: Rect,
+        delta: f32,
+    },
+    /// Animate line insertion/deletion below edit point.
+    LineAnimation {
+        window_id: i64,
+        bounds: Rect,
+        edit_y: f32,
+        offset: f32,
+    },
+    /// Fade highlight when selected window changes.
+    WindowSwitchFade { window_id: i64, bounds: Rect },
+    /// Theme/background changed; request a full-frame theme crossfade.
+    ThemeTransition { bounds: Rect },
+}
+
 /// Buffer collecting glyphs for current frame.
 ///
 /// With matrix-based rendering, this buffer is cleared and rebuilt from scratch
@@ -345,6 +381,9 @@ pub struct FrameGlyphBuffer {
 
     /// Explicit transition requests emitted by layout producers.
     pub transition_hints: Vec<WindowTransitionHint>,
+
+    /// Explicit effect requests emitted by layout producers.
+    pub effect_hints: Vec<WindowEffectHint>,
 
     /// Inverse video info for filled box cursor (set by C for style 0)
     pub cursor_inverse: Option<CursorInverseInfo>,
@@ -399,6 +438,7 @@ impl FrameGlyphBuffer {
             prev_window_regions: Vec::with_capacity(16),
             window_infos: Vec::with_capacity(16),
             transition_hints: Vec::with_capacity(16),
+            effect_hints: Vec::with_capacity(16),
             cursor_inverse: None,
             layout_changed: false,
             current_face_id: 0,
@@ -436,6 +476,7 @@ impl FrameGlyphBuffer {
         self.window_regions.clear();
         self.window_infos.clear();
         self.transition_hints.clear();
+        self.effect_hints.clear();
         self.cursor_inverse = None;
         self.stipple_patterns.clear();
         self.faces.clear();
@@ -466,6 +507,7 @@ impl FrameGlyphBuffer {
         self.background = background;
         self.glyphs.clear();
         self.transition_hints.clear();
+        self.effect_hints.clear();
         self.cursor_inverse = None;
         self.stipple_patterns.clear();
         self.faces.clear();
@@ -841,6 +883,11 @@ impl FrameGlyphBuffer {
         self.transition_hints.push(hint);
     }
 
+    /// Add an explicit effect hint.
+    pub fn add_effect_hint(&mut self, hint: WindowEffectHint) {
+        self.effect_hints.push(hint);
+    }
+
     /// Derive a transition hint by comparing previous/current window metadata.
     ///
     /// This centralizes transition geometry decisions outside the renderer.
@@ -1147,6 +1194,8 @@ mod tests {
         assert!(buf.glyphs.is_empty());
         assert!(buf.window_regions.is_empty());
         assert!(buf.window_infos.is_empty());
+        assert!(buf.transition_hints.is_empty());
+        assert!(buf.effect_hints.is_empty());
         assert!(buf.cursor_inverse.is_none());
         assert!(buf.stipple_patterns.is_empty());
         assert!(buf.faces.is_empty());
@@ -1211,10 +1260,16 @@ mod tests {
             effect: None,
             easing: None,
         });
+        buf.add_effect_hint(WindowEffectHint::TextFadeIn {
+            window_id: 1,
+            bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+        });
         assert_eq!(buf.transition_hints.len(), 1);
+        assert_eq!(buf.effect_hints.len(), 1);
 
         buf.begin_frame(800.0, 600.0, Color::BLACK);
         assert!(buf.transition_hints.is_empty());
+        assert!(buf.effect_hints.is_empty());
     }
 
     #[test]

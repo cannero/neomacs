@@ -170,6 +170,8 @@ pub unsafe extern "C" fn neomacs_display_init_threaded(
         faces: HashMap::new(),
         transition_prev_window_infos: HashMap::new(),
         transition_curr_window_infos: HashMap::new(),
+        prev_selected_window_id: 0,
+        prev_background: None,
     });
     let display_ptr = Box::into_raw(display);
 
@@ -623,7 +625,7 @@ pub unsafe extern "C" fn neomacs_display_send_frame(handle: *mut NeomacsDisplay)
         None => return,
     };
 
-    display.finalize_transition_hints();
+    display.finalize_frame_hints();
 
     // Clone frame glyphs and send to render thread
     let frame = display.frame_glyphs.clone();
