@@ -4571,32 +4571,51 @@ impl WgpuRenderer {
                 height,
             } = glyph
             {
-                let (clipped_height, tex_v_max) =
-                    self.clip_inline_media_to_overlay(*y, *height, overlay_y);
-                if clipped_height <= 0.0 {
-                    continue;
-                }
-
-                tracing::debug!(
-                    "Rendering image {} at ({}, {}) size {}x{} (clipped to {})",
-                    image_id,
-                    x,
-                    y,
-                    width,
-                    height,
-                    clipped_height
+                self.draw_inline_image_glyph(
+                    render_pass,
+                    *image_id,
+                    *x,
+                    *y,
+                    *width,
+                    *height,
+                    overlay_y,
                 );
-                if let Some(cached) = self.image_cache.get(*image_id) {
-                    let vertices =
-                        self.build_inline_media_vertices(*x, *y, *width, clipped_height, tex_v_max);
-                    self.draw_inline_media_quad(
-                        render_pass,
-                        &cached.bind_group,
-                        &vertices,
-                        "Image Vertex Buffer",
-                    );
-                }
             }
+        }
+    }
+
+    fn draw_inline_image_glyph(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        image_id: u32,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        overlay_y: Option<f32>,
+    ) {
+        let (clipped_height, tex_v_max) = self.clip_inline_media_to_overlay(y, height, overlay_y);
+        if clipped_height <= 0.0 {
+            return;
+        }
+
+        tracing::debug!(
+            "Rendering image {} at ({}, {}) size {}x{} (clipped to {})",
+            image_id,
+            x,
+            y,
+            width,
+            height,
+            clipped_height
+        );
+        if let Some(cached) = self.image_cache.get(image_id) {
+            let vertices = self.build_inline_media_vertices(x, y, width, clipped_height, tex_v_max);
+            self.draw_inline_media_quad(
+                render_pass,
+                &cached.bind_group,
+                &vertices,
+                "Image Vertex Buffer",
+            );
         }
     }
 
@@ -4648,44 +4667,60 @@ impl WgpuRenderer {
                 ..
             } = glyph
             {
-                let (clipped_height, tex_v_max) =
-                    self.clip_inline_media_to_overlay(*y, *height, overlay_y);
-                if clipped_height <= 0.0 {
-                    continue;
-                }
-
-                if let Some(cached) = self.video_cache.get(*video_id) {
-                    tracing::trace!(
-                        "Rendering video {} at ({}, {}) size {}x{} (clipped to {}), frame_count={}",
-                        video_id,
-                        x,
-                        y,
-                        width,
-                        height,
-                        clipped_height,
-                        cached.frame_count
-                    );
-                    if let Some(ref bind_group) = cached.bind_group {
-                        let vertices = self.build_inline_media_vertices(
-                            *x,
-                            *y,
-                            *width,
-                            clipped_height,
-                            tex_v_max,
-                        );
-                        self.draw_inline_media_quad(
-                            render_pass,
-                            bind_group,
-                            &vertices,
-                            "Video Vertex Buffer",
-                        );
-                    } else {
-                        tracing::warn!("Video {} has no bind_group!", video_id);
-                    }
-                } else {
-                    tracing::warn!("Video {} not found in cache!", video_id);
-                }
+                self.draw_inline_video_glyph(
+                    render_pass,
+                    *video_id,
+                    *x,
+                    *y,
+                    *width,
+                    *height,
+                    overlay_y,
+                );
             }
+        }
+    }
+
+    #[cfg(feature = "video")]
+    fn draw_inline_video_glyph(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        video_id: u32,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        overlay_y: Option<f32>,
+    ) {
+        let (clipped_height, tex_v_max) = self.clip_inline_media_to_overlay(y, height, overlay_y);
+        if clipped_height <= 0.0 {
+            return;
+        }
+
+        if let Some(cached) = self.video_cache.get(video_id) {
+            tracing::trace!(
+                "Rendering video {} at ({}, {}) size {}x{} (clipped to {}), frame_count={}",
+                video_id,
+                x,
+                y,
+                width,
+                height,
+                clipped_height,
+                cached.frame_count
+            );
+            if let Some(ref bind_group) = cached.bind_group {
+                let vertices =
+                    self.build_inline_media_vertices(x, y, width, clipped_height, tex_v_max);
+                self.draw_inline_media_quad(
+                    render_pass,
+                    bind_group,
+                    &vertices,
+                    "Video Vertex Buffer",
+                );
+            } else {
+                tracing::warn!("Video {} has no bind_group!", video_id);
+            }
+        } else {
+            tracing::warn!("Video {} not found in cache!", video_id);
         }
     }
 
@@ -4709,54 +4744,74 @@ impl WgpuRenderer {
                 height,
             } = glyph
             {
-                tracing::trace!(
-                    "WebKit clip check: webkit {} at y={}, height={}, y+h={}, overlay_y={:?}",
-                    webkit_id,
-                    y,
-                    height,
-                    y + height,
-                    overlay_y
+                self.draw_inline_webkit_glyph(
+                    render_pass,
+                    *webkit_id,
+                    *x,
+                    *y,
+                    *width,
+                    *height,
+                    overlay_y,
                 );
-                let (clipped_height, tex_v_max) =
-                    self.clip_inline_media_to_overlay(*y, *height, overlay_y);
-                if let Some(oy) = overlay_y
-                    && *y + *height > oy
-                {
-                    tracing::trace!(
-                        "WebKit {} clipped: y={} + h={} > overlay_y={}, clipped_height={}",
-                        webkit_id,
-                        y,
-                        height,
-                        oy,
-                        clipped_height
-                    );
-                }
-                if clipped_height <= 0.0 {
-                    continue;
-                }
-
-                if let Some(cached) = self.webkit_cache.get(*webkit_id) {
-                    tracing::debug!(
-                        "Rendering webkit {} at ({}, {}) size {}x{} (clipped to {})",
-                        webkit_id,
-                        x,
-                        y,
-                        width,
-                        height,
-                        clipped_height
-                    );
-                    let vertices =
-                        self.build_inline_media_vertices(*x, *y, *width, clipped_height, tex_v_max);
-                    self.draw_inline_media_quad(
-                        render_pass,
-                        &cached.bind_group,
-                        &vertices,
-                        "WebKit Vertex Buffer",
-                    );
-                } else {
-                    tracing::debug!("WebKit {} not found in cache", webkit_id);
-                }
             }
+        }
+    }
+
+    #[cfg(feature = "wpe-webkit")]
+    fn draw_inline_webkit_glyph(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        webkit_id: u32,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        overlay_y: Option<f32>,
+    ) {
+        tracing::trace!(
+            "WebKit clip check: webkit {} at y={}, height={}, y+h={}, overlay_y={:?}",
+            webkit_id,
+            y,
+            height,
+            y + height,
+            overlay_y
+        );
+        let (clipped_height, tex_v_max) = self.clip_inline_media_to_overlay(y, height, overlay_y);
+        if let Some(oy) = overlay_y
+            && y + height > oy
+        {
+            tracing::trace!(
+                "WebKit {} clipped: y={} + h={} > overlay_y={}, clipped_height={}",
+                webkit_id,
+                y,
+                height,
+                oy,
+                clipped_height
+            );
+        }
+        if clipped_height <= 0.0 {
+            return;
+        }
+
+        if let Some(cached) = self.webkit_cache.get(webkit_id) {
+            tracing::debug!(
+                "Rendering webkit {} at ({}, {}) size {}x{} (clipped to {})",
+                webkit_id,
+                x,
+                y,
+                width,
+                height,
+                clipped_height
+            );
+            let vertices = self.build_inline_media_vertices(x, y, width, clipped_height, tex_v_max);
+            self.draw_inline_media_quad(
+                render_pass,
+                &cached.bind_group,
+                &vertices,
+                "WebKit Vertex Buffer",
+            );
+        } else {
+            tracing::debug!("WebKit {} not found in cache", webkit_id);
         }
     }
 
