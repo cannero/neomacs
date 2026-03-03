@@ -2748,20 +2748,33 @@ impl WgpuRenderer {
         non_overlay_rect_vertices: &[RectVertex],
     ) {
         // === Step 1: Draw non-overlay backgrounds ===
-        if !non_overlay_rect_vertices.is_empty() {
-            let rect_buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Non-overlay Rect Buffer"),
-                    contents: bytemuck::cast_slice(non_overlay_rect_vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+        self.draw_rect_vertex_layer(
+            render_pass,
+            non_overlay_rect_vertices,
+            "Non-overlay Rect Buffer",
+        );
+    }
 
-            render_pass.set_pipeline(&self.rect_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, rect_buffer.slice(..));
-            render_pass.draw(0..non_overlay_rect_vertices.len() as u32, 0..1);
+    fn draw_rect_vertex_layer(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        rect_vertices: &[RectVertex],
+        vertex_buffer_label: &'static str,
+    ) {
+        if rect_vertices.is_empty() {
+            return;
         }
+        let rect_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(vertex_buffer_label),
+                contents: bytemuck::cast_slice(rect_vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        render_pass.set_pipeline(&self.rect_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, rect_buffer.slice(..));
+        render_pass.draw(0..rect_vertices.len() as u32, 0..1);
     }
 
     fn draw_pre_content_effects(
@@ -3747,38 +3760,16 @@ impl WgpuRenderer {
         // === Step 2: Draw cursor bg rect (inverse video background) ===
         // Drawn after window/char backgrounds but before text, so the cursor
         // background color is visible behind the inverse-video character.
-        if !cursor_bg_vertices.is_empty() {
-            let cursor_bg_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Cursor BG Rect Buffer"),
-                        contents: bytemuck::cast_slice(cursor_bg_vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
-
-            render_pass.set_pipeline(&self.rect_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, cursor_bg_buffer.slice(..));
-            render_pass.draw(0..cursor_bg_vertices.len() as u32, 0..1);
-        }
+        self.draw_rect_vertex_layer(render_pass, cursor_bg_vertices, "Cursor BG Rect Buffer");
 
         // === Step 3: Draw animated cursor trail behind text ===
         // The spring trail or animated rect for filled box cursor appears
         // behind text so characters remain readable during cursor motion.
-        if !behind_text_cursor_vertices.is_empty() {
-            let trail_buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Behind-Text Cursor Buffer"),
-                    contents: bytemuck::cast_slice(behind_text_cursor_vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-
-            render_pass.set_pipeline(&self.rect_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, trail_buffer.slice(..));
-            render_pass.draw(0..behind_text_cursor_vertices.len() as u32, 0..1);
-        }
+        self.draw_rect_vertex_layer(
+            render_pass,
+            behind_text_cursor_vertices,
+            "Behind-Text Cursor Buffer",
+        );
     }
 
     fn draw_inline_media(
@@ -5279,19 +5270,8 @@ impl WgpuRenderer {
         want_overlay: bool,
     ) {
         // === Step 3: Draw overlay backgrounds before overlay text ===
-        if want_overlay && !overlay_rect_vertices.is_empty() {
-            let rect_buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Overlay Rect Buffer"),
-                    contents: bytemuck::cast_slice(overlay_rect_vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-
-            render_pass.set_pipeline(&self.rect_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, rect_buffer.slice(..));
-            render_pass.draw(0..overlay_rect_vertices.len() as u32, 0..1);
+        if want_overlay {
+            self.draw_rect_vertex_layer(render_pass, overlay_rect_vertices, "Overlay Rect Buffer");
         }
     }
 
@@ -5363,20 +5343,7 @@ impl WgpuRenderer {
         cursor_vertices: &[RectVertex],
     ) {
         // Draw cursors and borders (after text)
-        if !cursor_vertices.is_empty() {
-            let cursor_buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Cursor Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&cursor_vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-
-            render_pass.set_pipeline(&self.rect_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, cursor_buffer.slice(..));
-            render_pass.draw(0..cursor_vertices.len() as u32, 0..1);
-        }
+        self.draw_rect_vertex_layer(render_pass, cursor_vertices, "Cursor Vertex Buffer");
     }
 
     fn draw_front_scrollbar_thumb_layer(
