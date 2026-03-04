@@ -6,7 +6,8 @@ use proptest::prelude::*;
 use std::sync::OnceLock;
 
 use super::common::{
-    ORACLE_PROP_CASES, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm,
+    ORACLE_PROP_CASES, assert_ok_eq, assert_oracle_parity_with_bootstrap,
+    eval_oracle_and_neovm_with_bootstrap,
 };
 
 fn oracle_combination_proptest_failure_path() -> &'static str {
@@ -77,7 +78,7 @@ fn oracle_prop_combination_cleanup_error_overrides_throw() {
                         (throw 'neovm--combo-tag 'ok)
                       (car 1)))
                 (wrong-type-argument (car err)))";
-    let (oracle, neovm) = eval_oracle_and_neovm(form);
+    let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(form);
     assert_ok_eq("wrong-type-argument", &oracle, &neovm);
 }
 
@@ -5239,7 +5240,7 @@ proptest! {
             a, b, c
         );
         let expected = (a + b + c).to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -5275,7 +5276,7 @@ proptest! {
         let protected = if throw_now { a + b } else { a + b + c };
         let x_after_cleanup = a + b + 1;
         let expected = format!("({protected} {x_after_cleanup})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -5309,7 +5310,7 @@ proptest! {
         let y_after = b - d;
         let caught = x_after + c;
         let expected = format!("({caught} {x_after} {y_after})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -5342,7 +5343,7 @@ proptest! {
 
         let expected = 2 * n + 1;
         let expected_payload = format!("({expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -5378,7 +5379,7 @@ proptest! {
 
         let expected = 3 * n + 1;
         let expected_payload = format!("({expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8182,7 +8183,7 @@ proptest! {
 
         let expected = 2 * n + 9;
         let expected_payload = format!("({expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8223,7 +8224,7 @@ proptest! {
         );
 
         let expected_payload = format!("((thrown {n}) (thrown {n}) (thrown {n}) (thrown {n}))");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8258,7 +8259,7 @@ proptest! {
 
         let expected = n + 100;
         let expected_payload = format!("({expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8297,7 +8298,7 @@ proptest! {
         );
 
         let expected_payload = format!("({n} {n} {n} {n} 4 ({n} {n} {n} {n}))");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8347,7 +8348,7 @@ proptest! {
         );
 
         let expected_payload = format!("({n} {n} {n} {n} 4)");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8387,7 +8388,7 @@ proptest! {
 
         let expected = a + b + 30;
         let expected_payload = format!("({expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8430,7 +8431,7 @@ proptest! {
 
         let expected = 2 * (n + 2) + 5;
         let expected_payload = format!("({expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8465,7 +8466,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8501,7 +8502,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8541,7 +8542,7 @@ proptest! {
 
         let expected = 2 * (n + 1);
         let expected_payload = format!("({expected} {expected} {expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8586,7 +8587,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8629,7 +8630,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8680,7 +8681,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8724,7 +8725,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8768,7 +8769,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8799,7 +8800,7 @@ proptest! {
         );
 
         let expected = "(nil v missing 2 (v w))";
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected, &oracle, &neovm);
     }
 
@@ -8844,7 +8845,7 @@ proptest! {
         let expected = n + 7;
         let expected_payload =
             format!("({expected} {expected} {expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8873,7 +8874,7 @@ proptest! {
 
         let expected = n + 1;
         let expected_payload = format!("({expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -8913,7 +8914,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -8945,7 +8946,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9007,7 +9008,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9081,7 +9082,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9131,7 +9132,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9169,7 +9170,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9213,7 +9214,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9264,7 +9265,7 @@ proptest! {
             b = b,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9307,7 +9308,7 @@ proptest! {
         );
 
         let expected = "(arith arith arith arith)";
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected, &oracle, &neovm);
     }
 
@@ -9377,7 +9378,7 @@ proptest! {
             s2 = stage2,
             s3 = stage3
         );
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -9421,7 +9422,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9460,7 +9461,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9507,7 +9508,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9554,7 +9555,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9606,7 +9607,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9650,7 +9651,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9687,7 +9688,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9734,7 +9735,7 @@ proptest! {
             n = n,
             a = n + 7
         );
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -9783,7 +9784,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9838,7 +9839,7 @@ proptest! {
             n = n,
         );
 
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         prop_assert_eq!(oracle, neovm);
     }
 
@@ -9875,7 +9876,7 @@ proptest! {
 
         let expected = (a + 3) + (b + 4);
         let expected_payload = format!("({expected} {expected} {expected} {expected})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected_payload.as_str(), &oracle, &neovm);
     }
 
@@ -9919,7 +9920,7 @@ proptest! {
             (a + b + c).to_string()
         };
         let expected = format!("({first} {x_after})");
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -9939,7 +9940,7 @@ proptest! {
             v
         );
         let expected = v.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -9962,7 +9963,7 @@ proptest! {
             v
         );
         let expected = v.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -9986,7 +9987,7 @@ proptest! {
             v
         );
         let expected = v.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -10006,7 +10007,7 @@ proptest! {
             v
         );
         let expected = v.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -10024,7 +10025,7 @@ proptest! {
             v
         );
         let expected = v.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -10037,7 +10038,7 @@ proptest! {
 
         let form = format!("(catch {} (throw {} {}))", tag, tag, value);
         let expected = value.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -10056,7 +10057,7 @@ proptest! {
             tag, tag, value
         );
         let expected = value.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 
@@ -10074,7 +10075,7 @@ proptest! {
             value
         );
         let expected = value.to_string();
-        let (oracle, neovm) = eval_oracle_and_neovm(&form);
+        let (oracle, neovm) = eval_oracle_and_neovm_with_bootstrap(&form);
         assert_ok_eq(expected.as_str(), &oracle, &neovm);
     }
 }
