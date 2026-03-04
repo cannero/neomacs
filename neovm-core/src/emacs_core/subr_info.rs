@@ -2015,6 +2015,77 @@ pub(crate) fn builtin_func_arity(args: Vec<Value>) -> EvalResult {
 }
 
 // ---------------------------------------------------------------------------
+// Byte-code-inlined primitives
+// ---------------------------------------------------------------------------
+
+/// Returns true if `name` is a primitive that has a dedicated bytecode opcode
+/// in GNU Emacs (e.g. `Bcar`, `Bcdr`, `Bcons`, etc.).
+///
+/// In GNU Emacs, byte-compiled code uses these opcodes directly, bypassing the
+/// function cell entirely.  NeoVM interprets `.el` source, so `eval_list()`
+/// would normally go through the function cell.  When the function cell has
+/// been overridden (e.g. by `advice-add`), we must skip it for these
+/// primitives to match GNU Emacs observable behavior.
+pub(crate) fn is_bytecode_inlined_primitive(name: &str) -> bool {
+    matches!(
+        name,
+        "car"
+            | "cdr"
+            | "cons"
+            | "list"
+            | "length"
+            | "nth"
+            | "nthcdr"
+            | "setcar"
+            | "setcdr"
+            | "car-safe"
+            | "cdr-safe"
+            | "elt"
+            | "nconc"
+            | "nreverse"
+            | "member"
+            | "memq"
+            | "assq"
+            | "symbolp"
+            | "consp"
+            | "stringp"
+            | "listp"
+            | "integerp"
+            | "numberp"
+            | "null"
+            | "not"
+            | "eq"
+            | "equal"
+            | "+"
+            | "-"
+            | "*"
+            | "/"
+            | "%"
+            | "1+"
+            | "1-"
+            | "="
+            | ">"
+            | "<"
+            | "<="
+            | ">="
+            | "max"
+            | "min"
+            | "concat"
+            | "substring"
+            | "string-equal"
+            | "string-lessp"
+            | "aref"
+            | "aset"
+            | "symbol-value"
+            | "symbol-function"
+            | "set"
+            | "fset"
+            | "get"
+            | "put"
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 #[cfg(test)]

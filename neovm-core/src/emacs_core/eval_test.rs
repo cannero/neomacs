@@ -942,6 +942,9 @@ fn fset_restoring_subr_object_keeps_callability() {
 
 #[test]
 fn funcall_subr_object_ignores_symbol_function_rebinding() {
+    // GNU Emacs byte-compiled code uses Bcar opcode which bypasses the
+    // function cell entirely.  NeoVM now matches this: overriding `car`'s
+    // function cell via `fset` does NOT affect direct `(car ...)` calls.
     assert_eq!(
         eval_one(
             "(let ((orig (symbol-function 'car))
@@ -952,7 +955,7 @@ fn funcall_subr_object_ignores_symbol_function_rebinding() {
                      (list (funcall snap '(1 2)) (car '(1 2))))
                  (fset 'car orig)))"
         ),
-        "OK (1 shadow)"
+        "OK (1 1)"
     );
 }
 

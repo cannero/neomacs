@@ -2187,6 +2187,31 @@ impl Evaluator {
                 if func.is_nil() {
                     return Err(signal("void-function", vec![Value::symbol(name)]));
                 }
+
+                // For byte-code-inlined primitives whose function cell has been
+                // overridden (e.g. by advice), skip the function cell and fall
+                // through to the Rust builtin dispatch — matching GNU Emacs
+                // byte-compiled behavior where Bcar/Bcdr/etc. opcodes bypass
+                // the function cell entirely.
+                let skip_overridden = super::subr_info::is_bytecode_inlined_primitive(name)
+                    && !matches!(&func, Value::Subr(id) if resolve_sym(*id) == name);
+
+                if skip_overridden {
+                    // Directly dispatch to Rust builtin, bypassing the
+                    // overridden function cell entirely.
+                    let (args, args_saved) = self.eval_args(tail)?;
+                    let writeback_args = args.clone();
+                    let result = if let Some(r) = builtins::dispatch_builtin(self, name, args) {
+                        r.map_err(|flow| self.validate_throw(flow))
+                    } else {
+                        Err(signal("void-function", vec![Value::symbol(name)]))
+                    };
+                    self.restore_temp_roots(args_saved);
+                    if let Ok(value) = &result {
+                        self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
+                    }
+                    return result;
+                } else {
                 if let Value::Macro(_) = &func {
                     let expanded = self.expand_macro(func, tail)?;
                     // Root OpaqueValues (closures, bytecode, etc.) embedded
@@ -2314,6 +2339,18 @@ impl Evaluator {
                             Err(signal("invalid-function", vec![Value::symbol(name)]))
                         }
                     }
+                    // Rewrite wrong-arity errors for lambdas/bytecode looked up
+                    // from a named symbol: replace the closure object with the
+                    // symbol name to match GNU Emacs behavior.
+                    Err(Flow::Signal(mut sig))
+                        if sig.symbol_name() == "wrong-number-of-arguments"
+                            && matches!(func, Value::Lambda(_) | Value::ByteCode(_))
+                            && !sig.data.is_empty()
+                            && !sig.data[0].is_symbol() =>
+                    {
+                        sig.data[0] = Value::symbol(name);
+                        Err(Flow::Signal(sig))
+                    }
                     other => other,
                 };
                 self.restore_temp_roots(args_saved);
@@ -2332,6 +2369,7 @@ impl Evaluator {
                 } else {
                     result
                 };
+                } // close else !skip_overridden
             }
 
             // Special forms
