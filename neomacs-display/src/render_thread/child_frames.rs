@@ -47,6 +47,16 @@ impl ChildFrameManager {
         let abs_x = buf.parent_x;
         let abs_y = buf.parent_y;
 
+        tracing::debug!(
+            frame_id,
+            abs_x,
+            abs_y,
+            width = buf.width,
+            height = buf.height,
+            z_order = buf.z_order,
+            "child_frame_manager: update_frame"
+        );
+
         self.frames.insert(
             frame_id,
             ChildFrameEntry {

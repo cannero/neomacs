@@ -97,6 +97,18 @@ pub unsafe extern "C" fn neomacs_display_set_frame_identity(
         return;
     }
 
+    if parent_id != 0 {
+        tracing::debug!(
+            frame_id,
+            parent_id,
+            parent_x,
+            parent_y,
+            z_order,
+            border_width,
+            "set_frame_identity: child frame position"
+        );
+    }
+
     let display = &mut *handle;
     display.frame_glyphs.set_frame_identity(
         frame_id,

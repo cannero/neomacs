@@ -869,6 +869,14 @@ neomacs_update_begin (struct frame *f)
           ? 1 : 0;
         float bg_alpha = (float) f->alpha_background;
 
+        if (parent)
+          nlog_debug ("child frame id=%p parent=%p pos=(%d,%d) "
+                             "pixel=%dx%d z=%d border=%.0f",
+                             (void *) f, (void *) parent,
+                             f->left_pos, f->top_pos,
+                             FRAME_PIXEL_WIDTH (f), FRAME_PIXEL_HEIGHT (f),
+                             z_order, border_width);
+
         neomacs_display_set_frame_identity (
           dpyinfo->display_handle, frame_id, parent_id,
           parent_x, parent_y, z_order, border_width,
@@ -7342,6 +7350,11 @@ static void
 neomacs_set_frame_offset (struct frame *f, int xoff, int yoff,
                           int change_gravity)
 {
+  nlog_debug ("set_frame_offset: frame=%p xoff=%d yoff=%d "
+                     "gravity=%d is_child=%d pixel=%dx%d",
+                     (void *) f, xoff, yoff, change_gravity,
+                     FRAME_PARENT_FRAME (f) != NULL,
+                     FRAME_PIXEL_WIDTH (f), FRAME_PIXEL_HEIGHT (f));
   if (change_gravity > 0)
     {
       f->top_pos = yoff;
