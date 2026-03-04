@@ -6134,7 +6134,6 @@ impl LayoutEngine {
                             &mut next_check,
                         );
                         if fid >= 0 && fid != current_face_id {
-                            current_face_id = fid;
                             face_fg = Color::from_pixel(self.face_data.fg);
                             face_bg = Color::from_pixel(self.face_data.bg);
                             self.apply_face(&self.face_data, frame, frame_glyphs);

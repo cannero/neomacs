@@ -89,6 +89,8 @@ pub struct DmaBufImportParams {
 
 #[cfg(target_os = "linux")]
 mod hal_import {
+    #![allow(unsafe_op_in_unsafe_fn)]
+
     use super::*;
     use ash::vk;
     use std::sync::Arc;
