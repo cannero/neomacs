@@ -205,6 +205,7 @@ impl<'a> Parser<'a> {
                         'b' => s.push('\x08'), // backspace
                         'f' => s.push('\x0C'), // form feed
                         'e' => s.push('\x1B'), // escape
+                        'v' => s.push('\x0B'), // vertical tab
                         // Modifier escapes in strings — produce characters with
                         // modifier bits, matching GNU Emacs lread.c.
                         // \s-X: super modifier (check before plain 's' = space)
@@ -367,6 +368,7 @@ impl<'a> Parser<'a> {
                 'a' => Ok('\x07' as u32 | modifiers),
                 'b' => Ok('\x08' as u32 | modifiers),
                 'f' => Ok('\x0C' as u32 | modifiers),
+                'v' => Ok('\x0B' as u32 | modifiers),
                 'e' => Ok('\x1B' as u32 | modifiers),
                 's' => Ok(' ' as u32 | modifiers),
                 'd' => Ok('\x7F' as u32 | modifiers),
@@ -488,6 +490,7 @@ impl<'a> Parser<'a> {
                 'a' => 0x07, // BEL
                 'b' => 0x08, // BS
                 'f' => 0x0C, // FF
+                'v' => 0x0B, // VT (vertical tab)
                 'e' => 0x1B, // ESC
                 'd' => 0x7F, // DEL
                 // \s: space UNLESS followed by '-' (then Super modifier)
