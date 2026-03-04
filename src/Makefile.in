@@ -284,6 +284,18 @@ NEOMACS_CARGO_FEATURES := $(NEOMACS_CARGO_FEATURES),wpe-webkit
 endif
 NEOMACS_CARGO_BACKEND_FLAGS = --no-default-features --features $(NEOMACS_CARGO_FEATURES)
 NEOMACS_RUST_TARGET = $(top_srcdir)/target/$(NEOMACS_RUST_PROFILE)/$(NEOMACS_RUST_LIB)
+NEOMACS_RUST_INPUT_DIRS = \
+	$(NEOMACS_RUST_DIR) \
+	$(top_srcdir)/neomacs-display-protocol \
+	$(top_srcdir)/neomacs-layout-engine \
+	$(top_srcdir)/neomacs-renderer-wgpu \
+	$(top_srcdir)/neovm-core
+NEOMACS_RUST_INPUTS = \
+	$(top_srcdir)/Cargo.toml \
+	$(top_srcdir)/Cargo.lock \
+	$(shell find $(NEOMACS_RUST_INPUT_DIRS) -type f \
+		\( -name '*.rs' -o -name '*.toml' -o -name '*.wgsl' -o -name '*.c' -o -name '*.h' \) \
+		2>/dev/null)
 
 ## Empty if !HAVE_X_WINDOWS
 ## xfont.o ftfont.o xftfont.o if HAVE_XFT
@@ -609,7 +621,9 @@ ifneq ($(NEOMACS_PREBUILT),yes)
 $(NEOMACS_RUST_LIB): $(NEOMACS_RUST_TARGET)
 	$(AM_V_GEN)cp -f $< $@
 
-$(NEOMACS_RUST_TARGET): FORCE
+# Track Rust workspace inputs instead of forcing rebuild every recursive make.
+# This avoids duplicate cargo invocations in one top-level build.
+$(NEOMACS_RUST_TARGET): $(NEOMACS_RUST_INPUTS)
 	$(AM_V_at)cd $(NEOMACS_RUST_DIR) && cargo build $(NEOMACS_CARGO_FLAGS) $(NEOMACS_CARGO_BACKEND_FLAGS)
 else
 # Pre-built library - no local build needed
