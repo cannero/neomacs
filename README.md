@@ -589,3 +589,7 @@ Built with:
 ## License
 
 GNU General Public License v3.0 (same as Emacs)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=eval-exec/neomacs&type=date&legend=top-left)](https://www.star-history.com/?repos=eval-exec%2Fneomacs&type=date&legend=top-left)

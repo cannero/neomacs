@@ -132,8 +132,6 @@ mod ffi {
 pub fn try_export_va_dmabuf(
     buffer: &gstreamer::BufferRef,
     va_display_ptr: *mut std::ffi::c_void,
-    width: u32,
-    height: u32,
 ) -> Option<VaDmaBufExport> {
     use ffi::*;
 

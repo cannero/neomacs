@@ -89,6 +89,7 @@ pub struct DmaBufImportParams {
 
 #[cfg(target_os = "linux")]
 mod hal_import {
+    #![allow(dead_code)]
     #![allow(unsafe_op_in_unsafe_fn)]
 
     use super::*;

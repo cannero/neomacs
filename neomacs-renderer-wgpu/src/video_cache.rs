@@ -2,6 +2,7 @@
 //!
 //! Provides async video decoding with DMA-BUF zero-copy when available,
 //! falling back to CPU decode + copy otherwise.
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 #[cfg(target_os = "linux")]
@@ -608,8 +609,6 @@ impl VideoCache {
         buffer: &gst::BufferRef,
         info: &gst_video::VideoInfo,
     ) -> Option<DmaBufInfo> {
-        use gst_allocators::prelude::*;
-
         // Get the first memory block from the buffer
         let n_memory = buffer.n_memory();
         if n_memory == 0 {
@@ -716,7 +715,7 @@ impl VideoCache {
         let va_display = get_va_display_from_memory(memory)?;
 
         // Export surface as DMA-BUF
-        let mut export = try_export_va_dmabuf(buffer, va_display, info.width(), info.height())?;
+        let mut export = try_export_va_dmabuf(buffer, va_display)?;
 
         // Use the first fd and plane info
         if export.num_planes == 0 || export.fds[0] < 0 {
