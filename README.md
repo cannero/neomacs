@@ -10,7 +10,6 @@
   <a href="#features"><img src="https://img.shields.io/badge/status-alpha-blueviolet?style=for-the-badge" alt="Status: Alpha"/></a>
   <a href="#building"><img src="https://img.shields.io/badge/rust-1.93.1-orange?style=for-the-badge&logo=rust" alt="Rust 1.93.1"/></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge" alt="License: GPL-3.0"/></a>
-  <a href="https://discord.gg/AJr8g3Jv"><img src="https://img.shields.io/badge/discord-join%20chat-5865F2?style=for-the-badge&logo=discord" alt="Discord"/></a>
 </p>
 
 > **Note:** Neomacs is in active alpha development. Expect rough edges, breaking changes, and missing features. Contributions and bug reports are very welcome!
