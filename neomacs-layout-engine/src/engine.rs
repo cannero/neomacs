@@ -8596,7 +8596,6 @@ unsafe fn char_advance(
     if w > 0.0 { w } else { min_grid_advance }
 }
 
-/// Map Emacs standard fringe bitmap IDs to Unicode characters.
 /// Render a fringe bitmap at the given position using Border rects.
 /// Queries the actual bitmap data from Emacs via FFI and draws
 /// each set bit as a filled pixel rectangle.
@@ -8630,17 +8629,16 @@ unsafe fn render_fringe_bitmap(
     let bm_w = bm_width as f32;
     let bm_h = rows as f32;
 
-    // Calculate pixel scale: map bitmap pixels to screen pixels
-    // Scale to fit within fringe width while maintaining aspect ratio
-    let scale = (fringe_width / bm_w).min(row_height / bm_h).max(1.0);
-    let pixel_w = scale;
-    let pixel_h = scale;
-
-    let scaled_w = bm_w * scale;
-    let scaled_h = bm_h * scale;
+    // Emacs parity: fringe bitmap pixels are intrinsic (1 bitmap pixel = 1 screen px),
+    // not scaled to row height or fringe width.
+    let pixel_w = 1.0;
+    let pixel_h = 1.0;
+    let scaled_w = bm_w;
+    let scaled_h = bm_h;
 
     // Center horizontally in fringe
     let x_start = fringe_x + (fringe_width - scaled_w) / 2.0;
+    let x_end = fringe_x + fringe_width;
 
     // Vertical alignment within the row
     let y_start = match bm_align {
@@ -8657,7 +8655,7 @@ unsafe fn render_fringe_bitmap(
         }
 
         let py = y_start + r as f32 * pixel_h;
-        if py + pixel_h < row_y || py > row_y + row_height {
+        if py + pixel_h <= row_y || py >= row_y + row_height {
             continue; // skip rows outside visible area
         }
 
@@ -8673,7 +8671,13 @@ unsafe fn render_fringe_bitmap(
                 let run_end = bit;
                 let run_len = (run_start - run_end + 1) as f32;
                 let px = x_start + (bm_width - 1 - run_start) as f32 * pixel_w;
-                frame_glyphs.add_border(px, py, run_len * pixel_w, pixel_h, fg);
+                let run_w = run_len * pixel_w;
+                let clip_l = px.max(fringe_x);
+                let clip_r = (px + run_w).min(x_end);
+                let clip_w = clip_r - clip_l;
+                if clip_w > 0.0 {
+                    frame_glyphs.add_border(clip_l, py, clip_w, pixel_h, fg);
+                }
             }
             bit -= 1;
         }
