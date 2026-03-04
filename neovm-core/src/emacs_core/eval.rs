@@ -1998,7 +1998,7 @@ impl Evaluator {
             self.depth -= 1;
             return Err(signal(
                 "excessive-lisp-nesting",
-                vec![Value::Int(self.max_depth as i64)],
+                vec![Value::Int(self.depth as i64)],
             ));
         }
         // Use stacker to dynamically grow the call stack when nearing
