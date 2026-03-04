@@ -163,6 +163,17 @@ impl Obarray {
         }
     }
 
+    /// Remove function cell without marking as explicitly unbound.
+    /// Used for init-time masking of lazily-materialized builtins.
+    pub fn clear_function_silent(&mut self, name: &str) {
+        let id = intern(name);
+        if let Some(sym) = self.symbols.get_mut(&id) {
+            if sym.function.take().is_some() {
+                self.function_epoch = self.function_epoch.wrapping_add(1);
+            }
+        }
+    }
+
     /// Remove the value cell (makunbound).
     pub fn makunbound(&mut self, name: &str) {
         if let Some(sym) = self.symbols.get_mut(&intern(name)) {

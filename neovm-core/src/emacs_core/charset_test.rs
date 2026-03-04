@@ -20,7 +20,7 @@ fn registry_has_standard_charsets() {
 fn registry_names_returns_all() {
     let reg = CharsetRegistry::new();
     let names = reg.names();
-    assert_eq!(names.len(), 7);
+    assert_eq!(names.len(), 8);
     assert!(names.contains(&"ascii".to_string()));
     assert!(names.contains(&"unicode".to_string()));
 }

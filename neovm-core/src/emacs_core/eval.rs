@@ -1420,7 +1420,7 @@ impl Evaluator {
 
         // Keep word-at-point unavailable at startup; symbol-at-point lazily
         // materializes it to mirror GNU Emacs thing-at-point bootstrap.
-        obarray.fmakunbound("word-at-point");
+        obarray.clear_function_silent("word-at-point");
 
         // Stub macros needed during bootstrap — these are normally defined in
         // gv.el which cannot load yet (NeoVM's pcase special form can't handle

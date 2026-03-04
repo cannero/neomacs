@@ -49,15 +49,20 @@ fn keyword_identity_is_consistent_across_constructors() {
     with_test_heap(|| {
         let keyword_from_symbol_ctor = Value::symbol(":kw");
         let keyword_from_keyword_ctor = Value::keyword(":kw");
-        let legacy_symbol_variant = Value::Symbol(intern(":kw"));
 
+        // Value::symbol(":kw") auto-detects the colon and produces Keyword variant
         assert!(matches!(keyword_from_symbol_ctor, Value::Keyword(_)));
         assert!(eq_value(
             &keyword_from_symbol_ctor,
             &keyword_from_keyword_ctor
         ));
-        assert!(eq_value(&keyword_from_symbol_ctor, &legacy_symbol_variant));
-        assert!(equal_value(
+
+        // Direct Value::Symbol(intern(":kw")) bypasses auto-detection and produces
+        // a Symbol variant. In GNU Emacs, :kw and kw are different symbols —
+        // Symbol and Keyword variants must NOT be eq.
+        let legacy_symbol_variant = Value::Symbol(intern(":kw"));
+        assert!(!eq_value(&keyword_from_symbol_ctor, &legacy_symbol_variant));
+        assert!(!equal_value(
             &keyword_from_symbol_ctor,
             &legacy_symbol_variant,
             0
@@ -66,7 +71,7 @@ fn keyword_identity_is_consistent_across_constructors() {
         for test in [HashTableTest::Eq, HashTableTest::Eql, HashTableTest::Equal] {
             let left = keyword_from_symbol_ctor.to_hash_key(&test);
             let right = legacy_symbol_variant.to_hash_key(&test);
-            assert_eq!(left, right);
+            assert_ne!(left, right);
         }
     });
 }

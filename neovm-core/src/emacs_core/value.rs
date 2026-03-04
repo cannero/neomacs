@@ -430,15 +430,13 @@ pub enum HashKey {
 
 impl std::hash::Hash for HashKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Treat Symbol/Keyword as the same hash domain: in GNU Emacs there is
-        // only one symbol type, and ":foo" is just a symbol.
         let tag: u8 = match self {
             HashKey::Nil => 0,
             HashKey::True => 1,
             HashKey::Int(_) => 2,
             HashKey::Float(_) => 3,
             HashKey::FloatEq(_, _) => 4,
-            HashKey::Symbol(_) | HashKey::Keyword(_) => 5,
+            HashKey::Symbol(_) => 5,
             HashKey::Str(_) => 6,
             HashKey::Char(_) => 7,
             HashKey::Window(_) => 8,
@@ -447,6 +445,7 @@ impl std::hash::Hash for HashKey {
             HashKey::ObjId(_, _) => 11,
             HashKey::EqualCons(_, _) => 12,
             HashKey::EqualVec(_) => 13,
+            HashKey::Keyword(_) => 14,
         };
         tag.hash(state);
         match self {
@@ -457,7 +456,8 @@ impl std::hash::Hash for HashKey {
                 bits.hash(state);
                 id.hash(state);
             }
-            HashKey::Symbol(id) | HashKey::Keyword(id) => id.hash(state),
+            HashKey::Symbol(id) => id.hash(state),
+            HashKey::Keyword(id) => id.hash(state),
             HashKey::Str(id) => with_heap(|h| h.get_string(*id).hash(state)),
             HashKey::Char(c) => c.hash(state),
             HashKey::Window(id) | HashKey::Frame(id) => id.hash(state),
@@ -487,10 +487,8 @@ impl PartialEq for HashKey {
             (HashKey::Int(a), HashKey::Int(b)) => a == b,
             (HashKey::Float(a), HashKey::Float(b)) => a == b,
             (HashKey::FloatEq(a, id_a), HashKey::FloatEq(b, id_b)) => a == b && id_a == id_b,
-            (HashKey::Symbol(a), HashKey::Symbol(b))
-            | (HashKey::Keyword(a), HashKey::Keyword(b))
-            | (HashKey::Symbol(a), HashKey::Keyword(b))
-            | (HashKey::Keyword(a), HashKey::Symbol(b)) => a == b,
+            (HashKey::Symbol(a), HashKey::Symbol(b)) => a == b,
+            (HashKey::Keyword(a), HashKey::Keyword(b)) => a == b,
             (HashKey::Str(a), HashKey::Str(b)) => {
                 a == b || with_heap(|h| h.get_string(*a) == h.get_string(*b))
             }
@@ -997,8 +995,6 @@ pub fn eq_value(left: &Value, right: &Value) -> bool {
         (Value::Char(a), Value::Int(b)) => *a as i64 == *b,
         (Value::Char(a), Value::Char(b)) => a == b,
         (Value::Symbol(a), Value::Symbol(b)) => a == b,
-        (Value::Symbol(a), Value::Keyword(b)) => a == b,
-        (Value::Keyword(a), Value::Symbol(b)) => a == b,
         (Value::Keyword(a), Value::Keyword(b)) => a == b,
         (Value::Str(a), Value::Str(b)) => a == b,
         (Value::Cons(a), Value::Cons(b)) => a == b,
@@ -1039,8 +1035,6 @@ pub fn equal_value(left: &Value, right: &Value, depth: usize) -> bool {
         (Value::Float(a, _), Value::Float(b, _)) => a.to_bits() == b.to_bits(),
         (Value::Char(a), Value::Char(b)) => a == b,
         (Value::Symbol(a), Value::Symbol(b)) => a == b,
-        (Value::Symbol(a), Value::Keyword(b)) => a == b,
-        (Value::Keyword(a), Value::Symbol(b)) => a == b,
         (Value::Keyword(a), Value::Keyword(b)) => a == b,
         (Value::Str(a), Value::Str(b)) => {
             if a == b {
