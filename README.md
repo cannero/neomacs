@@ -3,6 +3,10 @@
 > ✨ *"While other editors can save your files, only Emacs can save your soul."* ✨
 
 <p align="center">
+  <img src="assets/banner.svg" alt="NEOMACS banner"/>
+</p>
+
+<p align="center">
   <a href="#features"><img src="https://img.shields.io/badge/status-alpha-blueviolet?style=for-the-badge" alt="Status: Alpha"/></a>
   <a href="#building"><img src="https://img.shields.io/badge/rust-1.93.1-orange?style=for-the-badge&logo=rust" alt="Rust 1.93.1"/></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge" alt="License: GPL-3.0"/></a>
