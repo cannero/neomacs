@@ -1,7 +1,7 @@
 //! File loading and module system (require/provide/load).
 
 use super::error::{EvalError, map_flow};
-use super::eval::quote_to_value;
+use super::eval::{quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::intern;
@@ -276,6 +276,14 @@ fn cache_key(lexical_binding: bool) -> String {
     format!("{ELISP_CACHE_SCHEMA};vm={ELISP_CACHE_VM_VERSION};lexical={lexical}")
 }
 
+const ELISP_EXPANDED_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V2";
+const ELISP_EXPANDED_CACHE_SCHEMA: &str = "schema=2";
+
+fn expanded_cache_key(lexical_binding: bool) -> String {
+    let lexical = if lexical_binding { "1" } else { "0" };
+    format!("{ELISP_EXPANDED_CACHE_SCHEMA};vm={ELISP_CACHE_VM_VERSION};lexical={lexical}")
+}
+
 fn source_hash(content: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     content.hash(&mut hasher);
@@ -374,6 +382,76 @@ fn write_forms_cache(
     let raw = format!(
         "{ELISP_CACHE_MAGIC}\nkey={}\nsource-hash={:016x}\n\n{}\n",
         cache_key(lexical_binding),
+        source_hash(source),
+        payload
+    );
+
+    let tmp_path = cache_temp_path(source_path);
+    let write_result = (|| -> std::io::Result<()> {
+        maybe_inject_cache_write_failure(CACHE_WRITE_PHASE_BEFORE_WRITE)?;
+
+        let mut file = fs::File::create(&tmp_path)?;
+        file.write_all(raw.as_bytes())?;
+        file.sync_data()?;
+
+        maybe_inject_cache_write_failure(CACHE_WRITE_PHASE_AFTER_WRITE)?;
+
+        fs::rename(&tmp_path, &cache_path)?;
+        best_effort_sync_parent_dir(&cache_path);
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
+    }
+
+    write_result
+}
+
+fn maybe_load_expanded_cache(
+    source_path: &Path,
+    source: &str,
+    lexical_binding: bool,
+) -> Option<Vec<Expr>> {
+    let cache_path = cache_sidecar_path(source_path);
+    let raw = fs::read_to_string(cache_path).ok()?;
+    let mut parts = raw.splitn(5, '\n');
+    let magic = parts.next()?;
+    let key = parts.next()?;
+    let hash = parts.next()?;
+    let blank = parts.next()?;
+    let payload = parts.next().unwrap_or("");
+
+    if magic != ELISP_EXPANDED_CACHE_MAGIC {
+        return None;
+    }
+    if !blank.is_empty() {
+        return None;
+    }
+
+    let expected_key = format!("key={}", expanded_cache_key(lexical_binding));
+    if key != expected_key {
+        return None;
+    }
+    let expected_hash = format!("source-hash={:016x}", source_hash(source));
+    if hash != expected_hash {
+        return None;
+    }
+
+    super::parser::parse_forms(payload).ok()
+}
+
+fn write_expanded_cache(
+    source_path: &Path,
+    source: &str,
+    lexical_binding: bool,
+    forms: &[Expr],
+) -> std::io::Result<()> {
+    let cache_path = cache_sidecar_path(source_path);
+    let payload = forms.iter().map(print_expr).collect::<Vec<_>>().join("\n");
+    let raw = format!(
+        "{ELISP_EXPANDED_CACHE_MAGIC}\nkey={}\nsource-hash={:016x}\n\n{}\n",
+        expanded_cache_key(lexical_binding),
         source_hash(source),
         payload
     );
@@ -681,6 +759,106 @@ fn eager_expand_eval(
     Ok(result)
 }
 
+/// Check if a Value is a `(quote ...)` form.
+fn is_quote_form(val: Value, heap: &crate::gc::heap::LispHeap) -> bool {
+    if let Value::Cons(id) = val {
+        heap.cons_car(id).is_symbol_named("quote")
+    } else {
+        false
+    }
+}
+
+/// Like `eager_expand_eval`, but also collects fully-expanded forms into a
+/// `Vec<Expr>` for V2 cache serialization. The expanded Expr is captured
+/// BEFORE eval (while the heap value is still rooted and stable).
+///
+/// **`eval-and-compile` handling**: Macros like `eval-and-compile` evaluate
+/// their body at expansion time and return `(quote RESULT)`. The side effects
+/// (e.g. type registration via `oclosure--define`) happen during expansion
+/// and are lost in the quoted result. To preserve these side effects for V2
+/// replay, we detect when expansion collapses a non-quote form into a quote
+/// and cache the ORIGINAL form instead. On V2 replay, the evaluator handles
+/// `eval-and-compile` as a special form, re-executing the body and its side
+/// effects.
+fn eager_expand_eval_and_collect(
+    eval: &mut super::eval::Evaluator,
+    form_value: Value,
+    macroexpand_fn: Value,
+    collector: &mut Vec<Expr>,
+) -> Result<Value, EvalError> {
+    // Step 1: one-level expand
+    let saved = eval.save_temp_roots();
+    eval.push_temp_root(form_value);
+    eval.push_temp_root(macroexpand_fn);
+    let val = match eval.apply(macroexpand_fn, vec![form_value, Value::Nil]) {
+        Ok(v) => v,
+        Err(_) => {
+            // Expansion failed — collect original form, fall back to plain eval
+            eval.restore_temp_roots(saved);
+            tracing::debug!("eager_expand_collect step1 failed, falling back to plain eval");
+            collector.push(value_to_expr(&form_value));
+            return eval.eval_value(&form_value).map_err(map_flow);
+        }
+    };
+    eval.restore_temp_roots(saved);
+
+    // Detect expansion-time side-effect loss: if one-level expand turned a
+    // non-quote form into (quote ...), the macro (e.g., eval-and-compile)
+    // evaluated its body during expansion. Cache the ORIGINAL form so that
+    // side effects re-occur on V2 replay.
+    let use_original_for_cache =
+        is_quote_form(val, &eval.heap) && !is_quote_form(form_value, &eval.heap);
+
+    // Step 2: if result is (progn ...), recurse into subforms (flattens into collector)
+    if let Value::Cons(id) = val {
+        let car = eval.heap.cons_car(id);
+        let cdr = eval.heap.cons_cdr(id);
+        if car.is_symbol_named("progn") {
+            let saved_progn = eval.save_temp_roots();
+            eval.push_temp_root(val);
+            let mut result = Value::Nil;
+            let mut tail = cdr;
+            while let Value::Cons(sub_id) = tail {
+                let sub_form = eval.heap.cons_car(sub_id);
+                tail = eval.heap.cons_cdr(sub_id);
+                result =
+                    eager_expand_eval_and_collect(eval, sub_form, macroexpand_fn, collector)?;
+            }
+            eval.restore_temp_roots(saved_progn);
+            return Ok(result);
+        }
+    }
+
+    // Step 3: full expand
+    let saved = eval.save_temp_roots();
+    eval.push_temp_root(val);
+    eval.push_temp_root(macroexpand_fn);
+    let fully_expanded = match eval.apply(macroexpand_fn, vec![val, Value::True]) {
+        Ok(v) => v,
+        Err(_) => {
+            eval.restore_temp_roots(saved);
+            tracing::debug!("eager_expand_collect step3 failed, using partially expanded form");
+            val
+        }
+    };
+    eval.restore_temp_roots(saved);
+
+    // Step 4: capture Expr BEFORE eval, then eval.
+    // If the macro had expansion-time side effects (use_original_for_cache),
+    // cache the original form so those side effects re-run on V2 replay.
+    let saved = eval.save_temp_roots();
+    eval.push_temp_root(fully_expanded);
+    if use_original_for_cache {
+        collector.push(value_to_expr(&form_value));
+    } else {
+        collector.push(value_to_expr(&fully_expanded));
+    }
+    let result = eval.eval_value(&fully_expanded).map_err(map_flow)?;
+    eval.restore_temp_roots(saved);
+
+    Ok(result)
+}
+
 /// Load and evaluate a file. Returns the last result.
 #[tracing::instrument(level = "info", skip(eval), err(Debug))]
 pub fn load_file(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Value, EvalError> {
@@ -773,8 +951,6 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
     );
 
     let result = (|| -> Result<Value, EvalError> {
-        let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;
-
         // Clear the macro expansion cache to avoid stale entries from
         // previous files whose parsed form memory has been freed and
         // potentially reused at the same addresses.  Lambda-body caches
@@ -788,11 +964,40 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
         // backquote patterns in its body.
         let macroexpand_fn: Option<Value> = get_eager_macroexpand_fn(eval);
 
+        // === V2 expanded-cache fast path ===
+        // If macroexpand is available AND we have a V2 cache hit, just eval
+        // the pre-expanded forms directly — no macro expansion needed.
+        if macroexpand_fn.is_some() {
+            if let Some(expanded_forms) =
+                maybe_load_expanded_cache(path, &content, eval.lexical_binding())
+            {
+                tracing::info!(
+                    "V2 cache hit for {} ({} forms)",
+                    path.display(),
+                    expanded_forms.len()
+                );
+                for form in &expanded_forms {
+                    eval.eval_expr(form)?;
+                    eval.gc_safe_point();
+                }
+                record_load_history(eval, path);
+                return Ok(Value::True);
+            }
+        }
+
+        // === V1 parse cache or fresh parse ===
+        let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;
+
         let file_name = path
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
+
+        // Collector for V2 cache: only populated when macroexpand is available.
+        let mut expanded_collector: Vec<Expr> =
+            if macroexpand_fn.is_some() { Vec::with_capacity(forms.len()) } else { Vec::new() };
+
         for (i, form) in forms.iter().enumerate() {
             tracing::debug!(
                 "{} FORM[{i}/{}]: {}",
@@ -804,7 +1009,12 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
             let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
             let eval_result = if let Some(mexp_fn) = macroexpand_fn {
                 let form_value = quote_to_value(form);
-                eager_expand_eval(eval, form_value, mexp_fn)
+                eager_expand_eval_and_collect(
+                    eval,
+                    form_value,
+                    mexp_fn,
+                    &mut expanded_collector,
+                )
             } else {
                 eval.eval_expr(form)
             };
@@ -845,6 +1055,21 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
             // Real Emacs prevents this via `macroexp--pending-eager-loads`;
             // we simply check once at file start and keep that mode for the
             // whole file.
+        }
+
+        // Write V2 expanded cache if we collected forms and none contain OpaqueValues.
+        if !expanded_collector.is_empty()
+            && !expanded_collector.iter().any(|e| e.contains_opaque_value())
+            && load_cache_writes_enabled()
+        {
+            match write_expanded_cache(path, &content, eval.lexical_binding(), &expanded_collector) {
+                Ok(()) => tracing::info!(
+                    "V2 cache written for {} ({} expanded forms)",
+                    path.display(),
+                    expanded_collector.len()
+                ),
+                Err(e) => tracing::debug!("V2 cache write failed for {}: {e}", path.display()),
+            }
         }
 
         record_load_history(eval, path);

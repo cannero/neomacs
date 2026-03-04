@@ -1,5 +1,7 @@
 use super::*;
-use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::expr::Expr;
+use crate::emacs_core::intern::{intern, resolve_sym};
+use crate::emacs_core::value::Value;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1170,4 +1172,224 @@ fn key_parse_modifier_bits() {
         Err(e) => panic!("key-parse \"C-x\" failed: {e:?}"),
         Ok(val) => tracing::debug!("key-parse \"C-x\" => {val}"),
     }
+}
+
+#[test]
+fn char_literal_roundtrip() {
+    use crate::emacs_core::expr::print_expr;
+
+    let cases: Vec<(char, &str)> = vec![
+        ('A', "?A"),
+        ('z', "?z"),
+        ('0', "?0"),
+        (' ', "?\\ "),
+        ('\\', "?\\\\"),
+        ('\n', "?\\n"),
+        ('\t', "?\\t"),
+        ('\r', "?\\r"),
+        ('\x07', "?\\a"),
+        ('\x08', "?\\b"),
+        ('\x0C', "?\\f"),
+        ('\x1B', "?\\e"),
+        ('\x7F', "?\\d"),
+        ('(', "?\\("),
+        (')', "?\\)"),
+        ('[', "?\\["),
+        (']', "?\\]"),
+        ('"', "?\\\""),
+        (';', "?\\;"),
+        ('#', "?\\#"),
+        ('\'', "?\\'"),
+        ('`', "?\\`"),
+        (',', "?\\,"),
+    ];
+
+    for (ch, expected_print) in &cases {
+        let expr = Expr::Char(*ch);
+        let printed = print_expr(&expr);
+        assert_eq!(
+            &printed, expected_print,
+            "print_expr(Char({:?})) should be {}",
+            ch, expected_print
+        );
+
+        // Round-trip: print → parse → should get Char back
+        let parsed = super::super::parser::parse_forms(&printed).expect(&format!(
+            "parse should succeed for printed char literal: {}",
+            printed
+        ));
+        assert_eq!(parsed.len(), 1, "should parse exactly one form from {printed}");
+        match &parsed[0] {
+            Expr::Char(c) => assert_eq!(
+                *c, *ch,
+                "round-trip Char({:?}) → print → parse should yield same char",
+                ch
+            ),
+            other => panic!(
+                "round-trip Char({:?}) → print '{printed}' → parse yielded {:?}, expected Char",
+                ch, other
+            ),
+        }
+    }
+}
+
+#[test]
+fn expanded_cache_round_trip() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-v2-cache-rt-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+    let source = "(defun foo () 42)\n(setq bar 'baz)\n";
+    fs::write(&file, source).expect("write fixture");
+
+    let forms = vec![
+        Expr::List(vec![
+            Expr::Symbol(intern("defun")),
+            Expr::Symbol(intern("foo")),
+            Expr::List(vec![]),
+            Expr::Int(42),
+        ]),
+        Expr::List(vec![
+            Expr::Symbol(intern("setq")),
+            Expr::Symbol(intern("bar")),
+            Expr::List(vec![
+                Expr::Symbol(intern("quote")),
+                Expr::Symbol(intern("baz")),
+            ]),
+        ]),
+    ];
+
+    write_expanded_cache(&file, source, true, &forms).expect("write V2 cache");
+    let loaded = maybe_load_expanded_cache(&file, source, true);
+    assert!(loaded.is_some(), "V2 cache should load successfully");
+    let loaded_forms = loaded.unwrap();
+    assert_eq!(loaded_forms.len(), forms.len(), "should have same number of forms");
+
+    // Verify structural equality via print_expr round-trip
+    for (i, (orig, loaded)) in forms.iter().zip(loaded_forms.iter()).enumerate() {
+        assert_eq!(
+            print_expr(orig),
+            print_expr(loaded),
+            "form {i} should round-trip through V2 cache"
+        );
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn expanded_cache_invalidated_by_source_change() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-v2-cache-inv-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+
+    let source_v1 = "(setq x 1)\n";
+    fs::write(&file, source_v1).expect("write fixture v1");
+
+    let forms = vec![Expr::List(vec![
+        Expr::Symbol(intern("setq")),
+        Expr::Symbol(intern("x")),
+        Expr::Int(1),
+    ])];
+
+    write_expanded_cache(&file, source_v1, true, &forms).expect("write V2 cache");
+
+    // Modify source — cache should be invalidated
+    let source_v2 = "(setq x 2)\n";
+    let loaded = maybe_load_expanded_cache(&file, source_v2, true);
+    assert!(
+        loaded.is_none(),
+        "V2 cache should be invalidated when source changes"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn v2_cache_overwrites_v1() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-v2-overwrites-v1-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+    let source = "(setq x 1)\n";
+    fs::write(&file, source).expect("write fixture");
+
+    let forms = vec![Expr::List(vec![
+        Expr::Symbol(intern("setq")),
+        Expr::Symbol(intern("x")),
+        Expr::Int(1),
+    ])];
+
+    // Write V1 cache first
+    write_forms_cache(&file, source, true, &forms).expect("write V1 cache");
+    assert!(
+        maybe_load_cached_forms(&file, source, true).is_some(),
+        "V1 cache should be readable"
+    );
+
+    // Write V2 cache — overwrites the same .neoc file
+    write_expanded_cache(&file, source, true, &forms).expect("write V2 cache");
+
+    // V1 reader should NOT match V2 cache (different magic)
+    assert!(
+        maybe_load_cached_forms(&file, source, true).is_none(),
+        "V1 reader should return None after V2 overwrites the cache file"
+    );
+
+    // V2 reader should still work
+    assert!(
+        maybe_load_expanded_cache(&file, source, true).is_some(),
+        "V2 reader should still work after overwrite"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn contains_opaque_value_detection() {
+    // Plain forms should not contain opaque values
+    let plain = Expr::List(vec![
+        Expr::Symbol(intern("setq")),
+        Expr::Symbol(intern("x")),
+        Expr::Int(42),
+    ]);
+    assert!(!plain.contains_opaque_value(), "plain form should not contain opaque values");
+
+    // Form with OpaqueValue should be detected
+    let opaque = Expr::List(vec![
+        Expr::Symbol(intern("quote")),
+        Expr::OpaqueValue(Value::Int(99)),
+    ]);
+    assert!(opaque.contains_opaque_value(), "form with OpaqueValue should be detected");
+
+    // Nested OpaqueValue in vector
+    let nested = Expr::Vector(vec![
+        Expr::Int(1),
+        Expr::List(vec![Expr::OpaqueValue(Value::True)]),
+    ]);
+    assert!(nested.contains_opaque_value(), "nested OpaqueValue should be detected");
+
+    // DottedList with OpaqueValue in tail
+    let dotted = Expr::DottedList(
+        vec![Expr::Int(1)],
+        Box::new(Expr::OpaqueValue(Value::Nil)),
+    );
+    assert!(dotted.contains_opaque_value(), "OpaqueValue in dotted tail should be detected");
+
+    // DottedList without OpaqueValue
+    let dotted_clean = Expr::DottedList(
+        vec![Expr::Int(1)],
+        Box::new(Expr::Int(2)),
+    );
+    assert!(!dotted_clean.contains_opaque_value(), "clean dotted list should not contain opaque values");
 }

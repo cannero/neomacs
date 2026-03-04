@@ -31,6 +31,21 @@ pub enum Expr {
 }
 
 impl Expr {
+    /// Check if this Expr tree contains any `OpaqueValue` nodes.
+    /// Forms containing opaque values cannot be serialized to cache.
+    pub fn contains_opaque_value(&self) -> bool {
+        match self {
+            Expr::OpaqueValue(_) => true,
+            Expr::List(items) | Expr::Vector(items) => {
+                items.iter().any(|e| e.contains_opaque_value())
+            }
+            Expr::DottedList(items, last) => {
+                items.iter().any(|e| e.contains_opaque_value()) || last.contains_opaque_value()
+            }
+            _ => false,
+        }
+    }
+
     /// Collect all Values embedded in `OpaqueValue` nodes in this Expr tree.
     /// Used by GC to trace Values inside Lambda/Macro body expressions.
     pub fn collect_opaque_values(&self, out: &mut Vec<super::value::Value>) {
@@ -74,8 +89,7 @@ pub fn print_expr(expr: &Expr) -> String {
         Expr::Symbol(id) => format_symbol_name(resolve_sym(*id)),
         Expr::Keyword(id) => resolve_sym(*id).to_owned(),
         Expr::Str(s) => format_lisp_string(s),
-        // Emacs chars are integer values, so print as codepoint.
-        Expr::Char(c) => (*c as u32).to_string(),
+        Expr::Char(c) => format_char_literal(*c),
         Expr::Bool(true) => "t".to_string(),
         Expr::Bool(false) => "nil".to_string(),
         Expr::OpaqueValue(v) => format!("{}", v),
@@ -184,6 +198,26 @@ fn format_float(f: f64) -> String {
         format!("{}", f)
     }
 }
+
+fn format_char_literal(c: char) -> String {
+    match c {
+        ' ' => "?\\ ".to_string(),
+        '\\' => "?\\\\".to_string(),
+        '\n' => "?\\n".to_string(),
+        '\t' => "?\\t".to_string(),
+        '\r' => "?\\r".to_string(),
+        '\x07' => "?\\a".to_string(),
+        '\x08' => "?\\b".to_string(),
+        '\x0C' => "?\\f".to_string(),
+        '\x1B' => "?\\e".to_string(),
+        '\x7F' => "?\\d".to_string(),
+        '(' | ')' | '[' | ']' | '"' | ';' | '#' | '\'' | '`' | ',' => format!("?\\{c}"),
+        c if c < ' ' => format!("?\\{:03o}", c as u32),
+        c if (c as u32) > 0x7F => format!("?\\x{:x}", c as u32),
+        _ => format!("?{c}"),
+    }
+}
+
 #[cfg(test)]
 #[path = "expr_test.rs"]
 mod tests;
