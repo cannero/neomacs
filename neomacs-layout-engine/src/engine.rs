@@ -4713,6 +4713,110 @@ impl LayoutEngine {
         // face resolution (mirrors xdisp FACE_FOR_CHAR behavior).
         let mut prev_was_non_ascii = false;
 
+        // Place cursor at the current visual position. Call this only at the
+        // final draw position for the current buffer char (after wrap decisions).
+        macro_rules! place_cursor_here {
+            ($cursor_byte_idx:expr, $cursor_col:expr) => {{
+                // Flush ligature run before cursor to split run at cursor position
+                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                self.run_buf.clear();
+                cursor_col = $cursor_col;
+                cursor_x = x_offset;
+                cursor_row = row;
+                let cursor_px = content_x + x_offset;
+                let cursor_y = row_y[row as usize];
+
+                // Use face-specific dimensions so cursor matches variable-height faces
+                let cursor_face_w = if self.face_data.font_char_width > 0.0 {
+                    self.face_data.font_char_width
+                } else {
+                    char_w
+                };
+
+                let cursor_style = cursor_style_for_window(params);
+
+                if let Some(style) = cursor_style {
+                    let fallback_cursor_w = cursor_width_for_style(
+                        style,
+                        text,
+                        $cursor_byte_idx,
+                        $cursor_col,
+                        params,
+                        cursor_face_w,
+                    );
+                    let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
+                        fallback_cursor_w
+                    } else {
+                        // Match Emacs cursor geometry: use the actual width of the
+                        // display element at point (glyph->pixel_width), not just
+                        // columns * nominal face width.
+                        let face_id = self.face_data.face_id;
+                        if face_id != self.resolved_family_face_id {
+                            let font_family = if !self.face_data.font_family.is_null() {
+                                CStr::from_ptr(self.face_data.font_family)
+                                    .to_str()
+                                    .unwrap_or("")
+                            } else {
+                                ""
+                            };
+                            let font_file_path_str = if !self.face_data.font_file_path.is_null() {
+                                CStr::from_ptr(self.face_data.font_file_path)
+                                    .to_str()
+                                    .ok()
+                                    .filter(|s| !s.is_empty())
+                            } else {
+                                None
+                            };
+                            self.current_resolved_family =
+                                if let Some(ref mut svc) = self.font_metrics {
+                                    svc.resolve_family(font_family, font_file_path_str)
+                                } else {
+                                    font_family.to_string()
+                                };
+                            self.resolved_family_face_id = face_id;
+                        }
+
+                        cursor_point_advance(
+                            text,
+                            $cursor_byte_idx,
+                            $cursor_col,
+                            params,
+                            cursor_face_w,
+                            face_space_w,
+                            char_w,
+                            self.face_data.face_id,
+                            self.face_data.font_size,
+                            window,
+                            &self.current_resolved_family,
+                            self.face_data.font_weight as u16,
+                            self.face_data.italic != 0,
+                            &mut self.ascii_width_cache,
+                            &mut self.font_metrics,
+                        )
+                        .unwrap_or(fallback_cursor_w)
+                    }
+                    .max(1.0);
+                    frame_glyphs.add_cursor(
+                        params.window_id as i32,
+                        cursor_px,
+                        cursor_y,
+                        cursor_w,
+                        face_h,
+                        style,
+                        face_fg,
+                    );
+
+                    if matches!(style, CursorStyle::FilledBox) {
+                        frame_glyphs.set_cursor_inverse(
+                            cursor_px, cursor_y, cursor_w, face_h, face_fg, face_bg,
+                        );
+                    }
+                }
+
+                cursor_placed = true;
+            }};
+        }
+
         while byte_idx < bytes_read as usize && row < max_rows && row_y[row as usize] < text_y_limit
         {
             // Render line number at the start of each new row
@@ -6367,100 +6471,9 @@ impl LayoutEngine {
                 }
             }
 
-            // Check if cursor is at this position
-            if !cursor_placed && charpos >= params.point {
-                // Flush ligature run before cursor to split run at cursor position
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
-                self.run_buf.clear();
-                cursor_col = col;
-                cursor_x = x_offset;
-                cursor_row = row;
-                let cursor_px = content_x + x_offset;
-                let cursor_y = row_y[row as usize];
-
-                // Use face-specific dimensions so cursor matches variable-height faces
-                let cursor_face_w = if self.face_data.font_char_width > 0.0 {
-                    self.face_data.font_char_width
-                } else {
-                    char_w
-                };
-
-                let cursor_style = cursor_style_for_window(params);
-
-                if let Some(style) = cursor_style {
-                    let fallback_cursor_w =
-                        cursor_width_for_style(style, text, byte_idx, col, params, cursor_face_w);
-                    let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
-                        fallback_cursor_w
-                    } else {
-                        // Match Emacs cursor geometry: use the actual width of the
-                        // display element at point (glyph->pixel_width), not just
-                        // columns * nominal face width.
-                        let face_id = self.face_data.face_id;
-                        if face_id != self.resolved_family_face_id {
-                            let font_family = if !self.face_data.font_family.is_null() {
-                                CStr::from_ptr(self.face_data.font_family)
-                                    .to_str()
-                                    .unwrap_or("")
-                            } else {
-                                ""
-                            };
-                            let font_file_path_str = if !self.face_data.font_file_path.is_null() {
-                                CStr::from_ptr(self.face_data.font_file_path)
-                                    .to_str()
-                                    .ok()
-                                    .filter(|s| !s.is_empty())
-                            } else {
-                                None
-                            };
-                            self.current_resolved_family =
-                                if let Some(ref mut svc) = self.font_metrics {
-                                    svc.resolve_family(font_family, font_file_path_str)
-                                } else {
-                                    font_family.to_string()
-                                };
-                            self.resolved_family_face_id = face_id;
-                        }
-
-                        cursor_point_advance(
-                            text,
-                            byte_idx,
-                            col,
-                            params,
-                            cursor_face_w,
-                            face_space_w,
-                            char_w,
-                            self.face_data.face_id,
-                            self.face_data.font_size,
-                            window,
-                            &self.current_resolved_family,
-                            self.face_data.font_weight as u16,
-                            self.face_data.italic != 0,
-                            &mut self.ascii_width_cache,
-                            &mut self.font_metrics,
-                        )
-                        .unwrap_or(fallback_cursor_w)
-                    }
-                    .max(1.0);
-                    frame_glyphs.add_cursor(
-                        params.window_id as i32,
-                        cursor_px,
-                        cursor_y,
-                        cursor_w,
-                        face_h,
-                        style,
-                        face_fg,
-                    );
-
-                    if matches!(style, CursorStyle::FilledBox) {
-                        frame_glyphs.set_cursor_inverse(
-                            cursor_px, cursor_y, cursor_w, face_h, face_fg, face_bg,
-                        );
-                    }
-                }
-
-                cursor_placed = true;
-            }
+            let cursor_byte_idx_at_char = byte_idx;
+            let cursor_col_at_char = col;
+            let point_at_this_char = !cursor_placed && charpos >= params.point;
 
             // Decode one UTF-8 character
             let (ch, ch_len) = decode_utf8(&text[byte_idx..]);
@@ -6470,6 +6483,9 @@ impl LayoutEngine {
 
             match ch {
                 '\n' => {
+                    if point_at_this_char {
+                        place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
+                    }
                     // Flush ligature run before newline
                     flush_run(&self.run_buf, frame_glyphs, ligatures);
                     self.run_buf.clear();
@@ -6655,6 +6671,9 @@ impl LayoutEngine {
                     }
                 }
                 '\t' => {
+                    if point_at_this_char {
+                        place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
+                    }
                     // Flush ligature run before tab
                     flush_run(&self.run_buf, frame_glyphs, ligatures);
                     self.run_buf.clear();
@@ -6757,6 +6776,9 @@ impl LayoutEngine {
                     }
                 }
                 '\r' => {
+                    if point_at_this_char {
+                        place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
+                    }
                     // Flush ligature run before carriage return
                     flush_run(&self.run_buf, frame_glyphs, ligatures);
                     self.run_buf.clear();
@@ -6807,6 +6829,9 @@ impl LayoutEngine {
                     // Otherwise: carriage return is just skipped
                 }
                 _ if ch < ' ' || ch == '\x7F' => {
+                    if point_at_this_char {
+                        place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
+                    }
                     // Flush ligature run before control char
                     flush_run(&self.run_buf, frame_glyphs, ligatures);
                     self.run_buf.clear();
@@ -7143,6 +7168,9 @@ impl LayoutEngine {
                             if current_face_id >= 0 {
                                 self.apply_face(&self.face_data, frame, frame_glyphs);
                             }
+                            if point_at_this_char && !cursor_placed {
+                                place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
+                            }
                             window_end_charpos = charpos;
                             continue;
                         }
@@ -7381,6 +7409,12 @@ impl LayoutEngine {
                                 break;
                             }
                         }
+                    }
+
+                    // Cursor must use final visual position of this character.
+                    // Place it after wrap decisions, before drawing the glyph.
+                    if point_at_this_char && !cursor_placed {
+                        place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
                     }
 
                     // Track per-row max height for variable-height faces
