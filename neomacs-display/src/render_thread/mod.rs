@@ -3042,7 +3042,6 @@ impl RenderApp {
         // Present the frame
         output.present();
     }
-
 }
 
 impl ApplicationHandler for RenderApp {

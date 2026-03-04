@@ -2212,163 +2212,170 @@ impl Evaluator {
                     }
                     return result;
                 } else {
-                if let Value::Macro(_) = &func {
-                    let expanded = self.expand_macro(func, tail)?;
-                    // Root OpaqueValues (closures, bytecode, etc.) embedded
-                    // in the expansion so they survive GC during eval.
-                    let saved_opaque = self.save_temp_roots();
-                    let mut opaques = Vec::new();
-                    collect_opaque_values(&expanded, &mut opaques);
-                    for v in &opaques {
-                        self.push_temp_root(*v);
-                    }
-                    let result = self.eval(&expanded);
-                    self.restore_temp_roots(saved_opaque);
-                    return result;
-                }
-                // Handle cons-cell macros: (macro . fn) — used by byte-run.el's
-                // (defalias 'defmacro (cons 'macro #'(lambda ...)))
-                if let Value::Cons(cons_id) = func {
-                    let car = func.cons_car();
-                    if car.is_symbol_named("macro") {
-                        let cache_key = (cons_id, tail.as_ptr() as usize);
-                        let current_fp = tail_fingerprint(tail);
-                        if !self.macro_cache_disabled {
-                            if let Some((cached, stored_fp)) =
-                                self.macro_expansion_cache.get(&cache_key)
-                            {
-                                if *stored_fp == current_fp {
-                                    self.macro_cache_hits += 1;
-                                    let expanded = cached.clone();
-                                    let saved_opaque = self.save_temp_roots();
-                                    let mut opaques = Vec::new();
-                                    collect_opaque_values(&expanded, &mut opaques);
-                                    for v in &opaques {
-                                        self.push_temp_root(*v);
-                                    }
-                                    let result = self.eval(&expanded);
-                                    self.restore_temp_roots(saved_opaque);
-                                    return result;
-                                }
-                                // Fingerprint mismatch → ABA detected, fall through to re-expand
-                            }
-                        }
-
-                        let expand_start = std::time::Instant::now();
-                        let saved = self.save_temp_roots();
-                        let macro_fn = func.cons_cdr();
-                        self.push_temp_root(macro_fn);
-                        // Root all arg values during macro expansion to survive GC.
-                        let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
-                        for v in &arg_values {
-                            self.push_temp_root(*v);
-                        }
-                        let expanded_value = self.apply(macro_fn, arg_values)?;
-                        // Root expansion result during value_to_expr traversal
-                        // AND during eval of expanded_expr (OpaqueValues reference
-                        // heap objects reachable only through expanded_value).
-                        self.push_temp_root(expanded_value);
-                        let expanded_expr = value_to_expr(&expanded_value);
-                        self.restore_temp_roots(saved);
-
-                        // Cache the expansion as Rc<Expr>.  The Rc keeps the
-                        // expansion alive in the cache, ensuring inner Vec
-                        // addresses remain stable for future cache key lookups.
-                        let expand_elapsed = expand_start.elapsed();
-                        self.macro_cache_misses += 1;
-                        self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
-
-                        let expanded_rc = Rc::new(expanded_expr);
-                        if !self.macro_cache_disabled {
-                            self.macro_expansion_cache
-                                .insert(cache_key, (expanded_rc.clone(), current_fp));
-                        }
-
+                    if let Value::Macro(_) = &func {
+                        let expanded = self.expand_macro(func, tail)?;
+                        // Root OpaqueValues (closures, bytecode, etc.) embedded
+                        // in the expansion so they survive GC during eval.
                         let saved_opaque = self.save_temp_roots();
                         let mut opaques = Vec::new();
-                        collect_opaque_values(&expanded_rc, &mut opaques);
+                        collect_opaque_values(&expanded, &mut opaques);
                         for v in &opaques {
                             self.push_temp_root(*v);
                         }
-                        let result = self.eval(&expanded_rc);
+                        let result = self.eval(&expanded);
                         self.restore_temp_roots(saved_opaque);
                         return result;
                     }
-                }
+                    // Handle cons-cell macros: (macro . fn) — used by byte-run.el's
+                    // (defalias 'defmacro (cons 'macro #'(lambda ...)))
+                    if let Value::Cons(cons_id) = func {
+                        let car = func.cons_car();
+                        if car.is_symbol_named("macro") {
+                            let cache_key = (cons_id, tail.as_ptr() as usize);
+                            let current_fp = tail_fingerprint(tail);
+                            if !self.macro_cache_disabled {
+                                if let Some((cached, stored_fp)) =
+                                    self.macro_expansion_cache.get(&cache_key)
+                                {
+                                    if *stored_fp == current_fp {
+                                        self.macro_cache_hits += 1;
+                                        let expanded = cached.clone();
+                                        let saved_opaque = self.save_temp_roots();
+                                        let mut opaques = Vec::new();
+                                        collect_opaque_values(&expanded, &mut opaques);
+                                        for v in &opaques {
+                                            self.push_temp_root(*v);
+                                        }
+                                        let result = self.eval(&expanded);
+                                        self.restore_temp_roots(saved_opaque);
+                                        return result;
+                                    }
+                                    // Fingerprint mismatch → ABA detected, fall through to re-expand
+                                }
+                            }
 
-                if let Value::Subr(bound_name) = &func {
-                    if resolve_sym(*bound_name) == name && super::subr_info::is_special_form(name) {
-                        if let Some(result) = self.try_special_form(name, tail) {
+                            let expand_start = std::time::Instant::now();
+                            let saved = self.save_temp_roots();
+                            let macro_fn = func.cons_cdr();
+                            self.push_temp_root(macro_fn);
+                            // Root all arg values during macro expansion to survive GC.
+                            let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
+                            for v in &arg_values {
+                                self.push_temp_root(*v);
+                            }
+                            let expanded_value = self.apply(macro_fn, arg_values)?;
+                            // Root expansion result during value_to_expr traversal
+                            // AND during eval of expanded_expr (OpaqueValues reference
+                            // heap objects reachable only through expanded_value).
+                            self.push_temp_root(expanded_value);
+                            let expanded_expr = value_to_expr(&expanded_value);
+                            self.restore_temp_roots(saved);
+
+                            // Cache the expansion as Rc<Expr>.  The Rc keeps the
+                            // expansion alive in the cache, ensuring inner Vec
+                            // addresses remain stable for future cache key lookups.
+                            let expand_elapsed = expand_start.elapsed();
+                            self.macro_cache_misses += 1;
+                            self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
+
+                            let expanded_rc = Rc::new(expanded_expr);
+                            if !self.macro_cache_disabled {
+                                self.macro_expansion_cache
+                                    .insert(cache_key, (expanded_rc.clone(), current_fp));
+                            }
+
+                            let saved_opaque = self.save_temp_roots();
+                            let mut opaques = Vec::new();
+                            collect_opaque_values(&expanded_rc, &mut opaques);
+                            for v in &opaques {
+                                self.push_temp_root(*v);
+                            }
+                            let result = self.eval(&expanded_rc);
+                            self.restore_temp_roots(saved_opaque);
                             return result;
                         }
                     }
-                }
 
-                // Explicit function-cell bindings override special-form fallback.
-                let (args, args_saved) = self.eval_args(tail)?;
-                if super::autoload::is_autoload_value(&func) {
-                    let writeback_args = args.clone();
-                    let result =
-                        self.apply_named_callable(name, args, Value::Subr(intern(name)), false);
-                    self.restore_temp_roots(args_saved);
-                    if let Ok(value) = &result {
-                        self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
-                    }
-                    return result;
-                }
-                let function_is_callable = match &func {
-                    Value::Lambda(_) | Value::ByteCode(_) | Value::Macro(_) => true,
-                    Value::Subr(bound_name) => {
-                        !super::subr_info::is_special_form(resolve_sym(*bound_name))
-                    }
-                    _ => false,
-                };
-                let alias_target = match &func {
-                    Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
-                    Value::Subr(bound_name) => Some(resolve_sym(*bound_name).to_owned()),
-                    _ => None,
-                };
-                let writeback_args = args.clone();
-                let result = match self.apply(func, args) {
-                    Err(Flow::Signal(sig))
-                        if sig.symbol_name() == "invalid-function" && !function_is_callable =>
-                    {
-                        if matches!(func, Value::Symbol(_)) {
-                            Err(Flow::Signal(sig))
-                        } else {
-                            Err(signal("invalid-function", vec![Value::symbol(name)]))
+                    if let Value::Subr(bound_name) = &func {
+                        if resolve_sym(*bound_name) == name
+                            && super::subr_info::is_special_form(name)
+                        {
+                            if let Some(result) = self.try_special_form(name, tail) {
+                                return result;
+                            }
                         }
                     }
-                    // Rewrite wrong-arity errors for lambdas/bytecode looked up
-                    // from a named symbol: replace the closure object with the
-                    // symbol name to match GNU Emacs behavior.
-                    Err(Flow::Signal(mut sig))
-                        if sig.symbol_name() == "wrong-number-of-arguments"
-                            && matches!(func, Value::Lambda(_) | Value::ByteCode(_))
-                            && !sig.data.is_empty()
-                            && !sig.data[0].is_symbol() =>
-                    {
-                        sig.data[0] = Value::symbol(name);
-                        Err(Flow::Signal(sig))
+
+                    // Explicit function-cell bindings override special-form fallback.
+                    let (args, args_saved) = self.eval_args(tail)?;
+                    if super::autoload::is_autoload_value(&func) {
+                        let writeback_args = args.clone();
+                        let result =
+                            self.apply_named_callable(name, args, Value::Subr(intern(name)), false);
+                        self.restore_temp_roots(args_saved);
+                        if let Ok(value) = &result {
+                            self.maybe_writeback_mutating_first_arg(
+                                name,
+                                None,
+                                &writeback_args,
+                                value,
+                            );
+                        }
+                        return result;
                     }
-                    other => other,
-                };
-                self.restore_temp_roots(args_saved);
-                if let Ok(value) = &result {
-                    self.maybe_writeback_mutating_first_arg(
-                        name,
-                        alias_target.as_deref(),
-                        &writeback_args,
-                        value,
-                    );
-                }
-                return if let Some(target) = alias_target {
-                    result.map_err(|flow| {
-                        rewrite_wrong_arity_alias_function_object(flow, name, &target)
-                    })
-                } else {
-                    result
-                };
+                    let function_is_callable = match &func {
+                        Value::Lambda(_) | Value::ByteCode(_) | Value::Macro(_) => true,
+                        Value::Subr(bound_name) => {
+                            !super::subr_info::is_special_form(resolve_sym(*bound_name))
+                        }
+                        _ => false,
+                    };
+                    let alias_target = match &func {
+                        Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
+                        Value::Subr(bound_name) => Some(resolve_sym(*bound_name).to_owned()),
+                        _ => None,
+                    };
+                    let writeback_args = args.clone();
+                    let result = match self.apply(func, args) {
+                        Err(Flow::Signal(sig))
+                            if sig.symbol_name() == "invalid-function" && !function_is_callable =>
+                        {
+                            if matches!(func, Value::Symbol(_)) {
+                                Err(Flow::Signal(sig))
+                            } else {
+                                Err(signal("invalid-function", vec![Value::symbol(name)]))
+                            }
+                        }
+                        // Rewrite wrong-arity errors for lambdas/bytecode looked up
+                        // from a named symbol: replace the closure object with the
+                        // symbol name to match GNU Emacs behavior.
+                        Err(Flow::Signal(mut sig))
+                            if sig.symbol_name() == "wrong-number-of-arguments"
+                                && matches!(func, Value::Lambda(_) | Value::ByteCode(_))
+                                && !sig.data.is_empty()
+                                && !sig.data[0].is_symbol() =>
+                        {
+                            sig.data[0] = Value::symbol(name);
+                            Err(Flow::Signal(sig))
+                        }
+                        other => other,
+                    };
+                    self.restore_temp_roots(args_saved);
+                    if let Ok(value) = &result {
+                        self.maybe_writeback_mutating_first_arg(
+                            name,
+                            alias_target.as_deref(),
+                            &writeback_args,
+                            value,
+                        );
+                    }
+                    return if let Some(target) = alias_target {
+                        result.map_err(|flow| {
+                            rewrite_wrong_arity_alias_function_object(flow, name, &target)
+                        })
+                    } else {
+                        result
+                    };
                 } // close else !skip_overridden
             }
 

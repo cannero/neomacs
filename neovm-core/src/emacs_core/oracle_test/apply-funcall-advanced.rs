@@ -87,7 +87,9 @@ fn oracle_prop_funcall_direct_lambda() {
     );
 
     // Nested lambda application
-    assert_oracle_parity_with_bootstrap("(funcall (funcall (lambda (x) (lambda (y) (+ x y))) 10) 20)");
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (funcall (lambda (x) (lambda (y) (+ x y))) 10) 20)",
+    );
 
     // Lambda with destructuring via let inside
     let form = r#"(funcall (lambda (pair)

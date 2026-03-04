@@ -28,9 +28,13 @@ fn oracle_prop_funcall_arg_count_sweep() {
     // 4 args
     assert_oracle_parity_with_bootstrap("(funcall (lambda (a b c d) (* (+ a b) (+ c d))) 1 2 3 4)");
     // 5 args
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (a b c d e) (list e d c b a)) 1 2 3 4 5)");
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (a b c d e) (list e d c b a)) 1 2 3 4 5)",
+    );
     // 6 args
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (a b c d e f) (+ a b c d e f)) 1 2 3 4 5 6)");
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (a b c d e f) (+ a b c d e f)) 1 2 3 4 5 6)",
+    );
     // 7 args
     assert_oracle_parity_with_bootstrap(
         "(funcall (lambda (a b c d e f g) (list a (+ b c) (+ d e f g))) 1 2 3 4 5 6 7)",
@@ -407,17 +411,31 @@ fn oracle_prop_funcall_rest_arg_combinations() {
 
     // 2 required + &rest
     assert_oracle_parity_with_bootstrap("(funcall (lambda (a b &rest xs) (list a b xs)) 1 2)");
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (a b &rest xs) (list a b xs)) 1 2 3 4 5)");
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (a b &rest xs) (list a b xs)) 1 2 3 4 5)",
+    );
 
     // 1 required + 1 optional + &rest
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (a &optional b &rest xs) (list a b xs)) 1)");
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (a &optional b &rest xs) (list a b xs)) 1 2)");
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (a &optional b &rest xs) (list a b xs)) 1 2 3 4)");
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (a &optional b &rest xs) (list a b xs)) 1)",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (a &optional b &rest xs) (list a b xs)) 1 2)",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (a &optional b &rest xs) (list a b xs)) 1 2 3 4)",
+    );
 
     // 2 optional + &rest
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (&optional a b &rest xs) (list a b xs)))");
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (&optional a b &rest xs) (list a b xs)) 'x)");
-    assert_oracle_parity_with_bootstrap("(funcall (lambda (&optional a b &rest xs) (list a b xs)) 'x 'y 'z1 'z2)");
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (&optional a b &rest xs) (list a b xs)))",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (&optional a b &rest xs) (list a b xs)) 'x)",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (lambda (&optional a b &rest xs) (list a b xs)) 'x 'y 'z1 'z2)",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -429,12 +447,18 @@ fn oracle_prop_apply_spreading_with_rest() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // apply + rest: spread args contribute to both fixed and rest
-    assert_oracle_parity_with_bootstrap("(apply (lambda (a &rest xs) (cons a xs)) 'first '(second third))");
-    assert_oracle_parity_with_bootstrap("(apply (lambda (a b &rest xs) (list a b xs)) 1 2 '(3 4 5))");
+    assert_oracle_parity_with_bootstrap(
+        "(apply (lambda (a &rest xs) (cons a xs)) 'first '(second third))",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(apply (lambda (a b &rest xs) (list a b xs)) 1 2 '(3 4 5))",
+    );
     assert_oracle_parity_with_bootstrap("(apply (lambda (a b &rest xs) (list a b xs)) 1 '(2))");
 
     // apply where all args come from the spread list
-    assert_oracle_parity_with_bootstrap("(apply (lambda (a b c &rest xs) (list a b c xs)) '(10 20 30 40 50))");
+    assert_oracle_parity_with_bootstrap(
+        "(apply (lambda (a b c &rest xs) (list a b c xs)) '(10 20 30 40 50))",
+    );
 
     // apply with dynamically constructed arg list
     assert_oracle_parity_with_bootstrap(

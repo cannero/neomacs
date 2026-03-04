@@ -6,7 +6,8 @@ use proptest::prelude::*;
 use std::sync::OnceLock;
 
 use super::common::{
-    ORACLE_PROP_CASES, assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm,
+    ORACLE_PROP_CASES, assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap,
+    eval_oracle_and_neovm,
 };
 
 fn oracle_eval_proptest_failure_path() -> &'static str {
@@ -90,8 +91,12 @@ fn oracle_prop_eval_lexenv_binding_with_implicit_nil() {
 fn oracle_prop_eval_lexenv_captured_by_lambda() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    assert_oracle_parity_with_bootstrap("(let ((f (eval '(lambda () x) '((x . 99))))) (funcall f))");
-    assert_oracle_parity_with_bootstrap("(let ((f (eval '(lambda () x) '((x . 99))))) (let ((x 3)) (funcall f)))");
+    assert_oracle_parity_with_bootstrap(
+        "(let ((f (eval '(lambda () x) '((x . 99))))) (funcall f))",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(let ((f (eval '(lambda () x) '((x . 99))))) (let ((x 3)) (funcall f)))",
+    );
 }
 
 #[test]

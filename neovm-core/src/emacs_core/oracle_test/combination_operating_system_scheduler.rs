@@ -7,7 +7,7 @@
 
 use super::common::return_if_neovm_enable_oracle_proptest_not_set;
 
-use super::common::{assert_oracle_parity_with_bootstrap};
+use super::common::assert_oracle_parity_with_bootstrap;
 
 // ---------------------------------------------------------------------------
 // Multi-level feedback queue with 4 priority levels

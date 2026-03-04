@@ -472,5 +472,7 @@ fn oracle_prop_format_combined_directives() {
     assert_oracle_parity_with_bootstrap(r#"(format "%08d %08o %08x %08X" 42 42 42 42)"#);
 
     // Left-justify with every type
-    assert_oracle_parity_with_bootstrap(r#"(format "[%-8d][%-8o][%-8x][%-8s][%-8.2f]" 42 42 42 "hi" 3.14)"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(format "[%-8d][%-8o][%-8x][%-8s][%-8.2f]" 42 42 42 "hi" 3.14)"#,
+    );
 }

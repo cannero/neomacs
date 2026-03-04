@@ -9,7 +9,7 @@
 
 use super::common::return_if_neovm_enable_oracle_proptest_not_set;
 
-use super::common::{assert_oracle_parity_with_bootstrap};
+use super::common::assert_oracle_parity_with_bootstrap;
 
 // ---------------------------------------------------------------------------
 // prin1-to-string for all types

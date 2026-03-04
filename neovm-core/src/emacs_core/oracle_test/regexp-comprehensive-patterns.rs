@@ -292,7 +292,9 @@ fn oracle_prop_regexp_replace_with_function() {
     );
 
     // Function with upcase
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "\\b[a-z]" #'upcase "hello world foo")"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "\\b[a-z]" #'upcase "hello world foo")"#,
+    );
 
     // Function that accesses match-data to get subgroups
     assert_oracle_parity_with_bootstrap(

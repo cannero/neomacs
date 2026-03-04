@@ -4,8 +4,8 @@ use proptest::prelude::*;
 use std::sync::OnceLock;
 
 use super::common::{
-    ORACLE_PROP_CASES, assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm,
-    return_if_neovm_enable_oracle_proptest_not_set,
+    ORACLE_PROP_CASES, assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap,
+    eval_oracle_and_neovm, return_if_neovm_enable_oracle_proptest_not_set,
 };
 
 fn oracle_lambda_anonymous_proptest_failure_path() -> &'static str {

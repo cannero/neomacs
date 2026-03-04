@@ -5,7 +5,9 @@
 
 use super::common::return_if_neovm_enable_oracle_proptest_not_set;
 
-use super::common::{assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm};
+use super::common::{
+    assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm,
+};
 
 // ---------------------------------------------------------------------------
 // coding-system-p for various coding systems

@@ -8,7 +8,9 @@ use super::common::{assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_orac
 fn oracle_prop_propertize_basic() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    assert_oracle_parity_with_bootstrap(r#"(get-text-property 0 'face (propertize "hello" 'face 'bold))"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(get-text-property 0 'face (propertize "hello" 'face 'bold))"#,
+    );
 }
 
 #[test]

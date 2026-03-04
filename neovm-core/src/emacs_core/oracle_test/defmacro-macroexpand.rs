@@ -4,8 +4,8 @@ use proptest::prelude::*;
 use std::sync::OnceLock;
 
 use super::common::{
-    ORACLE_PROP_CASES, assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm,
-    return_if_neovm_enable_oracle_proptest_not_set,
+    ORACLE_PROP_CASES, assert_err_kind, assert_ok_eq, assert_oracle_parity_with_bootstrap,
+    eval_oracle_and_neovm, return_if_neovm_enable_oracle_proptest_not_set,
 };
 
 fn oracle_defmacro_macroexpand_proptest_failure_path() -> &'static str {
@@ -74,8 +74,12 @@ fn oracle_prop_defmacro_and_macroexpand_error_shapes() {
 
     assert_oracle_parity_with_bootstrap("(condition-case err (defmacro) (error err))");
     assert_oracle_parity_with_bootstrap("(condition-case err (defmacro 1 nil) (error err))");
-    assert_oracle_parity_with_bootstrap("(condition-case err (defmacro 'vm-oracle-dm nil 1) (error err))");
-    assert_oracle_parity_with_bootstrap("(condition-case err (macroexpand '(when t 1) 1) (error err))");
+    assert_oracle_parity_with_bootstrap(
+        "(condition-case err (defmacro 'vm-oracle-dm nil 1) (error err))",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(condition-case err (macroexpand '(when t 1) 1) (error err))",
+    );
 }
 
 #[test]

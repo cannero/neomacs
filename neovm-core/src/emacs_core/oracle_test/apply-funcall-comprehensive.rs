@@ -123,7 +123,9 @@ fn oracle_prop_funcall_rest_parameters() {
         "(funcall (lambda (head &rest tail) (cons head (length tail))) 'a 'b 'c 'd 'e)",
     );
     // apply with &rest function
-    assert_oracle_parity_with_bootstrap("(apply (lambda (a b &rest cs) (list a b cs)) 1 2 '(3 4 5))");
+    assert_oracle_parity_with_bootstrap(
+        "(apply (lambda (a b &rest cs) (list a b cs)) 1 2 '(3 4 5))",
+    );
     // Nested rest: inner function collects and outer spreads
     assert_oracle_parity_with_bootstrap(
         r#"(let ((collector (lambda (&rest items) (apply #'+ items))))
@@ -193,7 +195,9 @@ fn oracle_prop_nested_apply_funcall_chains() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // funcall returning function, called again
-    assert_oracle_parity_with_bootstrap("(funcall (funcall (lambda (x) (lambda (y) (* x y))) 6) 7)");
+    assert_oracle_parity_with_bootstrap(
+        "(funcall (funcall (lambda (x) (lambda (y) (* x y))) 6) 7)",
+    );
 
     // Three levels of currying via nested funcall
     assert_oracle_parity_with_bootstrap(
@@ -206,7 +210,9 @@ fn oracle_prop_nested_apply_funcall_chains() {
     );
 
     // apply inside funcall inside apply
-    assert_oracle_parity_with_bootstrap("(apply #'+ (funcall (lambda (xs) (mapcar #'1+ xs)) '(1 2 3)))");
+    assert_oracle_parity_with_bootstrap(
+        "(apply #'+ (funcall (lambda (xs) (mapcar #'1+ xs)) '(1 2 3)))",
+    );
 
     // Chain: compose two functions, then apply the composition
     assert_oracle_parity_with_bootstrap(
@@ -251,7 +257,9 @@ fn oracle_prop_apply_funcall_higher_order() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // apply #'append on mapcar result (flatten one level)
-    assert_oracle_parity_with_bootstrap("(apply #'append (mapcar (lambda (x) (list x (* x x))) '(1 2 3 4 5)))");
+    assert_oracle_parity_with_bootstrap(
+        "(apply #'append (mapcar (lambda (x) (list x (* x x))) '(1 2 3 4 5)))",
+    );
 
     // funcall with result of mapcar as single arg
     assert_oracle_parity_with_bootstrap("(funcall #'length (mapcar #'1+ '(1 2 3 4 5 6 7 8 9 10)))");

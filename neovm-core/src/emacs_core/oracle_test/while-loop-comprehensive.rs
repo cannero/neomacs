@@ -172,7 +172,9 @@ fn oracle_prop_dotimes_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Basic dotimes with result
-    assert_oracle_parity_with_bootstrap(r#"(let ((sum 0)) (dotimes (i 10 sum) (setq sum (+ sum i))))"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(let ((sum 0)) (dotimes (i 10 sum) (setq sum (+ sum i))))"#,
+    );
 
     // dotimes building a list, result is the list
     let form = r#"(let ((result nil))

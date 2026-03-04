@@ -4,7 +4,9 @@ use super::common::return_if_neovm_enable_oracle_proptest_not_set;
 
 use proptest::prelude::*;
 
-use super::common::{ORACLE_PROP_CASES, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm};
+use super::common::{
+    ORACLE_PROP_CASES, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm,
+};
 
 #[test]
 fn oracle_prop_closure_primitives_are_consistent() {
@@ -19,7 +21,9 @@ fn oracle_prop_closure_primitives_are_consistent() {
 fn oracle_prop_closurep_on_common_values() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    assert_oracle_parity_with_bootstrap("(list (closurep 1) (closurep 'x) (closurep '(lambda (x) x)))");
+    assert_oracle_parity_with_bootstrap(
+        "(list (closurep 1) (closurep 'x) (closurep '(lambda (x) x)))",
+    );
 }
 
 #[test]
@@ -36,22 +40,30 @@ fn oracle_prop_make_interpreted_closure_lexenv_binding() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // LEXENV argument should provide a lexical binding for `x`.
-    assert_oracle_parity_with_bootstrap("(let ((f (make-interpreted-closure '() '(x) '((x . 9))))) (funcall f))");
+    assert_oracle_parity_with_bootstrap(
+        "(let ((f (make-interpreted-closure '() '(x) '((x . 9))))) (funcall f))",
+    );
 }
 
 #[test]
 fn oracle_prop_make_closure_invalid_argument_shape_errors() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    assert_oracle_parity_with_bootstrap("(condition-case err (make-closure nil) (error (car err)))");
-    assert_oracle_parity_with_bootstrap("(condition-case err (make-closure 1 2 3) (error (car err)))");
+    assert_oracle_parity_with_bootstrap(
+        "(condition-case err (make-closure nil) (error (car err)))",
+    );
+    assert_oracle_parity_with_bootstrap(
+        "(condition-case err (make-closure 1 2 3) (error (car err)))",
+    );
 }
 
 #[test]
 fn oracle_prop_oclosure_macros_presence_matches_oracle() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    assert_oracle_parity_with_bootstrap("(list (fboundp 'oclosure-define) (fboundp 'oclosure-lambda))");
+    assert_oracle_parity_with_bootstrap(
+        "(list (fboundp 'oclosure-define) (fboundp 'oclosure-lambda))",
+    );
 }
 
 #[test]

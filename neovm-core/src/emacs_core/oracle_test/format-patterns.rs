@@ -145,7 +145,9 @@ fn oracle_prop_format_S_vs_s_complex() {
     assert_oracle_parity_with_bootstrap(r#"(format "s=[%s] S=[%S]" "hello" "hello")"#);
 
     // Nested lists
-    assert_oracle_parity_with_bootstrap(r#"(format "s=[%s] S=[%S]" '(1 "two" three) '(1 "two" three))"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(format "s=[%s] S=[%S]" '(1 "two" three) '(1 "two" three))"#,
+    );
 
     // nil and t
     assert_oracle_parity_with_bootstrap(r#"(format "s=%s S=%S s=%s S=%S" nil nil t t)"#);

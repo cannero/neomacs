@@ -163,19 +163,29 @@ fn oracle_prop_replace_regexp_comprehensive_params() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Basic regex replacement
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "[0-9]+" "NUM" "abc123def456")"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "[0-9]+" "NUM" "abc123def456")"#,
+    );
 
     // With backreference in replacement
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "\\([a-z]+\\)" "[\\1]" "hello world foo")"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "\\([a-z]+\\)" "[\\1]" "hello world foo")"#,
+    );
 
     // FIXEDCASE = t (preserve case of original)
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "hello" "goodbye" "Hello HELLO hello" t)"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "hello" "goodbye" "Hello HELLO hello" t)"#,
+    );
 
     // FIXEDCASE = nil (default)
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "hello" "goodbye" "Hello HELLO hello" nil)"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "hello" "goodbye" "Hello HELLO hello" nil)"#,
+    );
 
     // LITERAL = t (treat replacement as literal, no backslash processing)
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "\\([a-z]+\\)" "\\1" "hello world" nil t)"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "\\([a-z]+\\)" "\\1" "hello world" nil t)"#,
+    );
     assert_oracle_parity_with_bootstrap(
         r#"(replace-regexp-in-string "\\([a-z]+\\)" "\\1" "hello world" nil nil)"#,
     );
@@ -189,20 +199,32 @@ fn oracle_prop_replace_regexp_comprehensive_params() {
     );
 
     // START parameter: begin matching from offset
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "[0-9]+" "N" "a1b2c3d4" nil nil nil nil 4)"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "[0-9]+" "N" "a1b2c3d4" nil nil nil nil 4)"#,
+    );
 
     // Replace with empty
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "[[:space:]]+" "" "  hello   world  ")"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "[[:space:]]+" "" "  hello   world  ")"#,
+    );
 
     // Replace character classes
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "[[:upper:]]" "x" "Hello World FOO")"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "[[:upper:]]" "x" "Hello World FOO")"#,
+    );
 
     // Dot matches
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "a.b" "X" "aXb a1b a\nb acb")"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "a.b" "X" "aXb a1b a\nb acb")"#,
+    );
 
     // Anchored replacements
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "^hello" "goodbye" "hello world")"#);
-    assert_oracle_parity_with_bootstrap(r#"(replace-regexp-in-string "world$" "planet" "hello world")"#);
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "^hello" "goodbye" "hello world")"#,
+    );
+    assert_oracle_parity_with_bootstrap(
+        r#"(replace-regexp-in-string "world$" "planet" "hello world")"#,
+    );
 }
 
 // ---------------------------------------------------------------------------
