@@ -359,6 +359,8 @@ The Rust display engine has optional features that can be selectively enabled:
 
 To build without a feature, use `--no-default-features` and list only the features you want.
 
+Build commands in this README are run from the repository root. There is no `./rust/` subdirectory.
+
 ### Linux (Arch Linux)
 
 ```bash
@@ -379,7 +381,7 @@ sudo pacman -S --needed \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Build the Rust display engine
-cargo build --release --manifest-path neomacs-display/Cargo.toml
+cargo build --release -p neomacs-display
 
 # Build Emacs
 ./autogen.sh
@@ -396,7 +398,7 @@ make -j$(nproc)
 > Arch Linux repos and via NixOS. On distros without WPE WebKit packages, build the Rust
 > crate without it:
 > ```bash
-> cargo build --release --manifest-path neomacs-display/Cargo.toml \
+> cargo build --release -p neomacs-display \
 >   --no-default-features --features "video,neo-term"
 > ```
 
@@ -418,7 +420,7 @@ brew install autoconf automake texinfo pkgconf \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Build the Rust display engine (without Linux-only features)
-cargo build --release --manifest-path neomacs-display/Cargo.toml \
+cargo build --release -p neomacs-display \
   --no-default-features --features "video,neo-term,core-backend-emacs-c"
 
 # Build Emacs
@@ -430,7 +432,7 @@ make -j$(sysctl -n hw.ncpu)
 
 > **Note:** If GStreamer is not installed, also drop the `video` feature:
 > ```bash
-> cargo build --release --manifest-path neomacs-display/Cargo.toml \
+> cargo build --release -p neomacs-display \
 >   --no-default-features --features "neo-term,core-backend-emacs-c"
 > ```
 
@@ -519,7 +521,7 @@ nix build \
 #### Manual build (inside dev shell)
 
 ```bash
-cargo build --release --manifest-path neomacs-display/Cargo.toml
+cargo build --release -p neomacs-display
 ./autogen.sh
 ./configure --with-neomacs --with-neovm-core-backend=emacs-c
 make -j$(nproc)
