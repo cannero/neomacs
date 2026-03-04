@@ -225,11 +225,6 @@ pub(crate) fn assert_ok_eq(expected_payload: &str, oracle: &str, neovm: &str) {
     assert_eq!(neovm, oracle, "neovm and oracle should match");
 }
 
-pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
-    let (oracle, neovm) = eval_oracle_and_neovm(form);
-    assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
-}
-
 pub(crate) fn assert_oracle_parity_with_load(form: &str, load_files: &[&str]) {
     let oracle = run_oracle_eval(form).expect("oracle eval should run");
     let neovm = run_neovm_eval_with_load(form, load_files).expect("neovm eval should run");
