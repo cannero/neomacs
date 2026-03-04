@@ -75,6 +75,14 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
                 .cloned()
                 .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
         }
+        // ByteCode closures: [0]=ARGLIST [1]=CODE [2]=ENV/CONSTANTS [3]=DEPTH [4]=DOC
+        Value::ByteCode(_) => {
+            let idx = idx_fixnum as usize;
+            let vec = bytecode_to_closure_vector(&args[0]);
+            vec.get(idx)
+                .cloned()
+                .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("arrayp"), args[0]],

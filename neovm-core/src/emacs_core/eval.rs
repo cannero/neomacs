@@ -3835,6 +3835,7 @@ impl Evaluator {
             params: LambdaParams::simple(vec![]),
             env: None,
             docstring: None,
+            doc_form: None,
         };
 
         // Execute via VM

@@ -18,6 +18,8 @@ pub struct ByteCodeFunction {
     pub env: Option<Value>,
     /// Optional docstring.
     pub docstring: Option<String>,
+    /// Optional documentation form (e.g., oclosure type symbol in slot 4).
+    pub doc_form: Option<Value>,
 }
 
 impl ByteCodeFunction {
@@ -29,6 +31,7 @@ impl ByteCodeFunction {
             params,
             env: None,
             docstring: None,
+            doc_form: None,
         }
     }
 

@@ -532,7 +532,7 @@ pub(crate) fn builtin_compiled_function_p(args: Vec<Value>) -> EvalResult {
 /// `(closurep OBJ)` -> t if closure.
 pub(crate) fn builtin_closurep(args: Vec<Value>) -> EvalResult {
     expect_args("closurep", &args, 1)?;
-    Ok(Value::bool(matches!(&args[0], Value::Lambda(_))))
+    Ok(Value::bool(matches!(&args[0], Value::Lambda(_) | Value::ByteCode(_))))
 }
 
 /// `(natnump OBJ)` -> t if natural number (>= 0).

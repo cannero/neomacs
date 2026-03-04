@@ -3811,6 +3811,7 @@ pub(crate) fn make_byte_code_from_parts(
         params,
         env: None,
         docstring: doc,
+        doc_form: None,
     };
 
     let _ = interactive; // Not used yet
@@ -3863,13 +3864,78 @@ pub(crate) fn builtin_make_char(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_make_closure(args: Vec<Value>) -> EvalResult {
+    // (make-closure PROTOTYPE &rest CLOSURE-VARS)
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol("make-closure"), Value::Int(args.len() as i64)],
         ));
     }
-    Ok(Value::Nil)
+
+    let prototype = &args[0];
+    let closure_vars = &args[1..];
+
+    let bc = prototype
+        .get_bytecode_data()
+        .ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("byte-code-function-p"), args[0]],
+            )
+        })?
+        .clone();
+
+    let mut new_bc = bc;
+
+    if let Some(env_val) = new_bc.env {
+        // NeoVM-compiled: replace first N values in env alist
+        new_bc.env = Some(replace_env_alist_values(env_val, closure_vars));
+    } else {
+        // GNU .elc: replace first N entries in constants vector
+        if closure_vars.len() > new_bc.constants.len() {
+            return Err(signal(
+                "error",
+                vec![Value::string("Closure vars do not fit in constvec")],
+            ));
+        }
+        for (i, var) in closure_vars.iter().enumerate() {
+            new_bc.constants[i] = *var;
+        }
+    }
+
+    Ok(Value::make_bytecode(new_bc))
+}
+
+/// Replace the first N values in a cons alist with closure_vars.
+/// Walk env alist and closure_vars in parallel. For the first N entries,
+/// create new (sym . new_val) cons pairs. Share the remaining tail unchanged.
+fn replace_env_alist_values(env: Value, closure_vars: &[Value]) -> Value {
+    if closure_vars.is_empty() {
+        return env;
+    }
+
+    // Collect alist entries
+    let entries = match list_to_vec(&env) {
+        Some(v) => v,
+        None => return env,
+    };
+
+    let mut result_entries = Vec::with_capacity(entries.len());
+    for (i, entry) in entries.iter().enumerate() {
+        if i < closure_vars.len() {
+            // Replace value: get the key from (key . old_val), make (key . new_val)
+            let key = match entry {
+                Value::Cons(cell) => with_heap(|h| h.cons_car(*cell)),
+                _ => *entry, // shouldn't happen in well-formed alist
+            };
+            result_entries.push(Value::cons(key, closure_vars[i]));
+        } else {
+            // Share remaining entries unchanged
+            result_entries.push(*entry);
+        }
+    }
+
+    Value::list(result_entries)
 }
 
 pub(crate) fn builtin_make_finalizer(args: Vec<Value>) -> EvalResult {

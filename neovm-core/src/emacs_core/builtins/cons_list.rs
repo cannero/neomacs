@@ -100,6 +100,43 @@ pub(crate) fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
     vec![args, body, env, Value::Nil, slot4]
 }
 
+/// Convert a ByteCode value to the GNU Emacs closure vector layout:
+///   [0]=ARGLIST  [1]=CODE  [2]=ENV/CONSTANTS  [3]=DEPTH  [4]=DOC
+/// This is used by `aref` on bytecode closures for oclosure slot access.
+pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
+    let bc = match value.get_bytecode_data() {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+
+    let args = lambda_params_to_value(&bc.params);
+
+    // Slot 1: bytecode string — NeoVM uses decoded IR, not raw bytes
+    let code = Value::Nil;
+
+    // Slot 2: env if NeoVM-compiled (cons alist), else constants vector
+    let env = if let Some(env_val) = bc.env {
+        env_val
+    } else {
+        Value::vector(bc.constants.clone())
+    };
+
+    // Slot 3: max stack depth
+    let depth = Value::Int(bc.max_stack as i64);
+
+    // Slot 4: doc_form (oclosure type symbol) or docstring or nil
+    let slot4 = if let Some(df) = bc.doc_form {
+        df
+    } else {
+        bc.docstring
+            .as_ref()
+            .map(|d| Value::string(d.clone()))
+            .unwrap_or(Value::Nil)
+    };
+
+    vec![args, code, env, depth, slot4]
+}
+
 /// Convert LambdaParams to a Lisp list (a b &optional c &rest d).
 fn lambda_params_to_value(params: &LambdaParams) -> Value {
     let mut elements = Vec::new();
@@ -382,6 +419,7 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
     match &args[0] {
         Value::Nil => Ok(Value::Int(0)),
         Value::Lambda(_) => Ok(Value::Int(lambda_list_length(&args[0]).unwrap())),
+        Value::ByteCode(_) => Ok(Value::Int(5)),
         Value::Cons(_) => match list_length(&args[0]) {
             Some(n) => Ok(Value::Int(n as i64)),
             None => Err(signal(
