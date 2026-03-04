@@ -1,7 +1,6 @@
 { lib
 , stdenv
 , craneLib
-, rust-cbindgen
 , pkg-config
 , autoconf
 , automake
@@ -81,7 +80,6 @@ let
 
     nativeBuildInputs = [
       pkg-config
-      rust-cbindgen
       llvmPackages.libclang
     ];
 
@@ -164,11 +162,6 @@ let
   # Step 2: Build the actual crate (reuses cached deps)
   neomacs-display = craneLib.buildPackage (commonArgs // {
     inherit cargoArtifacts;
-
-    # Generate C headers after build
-    postBuild = ''
-      cbindgen --config neomacs-display/cbindgen.toml --crate neomacs-display --output neomacs-display/include/neomacs_display.h || true
-    '';
 
     postInstall = ''
       mkdir -p $out/include
