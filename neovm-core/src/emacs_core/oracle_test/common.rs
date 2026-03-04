@@ -214,7 +214,7 @@ pub(crate) fn run_neovm_eval_with_load(form: &str, load_files: &[&str]) -> Resul
 
 pub(crate) fn eval_oracle_and_neovm(form: &str) -> (String, String) {
     let oracle = run_oracle_eval(form).expect("oracle eval should run");
-    let neovm = run_neovm_eval(form).expect("neovm eval should run");
+    let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
     (oracle, neovm)
 }
 
