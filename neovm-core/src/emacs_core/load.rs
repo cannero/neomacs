@@ -821,8 +821,7 @@ fn eager_expand_eval_and_collect(
             while let Value::Cons(sub_id) = tail {
                 let sub_form = eval.heap.cons_car(sub_id);
                 tail = eval.heap.cons_cdr(sub_id);
-                result =
-                    eager_expand_eval_and_collect(eval, sub_form, macroexpand_fn, collector)?;
+                result = eager_expand_eval_and_collect(eval, sub_form, macroexpand_fn, collector)?;
             }
             eval.restore_temp_roots(saved_progn);
             return Ok(result);
@@ -995,8 +994,11 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
             .to_string();
 
         // Collector for V2 cache: only populated when macroexpand is available.
-        let mut expanded_collector: Vec<Expr> =
-            if macroexpand_fn.is_some() { Vec::with_capacity(forms.len()) } else { Vec::new() };
+        let mut expanded_collector: Vec<Expr> = if macroexpand_fn.is_some() {
+            Vec::with_capacity(forms.len())
+        } else {
+            Vec::new()
+        };
 
         for (i, form) in forms.iter().enumerate() {
             tracing::debug!(
@@ -1009,12 +1011,7 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
             let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
             let eval_result = if let Some(mexp_fn) = macroexpand_fn {
                 let form_value = quote_to_value(form);
-                eager_expand_eval_and_collect(
-                    eval,
-                    form_value,
-                    mexp_fn,
-                    &mut expanded_collector,
-                )
+                eager_expand_eval_and_collect(eval, form_value, mexp_fn, &mut expanded_collector)
             } else {
                 eval.eval_expr(form)
             };
@@ -1062,7 +1059,8 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
             && !expanded_collector.iter().any(|e| e.contains_opaque_value())
             && load_cache_writes_enabled()
         {
-            match write_expanded_cache(path, &content, eval.lexical_binding(), &expanded_collector) {
+            match write_expanded_cache(path, &content, eval.lexical_binding(), &expanded_collector)
+            {
                 Ok(()) => tracing::info!(
                     "V2 cache written for {} ({} expanded forms)",
                     path.display(),

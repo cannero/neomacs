@@ -54,6 +54,7 @@ cfg-if = "1.0"
 bitflags = "2.0"
 bytemuck = { version = "1.18", features = ["derive"] }
 image = "0.24"
+allsorts = "0.16.1"
 
 # GPU / windowing
 winit = "0.30"

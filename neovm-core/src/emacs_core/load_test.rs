@@ -1218,7 +1218,11 @@ fn char_literal_roundtrip() {
             "parse should succeed for printed char literal: {}",
             printed
         ));
-        assert_eq!(parsed.len(), 1, "should parse exactly one form from {printed}");
+        assert_eq!(
+            parsed.len(),
+            1,
+            "should parse exactly one form from {printed}"
+        );
         match &parsed[0] {
             Expr::Char(c) => assert_eq!(
                 *c, *ch,
@@ -1266,7 +1270,11 @@ fn expanded_cache_round_trip() {
     let loaded = maybe_load_expanded_cache(&file, source, true);
     assert!(loaded.is_some(), "V2 cache should load successfully");
     let loaded_forms = loaded.unwrap();
-    assert_eq!(loaded_forms.len(), forms.len(), "should have same number of forms");
+    assert_eq!(
+        loaded_forms.len(),
+        forms.len(),
+        "should have same number of forms"
+    );
 
     // Verify structural equality via print_expr round-trip
     for (i, (orig, loaded)) in forms.iter().zip(loaded_forms.iter()).enumerate() {
@@ -1363,33 +1371,42 @@ fn contains_opaque_value_detection() {
         Expr::Symbol(intern("x")),
         Expr::Int(42),
     ]);
-    assert!(!plain.contains_opaque_value(), "plain form should not contain opaque values");
+    assert!(
+        !plain.contains_opaque_value(),
+        "plain form should not contain opaque values"
+    );
 
     // Form with OpaqueValue should be detected
     let opaque = Expr::List(vec![
         Expr::Symbol(intern("quote")),
         Expr::OpaqueValue(Value::Int(99)),
     ]);
-    assert!(opaque.contains_opaque_value(), "form with OpaqueValue should be detected");
+    assert!(
+        opaque.contains_opaque_value(),
+        "form with OpaqueValue should be detected"
+    );
 
     // Nested OpaqueValue in vector
     let nested = Expr::Vector(vec![
         Expr::Int(1),
         Expr::List(vec![Expr::OpaqueValue(Value::True)]),
     ]);
-    assert!(nested.contains_opaque_value(), "nested OpaqueValue should be detected");
+    assert!(
+        nested.contains_opaque_value(),
+        "nested OpaqueValue should be detected"
+    );
 
     // DottedList with OpaqueValue in tail
-    let dotted = Expr::DottedList(
-        vec![Expr::Int(1)],
-        Box::new(Expr::OpaqueValue(Value::Nil)),
+    let dotted = Expr::DottedList(vec![Expr::Int(1)], Box::new(Expr::OpaqueValue(Value::Nil)));
+    assert!(
+        dotted.contains_opaque_value(),
+        "OpaqueValue in dotted tail should be detected"
     );
-    assert!(dotted.contains_opaque_value(), "OpaqueValue in dotted tail should be detected");
 
     // DottedList without OpaqueValue
-    let dotted_clean = Expr::DottedList(
-        vec![Expr::Int(1)],
-        Box::new(Expr::Int(2)),
+    let dotted_clean = Expr::DottedList(vec![Expr::Int(1)], Box::new(Expr::Int(2)));
+    assert!(
+        !dotted_clean.contains_opaque_value(),
+        "clean dotted list should not contain opaque values"
     );
-    assert!(!dotted_clean.contains_opaque_value(), "clean dotted list should not contain opaque values");
 }

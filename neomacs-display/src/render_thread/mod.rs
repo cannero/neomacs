@@ -2474,9 +2474,7 @@ impl RenderApp {
 
         for glyph in glyphs.iter_mut() {
             match glyph {
-                FrameGlyph::Char {
-                    x, y, row_role, ..
-                } => {
+                FrameGlyph::Char { x, y, row_role, .. } => {
                     if row_role.is_chrome() {
                         continue;
                     }
@@ -2497,9 +2495,7 @@ impl RenderApp {
                     *y += row_index as f32 * line_spacing;
                     *x += char_in_row as f32 * letter_spacing;
                 }
-                FrameGlyph::Stretch {
-                    x, y, row_role, ..
-                } => {
+                FrameGlyph::Stretch { x, y, row_role, .. } => {
                     if row_role.is_chrome() {
                         continue;
                     }
