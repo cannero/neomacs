@@ -507,11 +507,12 @@ fn oracle_prop_lexdyn_dolist_closures_capture() {
 
     // Each iteration of dolist creates a closure. Under lexical binding,
     // each should capture the loop variable's value at that iteration.
+    // Uses `push` and `dolist` which are macros from subr.el, so we need
+    // the bootstrap evaluator that has those macros loaded.
     let form = r#"(let ((fns nil))
   (dolist (item '(a b c d e))
     (let ((captured item))
       (push (lambda () captured) fns)))
   (mapcar 'funcall (nreverse fns)))"#;
-    let (o, n) = eval_oracle_and_neovm(form);
-    assert_ok_eq("(a b c d e)", &o, &n);
+    assert_oracle_parity_with_bootstrap(form);
 }

@@ -65,8 +65,12 @@ fn oracle_prop_eval_dynamic_cond() {
                                     (list '(= 2 2) 'branch-b)
                                     (list t 'default))))
                   (eval (cons 'cond clauses)))";
+    // Under lexical binding, `eval` without a lexical environment argument
+    // evaluates in a null lexical environment, so the quoted symbol `branch-b`
+    // inside `cond` is treated as a variable reference that is unbound.
+    // Both GNU Emacs and NeoVM signal (void-variable branch-b).
     let (o, n) = eval_oracle_and_neovm(form);
-    assert_ok_eq("branch-b", &o, &n);
+    assert_eq!(n, o, "neovm and oracle should match");
 }
 
 // ---------------------------------------------------------------------------

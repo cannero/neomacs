@@ -107,9 +107,12 @@ fn oracle_prop_lambda_function_form_callable() {
 fn oracle_prop_lambda_free_var_uses_dynamic_call_site_binding() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
+    // Under lexical binding (eval form t), `y` is not visible inside the lambda
+    // because `let` binds sequentially and the lambda captures lexically.
+    // Both GNU Emacs and NeoVM correctly signal (void-variable y).
     let form = "(let ((f (lambda (x) (+ x y))) (y 9)) (funcall f 4))";
     let (oracle, neovm) = eval_oracle_and_neovm(form);
-    assert_ok_eq("13", &oracle, &neovm);
+    assert_eq!(neovm, oracle, "neovm and oracle should match");
 }
 
 #[test]

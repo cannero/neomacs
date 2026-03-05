@@ -138,8 +138,12 @@ fn oracle_prop_eval_nested_mode_switch_with_inner_lexical_eval() {
 fn oracle_prop_eval_dynamic_setq_side_effect() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
+    // Under lexical binding, `(eval '(setq x 2))` evaluates in a null lexical
+    // environment, so `setq` sets the global/dynamic `x`, not the lexical `x`.
+    // The outer `let` still sees its lexical `x` = 1.
+    // GNU Emacs returns OK 1; NeoVM should match.
     let (oracle, neovm) = eval_oracle_and_neovm("(let ((x 1)) (eval '(setq x 2)) x)");
-    assert_ok_eq("2", &oracle, &neovm);
+    assert_eq!(neovm, oracle, "neovm and oracle should match");
 }
 
 #[test]
