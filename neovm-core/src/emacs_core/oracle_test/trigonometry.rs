@@ -66,8 +66,7 @@ fn oracle_prop_asin_acos_complementary() {
                   (let ((sum (+ (asin x) (acos x)))
                         (half-pi (/ float-pi 2.0)))
                     (< (abs (- sum half-pi)) 1e-10)))";
-    let (o, n) = eval_oracle_and_neovm(form);
-    assert_ok_eq("t", &o, &n);
+    assert_oracle_parity_with_bootstrap(form);
 }
 
 #[test]
@@ -224,8 +223,7 @@ fn oracle_prop_trig_complex_computation() {
                       (let ((orig-dist (sqrt (+ (* px px) (* py py))))
                             (new-dist (sqrt (+ (* rx rx) (* ry ry)))))
                         (< (abs (- orig-dist new-dist)) 1e-10)))))";
-    let (o, n) = eval_oracle_and_neovm(form);
-    assert_ok_eq("t", &o, &n);
+    assert_oracle_parity_with_bootstrap(form);
 }
 
 #[test]
