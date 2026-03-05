@@ -229,6 +229,13 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
         let tag = with_heap(|h| h.get_vector(*id).first().copied());
         return Ok(tag.unwrap_or_else(|| Value::symbol("record")));
     }
+    // Char-tables and bool-vectors are tagged vectors
+    if chartable::is_char_table(&args[0]) {
+        return Ok(Value::symbol("char-table"));
+    }
+    if chartable::is_bool_vector(&args[0]) {
+        return Ok(Value::symbol("bool-vector"));
+    }
     Ok(Value::symbol(args[0].type_name()))
 }
 
@@ -238,6 +245,13 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     if let Value::Record(id) = &args[0] {
         let tag = with_heap(|h| h.get_vector(*id).first().copied());
         return Ok(tag.unwrap_or_else(|| Value::symbol("record")));
+    }
+    // Char-tables and bool-vectors are tagged vectors
+    if chartable::is_char_table(&args[0]) {
+        return Ok(Value::symbol("char-table"));
+    }
+    if chartable::is_bool_vector(&args[0]) {
+        return Ok(Value::symbol("bool-vector"));
     }
     let name = match &args[0] {
         Value::Nil => "null",
