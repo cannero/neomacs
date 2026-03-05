@@ -70,7 +70,21 @@ pub(crate) fn builtin_mul(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
-    expect_min_args("/", &args, 2)?;
+    expect_min_args("/", &args, 1)?;
+    // Single argument: return 1 / arg (reciprocal), matching GNU Emacs.
+    if args.len() == 1 {
+        if has_float(&args) {
+            let d = expect_number_or_marker_f64(&args[0])?;
+            let result = 1.0 / d;
+            return Ok(Value::Float(result, next_float_id()));
+        } else {
+            let d = expect_integer_or_marker_after_number_check(&args[0])?;
+            if d == 0 {
+                return Err(signal("arith-error", vec![]));
+            }
+            return Ok(Value::Int(1i64.checked_div(d).unwrap_or(0)));
+        }
+    }
     if has_float(&args) {
         let mut acc = expect_number_or_marker_f64(&args[0])?;
         for a in &args[1..] {

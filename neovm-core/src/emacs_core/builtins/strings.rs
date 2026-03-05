@@ -197,20 +197,47 @@ pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
         return Err(signal("args-out-of-range", vec![Value::Int(base)]));
     }
 
-    let s = s.trim_start();
+    let s = s.trim_start_matches(|c: char| c == ' ' || c == '\t');
     if base == 10 {
+        // Match GNU Emacs's string_to_number float detection rules:
+        // A number is float if it has digits after the decimal point (TRAIL_INT)
+        // OR if it has leading digits and an exponent (LEAD_INT & E_EXP).
+        // "100." is integer (no trailing digits), "100.0" is float, "1e10" is float.
         let number_prefix =
             Regex::new(r"^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
                 .expect("number prefix regexp should compile");
         if let Some(m) = number_prefix.find(s) {
             let token = m.as_str();
-            let is_float = token.contains('.') || token.contains('e') || token.contains('E');
+            // Emacs float_syntax: trail_int || (lead_int && e_exp)
+            // trail_int = has digits after '.'
+            // e_exp = has 'e'/'E' exponent
+            let has_trail_int = if let Some(dot_pos) = token.find('.') {
+                token[dot_pos + 1..]
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_ascii_digit())
+            } else {
+                false
+            };
+            let has_e_exp = token.contains('e') || token.contains('E');
+            let has_lead_int = token
+                .trim_start_matches(['+', '-'])
+                .starts_with(|c: char| c.is_ascii_digit());
+            let is_float = has_trail_int || (has_lead_int && has_e_exp);
             if is_float {
                 if let Ok(f) = token.parse::<f64>() {
                     return Ok(Value::Float(f, next_float_id()));
                 }
-            } else if let Ok(n) = token.parse::<i64>() {
-                return Ok(Value::Int(n));
+            } else {
+                // Parse integer part only (stop at dot if present)
+                let int_token = if let Some(dot_pos) = token.find('.') {
+                    &token[..dot_pos]
+                } else {
+                    token
+                };
+                if let Ok(n) = int_token.parse::<i64>() {
+                    return Ok(Value::Int(n));
+                }
             }
         }
     } else {
@@ -249,7 +276,7 @@ pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("number-to-string", &args, 1)?;
     match &args[0] {
         Value::Int(n) => Ok(Value::string(n.to_string())),
-        Value::Float(f, _) => Ok(Value::string(format!("{}", f))),
+        Value::Float(f, _) => Ok(Value::string(super::print::format_float(*f))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],

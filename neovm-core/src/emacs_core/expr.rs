@@ -165,38 +165,7 @@ fn format_symbol_name(name: &str) -> String {
 }
 
 fn format_float(f: f64) -> String {
-    const NAN_QUIET_BIT: u64 = 1u64 << 51;
-    const NAN_PAYLOAD_MASK: u64 = (1u64 << 51) - 1;
-
-    if f.is_nan() {
-        let bits = f.to_bits();
-        let frac = bits & ((1u64 << 52) - 1);
-        if (frac & NAN_QUIET_BIT) != 0 {
-            let payload = frac & NAN_PAYLOAD_MASK;
-            return if f.is_sign_negative() {
-                format!("-{}.0e+NaN", payload)
-            } else {
-                format!("{}.0e+NaN", payload)
-            };
-        }
-        return if f.is_sign_negative() {
-            "-0.0e+NaN".to_string()
-        } else {
-            "0.0e+NaN".to_string()
-        };
-    }
-    if f.is_infinite() {
-        return if f > 0.0 {
-            "1.0e+INF".to_string()
-        } else {
-            "-1.0e+INF".to_string()
-        };
-    }
-    if f.fract() == 0.0 && f.is_finite() {
-        format!("{:.1}", f)
-    } else {
-        format!("{}", f)
-    }
+    super::print::format_float(f)
 }
 
 fn format_char_literal(c: char) -> String {

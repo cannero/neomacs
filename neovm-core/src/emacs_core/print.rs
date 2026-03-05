@@ -286,7 +286,7 @@ fn format_symbol_name(name: &str) -> String {
     out
 }
 
-fn format_float(f: f64) -> String {
+pub(crate) fn format_float(f: f64) -> String {
     const NAN_QUIET_BIT: u64 = 1u64 << 51;
     const NAN_PAYLOAD_MASK: u64 = (1u64 << 51) - 1;
 
@@ -314,11 +314,102 @@ fn format_float(f: f64) -> String {
             "-1.0e+INF".to_string()
         };
     }
-    if f.fract() == 0.0 {
-        format!("{:.1}", f)
+    format_float_dtoastr(f)
+}
+
+/// Format a finite float matching GNU Emacs's `dtoastr` / `float_to_string`:
+/// use `%g`-style formatting with the minimum precision (starting from DBL_DIG=15)
+/// that round-trips through strtod, then ensure a decimal point or exponent is present.
+fn format_float_dtoastr(f: f64) -> String {
+    let abs_f = f.abs();
+    let start_prec = if abs_f != 0.0 && abs_f < f64::MIN_POSITIVE {
+        1
     } else {
-        format!("{}", f)
+        15 // DBL_DIG
+    };
+    for prec in start_prec..=20 {
+        // %g: uses %e if exponent < -4 or >= precision, otherwise %f.
+        // %g also trims trailing zeros.
+        let s = format!("{:.prec$e}", f, prec = prec - 1);
+        // Parse back and check round-trip
+        if let Ok(parsed) = s.parse::<f64>() {
+            if parsed.to_bits() == f.to_bits() {
+                // Convert from Rust's scientific notation to %g-style output
+                return rust_sci_to_emacs_g(f, &s, prec);
+            }
+        }
     }
+    // Fallback: maximum precision
+    let s = format!("{:.20e}", f);
+    rust_sci_to_emacs_g(f, &s, 21)
+}
+
+/// Convert Rust scientific notation string to GNU Emacs %g-style output.
+/// %g rules: use fixed notation unless exponent >= precision or exponent < -4.
+/// %g trims trailing zeros (but keeps at least one digit after decimal point
+/// for Emacs's post-processing).
+fn rust_sci_to_emacs_g(f: f64, sci: &str, prec: usize) -> String {
+    // Parse the exponent from Rust's scientific notation (e.g., "3.14e2")
+    let (mantissa_str, exp_str) = sci.split_once('e').unwrap_or((sci, "0"));
+    let exp: i32 = exp_str.parse().unwrap_or(0);
+
+    // %g uses fixed notation when -4 <= exp < prec
+    let result = if exp >= -4 && exp < prec as i32 {
+        // Fixed notation
+        format_g_fixed(f, mantissa_str, exp, prec)
+    } else {
+        // Scientific notation with Emacs-style exponent formatting
+        format_g_scientific(mantissa_str, exp, prec)
+    };
+
+    // Emacs post-processing: ensure decimal point or exponent is present
+    ensure_decimal_point(result)
+}
+
+/// Format as fixed-point notation for %g, trimming trailing zeros.
+fn format_g_fixed(f: f64, _mantissa: &str, exp: i32, prec: usize) -> String {
+    // %g precision = total significant digits.
+    // digits_after_dot = prec - exp - 1 (works for both positive and negative exp)
+    let digits_after_dot = (prec as i32 - exp - 1).max(0) as usize;
+    let s = format!("{:.digits$}", f, digits = digits_after_dot);
+    trim_trailing_zeros_g(&s)
+}
+
+/// Format as scientific notation for %g, trimming trailing zeros.
+fn format_g_scientific(mantissa: &str, exp: i32, _prec: usize) -> String {
+    // Trim trailing zeros from mantissa
+    let trimmed = trim_trailing_zeros_g(mantissa);
+    // Emacs uses e+XX / e-XX with at least 2-digit exponent for |exp| < 100,
+    // but %g in glibc actually uses minimal digits. Let's match C's %g.
+    if exp >= 0 {
+        format!("{}e+{:02}", trimmed, exp)
+    } else {
+        format!("{}e-{:02}", trimmed, -exp)
+    }
+}
+
+/// Trim trailing zeros after decimal point (%g style).
+/// "3.1400" -> "3.14", "3.0000" -> "3", "100" -> "100"
+fn trim_trailing_zeros_g(s: &str) -> String {
+    if !s.contains('.') {
+        return s.to_string();
+    }
+    let trimmed = s.trim_end_matches('0');
+    let trimmed = trimmed.trim_end_matches('.');
+    trimmed.to_string()
+}
+
+/// Ensure the output has a decimal point with trailing digit (Emacs requirement).
+/// If no decimal point or exponent, append ".0".
+fn ensure_decimal_point(mut s: String) -> String {
+    // Check if there's already a decimal point or exponent
+    let has_dot_or_exp = s.bytes().any(|b| b == b'.' || b == b'e' || b == b'E');
+    if !has_dot_or_exp {
+        s.push_str(".0");
+    } else if s.ends_with('.') {
+        s.push('0');
+    }
+    s
 }
 
 fn format_params(params: &super::value::LambdaParams) -> String {

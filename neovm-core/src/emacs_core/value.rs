@@ -1072,6 +1072,9 @@ pub fn equal_value(left: &Value, right: &Value, depth: usize) -> bool {
             });
             matches!(pairs, Some(ref p) if p.iter().all(|(x, y)| equal_value(x, y, depth + 1)))
         }
+        // Hash tables: identity comparison only (same as eq), matching GNU Emacs
+        // where PVEC_HASH_TABLE < PVEC_CLOSURE causes early return false.
+        (Value::HashTable(a), Value::HashTable(b)) => a == b,
         (Value::Lambda(a), Value::Lambda(b)) => a == b,
         (Value::Macro(a), Value::Macro(b)) => a == b,
         (Value::Subr(a), Value::Subr(b)) => a == b,
