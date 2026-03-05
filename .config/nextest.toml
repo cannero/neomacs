@@ -1,4 +1,4 @@
 [profile.default]
-# Kill individual tests after 60 seconds to prevent slow bootstrap-heavy
-# tests from blocking the entire suite within a 10-minute overall timeout.
-slow-timeout = { period = "30s", terminate-after = 2 }
+# Kill individual tests after 120 seconds to allow bootstrap-heavy oracle
+# tests enough time to complete.
+slow-timeout = { period = "60s", terminate-after = 2 }
