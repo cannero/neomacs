@@ -1,9 +1,12 @@
 use super::*;
 
 #[test]
-fn escapes_control_chars() {
-    assert_eq!(format_lisp_string("\n\t"), "\"\\n\\t\"");
-    assert_eq!(format_lisp_string("\u{7f}"), "\"\\177\"");
+fn passes_through_control_chars_by_default() {
+    // GNU Emacs default: only " and \ are escaped in prin1.
+    // Control chars pass through literally (print-escape-newlines
+    // and print-escape-control-characters are nil by default).
+    assert_eq!(format_lisp_string("\n\t"), "\"\n\t\"");
+    assert_eq!(format_lisp_string("\u{7f}"), "\"\u{7f}\"");
 }
 
 #[test]

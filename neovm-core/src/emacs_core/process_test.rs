@@ -300,7 +300,7 @@ fn call_process_echo() {
     // Exit code should be 0.
     assert_eq!(results[2], "OK 0");
     // Buffer should contain "hello world\n".
-    assert_eq!(results[3], r#"OK "hello world\n""#);
+    assert_eq!(results[3], "OK \"hello world\n\"");
 }
 
 #[test]
@@ -349,7 +349,7 @@ fn call_process_destination_buffer_name_inserts_there() {
              (with-current-buffer "cp-dst" (buffer-string)))"#,
     ));
     assert_eq!(results[7], "OK 0");
-    assert_eq!(results[8], r#"OK ("" "hello\n")"#);
+    assert_eq!(results[8], "OK (\"\" \"hello\n\")");
 }
 
 #[test]
@@ -582,7 +582,7 @@ fn shell_command_to_string_test() {
 #[test]
 fn shell_command_to_string_with_pipe() {
     let result = eval_one(r#"(shell-command-to-string "echo hello | tr a-z A-Z")"#);
-    assert_eq!(result, r#"OK "HELLO\n""#);
+    assert_eq!(result, "OK \"HELLO\n\"");
 }
 
 #[test]

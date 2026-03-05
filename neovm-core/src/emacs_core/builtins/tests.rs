@@ -5497,7 +5497,9 @@ fn prin1_to_string_supports_noescape_for_strings() {
     let escaped = dispatch_builtin(&mut eval, "prin1-to-string", vec![value])
         .expect("prin1-to-string should resolve")
         .expect("prin1-to-string should evaluate");
-    assert_eq!(escaped, Value::string("\"a\\nb\""));
+    // GNU Emacs default: print-escape-newlines is nil, so \n passes
+    // through literally in prin1-to-string.
+    assert_eq!(escaped, Value::string("\"a\nb\""));
 
     let noescape = dispatch_builtin(&mut eval, "prin1-to-string", vec![value, Value::True])
         .expect("prin1-to-string should resolve with noescape")

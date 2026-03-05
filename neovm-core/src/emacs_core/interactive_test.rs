@@ -2034,7 +2034,7 @@ fn command_execute_builtin_transpose_paragraphs_swaps_paragraphs() {
              (command-execute 'transpose-paragraphs)
              (buffer-string))"#,
     );
-    assert_eq!(results[0], "OK \"\\nBA\\n\"");
+    assert_eq!(results[0], "OK \"\nBA\n\"");
 }
 
 #[test]

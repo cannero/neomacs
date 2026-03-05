@@ -253,7 +253,7 @@ fn kill_line_to_end() {
            (kill-line)
            (buffer-string)"#,
     );
-    assert_eq!(results[3], r#"OK "\nworld""#);
+    assert_eq!(results[3], "OK \"\nworld\"");
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn kill_whole_line_basic() {
            (buffer-string)"#,
     );
     // Point is at "line2", should kill "line2\n".
-    assert_eq!(results[3], r#"OK "line1\nline3""#);
+    assert_eq!(results[3], "OK \"line1\nline3\"");
 }
 
 #[test]
@@ -754,7 +754,7 @@ fn transpose_lines_basic() {
            (transpose-lines 1)
            (buffer-string)"#,
     );
-    assert_eq!(results[3], r#"OK "line2\nline1\nline3""#);
+    assert_eq!(results[3], "OK \"line2\nline1\nline3\"");
 }
 
 #[test]
@@ -765,7 +765,7 @@ fn transpose_lines_at_buffer_start() {
            (transpose-lines 1)
            (buffer-string)"#,
     );
-    assert_eq!(results[3], r#"OK "line2\nline1\n""#);
+    assert_eq!(results[3], "OK \"line2\nline1\n\"");
 }
 
 #[test]
@@ -776,7 +776,7 @@ fn transpose_lines_arg_two_at_buffer_start() {
            (transpose-lines 2)
            (buffer-string)"#,
     );
-    assert_eq!(results[3], r#"OK "b\nc\na\n""#);
+    assert_eq!(results[3], "OK \"b\nc\na\n\"");
 }
 
 #[test]
@@ -787,7 +787,7 @@ fn transpose_lines_last_line_without_trailing_newline() {
            (transpose-lines 1)
            (buffer-string)"#,
     );
-    assert_eq!(results[3], r#"OK "line2\nline1\n""#);
+    assert_eq!(results[3], "OK \"line2\nline1\n\"");
 }
 
 #[test]
@@ -884,7 +884,7 @@ fn transpose_paragraphs_basic() {
              (transpose-paragraphs 1)
              (list (buffer-string) (point)))"#,
     );
-    assert_eq!(result, "OK (\"\\nBA\\n\" 5)");
+    assert_eq!(result, "OK (\"\nBA\n\" 5)");
 }
 
 #[test]
@@ -896,7 +896,7 @@ fn transpose_paragraphs_backward_from_eob() {
              (transpose-paragraphs -1)
              (list (buffer-string) (point)))"#,
     );
-    assert_eq!(result, "OK (\"A\\n\\nC\\nB\\n\" 5)");
+    assert_eq!(result, "OK (\"A\n\nC\nB\n\" 5)");
 }
 
 // -- indent-line-to tests --
@@ -994,13 +994,13 @@ fn newline_basic() {
            (newline)
            (buffer-string)"#,
     );
-    assert_eq!(results[3], r#"OK "a\nb""#);
+    assert_eq!(results[3], "OK \"a\nb\"");
 }
 
 #[test]
 fn newline_multiple() {
     let results = eval_all(r#"(newline 3) (buffer-string)"#);
-    assert_eq!(results[1], r#"OK "\n\n\n""#);
+    assert_eq!(results[1], "OK \"\n\n\n\"");
 }
 
 #[test]
@@ -1067,7 +1067,7 @@ fn newline_and_indent_basic() {
            (buffer-string)"#,
     );
     // Should add newline + 4 spaces of indentation (copying prev line).
-    assert_eq!(results[2], r#"OK "    hello\n    ""#);
+    assert_eq!(results[2], "OK \"    hello\n    \"");
 }
 
 #[test]
@@ -1086,8 +1086,8 @@ fn newline_and_indent_normalizes_surrounding_whitespace() {
                    (point)
                    (buffer-string)))"#,
     );
-    assert_eq!(results[0], r#"OK (nil 2 "\nx")"#);
-    assert_eq!(results[1], r#"OK (nil 3 "a\nb")"#);
+    assert_eq!(results[0], "OK (nil 2 \"\nx\")");
+    assert_eq!(results[1], "OK (nil 3 \"a\nb\")");
 }
 
 // -- open-line tests --
@@ -1100,7 +1100,7 @@ fn open_line_keeps_point_before_inserted_newlines() {
            (open-line 2)
            (list (buffer-string) (point))"#,
     );
-    assert_eq!(results[3], r#"OK ("a\n\nb" 2)"#);
+    assert_eq!(results[3], "OK (\"a\n\nb\" 2)");
 }
 
 #[test]
@@ -1291,7 +1291,7 @@ fn tab_to_tab_stop_basic() {
            (tab-to-tab-stop)
            (buffer-string)"#,
     );
-    assert_eq!(results[2], r#"OK "hi\t""#);
+    assert_eq!(results[2], "OK \"hi\t\"");
 }
 
 #[test]
@@ -1310,8 +1310,8 @@ fn tab_to_tab_stop_returns_reached_column() {
                    (current-column)
                    (buffer-string)))"#,
     );
-    assert_eq!(results[0], r#"OK (0 8 8 "\t")"#);
-    assert_eq!(results[1], r#"OK (3 8 8 "abc\t")"#);
+    assert_eq!(results[0], "OK (0 8 8 \"\t\")");
+    assert_eq!(results[1], "OK (3 8 8 \"abc\t\")");
 }
 
 // -- indent-rigidly tests --
@@ -1323,7 +1323,7 @@ fn indent_rigidly_forward() {
            (indent-rigidly 1 6 2)
            (buffer-string)"#,
     );
-    assert_eq!(results[2], r#"OK "  a\n  b\n  c""#);
+    assert_eq!(results[2], "OK \"  a\n  b\n  c\"");
 }
 
 #[test]
@@ -1333,7 +1333,7 @@ fn indent_rigidly_backward() {
            (indent-rigidly 1 12 -2)
            (buffer-string)"#,
     );
-    assert_eq!(results[2], r#"OK "a\nb\nc""#);
+    assert_eq!(results[2], "OK \"a\nb\nc\"");
 }
 
 #[test]

@@ -402,17 +402,12 @@ pub(crate) fn format_lisp_string_bytes(s: &str) -> Vec<u8> {
         }
 
         match ch {
+            // GNU Emacs: only `"` and `\` are always escaped in prin1.
+            // `\n` and `\f` are only escaped when print-escape-newlines is t
+            // (default nil). Control chars only escaped when
+            // print-escape-control-characters is t (default nil in batch mode).
             '"' => out.extend_from_slice(br#"\""#),
             '\\' => out.extend_from_slice(br#"\\"#),
-            '\u{08}' => out.extend_from_slice(br#"\b"#),
-            '\t' => out.extend_from_slice(br#"\t"#),
-            '\n' => out.extend_from_slice(br#"\n"#),
-            '\u{0b}' => out.extend_from_slice(br#"\v"#),
-            '\u{0c}' => out.extend_from_slice(br#"\f"#),
-            '\r' => out.extend_from_slice(br#"\r"#),
-            '\u{07}' => out.extend_from_slice(br#"\a"#),
-            '\u{1b}' => out.extend_from_slice(br#"\e"#),
-            c if (c as u32) < 0x20 || c == '\u{7f}' => push_octal_escape(&mut out, c as u8),
             _ => {
                 let mut tmp = [0u8; 4];
                 let bytes = ch.encode_utf8(&mut tmp).as_bytes();
