@@ -326,14 +326,12 @@
 
               echo ""
               echo "Build commands:"
-              echo "  1. cd neomacs-display && cargo build --release"
-              echo "  2. ./autogen.sh"
-              echo "  3. ./configure --with-neomacs"
-              echo "  4. make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+              echo "  1. cargo build --release -p neomacs-bin"
+              echo "  2. ./target/release/neomacs"
               echo ""
               echo "Logging (set before entering nix develop to override):"
               echo "  RUST_LOG=$RUST_LOG      (Rust render thread: trace|debug|info|warn|error)"
-              echo "  NEOMACS_LOG=$NEOMACS_LOG  (C display engine: trace|debug|info|warn|error)"
+              echo "  NEOMACS_LOG=$NEOMACS_LOG  (Neomacs runtime: trace|debug|info|warn|error)"
               echo ""
             '';
           };
