@@ -1428,10 +1428,10 @@ pub(crate) fn builtin_syntax_after(
     Ok(syntax_entry_to_value(&entry))
 }
 
-/// `(forward-comment COUNT)` — move point over comment/whitespace constructs.
-///
-/// Baseline behavior currently skips contiguous whitespace in the direction
-/// indicated by COUNT and returns nil.
+/// `(forward-comment COUNT)` — move point over COUNT comment/whitespace
+/// constructs. Returns `t` if all COUNT were successfully skipped, `nil`
+/// if scanning stopped early (hit non-comment/non-whitespace or buffer
+/// boundary).
 pub(crate) fn builtin_forward_comment(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1461,51 +1461,477 @@ pub(crate) fn builtin_forward_comment(
         .current_buffer_mut()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    let mut remaining = count.unsigned_abs();
-    if count > 0 {
-        while remaining > 0 {
-            let mut moved = false;
-            loop {
-                let pt = buf.point();
-                let Some(ch) = buf.char_after(pt) else {
-                    break;
-                };
-                if !ch.is_whitespace() {
-                    break;
-                }
-                buf.goto_char(pt + ch.len_utf8());
-                moved = true;
-            }
-            if !moved {
-                break;
-            }
-            remaining -= 1;
-        }
-    } else if count < 0 {
-        while remaining > 0 {
-            let mut moved = false;
-            loop {
-                let pt = buf.point();
-                if pt <= buf.point_min() {
-                    break;
-                }
-                let Some(ch) = buf.char_before(pt) else {
-                    break;
-                };
-                if !ch.is_whitespace() {
-                    break;
-                }
-                buf.goto_char(pt.saturating_sub(ch.len_utf8()));
-                moved = true;
-            }
-            if !moved {
-                break;
-            }
-            remaining -= 1;
-        }
+    if count == 0 {
+        return Ok(Value::True);
     }
 
-    Ok(Value::Nil)
+    if count > 0 {
+        let ok = forward_comment_forward(buf, count as u64);
+        return Ok(if ok { Value::True } else { Value::Nil });
+    } else {
+        let ok = forward_comment_backward(buf, (-count) as u64);
+        return Ok(if ok { Value::True } else { Value::Nil });
+    }
+}
+
+/// Skip whitespace and comments forward. Returns true if all `count`
+/// comments were skipped successfully.
+fn forward_comment_forward(buf: &mut Buffer, count: u64) -> bool {
+    let mut remaining = count;
+
+    while remaining > 0 {
+        // Phase 1: skip whitespace (and stray EndComment newlines).
+        loop {
+            let pt = buf.point();
+            let max = buf.point_max();
+            if pt >= max {
+                return false;
+            }
+            let Some(ch) = buf.char_after(pt) else {
+                return false;
+            };
+            let entry = buf.syntax_table.get_entry(ch);
+            let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+            let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+
+            if class == SyntaxClass::Whitespace {
+                buf.goto_char(pt + ch.len_utf8());
+                continue;
+            }
+            // In GNU Emacs, EndComment newline is treated as whitespace
+            // for forward scanning.
+            if class == SyntaxClass::EndComment && ch == '\n' {
+                buf.goto_char(pt + ch.len_utf8());
+                continue;
+            }
+            break;
+        }
+
+        // Phase 2: detect comment start.
+        let pt = buf.point();
+        let max = buf.point_max();
+        if pt >= max {
+            return false;
+        }
+        let Some(ch) = buf.char_after(pt) else {
+            return false;
+        };
+        let entry = buf.syntax_table.get_entry(ch);
+        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+        let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+
+        // Single-char comment start (class `<`).
+        if class == SyntaxClass::Comment {
+            let style_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+            let nested = flags.contains(SyntaxFlags::COMMENT_NESTABLE);
+            buf.goto_char(pt + ch.len_utf8());
+            if !scan_forward_comment_body(buf, style_b, nested) {
+                return false;
+            }
+            remaining -= 1;
+            continue;
+        }
+
+        // Comment fence (class `!` = Generic).
+        if class == SyntaxClass::Generic {
+            buf.goto_char(pt + ch.len_utf8());
+            // Scan forward for matching comment fence.
+            if !scan_forward_comment_fence(buf) {
+                return false;
+            }
+            remaining -= 1;
+            continue;
+        }
+
+        // Two-char comment start: check COMMENT_START_FIRST on current
+        // char and COMMENT_START_SECOND on next char.
+        if flags.contains(SyntaxFlags::COMMENT_START_FIRST) {
+            let next_pos = pt + ch.len_utf8();
+            if next_pos < max {
+                if let Some(ch2) = buf.char_after(next_pos) {
+                    let entry2 = buf.syntax_table.get_entry(ch2);
+                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    if flags2.contains(SyntaxFlags::COMMENT_START_SECOND) {
+                        let style_b = flags2.contains(SyntaxFlags::COMMENT_STYLE_B);
+                        let nested = flags2.contains(SyntaxFlags::COMMENT_NESTABLE)
+                            || flags.contains(SyntaxFlags::COMMENT_NESTABLE);
+                        buf.goto_char(next_pos + ch2.len_utf8());
+                        if !scan_forward_comment_body(buf, style_b, nested) {
+                            return false;
+                        }
+                        remaining -= 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Not whitespace or comment — stop.
+        return false;
+    }
+
+    true
+}
+
+/// Scan forward through comment body until matching comment end.
+/// Point should be positioned right after the comment start.
+/// Returns true if comment end was found.
+fn scan_forward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> bool {
+    let mut nesting = 1i32;
+
+    loop {
+        let pt = buf.point();
+        let max = buf.point_max();
+        if pt >= max {
+            return false;
+        }
+        let Some(ch) = buf.char_after(pt) else {
+            return false;
+        };
+        let entry = buf.syntax_table.get_entry(ch);
+        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+        let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+
+        // Handle escape / charquote.
+        if class == SyntaxClass::Escape || class == SyntaxClass::CharQuote {
+            buf.goto_char(pt + ch.len_utf8());
+            // Skip the next char too.
+            let pt2 = buf.point();
+            if pt2 >= buf.point_max() {
+                return false;
+            }
+            if let Some(ch2) = buf.char_after(pt2) {
+                buf.goto_char(pt2 + ch2.len_utf8());
+            }
+            continue;
+        }
+
+        // Nested comment start (only if nested flag is set).
+        if nested {
+            if class == SyntaxClass::Comment {
+                let sf_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+                if sf_b == style_b {
+                    nesting += 1;
+                    buf.goto_char(pt + ch.len_utf8());
+                    continue;
+                }
+            }
+
+            if flags.contains(SyntaxFlags::COMMENT_START_FIRST) {
+                let next_pos = pt + ch.len_utf8();
+                if next_pos < buf.point_max() {
+                    if let Some(ch2) = buf.char_after(next_pos) {
+                        let entry2 = buf.syntax_table.get_entry(ch2);
+                        let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                        if flags2.contains(SyntaxFlags::COMMENT_START_SECOND) {
+                            let sf_b = flags2.contains(SyntaxFlags::COMMENT_STYLE_B);
+                            if sf_b == style_b {
+                                nesting += 1;
+                                buf.goto_char(next_pos + ch2.len_utf8());
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Single-char comment end (class `>`).
+        if class == SyntaxClass::EndComment {
+            let se_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+            if se_b == style_b {
+                buf.goto_char(pt + ch.len_utf8());
+                nesting -= 1;
+                if nesting <= 0 {
+                    return true;
+                }
+                continue;
+            }
+        }
+
+        // Comment fence end.
+        if class == SyntaxClass::Generic {
+            buf.goto_char(pt + ch.len_utf8());
+            nesting -= 1;
+            if nesting <= 0 {
+                return true;
+            }
+            continue;
+        }
+
+        // Two-char comment end.
+        if flags.contains(SyntaxFlags::COMMENT_END_FIRST) {
+            let next_pos = pt + ch.len_utf8();
+            if next_pos < buf.point_max() {
+                if let Some(ch2) = buf.char_after(next_pos) {
+                    let entry2 = buf.syntax_table.get_entry(ch2);
+                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    if flags2.contains(SyntaxFlags::COMMENT_END_SECOND) {
+                        let se_b = flags2.contains(SyntaxFlags::COMMENT_STYLE_B);
+                        if se_b == style_b {
+                            buf.goto_char(next_pos + ch2.len_utf8());
+                            nesting -= 1;
+                            if nesting <= 0 {
+                                return true;
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        buf.goto_char(pt + ch.len_utf8());
+    }
+}
+
+/// Scan forward for matching comment fence character.
+fn scan_forward_comment_fence(buf: &mut Buffer) -> bool {
+    loop {
+        let pt = buf.point();
+        if pt >= buf.point_max() {
+            return false;
+        }
+        let Some(ch) = buf.char_after(pt) else {
+            return false;
+        };
+        let entry = buf.syntax_table.get_entry(ch);
+        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+
+        if class == SyntaxClass::Escape || class == SyntaxClass::CharQuote {
+            buf.goto_char(pt + ch.len_utf8());
+            let pt2 = buf.point();
+            if pt2 >= buf.point_max() {
+                return false;
+            }
+            if let Some(ch2) = buf.char_after(pt2) {
+                buf.goto_char(pt2 + ch2.len_utf8());
+            }
+            continue;
+        }
+
+        buf.goto_char(pt + ch.len_utf8());
+
+        if class == SyntaxClass::Generic {
+            return true;
+        }
+    }
+}
+
+/// Skip whitespace and comments backward. Returns true if all `count`
+/// comments were skipped successfully.
+fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
+    let mut remaining = count;
+
+    while remaining > 0 {
+        // Phase 1: skip whitespace backward.
+        loop {
+            let pt = buf.point();
+            let min = buf.point_min();
+            if pt <= min {
+                return false;
+            }
+            let Some(ch) = buf.char_before(pt) else {
+                return false;
+            };
+            let entry = buf.syntax_table.get_entry(ch);
+            let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+
+            if class == SyntaxClass::Whitespace {
+                buf.goto_char(pt - ch.len_utf8());
+                continue;
+            }
+            // EndComment newline treated as whitespace backward too.
+            if class == SyntaxClass::EndComment && ch == '\n' {
+                buf.goto_char(pt - ch.len_utf8());
+                continue;
+            }
+            break;
+        }
+
+        // Phase 2: detect comment end backward.
+        let pt = buf.point();
+        let min = buf.point_min();
+        if pt <= min {
+            return false;
+        }
+        let Some(ch) = buf.char_before(pt) else {
+            return false;
+        };
+        let entry = buf.syntax_table.get_entry(ch);
+        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+        let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+
+        // Single-char comment end (class `>`).
+        if class == SyntaxClass::EndComment {
+            let style_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+            let nested = flags.contains(SyntaxFlags::COMMENT_NESTABLE);
+            buf.goto_char(pt - ch.len_utf8());
+            if !scan_backward_comment_body(buf, style_b, nested) {
+                return false;
+            }
+            remaining -= 1;
+            continue;
+        }
+
+        // Comment fence backward.
+        if class == SyntaxClass::Generic {
+            buf.goto_char(pt - ch.len_utf8());
+            if !scan_backward_comment_fence(buf) {
+                return false;
+            }
+            remaining -= 1;
+            continue;
+        }
+
+        // Two-char comment end: current char has COMMENT_END_SECOND, prev
+        // has COMMENT_END_FIRST.
+        if flags.contains(SyntaxFlags::COMMENT_END_SECOND) {
+            let prev_pos = pt - ch.len_utf8();
+            if prev_pos > min {
+                if let Some(ch2) = buf.char_before(prev_pos) {
+                    let entry2 = buf.syntax_table.get_entry(ch2);
+                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    if flags2.contains(SyntaxFlags::COMMENT_END_FIRST) {
+                        let style_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+                        let nested = flags.contains(SyntaxFlags::COMMENT_NESTABLE)
+                            || flags2.contains(SyntaxFlags::COMMENT_NESTABLE);
+                        buf.goto_char(prev_pos - ch2.len_utf8());
+                        if !scan_backward_comment_body(buf, style_b, nested) {
+                            return false;
+                        }
+                        remaining -= 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Not whitespace or comment end — stop.
+        return false;
+    }
+
+    true
+}
+
+/// Scan backward through comment body to find matching comment start.
+/// Point should be positioned right before the comment end.
+fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> bool {
+    let mut nesting = 1i32;
+
+    loop {
+        let pt = buf.point();
+        let min = buf.point_min();
+        if pt <= min {
+            return false;
+        }
+        let Some(ch) = buf.char_before(pt) else {
+            return false;
+        };
+        let entry = buf.syntax_table.get_entry(ch);
+        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+        let flags = entry.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+
+        // Nested comment end (only if nested flag is set).
+        if nested {
+            if class == SyntaxClass::EndComment {
+                let se_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+                if se_b == style_b {
+                    nesting += 1;
+                    buf.goto_char(pt - ch.len_utf8());
+                    continue;
+                }
+            }
+
+            // Two-char comment end backward.
+            if flags.contains(SyntaxFlags::COMMENT_END_SECOND) {
+                let prev_pos = pt - ch.len_utf8();
+                if prev_pos > min {
+                    if let Some(ch2) = buf.char_before(prev_pos) {
+                        let entry2 = buf.syntax_table.get_entry(ch2);
+                        let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                        if flags2.contains(SyntaxFlags::COMMENT_END_FIRST) {
+                            let se_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+                            if se_b == style_b {
+                                nesting += 1;
+                                buf.goto_char(prev_pos - ch2.len_utf8());
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Single-char comment start (class `<`).
+        if class == SyntaxClass::Comment {
+            let sc_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+            if sc_b == style_b {
+                buf.goto_char(pt - ch.len_utf8());
+                nesting -= 1;
+                if nesting <= 0 {
+                    return true;
+                }
+                continue;
+            }
+        }
+
+        // Comment fence.
+        if class == SyntaxClass::Generic {
+            buf.goto_char(pt - ch.len_utf8());
+            nesting -= 1;
+            if nesting <= 0 {
+                return true;
+            }
+            continue;
+        }
+
+        // Two-char comment start backward: COMMENT_START_SECOND on current,
+        // COMMENT_START_FIRST on prev.
+        if flags.contains(SyntaxFlags::COMMENT_START_SECOND) {
+            let prev_pos = pt - ch.len_utf8();
+            if prev_pos > min {
+                if let Some(ch2) = buf.char_before(prev_pos) {
+                    let entry2 = buf.syntax_table.get_entry(ch2);
+                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    if flags2.contains(SyntaxFlags::COMMENT_START_FIRST) {
+                        let sc_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+                        if sc_b == style_b {
+                            buf.goto_char(prev_pos - ch2.len_utf8());
+                            nesting -= 1;
+                            if nesting <= 0 {
+                                return true;
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        buf.goto_char(pt - ch.len_utf8());
+    }
+}
+
+/// Scan backward for matching comment fence character.
+fn scan_backward_comment_fence(buf: &mut Buffer) -> bool {
+    loop {
+        let pt = buf.point();
+        if pt <= buf.point_min() {
+            return false;
+        }
+        let Some(ch) = buf.char_before(pt) else {
+            return false;
+        };
+        let entry = buf.syntax_table.get_entry(ch);
+        let class = entry.map(|e| e.class).unwrap_or(SyntaxClass::Symbol);
+
+        buf.goto_char(pt - ch.len_utf8());
+
+        if class == SyntaxClass::Generic {
+            return true;
+        }
+    }
 }
 
 /// `(backward-prefix-chars)` — move point backward over prefix-syntax chars.
