@@ -552,85 +552,353 @@ fn format_char_argument(n: i64) -> Result<String, Flow> {
     })
 }
 
-pub(super) fn builtin_format_wrapper_strict(args: Vec<Value>) -> EvalResult {
-    expect_min_args("format", &args, 1)?;
+/// Parsed format specification: %[flags][width][.precision]conversion
+struct FormatSpec {
+    minus: bool,
+    plus: bool,
+    space: bool,
+    zero: bool,
+    sharp: bool,
+    width: Option<usize>,
+    precision: Option<usize>,
+    conversion: char,
+}
+
+/// Parse a format spec from a char iterator positioned just after '%'.
+/// Returns None only if the format string ends prematurely.
+fn parse_format_spec(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<FormatSpec> {
+    let mut spec = FormatSpec {
+        minus: false,
+        plus: false,
+        space: false,
+        zero: false,
+        sharp: false,
+        width: None,
+        precision: None,
+        conversion: '\0',
+    };
+
+    // Parse flags
+    loop {
+        match chars.peek() {
+            Some('-') => {
+                spec.minus = true;
+                chars.next();
+            }
+            Some('+') => {
+                spec.plus = true;
+                chars.next();
+            }
+            Some(' ') => {
+                spec.space = true;
+                chars.next();
+            }
+            Some('0') => {
+                spec.zero = true;
+                chars.next();
+            }
+            Some('#') => {
+                spec.sharp = true;
+                chars.next();
+            }
+            _ => break,
+        }
+    }
+
+    // Ignore flags when sprintf ignores them
+    if spec.plus {
+        spec.space = false;
+    }
+    if spec.minus {
+        spec.zero = false;
+    }
+
+    // Parse width
+    let mut width_str = String::new();
+    while let Some(&ch) = chars.peek() {
+        if ch.is_ascii_digit() {
+            width_str.push(ch);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if !width_str.is_empty() {
+        spec.width = width_str.parse().ok();
+    }
+
+    // Parse precision
+    if chars.peek() == Some(&'.') {
+        chars.next();
+        let mut prec_str = String::new();
+        while let Some(&ch) = chars.peek() {
+            if ch.is_ascii_digit() {
+                prec_str.push(ch);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        spec.precision = Some(if prec_str.is_empty() {
+            0
+        } else {
+            prec_str.parse().unwrap_or(0)
+        });
+    }
+
+    // Parse conversion character
+    spec.conversion = chars.next()?;
+    Some(spec)
+}
+
+/// Apply width/alignment padding to a formatted string.
+fn apply_width(s: &str, spec: &FormatSpec) -> String {
+    let w = match spec.width {
+        Some(w) if w > s.len() => w,
+        _ => return s.to_string(),
+    };
+    let pad_char = if spec.zero && !spec.minus { '0' } else { ' ' };
+    if spec.minus {
+        format!("{:<width$}", s, width = w)
+    } else if spec.zero && !spec.minus {
+        // For zero-padding, handle negative numbers specially
+        if s.starts_with('-') {
+            format!("-{:0>width$}", &s[1..], width = w - 1)
+        } else if s.starts_with('+') {
+            format!("+{:0>width$}", &s[1..], width = w - 1)
+        } else {
+            format!("{:0>width$}", s, width = w)
+        }
+    } else {
+        format!("{:>width$}", s, width = w)
+    }
+}
+
+/// Format an integer with the given spec.
+fn format_int_spec(n: i64, spec: &FormatSpec) -> String {
+    let s = match spec.conversion {
+        'd' => {
+            if spec.plus && n >= 0 {
+                format!("+{}", n)
+            } else if spec.space && n >= 0 {
+                format!(" {}", n)
+            } else {
+                n.to_string()
+            }
+        }
+        'o' => {
+            if n >= 0 {
+                format!("{:o}", n)
+            } else {
+                // Emacs treats negative numbers as large unsigned for %o
+                format!("{:o}", n as u64)
+            }
+        }
+        'x' => {
+            if n >= 0 {
+                format!("{:x}", n)
+            } else {
+                format!("{:x}", n as u64)
+            }
+        }
+        'X' => {
+            if n >= 0 {
+                format!("{:X}", n)
+            } else {
+                format!("{:X}", n as u64)
+            }
+        }
+        _ => n.to_string(),
+    };
+    apply_width(&s, spec)
+}
+
+/// Normalize Rust scientific notation to match C printf: sign always
+/// present, at least two exponent digits (e.g. `e0` -> `e+00`).
+fn normalize_exp_notation(s: &str) -> String {
+    if let Some(e_pos) = s.rfind('e').or_else(|| s.rfind('E')) {
+        let (mantissa, exp_part) = s.split_at(e_pos);
+        let e_char = &exp_part[..1];
+        let rest = &exp_part[1..];
+        let (sign, digits) = if rest.starts_with('+') || rest.starts_with('-') {
+            (&rest[..1], &rest[1..])
+        } else {
+            ("+", rest)
+        };
+        let padded = if digits.len() < 2 {
+            format!("{:0>2}", digits)
+        } else {
+            digits.to_string()
+        };
+        format!("{}{}{}{}", mantissa, e_char, sign, padded)
+    } else {
+        s.to_string()
+    }
+}
+
+/// Format a float with the given spec.
+fn format_float_spec(f: f64, spec: &FormatSpec) -> String {
+    let prec = spec.precision.unwrap_or(6);
+    let s = match spec.conversion {
+        'f' => format!("{:.prec$}", f, prec = prec),
+        'e' => normalize_exp_notation(&format!("{:.prec$e}", f, prec = prec)),
+        'E' => normalize_exp_notation(&format!("{:.prec$E}", f, prec = prec)),
+        'g' | 'G' => {
+            let p = if prec == 0 { 1 } else { prec };
+            // %g uses %e if exponent < -4 or >= precision, else %f
+            let exp_fmt = format!("{:.prec$e}", f, prec = p.saturating_sub(1));
+            // Parse the exponent
+            let exp_val = exp_fmt
+                .rfind('e')
+                .and_then(|i| exp_fmt[i + 1..].parse::<i32>().ok())
+                .unwrap_or(0);
+            if exp_val < -4 || exp_val >= p as i32 {
+                // Use %e style, strip trailing zeros
+                let mut s = format!("{:.prec$e}", f, prec = p.saturating_sub(1));
+                // Strip trailing zeros before 'e'
+                if let Some(e_pos) = s.rfind('e') {
+                    let mantissa = &s[..e_pos];
+                    let exp_part = &s[e_pos..];
+                    let trimmed = mantissa.trim_end_matches('0');
+                    let trimmed = trimmed.trim_end_matches('.');
+                    s = format!("{}{}", trimmed, exp_part);
+                }
+                s = normalize_exp_notation(&s);
+                if spec.conversion == 'G' {
+                    s = s.replace('e', "E");
+                }
+                s
+            } else {
+                // Use %f style with appropriate decimals
+                let decimal_places = if exp_val >= 0 {
+                    p.saturating_sub(exp_val as usize + 1)
+                } else {
+                    p
+                };
+                let mut s = format!("{:.prec$}", f, prec = decimal_places);
+                // Strip trailing zeros after decimal point
+                if s.contains('.') {
+                    s = s.trim_end_matches('0').to_string();
+                    s = s.trim_end_matches('.').to_string();
+                }
+                s
+            }
+        }
+        _ => format!("{:.prec$}", f, prec = prec),
+    };
+    let s = if spec.plus && f >= 0.0 && !f.is_nan() {
+        format!("+{}", s)
+    } else if spec.space && f >= 0.0 && !f.is_nan() {
+        format!(" {}", s)
+    } else {
+        s
+    };
+    apply_width(&s, spec)
+}
+
+/// Format a string (%s) with width and precision.
+fn format_string_spec(s: &str, spec: &FormatSpec) -> String {
+    let truncated = if let Some(prec) = spec.precision {
+        if prec < s.len() {
+            &s[..s.char_indices().nth(prec).map_or(s.len(), |(i, _)| i)]
+        } else {
+            s
+        }
+    } else {
+        s
+    };
+    apply_width(truncated, spec)
+}
+
+/// Get the princ representation of a value (for %s).
+fn format_value_princ(val: &Value) -> String {
+    match val {
+        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Symbol(id) => resolve_sym(*id).to_string(),
+        Value::Keyword(id) => resolve_sym(*id).to_string(),
+        other => super::print::print_value(other),
+    }
+}
+
+/// Core format implementation shared by both pure and eval variants.
+fn do_format(
+    args: &[Value],
+    princ_fn: &dyn Fn(&Value) -> String,
+    prin1_fn: &dyn Fn(&Value) -> String,
+) -> Result<String, Flow> {
     let fmt_str = expect_strict_string(&args[0])?;
     let mut result = String::new();
     let mut arg_idx = 1;
     let mut chars = fmt_str.chars().peekable();
 
     while let Some(ch) = chars.next() {
-        if ch == '%' {
-            if let Some(&spec) = chars.peek() {
-                chars.next();
-                match spec {
-                    's' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        // %s uses princ semantics: no quoting, no
-                        // escaping.  Strings print their raw content,
-                        // symbols print their raw name (no backslash
-                        // escaping for special chars like `).
-                        match &args[arg_idx] {
-                            Value::Str(id) => {
-                                result.push_str(&with_heap(|h| h.get_string(*id).clone()))
-                            }
-                            Value::Symbol(id) => result.push_str(resolve_sym(*id)),
-                            Value::Keyword(id) => result.push_str(resolve_sym(*id)),
-                            other => result.push_str(&super::print::print_value(other)),
-                        }
-                        arg_idx += 1;
-                    }
-                    'S' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        result.push_str(&super::print::print_value(&args[arg_idx]));
-                        arg_idx += 1;
-                    }
-                    'd' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        let n = expect_int(&args[arg_idx])
-                            .map_err(|_| format_spec_type_mismatch_error())?;
-                        result.push_str(&n.to_string());
-                        arg_idx += 1;
-                    }
-                    'f' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        let f = expect_number(&args[arg_idx])
-                            .map_err(|_| format_spec_type_mismatch_error())?;
-                        result.push_str(&format!("{:.6}", f));
-                        arg_idx += 1;
-                    }
-                    'c' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        let n = expect_int(&args[arg_idx])
-                            .map_err(|_| format_spec_type_mismatch_error())?;
-                        result.push_str(&format_char_argument(n)?);
-                        arg_idx += 1;
-                    }
-                    '%' => result.push('%'),
-                    _ => {
-                        result.push('%');
-                        result.push(spec);
-                    }
-                }
-            } else {
-                result.push('%');
-            }
-        } else {
+        if ch != '%' {
             result.push(ch);
+            continue;
         }
+
+        let Some(spec) = parse_format_spec(&mut chars) else {
+            result.push('%');
+            continue;
+        };
+
+        if spec.conversion == '%' {
+            result.push('%');
+            continue;
+        }
+
+        if arg_idx >= args.len() {
+            return Err(format_not_enough_args_error());
+        }
+
+        let formatted = match spec.conversion {
+            's' => {
+                let s = princ_fn(&args[arg_idx]);
+                arg_idx += 1;
+                format_string_spec(&s, &spec)
+            }
+            'S' => {
+                let s = prin1_fn(&args[arg_idx]);
+                arg_idx += 1;
+                format_string_spec(&s, &spec)
+            }
+            'd' | 'o' | 'x' | 'X' => {
+                let n =
+                    expect_int(&args[arg_idx]).map_err(|_| format_spec_type_mismatch_error())?;
+                arg_idx += 1;
+                format_int_spec(n, &spec)
+            }
+            'f' | 'e' | 'E' | 'g' | 'G' => {
+                let f =
+                    expect_number(&args[arg_idx]).map_err(|_| format_spec_type_mismatch_error())?;
+                arg_idx += 1;
+                format_float_spec(f, &spec)
+            }
+            'c' => {
+                let n =
+                    expect_int(&args[arg_idx]).map_err(|_| format_spec_type_mismatch_error())?;
+                arg_idx += 1;
+                let s = format_char_argument(n)?;
+                format_string_spec(&s, &spec)
+            }
+            _ => {
+                // Unknown specifier: pass through literally
+                arg_idx += 1;
+                format!("%{}", spec.conversion)
+            }
+        };
+        result.push_str(&formatted);
     }
 
-    Ok(Value::string(result))
+    Ok(result)
+}
+
+pub(super) fn builtin_format_wrapper_strict(args: Vec<Value>) -> EvalResult {
+    expect_min_args("format", &args, 1)?;
+    let s = do_format(&args, &format_value_princ, &|v| {
+        super::print::print_value(v)
+    })?;
+    Ok(Value::string(s))
 }
 
 pub(super) fn builtin_format_wrapper_strict_eval(
@@ -638,72 +906,10 @@ pub(super) fn builtin_format_wrapper_strict_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("format", &args, 1)?;
-    let fmt_str = expect_strict_string(&args[0])?;
-    let mut result = String::new();
-    let mut arg_idx = 1;
-    let mut chars = fmt_str.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '%' {
-            if let Some(&spec) = chars.peek() {
-                chars.next();
-                match spec {
-                    's' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        result.push_str(&format_percent_s_eval(eval, &args[arg_idx]));
-                        arg_idx += 1;
-                    }
-                    'S' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        result.push_str(&print_value_eval(eval, &args[arg_idx]));
-                        arg_idx += 1;
-                    }
-                    'd' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        let n = expect_int(&args[arg_idx])
-                            .map_err(|_| format_spec_type_mismatch_error())?;
-                        result.push_str(&n.to_string());
-                        arg_idx += 1;
-                    }
-                    'f' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        let f = expect_number(&args[arg_idx])
-                            .map_err(|_| format_spec_type_mismatch_error())?;
-                        result.push_str(&format!("{:.6}", f));
-                        arg_idx += 1;
-                    }
-                    'c' => {
-                        if arg_idx >= args.len() {
-                            return Err(format_not_enough_args_error());
-                        }
-                        let n = expect_int(&args[arg_idx])
-                            .map_err(|_| format_spec_type_mismatch_error())?;
-                        result.push_str(&format_char_argument(n)?);
-                        arg_idx += 1;
-                    }
-                    '%' => result.push('%'),
-                    _ => {
-                        result.push('%');
-                        result.push(spec);
-                    }
-                }
-            } else {
-                result.push('%');
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    Ok(Value::string(result))
+    let s = do_format(&args, &|v| format_percent_s_eval(eval, v), &|v| {
+        print_value_eval(eval, v)
+    })?;
+    Ok(Value::string(s))
 }
 
 /// Apply `text-quoting-style` translation to a string.
