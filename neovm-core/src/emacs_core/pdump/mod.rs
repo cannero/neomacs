@@ -281,6 +281,25 @@ mod tests {
         let forms = crate::emacs_core::parser::parse_forms("(length '(a b c))").unwrap();
         let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
         assert_eq!(result, Value::Int(3));
+
+        // Verify string operations (tests heap String objects)
+        let forms = crate::emacs_core::parser::parse_forms("(concat \"hello\" \" \" \"world\")").unwrap();
+        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+        assert_eq!(crate::emacs_core::print_value(&result), "\"hello world\"");
+
+        // Verify hash table access (tests hash table round-trip)
+        let forms = crate::emacs_core::parser::parse_forms(
+            "(let ((h (make-hash-table :test 'equal))) (puthash \"key\" 42 h) (gethash \"key\" h))"
+        ).unwrap();
+        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+        assert_eq!(result, Value::Int(42));
+
+        // Verify defun works (tests lambda/macro round-trip)
+        let forms = crate::emacs_core::parser::parse_forms(
+            "(progn (defun pdump-test-fn (x) (* x x)) (pdump-test-fn 7))"
+        ).unwrap();
+        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+        assert_eq!(result, Value::Int(49));
     }
 
     #[test]
