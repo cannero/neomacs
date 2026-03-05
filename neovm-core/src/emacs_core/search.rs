@@ -259,7 +259,7 @@ pub(crate) fn builtin_string_match_p(args: Vec<Value>) -> EvalResult {
     let start = normalize_string_start_arg(&s, args.get(2))?;
 
     // Emacs defaults `case-fold-search` to non-nil for string matching.
-    let rust_pattern = format!("(?i:{})", super::regex::translate_emacs_regex(&pattern));
+    let rust_pattern = format!("(?mi:{})", super::regex::translate_emacs_regex(&pattern));
     let re = regex::Regex::new(&rust_pattern)
         .map_err(|e| signal("invalid-regexp", vec![Value::string(e.to_string())]))?;
 
@@ -433,7 +433,7 @@ fn anchored_looking_at_matches(
     } else {
         format!("\\A(?:{translated})")
     };
-    let re = regex::Regex::new(&format!("(?i:{anchored})"))
+    let re = regex::Regex::new(&format!("(?mi:{anchored})"))
         .map_err(|e| signal("invalid-regexp", vec![Value::string(e.to_string())]))?;
 
     match re.captures(text) {
@@ -534,9 +534,9 @@ fn builtin_replace_regexp_in_string_with_case_fold(
 
     let translated = super::regex::translate_emacs_regex(&pattern);
     let rust_pattern = if case_fold {
-        format!("(?i:{translated})")
+        format!("(?mi:{translated})")
     } else {
-        translated
+        format!("(?m:{translated})")
     };
     let re = regex::Regex::new(&rust_pattern)
         .map_err(|e| signal("invalid-regexp", vec![Value::string(e.to_string())]))?;

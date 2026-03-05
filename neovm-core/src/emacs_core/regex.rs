@@ -301,10 +301,12 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
 
 fn compile_emacs_regex_case_fold(pattern: &str, case_fold: bool) -> Result<Regex, String> {
     let rust_pattern = translate_emacs_regex(pattern);
+    // Emacs regexes always treat ^ and $ as matching at line boundaries,
+    // which corresponds to Rust regex's multiline (?m) flag.
     let wrapped = if case_fold {
-        format!("(?i:{})", rust_pattern)
+        format!("(?mi:{})", rust_pattern)
     } else {
-        rust_pattern
+        format!("(?m:{})", rust_pattern)
     };
     Regex::new(&wrapped).map_err(|e| format!("Invalid regexp: {}", e))
 }
@@ -532,9 +534,9 @@ pub fn looking_at(
         format!("\\A(?:{})", re_pattern)
     };
     let pattern = if case_fold {
-        format!("(?i:{anchored})")
+        format!("(?mi:{anchored})")
     } else {
-        anchored
+        format!("(?m:{anchored})")
     };
     let re = Regex::new(&pattern).map_err(|e| format!("Invalid regexp: {}", e))?;
 
