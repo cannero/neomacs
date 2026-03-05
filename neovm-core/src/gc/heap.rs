@@ -678,6 +678,45 @@ impl LispHeap {
     pub fn allocated_count(&self) -> usize {
         self.allocated_count
     }
+
+    // -----------------------------------------------------------------------
+    // pdump accessors
+    // -----------------------------------------------------------------------
+
+    /// Access all heap objects (for pdump serialization).
+    pub(crate) fn objects(&self) -> &[HeapObject] {
+        &self.objects
+    }
+
+    /// Access generation counters (for pdump serialization).
+    pub(crate) fn generations(&self) -> &[u32] {
+        &self.generations
+    }
+
+    /// Access the free list (for pdump serialization).
+    pub(crate) fn free_list(&self) -> &[u32] {
+        &self.free_list
+    }
+
+    /// Reconstruct a LispHeap from pdump data.
+    pub(crate) fn from_dump(
+        objects: Vec<HeapObject>,
+        generations: Vec<u32>,
+        free_list: Vec<u32>,
+    ) -> Self {
+        let allocated_count = objects.iter().filter(|o| !matches!(o, HeapObject::Free)).count();
+        let marks = vec![false; objects.len()];
+        Self {
+            objects,
+            generations,
+            marks,
+            free_list,
+            allocated_count,
+            gc_threshold: 8192,
+            gc_phase: GcPhase::Idle,
+            gray_queue: Vec::new(),
+        }
+    }
 }
 
 impl Default for LispHeap {

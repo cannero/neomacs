@@ -258,6 +258,14 @@ impl UndoList {
             self.records.drain(..excess);
         }
     }
+
+    // pdump accessors
+    pub(crate) fn dump_records(&self) -> &[UndoRecord] { &self.records }
+    pub(crate) fn dump_limit(&self) -> usize { self.limit }
+    pub(crate) fn dump_enabled(&self) -> bool { self.enabled }
+    pub(crate) fn from_dump(records: Vec<UndoRecord>, limit: usize, enabled: bool) -> Self {
+        Self { records, limit, enabled, in_group: false, undoing: false }
+    }
 }
 
 impl Default for UndoList {

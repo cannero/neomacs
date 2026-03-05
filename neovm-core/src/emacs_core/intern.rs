@@ -62,6 +62,23 @@ impl StringInterner {
     pub fn resolve(&self, id: SymId) -> &str {
         &self.strings[id.0 as usize]
     }
+
+    /// Access all interned strings (for pdump serialization).
+    pub(crate) fn strings(&self) -> &[String] {
+        &self.strings
+    }
+
+    /// Reconstruct a StringInterner from a list of strings (for pdump load).
+    /// Rebuilds the dedup map. Strings that appear multiple times (uninterned
+    /// symbols) are NOT added to the dedup map after the first occurrence.
+    pub(crate) fn from_strings(strings: Vec<String>) -> Self {
+        let mut map = HashMap::with_capacity(strings.len());
+        for (idx, s) in strings.iter().enumerate() {
+            // Only insert the first occurrence (dedup map semantics)
+            map.entry(s.clone()).or_insert(idx as u32);
+        }
+        Self { strings, map }
+    }
 }
 
 // ---------------------------------------------------------------------------

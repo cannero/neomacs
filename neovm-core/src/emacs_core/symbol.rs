@@ -299,6 +299,33 @@ impl Obarray {
     pub fn is_function_unbound(&self, name: &str) -> bool {
         self.function_unbound.contains(&intern(name))
     }
+
+    // -----------------------------------------------------------------------
+    // pdump accessors
+    // -----------------------------------------------------------------------
+
+    /// Iterate over all (SymId, &SymbolData) pairs (for pdump serialization).
+    pub(crate) fn iter_symbols(&self) -> impl Iterator<Item = (&SymId, &SymbolData)> {
+        self.symbols.iter()
+    }
+
+    /// Access the set of fmakunbound'd symbol ids (for pdump serialization).
+    pub(crate) fn function_unbound_set(&self) -> &HashSet<SymId> {
+        &self.function_unbound
+    }
+
+    /// Reconstruct an Obarray from pdump data.
+    pub(crate) fn from_dump(
+        symbols: HashMap<SymId, SymbolData>,
+        function_unbound: HashSet<SymId>,
+        function_epoch: u64,
+    ) -> Self {
+        Self {
+            symbols,
+            function_unbound,
+            function_epoch,
+        }
+    }
 }
 
 impl GcTrace for Obarray {

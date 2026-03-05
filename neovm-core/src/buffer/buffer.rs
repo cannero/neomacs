@@ -510,6 +510,15 @@ impl BufferManager {
                 .map(|m| m.byte_pos)
         })
     }
+
+    // pdump accessors
+    pub(crate) fn dump_buffers(&self) -> &HashMap<BufferId, Buffer> { &self.buffers }
+    pub(crate) fn dump_current(&self) -> Option<BufferId> { self.current }
+    pub(crate) fn dump_next_id(&self) -> u64 { self.next_id }
+    pub(crate) fn dump_next_marker_id(&self) -> u64 { self.next_marker_id }
+    pub(crate) fn from_dump(buffers: HashMap<BufferId, Buffer>, current: Option<BufferId>, next_id: u64, next_marker_id: u64) -> Self {
+        Self { buffers, current, next_id, next_marker_id, dead_buffer_last_names: HashMap::new() }
+    }
 }
 
 impl Default for BufferManager {

@@ -75,6 +75,7 @@ pub mod network;
 #[cfg(test)]
 mod oracle_test;
 pub mod parser;
+pub mod pdump;
 pub mod print;
 pub mod process;
 pub mod reader;

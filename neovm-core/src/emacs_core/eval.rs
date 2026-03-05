@@ -153,7 +153,7 @@ pub struct Evaluator {
     /// Features list (for require/provide).
     pub(crate) features: Vec<SymId>,
     /// Features currently being resolved through `require`.
-    require_stack: Vec<SymId>,
+    pub(crate) require_stack: Vec<SymId>,
     /// Files currently being loaded (mirrors `Vloads_in_progress` in lread.c).
     pub(crate) loads_in_progress: Vec<std::path::PathBuf>,
     /// Buffer manager — owns all live buffers and tracks current buffer.
@@ -1561,6 +1561,96 @@ impl Evaluator {
         };
         // The heap and interner are boxed so their addresses are stable across moves.
         // Re-point anyway to be explicit about thread-local state.
+        set_current_interner(&mut ev.interner);
+        set_current_heap(&mut ev.heap);
+        ev
+    }
+
+    // -----------------------------------------------------------------------
+    // pdump reconstruction
+    // -----------------------------------------------------------------------
+
+    /// Reconstruct an Evaluator from pdump data.
+    ///
+    /// Thread-local pointers (CURRENT_INTERNER, CURRENT_HEAP) and caches
+    /// must already be set by the caller before calling this.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_dump(
+        interner: Box<StringInterner>,
+        heap: Box<LispHeap>,
+        obarray: Obarray,
+        dynamic: Vec<OrderedSymMap>,
+        lexenv: Value,
+        features: Vec<SymId>,
+        require_stack: Vec<SymId>,
+        buffers: BufferManager,
+        autoloads: AutoloadManager,
+        custom: CustomManager,
+        modes: ModeRegistry,
+        coding_systems: CodingSystemManager,
+        face_table: FaceTable,
+        category_manager: CategoryManager,
+        abbrevs: AbbrevManager,
+        interactive: InteractiveRegistry,
+        kill_ring: KillRing,
+        rectangle: RectangleState,
+        current_local_map: Value,
+        kmacro: KmacroManager,
+        registers: RegisterManager,
+        bookmarks: BookmarkManager,
+        watchers: VariableWatcherList,
+    ) -> Self {
+        let mut ev = Self {
+            interner,
+            heap,
+            obarray,
+            dynamic,
+            lexenv,
+            features,
+            require_stack,
+            loads_in_progress: Vec::new(),
+            buffers,
+            match_data: None,
+            processes: ProcessManager::new(),
+            timers: TimerManager::new(),
+            watchers,
+            current_local_map,
+            registers,
+            bookmarks,
+            abbrevs,
+            autoloads,
+            custom,
+            kill_ring,
+            rectangle,
+            interactive,
+            recent_input_events: Vec::new(),
+            read_command_keys: Vec::new(),
+            input_mode_interrupt: true,
+            frames: FrameManager::new(),
+            modes,
+            threads: ThreadManager::new(),
+            category_manager,
+            kmacro,
+            coding_systems,
+            face_table,
+            depth: 0,
+            max_depth: 1600,
+            gc_pending: false,
+            gc_count: 0,
+            gc_stress: false,
+            temp_roots: Vec::new(),
+            catch_tags: Vec::new(),
+            saved_lexenvs: Vec::new(),
+            named_call_cache: None,
+            pcase_macroexpand_temp_counter: 0,
+            literal_cache: HashMap::new(),
+            macro_expansion_cache: HashMap::new(),
+            macro_cache_hits: 0,
+            macro_cache_misses: 0,
+            macro_expand_total_us: 0,
+            macro_cache_disabled: false,
+        };
+        // Re-point thread-local pointers to the evaluator's owned boxes.
         set_current_interner(&mut ev.interner);
         set_current_heap(&mut ev.heap);
         ev

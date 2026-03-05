@@ -182,6 +182,22 @@ impl AutoloadManager {
     pub fn get_obsolete_variable(&self, name: &str) -> Option<&(String, String)> {
         self.obsolete_variables.get(name)
     }
+
+    // pdump accessors
+    pub(crate) fn dump_entries(&self) -> &HashMap<String, AutoloadEntry> { &self.entries }
+    pub(crate) fn dump_after_load(&self) -> &HashMap<String, Vec<Value>> { &self.after_load }
+    pub(crate) fn dump_loaded_files(&self) -> &[String] { &self.loaded_files }
+    pub(crate) fn dump_obsolete_functions(&self) -> &HashMap<String, (String, String)> { &self.obsolete_functions }
+    pub(crate) fn dump_obsolete_variables(&self) -> &HashMap<String, (String, String)> { &self.obsolete_variables }
+    pub(crate) fn from_dump(
+        entries: HashMap<String, AutoloadEntry>,
+        after_load: HashMap<String, Vec<Value>>,
+        loaded_files: Vec<String>,
+        obsolete_functions: HashMap<String, (String, String)>,
+        obsolete_variables: HashMap<String, (String, String)>,
+    ) -> Self {
+        Self { entries, after_load, loaded_files, obsolete_functions, obsolete_variables }
+    }
 }
 
 // ---------------------------------------------------------------------------

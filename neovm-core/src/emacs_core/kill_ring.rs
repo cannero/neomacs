@@ -624,6 +624,14 @@ impl KillRing {
             .collect();
         Value::list(values)
     }
+
+    // pdump accessors
+    pub(crate) fn dump_entries(&self) -> &[String] { &self.entries }
+    pub(crate) fn dump_max_size(&self) -> usize { self.max_size }
+    pub(crate) fn dump_yank_pointer(&self) -> usize { self.yank_pointer }
+    pub(crate) fn from_dump(entries: Vec<String>, max_size: usize, yank_pointer: usize) -> Self {
+        Self { entries, max_size, yank_pointer, last_was_yank: false, last_yank_region: None }
+    }
 }
 
 // ===========================================================================

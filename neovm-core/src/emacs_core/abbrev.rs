@@ -225,6 +225,14 @@ impl AbbrevManager {
         names.sort();
         names
     }
+
+    // pdump accessors
+    pub(crate) fn dump_tables(&self) -> &HashMap<String, AbbrevTable> { &self.tables }
+    pub(crate) fn dump_global_table_name(&self) -> &str { &self.global_table_name }
+    pub(crate) fn dump_abbrev_mode(&self) -> bool { self.abbrev_mode }
+    pub(crate) fn from_dump(tables: HashMap<String, AbbrevTable>, global_table_name: String, abbrev_mode: bool) -> Self {
+        Self { tables, global_table_name, abbrev_mode }
+    }
 }
 
 // ---------------------------------------------------------------------------

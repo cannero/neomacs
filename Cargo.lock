@@ -300,6 +300,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2140,6 +2149,7 @@ dependencies = [
 name = "neovm-core"
 version = "0.0.1"
 dependencies = [
+ "bincode",
  "dns-lookup",
  "libc",
  "libloading",
@@ -2147,6 +2157,7 @@ dependencies = [
  "network-interface",
  "proptest",
  "regex",
+ "serde",
  "sha1",
  "sha2",
  "stacker",

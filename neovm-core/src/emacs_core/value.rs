@@ -93,6 +93,11 @@ impl OrderedSymMap {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    /// Reconstruct from a vec of entries (for pdump load).
+    pub(crate) fn from_entries(entries: Vec<(SymId, Value)>) -> Self {
+        Self { entries }
+    }
 }
 use crate::gc::heap::LispHeap;
 use crate::gc::types::ObjId;
@@ -260,6 +265,28 @@ pub fn get_string_text_properties(id: ObjId) -> Option<Vec<StringTextPropertyRun
 
 fn obj_id_to_key(id: ObjId) -> usize {
     ((id.index as usize) << 32) | (id.generation as usize)
+}
+
+/// Snapshot the string text properties table (for pdump serialization).
+/// Returns entries as (combined_key, runs) pairs.
+pub(crate) fn snapshot_string_text_props() -> Vec<(u64, Vec<StringTextPropertyRun>)> {
+    STRING_TEXT_PROPS.with(|slot| {
+        slot.borrow()
+            .iter()
+            .map(|(&key, runs)| (key as u64, runs.clone()))
+            .collect()
+    })
+}
+
+/// Restore string text properties from a pdump snapshot.
+pub(crate) fn restore_string_text_props(entries: Vec<(u64, Vec<StringTextPropertyRun>)>) {
+    STRING_TEXT_PROPS.with(|slot| {
+        let mut props = slot.borrow_mut();
+        props.clear();
+        for (key, runs) in entries {
+            props.insert(key as usize, runs);
+        }
+    });
 }
 
 /// Read car and cdr from a cons cell on the heap.

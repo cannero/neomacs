@@ -187,6 +187,11 @@ impl SyntaxFlags {
     /// 'n' — nestable comment
     pub const COMMENT_NESTABLE: SyntaxFlags = SyntaxFlags(0b0100_0000);
 
+    /// Construct from raw bits.
+    pub const fn new(bits: u8) -> Self {
+        SyntaxFlags(bits)
+    }
+
     /// Empty flags (no bits set).
     pub const fn empty() -> Self {
         SyntaxFlags(0)
@@ -427,6 +432,13 @@ impl SyntaxTable {
     /// Set the syntax entry for `ch`.
     pub fn modify_syntax_entry(&mut self, ch: char, entry: SyntaxEntry) {
         self.entries.insert(ch, entry);
+    }
+
+    // pdump accessors
+    pub(crate) fn dump_entries(&self) -> &HashMap<char, SyntaxEntry> { &self.entries }
+    pub(crate) fn dump_parent(&self) -> &Option<Box<SyntaxTable>> { &self.parent }
+    pub(crate) fn from_dump(entries: HashMap<char, SyntaxEntry>, parent: Option<Box<SyntaxTable>>) -> Self {
+        Self { entries, parent }
     }
 }
 

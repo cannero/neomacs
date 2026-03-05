@@ -539,6 +539,19 @@ impl CodingSystemManager {
         names.sort();
         names
     }
+
+    // pdump accessors
+    pub(crate) fn dump_keyboard_coding(&self) -> &str { &self.keyboard_coding }
+    pub(crate) fn dump_terminal_coding(&self) -> &str { &self.terminal_coding }
+    pub(crate) fn from_dump(
+        systems: HashMap<String, CodingSystemInfo>,
+        aliases: HashMap<String, String>,
+        priority: Vec<String>,
+        keyboard_coding: String,
+        terminal_coding: String,
+    ) -> Self {
+        Self { systems, aliases, priority, keyboard_coding, terminal_coding }
+    }
 }
 
 impl Default for CodingSystemManager {

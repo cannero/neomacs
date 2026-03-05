@@ -127,6 +127,12 @@ impl InteractiveRegistry {
     pub fn this_command_keys(&self) -> &[String] {
         &self.this_command_keys
     }
+
+    // pdump accessors
+    pub(crate) fn dump_specs(&self) -> &HashMap<String, InteractiveSpec> { &self.specs }
+    pub(crate) fn from_dump(specs: HashMap<String, InteractiveSpec>) -> Self {
+        Self { specs, interactive_call_stack: Vec::new(), this_command_keys: Vec::new() }
+    }
 }
 
 impl Default for InteractiveRegistry {

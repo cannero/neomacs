@@ -243,6 +243,11 @@ impl OverlayList {
         }
         best
     }
+
+    // pdump accessors
+    pub(crate) fn dump_overlays(&self) -> &[Overlay] { &self.overlays }
+    pub(crate) fn dump_next_id(&self) -> u64 { self.next_id }
+    pub(crate) fn from_dump(overlays: Vec<Overlay>, next_id: u64) -> Self { Self { overlays, next_id } }
 }
 
 impl Default for OverlayList {

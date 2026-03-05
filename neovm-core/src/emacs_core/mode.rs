@@ -608,6 +608,34 @@ impl ModeRegistry {
         };
         self.major_modes.insert(mode.name.clone(), mode);
     }
+
+    // pdump accessors
+    pub(crate) fn dump_major_modes(&self) -> &HashMap<String, MajorMode> { &self.major_modes }
+    pub(crate) fn dump_minor_modes(&self) -> &HashMap<String, MinorMode> { &self.minor_modes }
+    pub(crate) fn dump_buffer_major_modes(&self) -> &HashMap<u64, String> { &self.buffer_major_modes }
+    pub(crate) fn dump_buffer_minor_modes(&self) -> &HashMap<u64, Vec<String>> { &self.buffer_minor_modes }
+    pub(crate) fn dump_global_minor_modes(&self) -> &[String] { &self.global_minor_modes }
+    pub(crate) fn dump_auto_mode_alist(&self) -> &[(String, String)] { &self.auto_mode_alist }
+    pub(crate) fn dump_custom_variables(&self) -> &HashMap<String, CustomVariable> { &self.custom_variables }
+    pub(crate) fn dump_custom_groups(&self) -> &HashMap<String, CustomGroup> { &self.custom_groups }
+    pub(crate) fn dump_fundamental_mode(&self) -> &str { &self.fundamental_mode }
+    pub(crate) fn from_dump(
+        major_modes: HashMap<String, MajorMode>,
+        minor_modes: HashMap<String, MinorMode>,
+        buffer_major_modes: HashMap<u64, String>,
+        buffer_minor_modes: HashMap<u64, Vec<String>>,
+        global_minor_modes: Vec<String>,
+        auto_mode_alist: Vec<(String, String)>,
+        custom_variables: HashMap<String, CustomVariable>,
+        custom_groups: HashMap<String, CustomGroup>,
+        fundamental_mode: String,
+    ) -> Self {
+        Self {
+            major_modes, minor_modes, buffer_major_modes, buffer_minor_modes,
+            global_minor_modes, auto_mode_alist, custom_variables, custom_groups,
+            fundamental_mode,
+        }
+    }
 }
 
 impl Default for ModeRegistry {

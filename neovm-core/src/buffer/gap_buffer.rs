@@ -477,6 +477,20 @@ impl GapBuffer {
         // A character boundary is any byte that is NOT a continuation byte.
         is_utf8_start_byte(b)
     }
+
+    // pdump accessors
+    /// Extract the logical text content as a byte vector (for pdump).
+    pub(crate) fn dump_text(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.len());
+        out.extend_from_slice(&self.buf[..self.gap_start]);
+        out.extend_from_slice(&self.buf[self.gap_end..]);
+        out
+    }
+    /// Reconstruct from text bytes (for pdump load).
+    pub(crate) fn from_dump(text: Vec<u8>) -> Self {
+        let len = text.len();
+        Self { buf: text, gap_start: len, gap_end: len }
+    }
 }
 
 // ---------------------------------------------------------------------------
