@@ -97,7 +97,7 @@ fn hash_key_to_value(key: &HashKey) -> Value {
     }
 }
 
-fn hash_key_to_visible_value(table: &LispHashTable, key: &HashKey) -> Value {
+pub(crate) fn hash_key_to_visible_value(table: &LispHashTable, key: &HashKey) -> Value {
     table
         .key_snapshots
         .get(key)

@@ -1,10 +1,12 @@
 //! Value printing (Lisp representation).
 
+use super::chartable::bool_vector_length;
 use super::expr::{self, Expr};
 use super::intern::resolve_sym;
 use super::string_escape::{format_lisp_string, format_lisp_string_bytes};
 use super::value::{
-    StringTextPropertyRun, Value, get_string_text_properties, list_to_vec, read_cons, with_heap,
+    HashTableTest, StringTextPropertyRun, Value, get_string_text_properties, list_to_vec,
+    read_cons, with_heap,
 };
 
 fn print_special_handle(value: &Value) -> Option<String> {
@@ -66,6 +68,9 @@ pub fn print_value(value: &Value) -> String {
             out
         }
         Value::Vector(v) => {
+            if let Some(nbits) = bool_vector_length(value) {
+                return format_bool_vector(value, nbits as usize);
+            }
             let items = with_heap(|h| h.get_vector(*v).clone());
             let parts: Vec<String> = items.iter().map(print_value).collect();
             format!("[{}]", parts.join(" "))
@@ -75,7 +80,7 @@ pub fn print_value(value: &Value) -> String {
             let parts: Vec<String> = items.iter().map(print_value).collect();
             format!("#s({})", parts.join(" "))
         }
-        Value::HashTable(_) => "#s(hash-table)".to_string(),
+        Value::HashTable(id) => format_hash_table(*id),
         Value::Lambda(_id) => {
             let lambda = value.get_lambda_data().unwrap();
             let params = format_params(&lambda.params);
@@ -172,6 +177,10 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>) {
             out.push(b')');
         }
         Value::Vector(v) => {
+            if let Some(nbits) = bool_vector_length(value) {
+                append_bool_vector_bytes(value, nbits as usize, out);
+                return;
+            }
             out.push(b'[');
             let items = with_heap(|h| h.get_vector(*v).clone());
             for (idx, item) in items.iter().enumerate() {
@@ -193,7 +202,9 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>) {
             }
             out.push(b')');
         }
-        Value::HashTable(_) => out.extend_from_slice(b"#s(hash-table)"),
+        Value::HashTable(id) => {
+            out.extend_from_slice(format_hash_table(*id).as_bytes());
+        }
         Value::Lambda(_id) => {
             let lambda = value.get_lambda_data().unwrap();
             let params = format_params(&lambda.params);
@@ -458,6 +469,104 @@ fn print_cons_bytes(value: &Value, out: &mut Vec<u8>) {
         }
     }
 }
+// -- Bool-vector printing ---------------------------------------------------
+
+/// Format a bool-vector as `#&N"..."`.
+fn format_bool_vector(value: &Value, nbits: usize) -> String {
+    let mut out = Vec::new();
+    append_bool_vector_bytes(value, nbits, &mut out);
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Append bool-vector bytes as `#&N"..."`.
+fn append_bool_vector_bytes(value: &Value, nbits: usize, out: &mut Vec<u8>) {
+    let items = match value {
+        Value::Vector(v) => with_heap(|h| h.get_vector(*v).clone()),
+        _ => return,
+    };
+    // items[0] = tag, items[1] = size, items[2..] = individual bit values
+    let nbytes = (nbits + 7) / 8;
+
+    out.extend_from_slice(b"#&");
+    out.extend_from_slice(nbits.to_string().as_bytes());
+    out.push(b'"');
+
+    for byte_idx in 0..nbytes {
+        let mut byte_val: u8 = 0;
+        for bit_idx in 0..8 {
+            let overall_bit = byte_idx * 8 + bit_idx;
+            if overall_bit >= nbits {
+                break;
+            }
+            let is_set = match items.get(2 + overall_bit) {
+                Some(Value::Int(n)) => *n != 0,
+                Some(v) => v.is_truthy(),
+                None => false,
+            };
+            if is_set {
+                byte_val |= 1 << bit_idx; // LSB first
+            }
+        }
+        match byte_val {
+            b'"' => out.extend_from_slice(b"\\\""),
+            b'\\' => out.extend_from_slice(b"\\\\"),
+            b if b > 0x7F => {
+                // Octal escape for high bytes, matching GNU Emacs
+                out.extend_from_slice(format!("\\{:03o}", b).as_bytes());
+            }
+            _ => out.push(byte_val),
+        }
+    }
+
+    out.push(b'"');
+}
+
+// -- Hash-table printing ----------------------------------------------------
+
+fn format_hash_table(id: crate::gc::types::ObjId) -> String {
+    let table = with_heap(|h| h.get_hash_table(id).clone());
+    let mut out = String::from("#s(hash-table");
+
+    // GNU Emacs omits test when it's eql (the default).
+    match table.test {
+        HashTableTest::Eq => out.push_str(" test eq"),
+        HashTableTest::Equal => out.push_str(" test equal"),
+        HashTableTest::Eql => {} // default, omitted
+    }
+
+    // GNU Emacs omits weakness when there is none.
+    if let Some(ref weakness) = table.weakness {
+        let name = match weakness {
+            super::value::HashTableWeakness::Key => "key",
+            super::value::HashTableWeakness::Value => "value",
+            super::value::HashTableWeakness::KeyOrValue => "key-or-value",
+            super::value::HashTableWeakness::KeyAndValue => "key-and-value",
+        };
+        out.push_str(" weakness ");
+        out.push_str(name);
+    }
+
+    // GNU Emacs omits data when the table is empty.
+    if !table.data.is_empty() {
+        out.push_str(" data (");
+        let mut first = true;
+        for (key, val) in &table.data {
+            if !first {
+                out.push(' ');
+            }
+            let key_val = super::hashtab::hash_key_to_visible_value(&table, key);
+            out.push_str(&print_value(&key_val));
+            out.push(' ');
+            out.push_str(&print_value(val));
+            first = false;
+        }
+        out.push(')');
+    }
+
+    out.push(')');
+    out
+}
+
 #[cfg(test)]
 #[path = "print_test.rs"]
 mod tests;

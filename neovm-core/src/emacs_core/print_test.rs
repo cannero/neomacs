@@ -136,8 +136,9 @@ fn print_hash_s_literal_shorthand() {
 #[test]
 fn print_hash_table_object_uses_readable_hash_s_shape() {
     let table = Value::hash_table(HashTableTest::Equal);
-    assert_eq!(print_value(&table), "#s(hash-table)");
-    assert_eq!(print_value_bytes(&table), b"#s(hash-table)");
+    // GNU Emacs prints "test equal" for non-default test (default is eql).
+    assert_eq!(print_value(&table), "#s(hash-table test equal)");
+    assert_eq!(print_value_bytes(&table), b"#s(hash-table test equal)");
 }
 
 #[test]
