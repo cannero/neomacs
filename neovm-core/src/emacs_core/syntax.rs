@@ -137,6 +137,28 @@ impl SyntaxClass {
             SyntaxClass::Generic => 14,
         }
     }
+
+    /// Parse a syntax class from its integer code (inverse of `code()`).
+    pub fn from_code(n: i64) -> Option<SyntaxClass> {
+        match n & 0xFF {
+            0 => Some(SyntaxClass::Whitespace),
+            1 => Some(SyntaxClass::Punctuation),
+            2 => Some(SyntaxClass::Word),
+            3 => Some(SyntaxClass::Symbol),
+            4 => Some(SyntaxClass::Open),
+            5 => Some(SyntaxClass::Close),
+            6 => Some(SyntaxClass::Prefix),
+            7 => Some(SyntaxClass::StringDelim),
+            8 => Some(SyntaxClass::MathDelim),
+            9 => Some(SyntaxClass::Escape),
+            10 => Some(SyntaxClass::CharQuote),
+            11 => Some(SyntaxClass::Comment),
+            12 => Some(SyntaxClass::EndComment),
+            13 => Some(SyntaxClass::InheritStandard),
+            14 => Some(SyntaxClass::Generic),
+            _ => None,
+        }
+    }
 }
 
 // ===========================================================================
@@ -1305,6 +1327,26 @@ pub(crate) fn builtin_modify_syntax_entry(
         }
     }
     Ok(Value::Nil)
+}
+
+/// Extract the syntax class from a char-table entry value.
+///
+/// In GNU Emacs the syntax table is a char-table whose entries are cons
+/// cells `(CODE . MATCHING-CHAR)` where the low bits of CODE encode the
+/// syntax class.  `nil` entries mean "inherit from standard table".
+fn syntax_class_from_chartable_entry(entry: &Value) -> Option<SyntaxClass> {
+    match entry {
+        Value::Cons(cell) => {
+            let pair = read_cons(*cell);
+            if let Value::Int(code) = pair.car {
+                SyntaxClass::from_code(code)
+            } else {
+                None
+            }
+        }
+        Value::Int(code) => SyntaxClass::from_code(*code),
+        _ => None,
+    }
 }
 
 /// `(char-syntax CHAR)` — return the syntax class designator char.

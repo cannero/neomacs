@@ -434,7 +434,7 @@ pub(crate) fn builtin_char_table_range(args: Vec<Value>) -> EvalResult {
 
 /// Recursive char-table lookup: check own entries, then all-char wildcard,
 /// then char fallback/default, then parent chain.
-fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
+pub(crate) fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
     let arc = match table {
         Value::Vector(a) => a,
         _ => return Err(wrong_type("char-table-p", table)),
