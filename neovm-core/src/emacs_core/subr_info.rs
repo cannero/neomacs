@@ -93,7 +93,7 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             | "save-excursion"
             | "save-window-excursion"
             | "save-selected-window"
-            | "save-mark-and-excursion"
+
             | "save-restriction"
             | "save-match-data"
             | "with-local-quit"
@@ -216,7 +216,7 @@ fn fallback_macro_spec(name: &str) -> Option<FallbackMacroSpec> {
         | "track-mouse"
         | "save-window-excursion"
         | "save-selected-window"
-        | "save-mark-and-excursion"
+
         | "save-match-data"
         | "with-local-quit"
         | "declare"
@@ -325,47 +325,30 @@ fn subr_arity_value(name: &str) -> Value {
         "copy-category-table" => arity_cons(0, Some(1)),
         "copy-syntax-table" => arity_cons(0, Some(1)),
         "copy-file" => arity_cons(2, Some(6)),
-        "copy-region-as-kill" => arity_cons(2, Some(3)),
         "copy-to-register" => arity_cons(3, Some(5)),
-        "make-directory" => arity_cons(1, Some(2)),
         "make-directory-internal" => arity_cons(1, Some(1)),
-        "make-temp-file" => arity_cons(1, Some(4)),
         "make-temp-name" => arity_cons(1, Some(1)),
-        "make-nearby-temp-file" => arity_cons(1, Some(3)),
         "make-symbolic-link" | "rename-file" => arity_cons(2, Some(3)),
-        "auto-save-file-name-p" => arity_cons(1, Some(1)),
-        "abbreviate-file-name" => arity_cons(1, Some(1)),
-        "convert-standard-filename" => arity_cons(1, Some(1)),
         "file-name-absolute-p"
-        | "backup-file-name-p"
+
         | "file-name-as-directory"
         | "file-name-directory"
         | "file-name-nondirectory"
-        | "file-name-parent-directory"
-        | "file-name-split"
-        | "file-name-sans-extension"
+
+
+
         | "file-name-case-insensitive-p" => arity_cons(1, Some(1)),
-        "file-name-all-completions" | "file-name-with-extension" => arity_cons(2, Some(2)),
+        "file-name-all-completions" => arity_cons(2, Some(2)),
         "file-name-completion" => arity_cons(2, Some(3)),
-        "file-name-extension" | "file-name-sans-versions" => arity_cons(1, Some(2)),
-        "file-local-name" => arity_cons(1, Some(1)),
-        "file-nlinks" => arity_cons(1, Some(1)),
-        "file-size-human-readable" => arity_cons(1, Some(4)),
-        "file-size-human-readable-iec" => arity_cons(1, Some(1)),
         "file-name-concat" => arity_cons(1, None),
-        "file-remote-p" => arity_cons(1, Some(3)),
-        "file-truename" => arity_cons(1, Some(3)),
         "get-truename-buffer" | "unhandled-file-name-directory" => arity_cons(1, Some(1)),
         "find-buffer" => arity_cons(2, Some(2)),
-        "find-file" => arity_cons(1, Some(2)),
         "find-file-name-handler" => arity_cons(2, Some(2)),
-        "find-file-noselect" => arity_cons(1, Some(4)),
         "insert-file-contents" => arity_cons(1, Some(5)),
         "load" => arity_cons(1, Some(5)),
         "provide" => arity_cons(1, Some(2)),
         "require" => arity_cons(1, Some(3)),
-        "load-file" => arity_cons(1, Some(1)),
-        "locate-file" | "locate-file-internal" => arity_cons(2, Some(4)),
+        "locate-file-internal" => arity_cons(2, Some(4)),
         "file-attributes" | "file-modes" => arity_cons(1, Some(2)),
         "file-accessible-directory-p"
         | "file-acl"
@@ -379,13 +362,12 @@ fn subr_arity_value(name: &str) -> Value {
         | "file-system-info"
         | "file-symlink-p"
         | "file-writable-p" => arity_cons(1, Some(1)),
-        "file-newer-than-file-p" | "file-equal-p" | "file-in-directory-p" => arity_cons(2, Some(2)),
+        "file-newer-than-file-p" => arity_cons(2, Some(2)),
         "goto-char" => arity_cons(1, Some(1)),
-        "exchange-point-and-mark" => arity_cons(0, Some(1)),
         "beginning-of-line"
         | "end-of-line"
-        | "beginning-of-buffer"
-        | "end-of-buffer"
+
+
         | "forward-char"
         | "backward-char"
         | "forward-word"
@@ -394,11 +376,10 @@ fn subr_arity_value(name: &str) -> Value {
         "current-buffer" | "buffer-string" | "point" | "point-max" | "point-min" | "bobp"
         | "eobp" | "bolp" | "eolp" | "erase-buffer" | "widen" => arity_cons(0, Some(0)),
         "barf-if-buffer-read-only" => arity_cons(0, Some(1)),
-        "mark-marker" | "point-marker" | "point-max-marker" | "point-min-marker" | "pop-mark" => {
+        "mark-marker" | "point-marker" | "point-max-marker" | "point-min-marker" => {
             arity_cons(0, Some(0))
         }
         "mark" => arity_cons(0, Some(1)),
-        "push-mark" => arity_cons(0, Some(3)),
         "file-group-gid"
         | "group-gid"
         | "group-real-gid"
@@ -412,13 +393,13 @@ fn subr_arity_value(name: &str) -> Value {
         | "buffer-base-buffer"
         | "buffer-last-name"
         | "buffer-name"
-        | "file-name-base"
+
         | "buffer-size"
         | "buffer-chars-modified-tick"
         | "buffer-modified-p"
         | "buffer-modified-tick"
         | "buffer-list"
-        | "buffer-disable-undo"
+
         | "buffer-enable-undo"
         | "buffer-hash"
         | "buffer-local-variables"
@@ -506,7 +487,6 @@ fn subr_arity_value(name: &str) -> Value {
         "fset" | "set" | "get" | "set-marker-insertion-type" => arity_cons(2, Some(2)),
         "defalias" => arity_cons(2, Some(3)),
         "put" => arity_cons(3, Some(3)),
-        "set-mark" | "set-mark-command" => arity_cons(1, Some(1)),
         "set-marker" => arity_cons(2, Some(3)),
         "increment-register"
         | "number-to-register"
@@ -545,22 +525,17 @@ fn subr_arity_value(name: &str) -> Value {
         "assoc"  | "assoc-string" => arity_cons(2, Some(3)),
         "nconc" => arity_cons(0, None),
         "nreverse" | "proper-list-p" | "reverse" | "safe-length" => arity_cons(1, Some(1)),
-        "back-to-indentation" | "backward-prefix-chars" => arity_cons(0, Some(0)),
+        "backward-prefix-chars" => arity_cons(0, Some(0)),
         "backward-sexp" => arity_cons(0, Some(2)),
         "backward-kill-word"
-        | "move-beginning-of-line"
-        | "move-end-of-line"
+
+
         | "capitalize"
         | "capitalize-word"
         | "downcase-word"
         | "kill-local-variable"
-        | "kill-word" => arity_cons(1, Some(1)),
-        "newline" | "next-line" | "terpri" => arity_cons(0, Some(2)),
-        "reindent-then-newline-and-indent" => arity_cons(0, Some(0)),
-        "previous-line" => arity_cons(0, Some(2)),
-        "newline-and-indent" => arity_cons(0, Some(1)),
-        "open-line" => arity_cons(1, Some(1)),
-        "other-window" | "goto-line" => arity_cons(1, Some(3)),
+        => arity_cons(1, Some(1)),
+        "terpri" => arity_cons(0, Some(2)),
         "flush-lines" | "keep-lines" | "how-many" => arity_cons(1, Some(4)),
         "local-variable-p" => arity_cons(1, Some(2)),
         "buffer-local-boundp" => arity_cons(2, Some(2)),
@@ -571,10 +546,8 @@ fn subr_arity_value(name: &str) -> Value {
         "mapatoms" => arity_cons(1, Some(2)),
         "map-char-table" => arity_cons(2, Some(2)),
         "capitalize-region" => arity_cons(2, Some(3)),
-        "downcase-region" | "kill-region" | "kill-ring-save" => arity_cons(2, Some(3)),
-        "kill-append" => arity_cons(2, Some(2)),
-        "kill-new" => arity_cons(1, Some(2)),
-        "kill-buffer" | "kill-line" | "kill-whole-line" | "just-one-space" => {
+        "downcase-region" => arity_cons(2, Some(3)),
+        "kill-buffer" => {
             arity_cons(0, Some(1))
         }
         "add-name-to-file" => arity_cons(2, Some(3)),
@@ -605,7 +578,6 @@ fn subr_arity_value(name: &str) -> Value {
         }
         "next-overlay-change" | "previous-overlay-change" => arity_cons(1, Some(1)),
         "remove-overlays" => arity_cons(0, Some(4)),
-        "primitive-undo" => arity_cons(2, Some(2)),
         "prin1" | "prin1-to-string" => arity_cons(1, Some(3)),
         "princ" | "print" => arity_cons(1, Some(2)),
         "propertize" => arity_cons(1, None),
@@ -630,8 +602,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "internal-set-alternative-font-registry-alist"
         | "internal-set-font-selection-order" => arity_cons(1, Some(1)),
         "internal-set-lisp-face-attribute" => arity_cons(3, Some(4)),
-        "internal--after-save-selected-window" => arity_cons(1, Some(1)),
-        "internal--before-save-selected-window" => arity_cons(0, Some(0)),
         "internal--define-uninitialized-variable" => arity_cons(1, Some(2)),
         "internal--labeled-narrow-to-region" => arity_cons(3, Some(3)),
         "internal--labeled-widen" => arity_cons(1, Some(1)),
@@ -803,7 +773,6 @@ fn subr_arity_value(name: &str) -> Value {
         "insert-image" => arity_cons(1, Some(5)),
         "lookup-image-map" => arity_cons(3, Some(3)),
         "query-replace" | "query-replace-regexp" => arity_cons(2, Some(7)),
-        "quoted-insert" => arity_cons(1, Some(1)),
         "looking-at" | "posix-looking-at" => arity_cons(1, Some(2)),
         "match-beginning" | "match-end" => arity_cons(1, Some(1)),
         "match-data" => arity_cons(0, Some(3)),
@@ -839,7 +808,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "string-blank-p"
         | "string-chop-newline"
         | "string-clean-whitespace"
-        | "string-empty-p"
+
         | "string-glyph-split"
         | "string-pixel-width"
 
@@ -885,7 +854,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "skip-chars-forward"
         | "skip-syntax-backward"
         | "skip-syntax-forward"
-        | "transpose-sexps" => arity_cons(1, Some(2)),
+        => arity_cons(1, Some(2)),
         "shell-command-to-string"
 
         | "store-kbd-macro-event"
@@ -901,23 +870,21 @@ fn subr_arity_value(name: &str) -> Value {
         "signal" | "take" => arity_cons(2, Some(2)),
         "secure-hash" => arity_cons(2, Some(5)),
         "secure-hash-algorithms" => arity_cons(0, Some(0)),
-        "split-window" => arity_cons(0, Some(4)),
-        "switch-to-buffer" => arity_cons(1, Some(3)),
         "combine-after-change-execute"
         | "this-command-keys"
         | "this-command-keys-vector"
-        | "region-active-p"
+
         | "undo-boundary"
-        | "universal-argument"
-        | "use-region-p" => arity_cons(0, Some(0)),
-        "clear-this-command-keys" | "transient-mark-mode" | "undo" | "yank" | "yank-pop" => {
+
+        => arity_cons(0, Some(0)),
+        "clear-this-command-keys" | "transient-mark-mode" => {
             arity_cons(0, Some(1))
         }
         "transpose-chars"
-        | "transpose-lines"
+
         | "transpose-paragraphs"
         | "transpose-sentences"
-        | "transpose-words" => arity_cons(1, Some(1)),
+        => arity_cons(1, Some(1)),
         "treesit-available-p" => arity_cons(0, Some(0)),
         "treesit-compiled-query-p" => arity_cons(1, Some(1)),
         "treesit-induce-sparse-tree" => arity_cons(2, Some(4)),
@@ -997,9 +964,9 @@ fn subr_arity_value(name: &str) -> Value {
         "replace-regexp" | "replace-string" => arity_cons(2, Some(7)),
         "save-buffer"
         | "scroll-down"
-        | "scroll-down-command"
+
         | "scroll-up"
-        | "scroll-up-command" => arity_cons(0, Some(1)),
+        => arity_cons(0, Some(1)),
         "load-average" => arity_cons(0, Some(1)),
         "select-window" | "minor-mode-key-binding" => arity_cons(1, Some(2)),
         "select-frame" => arity_cons(1, Some(2)),
@@ -1062,7 +1029,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "bool-vector-intersection"
         | "bool-vector-set-difference"
         | "bool-vector-union" => arity_cons(2, Some(3)),
-        "arrayp" | "atom"  | "bufferp" | "char-to-string" | "char-uppercase-p"
+        "arrayp" | "atom"  | "bufferp" | "char-to-string"
         | "consp" | "downcase" | "float" | "floatp"  | "integerp"
         | "keywordp" | "listp"  | "nlistp" | "null" | "number-to-string"
         | "numberp" | "sequencep"  | "string-to-char" | "stringp"
@@ -1077,7 +1044,7 @@ fn subr_arity_value(name: &str) -> Value {
             arity_cons(2, Some(2))
         }
         "aset" => arity_cons(3, Some(3)),
-        "activate-mark" | "auto-composition-mode" | "deactivate-mark" => arity_cons(0, Some(1)),
+        "auto-composition-mode" => arity_cons(0, Some(1)),
         "clear-composition-cache" => arity_cons(0, Some(0)),
         "composition-sort-rules" => arity_cons(1, Some(1)),
         "compute-motion" => arity_cons(7, Some(7)),
@@ -1086,7 +1053,6 @@ fn subr_arity_value(name: &str) -> Value {
         "composition-get-gstring" => arity_cons(4, Some(4)),
         "find-composition-internal" => arity_cons(4, Some(4)),
         "call-interactively" => arity_cons(1, Some(3)),
-        "command-execute" => arity_cons(1, Some(4)),
         "command-error-default-function" | "ngettext" => arity_cons(3, Some(3)),
         "compare-strings" => arity_cons(6, Some(7)),
         "compare-buffer-substrings" => arity_cons(6, Some(6)),
@@ -1231,8 +1197,6 @@ fn subr_arity_value(name: &str) -> Value {
         "read-from-string" => arity_cons(1, Some(3)),
         "read-buffer" => arity_cons(1, Some(4)),
         "read-coding-system" => arity_cons(1, Some(2)),
-        "read-directory-name" => arity_cons(1, Some(5)),
-        "read-file-name" => arity_cons(1, Some(6)),
         "read-from-minibuffer" => arity_cons(1, Some(7)),
         "read-key-sequence" | "read-key-sequence-vector" => arity_cons(1, Some(6)),
         "read-non-nil-coding-system" => arity_cons(1, Some(1)),
@@ -1247,7 +1211,6 @@ fn subr_arity_value(name: &str) -> Value {
                "set-keymap-parent" => arity_cons(2, Some(2)),
         "key-binding" => arity_cons(1, Some(4)),
         "keyboard-coding-system" => arity_cons(0, Some(1)),
-        "keyboard-quit" => arity_cons(0, Some(0)),
         "make-keymap" | "make-sparse-keymap" => arity_cons(0, Some(1)),
         "current-active-maps" => arity_cons(0, Some(2)),
         "current-bidi-paragraph-direction" | "bidi-resolved-levels" => arity_cons(0, Some(1)),
@@ -1288,14 +1251,13 @@ fn subr_arity_value(name: &str) -> Value {
         "visited-file-modtime" => arity_cons(0, Some(0)),
         "scan-lists" => arity_cons(3, Some(3)),
         "scan-sexps" => arity_cons(2, Some(2)),
-        "current-kill" => arity_cons(1, Some(2)),
         "current-time-string" | "current-time-zone" => arity_cons(0, Some(2)),
         "time-add" | "time-equal-p" | "time-less-p" | "time-subtract" => arity_cons(2, Some(2)),
         "time-convert" => arity_cons(1, Some(2)),
         "system-name" => arity_cons(0, Some(0)),
         "system-groups" | "system-users" => arity_cons(0, Some(0)),
         "tab-bar-height" | "tool-bar-height" => arity_cons(0, Some(2)),
-        "file-user-uid" | "user-real-login-name" | "user-real-uid" | "user-uid" => {
+        "user-real-login-name" | "user-real-uid" | "user-uid" => {
             arity_cons(0, Some(0))
         }
         "user-full-name" | "user-login-name" => arity_cons(0, Some(1)),
@@ -1308,17 +1270,14 @@ fn subr_arity_value(name: &str) -> Value {
         "line-number-at-pos" => arity_cons(0, Some(2)),
         "line-pixel-height" | "long-line-optimizations-p" => arity_cons(0, Some(0)),
         "scroll-left" | "scroll-right" => arity_cons(0, Some(2)),
-        "recenter-top-bottom" => arity_cons(0, Some(1)),
         "recenter" => arity_cons(0, Some(2)),
         "recursion-depth" | "region-beginning" | "region-end" => arity_cons(0, Some(0)),
-        "delete-frame" | "delete-other-windows" | "delete-other-windows-internal" => {
+        "delete-frame" | "delete-other-windows-internal" => {
             arity_cons(0, Some(2))
         }
-        "one-window-p" => arity_cons(0, Some(2)),
         "next-window" | "previous-window" | "pos-visible-in-window-p" => arity_cons(0, Some(3)),
         "other-window-for-scrolling" => arity_cons(0, Some(0)),
         "coordinates-in-window-p" => arity_cons(2, Some(2)),
-        "pop-to-buffer" => arity_cons(1, Some(3)),
         "move-to-window-line" | "move-point-visually" => arity_cons(1, Some(1)),
         "modify-frame-parameters" => arity_cons(2, Some(2)),
         "make-frame" | "make-frame-visible" | "iconify-frame" => arity_cons(0, Some(1)),
@@ -1424,25 +1383,20 @@ fn subr_arity_value(name: &str) -> Value {
         "cancel-kbd-macro-events" => arity_cons(0, Some(0)),
         "name-last-kbd-macro" | "kmacro-name-last-macro" => arity_cons(1, Some(1)),
         "end-kbd-macro" | "call-last-kbd-macro" => arity_cons(0, Some(2)),
-        "execute-kbd-macro" | "execute-extended-command" => arity_cons(1, Some(3)),
+        "execute-kbd-macro" => arity_cons(1, Some(3)),
         "describe-key-briefly" => arity_cons(0, Some(3)),
         "delete-char" => arity_cons(1, Some(2)),
         "delete-all-overlays" => arity_cons(0, Some(1)),
         "delete-and-extract-region" => arity_cons(2, Some(2)),
         "delete-field" => arity_cons(0, Some(1)),
         "delete-region" => arity_cons(2, Some(2)),
-        "delete-horizontal-space" => arity_cons(0, Some(1)),
-        "delete-indentation" => arity_cons(0, Some(3)),
         "delete-overlay" => arity_cons(1, Some(1)),
-        "delete-window" => arity_cons(0, Some(1)),
         "delete-window-internal" => arity_cons(1, Some(1)),
-        "delete-directory" => arity_cons(1, Some(3)),
         "delete-directory-internal" => arity_cons(1, Some(1)),
-        "delete-file" => arity_cons(1, Some(2)),
         "delete-file-internal" => arity_cons(1, Some(1)),
         "access-file" => arity_cons(2, Some(2)),
         "default-file-modes" => arity_cons(0, Some(0)),
-        "directory-file-name" | "directory-empty-p" | "directory-name-p" => arity_cons(1, Some(1)),
+        "directory-file-name" | "directory-name-p" => arity_cons(1, Some(1)),
         "directory-files" => arity_cons(1, Some(5)),
         "directory-files-and-attributes" => arity_cons(1, Some(6)),
         "define-category" => arity_cons(2, Some(3)),
@@ -1459,7 +1413,6 @@ fn subr_arity_value(name: &str) -> Value {
         "emacs-pid" => arity_cons(0, Some(0)),
         "eval" => arity_cons(1, Some(2)),
         "eval-buffer" => arity_cons(0, Some(5)),
-        "eval-expression" => arity_cons(1, Some(4)),
         "eval-region" => arity_cons(2, Some(4)),
         "help-key-description" => arity_cons(2, Some(2)),
         "recent-keys" => arity_cons(0, Some(1)),
@@ -1484,7 +1437,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "minibuffer-contents"
         | "minibuffer-contents-no-properties" => arity_cons(0, Some(0)),
         "read-passwd" => arity_cons(1, Some(3)),
-        "event-apply-modifier" => arity_cons(4, Some(4)),
         "regexp-quote" => arity_cons(1, Some(1)),
         "gui-get-primary-selection" | "gui-selection-value" => arity_cons(0, Some(0)),
         "gui-get-selection" => arity_cons(0, Some(2)),
@@ -1522,7 +1474,6 @@ fn subr_arity_value(name: &str) -> Value {
         "x-list-fonts" => arity_cons(1, Some(5)),
         "x-show-tip" | "x-window-property" | "x-translate-coordinates" => arity_cons(1, Some(6)),
         "internal-show-cursor" => arity_cons(2, Some(2)),
-        "display-buffer" => arity_cons(1, Some(3)),
         "clear-face-cache" => arity_cons(0, Some(1)),
         "clear-font-cache" => arity_cons(0, Some(0)),
         "clear-image-cache" => arity_cons(0, Some(2)),
@@ -1545,13 +1496,12 @@ fn subr_arity_value(name: &str) -> Value {
         | "set-window-next-buffers" => arity_cons(2, Some(2)),
         "set-window-buffer"
         | "set-window-start"
-        | "set-window-group-start"
+
         | "set-window-margins" => arity_cons(2, Some(3)),
         "set-window-configuration" => arity_cons(1, Some(3)),
         "set-window-vscroll" => arity_cons(2, Some(4)),
         "set-window-fringes" => arity_cons(2, Some(5)),
         "set-window-scroll-bars" => arity_cons(1, Some(6)),
-        "fit-window-to-buffer" => arity_cons(0, Some(6)),
         "buffer-text-pixel-size" => arity_cons(0, Some(4)),
         "window-text-pixel-size" => arity_cons(0, Some(7)),
         // Process primitives
@@ -1561,7 +1511,6 @@ fn subr_arity_value(name: &str) -> Value {
         "call-process" => arity_cons(1, None),
         "call-process-shell-command" => arity_cons(1, None),
         "call-process-region" => arity_cons(3, None),
-        "clone-process" => arity_cons(1, Some(2)),
         "continue-process" | "interrupt-process" | "kill-process" | "quit-process"
         | "stop-process" => arity_cons(0, Some(2)),
         "delete-process" => arity_cons(0, Some(1)),
@@ -1638,16 +1587,15 @@ fn subr_arity_value(name: &str) -> Value {
         "set-network-process-option" => arity_cons(3, Some(4)),
         "serial-process-configure" => arity_cons(0, None),
         "setenv" => arity_cons(1, Some(3)),
-        "start-process" | "start-file-process" => arity_cons(3, None),
+        "start-process" => arity_cons(3, None),
         "start-process-shell-command" | "start-file-process-shell-command" => {
             arity_cons(3, Some(3))
         }
         "syntax-propertize--in-process-p" => arity_cons(0, Some(0)),
         "tooltip-process-prompt-regexp" => arity_cons(1, Some(1)),
-        "window--adjust-process-windows" | "window--process-window-list" => arity_cons(0, Some(0)),
         "window-adjust-process-window-size"
-        | "window-adjust-process-window-size-largest"
-        | "window-adjust-process-window-size-smallest" => arity_cons(2, Some(2)),
+
+        => arity_cons(2, Some(2)),
         "getenv" | "getenv-internal" => arity_cons(1, Some(2)),
         // Display/terminal query primitives
         "display-images-p"
@@ -1727,11 +1675,11 @@ fn subr_arity_value(name: &str) -> Value {
         | "window-buffer"
         | "window-cursor-type"
         | "window-display-table"
-        | "window-body-edges"
-        | "window-body-pixel-edges"
+
+
         | "window-frame"
         | "window-fringes"
-        | "window-group-start"
+
         | "window-header-line-height"
         | "window-dedicated-p"
         | "window-hscroll"
@@ -1739,7 +1687,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "window-margins"
         | "window-minibuffer-p"
         | "window-mode-line-height"
-        | "window-pixel-edges"
+
         | "window-pixel-height"
         | "window-pixel-width"
         | "window-point"
@@ -1781,22 +1729,19 @@ fn subr_arity_value(name: &str) -> Value {
         | "x-selection-exists-p"
         | "x-selection-owner-p"
         | "get-buffer-window" => arity_cons(0, Some(2)),
-        "window-preserve-size" | "window-size-fixed-p" => arity_cons(0, Some(3)),
         "set-frame-height" | "set-frame-width" => arity_cons(2, Some(4)),
         "set-frame-size" => arity_cons(3, Some(4)),
         "set-frame-position" => arity_cons(3, Some(3)),
-        "window-resizable" => arity_cons(2, Some(5)),
-        "window-edges" => arity_cons(0, Some(4)),
-        "window-list" | "get-buffer-window-list" => arity_cons(0, Some(3)),
+        "window-list" => arity_cons(0, Some(3)),
         "terminal-live-p"
         | "frame-live-p"
         | "frame-visible-p"
-        | "frame-root-window-p"
+
         | "window-live-p"
         | "window-configuration-p"
         | "window-valid-p"
         | "windowp"
-        | "minibuffer-window-active-p" => arity_cons(1, Some(1)),
+        => arity_cons(1, Some(1)),
         "window-configuration-equal-p" => arity_cons(2, Some(2)),
         "window-configuration-frame" => arity_cons(1, Some(1)),
         "window-parameter" => arity_cons(2, Some(2)),
