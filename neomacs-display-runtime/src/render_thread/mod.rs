@@ -6,6 +6,7 @@ pub(crate) mod child_frames;
 mod cursor;
 mod input;
 pub(crate) mod multi_window;
+mod surface_readback;
 mod transitions;
 
 use std::collections::HashMap;
@@ -374,6 +375,7 @@ struct RenderApp {
     /// Shared monitor info (populated in resumed(), read from FFI thread)
     shared_monitors: Option<SharedMonitorInfo>,
     monitors_populated: bool,
+    debug_first_frame_readback_pending: bool,
 }
 
 impl RenderApp {
@@ -467,6 +469,10 @@ impl RenderApp {
 
             shared_monitors: Some(shared_monitors),
             monitors_populated: false,
+            debug_first_frame_readback_pending: std::env::var_os(
+                "NEOMACS_DEBUG_FIRST_FRAME_READBACK",
+            )
+            .is_some(),
         }
     }
 
@@ -550,8 +556,12 @@ impl RenderApp {
         } else {
             caps.alpha_modes[0]
         };
+        let surface_usage = surface_readback::surface_usage_for_first_frame_readback(
+            caps.usages,
+            &mut self.debug_first_frame_readback_pending,
+        );
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: surface_usage,
             format,
             width: self.width,
             height: self.height,
@@ -3037,6 +3047,17 @@ impl RenderApp {
                     self.height,
                 );
             }
+        }
+
+        if let (Some(renderer), Some(frame)) = (&self.renderer, &self.current_frame) {
+            surface_readback::maybe_log_first_frame_surface_readback(
+                &mut self.debug_first_frame_readback_pending,
+                &output.texture,
+                renderer,
+                frame,
+                self.width,
+                self.height,
+            );
         }
 
         // Present the frame
