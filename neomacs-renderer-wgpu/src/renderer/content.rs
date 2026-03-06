@@ -1,4 +1,4 @@
-//! Shared frame content rendering.
+//! Child-frame content rendering core.
 //!
 //! `render_frame_content()` renders ALL glyph types from a `FrameGlyphBuffer`
 //! into an existing surface. Used by child frame rendering for full parity with
@@ -21,7 +21,7 @@ use wgpu::util::DeviceExt;
 impl WgpuRenderer {
     /// Render all glyphs from a `FrameGlyphBuffer` with coordinate offset.
     ///
-    /// This is the shared glyph rendering core used by child frames. It handles
+    /// This is the child-frame content rendering core. It handles
     /// every glyph type with the same fidelity as the main frame renderer
     /// (minus visual effects which are main-frame-only).
     ///

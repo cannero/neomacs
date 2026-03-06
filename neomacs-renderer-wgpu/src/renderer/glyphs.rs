@@ -120,20 +120,6 @@ impl WgpuRenderer {
         let (logical_w, logical_h) =
             self.prepare_frame_uniforms(frame_glyphs, surface_width, surface_height);
 
-        if self.try_render_shared_content_path(
-            view,
-            frame_glyphs,
-            glyph_atlas,
-            faces,
-            surface_width,
-            surface_height,
-            cursor_visible,
-            &animated_cursor,
-            background_gradient,
-        ) {
-            return;
-        }
-
         // Rendering order for correct z-layering (inverse video cursor):
         //   1. Non-overlay backgrounds (window bg, stretches, char bg)
         //   2. Cursor bg rect (inverse video background for filled box cursor)
@@ -2826,83 +2812,6 @@ impl WgpuRenderer {
         } else {
             Some((y, height))
         }
-    }
-
-    fn should_use_shared_content_path(
-        &self,
-        background_gradient: Option<((f32, f32, f32), (f32, f32, f32))>,
-    ) -> bool {
-        let _ = background_gradient;
-        // Main-frame rendering must stay on the full glyph path because it is the
-        // authoritative path for overlay ordering and per-window clipping
-        // (mode-line/echo-area boundaries). The shared content path remains for
-        // child-frame rendering only.
-        false
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn try_render_shared_content_path(
-        &mut self,
-        view: &wgpu::TextureView,
-        frame_glyphs: &FrameGlyphBuffer,
-        glyph_atlas: &mut WgpuGlyphAtlas,
-        faces: &HashMap<u32, Face>,
-        surface_width: u32,
-        surface_height: u32,
-        cursor_visible: bool,
-        animated_cursor: &Option<AnimatedCursor>,
-        background_gradient: Option<((f32, f32, f32), (f32, f32, f32))>,
-    ) -> bool {
-        if !self.should_use_shared_content_path(background_gradient) {
-            return false;
-        }
-
-        tracing::debug!("render_frame_glyphs: using shared content path (effects disabled)");
-        let bg = &frame_glyphs.background;
-        let mut clear_encoder =
-            self.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Frame Glyphs Clear Encoder"),
-                });
-        {
-            let _clear_pass = clear_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Frame Glyphs Clear Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            // Pre-multiply RGB by alpha for correct compositing.
-                            r: (bg.r * bg.a) as f64,
-                            g: (bg.g * bg.a) as f64,
-                            b: (bg.b * bg.a) as f64,
-                            a: bg.a as f64,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        }
-        self.queue.submit(std::iter::once(clear_encoder.finish()));
-
-        self.render_frame_content(
-            view,
-            frame_glyphs,
-            glyph_atlas,
-            faces,
-            surface_width,
-            surface_height,
-            0.0,
-            0.0,
-            cursor_visible,
-            animated_cursor.clone(),
-        );
-        true
     }
 
     fn draw_pre_content_background_effects(
