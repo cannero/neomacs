@@ -46,7 +46,7 @@ impl CursorAnimationMode {
 pub struct Particle {
     /// Current X position
     pub x: f32,
-    /// Current Y position  
+    /// Current Y position
     pub y: f32,
     /// X velocity (pixels per second)
     pub vx: f32,

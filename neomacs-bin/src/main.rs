@@ -15,10 +15,12 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::TryRecvError;
 
-use neomacs_display::FrameGlyphBuffer;
-use neomacs_display::render_thread::{RenderThread, SharedImageDimensions, SharedMonitorInfo};
-use neomacs_display::thread_comm::InputEvent;
-use neomacs_display::thread_comm::ThreadComms;
+use neomacs_display_runtime::FrameGlyphBuffer;
+use neomacs_display_runtime::render_thread::{
+    RenderThread, SharedImageDimensions, SharedMonitorInfo,
+};
+use neomacs_display_runtime::thread_comm::InputEvent;
+use neomacs_display_runtime::thread_comm::ThreadComms;
 
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Evaluator;
@@ -66,12 +68,12 @@ enum RegisterEntry {
 
 fn main() {
     // Initialize logging
-    neomacs_display::init_logging();
+    neomacs_display_runtime::init_logging();
 
     tracing::info!(
         "Neomacs {} starting (pure Rust, backend={})",
-        neomacs_display::VERSION,
-        neomacs_display::CORE_BACKEND
+        neomacs_display_runtime::VERSION,
+        neomacs_display_runtime::CORE_BACKEND
     );
 
     // 1. Initialize the evaluator
@@ -404,7 +406,7 @@ fn main() {
     tracing::info!("Shutting down...");
     let _ = emacs_comms
         .cmd_tx
-        .try_send(neomacs_display::thread_comm::RenderCommand::Shutdown);
+        .try_send(neomacs_display_runtime::thread_comm::RenderCommand::Shutdown);
     render_thread.join();
     tracing::info!("Neomacs exited cleanly");
 }
@@ -514,7 +516,7 @@ fn run_layout(
     frame_id: neovm_core::window::FrameId,
     frame_glyphs: &mut FrameGlyphBuffer,
 ) {
-    use neomacs_display::layout::LayoutEngine;
+    use neomacs_display_runtime::layout::LayoutEngine;
 
     // Use a thread-local layout engine
     thread_local! {

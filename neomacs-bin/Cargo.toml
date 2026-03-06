@@ -8,14 +8,14 @@ description = "Standalone Rust binary for Neomacs (no C dependency)"
 
 [features]
 default = []
-neo-term = ["neomacs-display/neo-term"]
+neo-term = ["neomacs-display-runtime/neo-term"]
 
 [[bin]]
 name = "neomacs"
 path = "src/main.rs"
 
 [dependencies]
-neomacs-display = { workspace = true, features = ["core-backend-rust"] }
+neomacs-display-runtime = { workspace = true, features = ["core-backend-rust"] }
 neovm-core = { workspace = true, features = ["core-backend-rust"] }
 
 # Utilities

@@ -191,7 +191,7 @@ impl BufferTransition {
         1.0 - self.progress
     }
 
-    /// Get crossfade opacity for new content  
+    /// Get crossfade opacity for new content
     pub fn crossfade_new_opacity(&self) -> f32 {
         self.progress
     }

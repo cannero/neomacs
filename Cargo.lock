@@ -2050,7 +2050,7 @@ version = "0.0.1"
 dependencies = [
  "crossbeam-channel",
  "libc",
- "neomacs-display",
+ "neomacs-display-runtime",
  "neovm-core",
  "tracing",
  "tracing-subscriber",
@@ -2062,11 +2062,36 @@ version = "0.0.1"
 dependencies = [
  "alacritty_terminal",
  "arboard",
+ "cbindgen",
+ "cfg-if",
+ "crossbeam-channel",
+ "libc",
+ "neomacs-display-protocol",
+ "neomacs-display-runtime",
+ "neomacs-renderer-wgpu",
+ "neovm-core",
+ "tracing",
+ "which",
+ "winit",
+]
+
+[[package]]
+name = "neomacs-display-protocol"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.11.0",
+]
+
+[[package]]
+name = "neomacs-display-runtime"
+version = "0.0.1"
+dependencies = [
+ "alacritty_terminal",
+ "arboard",
  "ash",
  "bindgen",
  "bitflags 2.11.0",
  "bytemuck",
- "cbindgen",
  "cfg-if",
  "cosmic-text",
  "crossbeam-channel",
@@ -2096,16 +2121,8 @@ dependencies = [
  "ttf-parser 0.25.1",
  "wgpu",
  "wgpu-hal",
- "which",
  "windows-sys 0.59.0",
  "winit",
-]
-
-[[package]]
-name = "neomacs-display-protocol"
-version = "0.0.1"
-dependencies = [
- "bitflags 2.11.0",
 ]
 
 [[package]]

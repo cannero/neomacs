@@ -98,10 +98,10 @@ pub struct CharacterGrid {
     /// Grid dimensions
     pub width: usize,
     pub height: usize,
-    
+
     /// Lines in the grid (ring buffer for efficient scrolling)
     lines: Vec<GridLine>,
-    
+
     /// Ring buffer offset for O(1) scrolling
     scroll_offset: isize,
 }
@@ -120,15 +120,15 @@ impl CharacterGrid {
     pub fn resize(&mut self, width: usize, height: usize) {
         // Reset scroll offset on resize
         self.scroll_offset = 0;
-        
+
         // Resize existing lines
         for line in &mut self.lines {
             line.resize(width);
         }
-        
+
         // Add or remove lines
         self.lines.resize_with(height, || GridLine::new(width));
-        
+
         self.width = width;
         self.height = height;
     }
@@ -319,14 +319,14 @@ mod tests {
     #[test]
     fn test_basic_operations() {
         let mut grid = CharacterGrid::new(10, 5);
-        
+
         // Set a cell
         grid.set_cell(0, 0, "A".to_string(), None, 1);
         assert_eq!(grid.get_cell(0, 0).unwrap().text, "A");
-        
+
         // Row should be dirty
         assert!(grid.is_row_dirty(0));
-        
+
         // Mark clean
         grid.mark_row_clean(0);
         assert!(!grid.is_row_dirty(0));
@@ -336,10 +336,10 @@ mod tests {
     fn test_scroll() {
         let mut grid = CharacterGrid::new(10, 5);
         grid.set_cell(0, 0, "A".to_string(), None, 1);
-        
+
         // Scroll down by 1
         grid.scroll(1);
-        
+
         // Row 0 content should now be at row 4 (wrapped)
         // But actually the content stays in place, view shifts
         // So row 0 now shows what was at row -1 (which wraps to row 4)
