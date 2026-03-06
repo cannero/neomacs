@@ -269,8 +269,12 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
 }
 
 pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
+    let t0 = std::time::Instant::now();
     let oracle = run_oracle_eval(form).expect("oracle eval should run");
+    let t1 = std::time::Instant::now();
     let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
+    let t2 = std::time::Instant::now();
+    tracing::info!("oracle: {:.3?}, neovm: {:.3?}", t1 - t0, t2 - t1);
     assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
 }
 
