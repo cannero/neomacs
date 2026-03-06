@@ -1190,8 +1190,6 @@ fn process_list_network_serial_runtime_surface() {
                            (commandp s)))
                    '(list-system-processes
                      num-processors
-                     list-processes
-                     list-processes--refresh
                      make-network-process
                      make-pipe-process
                      make-serial-process
@@ -1259,7 +1257,7 @@ fn process_list_network_serial_runtime_surface() {
 
     assert_eq!(
         results[0],
-        "OK ((list-system-processes t t (0 . 0) nil) (num-processors t t (0 . 1) nil) (list-processes t t (0 . 2) t) (list-processes--refresh t t (0 . 0) nil) (make-network-process t t (0 . many) nil) (make-pipe-process t t (0 . many) nil) (make-serial-process t t (0 . many) nil) (serial-process-configure t t (0 . many) nil) (set-network-process-option t t (3 . 4) nil))"
+        "OK ((list-system-processes t t (0 . 0) nil) (num-processors t t (0 . 1) nil) (make-network-process t t (0 . many) nil) (make-pipe-process t t (0 . many) nil) (make-serial-process t t (0 . many) nil) (serial-process-configure t t (0 . many) nil) (set-network-process-option t t (3 . 4) nil))"
     );
     assert_eq!(
         results[1],

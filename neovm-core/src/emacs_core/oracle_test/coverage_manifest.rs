@@ -299,7 +299,6 @@ pub(crate) const ORACLE_TESTED_SPECIAL_FORM_NAMES: &[&str] = &[
     "defvar",
     "function",
     "if",
-    "inline",
     "interactive",
     "let",
     "let*",

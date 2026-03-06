@@ -82,7 +82,6 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             | "unwind-protect"
             | "condition-case"
             | "interactive"
-            | "inline"
             | "declare"
             | "when"
             | "unless"
@@ -156,7 +155,6 @@ fn is_public_special_form_name(name: &str) -> bool {
             | "unwind-protect"
             | "condition-case"
             | "interactive"
-            | "inline"
             | "save-excursion"
             | "save-restriction"
             | "save-current-buffer"
@@ -317,7 +315,7 @@ fn subr_arity_value(name: &str) -> Value {
         "cons" => arity_cons(2, Some(2)),
         "1+" | "1-" | "abs" => arity_cons(1, Some(1)),
         "%" | "/=" | "ash" | "length<" | "length=" | "length>" => arity_cons(2, Some(2)),
-        "copy-alist" | "copy-hash-table" | "copy-keymap" | "copy-sequence" | "purecopy" => {
+        "copy-alist" | "copy-hash-table" | "copy-keymap" | "copy-sequence" => {
             arity_cons(1, Some(1))
         }
         "copy-marker" => arity_cons(0, Some(2)),
@@ -366,7 +364,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "forward-char"
         | "backward-char"
         | "forward-word"
-        | "backward-word"
         | "forward-line" => arity_cons(0, Some(1)),
         "current-buffer" | "buffer-string" | "point" | "point-max" | "point-min" | "bobp"
         | "eobp" | "bolp" | "eolp" | "erase-buffer" | "widen" => arity_cons(0, Some(0)),
@@ -374,7 +371,6 @@ fn subr_arity_value(name: &str) -> Value {
         "mark-marker" | "point-marker" | "point-max-marker" | "point-min-marker" => {
             arity_cons(0, Some(0))
         }
-        "mark" => arity_cons(0, Some(1)),
         "file-group-gid"
         | "group-gid"
         | "group-real-gid"
@@ -516,7 +512,6 @@ fn subr_arity_value(name: &str) -> Value {
         "nconc" => arity_cons(0, None),
         "nreverse" | "proper-list-p" | "reverse" | "safe-length" => arity_cons(1, Some(1)),
         "backward-prefix-chars" => arity_cons(0, Some(0)),
-        "backward-sexp" => arity_cons(0, Some(2)),
         "backward-kill-word"
 
         | "capitalize"
@@ -753,7 +748,6 @@ fn subr_arity_value(name: &str) -> Value {
         "xw-color-values" => arity_cons(1, Some(2)),
         "xw-display-color-p" => arity_cons(0, Some(1)),
         "merge-face-attribute" => arity_cons(3, Some(3)),
-        "insert-image" => arity_cons(1, Some(5)),
         "lookup-image-map" => arity_cons(3, Some(3)),
         "looking-at" | "posix-looking-at" => arity_cons(1, Some(2)),
         "match-beginning" | "match-end" => arity_cons(1, Some(1)),
@@ -779,26 +773,12 @@ fn subr_arity_value(name: &str) -> Value {
         "string-version-lessp" => arity_cons(2, Some(2)),
         "string-width" => arity_cons(1, Some(3)),
         // Startup helper wrappers / autoload-backed dispatch helpers.
-        "autoloadp"
-
-        | "kbd-macro-query"
-
-        | "upcase-char" => arity_cons(1, Some(1)),
-        "insert-kbd-macro" => {
-            arity_cons(1, Some(2))
-        }
-        "clear-rectangle"
-
-        => arity_cons(2, Some(3)),
-        "replace-rectangle" => arity_cons(3, Some(3)),
+        "autoloadp" => arity_cons(1, Some(2)),
+        "clear-rectangle" => arity_cons(2, Some(3)),
         "seq-drop"
         => arity_cons(1, None),
-        "seq-count"
-
-        => {
-            arity_cons(2, Some(3))
-        }
-        "sort" | "syntax-ppss-flush-cache" => arity_cons(1, None),
+        "seq-count" => arity_cons(2, Some(3)),
+        "sort" => arity_cons(1, None),
         "self-insert-command"
         | "single-key-description"
         | "skip-chars-backward"
@@ -825,17 +805,11 @@ fn subr_arity_value(name: &str) -> Value {
         | "this-command-keys"
         | "this-command-keys-vector"
 
-        | "undo-boundary"
-
-        => arity_cons(0, Some(0)),
-        "clear-this-command-keys" | "transient-mark-mode" => {
+        | "undo-boundary" => arity_cons(0, Some(0)),
+        "clear-this-command-keys" => {
             arity_cons(0, Some(1))
         }
-        "transpose-chars"
-
-        | "transpose-paragraphs"
-        | "transpose-sentences"
-        => arity_cons(1, Some(1)),
+        "transpose-chars" => arity_cons(1, Some(1)),
         "treesit-available-p" => arity_cons(0, Some(0)),
         "treesit-compiled-query-p" => arity_cons(1, Some(1)),
         "treesit-induce-sparse-tree" => arity_cons(2, Some(4)),
@@ -883,14 +857,10 @@ fn subr_arity_value(name: &str) -> Value {
         "treesit-search-subtree" => arity_cons(2, Some(5)),
         "treesit-subtree-stat" => arity_cons(1, Some(1)),
         "upcase-initials-region" | "upcase-region" => arity_cons(2, Some(3)),
-        "widget-get" => arity_cons(2, Some(2)),
-        "widget-put" => arity_cons(3, Some(3)),
-        "widget-apply" => arity_cons(2, None),
         "where-is-internal" => arity_cons(1, Some(5)),
         "text-char-description" | "threadp" | "yes-or-no-p"  | "logcount" => {
             arity_cons(1, Some(1))
         }
-        "syntax-ppss" => arity_cons(0, Some(1)),
         "syntax-table"
         | "standard-case-table"
         | "standard-category-table"
@@ -900,17 +870,12 @@ fn subr_arity_value(name: &str) -> Value {
         "zlib-decompress-region" => arity_cons(2, Some(3)),
         "search-forward"
         | "search-backward"
-        | "search-forward-regexp"
-        | "search-backward-regexp"
         | "re-search-forward"
         | "re-search-backward"
         | "posix-search-forward"
-        | "posix-search-backward"
-
-        => arity_cons(1, Some(4)),
+        | "posix-search-backward" => arity_cons(1, Some(4)),
         "add-variable-watcher" => arity_cons(2, Some(2)),
-        "remove" | "remove-variable-watcher" | "narrow-to-region" => arity_cons(2, Some(2)),
-        "replace-regexp" => arity_cons(2, Some(7)),
+        "remove-variable-watcher" | "narrow-to-region" => arity_cons(2, Some(2)),
         "save-buffer"
         | "scroll-down"
 
@@ -982,7 +947,6 @@ fn subr_arity_value(name: &str) -> Value {
             arity_cons(2, Some(2))
         }
         "aset" => arity_cons(3, Some(3)),
-        "auto-composition-mode" => arity_cons(0, Some(1)),
         "clear-composition-cache" => arity_cons(0, Some(0)),
         "composition-sort-rules" => arity_cons(1, Some(1)),
         "compute-motion" => arity_cons(7, Some(7)),
@@ -1230,7 +1194,6 @@ fn subr_arity_value(name: &str) -> Value {
         "field-string" | "field-string-no-properties" => arity_cons(0, Some(1)),
         "parse-partial-sexp" => arity_cons(2, Some(6)),
         "matching-paren" => arity_cons(1, Some(1)),
-        "forward-sexp" => arity_cons(0, Some(2)),
         "file-attributes-lessp" => arity_cons(2, Some(2)),
         "float-time" => arity_cons(0, Some(1)),
         "force-mode-line-update" | "force-window-update" => arity_cons(0, Some(1)),
@@ -1272,9 +1235,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "coding-system-eol-type"
         | "coding-system-p"
         => arity_cons(1, Some(1)),
-        "coding-system-change-eol-conversion"
-        | "coding-system-change-text-conversion"
-        => arity_cons(2, Some(2)),
         "check-coding-systems-region" => arity_cons(3, Some(3)),
         "coding-system-plist" => arity_cons(1, Some(1)),
         "coding-system-put" => arity_cons(3, Some(3)),
@@ -1286,10 +1246,8 @@ fn subr_arity_value(name: &str) -> Value {
         "category-docstring" => arity_cons(1, Some(2)),
         "ccl-execute" => arity_cons(2, Some(2)),
         "ccl-execute-on-string" => arity_cons(3, Some(5)),
-        "abbrev-mode" => arity_cons(0, Some(1)),
         "and"
         | "cond"
-        | "inline"
         | "interactive"
         | "or"
         | "progn"
@@ -1303,10 +1261,8 @@ fn subr_arity_value(name: &str) -> Value {
         "defining-kbd-macro" => arity_cons(1, Some(2)),
         "start-kbd-macro" => arity_cons(1, Some(2)),
         "cancel-kbd-macro-events" => arity_cons(0, Some(0)),
-        "name-last-kbd-macro" | "kmacro-name-last-macro" => arity_cons(1, Some(1)),
         "end-kbd-macro" | "call-last-kbd-macro" => arity_cons(0, Some(2)),
         "execute-kbd-macro" => arity_cons(1, Some(3)),
-        "describe-key-briefly" => arity_cons(0, Some(3)),
         "delete-char" => arity_cons(1, Some(2)),
         "delete-all-overlays" => arity_cons(0, Some(1)),
         "delete-and-extract-region" => arity_cons(2, Some(2)),
@@ -1351,12 +1307,10 @@ fn subr_arity_value(name: &str) -> Value {
         | "exit-recursive-edit"
         | "abort-minibuffers"
         | "abort-recursive-edit"
-        | "exit-minibuffer"
         | "minibuffer-depth"
         | "minibuffer-prompt"
         | "minibuffer-contents"
         | "minibuffer-contents-no-properties" => arity_cons(0, Some(0)),
-        "read-passwd" => arity_cons(1, Some(3)),
         "regexp-quote" => arity_cons(1, Some(1)),
         "x-apply-session-resources" | "x-clipboard-yank" => arity_cons(0, Some(0)),
         "open-termscript"
@@ -1433,11 +1387,9 @@ fn subr_arity_value(name: &str) -> Value {
             arity_cons(2, Some(2))
         }
         "internal-default-signal-process" => arity_cons(2, Some(3)),
-        "list-processes" => arity_cons(0, Some(2)),
         "list-processes--refresh" | "list-system-processes" => arity_cons(0, Some(0)),
         "make-process" => arity_cons(0, None),
         "make-network-process" | "make-pipe-process" | "make-serial-process" => arity_cons(0, None),
-        "minibuffer--sort-preprocess-history" => arity_cons(1, Some(1)),
         "network-interface-info" => arity_cons(1, Some(1)),
         "network-interface-list" => arity_cons(0, Some(2)),
         "network-lookup-address-info" => arity_cons(1, Some(3)),
@@ -1450,7 +1402,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "process-datagram-address"
         | "process-exit-status"
         | "process-filter"
-        | "process-menu-visit-buffer"
         | "process-id"
         | "process-inherit-coding-system-flag"
 
@@ -1463,12 +1414,8 @@ fn subr_arity_value(name: &str) -> Value {
         | "process-thread"
         | "process-type"
         | "processp" => arity_cons(1, Some(1)),
-        "process-kill-buffer-query-function"
-        | "process-menu-delete-process"
-        | "process-menu-mode" => arity_cons(0, Some(0)),
-        "process-file"
-
-        => arity_cons(1, None),
+        "process-kill-buffer-query-function" => arity_cons(0, Some(1)),
+        "process-file" => arity_cons(1, None),
         "process-running-child-p" | "process-send-eof" => arity_cons(0, Some(1)),
         "signal-process" => arity_cons(2, Some(3)),
         "signal-names" => arity_cons(0, Some(0)),
@@ -1490,10 +1437,8 @@ fn subr_arity_value(name: &str) -> Value {
         "set-process-window-size" => arity_cons(3, Some(3)),
         "set-network-process-option" => arity_cons(3, Some(4)),
         "serial-process-configure" => arity_cons(0, None),
-        "setenv" => arity_cons(1, Some(3)),
-        "syntax-propertize--in-process-p" => arity_cons(0, Some(0)),
         "tooltip-process-prompt-regexp" => arity_cons(1, Some(1)),
-        "getenv" | "getenv-internal" => arity_cons(1, Some(2)),
+        "getenv-internal" => arity_cons(1, Some(2)),
         // Display/terminal query primitives
         "terminal-name"
         | "terminal-parameters"
@@ -1712,7 +1657,6 @@ pub(crate) fn builtin_subr_arity(args: Vec<Value>) -> EvalResult {
 /// NeoVM does not currently model native-compiled Elisp subrs, so this always
 /// returns nil.
 pub(crate) fn builtin_subr_native_elisp_p(args: Vec<Value>) -> EvalResult {
-    expect_args("subr-native-elisp-p", &args, 1)?;
     Ok(Value::Nil)
 }
 

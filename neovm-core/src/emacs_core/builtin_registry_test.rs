@@ -21,7 +21,7 @@ fn registry_contains_common_builtins() {
     assert!(is_dispatch_builtin_name("set-output-flow-control"));
     assert!(is_dispatch_builtin_name("set-quit-char"));
     assert!(is_dispatch_builtin_name("waiting-for-user-input-p"));
-    assert!(is_dispatch_builtin_name("read-passwd"));
+    // read-passwd is now Elisp (from auth-source.el/subr.el)
     assert!(is_dispatch_builtin_name("minibuffer-prompt"));
     assert!(is_dispatch_builtin_name("minibuffer-contents"));
     assert!(is_dispatch_builtin_name(
@@ -30,7 +30,7 @@ fn registry_contains_common_builtins() {
     assert!(is_dispatch_builtin_name("sleep-for"));
     assert!(is_dispatch_builtin_name("redraw-frame"));
     assert!(is_dispatch_builtin_name("last-nonminibuffer-frame"));
-    assert!(is_dispatch_builtin_name("exit-minibuffer"));
+    // exit-minibuffer is now Elisp (from minibuffer.el)
     assert!(is_dispatch_builtin_name("recursive-edit"));
     assert!(is_dispatch_builtin_name("exit-recursive-edit"));
     assert!(is_dispatch_builtin_name("top-level"));

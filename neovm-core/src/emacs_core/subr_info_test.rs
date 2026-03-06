@@ -299,7 +299,6 @@ fn subr_arity_process_primitives_match_oracle() {
     assert_subr_arity("format-network-address", 1, Some(2));
     assert_subr_arity("get-buffer-process", 1, Some(1));
     assert_subr_arity("get-process", 1, Some(1));
-    assert_subr_arity("getenv", 1, Some(2));
     assert_subr_arity("getenv-internal", 1, Some(2));
     assert_subr_arity("internal-default-interrupt-process", 0, Some(2));
     assert_subr_arity("internal-default-process-filter", 2, Some(2));
@@ -307,14 +306,12 @@ fn subr_arity_process_primitives_match_oracle() {
     assert_subr_arity("internal-default-signal-process", 2, Some(3));
     assert_subr_arity("interrupt-process", 0, Some(2));
     assert_subr_arity("kill-process", 0, Some(2));
-    assert_subr_arity("list-processes", 0, Some(2));
     assert_subr_arity("list-processes--refresh", 0, Some(0));
     assert_subr_arity("list-system-processes", 0, Some(0));
     assert_subr_arity("make-process", 0, None);
     assert_subr_arity("make-network-process", 0, None);
     assert_subr_arity("make-pipe-process", 0, None);
     assert_subr_arity("make-serial-process", 0, None);
-    assert_subr_arity("minibuffer--sort-preprocess-history", 1, Some(1));
     assert_subr_arity("network-interface-info", 1, Some(1));
     assert_subr_arity("network-interface-list", 0, Some(2));
     assert_subr_arity("network-lookup-address-info", 1, Some(3));
@@ -332,9 +329,6 @@ fn subr_arity_process_primitives_match_oracle() {
     assert_subr_arity("process-inherit-coding-system-flag", 1, Some(1));
     assert_subr_arity("process-list", 0, Some(0));
     assert_subr_arity("process-mark", 1, Some(1));
-    assert_subr_arity("process-menu-delete-process", 0, Some(0));
-    assert_subr_arity("process-menu-mode", 0, Some(0));
-    assert_subr_arity("process-menu-visit-buffer", 1, Some(1));
     assert_subr_arity("process-name", 1, Some(1));
     assert_subr_arity("process-plist", 1, Some(1));
     assert_subr_arity("process-query-on-exit-flag", 1, Some(1));
@@ -365,8 +359,6 @@ fn subr_arity_process_primitives_match_oracle() {
     assert_subr_arity("set-binary-mode", 2, Some(2));
     assert_subr_arity("set-network-process-option", 3, Some(4));
     assert_subr_arity("serial-process-configure", 0, None);
-    assert_subr_arity("setenv", 1, Some(3));
-    assert_subr_arity("syntax-propertize--in-process-p", 0, Some(0));
     assert_subr_arity("tooltip-process-prompt-regexp", 1, Some(1));
 }
 
@@ -394,7 +386,6 @@ fn subr_arity_minibuffer_control_primitives_match_oracle() {
     assert_subr_arity("exit-recursive-edit", 0, Some(0));
     assert_subr_arity("abort-minibuffers", 0, Some(0));
     assert_subr_arity("abort-recursive-edit", 0, Some(0));
-    assert_subr_arity("exit-minibuffer", 0, Some(0));
     assert_subr_arity("minibuffer-depth", 0, Some(0));
     assert_subr_arity("minibufferp", 0, Some(2));
     assert_subr_arity("next-read-file-uses-dialog-p", 0, Some(0));
@@ -410,7 +401,6 @@ fn subr_arity_point_navigation_primitives_match_oracle() {
     assert_subr_arity("forward-char", 0, Some(1));
     assert_subr_arity("backward-char", 0, Some(1));
     assert_subr_arity("forward-word", 0, Some(1));
-    assert_subr_arity("backward-word", 0, Some(1));
     assert_subr_arity("forward-line", 0, Some(1));
     assert_subr_arity("goto-char", 1, Some(1));
     assert_subr_arity("point-max", 0, Some(0));
@@ -462,7 +452,6 @@ fn subr_arity_buffer_point_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_mark_marker_primitives_match_oracle() {
-    assert_subr_arity("mark", 0, Some(1));
     assert_subr_arity("mark-marker", 0, Some(0));
     assert_subr_arity("point-marker", 0, Some(0));
     assert_subr_arity("point-min-marker", 0, Some(0));
@@ -550,7 +539,6 @@ fn subr_arity_assoc_predicate_primitives_match_oracle() {
 #[test]
 fn subr_arity_navigation_case_primitives_match_oracle() {
     assert_subr_arity("backward-prefix-chars", 0, Some(0));
-    assert_subr_arity("backward-sexp", 0, Some(2));
     assert_subr_arity("capitalize", 1, Some(1));
     assert_subr_arity("capitalize-word", 1, Some(1));
     assert_subr_arity("capitalize-region", 2, Some(3));
@@ -1138,7 +1126,6 @@ fn subr_arity_kmacro_command_primitives_match_oracle() {
     assert_subr_arity("end-kbd-macro", 0, Some(2));
     assert_subr_arity("call-last-kbd-macro", 0, Some(2));
     assert_subr_arity("execute-kbd-macro", 1, Some(3));
-    assert_subr_arity("describe-key-briefly", 0, Some(3));
 }
 
 #[test]
@@ -1272,8 +1259,6 @@ fn subr_arity_coding_system_primitives_match_oracle() {
     assert_subr_arity("check-coding-systems-region", 3, Some(3));
     assert_subr_arity("coding-system-aliases", 1, Some(1));
     assert_subr_arity("coding-system-base", 1, Some(1));
-    assert_subr_arity("coding-system-change-eol-conversion", 2, Some(2));
-    assert_subr_arity("coding-system-change-text-conversion", 2, Some(2));
     assert_subr_arity("coding-system-eol-type", 1, Some(1));
     assert_subr_arity("coding-system-p", 1, Some(1));
     assert_subr_arity("coding-system-plist", 1, Some(1));
@@ -1299,7 +1284,6 @@ fn subr_arity_copy_cons_primitives_match_oracle() {
     assert_subr_arity("copy-keymap", 1, Some(1));
     assert_subr_arity("copy-marker", 0, Some(2));
     assert_subr_arity("copy-sequence", 1, Some(1));
-    assert_subr_arity("purecopy", 1, Some(1));
     assert_subr_arity("copy-syntax-table", 0, Some(1));
 }
 
@@ -1333,7 +1317,6 @@ fn subr_arity_current_state_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_composition_primitives_match_oracle() {
-    assert_subr_arity("auto-composition-mode", 0, Some(1));
     assert_subr_arity("clear-composition-cache", 0, Some(0));
     assert_subr_arity("compose-region-internal", 2, Some(4));
     assert_subr_arity("compose-string-internal", 3, Some(5));
@@ -1363,7 +1346,6 @@ fn subr_arity_predicate_core_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_abbrev_primitives_match_oracle() {
-    assert_subr_arity("abbrev-mode", 0, Some(1));
 }
 
 #[test]
@@ -1421,8 +1403,6 @@ fn subr_arity_search_match_primitives_match_oracle() {
     assert_subr_arity("posix-string-match", 2, Some(4));
     assert_subr_arity("search-forward", 1, Some(4));
     assert_subr_arity("search-backward", 1, Some(4));
-    assert_subr_arity("search-forward-regexp", 1, Some(4));
-    assert_subr_arity("search-backward-regexp", 1, Some(4));
     assert_subr_arity("re-search-forward", 1, Some(4));
     assert_subr_arity("re-search-backward", 1, Some(4));
     assert_subr_arity("posix-search-forward", 1, Some(4));
@@ -1515,7 +1495,6 @@ fn subr_arity_syntax_category_plist_helpers_match_oracle() {
     assert_subr_arity("category-set-mnemonics", 1, Some(1));
     assert_subr_arity("file-attributes-lessp", 2, Some(2));
     assert_subr_arity("forward-comment", 1, Some(1));
-    assert_subr_arity("forward-sexp", 0, Some(2));
     assert_subr_arity("get-unused-category", 0, Some(1));
     assert_subr_arity("make-category-set", 1, Some(1));
     assert_subr_arity("make-category-table", 0, Some(0));
@@ -1580,8 +1559,6 @@ fn subr_arity_string_syntax_helpers_match_oracle() {
     assert_subr_arity("string-version-lessp", 2, Some(2));
     assert_subr_arity("substitute-in-file-name", 1, Some(1));
     assert_subr_arity("syntax-class-to-char", 1, Some(1));
-    assert_subr_arity("syntax-ppss", 0, Some(1));
-    assert_subr_arity("syntax-ppss-flush-cache", 1, None);
     assert_subr_arity("syntax-table", 0, Some(0));
     assert_subr_arity("syntax-table-p", 1, Some(1));
     assert_subr_arity("standard-case-table", 0, Some(0));
@@ -1628,9 +1605,6 @@ fn subr_arity_command_edit_runtime_helpers_match_oracle() {
     assert_subr_arity("combine-after-change-execute", 0, Some(0));
     assert_subr_arity("this-command-keys", 0, Some(0));
     assert_subr_arity("this-command-keys-vector", 0, Some(0));
-    assert_subr_arity("transient-mark-mode", 0, Some(1));
-    assert_subr_arity("transpose-paragraphs", 1, Some(1));
-    assert_subr_arity("transpose-sentences", 1, Some(1));
     assert_subr_arity("undo-boundary", 0, Some(0));
     assert_subr_arity("unibyte-char-to-multibyte", 1, Some(1));
     assert_subr_arity("upcase-initials", 1, Some(1));
@@ -1640,16 +1614,13 @@ fn subr_arity_command_edit_runtime_helpers_match_oracle() {
     assert_subr_arity("use-global-map", 1, Some(1));
     assert_subr_arity("use-local-map", 1, Some(1));
     assert_subr_arity("where-is-internal", 1, Some(5));
-    assert_subr_arity("widget-apply", 2, None);
 }
 
 #[test]
 fn subr_arity_replace_window_io_helpers_match_oracle() {
     assert_subr_arity("minor-mode-key-binding", 1, Some(2));
     assert_subr_arity("narrow-to-region", 2, Some(2));
-    assert_subr_arity("remove", 2, Some(2));
     assert_subr_arity("remove-variable-watcher", 2, Some(2));
-    assert_subr_arity("replace-regexp", 2, Some(7));
     assert_subr_arity("scroll-down", 0, Some(1));
     assert_subr_arity("scroll-left", 0, Some(2));
     assert_subr_arity("scroll-right", 0, Some(2));
@@ -1661,8 +1632,6 @@ fn subr_arity_replace_window_io_helpers_match_oracle() {
     assert_subr_arity("subr-arity", 1, Some(1));
     assert_subr_arity("subr-name", 1, Some(1));
     assert_subr_arity("subrp", 1, Some(1));
-    assert_subr_arity("widget-get", 2, Some(2));
-    assert_subr_arity("widget-put", 3, Some(3));
     assert_subr_arity("write-region", 3, Some(7));
 }
 
@@ -1673,7 +1642,6 @@ fn subr_arity_charset_json_libxml_display_helpers_match_oracle() {
     assert_subr_arity("find-charset-string", 1, Some(2));
     assert_subr_arity("find-composition-internal", 4, Some(4));
     assert_subr_arity("format-mode-line", 1, Some(4));
-    assert_subr_arity("insert-image", 1, Some(5));
     assert_subr_arity("json-insert", 1, None);
     assert_subr_arity("json-parse-string", 1, None);
     assert_subr_arity("json-serialize", 1, None);
@@ -1908,12 +1876,6 @@ fn special_form_p_true_for_quote() {
 #[test]
 fn special_form_p_true_for_setq() {
     let result = builtin_special_form_p(vec![Value::symbol("setq")]).unwrap();
-    assert!(result.is_truthy());
-}
-
-#[test]
-fn special_form_p_true_for_inline() {
-    let result = builtin_special_form_p(vec![Value::symbol("inline")]).unwrap();
     assert!(result.is_truthy());
 }
 
