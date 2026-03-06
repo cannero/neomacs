@@ -311,9 +311,7 @@ fn subr_arity_value(name: &str) -> Value {
         // Oracle-compatible overrides for core subrs used in vm-compat.
         n if is_cxr_subr_name(n) => arity_cons(1, Some(1)),
         "message" | "message-box" | "message-or-box" | "format" | "format-message"
-        | "user-error" => arity_cons(1, None),
-        "always" => arity_cons(0, None),
-        "/" | "<" | "<=" | "=" | ">" | ">=" | "apply" | "funcall" | "funcall-interactively" => {
+        |        "/" | "<" | "<=" | "=" | ">" | ">=" | "apply" | "funcall" | "funcall-interactively" => {
             arity_cons(1, None)
         }
         "funcall-with-delayed-message" => arity_cons(3, Some(3)),
@@ -404,7 +402,7 @@ fn subr_arity_value(name: &str) -> Value {
         "file-group-gid"
         | "group-gid"
         | "group-real-gid"
-        | "interactive-p"
+
         | "last-nonminibuffer-frame" => arity_cons(0, Some(0)),
         "group-name" => arity_cons(1, Some(1)),
         "following-char" | "garbage-collect" | "get-load-suffixes" | "byteorder" => {
@@ -433,7 +431,7 @@ fn subr_arity_value(name: &str) -> Value {
         "get-byte" => arity_cons(0, Some(2)),
         "get-register" => arity_cons(1, Some(1)),
         "get-buffer" | "get-file-buffer" => arity_cons(1, Some(1)),
-        "get-buffer-create" | "generate-new-buffer-name" | "generate-new-buffer" => {
+        "get-buffer-create" | "generate-new-buffer-name" => {
             arity_cons(1, Some(2))
         }
         "buffer-live-p" | "buffer-swap-text" => arity_cons(1, Some(1)),
@@ -457,7 +455,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "charset-plist"
         | "charsetp"
         | "closurep"
-        | "compiled-function-p"
+
         | "custom-variable-p"
         | "default-boundp"
         | "default-value"
@@ -474,7 +472,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "get-unused-iso-final-char" => arity_cons(2, Some(2)),
         "declare-equiv-charset" => arity_cons(4, Some(4)),
         "decode-char" => arity_cons(2, Some(2)),
-        "fceiling" | "ffloor" | "frexp" | "fround" | "framep" | "ftruncate" | "fixnump" => {
+        "fceiling" | "ffloor" | "frexp" | "fround" | "framep" | "ftruncate" => {
             arity_cons(1, Some(1))
         }
         "ldexp" => arity_cons(2, Some(2)),
@@ -497,10 +495,9 @@ fn subr_arity_value(name: &str) -> Value {
         | "length"
         | "interpreted-function-p"
         | "invisible-p"
-        | "macrop"
+
         | "functionp"
         | "prefix-numeric-value" => arity_cons(1, Some(1)),
-        "gensym" => arity_cons(0, Some(1)),
         "fboundp" | "func-arity" | "symbol-function" | "symbol-value" | "fmakunbound"
         | "makunbound" => arity_cons(1, Some(1)),
         "make-symbol" | "symbol-name" | "symbol-plist" => arity_cons(1, Some(1)),
@@ -538,19 +535,15 @@ fn subr_arity_value(name: &str) -> Value {
         | "hash-table-rehash-threshold"
         | "hash-table-weakness" => arity_cons(1, Some(1)),
         "max" | "min" => arity_cons(1, None),
-        "assq" | "assq-delete-all" | "car-less-than-car" | "member" | "memq" | "memql"
+        "assq"  | "car-less-than-car" | "member" | "memq" | "memql"
         | "rassoc" | "rassq" => arity_cons(2, Some(2)),
-        "mod" | "make-list" | "mapc" | "mapcan" | "mapcar" | "nth" | "nthcdr" | "remq" => {
+        "mod" | "make-list" | "mapc" | "mapcan" | "mapcar" | "nth" | "nthcdr" => {
             arity_cons(2, Some(2))
         }
         "delete" | "delq" | "elt" => arity_cons(2, Some(2)),
         "mapconcat" => arity_cons(2, Some(3)),
-        "assoc" | "assoc-delete-all" | "assoc-string" => arity_cons(2, Some(3)),
-        "assoc-default" => arity_cons(2, Some(4)),
-        "alist-get" => arity_cons(2, Some(5)),
-        "last" | "butlast" => arity_cons(1, Some(2)),
+        "assoc"  | "assoc-string" => arity_cons(2, Some(3)),
         "nconc" => arity_cons(0, None),
-        "number-sequence" => arity_cons(1, Some(3)),
         "nreverse" | "proper-list-p" | "reverse" | "safe-length" => arity_cons(1, Some(1)),
         "back-to-indentation" | "backward-prefix-chars" => arity_cons(0, Some(0)),
         "backward-sexp" => arity_cons(0, Some(2)),
@@ -575,7 +568,6 @@ fn subr_arity_value(name: &str) -> Value {
         "max-char" => arity_cons(0, Some(1)),
         "memory-use-counts" | "make-marker" => arity_cons(0, Some(0)),
         "make-local-variable" | "make-variable-buffer-local" => arity_cons(1, Some(1)),
-        "make-syntax-table" => arity_cons(0, Some(1)),
         "mapatoms" => arity_cons(1, Some(2)),
         "map-char-table" => arity_cons(2, Some(2)),
         "capitalize-region" => arity_cons(2, Some(3)),
@@ -585,7 +577,6 @@ fn subr_arity_value(name: &str) -> Value {
         "kill-buffer" | "kill-line" | "kill-whole-line" | "just-one-space" => {
             arity_cons(0, Some(1))
         }
-        "add-hook" => arity_cons(2, Some(4)),
         "add-name-to-file" => arity_cons(2, Some(3)),
         "add-face-text-property" => arity_cons(3, Some(5)),
         "add-text-properties" | "set-text-properties" => arity_cons(3, Some(4)),
@@ -816,9 +807,7 @@ fn subr_arity_value(name: &str) -> Value {
         "looking-at" | "posix-looking-at" => arity_cons(1, Some(2)),
         "match-beginning" | "match-end" => arity_cons(1, Some(1)),
         "match-data" => arity_cons(0, Some(3)),
-        "match-string" => arity_cons(1, Some(2)),
         "replace-match" => arity_cons(1, Some(5)),
-        "replace-regexp-in-string" => arity_cons(3, Some(7)),
         "string-match" | "posix-string-match" => arity_cons(2, Some(4)),
         "string-as-multibyte"
         | "string-as-unibyte"
@@ -826,23 +815,17 @@ fn subr_arity_value(name: &str) -> Value {
         | "string-make-multibyte"
         | "string-make-unibyte"
         | "string-to-multibyte"
-        | "string-to-list"
+
         | "string-to-syntax"
         | "string-to-unibyte"
         | "substitute-in-file-name"
-        | "syntax-after"
+
         | "syntax-class-to-char"
         | "syntax-table-p" => arity_cons(1, Some(1)),
         "string-collate-equalp" | "string-collate-lessp" => arity_cons(2, Some(4)),
         "make-string" => arity_cons(2, Some(3)),
         "string-join" => arity_cons(1, Some(2)),
-        "string-lines" => arity_cons(1, Some(3)),
-        "string-replace" => arity_cons(3, Some(3)),
-        "split-string" => arity_cons(1, Some(4)),
         "string-search" => arity_cons(2, Some(3)),
-        "string-prefix-p" | "string-suffix-p" => arity_cons(2, Some(3)),
-        "string-trim" => arity_cons(1, Some(3)),
-        "string-trim-left" | "string-trim-right" => arity_cons(1, Some(2)),
         "string-version-lessp" => arity_cons(2, Some(2)),
         "string-width" => arity_cons(1, Some(3)),
         // Startup helper wrappers / autoload-backed dispatch helpers.
@@ -851,7 +834,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "describe-function"
         | "insert-rectangle"
         | "kbd-macro-query"
-        | "looking-at-p"
+
         | "safe-date-to-time"
         | "string-blank-p"
         | "string-chop-newline"
@@ -859,7 +842,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "string-empty-p"
         | "string-glyph-split"
         | "string-pixel-width"
-        | "string-to-vector"
+
         | "upcase-char" => arity_cons(1, Some(1)),
         "symbol-at-point" | "yank-rectangle" => arity_cons(0, Some(0)),
         "word-at-point" => arity_cons(0, Some(1)),
@@ -888,8 +871,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "seq-into"
         | "seq-some"
         | "string-fill"
-        | "string-equal-ignore-case" => arity_cons(2, Some(2)),
-        "seq-contains-p" | "seq-position" | "seq-subseq" | "string-match-p" => {
+        | "seq-contains-p" | "seq-position" | "seq-subseq" => {
             arity_cons(2, Some(3))
         }
         "seq-length" | "seq-max" | "seq-min" => arity_cons(1, Some(1)),
@@ -897,7 +879,6 @@ fn subr_arity_value(name: &str) -> Value {
         "seq-reduce" => arity_cons(3, Some(3)),
         "string-limit" | "string-pad" => arity_cons(2, Some(4)),
         "sort" | "syntax-ppss-flush-cache" => arity_cons(1, None),
-        "subst-char-in-string" => arity_cons(3, Some(4)),
         "self-insert-command"
         | "single-key-description"
         | "skip-chars-backward"
@@ -906,7 +887,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "skip-syntax-forward"
         | "transpose-sexps" => arity_cons(1, Some(2)),
         "shell-command-to-string"
-        | "special-form-p"
+
         | "store-kbd-macro-event"
         | "unibyte-char-to-multibyte"
         | "multibyte-char-to-unibyte"
@@ -988,7 +969,7 @@ fn subr_arity_value(name: &str) -> Value {
         "widget-put" => arity_cons(3, Some(3)),
         "widget-apply" => arity_cons(2, None),
         "where-is-internal" => arity_cons(1, Some(5)),
-        "text-char-description" | "threadp" | "y-or-n-p" | "yes-or-no-p" | "zerop" | "logcount" => {
+        "text-char-description" | "threadp" | "y-or-n-p" | "yes-or-no-p"  | "logcount" => {
             arity_cons(1, Some(1))
         }
         "syntax-ppss" => arity_cons(0, Some(1)),
@@ -1011,7 +992,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "word-search-backward" => arity_cons(1, Some(4)),
         "add-timeout" => arity_cons(3, Some(4)),
         "add-variable-watcher" => arity_cons(2, Some(2)),
-        "remove-hook" => arity_cons(2, Some(3)),
         "remove" | "remove-variable-watcher" | "narrow-to-region" => arity_cons(2, Some(2)),
         "remove-images" => arity_cons(2, Some(3)),
         "replace-regexp" | "replace-string" => arity_cons(2, Some(7)),
@@ -1082,10 +1062,10 @@ fn subr_arity_value(name: &str) -> Value {
         | "bool-vector-intersection"
         | "bool-vector-set-difference"
         | "bool-vector-union" => arity_cons(2, Some(3)),
-        "arrayp" | "atom" | "booleanp" | "bufferp" | "char-to-string" | "char-uppercase-p"
-        | "consp" | "downcase" | "float" | "floatp" | "integer-or-null-p" | "integerp"
-        | "keywordp" | "listp" | "list-of-strings-p" | "nlistp" | "null" | "number-to-string"
-        | "numberp" | "sequencep" | "string-or-null-p" | "string-to-char" | "stringp"
+        "arrayp" | "atom"  | "bufferp" | "char-to-string" | "char-uppercase-p"
+        | "consp" | "downcase" | "float" | "floatp"  | "integerp"
+        | "keywordp" | "listp"  | "nlistp" | "null" | "number-to-string"
+        | "numberp" | "sequencep"  | "string-to-char" | "stringp"
         | "symbolp" | "type-of" | "cl-type-of" | "upcase" | "vectorp" => arity_cons(1, Some(1)),
         "ceiling" | "characterp" | "floor" | "round" | "string-to-number" | "truncate" => {
             arity_cons(1, Some(2))
@@ -1093,7 +1073,7 @@ fn subr_arity_value(name: &str) -> Value {
         "byte-to-position" | "byte-to-string" | "position-bytes" => arity_cons(1, Some(1)),
         "substring" | "substring-no-properties" => arity_cons(1, Some(3)),
         "aref" | "char-equal" | "eq" | "eql" | "equal" | "function-equal" | "make-vector"
-        | "string-equal" | "string-lessp" | "string-greaterp" | "string>" | "throw" => {
+        | "string-equal" | "string-lessp"  | "string>" | "throw" => {
             arity_cons(2, Some(2))
         }
         "aset" => arity_cons(3, Some(3)),
@@ -1258,14 +1238,13 @@ fn subr_arity_value(name: &str) -> Value {
         "read-non-nil-coding-system" => arity_cons(1, Some(1)),
         "json-insert" | "json-parse-string" | "json-serialize" => arity_cons(1, None),
         "json-available-p" => arity_cons(0, Some(0)),
-        "kbd" | "key-valid-p" | "keymap-parent" | "keymapp" | "listify-key-sequence" => {
+        "key-valid-p" | "keymap-parent" | "keymapp" => {
             arity_cons(1, Some(1))
         }
         "accessible-keymaps" => arity_cons(1, Some(2)),
-        "global-key-binding" | "local-key-binding" | "key-description" => arity_cons(1, Some(2)),
+        "global-key-binding"  | "key-description" => arity_cons(1, Some(2)),
         "lookup-key" => arity_cons(2, Some(3)),
-        "global-set-key" | "local-set-key" => arity_cons(2, Some(2)),
-        "set-keymap-parent" => arity_cons(2, Some(2)),
+               "set-keymap-parent" => arity_cons(2, Some(2)),
         "key-binding" => arity_cons(1, Some(4)),
         "keyboard-coding-system" => arity_cons(0, Some(1)),
         "keyboard-quit" => arity_cons(0, Some(0)),
@@ -1346,7 +1325,7 @@ fn subr_arity_value(name: &str) -> Value {
         "get-unused-category" => arity_cons(0, Some(1)),
         "make-category-set"
         | "category-set-mnemonics"
-        | "flatten-tree"
+
         | "forward-comment"
         | "natnump" => arity_cons(1, Some(1)),
         "make-category-table" | "preceding-char" => arity_cons(0, Some(0)),
@@ -1361,7 +1340,7 @@ fn subr_arity_value(name: &str) -> Value {
         "matching-paren" => arity_cons(1, Some(1)),
         "forward-sexp" => arity_cons(0, Some(2)),
         "file-attributes-lessp" => arity_cons(2, Some(2)),
-        "called-interactively-p" | "float-time" => arity_cons(0, Some(1)),
+        "float-time" => arity_cons(0, Some(1)),
         "force-mode-line-update" | "force-window-update" => arity_cons(0, Some(1)),
         "featurep" => arity_cons(1, Some(2)),
         "commandp" => arity_cons(1, Some(2)),
@@ -1473,8 +1452,8 @@ fn subr_arity_value(name: &str) -> Value {
         "expand-file-name" => arity_cons(1, Some(2)),
         "event-basic-type"
         | "event-convert-list"
-        | "event-modifiers"
-        | "eventp"
+
+
         | "error-message-string" => arity_cons(1, Some(1)),
         "copysign" | "equal-including-properties" => arity_cons(2, Some(2)),
         "emacs-pid" => arity_cons(0, Some(0)),

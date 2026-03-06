@@ -65,7 +65,6 @@ fn registry_contains_predicates() {
         "vectorp",
         "keywordp",
         "characterp",
-        "booleanp",
     ] {
         assert!(is_dispatch_builtin_name(name), "missing predicate: {name}");
     }
