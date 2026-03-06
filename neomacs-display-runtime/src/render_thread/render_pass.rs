@@ -12,69 +12,7 @@ impl RenderApp {
             return;
         }
 
-        // FPS tracking
-        if self.fps.enabled {
-            self.fps.render_start = std::time::Instant::now();
-            self.fps.frame_count += 1;
-            let elapsed = self.fps.last_instant.elapsed();
-            if elapsed.as_secs_f32() >= 1.0 {
-                self.fps.display_value = self.fps.frame_count as f32 / elapsed.as_secs_f32();
-                self.fps.frame_count = 0;
-                self.fps.last_instant = std::time::Instant::now();
-            }
-        }
-
-        // Update terminals (expand terminal glyphs into renderable cells)
-        #[cfg(feature = "neo-term")]
-        self.update_terminals();
-
-        // Process webkit frames (import DMA-BUF to textures)
-        self.process_webkit_frames();
-
-        // Process video frames
-        self.process_video_frames();
-
-        // Process pending image uploads (decoded images → GPU textures)
-        self.process_pending_images();
-
-        // Update faces: replace wholesale from frame data.
-        // The layout engine builds complete Face objects per-frame in apply_face(),
-        // so no incremental merge or stale-cache cleanup is needed.
-        let old_face_ids: std::collections::HashSet<u32> = self.faces.keys().copied().collect();
-        if let Some(ref frame) = self.current_frame {
-            self.faces = frame.faces.clone();
-        }
-        // Merge child frame faces (don't overwrite main frame faces)
-        for entry in self.child_frames.frames.values() {
-            for (face_id, face) in &entry.frame.faces {
-                self.faces.entry(*face_id).or_insert_with(|| face.clone());
-            }
-        }
-        // If new face_ids appeared that weren't in the previous faces map,
-        // clear the glyph cache. Glyphs cached when their face was absent
-        // used generic monospace; they need re-rasterization with the actual font.
-        let has_new_faces = self.faces.keys().any(|id| !old_face_ids.contains(id));
-        if has_new_faces {
-            if let Some(ref mut atlas) = self.glyph_atlas {
-                tracing::info!(
-                    "New face_ids detected (old={}, new={}), clearing glyph cache",
-                    old_face_ids.len(),
-                    self.faces.len()
-                );
-                atlas.clear();
-            }
-        }
-
-        // Apply extra spacing adjustments to glyph positions
-        if self.extra_line_spacing != 0.0 || self.extra_letter_spacing != 0.0 {
-            if let Some(ref mut frame) = self.current_frame {
-                Self::apply_extra_spacing(
-                    &mut frame.glyphs,
-                    self.extra_line_spacing,
-                    self.extra_letter_spacing,
-                );
-            }
-        }
+        self.prepare_frame_state_for_render();
 
         // Get surface texture
         let Some(surface) = self.surface.as_ref() else {
