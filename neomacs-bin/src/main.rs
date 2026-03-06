@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use crossbeam_channel::TryRecvError;
 
 use neomacs_display_runtime::FrameGlyphBuffer;
+use neomacs_display_runtime::frame_glyphs::{FrameGlyph, GlyphRowRole};
 use neomacs_display_runtime::render_thread::{
     RenderThread, SharedImageDimensions, SharedMonitorInfo,
 };
@@ -64,6 +65,106 @@ thread_local! {
 enum RegisterEntry {
     Position { buffer_name: String, pos: usize },
     Text(String),
+}
+
+fn glyph_row_role(glyph: &FrameGlyph) -> Option<(GlyphRowRole, bool)> {
+    match glyph {
+        FrameGlyph::Char {
+            row_role,
+            clip_rect,
+            ..
+        }
+        | FrameGlyph::Stretch {
+            row_role,
+            clip_rect,
+            ..
+        }
+        | FrameGlyph::Image {
+            row_role,
+            clip_rect,
+            ..
+        }
+        | FrameGlyph::Video {
+            row_role,
+            clip_rect,
+            ..
+        }
+        | FrameGlyph::WebKit {
+            row_role,
+            clip_rect,
+            ..
+        }
+        | FrameGlyph::Border {
+            row_role,
+            clip_rect,
+            ..
+        } => Some((*row_role, clip_rect.is_some())),
+        _ => None,
+    }
+}
+
+fn log_frame_glyph_summary(phase: &str, frame_glyphs: &FrameGlyphBuffer) {
+    let mut text = 0usize;
+    let mut tab = 0usize;
+    let mut header = 0usize;
+    let mut mode = 0usize;
+    let mut minibuffer = 0usize;
+    let mut chrome_with_clip = 0usize;
+    let mut mode_chars = 0usize;
+    let mut mode_stretches = 0usize;
+    let mut mode_with_clip = 0usize;
+    let mut backgrounds = 0usize;
+    let mut cursors = 0usize;
+
+    for glyph in &frame_glyphs.glyphs {
+        match glyph {
+            FrameGlyph::Background { .. } => backgrounds += 1,
+            FrameGlyph::Cursor { .. } => cursors += 1,
+            FrameGlyph::Char { row_role, .. } if *row_role == GlyphRowRole::ModeLine => {
+                mode_chars += 1;
+            }
+            FrameGlyph::Stretch { row_role, .. } if *row_role == GlyphRowRole::ModeLine => {
+                mode_stretches += 1;
+            }
+            _ => {}
+        }
+
+        if let Some((row_role, has_clip)) = glyph_row_role(glyph) {
+            match row_role {
+                GlyphRowRole::Text => text += 1,
+                GlyphRowRole::TabLine => tab += 1,
+                GlyphRowRole::HeaderLine => header += 1,
+                GlyphRowRole::ModeLine => {
+                    mode += 1;
+                    if has_clip {
+                        mode_with_clip += 1;
+                    }
+                }
+                GlyphRowRole::Minibuffer => minibuffer += 1,
+            }
+            if row_role.is_chrome() && has_clip {
+                chrome_with_clip += 1;
+            }
+        }
+    }
+
+    tracing::info!(
+        "Frame glyph summary [{}]: total={} windows={} text={} tab={} header={} mode={} minibuffer={} chrome_with_clip={} mode_chars={} mode_stretches={} mode_with_clip={} backgrounds={} cursors={}",
+        phase,
+        frame_glyphs.glyphs.len(),
+        frame_glyphs.window_infos.len(),
+        text,
+        tab,
+        header,
+        mode,
+        minibuffer,
+        chrome_with_clip,
+        mode_chars,
+        mode_stretches,
+        mode_with_clip,
+        backgrounds,
+        cursors,
+    );
 }
 
 fn main() {
@@ -176,6 +277,7 @@ fn main() {
 
     let mut frame_glyphs = FrameGlyphBuffer::with_size(width as f32, height as f32);
     run_layout(&mut evaluator, frame_id, &mut frame_glyphs);
+    log_frame_glyph_summary("initial", &frame_glyphs);
     let _ = emacs_comms.frame_tx.try_send(frame_glyphs.clone());
     tracing::info!("Initial frame sent ({} glyphs)", frame_glyphs.glyphs.len());
 
