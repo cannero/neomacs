@@ -904,6 +904,61 @@ fn neovm_loadup_bootstrap() {
     );
 }
 
+#[test]
+fn auth_source_backend_exposes_type_slot() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval =
+        create_bootstrap_evaluator_with_features(&["neomacs"]).expect("bootstrap evaluator");
+    let require_error = eval
+        .require_value(Value::symbol("auth-source"), None, None)
+        .err()
+        .map(|err| match err {
+            crate::emacs_core::error::Flow::Signal(sig) => {
+                let rendered = sig
+                    .data
+                    .iter()
+                    .map(|value| format!("{value}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!("({} {})", sig.symbol_name(), rendered)
+            }
+            other => format!("{other:?}"),
+        });
+
+    let form = crate::emacs_core::parser::parse_forms(
+        "(let ((backend (make-instance 'auth-source-backend :type 'netrc :source \"test\")))\n\
+           (list (slot-value backend 'type)\n\
+                 (slot-value backend 'source)\n\
+                 (mapcar #'cl--slot-descriptor-name\n\
+                         (eieio-class-slots (eieio-object-class backend)))))",
+    )
+    .expect("parse auth-source backend slot probe");
+    let result = eval.eval_expr(&form[0]).unwrap_or_else(|err| {
+        panic!(
+            "evaluate auth-source backend slot probe failed after require_error={require_error:?}: {err:?}"
+        )
+    });
+    let items = crate::emacs_core::value::list_to_vec(&result).expect("probe result list");
+    assert_eq!(items.first().copied(), Some(Value::symbol("netrc")));
+    assert_eq!(items.get(1).and_then(Value::as_str), Some("test"));
+
+    let slot_names = crate::emacs_core::value::list_to_vec(&items[2]).expect("slot names list");
+    assert!(
+        slot_names
+            .iter()
+            .any(|value| value.as_symbol_name() == Some("type")),
+        "expected auth-source-backend slots to include `type`, got {:?}, require_error={require_error:?}",
+        slot_names,
+    );
+}
+
 /// Minimal test: load enough files to get macroexpand-all + pcase working,
 /// then try (macroexpand-all '(pcase x (1 "one") (2 "two"))) and see
 /// if it terminates.
