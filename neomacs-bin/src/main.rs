@@ -115,16 +115,45 @@ fn log_frame_glyph_summary(phase: &str, frame_glyphs: &FrameGlyphBuffer) {
     let mut mode_with_clip = 0usize;
     let mut backgrounds = 0usize;
     let mut cursors = 0usize;
+    let mut first_mode_char: Option<(char, u32, f32, f32, Option<(f32, f32, f32)>)> = None;
+    let mut first_mode_stretch: Option<(u32, f32, f32, (f32, f32, f32))> = None;
 
     for glyph in &frame_glyphs.glyphs {
         match glyph {
             FrameGlyph::Background { .. } => backgrounds += 1,
             FrameGlyph::Cursor { .. } => cursors += 1,
-            FrameGlyph::Char { row_role, .. } if *row_role == GlyphRowRole::ModeLine => {
+            FrameGlyph::Char {
+                row_role,
+                char,
+                face_id,
+                x,
+                y,
+                bg,
+                ..
+            } if *row_role == GlyphRowRole::ModeLine => {
                 mode_chars += 1;
+                if first_mode_char.is_none() {
+                    first_mode_char = Some((
+                        *char,
+                        *face_id,
+                        *x,
+                        *y,
+                        bg.as_ref().map(|c| (c.r, c.g, c.b)),
+                    ));
+                }
             }
-            FrameGlyph::Stretch { row_role, .. } if *row_role == GlyphRowRole::ModeLine => {
+            FrameGlyph::Stretch {
+                row_role,
+                face_id,
+                x,
+                y,
+                bg,
+                ..
+            } if *row_role == GlyphRowRole::ModeLine => {
                 mode_stretches += 1;
+                if first_mode_stretch.is_none() {
+                    first_mode_stretch = Some((*face_id, *x, *y, (bg.r, bg.g, bg.b)));
+                }
             }
             _ => {}
         }
@@ -165,6 +194,46 @@ fn log_frame_glyph_summary(phase: &str, frame_glyphs: &FrameGlyphBuffer) {
         backgrounds,
         cursors,
     );
+
+    if let Some((face_id, x, y, (r, g, b))) = first_mode_stretch {
+        tracing::info!(
+            "Frame glyph summary [{}]: first mode stretch face={} pos=({:.1},{:.1}) bg=({:.3},{:.3},{:.3})",
+            phase,
+            face_id,
+            x,
+            y,
+            r,
+            g,
+            b,
+        );
+        if let Some(face) = frame_glyphs.faces.get(&face_id) {
+            tracing::info!(
+                "Frame glyph summary [{}]: mode stretch face record id={} fg=({:.3},{:.3},{:.3}) bg=({:.3},{:.3},{:.3}) font={} size={:.1}",
+                phase,
+                face_id,
+                face.foreground.r,
+                face.foreground.g,
+                face.foreground.b,
+                face.background.r,
+                face.background.g,
+                face.background.b,
+                face.font_family,
+                face.font_size,
+            );
+        }
+    }
+
+    if let Some((ch, face_id, x, y, bg)) = first_mode_char {
+        tracing::info!(
+            "Frame glyph summary [{}]: first mode char={:?} face={} pos=({:.1},{:.1}) glyph_bg={:?}",
+            phase,
+            ch,
+            face_id,
+            x,
+            y,
+            bg,
+        );
+    }
 }
 
 fn main() {
