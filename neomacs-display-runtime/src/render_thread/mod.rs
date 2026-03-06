@@ -2,10 +2,12 @@
 //!
 //! Owns winit event loop, wgpu, GLib/WebKit. Runs at native VSync.
 
+mod app_handler;
 mod bootstrap;
 pub(crate) mod child_frames;
 mod command_processing;
 mod cursor;
+mod cursor_runtime;
 mod frame_state;
 mod input;
 mod lifecycle;
@@ -13,6 +15,8 @@ mod media;
 pub(crate) mod multi_window;
 mod render_pass;
 mod surface_readback;
+#[cfg(test)]
+mod tests;
 mod transitions;
 mod window_events;
 
@@ -78,27 +82,6 @@ pub struct MonitorInfo {
 /// Shared storage for monitor info accessible from both threads.
 /// The Condvar is notified once monitors have been populated.
 pub type SharedMonitorInfo = Arc<(Mutex<Vec<MonitorInfo>>, std::sync::Condvar)>;
-
-/// Search a glyph buffer for a WebKit view at the given local coordinates.
-/// Returns (webkit_id, relative_x, relative_y) if found.
-fn webkit_glyph_hit_test(glyphs: &[FrameGlyph], x: f32, y: f32) -> Option<(u32, i32, i32)> {
-    for glyph in glyphs.iter().rev() {
-        if let FrameGlyph::WebKit {
-            webkit_id,
-            x: wx,
-            y: wy,
-            width,
-            height,
-            ..
-        } = glyph
-        {
-            if x >= *wx && x < *wx + *width && y >= *wy && y < *wy + *height {
-                return Some((*webkit_id, (x - *wx) as i32, (y - *wy) as i32));
-            }
-        }
-    }
-    None
-}
 
 /// Render thread state
 pub struct RenderThread {
@@ -483,209 +466,5 @@ impl RenderApp {
             )
             .is_some(),
         }
-    }
-
-    /// Compute physical IME cursor rectangle for the current cursor target.
-    fn ime_cursor_area_for_target(&self, target: &CursorTarget) -> ImeCursorArea {
-        // If cursor is in a child frame, offset by the child's absolute position.
-        let (ime_off_x, ime_off_y) = if target.frame_id != 0 {
-            self.child_frames
-                .frames
-                .get(&target.frame_id)
-                .map(|e| (e.abs_x as f64, e.abs_y as f64))
-                .unwrap_or((0.0, 0.0))
-        } else {
-            (0.0, 0.0)
-        };
-
-        ImeCursorArea {
-            x: ((target.x as f64 + ime_off_x) * self.scale_factor).round() as i32,
-            y: ((target.y as f64 + target.height as f64 + ime_off_y) * self.scale_factor).round()
-                as i32,
-            width: ((target.width as f64 * self.scale_factor).max(1.0)).round() as u32,
-            height: ((target.height as f64 * self.scale_factor).max(1.0)).round() as u32,
-        }
-    }
-
-    /// Update IME cursor area only when IME is active and the rectangle changed.
-    fn update_ime_cursor_area_if_needed(&mut self, target: &CursorTarget) {
-        if !self.ime_enabled && !self.ime_preedit_active {
-            return;
-        }
-        let Some(ref window) = self.window else {
-            return;
-        };
-
-        let area = self.ime_cursor_area_for_target(target);
-        if self.last_ime_cursor_area == Some(area) {
-            return;
-        }
-
-        window.set_ime_cursor_area(
-            winit::dpi::PhysicalPosition::new(area.x as f64, area.y as f64),
-            winit::dpi::PhysicalSize::new(area.width as f64, area.height as f64),
-        );
-        self.last_ime_cursor_area = Some(area);
-    }
-
-    /// Update cursor blink state, returns true if blink toggled
-    fn tick_cursor_blink(&mut self) -> bool {
-        if !self.cursor.blink_enabled || self.current_frame.is_none() {
-            return false;
-        }
-        // Check if any cursor exists in the current frame
-        let has_cursor = self
-            .current_frame
-            .as_ref()
-            .map(|f| {
-                f.glyphs
-                    .iter()
-                    .any(|g| matches!(g, crate::core::frame_glyphs::FrameGlyph::Cursor { .. }))
-            })
-            .unwrap_or(false);
-        if !has_cursor {
-            return false;
-        }
-        let now = std::time::Instant::now();
-        if now.duration_since(self.cursor.last_blink_toggle) >= self.cursor.blink_interval {
-            let was_off = !self.cursor.blink_on;
-            self.cursor.blink_on = !self.cursor.blink_on;
-            self.cursor.last_blink_toggle = now;
-            // Trigger wake animation when cursor becomes visible after blink-off
-            if was_off && self.cursor.blink_on && self.effects.cursor_wake.enabled {
-                if let Some(renderer) = self.renderer.as_mut() {
-                    renderer.trigger_cursor_wake(now);
-                }
-            }
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl ApplicationHandler for RenderApp {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.handle_resumed(event_loop);
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        self.handle_window_event(event_loop, _window_id, event);
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        self.handle_about_to_wait(event_loop);
-    }
-
-    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        self.handle_exiting();
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::thread_comm::ThreadComms;
-
-    #[test]
-    fn test_translate_key_named() {
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::Escape)),
-            0xff1b
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::Enter)),
-            0xff0d
-        );
-        assert_eq!(RenderApp::translate_key(&Key::Named(NamedKey::Tab)), 0xff09);
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::Backspace)),
-            0xff08
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::Delete)),
-            0xffff
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::Home)),
-            0xff50
-        );
-        assert_eq!(RenderApp::translate_key(&Key::Named(NamedKey::End)), 0xff57);
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::PageUp)),
-            0xff55
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::PageDown)),
-            0xff56
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::ArrowLeft)),
-            0xff51
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::ArrowUp)),
-            0xff52
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::ArrowRight)),
-            0xff53
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::ArrowDown)),
-            0xff54
-        );
-        assert_eq!(RenderApp::translate_key(&Key::Named(NamedKey::Space)), 0x20);
-    }
-
-    #[test]
-    fn test_translate_key_character() {
-        assert_eq!(
-            RenderApp::translate_key(&Key::Character("a".into())),
-            'a' as u32
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Character("A".into())),
-            'A' as u32
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Character("1".into())),
-            '1' as u32
-        );
-    }
-
-    #[test]
-    fn test_translate_key_function_keys() {
-        assert_eq!(RenderApp::translate_key(&Key::Named(NamedKey::F1)), 0xffbe);
-        assert_eq!(RenderApp::translate_key(&Key::Named(NamedKey::F12)), 0xffc9);
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::Insert)),
-            0xff63
-        );
-        assert_eq!(
-            RenderApp::translate_key(&Key::Named(NamedKey::PrintScreen)),
-            0xff61
-        );
-    }
-
-    #[test]
-    fn test_translate_key_unknown() {
-        // Unknown named keys should return 0
-        assert_eq!(RenderApp::translate_key(&Key::Dead(None)), 0);
-    }
-
-    #[test]
-    fn test_render_thread_creation() {
-        // Just test that ThreadComms can be created and split
-        let comms = ThreadComms::new().expect("Failed to create ThreadComms");
-        let (emacs, render) = comms.split();
-
-        // Verify we can access the channels
-        assert!(emacs.input_rx.is_empty());
-        assert!(render.cmd_rx.is_empty());
     }
 }

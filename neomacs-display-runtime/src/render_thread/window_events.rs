@@ -1,4 +1,4 @@
-use super::{RenderApp, webkit_glyph_hit_test};
+use super::RenderApp;
 use crate::backend::wgpu::{
     NEOMACS_CTRL_MASK, NEOMACS_META_MASK, NEOMACS_SHIFT_MASK, NEOMACS_SUPER_MASK,
 };
@@ -8,6 +8,27 @@ use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
 use winit::window::WindowId;
+
+/// Search a glyph buffer for a WebKit view at the given local coordinates.
+/// Returns (webkit_id, relative_x, relative_y) if found.
+fn webkit_glyph_hit_test(glyphs: &[FrameGlyph], x: f32, y: f32) -> Option<(u32, i32, i32)> {
+    for glyph in glyphs.iter().rev() {
+        if let FrameGlyph::WebKit {
+            webkit_id,
+            x: wx,
+            y: wy,
+            width,
+            height,
+            ..
+        } = glyph
+        {
+            if x >= *wx && x < *wx + *width && y >= *wy && y < *wy + *height {
+                return Some((*webkit_id, (x - *wx) as i32, (y - *wy) as i32));
+            }
+        }
+    }
+    None
+}
 
 impl RenderApp {
     pub(super) fn handle_window_event(
