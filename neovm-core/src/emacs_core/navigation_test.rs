@@ -171,7 +171,9 @@ fn test_count_lines() {
 fn test_count_lines_same_line() {
     let mut ev = eval_with_text("abcdef");
     let n = eval_int(&mut ev, "(count-lines 1 4)");
-    assert_eq!(n, 0);
+    // GNU Emacs: newline count + 1 when region is non-empty and end
+    // is not at the start of a line.
+    assert_eq!(n, 1);
 }
 
 #[test]

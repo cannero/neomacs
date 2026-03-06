@@ -224,19 +224,16 @@ pub(crate) fn builtin_hash_table_p(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("type-of", &args, 1)?;
-    // Records: return the type tag (slot 0) instead of "record"
-    if let Value::Record(id) = &args[0] {
-        let tag = with_heap(|h| h.get_vector(*id).first().copied());
-        return Ok(tag.unwrap_or_else(|| Value::symbol("record")));
+    // GNU Emacs `type-of` handles symbol, integer, subr directly,
+    // then delegates to `cl-type-of` for everything else.
+    match &args[0] {
+        Value::Nil | Value::True | Value::Symbol(_) | Value::Keyword(_) => {
+            Ok(Value::symbol("symbol"))
+        }
+        Value::Int(_) | Value::Char(_) => Ok(Value::symbol("integer")),
+        Value::Subr(_) => Ok(Value::symbol("subr")),
+        _ => builtin_cl_type_of(args),
     }
-    // Char-tables and bool-vectors are tagged vectors
-    if chartable::is_char_table(&args[0]) {
-        return Ok(Value::symbol("char-table"));
-    }
-    if chartable::is_bool_vector(&args[0]) {
-        return Ok(Value::symbol("bool-vector"));
-    }
-    Ok(Value::symbol(args[0].type_name()))
 }
 
 pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {

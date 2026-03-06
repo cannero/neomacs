@@ -317,7 +317,13 @@ pub(crate) fn builtin_count_lines(
         (byte_end, byte_beg)
     };
     let text = buffer_text(buf);
-    let n = count_newlines(&text, s, e);
+    let mut n = count_newlines(&text, s, e);
+    // GNU Emacs: "can be one more if START is not equal to END and the
+    // greater of them is not at the start of a line."
+    // i.e., if the region is non-empty and the char before `e` is not '\n'.
+    if s != e && e > 0 && e <= text.len() && text.as_bytes()[e - 1] != b'\n' {
+        n += 1;
+    }
     Ok(Value::Int(n as i64))
 }
 

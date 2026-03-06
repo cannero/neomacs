@@ -1118,32 +1118,65 @@ pub fn equal_value(left: &Value, right: &Value, depth: usize) -> bool {
 // List iteration helpers
 // ---------------------------------------------------------------------------
 
-/// Collect a proper list into a Vec.  Returns None if not a proper list.
+/// Collect a proper list into a Vec.  Returns None if not a proper list or
+/// circular list.  Uses tortoise-and-hare cycle detection.
 pub fn list_to_vec(value: &Value) -> Option<Vec<Value>> {
     let mut result = Vec::new();
-    let mut cursor = *value;
+    let mut tortoise = *value;
+    let mut hare = *value;
+    let mut step = 0u64;
     loop {
-        match cursor {
+        match hare {
             Value::Nil => return Some(result),
             Value::Cons(id) => {
                 result.push(with_heap(|h| h.cons_car(id)));
-                cursor = with_heap(|h| h.cons_cdr(id));
+                hare = with_heap(|h| h.cons_cdr(id));
+                step += 1;
+                // Advance tortoise every other step
+                if step % 2 == 0 {
+                    if let Value::Cons(tid) = tortoise {
+                        tortoise = with_heap(|h| h.cons_cdr(tid));
+                    }
+                    if tortoise == hare {
+                        return None; // cycle detected
+                    }
+                }
             }
             _ => return None,
         }
     }
 }
 
-/// Length of a list (counts cons cells).  Returns None if improper list detected.
+/// Length of a list (counts cons cells).  Returns None if improper or circular
+/// list detected.  Uses tortoise-and-hare cycle detection (like GNU Emacs
+/// `FOR_EACH_TAIL_SAFE`).
 pub fn list_length(value: &Value) -> Option<usize> {
     let mut len = 0;
-    let mut cursor = *value;
+    let mut tortoise = *value;
+    let mut hare = *value;
     loop {
-        match cursor {
+        match hare {
             Value::Nil => return Some(len),
             Value::Cons(id) => {
                 len += 1;
-                cursor = with_heap(|h| h.cons_cdr(id));
+                hare = with_heap(|h| h.cons_cdr(id));
+                // Advance hare a second step
+                match hare {
+                    Value::Nil => return Some(len),
+                    Value::Cons(id2) => {
+                        len += 1;
+                        hare = with_heap(|h| h.cons_cdr(id2));
+                    }
+                    _ => return None, // improper
+                }
+                // Advance tortoise one step
+                if let Value::Cons(tid) = tortoise {
+                    tortoise = with_heap(|h| h.cons_cdr(tid));
+                }
+                // Cycle detection: if tortoise == hare, it's circular
+                if tortoise == hare {
+                    return None;
+                }
             }
             _ => return None,
         }
