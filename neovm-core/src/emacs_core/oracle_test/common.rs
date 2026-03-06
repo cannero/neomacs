@@ -215,15 +215,21 @@ pub(crate) fn run_neovm_eval_with_load(form: &str, load_files: &[&str]) -> Resul
 }
 
 pub(crate) fn eval_oracle_and_neovm(form: &str) -> (String, String) {
-    let oracle = run_oracle_eval(form).expect("oracle eval should run");
-    let neovm = run_neovm_eval(form).expect("neovm eval should run");
-    (oracle, neovm)
+    std::thread::scope(|s| {
+        let oracle_handle = s.spawn(|| run_oracle_eval(form).expect("oracle eval should run"));
+        let neovm = run_neovm_eval(form).expect("neovm eval should run");
+        let oracle = oracle_handle.join().expect("oracle thread panicked");
+        (oracle, neovm)
+    })
 }
 
 pub(crate) fn eval_oracle_and_neovm_with_bootstrap(form: &str) -> (String, String) {
-    let oracle = run_oracle_eval(form).expect("oracle eval should run");
-    let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
-    (oracle, neovm)
+    std::thread::scope(|s| {
+        let oracle_handle = s.spawn(|| run_oracle_eval(form).expect("oracle eval should run"));
+        let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
+        let oracle = oracle_handle.join().expect("oracle thread panicked");
+        (oracle, neovm)
+    })
 }
 
 pub(crate) fn assert_ok_eq(expected_payload: &str, oracle: &str, neovm: &str) {
@@ -234,8 +240,12 @@ pub(crate) fn assert_ok_eq(expected_payload: &str, oracle: &str, neovm: &str) {
 }
 
 pub(crate) fn assert_oracle_parity_with_load(form: &str, load_files: &[&str]) {
-    let oracle = run_oracle_eval(form).expect("oracle eval should run");
-    let neovm = run_neovm_eval_with_load(form, load_files).expect("neovm eval should run");
+    let (oracle, neovm) = std::thread::scope(|s| {
+        let oracle_handle = s.spawn(|| run_oracle_eval(form).expect("oracle eval should run"));
+        let neovm = run_neovm_eval_with_load(form, load_files).expect("neovm eval should run");
+        let oracle = oracle_handle.join().expect("oracle thread panicked");
+        (oracle, neovm)
+    });
     assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
 }
 
@@ -270,11 +280,14 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
 
 pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
     let t0 = std::time::Instant::now();
-    let oracle = run_oracle_eval(form).expect("oracle eval should run");
+    let (oracle, neovm) = std::thread::scope(|s| {
+        let oracle_handle = s.spawn(|| run_oracle_eval(form).expect("oracle eval should run"));
+        let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
+        let oracle = oracle_handle.join().expect("oracle thread panicked");
+        (oracle, neovm)
+    });
     let t1 = std::time::Instant::now();
-    let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
-    let t2 = std::time::Instant::now();
-    tracing::info!("oracle: {:.3?}, neovm: {:.3?}", t1 - t0, t2 - t1);
+    tracing::info!("total: {:.3?}", t1 - t0);
     assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
 }
 
