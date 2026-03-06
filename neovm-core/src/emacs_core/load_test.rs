@@ -914,8 +914,8 @@ fn auth_source_backend_exposes_type_slot() {
         .with_test_writer()
         .try_init();
 
-    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
-        .expect("bootstrap evaluator");
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     let runtime_load_path = crate::emacs_core::parser::parse_forms("(load \"subdirs\" nil t)")
         .expect("parse runtime load-path expansion");
     eval.eval_expr(&runtime_load_path[0])
