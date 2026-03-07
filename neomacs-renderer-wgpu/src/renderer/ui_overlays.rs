@@ -2169,27 +2169,18 @@ impl WgpuRenderer {
         let padding_x = 8.0_f32;
         let tab_padding = 12.0_f32;
 
-        // Use face font size if available, otherwise default
-        let font_size = if face.font_size > 0.0 {
-            face.font_size
-        } else {
-            glyph_atlas.default_font_size()
-        };
-        let font_size_bits = font_size.to_bits();
+        // Use the default font size for tab-bar glyphs.  The face's font_size
+        // is a pixel size from C's fill_face_data() which doesn't match
+        // cosmic-text's expected logical size.  Override it with the atlas default.
+        let font_size = glyph_atlas.default_font_size();
+        let font_size_bits = 0.0_f32.to_bits();
         let face_id = face.id;
+        let mut render_face = face.clone();
+        render_face.font_size = font_size;
 
-        // Measure char width from the face's font via glyph atlas
-        let probe_key = GlyphKey {
-            charcode: 'M' as u32,
-            face_id,
-            font_size_bits,
-            x_bin: SubpixelBin::Zero,
-            y_bin: SubpixelBin::Zero,
-        };
-        let char_width = glyph_atlas
-            .get_or_create(&self.device, &self.queue, &probe_key, Some(face))
-            .map(|info| info.advance_width / self.scale_factor)
-            .unwrap_or_else(|| glyph_atlas.default_char_width());
+        // Use the default char width for spacing — it's calibrated from actual
+        // rasterized glyphs and matches the font metrics used by the renderer.
+        let char_width = glyph_atlas.default_char_width();
 
         let overstrike = face.attributes.contains(FaceAttributes::BOLD)
             && face.font_weight < 700;
@@ -2424,7 +2415,7 @@ impl WgpuRenderer {
                     x_bin: SubpixelBin::Zero,
                     y_bin: SubpixelBin::Zero,
                 };
-                glyph_atlas.get_or_create(&self.device, &self.queue, &key, Some(face));
+                glyph_atlas.get_or_create(&self.device, &self.queue, &key, Some(&render_face));
                 let x = label_x + (ci as f32) * char_width;
                 // Overstrike: render glyph again at x+1 to simulate bold
                 if overstrike {
