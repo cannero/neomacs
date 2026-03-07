@@ -125,7 +125,18 @@ impl LispHeap {
     }
 
     pub fn alloc_string(&mut self, s: String) -> ObjId {
-        self.alloc(HeapObject::Str(s))
+        let multibyte = crate::encoding::is_multibyte_string(&s);
+        self.alloc(HeapObject::Str(crate::gc::types::LispString {
+            text: s,
+            multibyte,
+        }))
+    }
+
+    pub fn alloc_string_with_flag(&mut self, s: String, multibyte: bool) -> ObjId {
+        self.alloc(HeapObject::Str(crate::gc::types::LispString {
+            text: s,
+            multibyte,
+        }))
     }
 
     pub fn alloc_lambda(&mut self, data: LambdaData) -> ObjId {
@@ -218,7 +229,7 @@ impl LispHeap {
                     HeapObject::Cons { car, cdr } => format!("Cons(car={}, cdr={})", car, cdr),
                     HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
                     HeapObject::HashTable(_) => "HashTable".to_string(),
-                    HeapObject::Str(s) => format!("Str({:?})", &s[..s.len().min(40)]),
+                    HeapObject::Str(s) => format!("Str({:?})", &s.text[..s.text.len().min(40)]),
                     HeapObject::Lambda(_) => "Lambda".to_string(),
                     HeapObject::Macro(_) => "Macro".to_string(),
                     HeapObject::ByteCode(_) => "ByteCode".to_string(),
@@ -374,7 +385,7 @@ impl LispHeap {
 
     pub fn get_string(&self, id: ObjId) -> &String {
         match self.get(id) {
-            HeapObject::Str(s) => s,
+            HeapObject::Str(s) => &s.text,
             _ => panic!("get_string on non-string"),
         }
     }
@@ -382,8 +393,15 @@ impl LispHeap {
     pub fn get_string_mut(&mut self, id: ObjId) -> &mut String {
         self.write_barrier(id);
         match self.get_mut(id) {
-            HeapObject::Str(s) => s,
+            HeapObject::Str(s) => &mut s.text,
             _ => panic!("get_string_mut on non-string"),
+        }
+    }
+
+    pub fn string_is_multibyte(&self, id: ObjId) -> bool {
+        match self.get(id) {
+            HeapObject::Str(s) => s.multibyte,
+            _ => panic!("string_is_multibyte on non-string"),
         }
     }
 

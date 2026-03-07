@@ -54,7 +54,10 @@ fn trace_values_hash_table() {
 
 #[test]
 fn trace_values_str_empty() {
-    let obj = HeapObject::Str("hello".to_string());
+    let obj = HeapObject::Str(LispString {
+        text: "hello".to_string(),
+        multibyte: false,
+    });
     let traced = obj.trace_values();
     assert!(traced.is_empty());
 }

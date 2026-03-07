@@ -663,11 +663,38 @@ impl Value {
         Value::Str(id)
     }
 
+    pub fn multibyte_string(s: impl Into<String>) -> Self {
+        let s = s.into();
+        add_wrapping(&STRINGS_CONSED, 1);
+        add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
+        let id = with_heap_mut(|heap| heap.alloc_string_with_flag(s, true));
+        Value::Str(id)
+    }
+
+    pub fn unibyte_string(s: impl Into<String>) -> Self {
+        let s = s.into();
+        add_wrapping(&STRINGS_CONSED, 1);
+        add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
+        let id = with_heap_mut(|heap| heap.alloc_string_with_flag(s, false));
+        Value::Str(id)
+    }
+
     pub fn string_with_text_properties(
         s: impl Into<String>,
         runs: Vec<StringTextPropertyRun>,
     ) -> Self {
         let value = Self::string(s);
+        if let Value::Str(id) = &value {
+            set_string_text_properties(*id, runs);
+        }
+        value
+    }
+
+    pub fn multibyte_string_with_text_properties(
+        s: impl Into<String>,
+        runs: Vec<StringTextPropertyRun>,
+    ) -> Self {
+        let value = Self::multibyte_string(s);
         if let Value::Str(id) = &value {
             set_string_text_properties(*id, runs);
         }

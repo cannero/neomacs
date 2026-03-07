@@ -8,7 +8,7 @@ use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::string_escape::{
     bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage, storage_byte_len,
 };
-use crate::emacs_core::value::{Value, with_heap};
+use crate::emacs_core::value::{StringTextPropertyRun, Value, with_heap};
 
 const MAX_CHAR_CODE: i64 = 0x3F_FFFF;
 const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
@@ -211,6 +211,35 @@ fn bytes_to_multibyte_raw_string(bytes: &[u8]) -> String {
     out
 }
 
+fn charset_property_runs(text: &str, charset: &str) -> Vec<StringTextPropertyRun> {
+    let mut runs = Vec::new();
+    let mut start = None;
+    let mut char_idx = 0usize;
+
+    for ch in text.chars() {
+        if (ch as u32) > 0x7f {
+            start.get_or_insert(char_idx);
+        } else if let Some(run_start) = start.take() {
+            runs.push(StringTextPropertyRun {
+                start: run_start,
+                end: char_idx,
+                plist: Value::list(vec![Value::symbol("charset"), Value::symbol(charset)]),
+            });
+        }
+        char_idx += 1;
+    }
+
+    if let Some(run_start) = start {
+        runs.push(StringTextPropertyRun {
+            start: run_start,
+            end: char_idx,
+            plist: Value::list(vec![Value::symbol("charset"), Value::symbol(charset)]),
+        });
+    }
+
+    runs
+}
+
 // ---------------------------------------------------------------------------
 // Byte/char position conversion
 // ---------------------------------------------------------------------------
@@ -332,9 +361,7 @@ pub(crate) fn builtin_string_bytes(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_multibyte_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("multibyte-string-p", &args, 1)?;
     match &args[0] {
-        Value::Str(id) => Ok(Value::bool(with_heap(|h| {
-            is_multibyte_string(h.get_string(*id))
-        }))),
+        Value::Str(id) => Ok(Value::bool(with_heap(|h| h.string_is_multibyte(*id)))),
         _ => Ok(Value::Nil),
     }
 }
@@ -343,8 +370,10 @@ pub(crate) fn builtin_multibyte_string_p(args: Vec<Value>) -> EvalResult {
 #[cfg(test)]
 pub(crate) fn builtin_unibyte_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("unibyte-string-p", &args, 1)?;
-    let s = expect_string(&args[0])?;
-    Ok(Value::bool(!is_multibyte_string(&s)))
+    match &args[0] {
+        Value::Str(id) => Ok(Value::bool(with_heap(|h| !h.string_is_multibyte(*id)))),
+        _ => Ok(Value::Nil),
+    }
 }
 
 /// `(encode-coding-string STRING CODING-SYSTEM)` -> string
@@ -361,7 +390,7 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
     }
     let s = expect_string(&args[0])?;
     let coding = match &args[1] {
-        Value::Nil => return Ok(Value::string(s)),
+        Value::Nil => return Ok(args[0]),
         Value::Symbol(id) => resolve_sym(*id).to_owned(),
         other => {
             return Err(signal(
@@ -377,12 +406,14 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
         coding.as_str(),
         "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac"
     ) {
-        return Ok(Value::string(bytes_to_unibyte_storage_string(
+        return Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
             &storage_string_to_bytes(&s),
         )));
     }
     let bytes = encode_string(&s, &coding);
-    Ok(Value::string(bytes_to_unibyte_storage_string(&bytes)))
+    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+        &bytes,
+    )))
 }
 
 /// `(decode-coding-string STRING CODING-SYSTEM)` -> string
@@ -399,7 +430,7 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
     }
     let s = expect_string(&args[0])?;
     let coding = match &args[1] {
-        Value::Nil => return Ok(Value::string(s)),
+        Value::Nil => return Ok(args[0]),
         Value::Symbol(id) => resolve_sym(*id).to_owned(),
         other => {
             return Err(signal(
@@ -417,11 +448,20 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
         "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac"
     ) {
         return match String::from_utf8(bytes.clone()) {
-            Ok(text) => Ok(Value::string(text)),
-            Err(_) => Ok(Value::string(bytes_to_multibyte_raw_string(&bytes))),
+            Ok(text) => Ok(Value::multibyte_string(text)),
+            Err(_) => Ok(Value::multibyte_string(bytes_to_multibyte_raw_string(
+                &bytes,
+            ))),
         };
     }
-    Ok(Value::string(decode_bytes(&bytes, &coding)))
+    let decoded = decode_bytes(&bytes, &coding);
+    if matches!(coding.as_str(), "latin-1" | "iso-8859-1" | "iso-latin-1") {
+        let runs = charset_property_runs(&decoded, "iso-8859-1");
+        if !runs.is_empty() {
+            return Ok(Value::multibyte_string_with_text_properties(decoded, runs));
+        }
+    }
+    Ok(Value::multibyte_string(decoded))
 }
 
 /// `(char-or-string-p OBJ)` -> t or nil
@@ -487,6 +527,7 @@ pub(crate) fn builtin_max_char(args: Vec<Value>) -> EvalResult {
 mod tests {
     use super::*;
     use crate::emacs_core::error::Flow;
+    use crate::emacs_core::value::get_string_text_properties;
 
     #[test]
     fn ascii_width() {
@@ -793,6 +834,24 @@ mod tests {
             .as_str()
             .expect("encode-coding-string should return string");
         assert_eq!(decode_storage_char_codes(encoded_unibyte_text), vec![0xE9]);
+    }
+
+    #[test]
+    fn decode_latin1_attaches_charset_text_property() {
+        let encoded = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
+        let decoded = builtin_decode_coding_string(vec![encoded, Value::symbol("latin-1")])
+            .expect("latin-1 decode should succeed");
+        let Value::Str(id) = decoded else {
+            panic!("decode-coding-string should return a string");
+        };
+        let props = get_string_text_properties(id).expect("decoded string should be propertized");
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0].start, 0);
+        assert_eq!(props[0].end, 1);
+        assert_eq!(
+            props[0].plist,
+            Value::list(vec![Value::symbol("charset"), Value::symbol("iso-8859-1")])
+        );
     }
 
     #[test]

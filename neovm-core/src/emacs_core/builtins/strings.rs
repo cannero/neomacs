@@ -1249,7 +1249,6 @@ pub(crate) fn builtin_string_trim_right(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("make-string", &args, 2)?;
     expect_max_args("make-string", &args, 3)?;
-    // Optional 3rd arg MULTIBYTE is accepted but ignored (we always use multibyte).
     let count_raw = expect_int(&args[0])?;
     if count_raw < 0 {
         return Err(signal(
@@ -1267,20 +1266,9 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
                     vec![Value::symbol("characterp"), args[1]],
                 ));
             }
-            match char::from_u32(*c as u32) {
-                Some(ch) => ch,
-                None => {
-                    if let Some(encoded) = encode_nonunicode_char_for_storage(*c as u32) {
-                        return Ok(Value::string(encoded.repeat(count)));
-                    }
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("characterp"), args[1]],
-                    ));
-                }
-            }
+            *c as u32
         }
-        Value::Char(c) => *c,
+        Value::Char(c) => *c as u32,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1288,9 +1276,23 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
             ));
         }
     };
-    Ok(Value::string(
-        std::iter::repeat_n(ch, count).collect::<String>(),
-    ))
+
+    // GNU Emacs alloc.c: `make-string` returns a unibyte string only when the
+    // initializer is ASCII and the optional MULTIBYTE arg is nil/omitted.
+    let multibyte = args.get(2).is_some_and(Value::is_truthy) || ch > 0x7f;
+
+    let unit = encode_char_code_for_string_storage(ch, multibyte).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("characterp"), args[1]],
+        )
+    })?;
+    let result = unit.repeat(count);
+    Ok(if multibyte {
+        Value::multibyte_string(result)
+    } else {
+        Value::unibyte_string(result)
+    })
 }
 
 pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
@@ -1349,7 +1351,9 @@ pub(crate) fn builtin_unibyte_string(args: Vec<Value>) -> EvalResult {
         }
         bytes.push(n as u8);
     }
-    Ok(Value::string(bytes_to_unibyte_storage_string(&bytes)))
+    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+        &bytes,
+    )))
 }
 
 pub(crate) fn builtin_byte_to_string(args: Vec<Value>) -> EvalResult {
@@ -1358,9 +1362,9 @@ pub(crate) fn builtin_byte_to_string(args: Vec<Value>) -> EvalResult {
     if !(0..=255).contains(&byte) {
         return Err(signal("error", vec![Value::string("Invalid byte")]));
     }
-    Ok(Value::string(bytes_to_unibyte_storage_string(
-        &[byte as u8],
-    )))
+    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(&[
+        byte as u8,
+    ])))
 }
 
 pub(crate) fn builtin_bitmap_spec_p(args: Vec<Value>) -> EvalResult {

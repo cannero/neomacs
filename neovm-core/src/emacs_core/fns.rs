@@ -1039,7 +1039,7 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
                 }
                 out.push(ch);
             }
-            Ok(Value::string(out))
+            Ok(Value::multibyte_string(out))
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -1058,7 +1058,9 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
                 .into_iter()
                 .map(|cp| (cp & 0xFF) as u8)
                 .collect();
-            Ok(Value::string(bytes_to_unibyte_storage_string(&bytes)))
+            Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+                &bytes,
+            )))
         }
         other => Err(signal(
             "wrong-type-argument",

@@ -431,13 +431,25 @@ pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
 /// `(string-to-multibyte STRING)` -- convert unibyte storage bytes to multibyte chars.
 pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-multibyte", &args, 1)?;
+    if let Value::Str(id) = args[0] {
+        if with_heap(|h| h.string_is_multibyte(id)) {
+            return Ok(args[0]);
+        }
+    }
     let s = expect_string(&args[0])?;
-    Ok(Value::string(convert_unibyte_storage_to_multibyte(&s)))
+    Ok(Value::multibyte_string(
+        convert_unibyte_storage_to_multibyte(&s),
+    ))
 }
 
 /// `(string-to-unibyte STRING)` -- convert to unibyte storage.
 pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-unibyte", &args, 1)?;
+    if let Value::Str(id) = args[0] {
+        if !with_heap(|h| h.string_is_multibyte(id)) {
+            return Ok(args[0]);
+        }
+    }
     let s = expect_string(&args[0])?;
 
     let mut bytes = Vec::with_capacity(s.chars().count());
@@ -464,12 +476,19 @@ pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    Ok(Value::string(bytes_to_unibyte_storage_string(&bytes)))
+    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+        &bytes,
+    )))
 }
 
 /// `(string-as-unibyte STRING)` -- reinterpret as unibyte byte sequence.
 pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-unibyte", &args, 1)?;
+    if let Value::Str(id) = args[0] {
+        if !with_heap(|h| h.string_is_multibyte(id)) {
+            return Ok(args[0]);
+        }
+    }
     let s = expect_string(&args[0])?;
 
     let mut bytes = Vec::with_capacity(s.len());
@@ -493,14 +512,23 @@ pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
         bytes.extend_from_slice(encoded.as_bytes());
     }
 
-    Ok(Value::string(bytes_to_unibyte_storage_string(&bytes)))
+    Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+        &bytes,
+    )))
 }
 
 /// `(string-as-multibyte STRING)` -- reinterpret unibyte storage as multibyte.
 pub(crate) fn builtin_string_as_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-multibyte", &args, 1)?;
+    if let Value::Str(id) = args[0] {
+        if with_heap(|h| h.string_is_multibyte(id)) {
+            return Ok(args[0]);
+        }
+    }
     let s = expect_string(&args[0])?;
-    Ok(Value::string(convert_unibyte_storage_to_multibyte(&s)))
+    Ok(Value::multibyte_string(
+        convert_unibyte_storage_to_multibyte(&s),
+    ))
 }
 
 /// `(unibyte-char-to-multibyte CHAR)` -- map 0..255 to multibyte/raw-byte char code.

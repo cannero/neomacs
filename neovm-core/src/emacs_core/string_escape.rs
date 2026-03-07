@@ -255,12 +255,27 @@ pub(crate) fn bytes_to_storage_string(bytes: &[u8]) -> String {
 pub(crate) fn bytes_to_unibyte_storage_string(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len());
     for b in bytes {
-        out.push(
-            char::from_u32(UNIBYTE_BYTE_SENTINEL_BASE + (*b as u32))
-                .expect("valid unibyte-byte sentinel"),
-        );
+        if *b <= 0x7f {
+            out.push(char::from(*b));
+        } else {
+            out.push(
+                char::from_u32(UNIBYTE_BYTE_SENTINEL_BASE + (*b as u32))
+                    .expect("valid unibyte-byte sentinel"),
+            );
+        }
     }
     out
+}
+
+pub(crate) fn encode_char_code_for_string_storage(code: u32, multibyte: bool) -> Option<String> {
+    if !multibyte {
+        return (code <= 0xff).then(|| bytes_to_unibyte_storage_string(&[code as u8]));
+    }
+
+    if let Some(ch) = char::from_u32(code) {
+        return Some(ch.to_string());
+    }
+    encode_nonunicode_char_for_storage(code)
 }
 
 pub(crate) fn decode_storage_units(s: &str) -> Vec<(u32, usize)> {

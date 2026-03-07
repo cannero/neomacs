@@ -103,27 +103,35 @@ pub(crate) fn aset_string_replacement(
     };
 
     let idx = expect_fixnum(index)? as usize;
-    let original_str = with_heap(|h| h.get_string(*original).clone());
+    let (original_str, multibyte) = with_heap(|h| {
+        (
+            h.get_string(*original).clone(),
+            h.string_is_multibyte(*original),
+        )
+    });
     let mut codes = decode_storage_char_codes(&original_str);
     if idx >= codes.len() {
         return Err(signal("args-out-of-range", vec![*array, *index]));
     }
 
     let replacement_code = insert_char_code_from_value(new_element)? as u32;
+    if !multibyte && replacement_code > 0xff {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("characterp"), *new_element],
+        ));
+    }
     codes[idx] = replacement_code;
 
     let mut rebuilt = String::new();
     for code in codes {
-        if let Some(ch) = char::from_u32(code) {
-            rebuilt.push(ch);
-        } else if let Some(encoded) = encode_nonunicode_char_for_storage(code) {
-            rebuilt.push_str(&encoded);
-        } else {
-            return Err(signal(
+        let encoded = encode_char_code_for_string_storage(code, multibyte).ok_or_else(|| {
+            signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), *new_element],
-            ));
-        }
+            )
+        })?;
+        rebuilt.push_str(&encoded);
     }
     // Modify the string in-place on the heap so identity (eq) is preserved.
     with_heap_mut(|h| *h.get_string_mut(*original) = rebuilt);

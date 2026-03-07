@@ -305,7 +305,10 @@ pub(crate) fn dump_heap_object(obj: &HeapObject) -> DumpHeapObject {
         },
         HeapObject::Vector(items) => DumpHeapObject::Vector(items.iter().map(dump_value).collect()),
         HeapObject::HashTable(ht) => DumpHeapObject::HashTable(dump_hash_table(ht)),
-        HeapObject::Str(s) => DumpHeapObject::Str(s.clone()),
+        HeapObject::Str(s) => DumpHeapObject::Str {
+            text: s.text.clone(),
+            multibyte: s.multibyte,
+        },
         HeapObject::Lambda(d) => DumpHeapObject::Lambda(dump_lambda_data(d)),
         HeapObject::Macro(d) => DumpHeapObject::Macro(dump_lambda_data(d)),
         HeapObject::ByteCode(bc) => DumpHeapObject::ByteCode(dump_bytecode(bc)),
@@ -1458,7 +1461,10 @@ fn load_heap_object_phase1(obj: &DumpHeapObject) -> HeapObject {
                 insertion_order: Vec::new(),
             })
         }
-        DumpHeapObject::Str(s) => HeapObject::Str(s.clone()),
+        DumpHeapObject::Str { text, multibyte } => HeapObject::Str(crate::gc::types::LispString {
+            text: text.clone(),
+            multibyte: *multibyte,
+        }),
         DumpHeapObject::Lambda(d) => HeapObject::Lambda(load_lambda_data(d)),
         DumpHeapObject::Macro(d) => HeapObject::Macro(load_lambda_data(d)),
         DumpHeapObject::ByteCode(bc) => HeapObject::ByteCode(load_bytecode(bc)),

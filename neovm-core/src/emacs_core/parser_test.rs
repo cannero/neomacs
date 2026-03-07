@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::string_escape::bytes_to_unibyte_storage_string;
 
 #[test]
 fn parse_integers() {
@@ -166,6 +167,24 @@ fn parse_strings() {
 fn parse_string_hex_escape() {
     let forms = parse_forms(r#""\x41""#).unwrap();
     assert_eq!(forms, vec![Expr::Str("A".into())]);
+}
+
+#[test]
+fn parse_string_octal_raw_bytes_as_unibyte_storage() {
+    let forms = parse_forms(r#""\303\251""#).unwrap();
+    assert_eq!(
+        forms,
+        vec![Expr::Str(bytes_to_unibyte_storage_string(&[0xC3, 0xA9]))]
+    );
+}
+
+#[test]
+fn parse_string_two_digit_hex_raw_byte_as_unibyte_storage() {
+    let forms = parse_forms(r#""\xE9""#).unwrap();
+    assert_eq!(
+        forms,
+        vec![Expr::Str(bytes_to_unibyte_storage_string(&[0xE9]))]
+    );
 }
 
 #[test]

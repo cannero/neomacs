@@ -6259,6 +6259,26 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
 }
 
 #[test]
+fn make_string_matches_emacs_ascii_boundary() {
+    let ascii = dispatch_builtin_pure("make-string", vec![Value::Int(3), Value::Int('a' as i64)])
+        .expect("make-string should resolve")
+        .expect("ascii make-string should evaluate");
+    let byte_200 = dispatch_builtin_pure("make-string", vec![Value::Int(2), Value::Int(200)])
+        .expect("make-string should resolve")
+        .expect("byte-200 make-string should evaluate");
+
+    let ascii_multibyte = dispatch_builtin_pure("multibyte-string-p", vec![ascii])
+        .expect("multibyte-string-p should resolve")
+        .expect("ascii multibyte-string-p should evaluate");
+    let byte_200_multibyte = dispatch_builtin_pure("multibyte-string-p", vec![byte_200])
+        .expect("multibyte-string-p should resolve")
+        .expect("byte-200 multibyte-string-p should evaluate");
+
+    assert_eq!(ascii_multibyte, Value::Nil);
+    assert_eq!(byte_200_multibyte, Value::True);
+}
+
+#[test]
 fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
     let high = dispatch_builtin_pure("text-char-description", vec![Value::Int(0x11_0000)])
         .expect("text-char-description should resolve")

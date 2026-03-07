@@ -59,7 +59,7 @@ pub enum DumpHeapObject {
     Cons { car: DumpValue, cdr: DumpValue },
     Vector(Vec<DumpValue>),
     HashTable(DumpLispHashTable),
-    Str(String),
+    Str { text: String, multibyte: bool },
     Lambda(DumpLambdaData),
     Macro(DumpLambdaData),
     ByteCode(DumpByteCodeFunction),

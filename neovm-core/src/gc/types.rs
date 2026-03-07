@@ -19,6 +19,12 @@ impl std::fmt::Debug for ObjId {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LispString {
+    pub text: String,
+    pub multibyte: bool,
+}
+
 /// The concrete object stored on the managed heap.
 ///
 /// All heap-allocated Lisp types live here: cons cells, vectors, hash tables,
@@ -30,7 +36,7 @@ pub enum HeapObject {
     },
     Vector(Vec<Value>),
     HashTable(LispHashTable),
-    Str(String),
+    Str(LispString),
     Lambda(LambdaData),
     Macro(LambdaData),
     ByteCode(ByteCodeFunction),

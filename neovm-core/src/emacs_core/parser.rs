@@ -6,6 +6,7 @@
 
 use super::expr::{Expr, ParseError};
 use super::intern::intern;
+use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
 
 pub fn parse_forms(input: &str) -> Result<Vec<Expr>, ParseError> {
     let mut parser = Parser::new(input);
@@ -253,12 +254,14 @@ impl<'a> Parser<'a> {
                         }
                         'd' => s.push('\x7F'), // delete
                         'x' => {
-                            let hex = self.read_hex_digits()?;
+                            let (hex, digit_count) = self.read_hex_digits()?;
                             // Emacs accepts \x escapes up to 0x3FFFFF (22-bit char space)
                             // including modifier bits and sentinel values above Unicode.
                             // For valid Unicode, push directly. For extended values,
                             // store the raw value using push_emacs_extended_char.
-                            if let Some(c) = char::from_u32(hex) {
+                            if digit_count < 3 && (0x80..0x100).contains(&hex) {
+                                s.push_str(&bytes_to_unibyte_storage_string(&[hex as u8]));
+                            } else if let Some(c) = char::from_u32(hex) {
                                 s.push(c);
                             } else if hex <= 0x3FFFFF {
                                 Self::push_emacs_extended_char(&mut s, hex);
@@ -296,8 +299,12 @@ impl<'a> Parser<'a> {
                                     _ => break,
                                 }
                             }
-                            if let Some(c) = char::from_u32(val) {
+                            if (0x80..0x100).contains(&val) {
+                                s.push_str(&bytes_to_unibyte_storage_string(&[val as u8]));
+                            } else if let Some(c) = char::from_u32(val) {
                                 s.push(c);
+                            } else if val <= 0x3FFFFF {
+                                Self::push_emacs_extended_char(&mut s, val);
                             }
                         }
                         '\n' => {
@@ -393,11 +400,13 @@ impl<'a> Parser<'a> {
     /// carriers, etc. We encode them using a private-use Unicode placeholder
     /// since Rust strings require valid UTF-8.
     fn push_emacs_extended_char(s: &mut String, val: u32) {
-        // Use U+FFFD as replacement — the value is only meaningful as an
-        // Emacs internal sentinel (e.g., pcomplete's \x3FFF7F delimiter).
-        // The exact value isn't needed for string operations in practice.
-        s.push('\u{FFFD}');
-        let _ = val; // acknowledge the value
+        if let Some(encoded) = encode_nonunicode_char_for_storage(val) {
+            s.push_str(&encoded);
+        } else if let Some(c) = char::from_u32(val) {
+            s.push(c);
+        } else {
+            s.push('\u{FFFD}');
+        }
     }
 
     /// Push a character value (possibly with modifier bits) into a string.
@@ -409,18 +418,17 @@ impl<'a> Parser<'a> {
         let meta = val & (1 << 27) != 0;
         let base = val & !(1u32 << 27); // strip meta bit
         if meta && base < 128 {
-            // Emacs unibyte encoding: set bit 7
-            if let Some(c) = char::from_u32(base | 0x80) {
-                s.push(c);
-            }
+            s.push_str(&bytes_to_unibyte_storage_string(&[(base | 0x80) as u8]));
         } else if let Some(c) = char::from_u32(val & 0x3FFFFF) {
             // For non-meta modifiers (ctrl, shift, etc.), the base char
             // should already be in valid Unicode range
             s.push(c);
+        } else {
+            Self::push_emacs_extended_char(s, val & 0x3FFFFF);
         }
     }
 
-    fn read_hex_digits(&mut self) -> Result<u32, ParseError> {
+    fn read_hex_digits(&mut self) -> Result<(u32, usize), ParseError> {
         let start = self.pos;
         while let Some(c) = self.current() {
             if c.is_ascii_hexdigit() {
@@ -437,7 +445,10 @@ impl<'a> Parser<'a> {
         if hex_str.is_empty() {
             return Err(self.error("expected hex digits after \\x"));
         }
-        u32::from_str_radix(hex_str, 16).map_err(|_| self.error("invalid hex escape"))
+        let digits = hex_str.len();
+        let value =
+            u32::from_str_radix(hex_str, 16).map_err(|_| self.error("invalid hex escape"))?;
+        Ok((value, digits))
     }
 
     fn read_fixed_hex(&mut self, count: usize) -> Result<u32, ParseError> {
@@ -499,7 +510,7 @@ impl<'a> Parser<'a> {
                     return self.parse_char_value(modifiers | (1 << 23)); // super bit
                 }
                 's' => ' ' as u32,
-                'x' => self.read_hex_digits()?,
+                'x' => self.read_hex_digits()?.0,
                 'u' => self.read_fixed_hex(4)?,
                 'U' => self.read_fixed_hex(8)?,
                 '0'..='7' => {
