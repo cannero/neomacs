@@ -1,5 +1,7 @@
 //! ByteCode chunk — compiled function representation.
 
+use std::collections::HashMap;
+
 use super::opcode::Op;
 use crate::emacs_core::value::{LambdaParams, Value};
 
@@ -16,6 +18,10 @@ pub struct ByteCodeFunction {
     pub params: LambdaParams,
     /// For closures: captured lexical environment as a cons alist.
     pub env: Option<Value>,
+    /// GNU `.elc` bytecode stores branch targets as byte offsets.
+    /// Decoded runtime uses instruction indices, so GNU-decoded functions
+    /// retain the byte-offset -> instruction-index map for `switch`.
+    pub gnu_byte_offset_map: Option<HashMap<usize, usize>>,
     /// Optional docstring.
     pub docstring: Option<String>,
     /// Optional documentation form (e.g., oclosure type symbol in slot 4).
@@ -30,6 +36,7 @@ impl ByteCodeFunction {
             max_stack: 0,
             params,
             env: None,
+            gnu_byte_offset_map: None,
             docstring: None,
             doc_form: None,
         }
@@ -81,6 +88,8 @@ impl ByteCodeFunction {
             | Op::GotoIfNilElsePop(addr)
             | Op::GotoIfNotNilElsePop(addr)
             | Op::PushConditionCase(addr)
+            | Op::PushConditionCaseRaw(addr)
+            | Op::PushCatch(addr)
             | Op::UnwindProtect(addr) => {
                 *addr = target;
             }

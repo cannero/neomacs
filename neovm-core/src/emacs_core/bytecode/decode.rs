@@ -80,13 +80,23 @@ pub fn decode_gnu_bytecode(
     bytecodes: &[u8],
     constants: &mut Vec<Value>,
 ) -> Result<Vec<Op>, DecodeError> {
-    // -- Pass 1: decode instructions, collect byte_offset → instruction_index map --
-    let (raw_ops, offset_map, jump_patches) = decode_pass1(bytecodes, constants)?;
-
-    // -- Pass 2: patch jump targets --
-    let ops = patch_jumps(raw_ops, &offset_map, &jump_patches)?;
-
+    let (ops, _) = decode_gnu_bytecode_with_offset_map(bytecodes, constants)?;
     Ok(ops)
+}
+
+/// Decode GNU Emacs bytecodes and retain the original byte-offset map.
+///
+/// GNU `.elc` switch tables store target byte offsets inside hash-table
+/// constants. NeoVM executes decoded bytecode by instruction index, so
+/// GNU-decoded functions must preserve the original byte-offset ->
+/// instruction-index map for runtime translation of `Bswitch`.
+pub fn decode_gnu_bytecode_with_offset_map(
+    bytecodes: &[u8],
+    constants: &mut Vec<Value>,
+) -> Result<(Vec<Op>, HashMap<usize, usize>), DecodeError> {
+    let (raw_ops, offset_map, jump_patches) = decode_pass1(bytecodes, constants)?;
+    let ops = patch_jumps(raw_ops, &offset_map, &jump_patches, bytecodes.len())?;
+    Ok((ops, offset_map))
 }
 
 /// Intermediate instruction that may contain raw byte-offset jump targets.
@@ -451,13 +461,7 @@ fn decode_pass1(
                 ops.push(RawOp::Resolved(Op::DiscardN(n)));
             }
 
-            183 => {
-                // switch: hash-table jump table — placeholder for now
-                // In real .elc, this pops hash-table and value, looks up and jumps.
-                // We skip the operand and emit a no-op for now.
-                let name_idx = add_or_find_symbol(constants, "%%byte-switch-unimplemented");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 0)));
-            }
+            183 => ops.push(RawOp::Resolved(Op::Switch)),
 
             // 184-191: unused/reserved
             184..=191 => return Err(DecodeError::UnknownOpcode(byte, byte_offset)),
@@ -477,6 +481,7 @@ fn patch_jumps(
     raw_ops: Vec<RawOp>,
     offset_map: &HashMap<usize, usize>,
     jump_patches: &[JumpPatch],
+    bytecode_len: usize,
 ) -> Result<Vec<Op>, DecodeError> {
     // Build the ops vector, extracting byte targets for jump instructions.
     let mut ops: Vec<Op> = Vec::with_capacity(raw_ops.len());
@@ -508,10 +513,7 @@ fn patch_jumps(
         let instr_target = if let Some(&idx) = offset_map.get(&byte_target) {
             idx
         } else {
-            // Target could be the end of the bytecode stream (past last instruction).
-            // In that case, target = ops.len().
-            let max_byte = offset_map.keys().max().copied().unwrap_or(0);
-            if byte_target > max_byte {
+            if byte_target == bytecode_len {
                 ops.len()
             } else {
                 return Err(DecodeError::InvalidJumpTarget(

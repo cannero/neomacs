@@ -3808,7 +3808,11 @@ impl Evaluator {
                         continue;
                     }
 
-                    if signal_matches(&handler_items[0], sig.symbol_name()) {
+                    if crate::emacs_core::errors::signal_matches_condition_pattern(
+                        &self.obarray,
+                        sig.symbol_name(),
+                        &handler_items[0],
+                    ) {
                         let mut frame = OrderedSymMap::new();
                         if var != "nil" {
                             frame.insert(intern(&var), make_signal_binding_value(&sig));
@@ -3917,7 +3921,9 @@ impl Evaluator {
 
         // Build a temporary zero-arg ByteCodeFunction
         use crate::emacs_core::bytecode::ByteCodeFunction;
-        use crate::emacs_core::bytecode::decode::{decode_gnu_bytecode, string_value_to_bytes};
+        use crate::emacs_core::bytecode::decode::{
+            decode_gnu_bytecode_with_offset_map, string_value_to_bytes,
+        };
         use crate::emacs_core::value::LambdaParams;
 
         let raw_bytes = if let Some(s) = bytecode_str.as_str() {
@@ -3931,17 +3937,19 @@ impl Evaluator {
             _ => Vec::new(),
         };
 
-        // Convert nested bytecode vectors in constants
+        // Reify nested compiled literals in constants.
         for i in 0..constants.len() {
-            constants[i] = crate::emacs_core::builtins::try_convert_nested_bytecode(constants[i]);
+            constants[i] =
+                crate::emacs_core::builtins::try_convert_nested_compiled_literal(constants[i]);
         }
 
-        let ops = decode_gnu_bytecode(&raw_bytes, &mut constants).map_err(|e| {
-            signal(
-                "error",
-                vec![Value::string(format!("bytecode decode error: {}", e))],
-            )
-        })?;
+        let (ops, gnu_byte_offset_map) =
+            decode_gnu_bytecode_with_offset_map(&raw_bytes, &mut constants).map_err(|e| {
+                signal(
+                    "error",
+                    vec![Value::string(format!("bytecode decode error: {}", e))],
+                )
+            })?;
 
         let max_stack = match maxdepth {
             Value::Int(n) => n as u16,
@@ -3954,6 +3962,7 @@ impl Evaluator {
             max_stack,
             params: LambdaParams::simple(vec![]),
             env: None,
+            gnu_byte_offset_map: Some(gnu_byte_offset_map),
             docstring: None,
             doc_form: None,
         };

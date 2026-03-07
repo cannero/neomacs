@@ -57,6 +57,13 @@ pub enum Op {
     GotoIfNilElsePop(u32),
     /// Jump if TOS is not nil (preserves TOS), else pop.
     GotoIfNotNilElsePop(u32),
+    /// Pop a hash-table jump table and a dispatch value, then branch on match.
+    ///
+    /// GNU-decoded bytecode stores jump targets as original byte offsets inside
+    /// the hash-table constant; NeoVM-compiled bytecode may use direct
+    /// instruction indices. The VM resolves GNU offsets through the decoded
+    /// function's byte-offset map at runtime.
+    Switch,
     /// Return TOS as function result.
     Return,
 
@@ -205,6 +212,7 @@ impl Op {
             Op::GotoIfNotNil(addr) => format!("goto-if-not-nil {}", addr),
             Op::GotoIfNilElsePop(addr) => format!("goto-if-nil-else-pop {}", addr),
             Op::GotoIfNotNilElsePop(addr) => format!("goto-if-not-nil-else-pop {}", addr),
+            Op::Switch => "switch".to_string(),
             Op::Return => "return".to_string(),
             Op::Add => "add".to_string(),
             Op::Sub => "sub".to_string(),

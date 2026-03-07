@@ -937,6 +937,11 @@ pub(crate) fn dispatch_builtin(
         "default-boundp" => return Some(builtin_default_boundp(eval, args)),
         "default-toplevel-value" => return Some(builtin_default_toplevel_value(eval, args)),
         "fboundp" => return Some(builtin_fboundp(eval, args)),
+        "internal--define-uninitialized-variable" => {
+            return Some(builtin_internal_define_uninitialized_variable_eval(
+                eval, args,
+            ));
+        }
         "indirect-variable" => return Some(builtin_indirect_variable_eval(eval, args)),
         "symbol-value" => return Some(builtin_symbol_value(eval, args)),
         "symbol-function" => return Some(builtin_symbol_function(eval, args)),
@@ -3715,9 +3720,6 @@ pub(crate) fn dispatch_builtin(
         "handle-switch-frame" => builtin_handle_switch_frame(args),
         "help--describe-vector" => builtin_help_describe_vector(args),
         "init-image-library" => builtin_init_image_library(args),
-        "internal--define-uninitialized-variable" => {
-            builtin_internal_define_uninitialized_variable(args)
-        }
         "internal--labeled-narrow-to-region" => builtin_internal_labeled_narrow_to_region(args),
         "internal--labeled-widen" => builtin_internal_labeled_widen(args),
         "internal--obarray-buckets" => builtin_internal_obarray_buckets(args),
@@ -4635,9 +4637,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "handle-switch-frame" => builtin_handle_switch_frame(args),
         "help--describe-vector" => builtin_help_describe_vector(args),
         "init-image-library" => builtin_init_image_library(args),
-        "internal--define-uninitialized-variable" => {
-            builtin_internal_define_uninitialized_variable(args)
-        }
+        "internal--define-uninitialized-variable" => return None,
         "internal--labeled-narrow-to-region" => builtin_internal_labeled_narrow_to_region(args),
         "internal--labeled-widen" => builtin_internal_labeled_widen(args),
         "internal--obarray-buckets" => builtin_internal_obarray_buckets(args),

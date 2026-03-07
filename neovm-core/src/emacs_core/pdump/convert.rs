@@ -133,6 +133,7 @@ pub(crate) fn dump_op(op: &Op) -> DumpOp {
         Op::GotoIfNotNil(n) => DumpOp::GotoIfNotNil(n),
         Op::GotoIfNilElsePop(n) => DumpOp::GotoIfNilElsePop(n),
         Op::GotoIfNotNilElsePop(n) => DumpOp::GotoIfNotNilElsePop(n),
+        Op::Switch => DumpOp::Switch,
         Op::Return => DumpOp::Return,
         Op::Add => DumpOp::Add,
         Op::Sub => DumpOp::Sub,
@@ -227,6 +228,11 @@ pub(crate) fn dump_bytecode(bc: &ByteCodeFunction) -> DumpByteCodeFunction {
         max_stack: bc.max_stack,
         params: dump_lambda_params(&bc.params),
         env: dump_opt_value(&bc.env),
+        gnu_byte_offset_map: bc.gnu_byte_offset_map.as_ref().map(|map| {
+            map.iter()
+                .map(|(byte_off, instr_idx)| (*byte_off as u32, *instr_idx as u32))
+                .collect()
+        }),
         docstring: bc.docstring.clone(),
         doc_form: dump_opt_value(&bc.doc_form),
     }
@@ -1269,6 +1275,7 @@ pub(crate) fn load_op(op: &DumpOp) -> Op {
         DumpOp::GotoIfNotNil(n) => Op::GotoIfNotNil(n),
         DumpOp::GotoIfNilElsePop(n) => Op::GotoIfNilElsePop(n),
         DumpOp::GotoIfNotNilElsePop(n) => Op::GotoIfNotNilElsePop(n),
+        DumpOp::Switch => Op::Switch,
         DumpOp::Return => Op::Return,
         DumpOp::Add => Op::Add,
         DumpOp::Sub => Op::Sub,
@@ -1363,6 +1370,12 @@ pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> ByteCodeFunction {
         max_stack: bc.max_stack,
         params: load_lambda_params(&bc.params),
         env: load_opt_value(&bc.env),
+        gnu_byte_offset_map: bc.gnu_byte_offset_map.as_ref().map(|pairs| {
+            pairs
+                .iter()
+                .map(|(byte_off, instr_idx)| (*byte_off as usize, *instr_idx as usize))
+                .collect()
+        }),
         docstring: bc.docstring.clone(),
         doc_form: load_opt_value(&bc.doc_form),
     }

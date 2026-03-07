@@ -127,6 +127,28 @@ pub fn signal_matches_condition_pattern(
     }
 }
 
+/// Like `signal_matches_condition_pattern`, but matches a runtime `Value`
+/// produced by compiled bytecode condition handlers.
+pub fn signal_matches_condition_value(
+    obarray: &Obarray,
+    signal_sym: &str,
+    pattern: &Value,
+) -> bool {
+    match pattern {
+        Value::Symbol(id) | Value::Keyword(id) => {
+            signal_matches_hierarchical(obarray, signal_sym, resolve_sym(*id))
+        }
+        Value::True => true,
+        Value::Nil => false,
+        Value::Cons(_) => list_to_vec(pattern).is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| signal_matches_condition_value(obarray, signal_sym, item))
+        }),
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Standard Emacs error hierarchy initialisation
 // ---------------------------------------------------------------------------

@@ -202,6 +202,25 @@ pub(crate) fn builtin_default_toplevel_value(
     }
 }
 
+pub(crate) fn builtin_internal_define_uninitialized_variable_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("internal--define-uninitialized-variable", &args, 1, 2)?;
+    let symbol = expect_symbol_id(&args[0])?;
+    let documentation = args.get(1).copied().unwrap_or(Value::Nil);
+
+    eval.obarray_mut().make_special_id(symbol);
+
+    if !documentation.is_nil() {
+        preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
+        eval.obarray_mut()
+            .put_property_id(symbol, intern("variable-documentation"), documentation);
+    }
+
+    Ok(Value::Nil)
+}
+
 pub(crate) fn builtin_set_default_toplevel_value(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -3873,7 +3892,7 @@ pub(crate) fn make_byte_code_from_parts(
 ) -> EvalResult {
     use crate::emacs_core::bytecode::ByteCodeFunction;
     use crate::emacs_core::bytecode::decode::{
-        decode_gnu_bytecode, parse_arglist_value, string_value_to_bytes,
+        decode_gnu_bytecode_with_offset_map, parse_arglist_value, string_value_to_bytes,
     };
 
     // 1. Parse arglist
@@ -3893,23 +3912,23 @@ pub(crate) fn make_byte_code_from_parts(
         _ => Vec::new(),
     };
 
-    // 3b. Post-process constants: recursively convert nested bytecode vectors.
-    // In .elc files, inner lambdas appear as vectors in the constants.
-    // The parser produces (byte-code-literal VECTOR) for #[...], which gets
-    // evaluated by sf_byte_code_literal. But when constants come directly as
-    // Value::Vector entries, we need to check if they look like bytecode objects
-    // and convert them.
+    // 3b. Reify compiled literals embedded in the constants vector.
+    // GNU `.elc` constants may contain nested `#[...]` bytecode objects or
+    // `#s(hash-table ...)` literals. At this point they are still represented
+    // as ordinary Values produced by `quote_to_value`, so convert them into
+    // real runtime objects before decoding/executing the bytecode.
     for i in 0..constants.len() {
-        constants[i] = try_convert_nested_bytecode(constants[i]);
+        constants[i] = try_convert_nested_compiled_literal(constants[i]);
     }
 
     // 4. Decode GNU bytecodes
-    let ops = decode_gnu_bytecode(&raw_bytes, &mut constants).map_err(|e| {
-        signal(
-            "error",
-            vec![Value::string(format!("bytecode decode error: {}", e))],
-        )
-    })?;
+    let (ops, gnu_byte_offset_map) =
+        decode_gnu_bytecode_with_offset_map(&raw_bytes, &mut constants).map_err(|e| {
+            signal(
+                "error",
+                vec![Value::string(format!("bytecode decode error: {}", e))],
+            )
+        })?;
 
     // 5. Extract maxdepth
     let max_stack = match maxdepth {
@@ -3930,6 +3949,7 @@ pub(crate) fn make_byte_code_from_parts(
         max_stack,
         params,
         env: None,
+        gnu_byte_offset_map: Some(gnu_byte_offset_map),
         docstring: doc,
         doc_form: None,
     };
@@ -3939,10 +3959,17 @@ pub(crate) fn make_byte_code_from_parts(
     Ok(Value::make_bytecode(bc))
 }
 
-/// Try to convert a Value::Vector that looks like a bytecode object into Value::ByteCode.
-/// A bytecode vector has >= 4 elements where element 1 is a string (bytecodes)
-/// and element 2 is a vector (constants).
-pub(crate) fn try_convert_nested_bytecode(val: Value) -> Value {
+/// Reify nested compiled literals embedded in `.elc` constant vectors.
+///
+/// GNU compiled constants are first read as ordinary Lisp data. Nested
+/// `#[...]` functions arrive as vectors and nested `#s(hash-table ...)`
+/// literals arrive as `(make-hash-table-from-literal '(...))` forms. This
+/// pass turns them back into actual runtime objects before bytecode decode.
+pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
+    if let Some(table) = try_convert_hash_table_literal(val) {
+        return table;
+    }
+
     let items = match val {
         Value::Vector(id) => {
             let v = with_heap(|h| h.get_vector(id).clone());
@@ -3975,6 +4002,108 @@ pub(crate) fn try_convert_nested_bytecode(val: Value) -> Value {
     ) {
         Ok(bc) => bc,
         Err(_) => val, // If decoding fails, keep the original vector
+    }
+}
+
+fn try_convert_hash_table_literal(val: Value) -> Option<Value> {
+    let form = list_to_vec(&val)?;
+    if form.len() != 2 {
+        return None;
+    }
+    let head = form[0].as_symbol_name()?;
+    if head != "make-hash-table-from-literal" {
+        return None;
+    }
+
+    let payload = quote_payload_value(form[1])?;
+    let spec = list_to_vec(&payload)?;
+    if spec.first()?.as_symbol_name()? != "hash-table" {
+        return None;
+    }
+
+    let mut test = HashTableTest::Eql;
+    let mut test_name: Option<SymId> = None;
+    let mut size = 0_i64;
+    let mut weakness: Option<HashTableWeakness> = None;
+    let mut rehash_size = 1.5_f64;
+    let mut rehash_threshold = 0.8125_f64;
+    let mut data_value: Option<Value> = None;
+
+    let mut i = 1_usize;
+    while i + 1 < spec.len() {
+        let key = spec[i].as_symbol_name()?;
+        let value = spec[i + 1];
+        match key {
+            "size" => size = value.as_int()?,
+            "test" => {
+                let name = value.as_symbol_name()?;
+                test = match name {
+                    "eq" => HashTableTest::Eq,
+                    "eql" => HashTableTest::Eql,
+                    "equal" => HashTableTest::Equal,
+                    _ => return None,
+                };
+                test_name = Some(intern(name));
+            }
+            "weakness" => {
+                weakness = match value.as_symbol_name() {
+                    Some("key") => Some(HashTableWeakness::Key),
+                    Some("value") => Some(HashTableWeakness::Value),
+                    Some("key-or-value") => Some(HashTableWeakness::KeyOrValue),
+                    Some("key-and-value") => Some(HashTableWeakness::KeyAndValue),
+                    Some("nil") | None => None,
+                    _ => return None,
+                };
+            }
+            "rehash-size" => {
+                rehash_size = value.as_float().unwrap_or(value.as_int()? as f64);
+            }
+            "rehash-threshold" => {
+                rehash_threshold = value.as_float().unwrap_or(value.as_int()? as f64);
+            }
+            "data" => data_value = Some(value),
+            _ => {}
+        }
+        i += 2;
+    }
+
+    let table_value =
+        Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
+    let Value::HashTable(table_ref) = table_value else {
+        return None;
+    };
+
+    with_heap_mut(|heap| {
+        let table = heap.get_hash_table_mut(table_ref);
+        table.test_name = test_name;
+        if let Some(data) = data_value.and_then(|value| list_to_vec(&value)) {
+            let mut idx = 0_usize;
+            while idx + 1 < data.len() {
+                let key_value = try_convert_nested_compiled_literal(data[idx]);
+                let val_value = try_convert_nested_compiled_literal(data[idx + 1]);
+                let key = key_value.to_hash_key(&table.test);
+                let inserting_new_key = !table.data.contains_key(&key);
+                table.data.insert(key.clone(), val_value);
+                if inserting_new_key {
+                    table.key_snapshots.insert(key.clone(), key_value);
+                    table.insertion_order.push(key);
+                }
+                idx += 2;
+            }
+        }
+    });
+
+    Some(table_value)
+}
+
+fn quote_payload_value(value: Value) -> Option<Value> {
+    let items = list_to_vec(&value)?;
+    if items.len() != 2 {
+        return None;
+    }
+    match items[0].as_symbol_name() {
+        Some("quote") => Some(items[1]),
+        _ => None,
     }
 }
 

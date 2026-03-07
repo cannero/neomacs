@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::value::HashTableTest;
 
 #[test]
 fn string_value_to_bytes_basic() {
@@ -129,6 +130,59 @@ fn decode_discard_n() {
     let mut constants = vec![];
     let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
     assert_eq!(ops, vec![Op::DiscardN(3), Op::Return]);
+}
+
+#[test]
+fn decode_switch_preserves_hash_table_byte_targets() {
+    let table = Value::hash_table(HashTableTest::Eq);
+    let Value::HashTable(table_id) = table else {
+        panic!("expected hash table constant");
+    };
+    crate::emacs_core::value::with_heap_mut(|heap| {
+        let ht = heap.get_hash_table_mut(table_id);
+        let key = Value::symbol("foo").to_hash_key(&ht.test);
+        ht.data.insert(key.clone(), Value::Int(8));
+        ht.key_snapshots.insert(key.clone(), Value::symbol("foo"));
+        ht.insertion_order.push(key);
+    });
+
+    // byte 0: constant key
+    // byte 1: constant switch-table
+    // byte 2: switch
+    // byte 3: goto byte 8
+    // byte 6: constant default
+    // byte 7: return
+    // byte 8: constant target
+    // byte 9: return
+    let bytecodes = vec![193, 192, 183, 130, 8, 0, 194, 135, 195, 135];
+    let mut constants = vec![table, Value::symbol("foo"), Value::Int(10), Value::Int(20)];
+    let (ops, offset_map) =
+        decode_gnu_bytecode_with_offset_map(&bytecodes, &mut constants).unwrap();
+
+    assert_eq!(
+        ops,
+        vec![
+            Op::Constant(1),
+            Op::Constant(0),
+            Op::Switch,
+            Op::Goto(6),
+            Op::Constant(2),
+            Op::Return,
+            Op::Constant(3),
+            Op::Return,
+        ]
+    );
+
+    let raw_target = crate::emacs_core::value::with_heap(|heap| {
+        heap.get_hash_table(table_id)
+            .data
+            .values()
+            .next()
+            .copied()
+            .expect("switch table target")
+    });
+    assert_eq!(raw_target, Value::Int(8));
+    assert_eq!(offset_map.get(&8), Some(&6));
 }
 
 #[test]

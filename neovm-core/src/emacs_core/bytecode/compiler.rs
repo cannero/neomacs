@@ -1428,7 +1428,7 @@ impl Compiler {
 
         // Push handler
         let handler_jump = func.current_offset();
-        self.emit_tracked(func, Op::PushConditionCase(0)); // placeholder
+        self.emit_tracked(func, Op::PushCatch(0)); // placeholder
 
         // Compile body
         self.compile_progn(func, &tail[1..], true);
@@ -1504,9 +1504,21 @@ impl Compiler {
             return;
         }
 
-        // Push handler
-        let handler_jump = func.current_offset();
-        self.emit_tracked(func, Op::PushConditionCase(0)); // placeholder
+        let mut handler_jump = func.current_offset();
+        let mut pushed_raw_handler = false;
+        if let Some(Expr::List(handler_items)) = tail.get(2) {
+            if let Some(pattern) = handler_items.first() {
+                let pattern_idx = func.add_constant(literal_to_value(pattern));
+                self.emit_tracked(func, Op::Constant(pattern_idx));
+                handler_jump = func.current_offset();
+                self.emit_tracked(func, Op::PushConditionCaseRaw(0)); // placeholder
+                pushed_raw_handler = true;
+            }
+        }
+        if !pushed_raw_handler {
+            handler_jump = func.current_offset();
+            self.emit_tracked(func, Op::PushConditionCase(0)); // placeholder
+        }
 
         // Body
         self.compile_expr(func, &tail[1], true);
@@ -1878,6 +1890,7 @@ fn stack_delta(op: &Op) -> i32 {
         Op::Goto(_) => 0,
         Op::GotoIfNil(_) | Op::GotoIfNotNil(_) => -1,
         Op::GotoIfNilElsePop(_) | Op::GotoIfNotNilElsePop(_) => 0, // conditional pop
+        Op::Switch => -2,
         Op::Return => -1,
         // Binary ops: pop 2, push 1
         Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rem => -1,
@@ -1906,7 +1919,8 @@ fn stack_delta(op: &Op) -> i32 {
         Op::SymbolValue | Op::SymbolFunction => 0,
         Op::Set | Op::Fset | Op::Get => -1,
         Op::Put => -2,
-        Op::PushConditionCase(_) | Op::PushConditionCaseRaw(_) => 0,
+        Op::PushConditionCase(_) => 0,
+        Op::PushConditionCaseRaw(_) => -1,
         Op::PushCatch(_) => -1,
         Op::PopHandler => 0,
         Op::UnwindProtect(_) => 0,

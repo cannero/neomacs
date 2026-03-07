@@ -1,11 +1,13 @@
 use super::*;
 use crate::emacs_core::bytecode::compiler::Compiler;
 use crate::emacs_core::parse_forms;
+use crate::emacs_core::value::HashTableTest;
 
 fn vm_eval(src: &str) -> Result<Value, EvalError> {
     let forms = parse_forms(src).expect("parse");
     let mut compiler = Compiler::new(false);
     let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
     // Set up standard variables
     obarray.set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
     obarray.set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
@@ -231,6 +233,122 @@ fn vm_concat() {
         vm_eval_str(r#"(concat "hello" " " "world")"#),
         r#"OK "hello world""#
     );
+}
+
+#[test]
+fn vm_switch_branches_using_hash_table_jump_table() {
+    let table = Value::hash_table(HashTableTest::Eq);
+    let Value::HashTable(table_id) = table else {
+        panic!("expected hash table constant");
+    };
+    crate::emacs_core::value::with_heap_mut(|heap| {
+        let ht = heap.get_hash_table_mut(table_id);
+        let key = Value::symbol("foo").to_hash_key(&ht.test);
+        ht.data.insert(key.clone(), Value::Int(8));
+        ht.key_snapshots.insert(key.clone(), Value::symbol("foo"));
+        ht.insertion_order.push(key);
+    });
+
+    let func = ByteCodeFunction {
+        ops: vec![
+            Op::Constant(1),
+            Op::Constant(0),
+            Op::Switch,
+            Op::Constant(2),
+            Op::Return,
+            Op::Constant(3),
+            Op::Return,
+        ],
+        constants: vec![table, Value::symbol("foo"), Value::Int(10), Value::Int(20)],
+        max_stack: 2,
+        params: crate::emacs_core::value::LambdaParams::simple(vec![]),
+        env: None,
+        gnu_byte_offset_map: Some(std::collections::HashMap::from([(8usize, 5usize)])),
+        docstring: None,
+        doc_form: None,
+    };
+
+    let mut obarray = Obarray::new();
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags: Vec<Value> = Vec::new();
+
+    let mut vm = Vm::new(
+        &mut obarray,
+        &mut dynamic,
+        &mut lexenv,
+        &mut features,
+        &mut buffers,
+        &mut match_data,
+        &mut watchers,
+        &mut catch_tags,
+    );
+    let result = vm.execute(&func, vec![]).expect("vm switch should execute");
+    assert_eq!(result, Value::Int(20));
+}
+
+#[test]
+fn vm_condition_case_catches_signal_and_binds_error() {
+    assert_eq!(
+        vm_eval_str("(condition-case err missing-vm-var (error err))"),
+        "OK (void-variable missing-vm-var)"
+    );
+}
+
+#[test]
+fn vm_catch_returns_thrown_value() {
+    assert_eq!(vm_eval_str("(catch 'done (throw 'done 99))"), "OK 99");
+}
+
+#[test]
+fn vm_throw_restores_saved_stack_before_resuming_catch() {
+    let func = ByteCodeFunction {
+        ops: vec![
+            Op::Constant(0),
+            Op::Constant(1),
+            Op::PushCatch(6),
+            Op::Constant(1),
+            Op::Constant(2),
+            Op::Throw,
+            Op::List(2),
+            Op::Return,
+        ],
+        constants: vec![Value::Int(42), Value::symbol("done"), Value::Int(99)],
+        max_stack: 3,
+        params: crate::emacs_core::value::LambdaParams::simple(vec![]),
+        env: None,
+        gnu_byte_offset_map: None,
+        docstring: None,
+        doc_form: None,
+    };
+
+    let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags: Vec<Value> = Vec::new();
+
+    let mut vm = Vm::new(
+        &mut obarray,
+        &mut dynamic,
+        &mut lexenv,
+        &mut features,
+        &mut buffers,
+        &mut match_data,
+        &mut watchers,
+        &mut catch_tags,
+    );
+
+    let result = vm.execute(&func, vec![]).expect("vm catch should execute");
+    assert_eq!(result, Value::list(vec![Value::Int(42), Value::Int(99)]));
 }
 
 #[test]

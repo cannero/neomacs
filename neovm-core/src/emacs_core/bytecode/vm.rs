@@ -8,6 +8,7 @@ use crate::buffer::BufferManager;
 use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
 use crate::emacs_core::error::*;
+use crate::emacs_core::errors::signal_matches_condition_value;
 use crate::emacs_core::intern::{SymId, intern, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 use crate::emacs_core::string_escape::{storage_char_len, storage_substring};
@@ -19,9 +20,17 @@ use crate::emacs_core::value::*;
 #[allow(dead_code)]
 enum Handler {
     /// catch: tag value, jump target.
-    Catch { tag: Value, target: u32 },
+    Catch {
+        tag: Value,
+        target: u32,
+        stack_len: usize,
+    },
     /// condition-case: handler patterns, jump target.
-    ConditionCase { target: u32 },
+    ConditionCase {
+        conditions: Value,
+        target: u32,
+        stack_len: usize,
+    },
     /// unwind-protect: cleanup target.
     UnwindProtect { target: u32 },
     /// GNU-style unwind-protect: cleanup function popped from TOS.
@@ -256,6 +265,18 @@ impl<'a> Vm<'a> {
         let ops = &func.ops;
         let constants = &func.constants;
 
+        macro_rules! vm_try {
+            ($expr:expr) => {{
+                match $expr {
+                    Ok(value) => value,
+                    Err(flow) => {
+                        self.resume_nonlocal(func, stack, pc, handlers, flow)?;
+                        continue;
+                    }
+                }
+            }};
+        }
+
         while *pc < ops.len() {
             let op = &ops[*pc];
             *pc += 1;
@@ -313,13 +334,13 @@ impl<'a> Vm<'a> {
                 // -- Variable access --
                 Op::VarRef(idx) => {
                     let name = sym_name(constants, *idx);
-                    let val = self.lookup_var(&name)?;
+                    let val = vm_try!(self.lookup_var(&name));
                     stack.push(val);
                 }
                 Op::VarSet(idx) => {
                     let name = sym_name(constants, *idx);
                     let val = stack.pop().unwrap_or(Value::Nil);
-                    self.assign_var(&name, val)?;
+                    vm_try!(self.assign_var(&name, val));
                 }
                 Op::VarBind(idx) => {
                     let name = sym_name(constants, *idx);
@@ -329,11 +350,11 @@ impl<'a> Vm<'a> {
                     frame.insert(intern(&name), val);
                     self.dynamic.push(frame);
                     unbind_watch.push((name.clone(), old_value));
-                    self.run_variable_watchers(&name, &val, &Value::Nil, "let")?;
+                    vm_try!(self.run_variable_watchers(&name, &val, &Value::Nil, "let"));
                     *bind_count += 1;
                 }
                 Op::Unbind(n) => {
-                    self.cleanup_varbind_unwind_n(*n as usize, bind_count, unbind_watch)?;
+                    vm_try!(self.cleanup_varbind_unwind_n(*n as usize, bind_count, unbind_watch));
                 }
 
                 // -- Function calls --
@@ -344,52 +365,24 @@ impl<'a> Vm<'a> {
                     let func_val = stack.pop().unwrap_or(Value::Nil);
                     let writeback_names = self.writeback_callable_names(&func_val);
                     let writeback_args = args.clone();
-                    match self.call_function(func_val, args) {
-                        Ok(result) => {
-                            if let Some((called_name, alias_target)) = writeback_names.as_ref() {
-                                self.maybe_writeback_mutating_first_arg(
-                                    called_name,
-                                    alias_target.as_deref(),
-                                    &writeback_args,
-                                    &result,
-                                    stack,
-                                );
-                            }
-                            stack.push(result);
-                        }
-                        Err(Flow::Throw { tag, value }) => {
-                            if let Some(res) =
-                                resolve_throw_target(handlers, &mut self.catch_tags, &tag)
-                            {
-                                self.run_throw_cleanups(&res.cleanups);
-                                stack.push(value);
-                                *pc = res.target as usize;
-                                continue;
-                            }
-                            return Err(Flow::Throw { tag, value });
-                        }
-                        Err(flow) => return Err(flow),
+                    let result = vm_try!(self.call_function(func_val, args));
+                    if let Some((called_name, alias_target)) = writeback_names.as_ref() {
+                        self.maybe_writeback_mutating_first_arg(
+                            called_name,
+                            alias_target.as_deref(),
+                            &writeback_args,
+                            &result,
+                            stack,
+                        );
                     }
+                    stack.push(result);
                 }
                 Op::Apply(n) => {
                     let n = *n as usize;
                     if n == 0 {
                         let func_val = stack.pop().unwrap_or(Value::Nil);
-                        match self.call_function(func_val, vec![]) {
-                            Ok(result) => stack.push(result),
-                            Err(Flow::Throw { tag, value }) => {
-                                if let Some(res) =
-                                    resolve_throw_target(handlers, &mut self.catch_tags, &tag)
-                                {
-                                    self.run_throw_cleanups(&res.cleanups);
-                                    stack.push(value);
-                                    *pc = res.target as usize;
-                                    continue;
-                                }
-                                return Err(Flow::Throw { tag, value });
-                            }
-                            Err(flow) => return Err(flow),
-                        }
+                        let result = vm_try!(self.call_function(func_val, vec![]));
+                        stack.push(result);
                     } else {
                         let args_start = stack.len().saturating_sub(n);
                         let mut args: Vec<Value> = stack.drain(args_start..).collect();
@@ -401,33 +394,17 @@ impl<'a> Vm<'a> {
                         }
                         let writeback_names = self.writeback_callable_names(&func_val);
                         let writeback_args = args.clone();
-                        match self.call_function(func_val, args) {
-                            Ok(result) => {
-                                if let Some((called_name, alias_target)) = writeback_names.as_ref()
-                                {
-                                    self.maybe_writeback_mutating_first_arg(
-                                        called_name,
-                                        alias_target.as_deref(),
-                                        &writeback_args,
-                                        &result,
-                                        stack,
-                                    );
-                                }
-                                stack.push(result);
-                            }
-                            Err(Flow::Throw { tag, value }) => {
-                                if let Some(res) =
-                                    resolve_throw_target(handlers, &mut self.catch_tags, &tag)
-                                {
-                                    self.run_throw_cleanups(&res.cleanups);
-                                    stack.push(value);
-                                    *pc = res.target as usize;
-                                    continue;
-                                }
-                                return Err(Flow::Throw { tag, value });
-                            }
-                            Err(flow) => return Err(flow),
+                        let result = vm_try!(self.call_function(func_val, args));
+                        if let Some((called_name, alias_target)) = writeback_names.as_ref() {
+                            self.maybe_writeback_mutating_first_arg(
+                                called_name,
+                                alias_target.as_deref(),
+                                &writeback_args,
+                                &result,
+                                stack,
+                            );
                         }
+                        stack.push(result);
                     }
                 }
 
@@ -461,6 +438,46 @@ impl<'a> Vm<'a> {
                         stack.pop();
                     }
                 }
+                Op::Switch => {
+                    let jump_table = stack.pop().unwrap_or(Value::Nil);
+                    let dispatch = stack.pop().unwrap_or(Value::Nil);
+
+                    let table_id = match jump_table {
+                        Value::HashTable(table_id) => table_id,
+                        other => {
+                            self.resume_nonlocal(
+                                func,
+                                stack,
+                                pc,
+                                handlers,
+                                signal(
+                                    "wrong-type-argument",
+                                    vec![Value::symbol("hash-table-p"), other],
+                                ),
+                            )?;
+                            continue;
+                        }
+                    };
+
+                    let target = with_heap(|heap| {
+                        let table = heap.get_hash_table(table_id);
+                        let key = dispatch.to_hash_key(&table.test);
+                        table.data.get(&key).copied()
+                    });
+
+                    match target {
+                        Some(Value::Int(addr)) => {
+                            *pc = vm_try!(resolve_switch_target(func, addr));
+                        }
+                        Some(other) => {
+                            vm_try!(Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("integerp"), other],
+                            )));
+                        }
+                        None => {}
+                    }
+                }
                 Op::Return => {
                     return Ok(stack.pop().unwrap_or(Value::Nil));
                 }
@@ -469,87 +486,87 @@ impl<'a> Vm<'a> {
                 Op::Add => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(arith_add(&a, &b)?);
+                    stack.push(vm_try!(arith_add(&a, &b)));
                 }
                 Op::Sub => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(arith_sub(&a, &b)?);
+                    stack.push(vm_try!(arith_sub(&a, &b)));
                 }
                 Op::Mul => {
                     let b = stack.pop().unwrap_or(Value::Int(1));
                     let a = stack.pop().unwrap_or(Value::Int(1));
-                    stack.push(arith_mul(&a, &b)?);
+                    stack.push(vm_try!(arith_mul(&a, &b)));
                 }
                 Op::Div => {
                     let b = stack.pop().unwrap_or(Value::Int(1));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(arith_div(&a, &b)?);
+                    stack.push(vm_try!(arith_div(&a, &b)));
                 }
                 Op::Rem => {
                     let b = stack.pop().unwrap_or(Value::Int(1));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(arith_rem(&a, &b)?);
+                    stack.push(vm_try!(arith_rem(&a, &b)));
                 }
                 Op::Add1 => {
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(arith_add1(&a)?);
+                    stack.push(vm_try!(arith_add1(&a)));
                 }
                 Op::Sub1 => {
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(arith_sub1(&a)?);
+                    stack.push(vm_try!(arith_sub1(&a)));
                 }
                 Op::Negate => {
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(arith_negate(&a)?);
+                    stack.push(vm_try!(arith_negate(&a)));
                 }
 
                 // -- Comparison --
                 Op::Eqlsign => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(num_eq(&a, &b)?));
+                    stack.push(Value::bool(vm_try!(num_eq(&a, &b))));
                 }
                 Op::Gtr => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(num_cmp(&a, &b)? > 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) > 0));
                 }
                 Op::Lss => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(num_cmp(&a, &b)? < 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) < 0));
                 }
                 Op::Leq => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(num_cmp(&a, &b)? <= 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) <= 0));
                 }
                 Op::Geq => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(num_cmp(&a, &b)? >= 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) >= 0));
                 }
                 Op::Max => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(if num_cmp(&a, &b)? >= 0 { a } else { b });
+                    stack.push(if vm_try!(num_cmp(&a, &b)) >= 0 { a } else { b });
                 }
                 Op::Min => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(if num_cmp(&a, &b)? <= 0 { a } else { b });
+                    stack.push(if vm_try!(num_cmp(&a, &b)) <= 0 { a } else { b });
                 }
 
                 // -- List operations --
                 Op::Car => {
                     let val = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("car", vec![val])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("car", vec![val]));
                     stack.push(result);
                 }
                 Op::Cdr => {
                     let val = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("cdr", vec![val])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("cdr", vec![val]));
                     stack.push(result);
                 }
                 Op::CarSafe => {
@@ -605,24 +622,24 @@ impl<'a> Vm<'a> {
                 }
                 Op::Length => {
                     let val = stack.pop().unwrap_or(Value::Nil);
-                    stack.push(length_value(&val)?);
+                    stack.push(vm_try!(length_value(&val)));
                 }
                 Op::Nth => {
                     let list = stack.pop().unwrap_or(Value::Nil);
                     let n = stack.pop().unwrap_or(Value::Int(0));
-                    let result = self.dispatch_vm_builtin("nth", vec![n, list])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("nth", vec![n, list]));
                     stack.push(result);
                 }
                 Op::Nthcdr => {
                     let list = stack.pop().unwrap_or(Value::Nil);
                     let n = stack.pop().unwrap_or(Value::Int(0));
-                    let result = self.dispatch_vm_builtin("nthcdr", vec![n, list])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("nthcdr", vec![n, list]));
                     stack.push(result);
                 }
                 Op::Elt => {
                     let idx = stack.pop().unwrap_or(Value::Nil);
                     let seq = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("elt", vec![seq, idx])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("elt", vec![seq, idx]));
                     stack.push(result);
                 }
                 Op::Setcar => {
@@ -632,10 +649,10 @@ impl<'a> Vm<'a> {
                         with_heap_mut(|h| h.set_car(*c, newcar));
                         stack.push(newcar);
                     } else {
-                        return Err(signal(
+                        vm_try!(Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("consp"), cell],
-                        ));
+                        )));
                     }
                 }
                 Op::Setcdr => {
@@ -645,39 +662,39 @@ impl<'a> Vm<'a> {
                         with_heap_mut(|h| h.set_cdr(*c, newcdr));
                         stack.push(newcdr);
                     } else {
-                        return Err(signal(
+                        vm_try!(Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("consp"), cell],
-                        ));
+                        )));
                     }
                 }
                 Op::Nconc => {
                     let b = stack.pop().unwrap_or(Value::Nil);
                     let a = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("nconc", vec![a, b])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("nconc", vec![a, b]));
                     stack.push(result);
                 }
                 Op::Nreverse => {
                     let list = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("nreverse", vec![list])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("nreverse", vec![list]));
                     stack.push(result);
                 }
                 Op::Member => {
                     let list = stack.pop().unwrap_or(Value::Nil);
                     let elt = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("member", vec![elt, list])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("member", vec![elt, list]));
                     stack.push(result);
                 }
                 Op::Memq => {
                     let list = stack.pop().unwrap_or(Value::Nil);
                     let elt = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("memq", vec![elt, list])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("memq", vec![elt, list]));
                     stack.push(result);
                 }
                 Op::Assq => {
                     let alist = stack.pop().unwrap_or(Value::Nil);
                     let key = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("assq", vec![key, alist])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("assq", vec![key, alist]));
                     stack.push(result);
                 }
 
@@ -726,26 +743,26 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let start = stack.len().saturating_sub(n);
                     let parts: Vec<Value> = stack.drain(start..).collect();
-                    let result = self.dispatch_vm_builtin("concat", parts)?;
+                    let result = vm_try!(self.dispatch_vm_builtin("concat", parts));
                     stack.push(result);
                 }
                 Op::Substring => {
                     let to = stack.pop().unwrap_or(Value::Nil);
                     let from = stack.pop().unwrap_or(Value::Int(0));
                     let array = stack.pop().unwrap_or(Value::Nil);
-                    let result = substring_value(&array, &from, &to)?;
+                    let result = vm_try!(substring_value(&array, &from, &to));
                     stack.push(result);
                 }
                 Op::StringEqual => {
                     let b = stack.pop().unwrap_or(Value::Nil);
                     let a = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("string=", vec![a, b])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("string=", vec![a, b]));
                     stack.push(result);
                 }
                 Op::StringLessp => {
                     let b = stack.pop().unwrap_or(Value::Nil);
                     let a = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("string-lessp", vec![a, b])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("string-lessp", vec![a, b]));
                     stack.push(result);
                 }
 
@@ -753,7 +770,7 @@ impl<'a> Vm<'a> {
                 Op::Aref => {
                     let idx_val = stack.pop().unwrap_or(Value::Int(0));
                     let vec_val = stack.pop().unwrap_or(Value::Nil);
-                    let result = builtins::builtin_aref(vec![vec_val, idx_val])?;
+                    let result = vm_try!(builtins::builtin_aref(vec![vec_val, idx_val]));
                     stack.push(result);
                 }
                 Op::Aset => {
@@ -761,7 +778,7 @@ impl<'a> Vm<'a> {
                     let idx_val = stack.pop().unwrap_or(Value::Int(0));
                     let vec_val = stack.pop().unwrap_or(Value::Nil);
                     let call_args = vec![vec_val, idx_val, val];
-                    let result = builtins::builtin_aset(call_args.clone())?;
+                    let result = vm_try!(builtins::builtin_aset(call_args.clone()));
                     self.maybe_writeback_mutating_first_arg(
                         "aset", None, &call_args, &result, stack,
                     );
@@ -771,54 +788,63 @@ impl<'a> Vm<'a> {
                 // -- Symbol operations --
                 Op::SymbolValue => {
                     let sym = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("symbol-value", vec![sym])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("symbol-value", vec![sym]));
                     stack.push(result);
                 }
                 Op::SymbolFunction => {
                     let sym = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("symbol-function", vec![sym])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("symbol-function", vec![sym]));
                     stack.push(result);
                 }
                 Op::Set => {
                     let val = stack.pop().unwrap_or(Value::Nil);
                     let sym = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("set", vec![sym, val])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("set", vec![sym, val]));
                     stack.push(result);
                 }
                 Op::Fset => {
                     let val = stack.pop().unwrap_or(Value::Nil);
                     let sym = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("fset", vec![sym, val])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("fset", vec![sym, val]));
                     stack.push(result);
                 }
                 Op::Get => {
                     let prop = stack.pop().unwrap_or(Value::Nil);
                     let sym = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("get", vec![sym, prop])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("get", vec![sym, prop]));
                     stack.push(result);
                 }
                 Op::Put => {
                     let val = stack.pop().unwrap_or(Value::Nil);
                     let prop = stack.pop().unwrap_or(Value::Nil);
                     let sym = stack.pop().unwrap_or(Value::Nil);
-                    let result = self.dispatch_vm_builtin("put", vec![sym, prop, val])?;
+                    let result = vm_try!(self.dispatch_vm_builtin("put", vec![sym, prop, val]));
                     stack.push(result);
                 }
 
                 // -- Error handling --
                 Op::PushConditionCase(target) => {
-                    handlers.push(Handler::ConditionCase { target: *target });
+                    handlers.push(Handler::ConditionCase {
+                        conditions: Value::symbol("error"),
+                        target: *target,
+                        stack_len: stack.len(),
+                    });
                 }
                 Op::PushConditionCaseRaw(target) => {
                     // GNU bytecode consumes the handler pattern operand from TOS.
-                    stack.pop();
-                    handlers.push(Handler::ConditionCase { target: *target });
+                    let conditions = stack.pop().unwrap_or(Value::Nil);
+                    handlers.push(Handler::ConditionCase {
+                        conditions,
+                        target: *target,
+                        stack_len: stack.len(),
+                    });
                 }
                 Op::PushCatch(target) => {
                     let tag = stack.pop().unwrap_or(Value::Nil);
                     handlers.push(Handler::Catch {
                         tag,
                         target: *target,
+                        stack_len: stack.len(),
                     });
                     // Register in evaluator so sf_throw / nested VM throws can
                     // see this catch tag when deciding throw vs no-catch.
@@ -833,23 +859,7 @@ impl<'a> Vm<'a> {
                             }
                             Handler::UnwindProtectFn { cleanup } => {
                                 // GNU-style: call the cleanup function.
-                                match self.call_function(cleanup, vec![]) {
-                                    Ok(_) => {}
-                                    Err(Flow::Throw { tag, value }) => {
-                                        if let Some(res) = resolve_throw_target(
-                                            handlers,
-                                            &mut self.catch_tags,
-                                            &tag,
-                                        ) {
-                                            self.run_throw_cleanups(&res.cleanups);
-                                            stack.push(value);
-                                            *pc = res.target as usize;
-                                            continue;
-                                        }
-                                        return Err(Flow::Throw { tag, value });
-                                    }
-                                    Err(flow) => return Err(flow),
-                                }
+                                let _ = vm_try!(self.call_function(cleanup, vec![]));
                             }
                             _ => {}
                         }
@@ -865,20 +875,14 @@ impl<'a> Vm<'a> {
                 Op::Throw => {
                     let val = stack.pop().unwrap_or(Value::Nil);
                     let tag = stack.pop().unwrap_or(Value::Nil);
-                    if let Some(res) = resolve_throw_target(handlers, &mut self.catch_tags, &tag) {
-                        self.run_throw_cleanups(&res.cleanups);
-                        stack.push(val);
-                        *pc = res.target as usize;
-                        continue;
-                    }
-                    // No matching catch in VM handler stack.  Check evaluator
-                    // catch_tags (catches established by the interpreter above us).
-                    // If found → Flow::Throw (will be caught by sf_catch).
-                    // If not → signal no-catch immediately (GNU Emacs semantics).
-                    if !tag.is_nil() && self.catch_tags.iter().rev().any(|t| eq_value(t, &tag)) {
-                        return Err(Flow::Throw { tag, value: val });
-                    }
-                    return Err(signal("no-catch", vec![tag, val]));
+                    self.resume_nonlocal(
+                        func,
+                        stack,
+                        pc,
+                        handlers,
+                        Flow::Throw { tag, value: val },
+                    )?;
+                    continue;
                 }
 
                 // -- Closure --
@@ -900,7 +904,7 @@ impl<'a> Vm<'a> {
                     let args_start = stack.len().saturating_sub(n);
                     let args: Vec<Value> = stack.drain(args_start..).collect();
                     let writeback_args = args.clone();
-                    let result = self.dispatch_vm_builtin(&name, args)?;
+                    let result = vm_try!(self.dispatch_vm_builtin(&name, args));
                     self.maybe_writeback_mutating_first_arg(
                         &name,
                         None,
@@ -1302,10 +1306,57 @@ impl<'a> Vm<'a> {
         merge_result_with_cleanup(result, cleanup)
     }
 
-    /// Run cleanup functions collected during throw resolution.
-    fn run_throw_cleanups(&mut self, cleanups: &[Value]) {
+    /// Run cleanup functions collected during non-local resolution.
+    fn run_unwind_cleanups(&mut self, cleanups: &[Value]) -> Result<(), Flow> {
         for cleanup in cleanups {
-            let _ = self.call_function(*cleanup, vec![]);
+            self.call_function(*cleanup, vec![])?;
+        }
+        Ok(())
+    }
+
+    fn resume_nonlocal(
+        &mut self,
+        _func: &ByteCodeFunction,
+        stack: &mut Vec<Value>,
+        pc: &mut usize,
+        handlers: &mut Vec<Handler>,
+        flow: Flow,
+    ) -> Result<(), Flow> {
+        match flow {
+            Flow::Throw { tag, value } => {
+                if let Some(res) = resolve_throw_target(handlers, &mut self.catch_tags, &tag) {
+                    if let Err(cleanup_flow) = self.run_unwind_cleanups(&res.cleanups) {
+                        return self.resume_nonlocal(_func, stack, pc, handlers, cleanup_flow);
+                    }
+                    stack.truncate(res.stack_len);
+                    stack.push(value);
+                    *pc = res.target as usize;
+                    return Ok(());
+                }
+
+                // No matching catch in VM handler stack. Check evaluator
+                // catch_tags (catches established by the interpreter above us).
+                // If found -> Flow::Throw (will be caught by sf_catch).
+                // If not -> signal no-catch immediately (GNU Emacs semantics).
+                if !tag.is_nil() && self.catch_tags.iter().rev().any(|t| eq_value(t, &tag)) {
+                    return Err(Flow::Throw { tag, value });
+                }
+                Err(signal("no-catch", vec![tag, value]))
+            }
+            Flow::Signal(sig) => {
+                if let Some(res) =
+                    resolve_signal_target(handlers, &mut self.catch_tags, self.obarray, &sig)
+                {
+                    if let Err(cleanup_flow) = self.run_unwind_cleanups(&res.cleanups) {
+                        return self.resume_nonlocal(_func, stack, pc, handlers, cleanup_flow);
+                    }
+                    stack.truncate(res.stack_len);
+                    stack.push(make_signal_binding_value(&sig));
+                    *pc = res.target as usize;
+                    return Ok(());
+                }
+                Err(Flow::Signal(sig))
+            }
         }
     }
 
@@ -1514,6 +1565,13 @@ fn merge_result_with_cleanup(result: EvalResult, cleanup: Result<(), Flow>) -> E
 /// from `UnwindProtectFn` handlers that were unwound through.
 struct ThrowResolution {
     target: u32,
+    stack_len: usize,
+    cleanups: Vec<Value>,
+}
+
+struct SignalResolution {
+    target: u32,
+    stack_len: usize,
     cleanups: Vec<Value>,
 }
 
@@ -1528,17 +1586,54 @@ fn resolve_throw_target(
             Handler::Catch {
                 tag: catch_tag,
                 target,
+                stack_len,
             } => {
                 // Remove from evaluator catch_tags registry (this catch is being unwound).
                 catch_tags.pop();
                 if !tag.is_nil() && eq_value(&catch_tag, tag) {
-                    return Some(ThrowResolution { target, cleanups });
+                    return Some(ThrowResolution {
+                        target,
+                        stack_len,
+                        cleanups,
+                    });
                 }
             }
             Handler::UnwindProtectFn { cleanup } => {
                 cleanups.push(cleanup);
             }
             _ => {}
+        }
+    }
+    None
+}
+
+fn resolve_signal_target(
+    handlers: &mut Vec<Handler>,
+    catch_tags: &mut Vec<Value>,
+    obarray: &Obarray,
+    sig: &SignalData,
+) -> Option<SignalResolution> {
+    let mut cleanups = Vec::new();
+    while let Some(handler) = handlers.pop() {
+        match handler {
+            Handler::Catch { .. } => {
+                catch_tags.pop();
+            }
+            Handler::ConditionCase {
+                conditions,
+                target,
+                stack_len,
+            } => {
+                if signal_matches_condition_value(obarray, sig.symbol_name(), &conditions) {
+                    return Some(SignalResolution {
+                        target,
+                        stack_len,
+                        cleanups,
+                    });
+                }
+            }
+            Handler::UnwindProtectFn { cleanup } => cleanups.push(cleanup),
+            Handler::UnwindProtect { .. } => {}
         }
     }
     None
@@ -1837,6 +1932,32 @@ fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
             Ok(Value::vector(data[start..end].to_vec()))
         }
         _ => unreachable!(),
+    }
+}
+
+fn resolve_switch_target(func: &ByteCodeFunction, raw_addr: i64) -> Result<usize, Flow> {
+    let raw_addr = usize::try_from(raw_addr).map_err(|_| {
+        signal(
+            "error",
+            vec![Value::string(format!(
+                "invalid GNU switch target byte offset {}",
+                raw_addr
+            ))],
+        )
+    })?;
+
+    if let Some(offset_map) = &func.gnu_byte_offset_map {
+        offset_map.get(&raw_addr).copied().ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string(format!(
+                    "invalid GNU switch target byte offset {}",
+                    raw_addr
+                ))],
+            )
+        })
+    } else {
+        Ok(raw_addr)
     }
 }
 

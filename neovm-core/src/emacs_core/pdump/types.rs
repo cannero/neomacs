@@ -93,6 +93,7 @@ pub struct DumpByteCodeFunction {
     pub max_stack: u16,
     pub params: DumpLambdaParams,
     pub env: Option<DumpValue>,
+    pub gnu_byte_offset_map: Option<Vec<(u32, u32)>>,
     pub docstring: Option<String>,
     pub doc_form: Option<DumpValue>,
 }
@@ -122,6 +123,7 @@ pub enum DumpOp {
     GotoIfNotNil(u32),
     GotoIfNilElsePop(u32),
     GotoIfNotNilElsePop(u32),
+    Switch,
     Return,
     Add,
     Sub,

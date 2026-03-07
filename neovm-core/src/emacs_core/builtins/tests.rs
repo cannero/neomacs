@@ -4199,6 +4199,43 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
         make_byte_code
     );
 
+    let hash_literal = Value::list(vec![
+        Value::symbol("make-hash-table-from-literal"),
+        Value::list(vec![
+            Value::symbol("quote"),
+            Value::list(vec![
+                Value::symbol("hash-table"),
+                Value::symbol("test"),
+                Value::symbol("eq"),
+                Value::symbol("data"),
+                Value::list(vec![Value::symbol("foo"), Value::Int(42)]),
+            ]),
+        ]),
+    ]);
+    let make_byte_code_with_hash = dispatch_builtin_pure(
+        "make-byte-code",
+        vec![
+            Value::Int(0),
+            Value::string("\u{00C0}\u{0087}"),
+            Value::vector(vec![hash_literal]),
+            Value::Int(1),
+        ],
+    )
+    .expect("builtin make-byte-code with hash literal should resolve")
+    .expect("builtin make-byte-code with hash literal should evaluate");
+    let bc = make_byte_code_with_hash
+        .get_bytecode_data()
+        .expect("make-byte-code should produce bytecode data");
+    let Value::HashTable(table_id) = bc.constants[0] else {
+        panic!("expected hash-table constant, got {:?}", bc.constants[0]);
+    };
+    let entry = with_heap(|heap| {
+        let table = heap.get_hash_table(table_id);
+        let key = Value::symbol("foo").to_hash_key(&table.test);
+        table.data.get(&key).copied()
+    });
+    assert_eq!(entry, Some(Value::Int(42)));
+
     let make_char = dispatch_builtin_pure("make-char", vec![Value::Int(1)])
         .expect("builtin make-char should resolve")
         .expect("builtin make-char should evaluate");
@@ -4952,13 +4989,14 @@ fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() 
 
 #[test]
 fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders() {
-    let define = dispatch_builtin_pure(
-        "internal--define-uninitialized-variable",
-        vec![Value::symbol("neo-var"), Value::Nil],
-    )
-    .expect("internal--define-uninitialized-variable should resolve")
-    .expect("internal--define-uninitialized-variable should evaluate");
-    assert_eq!(define, Value::Nil);
+    assert!(
+        dispatch_builtin_pure(
+            "internal--define-uninitialized-variable",
+            vec![Value::symbol("neo-var"), Value::Nil],
+        )
+        .is_none(),
+        "internal--define-uninitialized-variable should require evaluator context"
+    );
 
     let narrow = dispatch_builtin_pure(
         "internal--labeled-narrow-to-region",
@@ -4985,6 +5023,26 @@ fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders
     .expect("internal--set-buffer-modified-tick should resolve")
     .expect("internal--set-buffer-modified-tick should evaluate");
     assert_eq!(tick, Value::Nil);
+}
+
+#[test]
+fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let result = dispatch_builtin(
+        &mut eval,
+        "internal--define-uninitialized-variable",
+        vec![Value::symbol("neo-var"), Value::string("Neo doc")],
+    )
+    .expect("internal--define-uninitialized-variable should resolve")
+    .expect("internal--define-uninitialized-variable should evaluate");
+    assert_eq!(result, Value::Nil);
+    assert!(eval.obarray().is_special("neo-var"));
+    assert_eq!(
+        eval.obarray()
+            .get_property("neo-var", "variable-documentation")
+            .copied(),
+        Some(Value::string("Neo doc"))
+    );
 }
 
 #[test]
