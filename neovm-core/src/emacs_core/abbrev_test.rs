@@ -246,11 +246,12 @@ fn test_define_abbrev_and_lookup() {
     let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
 
     // Define an abbreviation
-    builtin_define_abbrev(
+    let defined = builtin_define_abbrev(
         &mut eval,
         vec![table, Value::string("btw"), Value::string("by the way")],
     )
     .unwrap();
+    assert_eq!(defined.as_str(), Some("btw"));
 
     // Look up via abbrev-expansion
     let result = builtin_abbrev_expansion(&mut eval, vec![Value::string("btw"), table]).unwrap();
@@ -311,11 +312,12 @@ fn test_abbrev_get_put() {
     let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
 
     // Define an abbreviation
-    let sym = builtin_define_abbrev(
+    builtin_define_abbrev(
         &mut eval,
         vec![table, Value::string("hw"), Value::string("hello world")],
     )
     .unwrap();
+    let sym = builtin_abbrev_symbol(&mut eval, vec![Value::string("hw"), table]).unwrap();
 
     // abbrev-get :count should be 0
     let count = builtin_abbrev_get(&mut eval, vec![sym, Value::keyword(":count")]).unwrap();
@@ -376,6 +378,54 @@ fn test_define_abbrev_table_and_lookup() {
     let table = eval.obarray().symbol_value("test-table").cloned().unwrap();
     let result = builtin_abbrev_table_p(&mut eval, vec![table]).unwrap();
     assert!(result.is_truthy());
+}
+
+#[test]
+fn test_abbrev_tables_do_not_share_symbol_cells() {
+    use super::super::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+    let table_a = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
+    let table_b = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
+
+    builtin_define_abbrev(
+        &mut eval,
+        vec![table_a, Value::string("dup"), Value::string("first table")],
+    )
+    .unwrap();
+    builtin_define_abbrev(
+        &mut eval,
+        vec![table_b, Value::string("dup"), Value::string("second table")],
+    )
+    .unwrap();
+
+    let a = builtin_abbrev_expansion(&mut eval, vec![Value::string("dup"), table_a]).unwrap();
+    let b = builtin_abbrev_expansion(&mut eval, vec![Value::string("dup"), table_b]).unwrap();
+    assert_eq!(a.as_str(), Some("first table"));
+    assert_eq!(b.as_str(), Some("second table"));
+}
+
+#[test]
+fn test_abbrev_table_properties_are_table_local() {
+    use super::super::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+    let table_a = builtin_make_abbrev_table(
+        &mut eval,
+        vec![Value::list(vec![
+            Value::keyword(":case-fixed"),
+            Value::True,
+        ])],
+    )
+    .unwrap();
+    let table_b = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
+
+    let a =
+        builtin_abbrev_table_get(&mut eval, vec![table_a, Value::keyword(":case-fixed")]).unwrap();
+    let b =
+        builtin_abbrev_table_get(&mut eval, vec![table_b, Value::keyword(":case-fixed")]).unwrap();
+    assert!(a.is_truthy());
+    assert!(b.is_nil());
 }
 
 #[test]

@@ -156,17 +156,11 @@ pub(crate) fn builtin_boundp(eval: &mut super::eval::Evaluator, args: Vec<Value>
 }
 
 pub(crate) fn builtin_obarrayp_eval(
-    eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("obarrayp", &args, 1)?;
-    let current_obarray = eval
-        .obarray()
-        .symbol_value("neovm--obarray-object")
-        .or_else(|| eval.obarray().symbol_value("obarray"));
-    Ok(Value::bool(
-        current_obarray.is_some_and(|obarray| eq_value(obarray, &args[0])),
-    ))
+    Ok(Value::bool(expect_obarray_vector_id(&args[0]).is_ok()))
 }
 
 pub(crate) fn builtin_special_variable_p(
