@@ -2161,7 +2161,8 @@ impl WgpuRenderer {
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
         let bg_color = Color::new(bg.0, bg.1, bg.2, 1.0).srgb_to_linear();
-        let active_bg_color = Color::new(active_bg.0, active_bg.1, active_bg.2, 1.0).srgb_to_linear();
+        let active_bg_color =
+            Color::new(active_bg.0, active_bg.1, active_bg.2, 1.0).srgb_to_linear();
         let padding_x = 8.0_f32;
         let tab_padding = 12.0_f32;
         let font_size = glyph_atlas.default_font_size();

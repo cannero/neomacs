@@ -365,11 +365,7 @@ impl RenderApp {
                 active_bg_g,
                 active_bg_b,
             } => {
-                tracing::debug!(
-                    "SetTabBar: {} items, height={}",
-                    items.len(),
-                    height,
-                );
+                tracing::debug!("SetTabBar: {} items, height={}", items.len(), height,);
                 self.tab_bar_items = items;
                 self.tab_bar_height = height;
                 self.tab_bar_fg = (fg_r, fg_g, fg_b);

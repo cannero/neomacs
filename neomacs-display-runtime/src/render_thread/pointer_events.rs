@@ -451,9 +451,7 @@ impl RenderApp {
 
         if self.tab_bar_height > 0.0 {
             let old_hover = self.tab_bar_hovered;
-            if ly >= self.menu_bar_height
-                && ly < self.menu_bar_height + self.tab_bar_height
-            {
+            if ly >= self.menu_bar_height && ly < self.menu_bar_height + self.tab_bar_height {
                 self.tab_bar_hovered = self.tab_bar_hit_test(lx, ly);
             } else {
                 self.tab_bar_hovered = None;

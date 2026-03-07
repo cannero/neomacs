@@ -81,33 +81,65 @@ pub enum InputEvent {
     },
     /// WebKit view title changed
     #[cfg(feature = "wpe-webkit")]
-    WebKitTitleChanged { id: u32, title: String },
+    WebKitTitleChanged {
+        id: u32,
+        title: String,
+    },
     /// WebKit view URL changed
     #[cfg(feature = "wpe-webkit")]
-    WebKitUrlChanged { id: u32, url: String },
+    WebKitUrlChanged {
+        id: u32,
+        url: String,
+    },
     /// WebKit view load progress changed
     #[cfg(feature = "wpe-webkit")]
-    WebKitProgressChanged { id: u32, progress: f64 },
+    WebKitProgressChanged {
+        id: u32,
+        progress: f64,
+    },
     /// WebKit view finished loading
     #[cfg(feature = "wpe-webkit")]
-    WebKitLoadFinished { id: u32 },
+    WebKitLoadFinished {
+        id: u32,
+    },
     /// Image dimensions ready (sent after async image load)
-    ImageDimensionsReady { id: u32, width: u32, height: u32 },
+    ImageDimensionsReady {
+        id: u32,
+        width: u32,
+        height: u32,
+    },
     /// Terminal child process exited
     #[cfg(feature = "neo-term")]
-    TerminalExited { id: u32 },
+    TerminalExited {
+        id: u32,
+    },
     /// Terminal title changed
     #[cfg(feature = "neo-term")]
-    TerminalTitleChanged { id: u32, title: String },
+    TerminalTitleChanged {
+        id: u32,
+        title: String,
+    },
     /// Popup menu selection made (index into menu items, -1 = cancelled)
-    MenuSelection { index: i32 },
+    MenuSelection {
+        index: i32,
+    },
     /// File(s) dropped onto the window
-    FileDrop { paths: Vec<String>, x: f32, y: f32 },
+    FileDrop {
+        paths: Vec<String>,
+        x: f32,
+        y: f32,
+    },
     /// Toolbar button clicked (index into toolbar items)
-    ToolBarClick { index: i32 },
-    TabBarClick { index: i32 },
+    ToolBarClick {
+        index: i32,
+    },
+    TabBarClick {
+        index: i32,
+    },
     /// Menu bar item clicked (index into menu bar items)
-    MenuBarClick { index: i32 },
+    MenuBarClick {
+        index: i32,
+    },
 }
 
 /// Wrapper for effect update closures that implements Debug.

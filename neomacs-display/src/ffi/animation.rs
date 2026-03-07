@@ -1552,22 +1552,19 @@ pub unsafe extern "C" fn neomacs_display_tab_bar_end(
     let active_bg_b = (active_bg_color & 0xFF) as f32 / 255.0;
 
     if let Some(ref state) = THREADED_STATE {
-        let _ = state
-            .emacs_comms
-            .cmd_tx
-            .try_send(RenderCommand::SetTabBar {
-                items,
-                height,
-                fg_r,
-                fg_g,
-                fg_b,
-                bg_r,
-                bg_g,
-                bg_b,
-                active_bg_r,
-                active_bg_g,
-                active_bg_b,
-            });
+        let _ = state.emacs_comms.cmd_tx.try_send(RenderCommand::SetTabBar {
+            items,
+            height,
+            fg_r,
+            fg_g,
+            fg_b,
+            bg_r,
+            bg_g,
+            bg_b,
+            active_bg_r,
+            active_bg_g,
+            active_bg_b,
+        });
     }
 }
 
