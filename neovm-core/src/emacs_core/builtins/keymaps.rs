@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::symbol::Obarray;
 
 // ===========================================================================
 // Keymap builtins
@@ -13,13 +14,13 @@ use super::keymap::{
 /// Accepts:
 /// - Cons cells starting with 'keymap
 /// - Symbols whose function definition is a keymap
-fn expect_keymap(eval: &super::eval::Evaluator, value: &Value) -> Result<Value, Flow> {
+pub(crate) fn expect_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Result<Value, Flow> {
     if is_list_keymap(value) {
         return Ok(*value);
     }
     // Check if it's a symbol whose function cell is a keymap
     if let Some(sym_name) = value.as_symbol_name() {
-        if let Some(func) = eval.obarray.symbol_function(sym_name).copied() {
+        if let Some(func) = obarray.symbol_function(sym_name).copied() {
             if is_list_keymap(&func) {
                 return Ok(func);
             }
@@ -29,6 +30,10 @@ fn expect_keymap(eval: &super::eval::Evaluator, value: &Value) -> Result<Value, 
         "wrong-type-argument",
         vec![Value::symbol("keymapp"), *value],
     ))
+}
+
+fn expect_keymap(eval: &super::eval::Evaluator, value: &Value) -> Result<Value, Flow> {
+    expect_keymap_in_obarray(eval.obarray(), value)
 }
 
 /// Get the global keymap from obarray, creating one if needed.
@@ -48,7 +53,7 @@ fn ensure_global_keymap(eval: &mut super::eval::Evaluator) -> Value {
 /// For vectors, integer and symbol elements are used directly as emacs event
 /// codes (preserving all modifier bits including Alt and Hyper).  For strings,
 /// each character is treated as a raw key event.
-fn expect_key_events(value: &Value) -> Result<Vec<Value>, Flow> {
+pub(crate) fn expect_key_events(value: &Value) -> Result<Vec<Value>, Flow> {
     use super::value::with_heap;
 
     match value {

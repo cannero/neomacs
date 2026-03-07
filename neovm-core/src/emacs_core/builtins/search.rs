@@ -489,26 +489,17 @@ pub(crate) fn builtin_posix_looking_at(
     builtin_looking_at(eval, args)
 }
 
-/// Evaluator-dependent `string-match`: updates match data on the evaluator.
-pub(crate) fn builtin_string_match_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
+pub(crate) fn builtin_string_match_with_state(
+    case_fold: bool,
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
 ) -> EvalResult {
-    expect_range_args("string-match", &args, 2, 4)?;
+    expect_range_args("string-match", args, 2, 4)?;
     let pattern = expect_string(&args[0])?;
     let s = expect_string(&args[1])?;
     let start = normalize_string_start_arg(&s, args.get(2))?;
-    let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
-        .map(|v| !v.is_nil())
-        .unwrap_or(true);
-
-    match super::regex::string_match_full_with_case_fold(
-        &pattern,
-        &s,
-        start,
-        case_fold,
-        &mut eval.match_data,
-    ) {
+    match super::regex::string_match_full_with_case_fold(&pattern, &s, start, case_fold, match_data)
+    {
         // string_match_full_with_case_fold returns a character position
         Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
         Ok(None) => Ok(Value::Nil),
@@ -516,17 +507,22 @@ pub(crate) fn builtin_string_match_eval(
     }
 }
 
-pub(crate) fn builtin_string_match_p_eval(
+/// Evaluator-dependent `string-match`: updates match data on the evaluator.
+pub(crate) fn builtin_string_match_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("string-match-p", &args, 2, 3)?;
-    let pattern = expect_string(&args[0])?;
-    let s = expect_string(&args[1])?;
-    let start = normalize_string_start_arg(&s, args.get(2))?;
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
+    builtin_string_match_with_state(case_fold, &mut eval.match_data, &args)
+}
+
+pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Value]) -> EvalResult {
+    expect_range_args("string-match-p", args, 2, 3)?;
+    let pattern = expect_string(&args[0])?;
+    let s = expect_string(&args[1])?;
+    let start = normalize_string_start_arg(&s, args.get(2))?;
     let mut throwaway = None;
 
     match super::regex::string_match_full_with_case_fold(
@@ -541,6 +537,16 @@ pub(crate) fn builtin_string_match_p_eval(
         Ok(None) => Ok(Value::Nil),
         Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
     }
+}
+
+pub(crate) fn builtin_string_match_p_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
+        .map(|v| !v.is_nil())
+        .unwrap_or(true);
+    builtin_string_match_p_with_case_fold(case_fold, &args)
 }
 
 pub(crate) fn builtin_posix_string_match(
@@ -609,11 +615,12 @@ pub(crate) fn builtin_match_string(
     }
 }
 
-pub(crate) fn builtin_match_beginning(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
+pub(crate) fn builtin_match_beginning_with_state(
+    current_buffer: Option<&crate::buffer::Buffer>,
+    match_data: &Option<super::regex::MatchData>,
+    args: &[Value],
 ) -> EvalResult {
-    expect_args("match-beginning", &args, 1)?;
+    expect_args("match-beginning", args, 1)?;
     let group = expect_int(&args[0])?;
     if group < 0 {
         return Err(signal(
@@ -623,7 +630,7 @@ pub(crate) fn builtin_match_beginning(
     }
     let group = group as usize;
 
-    let md = match &eval.match_data {
+    let md = match match_data {
         Some(md) => md,
         None => return Ok(Value::Nil),
     };
@@ -633,7 +640,7 @@ pub(crate) fn builtin_match_beginning(
             if md.searched_string.is_some() {
                 // String search: positions are already character positions
                 Ok(Value::Int(*start as i64))
-            } else if let Some(buf) = eval.buffers.current_buffer() {
+            } else if let Some(buf) = current_buffer {
                 // Buffer positions are 1-based character positions.
                 let pos = buf.text.byte_to_char(*start) as i64 + 1;
                 Ok(Value::Int(pos))
@@ -646,8 +653,19 @@ pub(crate) fn builtin_match_beginning(
     }
 }
 
-pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_args("match-end", &args, 1)?;
+pub(crate) fn builtin_match_beginning(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_match_beginning_with_state(eval.buffers.current_buffer(), &eval.match_data, &args)
+}
+
+pub(crate) fn builtin_match_end_with_state(
+    current_buffer: Option<&crate::buffer::Buffer>,
+    match_data: &Option<super::regex::MatchData>,
+    args: &[Value],
+) -> EvalResult {
+    expect_args("match-end", args, 1)?;
     let group = expect_int(&args[0])?;
     if group < 0 {
         return Err(signal(
@@ -657,7 +675,7 @@ pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Val
     }
     let group = group as usize;
 
-    let md = match &eval.match_data {
+    let md = match match_data {
         Some(md) => md,
         None => return Ok(Value::Nil),
     };
@@ -667,7 +685,7 @@ pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Val
             if md.searched_string.is_some() {
                 // String search: positions are already character positions
                 Ok(Value::Int(*end as i64))
-            } else if let Some(buf) = eval.buffers.current_buffer() {
+            } else if let Some(buf) = current_buffer {
                 let pos = buf.text.byte_to_char(*end) as i64 + 1;
                 Ok(Value::Int(pos))
             } else {
@@ -679,9 +697,13 @@ pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Val
     }
 }
 
-pub(crate) fn builtin_match_data_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
+pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_match_end_with_state(eval.buffers.current_buffer(), &eval.match_data, &args)
+}
+
+pub(crate) fn builtin_match_data_with_state(
+    match_data: &Option<super::regex::MatchData>,
+    args: &[Value],
 ) -> EvalResult {
     if args.len() > 3 {
         return Err(signal(
@@ -690,7 +712,7 @@ pub(crate) fn builtin_match_data_eval(
         ));
     }
 
-    let Some(md) = &eval.match_data else {
+    let Some(md) = match_data else {
         return Ok(Value::Nil);
     };
 
@@ -719,11 +741,18 @@ pub(crate) fn builtin_match_data_eval(
     Ok(Value::list(flat))
 }
 
-pub(crate) fn builtin_set_match_data_eval(
+pub(crate) fn builtin_match_data_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("set-match-data", &args, 1)?;
+    builtin_match_data_with_state(&eval.match_data, &args)
+}
+
+pub(crate) fn builtin_set_match_data_with_state(
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args("set-match-data", args, 1)?;
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -735,7 +764,7 @@ pub(crate) fn builtin_set_match_data_eval(
     }
 
     if args[0].is_nil() {
-        eval.match_data = None;
+        *match_data = None;
         return Ok(Value::Nil);
     }
 
@@ -768,15 +797,22 @@ pub(crate) fn builtin_set_match_data_eval(
     }
 
     if groups.is_empty() {
-        eval.match_data = None;
+        *match_data = None;
     } else {
-        eval.match_data = Some(super::regex::MatchData {
+        *match_data = Some(super::regex::MatchData {
             groups,
             searched_string: None,
         });
     }
 
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_set_match_data_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_set_match_data_with_state(&mut eval.match_data, &args)
 }
 
 pub(crate) fn builtin_replace_match(

@@ -327,7 +327,7 @@ pub(super) use super::window_cmds;
 
 // --- Submodules ---
 mod arithmetic;
-mod collections;
+pub(crate) mod collections;
 mod cons_list;
 mod misc_pure;
 mod strings;
@@ -343,11 +343,11 @@ pub(crate) use types::*;
 mod buffers;
 mod higher_order;
 mod hooks;
-mod keymaps;
+pub(crate) mod keymaps;
 mod misc_eval;
-mod search;
+pub(crate) mod search;
 mod stubs;
-mod symbols;
+pub(crate) mod symbols;
 
 pub(crate) use buffers::*;
 pub(crate) use higher_order::*;

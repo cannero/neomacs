@@ -4049,6 +4049,16 @@ impl Evaluator {
                 vec![Value::symbol("byte-code"), Value::Int(tail.len() as i64)],
             ));
         }
+        let trace_toplevel_bytecode = std::env::var_os("NEOVM_TRACE_TOPLEVEL_BYTECODE").is_some();
+        let load_file_name = if trace_toplevel_bytecode {
+            self.obarray()
+                .symbol_value("load-file-name")
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_else(|| "<unknown>".to_string())
+        } else {
+            String::new()
+        };
+        let decode_start = trace_toplevel_bytecode.then(std::time::Instant::now);
 
         // The bytecode string and maxdepth are simple literals — quote them.
         // The constants vector may contain nested byte-code-literal forms.
@@ -4087,6 +4097,16 @@ impl Evaluator {
                     vec![Value::string(format!("bytecode decode error: {}", e))],
                 )
             })?;
+        if let Some(start) = decode_start {
+            tracing::info!(
+                "TOPLEVEL-BYTECODE decode file={} bytes={} consts={} ops={} elapsed={:.2?}",
+                load_file_name,
+                raw_bytes.len(),
+                constants.len(),
+                ops.len(),
+                start.elapsed()
+            );
+        }
 
         let max_stack = match maxdepth {
             Value::Int(n) => n as u16,
@@ -4111,6 +4131,7 @@ impl Evaluator {
             &mut self.dynamic,
             &mut self.lexenv,
             &mut self.features,
+            &mut self.custom,
             &mut self.buffers,
             &mut self.frames,
             &mut self.coding_systems,
@@ -4119,7 +4140,16 @@ impl Evaluator {
             &mut self.catch_tags,
         );
         vm.set_depth(self.depth, self.max_depth);
+        let exec_start = trace_toplevel_bytecode.then(std::time::Instant::now);
         let result = vm.execute(&bc, vec![]);
+        if let Some(start) = exec_start {
+            tracing::info!(
+                "TOPLEVEL-BYTECODE exec   file={} ops={} elapsed={:.2?}",
+                load_file_name,
+                bc.ops.len(),
+                start.elapsed()
+            );
+        }
         self.depth = vm.get_depth();
         self.sync_features_variable();
         result
@@ -4792,6 +4822,7 @@ impl Evaluator {
                     &mut self.dynamic,
                     &mut self.lexenv,
                     &mut self.features,
+                    &mut self.custom,
                     &mut self.buffers,
                     &mut self.frames,
                     &mut self.coding_systems,

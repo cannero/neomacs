@@ -1,18 +1,19 @@
 use super::*;
 use crate::emacs_core::intern::lookup_interned;
+use crate::emacs_core::symbol::Obarray;
 
 // ===========================================================================
 // Symbol operations (need evaluator for obarray access)
 // ===========================================================================
 
-const VARIABLE_ALIAS_PROPERTY: &str = "neovm--variable-alias";
-const RAW_SYMBOL_PLIST_PROPERTY: &str = "neovm--raw-symbol-plist";
+pub(crate) const VARIABLE_ALIAS_PROPERTY: &str = "neovm--variable-alias";
+pub(crate) const RAW_SYMBOL_PLIST_PROPERTY: &str = "neovm--raw-symbol-plist";
 
-fn is_internal_symbol_plist_property(property: &str) -> bool {
+pub(crate) fn is_internal_symbol_plist_property(property: &str) -> bool {
     property == VARIABLE_ALIAS_PROPERTY || property == RAW_SYMBOL_PLIST_PROPERTY
 }
 
-fn symbol_id(value: &Value) -> Option<SymId> {
+pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
     match value {
         Value::Nil => Some(intern("nil")),
         Value::True => Some(intern("t")),
@@ -37,7 +38,7 @@ fn value_from_symbol_id(id: SymId) -> Value {
     Value::Symbol(id)
 }
 
-fn expect_symbol_id(value: &Value) -> Result<SymId, Flow> {
+pub(crate) fn expect_symbol_id(value: &Value) -> Result<SymId, Flow> {
     symbol_id(value).ok_or_else(|| {
         signal(
             "wrong-type-argument",
@@ -50,8 +51,8 @@ pub(crate) fn is_canonical_symbol_id(id: SymId) -> bool {
     lookup_interned(resolve_sym(id)).is_some_and(|canonical| canonical == id)
 }
 
-pub(crate) fn resolve_variable_alias_id(
-    eval: &super::eval::Evaluator,
+pub(crate) fn resolve_variable_alias_id_in_obarray(
+    obarray: &Obarray,
     symbol: SymId,
 ) -> Result<SymId, Flow> {
     let mut current = symbol;
@@ -64,8 +65,7 @@ pub(crate) fn resolve_variable_alias_id(
                 vec![Value::Symbol(symbol)],
             ));
         }
-        let next = eval
-            .obarray()
+        let next = obarray
             .get_property_id(current, intern(VARIABLE_ALIAS_PROPERTY))
             .and_then(symbol_id);
         match next {
@@ -73,6 +73,13 @@ pub(crate) fn resolve_variable_alias_id(
             None => return Ok(current),
         }
     }
+}
+
+pub(crate) fn resolve_variable_alias_id(
+    eval: &super::eval::Evaluator,
+    symbol: SymId,
+) -> Result<SymId, Flow> {
+    resolve_variable_alias_id_in_obarray(eval.obarray(), symbol)
 }
 
 pub(crate) fn resolve_variable_alias_name(
@@ -105,14 +112,18 @@ fn would_create_variable_alias_cycle(eval: &super::eval::Evaluator, new: &str, o
     }
 }
 
-fn symbol_raw_plist_value(eval: &super::eval::Evaluator, symbol: SymId) -> Option<Value> {
-    eval.obarray()
+pub(crate) fn symbol_raw_plist_value_in_obarray(obarray: &Obarray, symbol: SymId) -> Option<Value> {
+    obarray
         .get_property_id(symbol, intern(RAW_SYMBOL_PLIST_PROPERTY))
         .cloned()
 }
 
-fn set_symbol_raw_plist(eval: &mut super::eval::Evaluator, symbol: SymId, plist: Value) {
-    let sym = eval.obarray_mut().ensure_symbol_id(symbol);
+fn symbol_raw_plist_value(eval: &super::eval::Evaluator, symbol: SymId) -> Option<Value> {
+    symbol_raw_plist_value_in_obarray(eval.obarray(), symbol)
+}
+
+pub(crate) fn set_symbol_raw_plist_in_obarray(obarray: &mut Obarray, symbol: SymId, plist: Value) {
+    let sym = obarray.ensure_symbol_id(symbol);
     let alias = sym.plist.get(&intern(VARIABLE_ALIAS_PROPERTY)).cloned();
     sym.plist.clear();
     if let Some(value) = alias {
@@ -121,7 +132,11 @@ fn set_symbol_raw_plist(eval: &mut super::eval::Evaluator, symbol: SymId, plist:
     sym.plist.insert(intern(RAW_SYMBOL_PLIST_PROPERTY), plist);
 }
 
-fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
+fn set_symbol_raw_plist(eval: &mut super::eval::Evaluator, symbol: SymId, plist: Value) {
+    set_symbol_raw_plist_in_obarray(eval.obarray_mut(), symbol, plist);
+}
+
+pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
     let mut cursor = *plist;
     loop {
         match cursor {
@@ -189,11 +204,18 @@ pub(crate) fn builtin_default_toplevel_value(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_default_toplevel_value_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_default_toplevel_value_in_obarray(
+    obarray: &Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("default-toplevel-value", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let resolved = resolve_variable_alias_id(eval, symbol)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
-    match eval.obarray().symbol_value_id(resolved).cloned() {
+    match obarray.symbol_value_id(resolved).cloned() {
         Some(value) => Ok(value),
         None if is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') => {
             Ok(Value::Keyword(resolved))
@@ -206,16 +228,26 @@ pub(crate) fn builtin_internal_define_uninitialized_variable_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_internal_define_uninitialized_variable_in_obarray(eval.obarray_mut(), args.clone())?;
+    let documentation = args.get(1).copied().unwrap_or(Value::Nil);
+    if !documentation.is_nil() {
+        preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
+    }
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_internal_define_uninitialized_variable_in_obarray(
+    obarray: &mut Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("internal--define-uninitialized-variable", &args, 1, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
     let documentation = args.get(1).copied().unwrap_or(Value::Nil);
 
-    eval.obarray_mut().make_special_id(symbol);
+    obarray.make_special_id(symbol);
 
     if !documentation.is_nil() {
-        preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
-        eval.obarray_mut()
-            .put_property_id(symbol, intern("variable-documentation"), documentation);
+        obarray.put_property_id(symbol, intern("variable-documentation"), documentation);
     }
 
     Ok(Value::Nil)
@@ -225,19 +257,30 @@ pub(crate) fn builtin_set_default_toplevel_value(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("set-default-toplevel-value", &args, 2)?;
+    builtin_set_default_toplevel_value_in_obarray(eval.obarray_mut(), args.clone())?;
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
     let resolved_name = resolve_sym(resolved);
-    if eval.obarray().is_constant_id(resolved) {
-        return Err(signal("setting-constant", vec![args[0]]));
-    }
     let value = args[1];
-    eval.obarray.set_symbol_value_id(resolved, value);
     eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
     if resolved != symbol {
         eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
     }
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_set_default_toplevel_value_in_obarray(
+    obarray: &mut Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-default-toplevel-value", &args, 2)?;
+    let symbol = expect_symbol_id(&args[0])?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
+    if obarray.is_constant_id(resolved) {
+        return Err(signal("setting-constant", vec![args[0]]));
+    }
+    let value = args[1];
+    obarray.set_symbol_value_id(resolved, value);
     Ok(Value::Nil)
 }
 
@@ -1915,7 +1958,7 @@ pub(crate) fn builtin_macrop_eval(
 }
 
 /// Hash a string for custom obarray bucket index.
-fn obarray_hash(s: &str, len: usize) -> usize {
+pub(crate) fn obarray_hash(s: &str, len: usize) -> usize {
     let hash = s
         .bytes()
         .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
@@ -1924,7 +1967,7 @@ fn obarray_hash(s: &str, len: usize) -> usize {
 
 /// Search a bucket chain (cons list) for a symbol with the given name.
 /// Returns the symbol Value if found.
-fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
+pub(crate) fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
     let mut current = bucket;
     loop {
         match current {

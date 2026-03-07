@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::bytecode::compiler::Compiler;
 use crate::emacs_core::coding::CodingSystemManager;
+use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
 use crate::window::FrameManager;
@@ -17,6 +18,7 @@ fn vm_eval(src: &str) -> Result<Value, EvalError> {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut frames = FrameManager::new();
     let mut coding_systems = CodingSystemManager::new();
@@ -32,6 +34,7 @@ fn vm_eval(src: &str) -> Result<Value, EvalError> {
             &mut dynamic,
             &mut lexenv,
             &mut features,
+            &mut custom,
             &mut buffers,
             &mut frames,
             &mut coding_systems,
@@ -278,6 +281,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut frames = FrameManager::new();
     let mut coding_systems = CodingSystemManager::new();
@@ -290,6 +294,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         &mut dynamic,
         &mut lexenv,
         &mut features,
+        &mut custom,
         &mut buffers,
         &mut frames,
         &mut coding_systems,
@@ -402,6 +407,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut frames = FrameManager::new();
     let mut coding_systems = CodingSystemManager::new();
@@ -414,6 +420,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         &mut dynamic,
         &mut lexenv,
         &mut features,
+        &mut custom,
         &mut buffers,
         &mut frames,
         &mut coding_systems,
@@ -431,6 +438,21 @@ fn vm_eval_bridge_preserves_frames_across_eval_dependent_builtins() {
     assert_eq!(
         vm_eval_str("(frame-parameter (selected-frame) 'width)"),
         "OK 80"
+    );
+}
+
+#[test]
+fn vm_string_match_updates_match_data_for_followup_builtins() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (string-match \"a\\\\(b\\\\)\" \"zabz\")
+               (list (match-beginning 0)
+                     (match-beginning 1)
+                     (match-end 1)
+                     (match-data)))"
+        ),
+        "OK (1 2 3 (1 3 2 3))"
     );
 }
 

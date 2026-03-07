@@ -168,6 +168,54 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Eva
 }
 
 #[test]
+fn profile_single_bootstrap_file_load() {
+    if std::env::var("NEOVM_PROFILE_BOOTSTRAP_FILE").is_err() {
+        return;
+    }
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let target = std::env::var("NEOVM_PROFILE_BOOTSTRAP_FILE").expect("profile target");
+    let stop_before =
+        std::env::var("NEOVM_PROFILE_BOOTSTRAP_STOP_BEFORE").unwrap_or_else(|_| target.clone());
+    let prefer_compiled =
+        std::env::var("NEOVM_PROFILE_BOOTSTRAP_PREFER_COMPILED").as_deref() == Ok("1");
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+
+    let mut eval = partial_bootstrap_eval_until(&stop_before, prefer_compiled);
+    let load_path = get_load_path(&eval.obarray());
+    let path = bootstrap_fixture_path(&load_path, &target, prefer_compiled)
+        .unwrap_or_else(|| panic!("bootstrap file not found: {target}"));
+
+    let start = std::time::Instant::now();
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading {target} from {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+    tracing::info!(
+        "PROFILE target={} compiled={} path={} elapsed={:.2?}",
+        target,
+        prefer_compiled,
+        path.display(),
+        start.elapsed()
+    );
+
+    let _ = lisp_dir;
+}
+
+#[test]
 fn cache_write_disable_env_value_matrix() {
     for value in ["1", "true", "TRUE", " yes ", "On", "\tyEs\n"] {
         assert!(

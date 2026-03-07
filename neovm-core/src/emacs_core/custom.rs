@@ -273,6 +273,15 @@ pub(crate) fn builtin_make_variable_buffer_local(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let (obarray, custom) = (&eval.obarray, &mut eval.custom);
+    builtin_make_variable_buffer_local_with_state(obarray, custom, args)
+}
+
+pub(crate) fn builtin_make_variable_buffer_local_with_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    custom: &mut CustomManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("make-variable-buffer-local", &args, 1)?;
     let name = match &args[0] {
         Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
@@ -285,11 +294,15 @@ pub(crate) fn builtin_make_variable_buffer_local(
             ));
         }
     };
-    let resolved = super::builtins::resolve_variable_alias_name(eval, &name)?;
-    if eval.obarray().is_constant(&resolved) {
+    let resolved = resolve_sym(super::builtins::resolve_variable_alias_id_in_obarray(
+        obarray,
+        intern(&name),
+    )?)
+    .to_string();
+    if obarray.is_constant(&resolved) {
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
-    eval.custom.make_variable_buffer_local(&resolved);
+    custom.make_variable_buffer_local(&resolved);
     Ok(args[0])
 }
 
@@ -518,6 +531,27 @@ pub(crate) fn builtin_set_default(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let result = builtin_set_default_in_obarray(eval.obarray_mut(), args.clone())?;
+    let symbol = match args[0] {
+        Value::Nil => intern("nil"),
+        Value::True => intern("t"),
+        Value::Symbol(id) | Value::Keyword(id) => id,
+        _ => unreachable!("validated by builtin_set_default_in_obarray"),
+    };
+    let resolved = super::builtins::resolve_variable_alias_id(eval, symbol)?;
+    let resolved_name = resolve_sym(resolved);
+    let value = args[1];
+    eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+    if resolved != symbol {
+        eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+    }
+    Ok(result)
+}
+
+pub(crate) fn builtin_set_default_in_obarray(
+    obarray: &mut crate::emacs_core::symbol::Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-default", &args, 2)?;
     let symbol = match args[0] {
         Value::Nil => intern("nil"),
@@ -530,17 +564,12 @@ pub(crate) fn builtin_set_default(
             ));
         }
     };
-    let resolved = super::builtins::resolve_variable_alias_id(eval, symbol)?;
-    let resolved_name = resolve_sym(resolved);
-    if eval.obarray().is_constant_id(resolved) {
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(obarray, symbol)?;
+    if obarray.is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![args[0]]));
     }
     let value = args[1];
-    eval.obarray.set_symbol_value_id(resolved, value);
-    eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
-    if resolved != symbol {
-        eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
-    }
+    obarray.set_symbol_value_id(resolved, value);
     Ok(value)
 }
 

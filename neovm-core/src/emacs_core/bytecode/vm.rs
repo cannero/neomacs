@@ -8,9 +8,10 @@ use crate::buffer::BufferManager;
 use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
 use crate::emacs_core::coding::CodingSystemManager;
+use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
 use crate::emacs_core::errors::signal_matches_condition_value;
-use crate::emacs_core::intern::{SymId, intern, resolve_sym};
+use crate::emacs_core::intern::{SymId, intern, intern_uninterned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 use crate::emacs_core::string_escape::{storage_char_len, storage_substring};
 use crate::emacs_core::symbol::Obarray;
@@ -48,6 +49,7 @@ pub struct Vm<'a> {
     lexenv: &'a mut Value,
     #[allow(dead_code)]
     features: &'a mut Vec<SymId>,
+    custom: &'a mut CustomManager,
     buffers: &'a mut BufferManager,
     frames: &'a mut FrameManager,
     coding_systems: &'a mut CodingSystemManager,
@@ -69,6 +71,7 @@ impl<'a> Vm<'a> {
         dynamic: &'a mut Vec<OrderedSymMap>,
         lexenv: &'a mut Value,
         features: &'a mut Vec<SymId>,
+        custom: &'a mut CustomManager,
         buffers: &'a mut BufferManager,
         frames: &'a mut FrameManager,
         coding_systems: &'a mut CodingSystemManager,
@@ -81,6 +84,7 @@ impl<'a> Vm<'a> {
             dynamic,
             lexenv,
             features,
+            custom,
             buffers,
             frames,
             coding_systems,
@@ -1560,6 +1564,10 @@ impl<'a> Vm<'a> {
 
     /// Dispatch to builtin functions from the VM.
     fn dispatch_vm_builtin(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        if let Some(result) = self.dispatch_vm_builtin_fast(name, &args) {
+            return result;
+        }
+
         // Handle special VM builtins
         match name {
             "apply" => {
@@ -1655,11 +1663,242 @@ impl<'a> Vm<'a> {
         Err(signal("void-function", vec![Value::symbol(name)]))
     }
 
+    fn dispatch_vm_builtin_fast(&mut self, name: &str, args: &[Value]) -> Option<EvalResult> {
+        match name {
+            "make-sparse-keymap" => Some(
+                builtins::expect_max_args("make-sparse-keymap", args, 1)
+                    .map(|_| crate::emacs_core::keymap::make_sparse_list_keymap()),
+            ),
+            "define-key" => Some((|| -> EvalResult {
+                builtins::expect_min_args("define-key", args, 3)?;
+                builtins::expect_max_args("define-key", args, 4)?;
+                let keymap =
+                    crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
+                        self.obarray,
+                        &args[0],
+                    )?;
+                let events = crate::emacs_core::builtins::keymaps::expect_key_events(&args[1])?;
+                let def = args[2];
+                crate::emacs_core::keymap::list_keymap_define_seq(keymap, &events, def);
+                Ok(def)
+            })()),
+            "get" => Some((|| -> EvalResult {
+                builtins::expect_args("get", args, 2)?;
+                let sym = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
+                if let Some(raw) =
+                    crate::emacs_core::builtins::symbols::symbol_raw_plist_value_in_obarray(
+                        self.obarray,
+                        sym,
+                    )
+                {
+                    return Ok(
+                        crate::emacs_core::builtins::symbols::plist_lookup_value(&raw, &args[1])
+                            .unwrap_or(Value::Nil),
+                    );
+                }
+                let prop = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[1])?;
+                if crate::emacs_core::builtins::symbols::is_internal_symbol_plist_property(
+                    resolve_sym(prop),
+                ) {
+                    return Ok(Value::Nil);
+                }
+                Ok(self
+                    .obarray
+                    .get_property_id(sym, prop)
+                    .cloned()
+                    .unwrap_or(Value::Nil))
+            })()),
+            "put" => Some((|| -> EvalResult {
+                builtins::expect_args("put", args, 3)?;
+                let sym = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
+                let prop = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[1])?;
+                let value = args[2];
+                if let Some(raw) =
+                    crate::emacs_core::builtins::symbols::symbol_raw_plist_value_in_obarray(
+                        self.obarray,
+                        sym,
+                    )
+                {
+                    let plist =
+                        crate::emacs_core::builtins::collections::builtin_plist_put(vec![
+                            raw, args[1], value,
+                        ])?;
+                    crate::emacs_core::builtins::symbols::set_symbol_raw_plist_in_obarray(
+                        self.obarray,
+                        sym,
+                        plist,
+                    );
+                    return Ok(value);
+                }
+                self.obarray.put_property_id(sym, prop, value);
+                Ok(value)
+            })()),
+            "default-toplevel-value" => Some(
+                crate::emacs_core::builtins::symbols::builtin_default_toplevel_value_in_obarray(
+                    self.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "set-default-toplevel-value" => {
+                let symbol = args
+                    .first()
+                    .copied()
+                    .and_then(|value| crate::emacs_core::builtins::symbols::expect_symbol_id(&value).ok());
+                let resolved_name = symbol.and_then(|symbol| {
+                    crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+                        self.obarray,
+                        symbol,
+                    )
+                    .ok()
+                    .map(resolve_sym)
+                });
+                if resolved_name.is_some_and(|name| self.watchers.has_watchers(name)) {
+                    return None;
+                }
+                Some(
+                    crate::emacs_core::builtins::symbols::builtin_set_default_toplevel_value_in_obarray(
+                        self.obarray,
+                        args.to_vec(),
+                    ),
+                )
+            }
+            "internal--define-uninitialized-variable" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_define_uninitialized_variable_in_obarray(
+                    self.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "set-default" => {
+                let symbol = args.first().copied().and_then(|value| match value {
+                    Value::Nil => Some(intern("nil")),
+                    Value::True => Some(intern("t")),
+                    Value::Symbol(id) | Value::Keyword(id) => Some(id),
+                    _ => None,
+                });
+                let resolved_name = symbol.and_then(|symbol| {
+                    crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+                        self.obarray,
+                        symbol,
+                    )
+                    .ok()
+                    .map(resolve_sym)
+                });
+                if resolved_name.is_some_and(|name| self.watchers.has_watchers(name)) {
+                    return None;
+                }
+                Some(crate::emacs_core::custom::builtin_set_default_in_obarray(
+                    self.obarray,
+                    args.to_vec(),
+                ))
+            }
+            "make-variable-buffer-local" => Some(
+                crate::emacs_core::custom::builtin_make_variable_buffer_local_with_state(
+                    self.obarray,
+                    self.custom,
+                    args.to_vec(),
+                ),
+            ),
+            "intern" => Some((|| -> EvalResult {
+                builtins::expect_min_args("intern", args, 1)?;
+                builtins::expect_max_args("intern", args, 2)?;
+                if let Some(obarray) = args.get(1) {
+                    if !obarray.is_nil() && !matches!(obarray, Value::Vector(_)) {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("obarrayp"), *obarray],
+                        ));
+                    }
+                }
+                let name = builtins::expect_string(&args[0])?;
+                if let Some(Value::Vector(vec_id)) = args.get(1).filter(|value| !value.is_nil()) {
+                    let vec_id = *vec_id;
+                    let vec_len = with_heap(|h| h.get_vector(vec_id).len());
+                    if vec_len == 0 {
+                        return Err(signal("args-out-of-range", vec![Value::Int(0)]));
+                    }
+                    let bucket_idx =
+                        crate::emacs_core::builtins::symbols::obarray_hash(&name, vec_len);
+                    let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
+                    if let Some(sym) =
+                        crate::emacs_core::builtins::symbols::obarray_bucket_find(bucket, &name)
+                    {
+                        return Ok(sym);
+                    }
+                    let sym = Value::Symbol(intern_uninterned(&name));
+                    let new_bucket = Value::cons(sym, bucket);
+                    with_heap_mut(|h| {
+                        h.get_vector_mut(vec_id)[bucket_idx] = new_bucket;
+                    });
+                    return Ok(sym);
+                }
+                self.obarray.intern(&name);
+                Ok(Value::symbol(name))
+            })()),
+            "string-match" => Some({
+                let case_fold = self
+                    .lookup_var("case-fold-search")
+                    .map(|value| !value.is_nil())
+                    .unwrap_or(true);
+                crate::emacs_core::builtins::search::builtin_string_match_with_state(
+                    case_fold,
+                    self.match_data,
+                    args,
+                )
+            }),
+            "string-match-p" => Some({
+                let case_fold = self
+                    .lookup_var("case-fold-search")
+                    .map(|value| !value.is_nil())
+                    .unwrap_or(true);
+                crate::emacs_core::builtins::search::builtin_string_match_p_with_case_fold(
+                    case_fold, args,
+                )
+            }),
+            "match-beginning" => Some(
+                crate::emacs_core::builtins::search::builtin_match_beginning_with_state(
+                    self.buffers.current_buffer(),
+                    self.match_data,
+                    args,
+                ),
+            ),
+            "match-end" => Some(
+                crate::emacs_core::builtins::search::builtin_match_end_with_state(
+                    self.buffers.current_buffer(),
+                    self.match_data,
+                    args,
+                ),
+            ),
+            "match-data" => Some(
+                crate::emacs_core::builtins::search::builtin_match_data_with_state(
+                    self.match_data,
+                    args,
+                ),
+            ),
+            "set-match-data" => Some(
+                crate::emacs_core::builtins::search::builtin_set_match_data_with_state(
+                    self.match_data,
+                    args,
+                ),
+            ),
+            _ => None,
+        }
+    }
+
     /// Dispatch builtins that require evaluator context by running them
     /// on a temporary evaluator mirrored from the VM's current obarray/env.
     fn dispatch_vm_builtin_eval(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {
         use crate::emacs_core::intern::with_saved_interner;
         use crate::emacs_core::value::{current_heap_ptr, set_current_heap, with_saved_heap};
+        let trace_vm_builtins = std::env::var_os("NEOVM_TRACE_VM_BUILTINS").is_some();
+        let trace_load_file_name = if trace_vm_builtins {
+            self.obarray
+                .symbol_value("load-file-name")
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_else(|| "<unknown>".to_string())
+        } else {
+            String::new()
+        };
+        let trace_start = trace_vm_builtins.then(std::time::Instant::now);
         // Evaluator::new() overwrites the thread-local heap/interner pointers.
         // Save and restore them so ObjIds/SymIds from the caller remain valid.
         let mut eval = with_saved_interner(|| {
@@ -1691,6 +1930,7 @@ impl<'a> Vm<'a> {
         eval.dynamic = self.dynamic.clone();
         eval.lexenv = *self.lexenv;
         eval.features = self.features.clone();
+        eval.custom = self.custom.clone();
         eval.buffers = self.buffers.clone();
         std::mem::swap(self.frames, &mut eval.frames);
         eval.match_data = self.match_data.clone();
@@ -1707,11 +1947,23 @@ impl<'a> Vm<'a> {
         }
 
         let result = builtins::dispatch_builtin(&mut eval, name, args);
+        if let Some(start) = trace_start {
+            let elapsed = start.elapsed();
+            if elapsed.as_millis() > 0 {
+                tracing::info!(
+                    "VM-BUILTIN-EVAL file={} name={} elapsed={:.2?}",
+                    trace_load_file_name,
+                    name,
+                    elapsed
+                );
+            }
+        }
 
         std::mem::swap(self.obarray, &mut eval.obarray);
         std::mem::swap(self.dynamic, &mut eval.dynamic);
         std::mem::swap(self.lexenv, &mut eval.lexenv);
         std::mem::swap(self.features, &mut eval.features);
+        std::mem::swap(self.custom, &mut eval.custom);
         std::mem::swap(self.buffers, &mut eval.buffers);
         std::mem::swap(self.frames, &mut eval.frames);
         std::mem::swap(self.match_data, &mut eval.match_data);
