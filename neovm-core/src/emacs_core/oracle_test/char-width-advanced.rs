@@ -4,9 +4,9 @@
 //! tab/control chars, emoji, variation selectors, and integration with
 //! string-width for alignment and padding calculations.
 
-use super::common::return_if_neovm_enable_oracle_proptest_not_set;
-
-use super::common::assert_oracle_parity_with_bootstrap;
+use super::common::{
+    assert_oracle_parity_with_bootstrap, return_if_neovm_enable_oracle_proptest_not_set,
+};
 
 // ---------------------------------------------------------------------------
 // char-width across the full ASCII range and special categories
@@ -42,7 +42,7 @@ fn oracle_prop_char_width_ascii_exhaustive() {
         (setq consistent nil)))
     (setq results (cons consistent results)))
   (nreverse results))"#;
-    assert_oracle_parity_with_bootstrap(form);
+    assert_oracle_parity_with_bootstrap(&form);
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ fn oracle_prop_char_width_cjk_wide() {
     (list (length s)
           (string-width s)
           (= (string-width s) (* 2 (length s))))))"#;
-    assert_oracle_parity_with_bootstrap(form);
+    assert_oracle_parity_with_bootstrap(&form);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ fn oracle_prop_char_width_combining_marks() {
   (string-width (string #x4e16 #x0301))
   ;; Multiple combining marks stacked
   (string-width (string ?x #x0300 #x0301 #x0302 #x0303)))"#;
-    assert_oracle_parity_with_bootstrap(form);
+    assert_oracle_parity_with_bootstrap(&form);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ fn oracle_prop_char_width_control_and_tab() {
         (setq widths (cons (char-width i) widths))
         (setq i (1+ i))))
     (nreverse widths)))"#;
-    assert_oracle_parity_with_bootstrap(form);
+    assert_oracle_parity_with_bootstrap(&form);
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +203,7 @@ fn oracle_prop_char_width_emoji_variation() {
   ;; String width of emoji sequences
   (string-width (string #x1f600))
   (string-width (string #x1f4a9)))"#;
-    assert_oracle_parity_with_bootstrap(form);
+    assert_oracle_parity_with_bootstrap(&form);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +295,7 @@ fn oracle_prop_char_width_truncation_algorithm() {
     (fmakunbound 'neovm--cw-truncate)
     (fmakunbound 'neovm--cw-pad-right)
     (fmakunbound 'neovm--cw-format-table)))"#;
-    assert_oracle_parity_with_bootstrap(form);
+    assert_oracle_parity_with_bootstrap(&form);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,111 +303,136 @@ fn oracle_prop_char_width_truncation_algorithm() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn oracle_prop_char_width_word_wrap_algorithm() {
+fn oracle_prop_char_width_word_wrap_ascii_case() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    // Implement a simple greedy word-wrap that respects display widths,
-    // correctly breaking on CJK (any position) vs Latin (word boundary).
-    let form = r#"(progn
-  (fset 'neovm--cw-wrap
-    (lambda (text max-width)
-      "Wrap TEXT to MAX-WIDTH display columns. Returns list of lines.
-       CJK chars can break anywhere; Latin breaks on space."
-      (let ((lines nil)
-            (current-line nil)
-            (current-width 0)
-            (word nil)
-            (word-width 0)
-            (i 0)
-            (len (length text)))
-        (while (< i len)
-          (let* ((ch (aref text i))
-                 (cw (char-width ch))
-                 (is-space (= ch ?\s))
-                 (is-cjk (>= cw 2)))
-            (cond
-              ;; Space: flush current word, add space if room
-              (is-space
-               (when word
-                 (let ((w-str (concat (nreverse word))))
-                   (if (> (+ current-width word-width) max-width)
-                       (progn
-                         (when current-line
-                           (setq lines (cons (concat (nreverse current-line)) lines)))
-                         (setq current-line (append (string-to-list w-str) nil))
-                         (setq current-width word-width))
-                     (setq current-line (append (nreverse (cons ?\s (string-to-list w-str)))
-                                                current-line))
-                     (setq current-width (+ current-width word-width
-                                            (if current-line 1 0)))))
-                 (setq word nil word-width 0))
-               (when (and current-line (> (+ current-width 1) max-width))
-                 (setq lines (cons (concat (nreverse current-line)) lines))
-                 (setq current-line nil current-width 0)))
-              ;; CJK: break before if no room
-              (is-cjk
-               ;; Flush any pending Latin word first
-               (when word
-                 (let ((w-str (concat (nreverse word))))
-                   (if (> (+ current-width word-width) max-width)
-                       (progn
-                         (when current-line
-                           (setq lines (cons (concat (nreverse current-line)) lines)))
-                         (setq current-line (string-to-list w-str))
-                         (setq current-width word-width))
-                     (dolist (c (string-to-list w-str))
-                       (setq current-line (cons c current-line)))
-                     (setq current-width (+ current-width word-width))))
-                 (setq word nil word-width 0))
-               ;; Add CJK char, break if needed
-               (when (> (+ current-width cw) max-width)
-                 (when current-line
-                   (setq lines (cons (concat (nreverse current-line)) lines)))
-                 (setq current-line nil current-width 0))
-               (setq current-line (cons ch current-line))
-               (setq current-width (+ current-width cw)))
-              ;; Latin: accumulate into word
-              (t
-               (setq word (cons ch word))
-               (setq word-width (+ word-width cw))))))
-          (setq i (1+ i)))
-        ;; Flush remaining
-        (when word
-          (let ((w-str (concat (nreverse word))))
-            (if (> (+ current-width word-width) max-width)
-                (progn
-                  (when current-line
-                    (setq lines (cons (concat (nreverse current-line)) lines)))
-                  (setq current-line (string-to-list w-str))
-                  (setq current-width word-width))
-              (dolist (c (string-to-list w-str))
-                (setq current-line (cons c current-line)))
-              (setq current-width (+ current-width word-width)))))
-        (when current-line
-          (setq lines (cons (concat (nreverse current-line)) lines)))
-        (nreverse lines))))
+    let form = char_width_word_wrap_form(r#"(funcall 'neovm--cw-wrap "hello world foo bar" 10)"#);
+    assert_oracle_parity_with_bootstrap(&form);
+}
 
-  (unwind-protect
-      (list
-        ;; Pure ASCII word-wrap
-        (funcall 'neovm--cw-wrap "hello world foo bar" 10)
-        ;; CJK breaks at any character
-        (funcall 'neovm--cw-wrap "\u4e16\u754c\u4f60\u597d\u4e2d\u6587\u6d4b\u8bd5" 6)
-        ;; Mixed
-        (funcall 'neovm--cw-wrap "Hi\u4e16\u754cWorld\u4f60\u597d" 8)
-        ;; Single long word exceeds width
-        (funcall 'neovm--cw-wrap "abcdefghij" 5)
-        ;; Empty
-        (funcall 'neovm--cw-wrap "" 10)
-        ;; Verify no line exceeds max-width
-        (let ((lines (funcall 'neovm--cw-wrap "The \u4e16\u754c is \u7f8e\u4e3d" 8))
-              (all-ok t))
-          (dolist (line lines)
-            (when (> (string-width line) 8)
-              (setq all-ok nil)))
-          (list lines all-ok)))
-    (fmakunbound 'neovm--cw-wrap)))"#;
-    assert_oracle_parity_with_bootstrap(form);
+fn char_width_word_wrap_form(body: &str) -> String {
+    format!(
+        r#"(fset 'neovm--cw-wrap
+  (lambda (text max-width)
+    (let ((lines nil)
+          (current-line nil)
+          (current-width 0)
+          (word nil)
+          (word-width 0)
+          (i 0)
+          (len (length text)))
+      (while (< i len)
+        (let* ((ch (aref text i))
+               (cw (char-width ch))
+               (is-space (= ch ?\s))
+               (is-cjk (>= cw 2)))
+          (cond
+           (is-space
+            (when word
+              (let ((w-str (concat (nreverse word))))
+                (if (> (+ current-width word-width) max-width)
+                    (progn
+                      (when current-line
+                        (setq lines (cons (concat (nreverse current-line)) lines)))
+                      (setq current-line (append (string-to-list w-str) nil))
+                      (setq current-width word-width))
+                  (setq current-line (append (nreverse (cons ?\s (string-to-list w-str))) current-line))
+                  (setq current-width (+ current-width word-width (if current-line 1 0)))))
+              (setq word nil word-width 0))
+            (when (and current-line (> (+ current-width 1) max-width))
+              (setq lines (cons (concat (nreverse current-line)) lines))
+              (setq current-line nil current-width 0)))
+           (is-cjk
+            (when word
+              (let ((w-str (concat (nreverse word))))
+                (if (> (+ current-width word-width) max-width)
+                    (progn
+                      (when current-line
+                        (setq lines (cons (concat (nreverse current-line)) lines)))
+                      (setq current-line (string-to-list w-str))
+                      (setq current-width word-width))
+                  (dolist (c (string-to-list w-str))
+                    (setq current-line (cons c current-line)))
+                  (setq current-width (+ current-width word-width))))
+              (setq word nil word-width 0))
+            (when (> (+ current-width cw) max-width)
+              (when current-line
+                (setq lines (cons (concat (nreverse current-line)) lines)))
+              (setq current-line nil current-width 0))
+            (setq current-line (cons ch current-line))
+            (setq current-width (+ current-width cw)))
+           (t
+            (setq word (cons ch word))
+            (setq word-width (+ word-width cw)))))
+        (setq i (1+ i)))
+      (when word
+        (let ((w-str (concat (nreverse word))))
+          (if (> (+ current-width word-width) max-width)
+              (progn
+                (when current-line
+                  (setq lines (cons (concat (nreverse current-line)) lines)))
+                (setq current-line (string-to-list w-str))
+                (setq current-width word-width))
+            (dolist (c (string-to-list w-str))
+              (setq current-line (cons c current-line)))
+            (setq current-width (+ current-width word-width)))))
+      (when current-line
+        (setq lines (cons (concat (nreverse current-line)) lines)))
+      (nreverse lines))))
+
+{body}"#
+    )
+}
+
+#[test]
+fn oracle_prop_char_width_word_wrap_cjk_case() {
+    return_if_neovm_enable_oracle_proptest_not_set!();
+
+    let form = char_width_word_wrap_form(
+        r#"(funcall 'neovm--cw-wrap "\u4e16\u754c\u4f60\u597d\u4e2d\u6587\u6d4b\u8bd5" 6)"#,
+    );
+    assert_oracle_parity_with_bootstrap(&form);
+}
+
+#[test]
+fn oracle_prop_char_width_word_wrap_mixed_case() {
+    return_if_neovm_enable_oracle_proptest_not_set!();
+
+    let form = char_width_word_wrap_form(
+        r#"(funcall 'neovm--cw-wrap "Hi\u4e16\u754cWorld\u4f60\u597d" 8)"#,
+    );
+    assert_oracle_parity_with_bootstrap(&form);
+}
+
+#[test]
+fn oracle_prop_char_width_word_wrap_long_word_case() {
+    return_if_neovm_enable_oracle_proptest_not_set!();
+
+    let form = char_width_word_wrap_form(r#"(funcall 'neovm--cw-wrap "abcdefghij" 5)"#);
+    assert_oracle_parity_with_bootstrap(&form);
+}
+
+#[test]
+fn oracle_prop_char_width_word_wrap_empty_case() {
+    return_if_neovm_enable_oracle_proptest_not_set!();
+
+    let form = char_width_word_wrap_form(r#"(funcall 'neovm--cw-wrap "" 10)"#);
+    assert_oracle_parity_with_bootstrap(&form);
+}
+
+#[test]
+fn oracle_prop_char_width_word_wrap_width_bound_case() {
+    return_if_neovm_enable_oracle_proptest_not_set!();
+
+    let form = char_width_word_wrap_form(
+        r#"(let ((lines (funcall 'neovm--cw-wrap "The \u4e16\u754c is \u7f8e\u4e3d" 8))
+         (all-ok t))
+  (dolist (line lines)
+    (when (> (string-width line) 8)
+      (setq all-ok nil)))
+  (list lines all-ok))"#,
+    );
+    assert_oracle_parity_with_bootstrap(&form);
 }
 
 // ---------------------------------------------------------------------------

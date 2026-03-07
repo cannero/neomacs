@@ -102,11 +102,16 @@ pub(crate) fn run_oracle_eval(form: &str) -> Result<String, String> {
            (coding-system-for-write 'utf-8-unix)
            (_ (set-language-environment "UTF-8"))
            (form-file (getenv "NEOVM_ORACLE_FORM_FILE"))
-           (form (with-temp-buffer
-                   (insert-file-contents form-file)
-                   (goto-char (point-min))
-                   (read (current-buffer)))))
-      (princ (concat "OK " (prin1-to-string (neovm--oracle-normalize (eval form t)))))))
+           (result
+            (with-temp-buffer
+              (insert-file-contents form-file)
+              (goto-char (point-min))
+              (let ((last nil))
+                (condition-case nil
+                    (while t
+                      (setq last (eval (read (current-buffer)) t)))
+                  (end-of-file last))))))
+      (princ (concat "OK " (prin1-to-string (neovm--oracle-normalize result))))))
   (error
    (princ
     (concat "ERR "
@@ -220,10 +225,17 @@ pub(crate) fn run_neovm_eval_with_load(form: &str, load_files: &[&str]) -> Resul
     }
 
     let forms = parse_forms(form).map_err(|e| format!("parse error: {e}"))?;
-    let Some(first) = forms.first() else {
+    if forms.is_empty() {
         return Err("no form parsed".to_string());
-    };
-    let result = eval.eval_expr(first);
+    }
+
+    let mut result = Ok(Value::Nil);
+    for expr in &forms {
+        result = eval.eval_expr(expr);
+        if result.is_err() {
+            break;
+        }
+    }
     let rendered = crate::emacs_core::format_eval_result_with_eval(&eval, &result);
     Ok(rendered)
 }
@@ -270,10 +282,19 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
         .map_err(|e| format!("startup state failed: {e:?}"))?;
 
     let forms = parse_forms(form).map_err(|e| format!("parse error: {e}"))?;
-    let Some(first) = forms.first() else {
+    if forms.is_empty() {
         return Err("no form parsed".to_string());
-    };
-    let rendered = match eval.eval_expr(first) {
+    }
+
+    let mut result = Ok(Value::Nil);
+    for expr in &forms {
+        result = eval.eval_expr(expr);
+        if result.is_err() {
+            break;
+        }
+    }
+
+    let rendered = match result {
         Ok(value) => format!("OK {}", print_value_with_buffers(&value, &eval.buffers)),
         Err(EvalError::Signal { symbol, data }) => {
             let mut values = Vec::with_capacity(data.len() + 1);
