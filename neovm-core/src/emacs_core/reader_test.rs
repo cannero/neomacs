@@ -189,6 +189,25 @@ fn read_from_string_keyword() {
 }
 
 #[test]
+fn read_from_string_uninterned_symbol() {
+    let mut ev = Evaluator::new();
+    let result = builtin_read_from_string(&mut ev, vec![Value::string("#:test")]).unwrap();
+    match &result {
+        Value::Cons(cell) => {
+            let pair = read_cons(*cell);
+            match pair.car {
+                Value::Symbol(id) => {
+                    assert_eq!(resolve_sym(id), "test");
+                    assert_ne!(id, crate::emacs_core::intern::intern("test"));
+                }
+                other => panic!("expected uninterned symbol, got {other:?}"),
+            }
+        }
+        _ => panic!("Expected cons"),
+    }
+}
+
+#[test]
 fn read_from_string_empty_error() {
     let mut ev = Evaluator::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("")]);

@@ -5,7 +5,7 @@ use std::fmt::{self, Display, Formatter};
 
 #[cfg(test)]
 use super::intern::intern;
-use super::intern::{SymId, resolve_sym};
+use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::string_escape::format_lisp_string;
 
 /// Parsed Lisp expression (AST node).
@@ -108,7 +108,7 @@ pub fn print_expr(expr: &Expr) -> String {
     match expr {
         Expr::Int(v) => v.to_string(),
         Expr::Float(v) => format_float(*v),
-        Expr::Symbol(id) => format_symbol_name(resolve_sym(*id)),
+        Expr::Symbol(id) => format_symbol_id(*id),
         Expr::ReaderLoadFileName => "#$".to_string(),
         Expr::Keyword(id) => resolve_sym(*id).to_owned(),
         Expr::Str(s) => format_lisp_string(s),
@@ -185,6 +185,17 @@ fn format_symbol_name(name: &str) -> String {
         out.push(ch);
     }
     out
+}
+
+fn format_symbol_id(id: SymId) -> String {
+    let name = resolve_sym(id);
+    if lookup_interned(name) == Some(id) {
+        format_symbol_name(name)
+    } else if name.is_empty() {
+        "#:".to_string()
+    } else {
+        format!("#:{}", format_symbol_name(name))
+    }
 }
 
 fn format_float(f: f64) -> String {

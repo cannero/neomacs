@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::string_escape::bytes_to_unibyte_storage_string;
 
 #[test]
@@ -224,6 +225,31 @@ fn parse_keywords() {
             Expr::Keyword(intern(":size")),
         ]
     );
+}
+
+#[test]
+fn parse_uninterned_symbols_create_fresh_ids_and_preserve_labels() {
+    let forms = parse_forms("#:foo #:foo #1=#:bar #1#").unwrap();
+    assert_eq!(forms.len(), 4);
+
+    let Expr::Symbol(first) = forms[0] else {
+        panic!("expected uninterned symbol");
+    };
+    let Expr::Symbol(second) = forms[1] else {
+        panic!("expected uninterned symbol");
+    };
+    let Expr::Symbol(third) = forms[2] else {
+        panic!("expected labeled uninterned symbol");
+    };
+    let Expr::Symbol(fourth) = forms[3] else {
+        panic!("expected label reference");
+    };
+
+    assert_eq!(resolve_sym(first), "foo");
+    assert_eq!(resolve_sym(second), "foo");
+    assert_ne!(first, second, "separate #: reads must be fresh symbols");
+    assert_eq!(resolve_sym(third), "bar");
+    assert_eq!(third, fourth, "#1= / #1# must preserve symbol identity");
 }
 
 #[test]

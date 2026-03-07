@@ -1,4 +1,4 @@
-use super::super::intern::intern;
+use super::super::intern::{intern, intern_uninterned};
 use super::*;
 use crate::emacs_core::value::{
     HashTableTest, LambdaData, LambdaParams, StringTextPropertyRun, next_float_id,
@@ -34,6 +34,19 @@ fn print_symbol_escapes_reader_sensitive_chars() {
     assert_eq!(print_value(&Value::symbol("##")), "\\#\\#");
     assert_eq!(print_value(&Value::symbol("?a")), "\\?a");
     assert_eq!(print_value(&Value::symbol("a?b")), "a?b");
+}
+
+#[test]
+fn print_uninterned_symbols_with_reader_round_trip_syntax() {
+    assert_eq!(
+        print_value(&Value::Symbol(intern_uninterned("foo"))),
+        "#:foo"
+    );
+    assert_eq!(
+        print_value(&Value::Symbol(intern_uninterned(":foo"))),
+        "#::foo"
+    );
+    assert_eq!(print_value(&Value::Symbol(intern_uninterned(""))), "#:");
 }
 
 #[test]

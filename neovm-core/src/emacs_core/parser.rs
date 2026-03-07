@@ -1,11 +1,12 @@
 //! Lisp reader / parser.
 //!
 //! Supports: integers, floats, strings (with escapes), symbols, keywords,
-//! character literals (?a), lists, dotted pairs, vectors, quote ('), function (#'),
-//! backquote (`), unquote (,), splice (,@), line comments (;), block comments (#|..|#).
+//! uninterned symbols (`#:foo`), character literals (?a), lists, dotted pairs,
+//! vectors, quote ('), function (#'), backquote (`), unquote (,), splice (,@),
+//! line comments (;), block comments (#|..|#).
 
 use super::expr::{Expr, ParseError};
-use super::intern::intern;
+use super::intern::{intern, intern_uninterned};
 use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
 
 pub fn parse_forms(input: &str) -> Result<Vec<Expr>, ParseError> {
@@ -638,6 +639,12 @@ impl<'a> Parser<'a> {
                 // #@N<bytes> — reader skip used by .elc for inline data blocks.
                 self.parse_hash_skip_bytes()
             }
+            ':' => {
+                // #:X — uninterned symbol.
+                self.bump();
+                let (token, _) = self.read_symbol_token();
+                Ok(Expr::Symbol(intern_uninterned(&token)))
+            }
             '$' => {
                 // #$ — expands to the current load file name during read.
                 // Preserve it as a dedicated reader object so quote/bytecode
@@ -812,29 +819,7 @@ impl<'a> Parser<'a> {
     // -- Atoms (numbers, symbols) --------------------------------------------
 
     fn parse_atom(&mut self) -> Result<Expr, ParseError> {
-        let mut token = String::new();
-        let mut had_escape = false;
-        while let Some(ch) = self.current() {
-            if ch.is_ascii_whitespace()
-                || matches!(ch, '(' | ')' | '[' | ']' | '\'' | '`' | ',' | '"' | ';')
-            {
-                break;
-            }
-            if ch == '\\' {
-                had_escape = true;
-                self.bump();
-                match self.current() {
-                    Some(escaped) => {
-                        token.push(escaped);
-                        self.bump();
-                    }
-                    None => token.push('\\'),
-                }
-                continue;
-            }
-            token.push(ch);
-            self.bump();
-        }
+        let (token, had_escape) = self.read_symbol_token();
 
         if token.is_empty() {
             return Err(self.error("expected atom"));
@@ -878,6 +863,33 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Expr::Symbol(intern(&token)))
+    }
+
+    fn read_symbol_token(&mut self) -> (String, bool) {
+        let mut token = String::new();
+        let mut had_escape = false;
+        while let Some(ch) = self.current() {
+            if ch.is_ascii_whitespace()
+                || matches!(ch, '(' | ')' | '[' | ']' | '\'' | '`' | ',' | '"' | ';')
+            {
+                break;
+            }
+            if ch == '\\' {
+                had_escape = true;
+                self.bump();
+                match self.current() {
+                    Some(escaped) => {
+                        token.push(escaped);
+                        self.bump();
+                    }
+                    None => token.push('\\'),
+                }
+                continue;
+            }
+            token.push(ch);
+            self.bump();
+        }
+        (token, had_escape)
     }
 
     // -- Helpers -------------------------------------------------------------

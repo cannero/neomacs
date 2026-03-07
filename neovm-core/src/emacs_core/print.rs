@@ -2,7 +2,7 @@
 
 use super::chartable::bool_vector_length;
 use super::expr::{self, Expr};
-use super::intern::resolve_sym;
+use super::intern::{lookup_interned, resolve_sym};
 use super::string_escape::{format_lisp_string, format_lisp_string_bytes};
 use super::value::{
     HashTableTest, StringTextPropertyRun, Value, get_string_text_properties, list_to_vec,
@@ -150,7 +150,17 @@ pub fn print_value(value: &Value) -> String {
         Value::True => "t".to_string(),
         Value::Int(v) => v.to_string(),
         Value::Float(f, _) => format_float(*f),
-        Value::Symbol(id) => format_symbol_name(resolve_sym(*id)),
+        Value::Symbol(id) => {
+            let name = resolve_sym(*id);
+            let canonical = lookup_interned(name);
+            if canonical == Some(*id) {
+                format_symbol_name(name)
+            } else if name.is_empty() {
+                "#:".to_string()
+            } else {
+                format!("#:{}", format_symbol_name(name))
+            }
+        }
         Value::Keyword(id) => resolve_sym(*id).to_owned(),
         Value::Str(id) => {
             let s = with_heap(|h| h.get_string(*id).clone());

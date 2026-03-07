@@ -577,9 +577,26 @@ fn skip_one_sexp(input: &str, mut pos: usize) -> usize {
                     // #$ pseudo object
                     pos + 1
                 }
+                b':' => {
+                    // #:symbol — uninterned symbol reader syntax.
+                    pos += 1;
+                    skip_symbol_token(input, pos)
+                }
                 b'#' => {
                     // ## empty-symbol reader spelling
                     pos + 1
+                }
+                b'&' => {
+                    // #&SIZE"DATA" bool-vector literal.
+                    pos += 1;
+                    while pos < bytes.len() && bytes[pos].is_ascii_digit() {
+                        pos += 1;
+                    }
+                    if pos < bytes.len() && bytes[pos] == b'"' {
+                        skip_string(input, pos)
+                    } else {
+                        pos
+                    }
                 }
                 b's' => {
                     // #s(hash-table ...)
@@ -599,6 +616,24 @@ fn skip_one_sexp(input: &str, mut pos: usize) -> usize {
                         pos += 1;
                     }
                     pos
+                }
+                b'0'..=b'9' => {
+                    // #N=EXPR / #N#
+                    while pos < bytes.len() && bytes[pos].is_ascii_digit() {
+                        pos += 1;
+                    }
+                    if pos >= bytes.len() {
+                        return pos;
+                    }
+                    match bytes[pos] {
+                        b'=' => {
+                            pos += 1;
+                            pos = skip_ws_comments(input, pos);
+                            skip_one_sexp(input, pos)
+                        }
+                        b'#' => pos + 1,
+                        _ => pos,
+                    }
                 }
                 _ => pos + 1,
             }
@@ -664,26 +699,38 @@ fn skip_one_sexp(input: &str, mut pos: usize) -> usize {
         }
         _ => {
             // Atom: symbol or number
-            while pos < bytes.len() {
-                let b = bytes[pos];
-                if b.is_ascii_whitespace()
-                    || b == b'('
-                    || b == b')'
-                    || b == b'['
-                    || b == b']'
-                    || b == b'\''
-                    || b == b'`'
-                    || b == b','
-                    || b == b'"'
-                    || b == b';'
-                {
-                    break;
-                }
-                pos += 1;
-            }
-            pos
+            skip_symbol_token(input, pos)
         }
     }
+}
+
+fn skip_symbol_token(input: &str, mut pos: usize) -> usize {
+    let bytes = input.as_bytes();
+    while pos < bytes.len() {
+        let b = bytes[pos];
+        if b.is_ascii_whitespace()
+            || b == b'('
+            || b == b')'
+            || b == b'['
+            || b == b']'
+            || b == b'\''
+            || b == b'`'
+            || b == b','
+            || b == b'"'
+            || b == b';'
+        {
+            break;
+        }
+        if b == b'\\' {
+            pos += 1;
+            if pos < bytes.len() {
+                pos += 1;
+            }
+        } else {
+            pos += 1;
+        }
+    }
+    pos
 }
 
 fn skip_string(input: &str, mut pos: usize) -> usize {
