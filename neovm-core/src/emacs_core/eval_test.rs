@@ -17,6 +17,30 @@ fn eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
+fn load_minimal_backquote_runtime(eval: &mut Evaluator) {
+    use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
+
+    eval.set_lexical_binding(true);
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
+        ]),
+    );
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|e| panic!("load {name}: {e:?}"));
+    }
+}
+
 #[test]
 fn basic_arithmetic() {
     assert_eq!(eval_one("(+ 1 2)"), "OK 3");
@@ -2868,27 +2892,8 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
     //         cases)
     // The inner lambda is inside a REAL backquote (macro), after a function call.
     // This requires loading backquote.el.
-    use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
     let mut eval = Evaluator::new();
-    eval.set_lexical_binding(true);
-    eval.set_variable(
-        "load-path",
-        Value::list(vec![
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
-        ]),
-    );
-    let load_path = get_load_path(&eval.obarray());
-    for name in &[
-        "emacs-lisp/debug-early",
-        "emacs-lisp/byte-run",
-        "emacs-lisp/backquote",
-        "subr",
-    ] {
-        let path = find_file_in_load_path(name, &load_path)
-            .unwrap_or_else(|| panic!("cannot find {name}"));
-        load_file(&mut eval, &path).unwrap_or_else(|e| panic!("load {name}: {e:?}"));
-    }
+    load_minimal_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
         r#"(progn
@@ -2904,6 +2909,47 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
     .expect("parse");
     let result = format_eval_result(&eval.eval_expr(&forms[0]));
     assert_eq!(result, "OK ((a 1) matched)");
+}
+
+#[test]
+fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
+    let mut eval = Evaluator::new();
+    load_minimal_backquote_runtime(&mut eval);
+
+    let forms = parse_forms(
+        r#"(let ((prefix "neovm-bqc-test")
+                 (suffixes '("x" "y" "z")))
+             (let ((forms
+                    (let ((i 0))
+                      (mapcar (lambda (s)
+                                (setq i (1+ i))
+                                `(list ',(intern (concat prefix "-" s)) ,i))
+                              suffixes))))
+               (mapcar #'eval forms)))"#,
+    )
+    .expect("parse");
+    let result = format_eval_result(&eval.eval_expr(&forms[0]));
+    assert_eq!(
+        result,
+        "OK ((neovm-bqc-test-x 1) (neovm-bqc-test-y 2) (neovm-bqc-test-z 3))"
+    );
+}
+
+#[test]
+fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
+    let mut eval = Evaluator::new();
+    load_minimal_backquote_runtime(&mut eval);
+
+    let forms = parse_forms(
+        r#"(let ((x 10))
+             (let ((template `(let ((y ,,x)) `(+ ,y ,,x))))
+               (list template
+                     (condition-case e (eval template) (error (cons 'ERR e)))
+                     (condition-case e (eval (eval template)) (error (cons 'ERR e))))))"#,
+    )
+    .expect("parse");
+    let result = format_eval_result(&eval.eval_expr(&forms[0]));
+    assert_eq!(result, r#"ERR (void-function (\,))"#);
 }
 
 #[test]

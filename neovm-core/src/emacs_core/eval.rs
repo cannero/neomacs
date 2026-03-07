@@ -98,12 +98,6 @@ enum NamedCallTarget {
 }
 
 #[derive(Clone, Debug)]
-enum BackquoteElement {
-    Item(Value),
-    Splice(Vec<Value>),
-}
-
-#[derive(Clone, Debug)]
 struct NamedCallCache {
     symbol: SymId,
     function_epoch: u64,
@@ -2586,7 +2580,7 @@ impl Evaluator {
             }
 
             // Special forms
-            if name == "`" || !self.obarray.is_function_unbound(name) {
+            if !self.obarray.is_function_unbound(name) {
                 if let Some(result) = self.try_special_form(name, tail) {
                     return result;
                 }
@@ -2794,7 +2788,6 @@ impl Evaluator {
     fn try_special_form(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
         Some(match name {
             "quote" => self.sf_quote(tail),
-            "`" => self.sf_backquote(tail),
             "function" => self.sf_function(tail),
             "let" => self.sf_let(tail),
             "let*" => self.sf_let_star(tail),
@@ -2865,11 +2858,6 @@ impl Evaluator {
             "define-minor-mode" => super::interactive::sf_define_minor_mode(self, tail),
             "define-derived-mode" => super::interactive::sf_define_derived_mode(self, tail),
             "define-generic-mode" => super::interactive::sf_define_generic_mode(self, tail),
-            // Comma / comma-at outside backquote — GNU Emacs signals an error.
-            "," | ",@" => Err(signal(
-                "error",
-                vec![Value::string("`,' is not inside a backquote")],
-            )),
             _ => return None,
         })
     }
@@ -2882,179 +2870,6 @@ impl Evaluator {
             ));
         }
         Ok(quote_to_value(&tail[0]))
-    }
-
-    fn sf_backquote(&mut self, tail: &[Expr]) -> EvalResult {
-        if tail.len() != 1 {
-            return Err(signal(
-                "wrong-number-of-arguments",
-                vec![
-                    Value::cons(Value::Int(1), Value::Int(1)),
-                    Value::Int(tail.len() as i64),
-                ],
-            ));
-        }
-        let template = quote_to_value(&tail[0]);
-        self.eval_backquote_template(&template, 1)
-    }
-
-    fn backquote_marker_arg(template: &Value, marker: &str) -> Option<Value> {
-        let items = list_to_vec(template)?;
-        if items.len() == 2 && items[0].as_symbol_name() == Some(marker) {
-            Some(items[1])
-        } else {
-            None
-        }
-    }
-
-    fn eval_backquote_template(&mut self, template: &Value, depth: usize) -> EvalResult {
-        if let Some(arg_expr) = Self::backquote_marker_arg(template, ",@") {
-            if depth == 1 {
-                return self.eval_value(&arg_expr);
-            }
-            let inner = self.eval_backquote_template(&arg_expr, depth.saturating_sub(1))?;
-            return Ok(Value::list(vec![Value::symbol(",@"), inner]));
-        }
-
-        if let Some(arg_expr) = Self::backquote_marker_arg(template, ",") {
-            if depth == 1 {
-                return self.eval_value(&arg_expr);
-            }
-            let inner = self.eval_backquote_template(&arg_expr, depth.saturating_sub(1))?;
-            return Ok(Value::list(vec![Value::symbol(","), inner]));
-        }
-
-        if let Some(inner) = Self::backquote_marker_arg(template, "`") {
-            let expanded = self.eval_backquote_template(&inner, depth.saturating_add(1))?;
-            return Ok(Value::list(vec![Value::symbol("`"), expanded]));
-        }
-
-        match template {
-            Value::Cons(_) => self.eval_backquote_list_template(template, depth),
-            Value::Vector(v) => self.eval_backquote_vector_template(*v, depth),
-            _ => Ok(*template),
-        }
-    }
-
-    fn eval_backquote_list_template(&mut self, template: &Value, depth: usize) -> EvalResult {
-        let mut expanded_items = Vec::new();
-        let mut cursor = *template;
-        let mut dotted_tail: Option<Value> = None;
-
-        while let Value::Cons(cell) = cursor {
-            let pair = read_cons(cell);
-            let car = pair.car;
-            cursor = pair.cdr;
-            drop(pair);
-
-            // Check if cursor (the cdr) is a comma or comma-at marker.
-            // This handles dotted pairs like `(a . ,x)` where quote_to_value
-            // flattens the structure into (a , x).  After extracting car=a,
-            // cursor is (, x) which must be treated as a backquote
-            // substitution for the tail, not iterated as separate elements.
-            let tail_comma = Self::backquote_marker_arg(&cursor, ",");
-            let tail_comma_at = if tail_comma.is_none() {
-                Self::backquote_marker_arg(&cursor, ",@")
-            } else {
-                None
-            };
-
-            match self.eval_backquote_element(&car, depth)? {
-                BackquoteElement::Item(value) => expanded_items.push(value),
-                BackquoteElement::Splice(mut values) => expanded_items.append(&mut values),
-            }
-
-            if let Some(arg) = tail_comma {
-                dotted_tail = Some(if depth == 1 {
-                    self.eval_value(&arg)?
-                } else {
-                    let inner = self.eval_backquote_template(&arg, depth.saturating_sub(1))?;
-                    Value::list(vec![Value::symbol(","), inner])
-                });
-                break;
-            }
-            if let Some(arg) = tail_comma_at {
-                dotted_tail = Some(if depth == 1 {
-                    self.eval_value(&arg)?
-                } else {
-                    let inner = self.eval_backquote_template(&arg, depth.saturating_sub(1))?;
-                    Value::list(vec![Value::symbol(",@"), inner])
-                });
-                break;
-            }
-        }
-
-        let mut tail = if let Some(dt) = dotted_tail {
-            dt
-        } else if cursor.is_nil() {
-            Value::Nil
-        } else {
-            self.eval_backquote_template(&cursor, depth)?
-        };
-
-        for value in expanded_items.into_iter().rev() {
-            tail = Value::cons(value, tail);
-        }
-        Ok(tail)
-    }
-
-    fn eval_backquote_vector_template(&mut self, vector_id: ObjId, depth: usize) -> EvalResult {
-        let items = with_heap(|h| h.get_vector(vector_id).clone());
-        let mut expanded_items = Vec::new();
-        for item in items {
-            match self.eval_backquote_element(&item, depth)? {
-                BackquoteElement::Item(value) => expanded_items.push(value),
-                BackquoteElement::Splice(mut values) => expanded_items.append(&mut values),
-            }
-        }
-        Ok(Value::vector(expanded_items))
-    }
-
-    fn eval_backquote_element(
-        &mut self,
-        element: &Value,
-        depth: usize,
-    ) -> Result<BackquoteElement, Flow> {
-        if let Some(arg_expr) = Self::backquote_marker_arg(element, ",@") {
-            if depth == 1 {
-                let evaluated = self.eval_value(&arg_expr)?;
-                let values = list_to_vec(&evaluated).ok_or_else(|| {
-                    signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), evaluated],
-                    )
-                })?;
-                return Ok(BackquoteElement::Splice(values));
-            }
-            let inner = self.eval_backquote_template(&arg_expr, depth.saturating_sub(1))?;
-            return Ok(BackquoteElement::Item(Value::list(vec![
-                Value::symbol(",@"),
-                inner,
-            ])));
-        }
-
-        if let Some(arg_expr) = Self::backquote_marker_arg(element, ",") {
-            if depth == 1 {
-                return Ok(BackquoteElement::Item(self.eval_value(&arg_expr)?));
-            }
-            let inner = self.eval_backquote_template(&arg_expr, depth.saturating_sub(1))?;
-            return Ok(BackquoteElement::Item(Value::list(vec![
-                Value::symbol(","),
-                inner,
-            ])));
-        }
-
-        if let Some(inner) = Self::backquote_marker_arg(element, "`") {
-            let expanded = self.eval_backquote_template(&inner, depth.saturating_add(1))?;
-            return Ok(BackquoteElement::Item(Value::list(vec![
-                Value::symbol("`"),
-                expanded,
-            ])));
-        }
-
-        Ok(BackquoteElement::Item(
-            self.eval_backquote_template(element, depth)?,
-        ))
     }
 
     fn sf_function(&mut self, tail: &[Expr]) -> EvalResult {
@@ -5515,6 +5330,12 @@ fn collect_free_vars(expr: &Expr, bound: &HashSet<SymId>, free: &mut HashSet<Sym
             if let Expr::Symbol(head_id) = &items[0] {
                 let head = resolve_sym(*head_id);
                 match head {
+                    "`" => {
+                        if items.len() == 2 {
+                            collect_free_vars_backquote(&items[1], bound, free, 1);
+                            return;
+                        }
+                    }
                     "quote" => {
                         // Quoted forms contain no free variables.
                         return;
@@ -5651,6 +5472,69 @@ fn collect_free_vars(expr: &Expr, bound: &HashSet<SymId>, free: &mut HashSet<Sym
         | Expr::Char(_)
         | Expr::Bool(_)
         | Expr::Keyword(_) => {}
+    }
+}
+
+fn collect_free_vars_backquote(
+    expr: &Expr,
+    bound: &HashSet<SymId>,
+    free: &mut HashSet<SymId>,
+    depth: usize,
+) {
+    match expr {
+        // Backquote templates are data by default. Only active unquotes
+        // contribute free-variable references to the surrounding closure.
+        Expr::Symbol(_)
+        | Expr::Keyword(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Str(_)
+        | Expr::Char(_)
+        | Expr::Bool(_)
+        | Expr::OpaqueValue(_) => {}
+        Expr::List(items) if items.len() == 2 => {
+            if let Expr::Symbol(head_id) = &items[0] {
+                match resolve_sym(*head_id) {
+                    "`" => {
+                        collect_free_vars_backquote(
+                            &items[1],
+                            bound,
+                            free,
+                            depth.saturating_add(1),
+                        );
+                        return;
+                    }
+                    "," | ",@" => {
+                        if depth <= 1 {
+                            collect_free_vars(&items[1], bound, free);
+                        } else {
+                            collect_free_vars_backquote(
+                                &items[1],
+                                bound,
+                                free,
+                                depth.saturating_sub(1),
+                            );
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            for item in items {
+                collect_free_vars_backquote(item, bound, free, depth);
+            }
+        }
+        Expr::List(items) | Expr::Vector(items) => {
+            for item in items {
+                collect_free_vars_backquote(item, bound, free, depth);
+            }
+        }
+        Expr::DottedList(items, last) => {
+            for item in items {
+                collect_free_vars_backquote(item, bound, free, depth);
+            }
+            collect_free_vars_backquote(last, bound, free, depth);
+        }
     }
 }
 
