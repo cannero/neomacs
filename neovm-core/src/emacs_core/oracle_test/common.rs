@@ -103,14 +103,19 @@ pub(crate) fn run_oracle_eval(form: &str) -> Result<String, String> {
            (_ (set-language-environment "UTF-8"))
            (form-file (getenv "NEOVM_ORACLE_FORM_FILE"))
            (result
-            (with-temp-buffer
-              (insert-file-contents form-file)
-              (goto-char (point-min))
-              (let ((last nil))
-                (condition-case nil
-                    (while t
-                      (setq last (eval (read (current-buffer)) t)))
-                  (end-of-file last))))))
+            (let ((source-buf (generate-new-buffer " *neovm-oracle-form*")))
+              (unwind-protect
+                  (progn
+                    (with-current-buffer source-buf
+                      (insert-file-contents form-file)
+                      (goto-char (point-min)))
+                    (let ((last nil))
+                      (condition-case nil
+                          (while t
+                            (setq last (eval (read source-buf) t)))
+                        (end-of-file last))))
+                (when (buffer-live-p source-buf)
+                  (kill-buffer source-buf))))))
       (princ (concat "OK " (prin1-to-string (neovm--oracle-normalize result))))))
   (error
    (princ
@@ -192,7 +197,6 @@ fn run_neovm_eval_in_temp_buffer(
         buf.insert(form);
         buf.pt = 0;
     }
-    eval.buffers.set_current(temp_id);
 
     let mut result = Ok(Value::Nil);
     loop {

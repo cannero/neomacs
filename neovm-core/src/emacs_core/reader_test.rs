@@ -2035,6 +2035,21 @@ fn read_from_buffer_advances_point_across_multiple_forms() {
 }
 
 #[test]
+fn read_from_buffer_preserves_string_literals_during_eval() {
+    let mut ev = Evaluator::new();
+    let buf_id = ev.buffers.create_buffer(" *reader-string-eval*");
+    {
+        let buf = ev.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert(r#"(progn (setq reader-string nil) (setq reader-string "abc") reader-string)"#);
+        buf.pt = 0;
+    }
+
+    let form = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]).expect("read form");
+    let result = ev.eval_value(&form).expect("eval form");
+    assert_eq!(result.as_str(), Some("abc"));
+}
+
+#[test]
 fn read_from_string_hash_bracket_preserves_vector() {
     let mut ev = Evaluator::new();
     let input = "#[nil \"\\300\\207\" [0] 1]";
