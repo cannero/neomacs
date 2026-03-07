@@ -643,6 +643,7 @@ pub(crate) fn builtin_seq_empty_p(args: Vec<Value>) -> EvalResult {
     match &args[0] {
         Value::Nil => Ok(Value::True),
         Value::Cons(_) => Ok(Value::Nil),
+        Value::Lambda(_) | Value::ByteCode(_) => Ok(Value::Nil),
         Value::Str(s) => Ok(Value::bool(with_heap(|h| h.get_string(*s).is_empty()))),
         Value::Vector(v) => Ok(Value::bool(with_heap(|h| h.vector_len(*v)) == 0)),
         other => Err(signal(
@@ -707,6 +708,9 @@ pub(crate) fn builtin_seq_position(
 ) -> EvalResult {
     expect_min_args("seq-position", &args, 2)?;
     let seq = &args[0];
+    if matches!(seq, Value::Lambda(_) | Value::ByteCode(_)) {
+        return Ok(Value::Nil);
+    }
     let target = args[1];
     let test_fn = if args.len() > 2 && !args[2].is_nil() {
         Some(args[2])

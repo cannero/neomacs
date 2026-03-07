@@ -386,6 +386,15 @@ fn vm_roots_bytecode_constants_across_gc_during_eval_builtin_dispatch() {
 }
 
 #[test]
+fn vm_length_accepts_plain_bytecode_closure_shape() {
+    let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
+        crate::emacs_core::value::LambdaParams::simple(vec![intern("x")]),
+    ));
+
+    assert_eq!(length_value(&bc).unwrap(), Value::Int(4));
+}
+
+#[test]
 fn vm_keymap_predicate_and_lookup_resolve_symbol_function_cells() {
     assert_eq!(
         vm_eval_str(

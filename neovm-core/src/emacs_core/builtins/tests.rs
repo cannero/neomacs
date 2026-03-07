@@ -298,6 +298,98 @@ fn pure_dispatch_typed_append_concatenates_lists() {
 }
 
 #[test]
+fn pure_dispatch_typed_append_flattens_bytecode_slots() {
+    let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
+        LambdaParams::simple(vec![intern("x")]),
+    ));
+    let result = dispatch_builtin_pure("append", vec![bc, Value::Nil])
+        .expect("builtin append should resolve")
+        .expect("builtin append should evaluate");
+    let slots = list_to_vec(&result).expect("bytecode append should produce a proper list");
+    assert_eq!(slots.len(), 4);
+    assert!(matches!(slots[0], Value::Cons(_) | Value::Nil));
+    assert!(matches!(slots[1], Value::Nil | Value::Str(_)));
+    assert!(matches!(slots[2], Value::Vector(_)));
+    assert!(matches!(slots[3], Value::Int(_)));
+}
+
+#[test]
+fn pure_dispatch_typed_length_predicates_accept_bytecode_functions() {
+    let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
+        LambdaParams::simple(vec![intern("x")]),
+    ));
+    let eq = dispatch_builtin_pure("length=", vec![bc, Value::Int(4)])
+        .expect("builtin length= should resolve")
+        .expect("builtin length= should evaluate");
+    assert!(eq.is_truthy());
+    let gt = dispatch_builtin_pure("length>", vec![bc, Value::Int(3)])
+        .expect("builtin length> should resolve")
+        .expect("builtin length> should evaluate");
+    assert!(gt.is_truthy());
+}
+
+#[test]
+fn pure_dispatch_typed_length_tracks_bytecode_doc_slot() {
+    let mut bc =
+        crate::emacs_core::bytecode::ByteCodeFunction::new(LambdaParams::simple(vec![intern("x")]));
+    bc.docstring = Some("doc".into());
+    let bc = Value::make_bytecode(bc);
+
+    let len = dispatch_builtin_pure("length", vec![bc])
+        .expect("builtin length should resolve")
+        .expect("builtin length should evaluate");
+
+    assert_eq!(len, Value::Int(5));
+}
+
+#[test]
+fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
+    let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
+        LambdaParams::simple(vec![intern("x")]),
+    ));
+    let result = dispatch_builtin_pure("vconcat", vec![bc])
+        .expect("builtin vconcat should resolve")
+        .expect("builtin vconcat should evaluate");
+    let Value::Vector(id) = result else {
+        panic!("expected vector result, got {result:?}");
+    };
+    let slots = with_heap(|h| h.get_vector(id).clone());
+    assert_eq!(slots.len(), 4);
+    assert!(matches!(slots[0], Value::Cons(_) | Value::Nil));
+    assert!(matches!(slots[1], Value::Nil | Value::Str(_)));
+    assert!(matches!(slots[2], Value::Vector(_)));
+    assert!(matches!(slots[3], Value::Int(_)));
+}
+
+#[test]
+fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
+    let bare = Value::make_lambda(LambdaData {
+        params: LambdaParams::simple(vec![intern("x")]),
+        body: vec![Expr::Symbol(intern("x"))].into(),
+        env: Some(Value::Nil),
+        docstring: None,
+        doc_form: None,
+    });
+    let with_doc = Value::make_lambda(LambdaData {
+        params: LambdaParams::simple(vec![intern("x")]),
+        body: vec![Expr::Symbol(intern("x"))].into(),
+        env: Some(Value::Nil),
+        docstring: Some("doc".into()),
+        doc_form: None,
+    });
+
+    let bare_len = dispatch_builtin_pure("length", vec![bare])
+        .expect("builtin length should resolve")
+        .expect("builtin length should evaluate");
+    let doc_len = dispatch_builtin_pure("length", vec![with_doc])
+        .expect("builtin length should resolve")
+        .expect("builtin length should evaluate");
+
+    assert_eq!(bare_len, Value::Int(3));
+    assert_eq!(doc_len, Value::Int(5));
+}
+
+#[test]
 fn pure_dispatch_typed_string_equal_aliases_match() {
     let a = Value::string("neo");
     let b = Value::string("neo");

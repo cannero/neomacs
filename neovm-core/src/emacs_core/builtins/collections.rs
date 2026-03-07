@@ -236,6 +236,8 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
             }
             Value::Nil => {}
             Value::Cons(_) => extend_from_proper_list(&mut result, arg)?,
+            Value::Lambda(_) => result.extend(lambda_to_closure_vector(arg).into_iter()),
+            Value::ByteCode(_) => result.extend(bytecode_to_closure_vector(arg).into_iter()),
             _ => {
                 return Err(signal(
                     "wrong-type-argument",

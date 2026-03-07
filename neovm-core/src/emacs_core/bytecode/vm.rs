@@ -2527,9 +2527,9 @@ fn length_value(val: &Value) -> EvalResult {
             with_heap(|h| h.get_string(*id).chars().count()) as i64
         )),
         Value::Vector(v) => Ok(Value::Int(with_heap(|h| h.vector_len(*v)) as i64)),
-        // In official Emacs, closures are vectors with layout:
-        // [ARGS, BODY, ENV, nil, DOCSTRING] → always 5 slots
-        Value::Lambda(_) => Ok(Value::Int(5)),
+        Value::Lambda(_) | Value::ByteCode(_) => {
+            Ok(Value::Int(builtins::closure_vector_length(val).unwrap()))
+        }
         Value::Cons(_) => {
             let mut len: i64 = 0;
             let mut cursor = *val;

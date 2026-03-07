@@ -67,8 +67,15 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
     Some(result)
 }
 
-/// Convert a Lambda value to the official Emacs closure vector layout:
-///   [0]=ARGS  [1]=BODY  [2]=ENV  [3]=nil  [4]=DOCSTRING  [5]=IFORM
+pub(crate) fn lambda_closure_length(value: &Value) -> Option<i64> {
+    let data = value.get_lambda_data()?;
+    let has_doc_slot = data.doc_form.is_some() || data.docstring.is_some();
+    Some(if has_doc_slot { 5 } else { 3 })
+}
+
+/// Convert a Lambda value to the GNU Emacs closure vector layout:
+///   [0]=ARGS  [1]=BODY  [2]=ENV  [(3)=nil, (4)=DOCSTRING/TYPE]
+/// NeoVM does not currently store the optional interactive slot.
 /// This is used by `aref` on closures for oclosure slot access.
 pub(crate) fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
     let data = match value.get_lambda_data() {
@@ -101,24 +108,36 @@ pub(crate) fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
         None => Value::Nil, // nil = dynamic scope
     };
 
-    // Slot 4: doc_form (oclosure type symbol) or docstring or nil
-    let slot4 = if let Some(df) = data.doc_form {
-        df
-    } else {
-        data.docstring
-            .as_ref()
-            .map(|d| Value::string(d.clone()))
-            .unwrap_or(Value::Nil)
-    };
+    let mut result = vec![args, body, env];
 
-    // Layout: [ARGS, BODY, ENV, nil, SLOT4]
-    let result = vec![args, body, env, Value::Nil, slot4];
+    let slot4 = data
+        .doc_form
+        .or_else(|| data.docstring.as_ref().map(|d| Value::string(d.clone())));
+    if let Some(slot4) = slot4 {
+        result.push(Value::Nil);
+        result.push(slot4);
+    }
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
     result
 }
 
+pub(crate) fn bytecode_closure_length(value: &Value) -> Option<i64> {
+    let bc = value.get_bytecode_data()?;
+    let has_doc_slot = bc.doc_form.is_some() || bc.docstring.is_some();
+    Some(if has_doc_slot { 5 } else { 4 })
+}
+
+pub(crate) fn closure_vector_length(value: &Value) -> Option<i64> {
+    match value {
+        Value::Lambda(_) => lambda_closure_length(value),
+        Value::ByteCode(_) => bytecode_closure_length(value),
+        _ => None,
+    }
+}
+
 /// Convert a ByteCode value to the GNU Emacs closure vector layout:
-///   [0]=ARGLIST  [1]=CODE  [2]=ENV/CONSTANTS  [3]=DEPTH  [4]=DOC
+///   [0]=ARGLIST  [1]=CODE  [2]=ENV/CONSTANTS  [3]=DEPTH  [(4)=DOC/TYPE]
+/// NeoVM does not currently store the optional interactive slot.
 /// This is used by `aref` on bytecode closures for oclosure slot access.
 pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     let bc = match value.get_bytecode_data() {
@@ -144,17 +163,14 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     // Slot 3: max stack depth
     let depth = Value::Int(bc.max_stack as i64);
 
-    // Slot 4: doc_form (oclosure type symbol) or docstring or nil
-    let slot4 = if let Some(df) = bc.doc_form {
-        df
-    } else {
-        bc.docstring
-            .as_ref()
-            .map(|d| Value::string(d.clone()))
-            .unwrap_or(Value::Nil)
-    };
+    let mut result = vec![args, code, env, depth];
 
-    let result = vec![args, code, env, depth, slot4];
+    let slot4 = bc
+        .doc_form
+        .or_else(|| bc.docstring.as_ref().map(|d| Value::string(d.clone())));
+    if let Some(slot4) = slot4 {
+        result.push(slot4);
+    }
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
     result
 }
@@ -176,16 +192,6 @@ fn lambda_params_to_value(params: &LambdaParams) -> Value {
         elements.push(Value::Symbol(*rest));
     }
     Value::list(elements)
-}
-
-/// Compute the length of a Lambda using the closure vector layout:
-///   [ARGS, BODY, ENV, nil, DOCSTRING]  → always 5
-/// This matches official Emacs where closures are vectors.
-fn lambda_list_length(value: &Value) -> Option<i64> {
-    let _data = value.get_lambda_data()?;
-    // The closure vector layout always has 5 slots:
-    // [ARGS, BODY, ENV, nil, DOCSTRING]
-    Some(5)
 }
 
 fn car_value(value: &Value) -> Result<Value, Flow> {
@@ -440,8 +446,9 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
     expect_args("length", &args, 1)?;
     match &args[0] {
         Value::Nil => Ok(Value::Int(0)),
-        Value::Lambda(_) => Ok(Value::Int(lambda_list_length(&args[0]).unwrap())),
-        Value::ByteCode(_) => Ok(Value::Int(5)),
+        Value::Lambda(_) | Value::ByteCode(_) => {
+            Ok(Value::Int(closure_vector_length(&args[0]).unwrap()))
+        }
         Value::Cons(_) => match list_length(&args[0]) {
             Some(n) => Ok(Value::Int(n as i64)),
             None => Err(signal(
@@ -469,7 +476,9 @@ fn vector_sequence_length(sequence: &Value, vector: ObjId) -> i64 {
 fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow> {
     match sequence {
         Value::Nil => Ok(0 < target),
-        Value::Lambda(_) => Ok(lambda_list_length(sequence).unwrap() < target),
+        Value::Lambda(_) | Value::ByteCode(_) => {
+            Ok(closure_vector_length(sequence).unwrap() < target)
+        }
         Value::Str(id) => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) < target),
         Value::Vector(v) | Value::Record(v) => Ok(vector_sequence_length(sequence, *v) < target),
         Value::Cons(_) => {
@@ -499,7 +508,9 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
 fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
     match sequence {
         Value::Nil => Ok(target == 0),
-        Value::Lambda(_) => Ok(lambda_list_length(sequence).unwrap() == target),
+        Value::Lambda(_) | Value::ByteCode(_) => {
+            Ok(closure_vector_length(sequence).unwrap() == target)
+        }
         Value::Str(id) => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) == target),
         Value::Vector(v) | Value::Record(v) => Ok(vector_sequence_length(sequence, *v) == target),
         Value::Cons(_) => {
@@ -529,7 +540,9 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
 fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, Flow> {
     match sequence {
         Value::Nil => Ok(0 > target),
-        Value::Lambda(_) => Ok(lambda_list_length(sequence).unwrap() > target),
+        Value::Lambda(_) | Value::ByteCode(_) => {
+            Ok(closure_vector_length(sequence).unwrap() > target)
+        }
         Value::Str(id) => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) > target),
         Value::Vector(v) | Value::Record(v) => Ok(vector_sequence_length(sequence, *v) > target),
         Value::Cons(_) => {
@@ -658,6 +671,8 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
         match arg {
             Value::Nil => {}
             Value::Cons(_) => extend_from_proper_list(&mut elements, arg)?,
+            Value::Lambda(_) => elements.extend(lambda_to_closure_vector(arg).into_iter()),
+            Value::ByteCode(_) => elements.extend(bytecode_to_closure_vector(arg).into_iter()),
             Value::Vector(v) => {
                 elements.extend(with_heap(|h| h.get_vector(*v).clone()).into_iter())
             }

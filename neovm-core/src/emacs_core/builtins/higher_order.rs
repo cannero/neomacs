@@ -114,6 +114,18 @@ where
             }
             Ok(())
         }
+        Value::Lambda(_) => {
+            for item in super::cons_list::lambda_to_closure_vector(seq).into_iter() {
+                f(item)?;
+            }
+            Ok(())
+        }
+        Value::ByteCode(_) => {
+            for item in super::cons_list::bytecode_to_closure_vector(seq).into_iter() {
+                f(item)?;
+            }
+            Ok(())
+        }
         Value::Str(id) => {
             let s = with_heap(|h| h.get_string(*id).clone());
             for cp in decode_storage_char_codes(&s) {
