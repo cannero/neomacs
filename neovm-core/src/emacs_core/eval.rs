@@ -280,6 +280,14 @@ impl Default for Evaluator {
 
 impl Evaluator {
     pub fn new() -> Self {
+        Self::new_inner(true)
+    }
+
+    pub(crate) fn new_preserving_thread_locals() -> Self {
+        Self::new_inner(false)
+    }
+
+    fn new_inner(reset_thread_locals: bool) -> Self {
         // Create the interner and heap, set thread-locals so that Value
         // constructors (symbol, keyword, cons, list, etc.) work during init.
         let mut interner = Box::new(StringInterner::new());
@@ -290,16 +298,18 @@ impl Evaluator {
         // Clear any caches that hold heap-allocated Values (ObjIds) from a
         // previous heap. Critical for test isolation when multiple Evaluators
         // are created sequentially on the same thread.
-        super::syntax::reset_syntax_thread_locals();
-        super::casetab::reset_casetab_thread_locals();
-        super::category::reset_category_thread_locals();
-        super::value::reset_string_text_properties();
-        super::ccl::reset_ccl_registry();
-        super::dispnew::pure::reset_dispnew_thread_locals();
-        super::font::clear_font_cache_state();
-        super::builtins::reset_builtins_thread_locals();
-        super::charset::reset_charset_registry();
-        super::timefns::reset_timefns_thread_locals();
+        if reset_thread_locals {
+            super::syntax::reset_syntax_thread_locals();
+            super::casetab::reset_casetab_thread_locals();
+            super::category::reset_category_thread_locals();
+            super::value::reset_string_text_properties();
+            super::ccl::reset_ccl_registry();
+            super::dispnew::pure::reset_dispnew_thread_locals();
+            super::font::clear_font_cache_state();
+            super::builtins::reset_builtins_thread_locals();
+            super::charset::reset_charset_registry();
+            super::timefns::reset_timefns_thread_locals();
+        }
 
         let mut obarray = Obarray::new();
         // Mirror GNU Emacs startup: primitive names exist in the initial

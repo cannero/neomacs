@@ -305,6 +305,27 @@ fn vm_catch_returns_thrown_value() {
 }
 
 #[test]
+fn vm_define_charset_alias_survives_eval_builtin_bridge() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (define-charset-internal
+                 'vm-gbk
+                 2
+                 [#x40 #xFE #x81 #xFE 0 0 0 0]
+                 nil nil nil nil nil nil nil nil
+                 #x160000
+                 nil nil nil nil
+                 '(:name vm-gbk :docstring \"VM GBK\"))
+               (mapcar 'list '(1 2 3))
+               (define-charset-alias 'vm-gbk-alias 'vm-gbk)
+               (list (charsetp 'vm-gbk) (charsetp 'vm-gbk-alias)))"
+        ),
+        "OK (t t)"
+    );
+}
+
+#[test]
 fn vm_throw_restores_saved_stack_before_resuming_catch() {
     let func = ByteCodeFunction {
         ops: vec![

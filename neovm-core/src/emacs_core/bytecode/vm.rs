@@ -1491,8 +1491,9 @@ impl<'a> Vm<'a> {
         use crate::emacs_core::value::{current_heap_ptr, set_current_heap, with_saved_heap};
         // Evaluator::new() overwrites the thread-local heap/interner pointers.
         // Save and restore them so ObjIds/SymIds from the caller remain valid.
-        let mut eval =
-            with_saved_interner(|| with_saved_heap(crate::emacs_core::eval::Evaluator::new));
+        let mut eval = with_saved_interner(|| {
+            with_saved_heap(crate::emacs_core::eval::Evaluator::new_preserving_thread_locals)
+        });
 
         // The temp evaluator owns a fresh empty heap, but all ObjIds in
         // args/obarray/dynamic/etc. belong to the ORIGINAL heap (the one
