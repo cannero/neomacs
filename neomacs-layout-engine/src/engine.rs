@@ -3829,7 +3829,7 @@ impl LayoutEngine {
 
         // Header-line: evaluate format-mode-line with header-line-format
         if params.header_line_height > 0.0 {
-            let hl_y = params.text_bounds.y;
+            let hl_y = params.bounds.y + params.tab_line_height;
             let hl_face = face_resolver.resolve_named_face("header-line");
 
             // Try to evaluate (format-mode-line header-line-format)
