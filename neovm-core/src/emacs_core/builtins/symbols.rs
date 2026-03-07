@@ -4009,6 +4009,54 @@ pub(crate) fn make_byte_code_from_parts(
     Ok(Value::make_bytecode(bc))
 }
 
+pub(crate) fn make_interpreted_closure_from_parts(
+    params_value: &Value,
+    body_value: &Value,
+    env_value: &Value,
+    docstring: Option<&Value>,
+    interactive: Option<&Value>,
+) -> EvalResult {
+    let docstring_value = docstring.copied().unwrap_or(Value::Nil);
+    let _iform = interactive.copied().unwrap_or(Value::Nil);
+
+    let params_expr = super::eval::value_to_expr(params_value);
+    let params = parse_lambda_params_from_expr(&params_expr)?;
+
+    let body_exprs: Vec<super::super::expr::Expr> = if body_value.is_nil() {
+        vec![]
+    } else {
+        let body_items = list_to_vec(body_value).ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), *body_value],
+            )
+        })?;
+        body_items.iter().map(super::eval::value_to_expr).collect()
+    };
+
+    let env = if env_value.is_nil() {
+        None
+    } else if matches!(env_value, Value::True) {
+        Some(Value::Nil)
+    } else {
+        Some(*env_value)
+    };
+
+    let (docstring, doc_form) = match &docstring_value {
+        Value::Str(id) => (Some(with_heap(|h| h.get_string(*id).clone())), None),
+        Value::Nil => (None, None),
+        other => (None, Some(*other)),
+    };
+
+    Ok(Value::make_lambda(LambdaData {
+        params,
+        body: body_exprs.into(),
+        env,
+        docstring,
+        doc_form,
+    }))
+}
+
 /// Reify nested compiled literals embedded in `.elc` constant vectors.
 ///
 /// GNU compiled constants are first read as ordinary Lisp data. Nested
@@ -4023,35 +4071,45 @@ pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
     let items = match val {
         Value::Vector(id) => {
             let v = with_heap(|h| h.get_vector(id).clone());
-            if v.len() >= 4 {
-                v
-            } else {
+            if v.len() < 3 {
                 return val;
             }
+            v
         }
         _ => return val,
     };
 
-    // Check if this looks like a bytecode vector:
-    // [0] = arglist (int or list), [1] = bytecode string, [2] = constants vector, [3] = maxdepth
-    if !items[1].is_string() {
-        return val;
+    if items.len() >= 4 && items[1].is_string() && (items[2].is_vector() || items[2].is_nil()) {
+        return match make_byte_code_from_parts(
+            &items[0],
+            &items[1],
+            &items[2],
+            &items[3],
+            items.get(4),
+            items.get(5),
+        ) {
+            Ok(bc) => bc,
+            Err(_) => val,
+        };
     }
-    // items[2] should be a vector
-    if !items[2].is_vector() && !items[2].is_nil() {
+
+    let looks_interpreted_closure = matches!(items.len(), 3 | 5 | 6)
+        && matches!(items[0], Value::Cons(_) | Value::Nil)
+        && matches!(items[1], Value::Cons(_))
+        && (items.len() < 4 || items[3].is_nil());
+    if !looks_interpreted_closure {
         return val;
     }
 
-    match make_byte_code_from_parts(
+    match make_interpreted_closure_from_parts(
         &items[0],
         &items[1],
         &items[2],
-        &items[3],
         items.get(4),
         items.get(5),
     ) {
-        Ok(bc) => bc,
-        Err(_) => val, // If decoding fails, keep the original vector
+        Ok(lambda) => lambda,
+        Err(_) => val,
     }
 }
 
@@ -4249,57 +4307,7 @@ pub(crate) fn builtin_make_indirect_buffer(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_make_interpreted_closure(args: Vec<Value>) -> EvalResult {
     expect_range_args("make-interpreted-closure", &args, 3, 5)?;
-
-    // Arguments: (ARGS BODY ENV &optional DOCSTRING IFORM)
-    let params_value = &args[0];
-    let body_value = &args[1];
-    let env_value = &args[2];
-    let docstring_value = args.get(3).copied().unwrap_or(Value::Nil);
-    let _iform = args.get(4).copied().unwrap_or(Value::Nil);
-
-    // Parse parameter list from Value
-    let params_expr = super::eval::value_to_expr(params_value);
-    let params = parse_lambda_params_from_expr(&params_expr)?;
-
-    // Parse body from Value (must be a list)
-    let body_exprs: Vec<super::super::expr::Expr> = if body_value.is_nil() {
-        vec![]
-    } else {
-        let body_items = list_to_vec(body_value).ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), *body_value],
-            )
-        })?;
-        body_items.iter().map(super::eval::value_to_expr).collect()
-    };
-
-    // Parse env from Value — store directly as a cons alist Value.
-    let env = if env_value.is_nil() {
-        None // Dynamic scope
-    } else if matches!(env_value, Value::True) {
-        // t = empty lexical env marker
-        Some(Value::Nil)
-    } else {
-        // Already a cons alist — store directly
-        Some(*env_value)
-    };
-
-    // Parse docstring — can be a string, a symbol (oclosure type), or nil
-    let (docstring, doc_form) = match &docstring_value {
-        Value::Str(id) => (Some(with_heap(|h| h.get_string(*id).clone())), None),
-        Value::Nil => (None, None),
-        // Non-string, non-nil: store as doc_form (e.g., symbol for oclosure type)
-        other => (None, Some(*other)),
-    };
-
-    Ok(Value::make_lambda(LambdaData {
-        params,
-        body: body_exprs.into(),
-        env,
-        docstring,
-        doc_form,
-    }))
+    make_interpreted_closure_from_parts(&args[0], &args[1], &args[2], args.get(3), args.get(4))
 }
 
 fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<LambdaParams, Flow> {

@@ -390,6 +390,28 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
 }
 
 #[test]
+fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let closure_vec = Value::vector(vec![
+        Value::list(vec![Value::symbol("x")]),
+        Value::list(vec![Value::list(vec![
+            Value::symbol("+"),
+            Value::symbol("x"),
+            Value::Int(1),
+        ])]),
+        Value::Nil,
+    ]);
+
+    let converted = super::symbols::try_convert_nested_compiled_literal(closure_vec);
+    assert!(matches!(converted, Value::Lambda(_)));
+
+    let out = eval
+        .apply(converted, vec![Value::Int(41)])
+        .expect("converted closure should be callable");
+    assert_eq!(out, Value::Int(42));
+}
+
+#[test]
 fn pure_dispatch_typed_string_equal_aliases_match() {
     let a = Value::string("neo");
     let b = Value::string("neo");
