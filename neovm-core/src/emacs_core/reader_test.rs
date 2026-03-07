@@ -1998,6 +1998,43 @@ fn read_buffer_hash_table_literal_returns_hash_table() {
 }
 
 #[test]
+fn read_from_buffer_advances_point_across_multiple_forms() {
+    let mut ev = Evaluator::new();
+    let buf_id = ev.buffers.create_buffer(" *reader-multi*");
+    let source = "(setq reader-first 1)\n(setq reader-second 2)\n";
+    {
+        let buf = ev.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert(source);
+        buf.pt = 0;
+    }
+
+    let first = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]).expect("first form");
+    ev.eval_value(&first).expect("first eval");
+    let after_first = ev.buffers.get(buf_id).expect("buffer").pt;
+    assert!(after_first > 0, "first read should advance point");
+
+    let second = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]).expect("second form");
+    ev.eval_value(&second).expect("second eval");
+    let after_second = ev.buffers.get(buf_id).expect("buffer").pt;
+    assert_eq!(
+        after_second,
+        source.len() - 1,
+        "second read should stop after the form, leaving trailing whitespace unread"
+    );
+
+    let eof = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]);
+    assert!(matches!(eof, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
+    assert_eq!(
+        ev.obarray.symbol_value("reader-first").cloned(),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        ev.obarray.symbol_value("reader-second").cloned(),
+        Some(Value::Int(2))
+    );
+}
+
+#[test]
 fn read_from_string_hash_bracket_preserves_vector() {
     let mut ev = Evaluator::new();
     let input = "#[nil \"\\300\\207\" [0] 1]";

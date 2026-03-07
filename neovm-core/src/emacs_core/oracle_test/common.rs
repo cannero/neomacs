@@ -177,6 +177,55 @@ pub(crate) fn run_neovm_eval(form: &str) -> Result<String, String> {
     run_neovm_eval_with_load(form, &[])
 }
 
+fn run_neovm_eval_in_temp_buffer(
+    eval: &mut Evaluator,
+    form: &str,
+) -> Result<Result<Value, EvalError>, String> {
+    let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
+    let temp_name = eval.buffers.generate_new_buffer_name(" *temp*");
+    let temp_id = eval.buffers.create_buffer(&temp_name);
+
+    {
+        let Some(buf) = eval.buffers.get_mut(temp_id) else {
+            return Err("failed to create temp buffer".to_string());
+        };
+        buf.insert(form);
+        buf.pt = 0;
+    }
+    eval.buffers.set_current(temp_id);
+
+    let mut result = Ok(Value::Nil);
+    loop {
+        match crate::emacs_core::reader::builtin_read(eval, vec![Value::Buffer(temp_id)]) {
+            Ok(read_form) => {
+                result = eval
+                    .eval_value(&read_form)
+                    .map_err(crate::emacs_core::error::map_flow);
+                if result.is_err() {
+                    break;
+                }
+            }
+            Err(crate::emacs_core::error::Flow::Signal(sig))
+                if sig.symbol_name() == "end-of-file" =>
+            {
+                break;
+            }
+            Err(flow) => {
+                result = Err(crate::emacs_core::error::map_flow(flow));
+                break;
+            }
+        }
+    }
+
+    let killed = eval.buffers.kill_buffer(temp_id);
+    debug_assert!(killed, "temp oracle buffer should be killable");
+    if let Some(saved_id) = saved_buf {
+        eval.buffers.set_current(saved_id);
+    }
+
+    Ok(result)
+}
+
 /// Run a NeoVM evaluation after pre-loading Elisp files.
 ///
 /// `load_files` are paths relative to the project `lisp/` directory,
@@ -224,18 +273,14 @@ pub(crate) fn run_neovm_eval_with_load(form: &str, load_files: &[&str]) -> Resul
         }
     }
 
-    let forms = parse_forms(form).map_err(|e| format!("parse error: {e}"))?;
-    if forms.is_empty() {
+    if parse_forms(form)
+        .map_err(|e| format!("parse error: {e}"))?
+        .is_empty()
+    {
         return Err("no form parsed".to_string());
     }
 
-    let mut result = Ok(Value::Nil);
-    for expr in &forms {
-        result = eval.eval_expr(expr);
-        if result.is_err() {
-            break;
-        }
-    }
+    let result = run_neovm_eval_in_temp_buffer(&mut eval, form)?;
     let rendered = crate::emacs_core::format_eval_result_with_eval(&eval, &result);
     Ok(rendered)
 }
@@ -281,18 +326,14 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
         .map_err(|e| format!("startup state failed: {e:?}"))?;
 
-    let forms = parse_forms(form).map_err(|e| format!("parse error: {e}"))?;
-    if forms.is_empty() {
+    if parse_forms(form)
+        .map_err(|e| format!("parse error: {e}"))?
+        .is_empty()
+    {
         return Err("no form parsed".to_string());
     }
 
-    let mut result = Ok(Value::Nil);
-    for expr in &forms {
-        result = eval.eval_expr(expr);
-        if result.is_err() {
-            break;
-        }
-    }
+    let result = run_neovm_eval_in_temp_buffer(&mut eval, form)?;
 
     let rendered = match result {
         Ok(value) => format!("OK {}", print_value_with_buffers(&value, &eval.buffers)),

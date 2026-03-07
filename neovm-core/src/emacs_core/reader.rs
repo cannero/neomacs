@@ -803,8 +803,8 @@ pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
                 (buf.buffer_string(), buf.pt)
             };
-            // pt is 1-based, substring from (pt-1)
-            let start = if pt > 0 { pt - 1 } else { 0 };
+            // Buffer point is a 0-based byte offset.
+            let start = pt;
             if start >= text.len() {
                 return Err(signal(
                     "end-of-file",
