@@ -5,9 +5,9 @@ use super::super::vertex::{GlyphVertex, RectVertex, RoundedRectVertex, Uniforms}
 use super::TitleFadeEntry;
 use super::WgpuRenderer;
 use cosmic_text::SubpixelBin;
+use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::frame_glyphs::FrameGlyphBuffer;
 use neomacs_display_protocol::types::Color;
-use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::{MenuBarItem, TabBarItem, ToolBarItem};
 use std::collections::HashMap;
 use wgpu::util::DeviceExt;
@@ -2182,8 +2182,7 @@ impl WgpuRenderer {
         // rasterized glyphs and matches the font metrics used by the renderer.
         let char_width = glyph_atlas.default_char_width();
 
-        let overstrike = face.attributes.contains(FaceAttributes::BOLD)
-            && face.font_weight < 700;
+        let overstrike = face.attributes.contains(FaceAttributes::BOLD) && face.font_weight < 700;
 
         // --- Pass 1: Background bar + tab highlights ---
         let mut rect_verts: Vec<RectVertex> = Vec::new();
@@ -2245,10 +2244,7 @@ impl WgpuRenderer {
         // --- Box decoration around each tab ---
         if face.box_type != BoxType::None && face.box_line_width > 0 {
             let box_w = face.box_line_width as f32;
-            let box_color = face
-                .box_color
-                .unwrap_or(face.foreground)
-                .srgb_to_linear();
+            let box_color = face.box_color.unwrap_or(face.foreground).srgb_to_linear();
             let mut bx = padding_x;
             for item in items {
                 if item.is_separator {
