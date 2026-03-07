@@ -1861,11 +1861,20 @@ impl<'a> Vm<'a> {
             ),
             "decode-char" => Some(crate::emacs_core::charset::builtin_decode_char(args.to_vec())),
             "encode-char" => Some(crate::emacs_core::charset::builtin_encode_char(args.to_vec())),
+            "set-char-table-range" => Some(
+                crate::emacs_core::chartable::builtin_set_char_table_range(args.to_vec()),
+            ),
             "char-table-extra-slot" => Some(
                 crate::emacs_core::chartable::builtin_char_table_extra_slot(args.to_vec()),
             ),
             "set-char-table-extra-slot" => Some(
                 crate::emacs_core::chartable::builtin_set_char_table_extra_slot(args.to_vec()),
+            ),
+            "standard-case-table" => Some(
+                crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
+            ),
+            "standard-category-table" => Some(
+                crate::emacs_core::category::builtin_standard_category_table(args.to_vec()),
             ),
             "current-global-map" => Some(
                 builtins::expect_args("current-global-map", args, 0)
