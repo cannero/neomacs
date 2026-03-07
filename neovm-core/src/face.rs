@@ -527,6 +527,16 @@ impl FaceTable {
         underline.inherit = vec!["default".into()];
         self.define(underline);
 
+        // fixed-pitch
+        let mut fixed_pitch = Face::new("fixed-pitch");
+        fixed_pitch.inherit = vec!["default".into()];
+        self.define(fixed_pitch);
+
+        // variable-pitch
+        let mut variable_pitch = Face::new("variable-pitch");
+        variable_pitch.inherit = vec!["default".into()];
+        self.define(variable_pitch);
+
         // mode-line
         let mut mode_line = Face::new("mode-line");
         mode_line.foreground = Some(Color::rgb(0, 0, 0));
@@ -546,10 +556,45 @@ impl FaceTable {
         mode_line_inactive.weight = Some(FontWeight::NORMAL);
         self.define(mode_line_inactive);
 
+        // mode-line-highlight
+        let mut mode_line_highlight = Face::new("mode-line-highlight");
+        mode_line_highlight.box_border = Some(BoxBorder {
+            color: Some(Color::rgb(64, 64, 64)),
+            width: 2,
+            style: BoxStyle::Raised,
+        });
+        mode_line_highlight.inherit = vec!["highlight".into()];
+        self.define(mode_line_highlight);
+
+        // mode-line-emphasis
+        let mut mode_line_emphasis = Face::new("mode-line-emphasis");
+        mode_line_emphasis.weight = Some(FontWeight::BOLD);
+        self.define(mode_line_emphasis);
+
+        // mode-line-buffer-id
+        let mut mode_line_buffer_id = Face::new("mode-line-buffer-id");
+        mode_line_buffer_id.weight = Some(FontWeight::BOLD);
+        self.define(mode_line_buffer_id);
+
         // header-line
         let mut header = Face::new("header-line");
         header.inherit = vec!["mode-line".into()];
         self.define(header);
+
+        // header-line-highlight
+        let mut header_line_highlight = Face::new("header-line-highlight");
+        header_line_highlight.inherit = vec!["mode-line-highlight".into()];
+        self.define(header_line_highlight);
+
+        // header-line-active
+        let mut header_line_active = Face::new("header-line-active");
+        header_line_active.inherit = vec!["header-line".into()];
+        self.define(header_line_active);
+
+        // header-line-inactive
+        let mut header_line_inactive = Face::new("header-line-inactive");
+        header_line_inactive.inherit = vec!["header-line".into()];
+        self.define(header_line_inactive);
 
         // highlight
         let mut highlight = Face::new("highlight");
@@ -578,6 +623,23 @@ impl FaceTable {
         fringe.background = Some(Color::rgb(240, 240, 240));
         self.define(fringe);
 
+        // vertical-border
+        let mut vertical_border = Face::new("vertical-border");
+        vertical_border.inherit = vec!["mode-line-inactive".into()];
+        self.define(vertical_border);
+
+        // scroll-bar
+        self.define(Face::new("scroll-bar"));
+
+        // border
+        self.define(Face::new("border"));
+
+        // internal-border
+        self.define(Face::new("internal-border"));
+
+        // child-frame-border
+        self.define(Face::new("child-frame-border"));
+
         // line-number
         let mut line_num = Face::new("line-number");
         line_num.foreground = Some(Color::rgb(160, 160, 160));
@@ -595,6 +657,34 @@ impl FaceTable {
         let mut shadow = Face::new("shadow");
         shadow.foreground = Some(Color::rgb(128, 128, 128));
         self.define(shadow);
+
+        // mouse
+        self.define(Face::new("mouse"));
+
+        // tool-bar
+        let mut tool_bar = Face::new("tool-bar");
+        tool_bar.foreground = Some(Color::rgb(0, 0, 0));
+        tool_bar.background = Some(Color::rgb(191, 191, 191));
+        tool_bar.box_border = Some(BoxBorder {
+            color: None,
+            width: 1,
+            style: BoxStyle::Raised,
+        });
+        self.define(tool_bar);
+
+        // tab-bar
+        let mut tab_bar = Face::new("tab-bar");
+        tab_bar.foreground = Some(Color::rgb(0, 0, 0));
+        tab_bar.background = Some(Color::rgb(217, 217, 217));
+        tab_bar.inherit = vec!["variable-pitch".into()];
+        self.define(tab_bar);
+
+        // tab-line
+        let mut tab_line = Face::new("tab-line");
+        tab_line.foreground = Some(Color::rgb(0, 0, 0));
+        tab_line.background = Some(Color::rgb(217, 217, 217));
+        tab_line.inherit = vec!["variable-pitch".into()];
+        self.define(tab_line);
 
         // error
         let mut error = Face::new("error");
@@ -858,8 +948,11 @@ mod tests {
         assert!(table.get("bold").is_some());
         assert!(table.get("italic").is_some());
         assert!(table.get("mode-line").is_some());
+        assert!(table.get("tool-bar").is_some());
+        assert!(table.get("tab-bar").is_some());
+        assert!(table.get("tab-line").is_some());
         assert!(table.get("font-lock-keyword-face").is_some());
-        assert!(table.len() > 20);
+        assert!(table.len() > 30);
     }
 
     #[test]

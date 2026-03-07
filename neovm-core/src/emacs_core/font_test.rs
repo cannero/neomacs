@@ -701,6 +701,9 @@ fn face_list_returns_known_faces() {
     assert!(names.contains(&"bold"));
     assert!(names.contains(&"cursor"));
     assert!(names.contains(&"mode-line"));
+    assert!(names.contains(&"tool-bar"));
+    assert!(names.contains(&"tab-bar"));
+    assert!(names.contains(&"tab-line"));
 }
 
 #[test]

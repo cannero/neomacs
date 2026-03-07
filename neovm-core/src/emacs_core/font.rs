@@ -679,12 +679,30 @@ const KNOWN_FACES: &[&str] = &[
     "bold",
     "italic",
     "underline",
+    "fixed-pitch",
+    "variable-pitch",
     "highlight",
     "region",
     "mode-line",
+    "mode-line-highlight",
+    "mode-line-emphasis",
+    "mode-line-buffer-id",
     "mode-line-inactive",
+    "header-line",
+    "header-line-highlight",
+    "header-line-active",
+    "header-line-inactive",
     "fringe",
+    "vertical-border",
+    "scroll-bar",
+    "border",
+    "internal-border",
+    "child-frame-border",
     "cursor",
+    "mouse",
+    "tool-bar",
+    "tab-bar",
+    "tab-line",
 ];
 const FIRST_DYNAMIC_FACE_ID: i64 = 133;
 
@@ -852,7 +870,13 @@ fn dynamic_face_id(name: &str) -> Option<i64> {
 }
 
 fn face_id_for_name(name: &str) -> Option<i64> {
-    known_face_id(name).or_else(|| dynamic_face_id(name))
+    if let Some(id) = known_face_id(name) {
+        return Some(id);
+    }
+    if KNOWN_FACES.contains(&name) {
+        ensure_dynamic_face_id(name);
+    }
+    dynamic_face_id(name)
 }
 
 fn is_selected_created_lisp_face(name: &str) -> bool {
@@ -1158,9 +1182,21 @@ fn lisp_face_attribute_base_value(face: &str, attr: &str, defaults_frame: bool) 
         ("highlight", ":inverse-video") => Value::True,
         ("region", ":inverse-video") => Value::True,
         ("mode-line", ":inverse-video") => Value::True,
+        ("mode-line-highlight", ":inherit") => Value::symbol("highlight"),
+        ("mode-line-emphasis", ":weight") => Value::symbol("bold"),
+        ("mode-line-buffer-id", ":weight") => Value::symbol("bold"),
         ("mode-line-inactive", ":inherit") => Value::symbol("mode-line"),
+        ("header-line", ":inherit") => Value::symbol("mode-line"),
+        ("header-line-highlight", ":inherit") => Value::symbol("mode-line-highlight"),
+        ("header-line-active", ":inherit") => Value::symbol("header-line"),
+        ("header-line-inactive", ":inherit") => Value::symbol("header-line"),
         ("fringe", ":background") => Value::string("gray"),
         ("cursor", ":background") => Value::string("white"),
+        ("vertical-border", ":inherit") => Value::symbol("mode-line-inactive"),
+        ("tool-bar", ":foreground") => Value::string("black"),
+        ("tool-bar", ":box") => Value::symbol("t"),
+        ("tab-bar", ":inherit") => Value::symbol("variable-pitch"),
+        ("tab-line", ":inherit") => Value::symbol("variable-pitch"),
         _ => Value::symbol("unspecified"),
     }
 }
