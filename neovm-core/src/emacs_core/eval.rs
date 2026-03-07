@@ -2143,7 +2143,15 @@ impl Evaluator {
 
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, EvalError> {
         set_current_heap(&mut self.heap);
-        self.eval(expr).map_err(map_flow)
+        let saved = self.save_temp_roots();
+        let mut opaques = Vec::new();
+        collect_opaque_values(expr, &mut opaques);
+        for v in &opaques {
+            self.push_temp_root(*v);
+        }
+        let result = self.eval(expr).map_err(map_flow);
+        self.restore_temp_roots(saved);
+        result
     }
 
     /// Evaluate a Value as code (like Elisp's `eval`).
@@ -3917,6 +3925,39 @@ impl Evaluator {
                 Ok(Value::vector(values))
             }
             _ => Ok(self.quote_to_runtime_value(expr)),
+        }
+    }
+
+    pub(crate) fn reify_byte_code_literals(&mut self, expr: &Expr) -> Result<Expr, Flow> {
+        match expr {
+            Expr::List(elts)
+                if matches!(
+                    elts.first(),
+                    Some(Expr::Symbol(s)) if *s == intern("byte-code-literal")
+                ) =>
+            {
+                Ok(Expr::OpaqueValue(self.sf_byte_code_literal(&elts[1..])?))
+            }
+            Expr::List(items) => Ok(Expr::List(
+                items
+                    .iter()
+                    .map(|item| self.reify_byte_code_literals(item))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            Expr::DottedList(items, tail) => Ok(Expr::DottedList(
+                items
+                    .iter()
+                    .map(|item| self.reify_byte_code_literals(item))
+                    .collect::<Result<Vec<_>, _>>()?,
+                Box::new(self.reify_byte_code_literals(tail)?),
+            )),
+            Expr::Vector(items) => Ok(Expr::Vector(
+                items
+                    .iter()
+                    .map(|item| self.reify_byte_code_literals(item))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            _ => Ok(expr.clone()),
         }
     }
 

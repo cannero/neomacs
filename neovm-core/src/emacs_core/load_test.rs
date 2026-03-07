@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::{HashTableTest, Value, with_heap};
@@ -19,6 +20,151 @@ impl Drop for CacheWriteFailGuard {
     fn drop(&mut self) {
         clear_cache_write_fail_phase_for_test();
     }
+}
+
+fn bootstrap_fixture_path(
+    load_path: &[String],
+    name: &str,
+    prefer_compiled: bool,
+) -> Option<PathBuf> {
+    for dir in load_path {
+        let base = PathBuf::from(dir).join(name);
+        if prefer_compiled {
+            let elc = compiled_suffixed_path(&base);
+            if elc.exists() {
+                return Some(elc);
+            }
+            let el = source_suffixed_path(&base);
+            if el.exists() {
+                return Some(el);
+            }
+        } else {
+            let el = source_suffixed_path(&base);
+            if el.exists() {
+                return Some(el);
+            }
+            let elc = compiled_suffixed_path(&base);
+            if elc.exists() {
+                return Some(elc);
+            }
+        }
+        if base.exists() {
+            return Some(base);
+        }
+    }
+    None
+}
+
+fn format_eval_error(eval: &Evaluator, err: &EvalError) -> String {
+    match err {
+        EvalError::Signal { symbol, data } => {
+            let mut items = Vec::with_capacity(data.len() + 1);
+            items.push(Value::Symbol(*symbol));
+            items.extend(data.iter().copied());
+            crate::emacs_core::print::print_value_with_buffers(&Value::list(items), &eval.buffers)
+        }
+        EvalError::UncaughtThrow { tag, value } => format!(
+            "(throw {} {})",
+            crate::emacs_core::print::print_value_with_buffers(tag, &eval.buffers),
+            crate::emacs_core::print::print_value_with_buffers(value, &eval.buffers),
+        ),
+    }
+}
+
+fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Evaluator {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    assert!(
+        lisp_dir.is_dir(),
+        "lisp/ directory not found at {}",
+        lisp_dir.display()
+    );
+
+    let mut eval = Evaluator::new();
+    eval.set_variable(
+        "load-path",
+        Value::list(bootstrap_load_path_entries(&lisp_dir)),
+    );
+    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+    eval.set_variable("purify-flag", Value::Nil);
+    eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
+    eval.set_variable("inhibit-load-charset-map", Value::True);
+
+    let etc_dir = project_root.join("etc");
+    eval.set_variable(
+        "data-directory",
+        Value::string(format!("{}/", etc_dir.to_string_lossy())),
+    );
+    eval.set_variable(
+        "source-directory",
+        Value::string(format!("{}/", project_root.to_string_lossy())),
+    );
+    eval.set_variable(
+        "installation-directory",
+        Value::string(format!("{}/", project_root.to_string_lossy())),
+    );
+
+    let path_dirs: Vec<Value> = std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .filter(|s| !s.is_empty())
+        .map(|s| Value::string(s.to_string()))
+        .collect();
+    eval.set_variable("exec-path", Value::list(path_dirs));
+    eval.set_variable("exec-suffixes", Value::Nil);
+    eval.set_variable("exec-directory", Value::Nil);
+    eval.set_variable(
+        "menu-bar-final-items",
+        Value::list(vec![Value::symbol("help-menu")]),
+    );
+    eval.set_variable(
+        "macroexp--pending-eager-loads",
+        Value::list(vec![Value::symbol("skip")]),
+    );
+
+    let glyphless_stubs = [
+        "(put 'glyphless-char-display 'char-table-extra-slots 1)",
+        "(setq glyphless-char-display (make-char-table 'glyphless-char-display nil))",
+        "(set-char-table-extra-slot glyphless-char-display 0 'empty-box)",
+    ];
+    for stub in &glyphless_stubs {
+        let forms = crate::emacs_core::parser::parse_forms(stub).expect("parse glyphless stub");
+        let _ = eval.eval_forms(&forms);
+    }
+
+    let load_path = get_load_path(&eval.obarray());
+    for name in BOOTSTRAP_LOAD_SEQUENCE {
+        if *name == stop_before {
+            break;
+        }
+        if *name == "!enable-eager-expansion" {
+            eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
+            continue;
+        }
+        if *name == "!load-ldefs-boot" {
+            let ldefs_path = lisp_dir.join("ldefs-boot.el");
+            if ldefs_path.exists() {
+                load_file(&mut eval, &ldefs_path).expect("load ldefs-boot");
+            }
+            continue;
+        }
+        if name.starts_with('!') {
+            continue;
+        }
+
+        let path = bootstrap_fixture_path(&load_path, name, prefer_compiled)
+            .unwrap_or_else(|| panic!("bootstrap file not found: {name}"));
+        load_file(&mut eval, &path).unwrap_or_else(|err| {
+            panic!(
+                "failed loading {name} from {}: {}",
+                path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+    }
+
+    eval
 }
 
 #[test]
@@ -901,6 +1047,36 @@ fn neovm_loadup_bootstrap() {
         compat_items,
         vec![Value::True, Value::True],
         "expected iso-8859-15 and system-configuration-features to be available, got {compat_result}"
+    );
+}
+
+#[test]
+fn compiled_bootstrap_cl_preload_stubs_work_after_faces() {
+    let mut eval = partial_bootstrap_eval_until("!bootstrap-cl-preloaded-stubs", true);
+    let stubs = [
+        "(defmacro cl--find-class (type) `(get ,type 'cl--class))",
+        "(defun cl--builtin-type-p (name) nil)",
+        "(defun cl--struct-name-p (name) (and name (symbolp name) (not (keywordp name))))",
+        "(defvar cl-struct-cl-structure-object-tags nil)",
+        "(defvar cl--struct-default-parent nil)",
+        "(defun cl-struct-define (name docstring parent type named slots children-sym tag print) (when children-sym (if (boundp children-sym) (add-to-list children-sym tag) (set children-sym (list tag)))))",
+        "(defun cl--define-derived-type (name expander predicate &optional parents) nil)",
+        "(defmacro cl-function (func) `(function ,func))",
+    ];
+
+    let mut failures = Vec::new();
+    for stub in stubs {
+        let forms = crate::emacs_core::parser::parse_forms(stub).expect("parse stub");
+        for result in eval.eval_forms(&forms) {
+            if let Err(err) = result {
+                failures.push(format!("{stub} => {}", format_eval_error(&eval, &err)));
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "compiled bootstrap should accept cl preload stubs after faces: {failures:#?}"
     );
 }
 

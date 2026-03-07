@@ -1160,16 +1160,19 @@ fn load_elc_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        for (i, form) in forms.iter().enumerate() {
+        for (i, raw_form) in forms.iter().enumerate() {
+            let form = eval
+                .reify_byte_code_literals(raw_form)
+                .map_err(crate::emacs_core::error::map_flow)?;
             tracing::debug!(
                 "{} ELC-FORM[{i}/{}]: {}",
                 file_name,
                 forms.len(),
-                print_expr(form).chars().take(100).collect::<String>()
+                print_expr(&form).chars().take(100).collect::<String>()
             );
 
             // Evaluate directly — .elc forms are already compiled, no macro expansion needed.
-            let eval_result = eval.eval_expr(form);
+            let eval_result = eval.eval_expr(&form);
             if let Err(ref e) = eval_result {
                 let err_detail = match e {
                     EvalError::Signal { symbol, data } => {
@@ -1182,7 +1185,7 @@ fn load_elc_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<
                 };
                 tracing::error!(
                     "  !! {file_name} ELC-FORM[{i}] FAILED: {} => {}",
-                    print_expr(form).chars().take(120).collect::<String>(),
+                    print_expr(&form).chars().take(120).collect::<String>(),
                     err_detail
                 );
             }
