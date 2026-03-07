@@ -197,6 +197,9 @@ pub(crate) fn dump_op(op: &Op) -> DumpOp {
         Op::UnwindProtect(n) => DumpOp::UnwindProtect(n),
         Op::UnwindProtectPop => DumpOp::UnwindProtectPop,
         Op::Throw => DumpOp::Throw,
+        Op::SaveCurrentBuffer => DumpOp::SaveCurrentBuffer,
+        Op::SaveExcursion => DumpOp::SaveExcursion,
+        Op::SaveRestriction => DumpOp::SaveRestriction,
         Op::MakeClosure(n) => DumpOp::MakeClosure(n),
         Op::CallBuiltin(a, b) => DumpOp::CallBuiltin(a, b),
     }
@@ -1341,6 +1344,9 @@ pub(crate) fn load_op(op: &DumpOp) -> Op {
         DumpOp::UnwindProtect(n) => Op::UnwindProtect(n),
         DumpOp::UnwindProtectPop => Op::UnwindProtectPop,
         DumpOp::Throw => Op::Throw,
+        DumpOp::SaveCurrentBuffer => Op::SaveCurrentBuffer,
+        DumpOp::SaveExcursion => Op::SaveExcursion,
+        DumpOp::SaveRestriction => Op::SaveRestriction,
         DumpOp::MakeClosure(n) => Op::MakeClosure(n),
         DumpOp::CallBuiltin(a, b) => Op::CallBuiltin(a, b),
     }

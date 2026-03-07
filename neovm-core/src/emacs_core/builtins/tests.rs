@@ -4227,18 +4227,15 @@ fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
-    let defconst = dispatch_builtin_pure(
-        "defconst-1",
-        vec![Value::symbol("foo"), Value::Int(1), Value::string("doc")],
-    )
-    .expect("builtin defconst-1 should resolve")
-    .expect("builtin defconst-1 should evaluate");
-    assert!(defconst.is_nil());
+    assert!(
+        dispatch_builtin_pure(
+            "defconst-1",
+            vec![Value::symbol("foo"), Value::Int(1), Value::string("doc")],
+        )
+        .is_none()
+    );
 
-    let defvar = dispatch_builtin_pure("defvar-1", vec![Value::symbol("foo"), Value::Int(1)])
-        .expect("builtin defvar-1 should resolve")
-        .expect("builtin defvar-1 should evaluate");
-    assert!(defvar.is_nil());
+    assert!(dispatch_builtin_pure("defvar-1", vec![Value::symbol("foo"), Value::Int(1)]).is_none());
 
     let iso_charset = dispatch_builtin_pure(
         "iso-charset",
@@ -4262,6 +4259,68 @@ fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin keymap-prompt should resolve")
         .expect("builtin keymap-prompt should evaluate");
     assert!(keymap_prompt.is_nil());
+}
+
+#[test]
+fn defvar_1_binds_only_when_default_is_unbound() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+
+    let result = builtin_defvar_1_eval(
+        &mut eval,
+        vec![
+            Value::symbol("vm-defvar-1"),
+            Value::Int(7),
+            Value::string("doc"),
+        ],
+    )
+    .expect("defvar-1 should succeed");
+    assert_eq!(result, Value::symbol("vm-defvar-1"));
+    assert_eq!(
+        eval.obarray()
+            .symbol_value_id(intern("vm-defvar-1"))
+            .copied(),
+        Some(Value::Int(7))
+    );
+
+    let result =
+        builtin_defvar_1_eval(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::Int(9)])
+            .expect("second defvar-1 should succeed");
+    assert_eq!(result, Value::symbol("vm-defvar-1"));
+    assert_eq!(
+        eval.obarray()
+            .symbol_value_id(intern("vm-defvar-1"))
+            .copied(),
+        Some(Value::Int(7))
+    );
+}
+
+#[test]
+fn defconst_1_sets_constant_value_and_risky_local_property() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+
+    let result = builtin_defconst_1_eval(
+        &mut eval,
+        vec![
+            Value::symbol("vm-defconst-1"),
+            Value::Int(11),
+            Value::string("doc"),
+        ],
+    )
+    .expect("defconst-1 should succeed");
+
+    assert_eq!(result, Value::symbol("vm-defconst-1"));
+    let symbol = intern("vm-defconst-1");
+    assert_eq!(
+        eval.obarray().symbol_value_id(symbol).copied(),
+        Some(Value::Int(11))
+    );
+    assert!(eval.obarray().is_constant_id(symbol));
+    assert_eq!(
+        eval.obarray()
+            .get_property_id(symbol, intern("risky-local-variable"))
+            .copied(),
+        Some(Value::True)
+    );
 }
 
 #[test]

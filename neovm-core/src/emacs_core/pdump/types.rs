@@ -186,6 +186,9 @@ pub enum DumpOp {
     UnwindProtect(u32),
     UnwindProtectPop,
     Throw,
+    SaveCurrentBuffer,
+    SaveExcursion,
+    SaveRestriction,
     MakeClosure(u16),
     CallBuiltin(u16, u8),
 }

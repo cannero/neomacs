@@ -627,6 +627,52 @@ pub(crate) fn builtin_makunbound(
     Ok(args[0])
 }
 
+pub(crate) fn builtin_defvar_1_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("defvar-1", &args, 2, 3)?;
+    let symbol = expect_symbol_id(&args[0])?;
+    let documentation = args.get(2).copied().unwrap_or(Value::Nil);
+    let was_bound = builtin_default_boundp(eval, vec![args[0]])?.is_truthy();
+
+    if documentation.is_nil() {
+        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0]])?;
+    } else {
+        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0], documentation])?;
+    }
+
+    if !was_bound {
+        builtin_set_default_toplevel_value(eval, vec![args[0], args[1]])?;
+    }
+
+    Ok(Value::Symbol(symbol))
+}
+
+pub(crate) fn builtin_defconst_1_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("defconst-1", &args, 2, 3)?;
+    let symbol = expect_symbol_id(&args[0])?;
+    let documentation = args.get(2).copied().unwrap_or(Value::Nil);
+
+    if documentation.is_nil() {
+        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0]])?;
+    } else {
+        builtin_internal_define_uninitialized_variable_eval(eval, vec![args[0], documentation])?;
+    }
+
+    let resolved = resolve_variable_alias_id(eval, symbol)?;
+    let value = args[1];
+    eval.obarray_mut().set_symbol_value_id(resolved, value);
+    eval.obarray_mut().ensure_symbol_id(resolved).constant = true;
+    eval.obarray_mut()
+        .put_property_id(resolved, intern("risky-local-variable"), Value::True);
+
+    Ok(Value::Symbol(symbol))
+}
+
 pub(crate) fn builtin_fmakunbound(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,

@@ -124,6 +124,17 @@ fn decode_unwind_protect_pop() {
 }
 
 #[test]
+fn decode_save_excursion_and_restriction() {
+    let mut constants = vec![];
+    let save_excursion = decode_gnu_bytecode(&[138, 135], &mut constants).unwrap();
+    assert_eq!(save_excursion, vec![Op::SaveExcursion, Op::Return]);
+
+    let mut constants = vec![];
+    let save_restriction = decode_gnu_bytecode(&[140, 135], &mut constants).unwrap();
+    assert_eq!(save_restriction, vec![Op::SaveRestriction, Op::Return]);
+}
+
+#[test]
 fn decode_discard_n() {
     // discardN = byte 182, operand = 3
     let bytecodes = vec![182, 3, 135];
@@ -201,6 +212,15 @@ fn decode_buffer_op_point() {
         Op::CallBuiltin(_, 0) => {} // 0 args
         other => panic!("expected CallBuiltin for point, got {:?}", other),
     }
+}
+
+#[test]
+fn decode_buffer_op_save_current_buffer() {
+    let bytecodes = vec![114, 135];
+    let mut constants = vec![];
+    let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
+    assert_eq!(ops, vec![Op::SaveCurrentBuffer, Op::Return]);
+    assert!(constants.is_empty());
 }
 
 #[test]

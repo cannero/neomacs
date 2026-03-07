@@ -3746,8 +3746,8 @@ pub(crate) fn dispatch_builtin(
         "internal-subr-documentation" => builtin_internal_subr_documentation(args),
         "byte-code" => builtin_byte_code(args),
         "decode-coding-region" => builtin_decode_coding_region(args),
-        "defconst-1" => builtin_defconst_1(args),
-        "defvar-1" => builtin_defvar_1(args),
+        "defconst-1" => builtin_defconst_1_eval(eval, args),
+        "defvar-1" => builtin_defvar_1_eval(eval, args),
         "dump-emacs-portable" => builtin_dump_emacs_portable(args),
         "dump-emacs-portable--sort-predicate" => builtin_dump_emacs_portable_sort_predicate(args),
         "dump-emacs-portable--sort-predicate-copied" => {
@@ -4670,11 +4670,11 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "internal-subr-documentation" => builtin_internal_subr_documentation(args),
         "byte-code" => builtin_byte_code(args),
         "decode-coding-region" => builtin_decode_coding_region(args),
-        "defconst-1" => builtin_defconst_1(args),
+        "defconst-1" => return None,
         "define-coding-system-internal" => {
             return None; // dispatched via eval-aware path
         }
-        "defvar-1" => builtin_defvar_1(args),
+        "defvar-1" => return None,
         "dump-emacs-portable" => builtin_dump_emacs_portable(args),
         "dump-emacs-portable--sort-predicate" => builtin_dump_emacs_portable_sort_predicate(args),
         "dump-emacs-portable--sort-predicate-copied" => {

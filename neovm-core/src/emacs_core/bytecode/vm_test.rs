@@ -57,6 +57,47 @@ fn vm_eval_str(src: &str) -> String {
     }
 }
 
+fn execute_manual_vm<T>(
+    mut func: ByteCodeFunction,
+    init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,
+) -> (Value, crate::buffer::BufferManager, T) {
+    let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut custom = CustomManager::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let init_state = init(&mut func, &mut buffers);
+    let mut category_manager = CategoryManager::new();
+    let mut frames = FrameManager::new();
+    let mut coding_systems = CodingSystemManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags: Vec<Value> = Vec::new();
+
+    let result = {
+        let mut vm = Vm::new(
+            &mut obarray,
+            &mut dynamic,
+            &mut lexenv,
+            &mut features,
+            &mut custom,
+            &mut buffers,
+            &mut category_manager,
+            &mut frames,
+            &mut coding_systems,
+            &mut match_data,
+            &mut watchers,
+            &mut catch_tags,
+        );
+        vm.execute(&func, vec![])
+            .expect("manual bytecode should execute")
+    };
+
+    (result, buffers, init_state)
+}
+
 #[test]
 fn vm_literal_int() {
     assert_eq!(vm_eval_str("42"), "OK 42");
@@ -127,6 +168,174 @@ fn vm_varbind_and_unbind_trigger_variable_watcher_callbacks() {
         ),
         "OK ((unlet 9) (let 2))"
     );
+}
+
+#[test]
+fn vm_unbind_restores_saved_current_buffer() {
+    let mut func = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let other_buffer_idx = func.add_constant(Value::Nil);
+    let set_buffer_idx = func.add_symbol("set-buffer");
+    func.ops = vec![
+        Op::SaveCurrentBuffer,
+        Op::Constant(other_buffer_idx),
+        Op::CallBuiltin(set_buffer_idx, 1),
+        Op::Pop,
+        Op::Unbind(1),
+        Op::Nil,
+        Op::Return,
+    ];
+    func.max_stack = 2;
+
+    let (result, buffers, saved_buffer) = execute_manual_vm(func, |func, buffers| {
+        let saved_buffer = buffers.create_buffer("saved");
+        let other_buffer = buffers.create_buffer("other");
+        func.constants[other_buffer_idx as usize] = Value::Buffer(other_buffer);
+        buffers.set_current(saved_buffer);
+        saved_buffer
+    });
+
+    assert_eq!(result, Value::Nil);
+    assert_eq!(
+        buffers.current_buffer().map(|buffer| buffer.id),
+        Some(saved_buffer)
+    );
+}
+
+#[test]
+fn vm_unbind_restores_saved_excursion_point() {
+    let mut func = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let goto_target_idx = func.add_constant(Value::Int(5));
+    let goto_char_idx = func.add_symbol("goto-char");
+    func.ops = vec![
+        Op::SaveExcursion,
+        Op::Constant(goto_target_idx),
+        Op::CallBuiltin(goto_char_idx, 1),
+        Op::Pop,
+        Op::Unbind(1),
+        Op::Nil,
+        Op::Return,
+    ];
+    func.max_stack = 2;
+
+    let (result, buffers, (buffer_id, saved_point)) = execute_manual_vm(func, |_func, buffers| {
+        let buffer_id = buffers.create_buffer("excursion");
+        buffers.set_current(buffer_id);
+        {
+            let buffer = buffers.get_mut(buffer_id).expect("buffer");
+            buffer.insert("abcdef");
+            buffer.goto_char(2);
+        }
+        let saved_point = buffers.get(buffer_id).expect("buffer").pt;
+        (buffer_id, saved_point)
+    });
+
+    assert_eq!(result, Value::Nil);
+    assert_eq!(
+        buffers.current_buffer().map(|buffer| buffer.id),
+        Some(buffer_id)
+    );
+    assert_eq!(buffers.get(buffer_id).expect("buffer").pt, saved_point);
+}
+
+#[test]
+fn vm_unbind_restores_saved_restriction() {
+    let mut func = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let beg_idx = func.add_constant(Value::Int(2));
+    let end_idx = func.add_constant(Value::Int(4));
+    let narrow_idx = func.add_symbol("narrow-to-region");
+    func.ops = vec![
+        Op::SaveRestriction,
+        Op::Constant(beg_idx),
+        Op::Constant(end_idx),
+        Op::CallBuiltin(narrow_idx, 2),
+        Op::Pop,
+        Op::Unbind(1),
+        Op::Nil,
+        Op::Return,
+    ];
+    func.max_stack = 3;
+
+    let (result, buffers, (buffer_id, saved_begv, saved_zv)) =
+        execute_manual_vm(func, |_func, buffers| {
+            let buffer_id = buffers.create_buffer("restriction");
+            buffers.set_current(buffer_id);
+            {
+                let buffer = buffers.get_mut(buffer_id).expect("buffer");
+                buffer.insert("abcdef");
+                buffer.begv = 1;
+                buffer.zv = 5;
+                buffer.pt = 3;
+            }
+            let buffer = buffers.get(buffer_id).expect("buffer");
+            (buffer_id, buffer.begv, buffer.zv)
+        });
+
+    assert_eq!(result, Value::Nil);
+    let buffer = buffers.get(buffer_id).expect("buffer");
+    assert_eq!(buffer.begv, saved_begv);
+    assert_eq!(buffer.zv, saved_zv);
+}
+
+#[test]
+fn vm_eval_bridge_preserves_active_catch_tags() {
+    let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut custom = CustomManager::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
+    let mut frames = FrameManager::new();
+    let mut coding_systems = CodingSystemManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags = vec![Value::symbol("vm-bridge-catch")];
+
+    let mut vm = Vm::new(
+        &mut obarray,
+        &mut dynamic,
+        &mut lexenv,
+        &mut features,
+        &mut custom,
+        &mut buffers,
+        &mut category_manager,
+        &mut frames,
+        &mut coding_systems,
+        &mut match_data,
+        &mut watchers,
+        &mut catch_tags,
+    );
+
+    let throw_form = Value::list(vec![
+        Value::symbol("throw"),
+        Value::list(vec![
+            Value::symbol("quote"),
+            Value::symbol("vm-bridge-catch"),
+        ]),
+        Value::Int(7),
+    ]);
+    let result = vm
+        .dispatch_vm_builtin_eval("eval", vec![throw_form, Value::Nil])
+        .expect("eval should dispatch through eval bridge");
+
+    assert!(matches!(
+        result,
+        Err(Flow::Throw { tag, value })
+            if tag == Value::symbol("vm-bridge-catch") && value == Value::Int(7)
+    ));
 }
 
 #[test]

@@ -1932,6 +1932,7 @@ fn stack_delta(op: &Op) -> i32 {
         Op::UnwindProtect(_) => 0,
         Op::UnwindProtectPop => -1, // pops cleanup fn from TOS
         Op::Throw => -1,
+        Op::SaveCurrentBuffer | Op::SaveExcursion | Op::SaveRestriction => 0,
         Op::MakeClosure(_) => 1,
         Op::CallBuiltin(_, n) => -(*n as i32) + 1,
     }

@@ -280,11 +280,15 @@ fn decode_pass1(
             94 => ops.push(RawOp::Resolved(Op::Min)),
             95 => ops.push(RawOp::Resolved(Op::Mul)),
 
-            // 96-127: buffer/point ops → CallBuiltin
+            // 96-127: buffer/point ops
             96..=127 => {
-                let (name, arg_count) = buffer_op_info(byte);
-                let name_idx = add_or_find_symbol(constants, name);
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, arg_count)));
+                if byte == 114 {
+                    ops.push(RawOp::Resolved(Op::SaveCurrentBuffer));
+                } else {
+                    let (name, arg_count) = buffer_op_info(byte);
+                    let name_idx = add_or_find_symbol(constants, name);
+                    ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, arg_count)));
+                }
             }
 
             // 128: constant with 1-byte index (but GNU defines this range oddly)
@@ -350,18 +354,14 @@ fn decode_pass1(
             137 => ops.push(RawOp::Resolved(Op::Dup)),
 
             138 => {
-                // save-excursion
-                let name_idx = add_or_find_symbol(constants, "save-excursion");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 0)));
+                ops.push(RawOp::Resolved(Op::SaveExcursion));
             }
 
             // 139: obsolete (was save-window-excursion before Emacs 24)
             139 => return Err(DecodeError::ObsoleteOpcode(byte, byte_offset)),
 
             140 => {
-                // save-restriction
-                let name_idx = add_or_find_symbol(constants, "save-restriction");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 0)));
+                ops.push(RawOp::Resolved(Op::SaveRestriction));
             }
 
             // 141: obsolete (was catch before Emacs 25)
@@ -600,7 +600,7 @@ fn buffer_op_info(byte: u8) -> (&'static str, u8) {
         111 => ("bobp", 0),
         112 => ("current-buffer", 0),
         113 => ("set-buffer", 1),
-        114 => ("save-current-buffer-1", 0),
+        114 => unreachable!("byte 114 handled as SaveCurrentBuffer"),
         115 => return ("%%obsolete-interactive-p", 0), // obsolete
         116 => return ("%%obsolete-forward-char", 0),  // obsolete
         117 => ("forward-char", 1),

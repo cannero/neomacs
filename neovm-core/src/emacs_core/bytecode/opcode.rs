@@ -163,6 +163,14 @@ pub enum Op {
     /// Signal an error (throw).
     Throw,
 
+    // -- Bytecode unwind/specpdl ops ----------------------------------------
+    /// GNU `byte-save-current-buffer`.
+    SaveCurrentBuffer,
+    /// GNU `byte-save-excursion`.
+    SaveExcursion,
+    /// GNU `byte-save-restriction`.
+    SaveRestriction,
+
     // -- Closure support ------------------------------------------------------
     /// Create a closure from a bytecode function object at constant pool index,
     /// capturing the current lexical environment.
@@ -275,6 +283,9 @@ impl Op {
             Op::UnwindProtect(addr) => format!("unwind-protect {}", addr),
             Op::UnwindProtectPop => "unwind-protect-pop".to_string(),
             Op::Throw => "throw".to_string(),
+            Op::SaveCurrentBuffer => "save-current-buffer".to_string(),
+            Op::SaveExcursion => "save-excursion".to_string(),
+            Op::SaveRestriction => "save-restriction".to_string(),
             Op::MakeClosure(idx) => format!("make-closure {}", idx),
             Op::CallBuiltin(idx, n) => {
                 let name = const_name(constants, *idx);

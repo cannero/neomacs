@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
-use crate::buffer::BufferManager;
+use crate::buffer::{BufferId, BufferManager, InsertionType};
 use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
 use crate::emacs_core::category::CategoryManager;
@@ -28,17 +28,39 @@ enum Handler {
         tag: Value,
         target: u32,
         stack_len: usize,
+        spec_depth: usize,
     },
     /// condition-case: handler patterns, jump target.
     ConditionCase {
         conditions: Value,
         target: u32,
         stack_len: usize,
+        spec_depth: usize,
     },
     /// unwind-protect: cleanup target.
     UnwindProtect { target: u32 },
     /// GNU-style unwind-protect: cleanup function popped from TOS.
     UnwindProtectFn { cleanup: Value },
+}
+
+#[derive(Clone, Debug)]
+enum SavedRestriction {
+    None {
+        buffer_id: BufferId,
+    },
+    Markers {
+        buffer_id: BufferId,
+        beg_marker: u64,
+        end_marker: u64,
+    },
+}
+
+#[derive(Clone, Debug)]
+enum VmUnwindEntry {
+    DynamicBinding { name: String, restored_value: Value },
+    CurrentBuffer { buffer_id: BufferId },
+    Excursion { buffer_id: BufferId, marker_id: u64 },
+    Restriction(SavedRestriction),
 }
 
 /// The bytecode VM execution engine.
@@ -117,7 +139,7 @@ impl<'a> Vm<'a> {
         func: &ByteCodeFunction,
         stack: &[Value],
         handlers: &[Handler],
-        unbind_roots: &[Value],
+        specpdl: &[VmUnwindEntry],
         extra: &[Value],
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
@@ -125,7 +147,7 @@ impl<'a> Vm<'a> {
         self.gc_roots.extend(func.constants.iter().copied());
         self.gc_roots.extend(stack.iter().copied());
         Self::collect_handler_roots(handlers, &mut self.gc_roots);
-        self.gc_roots.extend(unbind_roots.iter().copied());
+        Self::collect_specpdl_roots(specpdl, &mut self.gc_roots);
         self.gc_roots.extend(extra.iter().copied());
         let result = f(self);
         self.gc_roots.truncate(saved_len);
@@ -151,8 +173,12 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn collect_unbind_roots(unbind_watch: &[(String, Value)]) -> Vec<Value> {
-        unbind_watch.iter().map(|(_, value)| *value).collect()
+    fn collect_specpdl_roots(specpdl: &[VmUnwindEntry], out: &mut Vec<Value>) {
+        for entry in specpdl {
+            if let VmUnwindEntry::DynamicBinding { restored_value, .. } = entry {
+                out.push(*restored_value);
+            }
+        }
     }
 
     fn collect_flow_roots(flow: &Flow, out: &mut Vec<Value>) {
@@ -216,8 +242,7 @@ impl<'a> Vm<'a> {
         let mut stack: Vec<Value> = Vec::with_capacity(func.max_stack as usize);
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
-        let mut bind_count: usize = 0;
-        let mut unbind_watch: Vec<(String, Value)> = Vec::new();
+        let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
 
         // Unified calling convention: push args onto the stack.
         // Both NeoVM-compiled and GNU-compiled bytecode use StackRef(n)
@@ -295,58 +320,34 @@ impl<'a> Vm<'a> {
                 for (sym_id, val) in frame.iter() {
                     *self.lexenv = lexenv_prepend(*self.lexenv, *sym_id, *val);
                 }
-                let result = self.run_loop(
-                    func,
-                    &mut stack,
-                    &mut pc,
-                    &mut handlers,
-                    &mut bind_count,
-                    &mut unbind_watch,
-                );
+                let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
                 *self.lexenv = saved_lexenv;
-                let cleanup = self.cleanup_varbind_unwind(&mut bind_count, &mut unbind_watch);
+                let cleanup = self.unwind_specpdl_all(&mut specpdl);
                 return merge_result_with_cleanup(result, cleanup);
             }
 
             self.dynamic.push(frame);
-            let result = self.run_loop(
-                func,
-                &mut stack,
-                &mut pc,
-                &mut handlers,
-                &mut bind_count,
-                &mut unbind_watch,
-            );
+            let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
             self.dynamic.pop();
-            let cleanup = self.cleanup_varbind_unwind(&mut bind_count, &mut unbind_watch);
+            let cleanup = self.unwind_specpdl_all(&mut specpdl);
             return merge_result_with_cleanup(result, cleanup);
         }
 
         // No params: set up lexenv if closure, then run
         let saved_lexenv = func.env.map(|env| std::mem::replace(self.lexenv, env));
 
-        let result = self.run_loop(
-            func,
-            &mut stack,
-            &mut pc,
-            &mut handlers,
-            &mut bind_count,
-            &mut unbind_watch,
-        );
+        let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
 
         if let Some(old) = saved_lexenv {
             *self.lexenv = old;
         }
         let cleanup_roots = Self::result_roots(&result);
-        let unbind_roots = Self::collect_unbind_roots(&unbind_watch);
-        let cleanup = self.with_frame_roots(
-            func,
-            &stack,
-            &handlers,
-            &unbind_roots,
-            &cleanup_roots,
-            |vm| vm.cleanup_varbind_unwind(&mut bind_count, &mut unbind_watch),
-        );
+        let mut cleanup_extra_roots = cleanup_roots.clone();
+        Self::collect_specpdl_roots(&specpdl, &mut cleanup_extra_roots);
+        let cleanup =
+            self.with_frame_roots(func, &stack, &handlers, &[], &cleanup_extra_roots, |vm| {
+                vm.unwind_specpdl_all(&mut specpdl)
+            });
         merge_result_with_cleanup(result, cleanup)
     }
 
@@ -356,8 +357,7 @@ impl<'a> Vm<'a> {
         stack: &mut Vec<Value>,
         pc: &mut usize,
         handlers: &mut Vec<Handler>,
-        bind_count: &mut usize,
-        unbind_watch: &mut Vec<(String, Value)>,
+        specpdl: &mut Vec<VmUnwindEntry>,
     ) -> EvalResult {
         let ops = &func.ops;
         let constants = &func.constants;
@@ -367,7 +367,7 @@ impl<'a> Vm<'a> {
                 match $expr {
                     Ok(value) => value,
                     Err(flow) => {
-                        self.resume_nonlocal(func, stack, pc, handlers, flow)?;
+                        self.resume_nonlocal(func, stack, pc, handlers, specpdl, flow)?;
                         continue;
                     }
                 }
@@ -437,16 +437,11 @@ impl<'a> Vm<'a> {
                 Op::VarSet(idx) => {
                     let name = sym_name(constants, *idx);
                     let val = stack.pop().unwrap_or(Value::Nil);
-                    let unbind_roots = Self::collect_unbind_roots(unbind_watch);
                     let extra = [val];
-                    vm_try!(self.with_frame_roots(
-                        func,
-                        stack,
-                        handlers,
-                        &unbind_roots,
-                        &extra,
-                        |vm| vm.assign_var(&name, val),
-                    ));
+                    vm_try!(
+                        self.with_frame_roots(func, stack, handlers, specpdl, &extra, |vm| vm
+                            .assign_var(&name, val),)
+                    );
                 }
                 Op::VarBind(idx) => {
                     let name = sym_name(constants, *idx);
@@ -455,28 +450,26 @@ impl<'a> Vm<'a> {
                     let mut frame = OrderedSymMap::new();
                     frame.insert(intern(&name), val);
                     self.dynamic.push(frame);
-                    unbind_watch.push((name.clone(), old_value));
-                    let unbind_roots = Self::collect_unbind_roots(unbind_watch);
+                    specpdl.push(VmUnwindEntry::DynamicBinding {
+                        name: name.clone(),
+                        restored_value: old_value,
+                    });
                     let extra = [val];
-                    vm_try!(self.with_frame_roots(
-                        func,
-                        stack,
-                        handlers,
-                        &unbind_roots,
-                        &extra,
-                        |vm| vm.run_variable_watchers(&name, &val, &Value::Nil, "let"),
-                    ));
-                    *bind_count += 1;
+                    vm_try!(
+                        self.with_frame_roots(func, stack, handlers, specpdl, &extra, |vm| vm
+                            .run_variable_watchers(&name, &val, &Value::Nil, "let"),)
+                    );
                 }
                 Op::Unbind(n) => {
-                    let unbind_roots = Self::collect_unbind_roots(unbind_watch);
+                    let mut unwind_roots = Vec::new();
+                    Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
                     vm_try!(self.with_frame_roots(
                         func,
                         stack,
                         handlers,
-                        &unbind_roots,
                         &[],
-                        |vm| vm.cleanup_varbind_unwind_n(*n as usize, bind_count, unbind_watch),
+                        &unwind_roots,
+                        |vm| vm.unwind_specpdl_n(*n as usize, specpdl),
                     ));
                 }
 
@@ -488,7 +481,6 @@ impl<'a> Vm<'a> {
                     let func_val = stack.pop().unwrap_or(Value::Nil);
                     let writeback_names = self.writeback_callable_names(&func_val);
                     let writeback_args = args.clone();
-                    let unbind_roots = Self::collect_unbind_roots(unbind_watch);
                     let mut call_roots = Vec::with_capacity(args.len() + 1);
                     call_roots.push(func_val);
                     call_roots.extend(args.iter().copied());
@@ -496,7 +488,7 @@ impl<'a> Vm<'a> {
                         func,
                         stack,
                         handlers,
-                        &unbind_roots,
+                        specpdl,
                         &call_roots,
                         |vm| vm.call_function(func_val, args),
                     ));
@@ -515,13 +507,12 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     if n == 0 {
                         let func_val = stack.pop().unwrap_or(Value::Nil);
-                        let unbind_roots = Self::collect_unbind_roots(unbind_watch);
                         let call_roots = [func_val];
                         let result = vm_try!(self.with_frame_roots(
                             func,
                             stack,
                             handlers,
-                            &unbind_roots,
+                            specpdl,
                             &call_roots,
                             |vm| vm.call_function(func_val, vec![]),
                         ));
@@ -537,7 +528,6 @@ impl<'a> Vm<'a> {
                         }
                         let writeback_names = self.writeback_callable_names(&func_val);
                         let writeback_args = args.clone();
-                        let unbind_roots = Self::collect_unbind_roots(unbind_watch);
                         let mut call_roots = Vec::with_capacity(args.len() + 1);
                         call_roots.push(func_val);
                         call_roots.extend(args.iter().copied());
@@ -545,7 +535,7 @@ impl<'a> Vm<'a> {
                             func,
                             stack,
                             handlers,
-                            &unbind_roots,
+                            specpdl,
                             &call_roots,
                             |vm| vm.call_function(func_val, args),
                         ));
@@ -604,6 +594,7 @@ impl<'a> Vm<'a> {
                                 stack,
                                 pc,
                                 handlers,
+                                specpdl,
                                 signal(
                                     "wrong-type-argument",
                                     vec![Value::symbol("hash-table-p"), other],
@@ -634,6 +625,50 @@ impl<'a> Vm<'a> {
                 }
                 Op::Return => {
                     return Ok(stack.pop().unwrap_or(Value::Nil));
+                }
+                Op::SaveCurrentBuffer => {
+                    if let Some(buffer_id) = self.buffers.current_buffer().map(|buffer| buffer.id) {
+                        specpdl.push(VmUnwindEntry::CurrentBuffer { buffer_id });
+                    }
+                }
+                Op::SaveExcursion => {
+                    if let Some((buffer_id, point)) = self
+                        .buffers
+                        .current_buffer()
+                        .map(|buffer| (buffer.id, buffer.pt))
+                    {
+                        let marker_id =
+                            self.buffers
+                                .create_marker(buffer_id, point, InsertionType::Before);
+                        specpdl.push(VmUnwindEntry::Excursion {
+                            buffer_id,
+                            marker_id,
+                        });
+                    }
+                }
+                Op::SaveRestriction => {
+                    if let Some((buffer_id, begv, zv, len)) = self
+                        .buffers
+                        .current_buffer()
+                        .map(|buffer| (buffer.id, buffer.begv, buffer.zv, buffer.text.len()))
+                    {
+                        let entry = if begv == 0 && zv == len {
+                            VmUnwindEntry::Restriction(SavedRestriction::None { buffer_id })
+                        } else {
+                            let beg_marker =
+                                self.buffers
+                                    .create_marker(buffer_id, begv, InsertionType::Before);
+                            let end_marker =
+                                self.buffers
+                                    .create_marker(buffer_id, zv, InsertionType::After);
+                            VmUnwindEntry::Restriction(SavedRestriction::Markers {
+                                buffer_id,
+                                beg_marker,
+                                end_marker,
+                            })
+                        };
+                        specpdl.push(entry);
+                    }
                 }
 
                 // -- Arithmetic --
@@ -982,6 +1017,7 @@ impl<'a> Vm<'a> {
                         conditions: Value::symbol("error"),
                         target: *target,
                         stack_len: stack.len(),
+                        spec_depth: specpdl.len(),
                     });
                 }
                 Op::PushConditionCaseRaw(target) => {
@@ -991,6 +1027,7 @@ impl<'a> Vm<'a> {
                         conditions,
                         target: *target,
                         stack_len: stack.len(),
+                        spec_depth: specpdl.len(),
                     });
                 }
                 Op::PushCatch(target) => {
@@ -999,6 +1036,7 @@ impl<'a> Vm<'a> {
                         tag,
                         target: *target,
                         stack_len: stack.len(),
+                        spec_depth: specpdl.len(),
                     });
                     // Register in evaluator so sf_throw / nested VM throws can
                     // see this catch tag when deciding throw vs no-catch.
@@ -1034,6 +1072,7 @@ impl<'a> Vm<'a> {
                         stack,
                         pc,
                         handlers,
+                        specpdl,
                         Flow::Throw { tag, value: val },
                     )?;
                     continue;
@@ -1627,26 +1666,15 @@ impl<'a> Vm<'a> {
         let mut stack: Vec<Value> = Vec::with_capacity(func.max_stack as usize);
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
-        let mut bind_count: usize = 0;
-        let mut unbind_watch: Vec<(String, Value)> = Vec::new();
-        let result = self.run_loop(
-            func,
-            &mut stack,
-            &mut pc,
-            &mut handlers,
-            &mut bind_count,
-            &mut unbind_watch,
-        );
+        let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
+        let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
         let cleanup_roots = Self::result_roots(&result);
-        let unbind_roots = Self::collect_unbind_roots(&unbind_watch);
-        let cleanup = self.with_frame_roots(
-            func,
-            &stack,
-            &handlers,
-            &unbind_roots,
-            &cleanup_roots,
-            |vm| vm.cleanup_varbind_unwind(&mut bind_count, &mut unbind_watch),
-        );
+        let mut cleanup_extra_roots = cleanup_roots.clone();
+        Self::collect_specpdl_roots(&specpdl, &mut cleanup_extra_roots);
+        let cleanup =
+            self.with_frame_roots(func, &stack, &handlers, &[], &cleanup_extra_roots, |vm| {
+                vm.unwind_specpdl_all(&mut specpdl)
+            });
         merge_result_with_cleanup(result, cleanup)
     }
 
@@ -1665,6 +1693,7 @@ impl<'a> Vm<'a> {
         stack: &mut Vec<Value>,
         pc: &mut usize,
         handlers: &mut Vec<Handler>,
+        specpdl: &mut Vec<VmUnwindEntry>,
         flow: Flow,
     ) -> Result<(), Flow> {
         match flow {
@@ -1672,11 +1701,34 @@ impl<'a> Vm<'a> {
                 if let Some(res) = resolve_throw_target(handlers, &mut self.catch_tags, &tag) {
                     let extra = [tag, value];
                     if let Err(cleanup_flow) =
-                        self.with_frame_roots(_func, stack, handlers, &[], &extra, |vm| {
+                        self.with_frame_roots(_func, stack, handlers, specpdl, &extra, |vm| {
                             vm.run_unwind_cleanups(&res.cleanups)
                         })
                     {
-                        return self.resume_nonlocal(_func, stack, pc, handlers, cleanup_flow);
+                        return self.resume_nonlocal(
+                            _func,
+                            stack,
+                            pc,
+                            handlers,
+                            specpdl,
+                            cleanup_flow,
+                        );
+                    }
+                    let mut unwind_roots = extra.to_vec();
+                    Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
+                    if let Err(cleanup_flow) =
+                        self.with_frame_roots(_func, stack, handlers, &[], &unwind_roots, |vm| {
+                            vm.unwind_specpdl_to(res.spec_depth, specpdl)
+                        })
+                    {
+                        return self.resume_nonlocal(
+                            _func,
+                            stack,
+                            pc,
+                            handlers,
+                            specpdl,
+                            cleanup_flow,
+                        );
                     }
                     stack.truncate(res.stack_len);
                     stack.push(value);
@@ -1699,12 +1751,38 @@ impl<'a> Vm<'a> {
                 {
                     let mut signal_roots = Vec::new();
                     Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut signal_roots);
+                    if let Err(cleanup_flow) = self.with_frame_roots(
+                        _func,
+                        stack,
+                        handlers,
+                        specpdl,
+                        &signal_roots,
+                        |vm| vm.run_unwind_cleanups(&res.cleanups),
+                    ) {
+                        return self.resume_nonlocal(
+                            _func,
+                            stack,
+                            pc,
+                            handlers,
+                            specpdl,
+                            cleanup_flow,
+                        );
+                    }
+                    let mut unwind_roots = signal_roots.clone();
+                    Self::collect_specpdl_roots(specpdl, &mut unwind_roots);
                     if let Err(cleanup_flow) =
-                        self.with_frame_roots(_func, stack, handlers, &[], &signal_roots, |vm| {
-                            vm.run_unwind_cleanups(&res.cleanups)
+                        self.with_frame_roots(_func, stack, handlers, &[], &unwind_roots, |vm| {
+                            vm.unwind_specpdl_to(res.spec_depth, specpdl)
                         })
                     {
-                        return self.resume_nonlocal(_func, stack, pc, handlers, cleanup_flow);
+                        return self.resume_nonlocal(
+                            _func,
+                            stack,
+                            pc,
+                            handlers,
+                            specpdl,
+                            cleanup_flow,
+                        );
                     }
                     stack.truncate(res.stack_len);
                     stack.push(make_signal_binding_value(&sig));
@@ -1716,31 +1794,92 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn cleanup_varbind_unwind(
-        &mut self,
-        bind_count: &mut usize,
-        unbind_watch: &mut Vec<(String, Value)>,
-    ) -> Result<(), Flow> {
-        self.cleanup_varbind_unwind_n(*bind_count, bind_count, unbind_watch)
+    fn unwind_specpdl_all(&mut self, specpdl: &mut Vec<VmUnwindEntry>) -> Result<(), Flow> {
+        self.unwind_specpdl_to(0, specpdl)
     }
 
-    fn cleanup_varbind_unwind_n(
+    fn unwind_specpdl_n(
         &mut self,
         count: usize,
-        bind_count: &mut usize,
-        unbind_watch: &mut Vec<(String, Value)>,
+        specpdl: &mut Vec<VmUnwindEntry>,
     ) -> Result<(), Flow> {
-        for _ in 0..count {
-            if *bind_count == 0 {
-                break;
-            }
-            self.dynamic.pop();
-            *bind_count -= 1;
-            if let Some((name, restored_value)) = unbind_watch.pop() {
-                self.run_variable_watchers(&name, &restored_value, &Value::Nil, "unlet")?;
-            }
+        let target_depth = specpdl.len().saturating_sub(count);
+        self.unwind_specpdl_to(target_depth, specpdl)
+    }
+
+    fn unwind_specpdl_to(
+        &mut self,
+        target_depth: usize,
+        specpdl: &mut Vec<VmUnwindEntry>,
+    ) -> Result<(), Flow> {
+        while specpdl.len() > target_depth {
+            let entry = specpdl.pop().expect("specpdl entry");
+            self.restore_unwind_entry(entry)?;
         }
         Ok(())
+    }
+
+    fn restore_unwind_entry(&mut self, entry: VmUnwindEntry) -> Result<(), Flow> {
+        match entry {
+            VmUnwindEntry::DynamicBinding {
+                name,
+                restored_value,
+            } => {
+                self.dynamic.pop();
+                self.run_variable_watchers(&name, &restored_value, &Value::Nil, "unlet")?;
+            }
+            VmUnwindEntry::CurrentBuffer { buffer_id } => {
+                self.buffers.set_current(buffer_id);
+            }
+            VmUnwindEntry::Excursion {
+                buffer_id,
+                marker_id,
+            } => {
+                if self.buffers.get(buffer_id).is_some() {
+                    self.buffers.set_current(buffer_id);
+                    if let Some(saved_pt) = self.buffers.marker_position(buffer_id, marker_id) {
+                        if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                            buffer.goto_char(saved_pt);
+                        }
+                    }
+                }
+                self.buffers.remove_marker(marker_id);
+            }
+            VmUnwindEntry::Restriction(saved) => self.restore_saved_restriction(saved),
+        }
+        Ok(())
+    }
+
+    fn restore_saved_restriction(&mut self, saved: SavedRestriction) {
+        match saved {
+            SavedRestriction::None { buffer_id } => {
+                if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                    buffer.begv = 0;
+                    buffer.zv = buffer.text.len();
+                    buffer.pt = buffer.pt.clamp(buffer.begv, buffer.zv);
+                }
+            }
+            SavedRestriction::Markers {
+                buffer_id,
+                beg_marker,
+                end_marker,
+            } => {
+                let beg = self.buffers.marker_position(buffer_id, beg_marker);
+                let end = self.buffers.marker_position(buffer_id, end_marker);
+                if let (Some(begv), Some(zv)) = (beg, end) {
+                    if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                        buffer.begv = begv.min(buffer.text.len());
+                        buffer.zv = zv.min(buffer.text.len());
+                        if buffer.begv > buffer.zv {
+                            std::mem::swap(&mut buffer.begv, &mut buffer.zv);
+                        }
+                        buffer.pt = buffer.pt.clamp(buffer.begv, buffer.zv);
+                    }
+                }
+                self.buffers.remove_marker(beg_marker);
+                self.buffers.remove_marker(end_marker);
+            }
+        }
     }
 
     /// Dispatch to builtin functions from the VM.
@@ -2172,6 +2311,7 @@ impl<'a> Vm<'a> {
         eval.dynamic = self.dynamic.clone();
         eval.lexenv = *self.lexenv;
         eval.features = self.features.clone();
+        eval.catch_tags = self.catch_tags.clone();
         eval.custom = self.custom.clone();
         eval.buffers = self.buffers.clone();
         std::mem::swap(self.frames, &mut eval.frames);
@@ -2244,12 +2384,14 @@ fn merge_result_with_cleanup(result: EvalResult, cleanup: Result<(), Flow>) -> E
 struct ThrowResolution {
     target: u32,
     stack_len: usize,
+    spec_depth: usize,
     cleanups: Vec<Value>,
 }
 
 struct SignalResolution {
     target: u32,
     stack_len: usize,
+    spec_depth: usize,
     cleanups: Vec<Value>,
 }
 
@@ -2265,6 +2407,7 @@ fn resolve_throw_target(
                 tag: catch_tag,
                 target,
                 stack_len,
+                spec_depth,
             } => {
                 // Remove from evaluator catch_tags registry (this catch is being unwound).
                 catch_tags.pop();
@@ -2272,6 +2415,7 @@ fn resolve_throw_target(
                     return Some(ThrowResolution {
                         target,
                         stack_len,
+                        spec_depth,
                         cleanups,
                     });
                 }
@@ -2301,11 +2445,13 @@ fn resolve_signal_target(
                 conditions,
                 target,
                 stack_len,
+                spec_depth,
             } => {
                 if signal_matches_condition_value(obarray, sig.symbol_name(), &conditions) {
                     return Some(SignalResolution {
                         target,
                         stack_len,
+                        spec_depth,
                         cleanups,
                     });
                 }
