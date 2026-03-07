@@ -596,6 +596,13 @@ pub(crate) fn builtin_modify_category_entry(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    modify_category_entry_in_manager(&mut eval.category_manager, &args)
+}
+
+pub(crate) fn modify_category_entry_in_manager(
+    category_manager: &mut CategoryManager,
+    args: &[Value],
+) -> EvalResult {
     expect_min_args("modify-category-entry", &args, 2)?;
     expect_max_args("modify-category-entry", &args, 4)?;
 
@@ -627,7 +634,7 @@ pub(crate) fn builtin_modify_category_entry(
             let to = extract_char_opt(&pair.cdr, "modify-category-entry")?;
             match (from, to) {
                 (Some(f), Some(t)) => {
-                    let table = eval.category_manager.current_mut();
+                    let table = category_manager.current_mut();
                     for cp in (f as u32)..=(t as u32) {
                         if let Some(ch) = char::from_u32(cp) {
                             table
@@ -644,7 +651,7 @@ pub(crate) fn builtin_modify_category_entry(
         }
         _ => {
             if let Some(ch) = extract_char_opt(&args[0], "modify-category-entry")? {
-                eval.category_manager
+                category_manager
                     .current_mut()
                     .modify_entry(ch, cat, reset)
                     .map_err(|msg| signal("error", vec![Value::string(&msg)]))?;

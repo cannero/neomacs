@@ -7,6 +7,7 @@ use super::opcode::Op;
 use crate::buffer::BufferManager;
 use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
+use crate::emacs_core::category::CategoryManager;
 use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
@@ -51,6 +52,7 @@ pub struct Vm<'a> {
     features: &'a mut Vec<SymId>,
     custom: &'a mut CustomManager,
     buffers: &'a mut BufferManager,
+    category_manager: &'a mut CategoryManager,
     frames: &'a mut FrameManager,
     coding_systems: &'a mut CodingSystemManager,
     match_data: &'a mut Option<MatchData>,
@@ -73,6 +75,7 @@ impl<'a> Vm<'a> {
         features: &'a mut Vec<SymId>,
         custom: &'a mut CustomManager,
         buffers: &'a mut BufferManager,
+        category_manager: &'a mut CategoryManager,
         frames: &'a mut FrameManager,
         coding_systems: &'a mut CodingSystemManager,
         match_data: &'a mut Option<MatchData>,
@@ -86,6 +89,7 @@ impl<'a> Vm<'a> {
             features,
             custom,
             buffers,
+            category_manager,
             frames,
             coding_systems,
             match_data,
@@ -1845,6 +1849,23 @@ impl<'a> Vm<'a> {
             "make-sparse-keymap" => Some(
                 builtins::expect_max_args("make-sparse-keymap", args, 1)
                     .map(|_| crate::emacs_core::keymap::make_sparse_list_keymap()),
+            ),
+            "modify-category-entry" => Some(
+                crate::emacs_core::category::modify_category_entry_in_manager(
+                    self.category_manager,
+                    args,
+                ),
+            ),
+            "modify-syntax-entry" => Some(
+                crate::emacs_core::syntax::modify_syntax_entry_in_buffers(self.buffers, args),
+            ),
+            "decode-char" => Some(crate::emacs_core::charset::builtin_decode_char(args.to_vec())),
+            "encode-char" => Some(crate::emacs_core::charset::builtin_encode_char(args.to_vec())),
+            "char-table-extra-slot" => Some(
+                crate::emacs_core::chartable::builtin_char_table_extra_slot(args.to_vec()),
+            ),
+            "set-char-table-extra-slot" => Some(
+                crate::emacs_core::chartable::builtin_set_char_table_extra_slot(args.to_vec()),
             ),
             "current-global-map" => Some(
                 builtins::expect_args("current-global-map", args, 0)

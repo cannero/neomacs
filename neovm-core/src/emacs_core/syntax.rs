@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::{Value, read_cons, with_heap};
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, BufferManager};
 
 thread_local! {
     static STANDARD_SYNTAX_TABLE_OBJECT: RefCell<Option<Value>> = const { RefCell::new(None) };
@@ -1079,10 +1079,11 @@ fn ensure_standard_syntax_table_object() -> EvalResult {
     })
 }
 
-fn current_buffer_syntax_table_object(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
+fn current_buffer_syntax_table_object_in_buffers(
+    buffers: &mut BufferManager,
+) -> Result<Value, Flow> {
     let fallback = ensure_standard_syntax_table_object()?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer_mut()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -1097,17 +1098,27 @@ fn current_buffer_syntax_table_object(eval: &mut super::eval::Evaluator) -> Resu
     Ok(fallback)
 }
 
-fn set_current_buffer_syntax_table_object(
-    eval: &mut super::eval::Evaluator,
+fn current_buffer_syntax_table_object(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
+    current_buffer_syntax_table_object_in_buffers(&mut eval.buffers)
+}
+
+fn set_current_buffer_syntax_table_object_in_buffers(
+    buffers: &mut BufferManager,
     table: Value,
 ) -> Result<(), Flow> {
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer_mut()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     buf.properties
         .insert(SYNTAX_TABLE_OBJECT_PROPERTY.to_string(), table);
     Ok(())
+}
+
+fn set_current_buffer_syntax_table_object(
+    eval: &mut super::eval::Evaluator,
+    table: Value,
+) -> Result<(), Flow> {
+    set_current_buffer_syntax_table_object_in_buffers(&mut eval.buffers, table)
 }
 
 fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
@@ -1470,6 +1481,13 @@ pub(crate) fn builtin_modify_syntax_entry(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    modify_syntax_entry_in_buffers(&mut eval.buffers, &args)
+}
+
+pub(crate) fn modify_syntax_entry_in_buffers(
+    buffers: &mut BufferManager,
+    args: &[Value],
+) -> EvalResult {
     if args.len() < 2 || args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -1499,9 +1517,9 @@ pub(crate) fn builtin_modify_syntax_entry(
         }
         *table
     } else {
-        current_buffer_syntax_table_object(eval)?
+        current_buffer_syntax_table_object_in_buffers(buffers)?
     };
-    let current_table = current_buffer_syntax_table_object(eval)?;
+    let current_table = current_buffer_syntax_table_object_in_buffers(buffers)?;
     let update_current_buffer_table = target_table == current_table;
 
     // Update the exposed syntax-table object.
@@ -1516,8 +1534,7 @@ pub(crate) fn builtin_modify_syntax_entry(
         return Ok(Value::Nil);
     }
     let compiled = syntax_table_from_chartable(target_table)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer_mut()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     buf.syntax_table = compiled;

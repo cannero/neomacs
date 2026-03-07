@@ -1152,6 +1152,22 @@ fn compiled_cl_preloaded_loads_after_faces() {
 }
 
 #[test]
+fn compiled_characters_loads_after_case_table() {
+    let mut eval = partial_bootstrap_eval_until("international/characters", true);
+    let load_path = get_load_path(&eval.obarray());
+    let path = bootstrap_fixture_path(&load_path, "international/characters", true)
+        .expect("compiled international/characters fixture path");
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading international/characters from {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+}
+
+#[test]
 fn auth_source_backend_exposes_type_slot() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(

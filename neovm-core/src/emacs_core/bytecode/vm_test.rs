@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::bytecode::compiler::Compiler;
+use crate::emacs_core::category::CategoryManager;
 use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::parse_forms;
@@ -20,6 +21,7 @@ fn vm_eval(src: &str) -> Result<Value, EvalError> {
     let mut features: Vec<SymId> = Vec::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
     let mut frames = FrameManager::new();
     let mut coding_systems = CodingSystemManager::new();
     let mut match_data: Option<MatchData> = None;
@@ -36,6 +38,7 @@ fn vm_eval(src: &str) -> Result<Value, EvalError> {
             &mut features,
             &mut custom,
             &mut buffers,
+            &mut category_manager,
             &mut frames,
             &mut coding_systems,
             &mut match_data,
@@ -283,6 +286,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
     let mut features: Vec<SymId> = Vec::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
     let mut frames = FrameManager::new();
     let mut coding_systems = CodingSystemManager::new();
     let mut match_data: Option<MatchData> = None;
@@ -296,6 +300,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         &mut features,
         &mut custom,
         &mut buffers,
+        &mut category_manager,
         &mut frames,
         &mut coding_systems,
         &mut match_data,
@@ -409,6 +414,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
     let mut features: Vec<SymId> = Vec::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
     let mut frames = FrameManager::new();
     let mut coding_systems = CodingSystemManager::new();
     let mut match_data: Option<MatchData> = None;
@@ -422,6 +428,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         &mut features,
         &mut custom,
         &mut buffers,
+        &mut category_manager,
         &mut frames,
         &mut coding_systems,
         &mut match_data,
@@ -797,6 +804,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
     let mut features: Vec<SymId> = Vec::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
     let mut frames = FrameManager::new();
     let mut coding_systems = CodingSystemManager::new();
     let mut match_data: Option<MatchData> = None;
@@ -810,6 +818,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         &mut features,
         &mut custom,
         &mut buffers,
+        &mut category_manager,
         &mut frames,
         &mut coding_systems,
         &mut match_data,
