@@ -301,6 +301,17 @@ fn cache_temp_path(source_path: &Path) -> PathBuf {
 const CACHE_WRITE_PHASE_BEFORE_WRITE: u8 = 1;
 const CACHE_WRITE_PHASE_AFTER_WRITE: u8 = 2;
 
+pub(crate) const BOOTSTRAP_LOAD_PATH_SUBDIRS: &[&str] = &[
+    "",
+    "emacs-lisp",
+    "progmodes",
+    "language",
+    "international",
+    "textmodes",
+    "vc",
+    "leim",
+];
+
 #[cfg(test)]
 thread_local! {
     static CACHE_WRITE_FAIL_PHASE: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
@@ -1393,6 +1404,144 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Evaluator, project_ro
     }
 }
 
+pub(crate) fn bootstrap_load_path_entries(lisp_dir: &Path) -> Vec<Value> {
+    let mut load_path_entries = Vec::new();
+    for sub in BOOTSTRAP_LOAD_PATH_SUBDIRS {
+        let dir = if sub.is_empty() {
+            lisp_dir.to_path_buf()
+        } else {
+            lisp_dir.join(sub)
+        };
+        if dir.is_dir() {
+            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+        }
+    }
+    load_path_entries
+}
+
+pub(crate) const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
+    "emacs-lisp/debug-early",
+    "emacs-lisp/byte-run",
+    "emacs-lisp/backquote",
+    "subr",
+    "keymap",
+    "version",
+    "widget",
+    "custom",
+    "emacs-lisp/map-ynp",
+    "international/mule",
+    "international/mule-conf",
+    "env",
+    "format",
+    "bindings",
+    "window",
+    "files",
+    "emacs-lisp/macroexp",
+    "emacs-lisp/pcase",
+    "!enable-eager-expansion",
+    "emacs-lisp/macroexp",
+    "emacs-lisp/inline",
+    "cus-face",
+    "faces",
+    "!bootstrap-cl-preloaded-stubs",
+    "!require-gv",
+    "!load-ldefs-boot",
+    "button",
+    "emacs-lisp/cl-preloaded",
+    "emacs-lisp/oclosure",
+    "obarray",
+    "abbrev",
+    "help",
+    "jka-cmpr-hook",
+    "epa-hook",
+    "international/mule-cmds",
+    "case-table",
+    "international/characters",
+    "composite",
+    "language/chinese",
+    "language/cyrillic",
+    "language/indian",
+    "language/sinhala",
+    "language/english",
+    "language/ethiopic",
+    "language/european",
+    "language/czech",
+    "language/slovak",
+    "language/romanian",
+    "language/greek",
+    "language/hebrew",
+    "international/cp51932",
+    "international/eucjp-ms",
+    "language/japanese",
+    "language/korean",
+    "language/lao",
+    "language/tai-viet",
+    "language/thai",
+    "language/tibetan",
+    "language/vietnamese",
+    "language/misc-lang",
+    "language/utf-8-lang",
+    "language/georgian",
+    "language/khmer",
+    "language/burmese",
+    "language/cham",
+    "language/philippine",
+    "language/indonesian",
+    "indent",
+    "emacs-lisp/cl-generic",
+    "simple",
+    "emacs-lisp/seq",
+    "emacs-lisp/nadvice",
+    "minibuffer",
+    "frame",
+    "startup",
+    "term/tty-colors",
+    "font-core",
+    "emacs-lisp/syntax",
+    "font-lock",
+    "jit-lock",
+    "mouse",
+    "select",
+    "emacs-lisp/timer",
+    "emacs-lisp/easymenu",
+    "isearch",
+    "rfn-eshadow",
+    "menu-bar",
+    "tab-bar",
+    "emacs-lisp/lisp",
+    "textmodes/page",
+    "register",
+    "textmodes/paragraphs",
+    "progmodes/prog-mode",
+    "emacs-lisp/rx",
+    "emacs-lisp/lisp-mode",
+    "textmodes/text-mode",
+    "textmodes/fill",
+    "newcomment",
+    "replace",
+    "emacs-lisp/tabulated-list",
+    "buff-menu",
+    "fringe",
+    "emacs-lisp/regexp-opt",
+    "image",
+    "international/fontset",
+    "dnd",
+    "tool-bar",
+    "progmodes/elisp-mode",
+    "emacs-lisp/float-sup",
+    "vc/vc-hooks",
+    "vc/ediff-hook",
+    "uniquify",
+    "electric",
+    "paren",
+    "emacs-lisp/shorthands",
+    "emacs-lisp/eldoc",
+    "emacs-lisp/cconv",
+    "tooltip",
+    "international/iso-transl",
+    "emacs-lisp/rmc",
+];
+
 pub fn create_bootstrap_evaluator() -> Result<super::eval::Evaluator, EvalError> {
     create_bootstrap_evaluator_with_features(&[])
 }
@@ -1416,28 +1565,10 @@ pub fn create_bootstrap_evaluator_with_features(
     }
 
     // Set up load-path with lisp/ and its subdirectories.
-    let subdirs = [
-        "",
-        "emacs-lisp",
-        "progmodes",
-        "language",
-        "international",
-        "textmodes",
-        "vc",
-        "leim",
-    ];
-    let mut load_path_entries = Vec::new();
-    for sub in &subdirs {
-        let dir = if sub.is_empty() {
-            lisp_dir.clone()
-        } else {
-            lisp_dir.join(sub)
-        };
-        if dir.is_dir() {
-            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
-        }
-    }
-    eval.set_variable("load-path", Value::list(load_path_entries));
+    eval.set_variable(
+        "load-path",
+        Value::list(bootstrap_load_path_entries(&lisp_dir)),
+    );
     eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
     eval.set_variable("purify-flag", Value::Nil);
     eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
@@ -1498,135 +1629,10 @@ pub fn create_bootstrap_evaluator_with_features(
         Value::list(vec![Value::symbol("skip")]),
     );
 
-    // The files loadup.el loads, in order (excluding conditional
-    // blocks we can't satisfy yet).
-    let files = [
-        "emacs-lisp/debug-early",
-        "emacs-lisp/byte-run",
-        "emacs-lisp/backquote",
-        "subr",
-        "keymap",
-        "version",
-        "widget",
-        "custom",
-        "emacs-lisp/map-ynp",
-        "international/mule",
-        "international/mule-conf",
-        "env",
-        "format",
-        "bindings",
-        "window",
-        "files",
-        "emacs-lisp/macroexp",
-        "emacs-lisp/pcase",
-        "!enable-eager-expansion",
-        "emacs-lisp/macroexp", // Re-load
-        "emacs-lisp/inline",
-        "cus-face",
-        "faces",
-        "!bootstrap-cl-preloaded-stubs",
-        "!require-gv",
-        "!load-ldefs-boot",
-        "button",
-        "emacs-lisp/cl-preloaded",
-        "emacs-lisp/oclosure",
-        "obarray",
-        "abbrev",
-        "help",
-        "jka-cmpr-hook",
-        "epa-hook",
-        "international/mule-cmds",
-        "case-table",
-        "international/characters",
-        "composite",
-        "language/chinese",
-        "language/cyrillic",
-        "language/indian",
-        "language/sinhala",
-        "language/english",
-        "language/ethiopic",
-        "language/european",
-        "language/czech",
-        "language/slovak",
-        "language/romanian",
-        "language/greek",
-        "language/hebrew",
-        "international/cp51932",
-        "international/eucjp-ms",
-        "language/japanese",
-        "language/korean",
-        "language/lao",
-        "language/tai-viet",
-        "language/thai",
-        "language/tibetan",
-        "language/vietnamese",
-        "language/misc-lang",
-        "language/utf-8-lang",
-        "language/georgian",
-        "language/khmer",
-        "language/burmese",
-        "language/cham",
-        "language/philippine",
-        "language/indonesian",
-        "indent",
-        "emacs-lisp/cl-generic",
-        "simple",
-        "emacs-lisp/seq",
-        "emacs-lisp/nadvice",
-        "minibuffer",
-        "frame",
-        "startup",
-        "term/tty-colors",
-        "font-core",
-        "emacs-lisp/syntax",
-        "font-lock",
-        "jit-lock",
-        "mouse",
-        "select",
-        "emacs-lisp/timer",
-        "emacs-lisp/easymenu",
-        "isearch",
-        "rfn-eshadow",
-        "menu-bar",
-        "tab-bar",
-        "emacs-lisp/lisp",
-        "textmodes/page",
-        "register",
-        "textmodes/paragraphs",
-        "progmodes/prog-mode",
-        "emacs-lisp/rx",
-        "emacs-lisp/lisp-mode",
-        "textmodes/text-mode",
-        "textmodes/fill",
-        "newcomment",
-        "replace",
-        "emacs-lisp/tabulated-list",
-        "buff-menu",
-        "fringe",
-        "emacs-lisp/regexp-opt",
-        "image",
-        "international/fontset",
-        "dnd",
-        "tool-bar",
-        "progmodes/elisp-mode",
-        "emacs-lisp/float-sup",
-        "vc/vc-hooks",
-        "vc/ediff-hook",
-        "uniquify",
-        "electric",
-        "paren",
-        "emacs-lisp/shorthands",
-        "emacs-lisp/eldoc",
-        "emacs-lisp/cconv",
-        "tooltip",
-        "international/iso-transl",
-        "emacs-lisp/rmc",
-    ];
-
     let load_path = get_load_path(&eval.obarray());
-    let total_files = files.len();
+    let total_files = BOOTSTRAP_LOAD_SEQUENCE.len();
 
-    for (file_idx, name) in files.iter().enumerate() {
+    for (file_idx, name) in BOOTSTRAP_LOAD_SEQUENCE.iter().enumerate() {
         // Handle sentinel that enables eager expansion.
         if *name == "!enable-eager-expansion" {
             eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
@@ -1790,28 +1796,10 @@ pub fn create_bootstrap_evaluator_cached_with_features(
                 ensure_startup_compat_variables(&mut eval, project_root);
                 // Re-set load-path since it contains absolute paths that may differ
                 let lisp_dir = project_root.join("lisp");
-                let subdirs = [
-                    "",
-                    "emacs-lisp",
-                    "progmodes",
-                    "language",
-                    "international",
-                    "textmodes",
-                    "vc",
-                    "leim",
-                ];
-                let mut load_path_entries = Vec::new();
-                for sub in &subdirs {
-                    let dir = if sub.is_empty() {
-                        lisp_dir.clone()
-                    } else {
-                        lisp_dir.join(sub)
-                    };
-                    if dir.is_dir() {
-                        load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
-                    }
-                }
-                eval.set_variable("load-path", Value::list(load_path_entries));
+                eval.set_variable(
+                    "load-path",
+                    Value::list(bootstrap_load_path_entries(&lisp_dir)),
+                );
 
                 // Re-set directory paths
                 let etc_dir = project_root.join("etc");
