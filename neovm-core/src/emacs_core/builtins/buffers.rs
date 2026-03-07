@@ -16,6 +16,10 @@ pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
     }
 }
 
+fn point_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
+    buf.text.byte_to_char(byte_pos) as i64 + 1
+}
+
 fn canonicalize_or_self(path: &str) -> String {
     std::fs::canonicalize(path)
         .map(|p| p.to_string_lossy().into_owned())
@@ -1931,17 +1935,20 @@ pub(crate) fn builtin_char_after(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || matches!(args[0], Value::Nil) {
-        buf.point()
+        (buf.point() < buf.zv).then_some(buf.point())
     } else {
         let pos = expect_int(&args[0])?;
         if pos <= 0 {
             return Ok(Value::Nil);
         }
-        let pos = pos as usize;
-        let char_pos = if pos > 0 { pos - 1 } else { 0 };
-        buf.text.char_to_byte(char_pos.min(buf.text.char_count()))
+        let point_min = point_char_pos(buf, buf.begv);
+        let point_max = point_char_pos(buf, buf.zv);
+        if pos < point_min || pos >= point_max {
+            return Ok(Value::Nil);
+        }
+        Some(buf.text.char_to_byte((pos - 1) as usize))
     };
-    match buf.char_after(byte_pos) {
+    match byte_pos.and_then(|pos| buf.char_after(pos)) {
         Some(c) => Ok(Value::Int(c as i64)),
         None => Ok(Value::Nil),
     }
@@ -1957,17 +1964,20 @@ pub(crate) fn builtin_char_before(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || matches!(args[0], Value::Nil) {
-        buf.point()
+        (buf.point() > buf.begv).then_some(buf.point())
     } else {
         let pos = expect_int(&args[0])?;
         if pos <= 0 {
             return Ok(Value::Nil);
         }
-        let pos = pos as usize;
-        let char_pos = if pos > 0 { pos - 1 } else { 0 };
-        buf.text.char_to_byte(char_pos.min(buf.text.char_count()))
+        let point_min = point_char_pos(buf, buf.begv);
+        let point_max = point_char_pos(buf, buf.zv);
+        if pos <= point_min || pos > point_max {
+            return Ok(Value::Nil);
+        }
+        Some(buf.text.char_to_byte((pos - 1) as usize))
     };
-    match buf.char_before(byte_pos) {
+    match byte_pos.and_then(|pos| buf.char_before(pos)) {
         Some(c) => Ok(Value::Int(c as i64)),
         None => Ok(Value::Nil),
     }
@@ -2145,8 +2155,8 @@ pub(crate) fn builtin_buffer_local_value(
         .buffers
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?;
-    match buf.get_buffer_local(&resolved) {
-        Some(v) => Ok(*v),
+    match buf.buffer_local_value(&resolved) {
+        Some(v) => Ok(v),
         None if resolved == "nil" => Ok(Value::Nil),
         None if resolved == "t" => Ok(Value::True),
         None if resolved.starts_with(':') => Ok(Value::symbol(resolved)),

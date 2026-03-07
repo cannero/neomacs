@@ -498,6 +498,11 @@ fn dump_undo_record(r: &UndoRecord) -> DumpUndoRecord {
                 .collect(),
         },
         UndoRecord::CursorMove { pos } => DumpUndoRecord::CursorMove { pos: *pos },
+        UndoRecord::FirstChange {
+            visited_file_modtime,
+        } => DumpUndoRecord::FirstChange {
+            visited_file_modtime: *visited_file_modtime,
+        },
         UndoRecord::Boundary => DumpUndoRecord::Boundary,
     }
 }
@@ -1628,6 +1633,11 @@ fn load_undo_record(r: &DumpUndoRecord) -> UndoRecord {
                 .collect(),
         },
         DumpUndoRecord::CursorMove { pos } => UndoRecord::CursorMove { pos: *pos },
+        DumpUndoRecord::FirstChange {
+            visited_file_modtime,
+        } => UndoRecord::FirstChange {
+            visited_file_modtime: *visited_file_modtime,
+        },
         DumpUndoRecord::Boundary => UndoRecord::Boundary,
     }
 }

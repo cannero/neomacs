@@ -501,6 +501,17 @@ fn local_variable_p_returns_nil_when_not_local() {
 }
 
 #[test]
+fn local_variable_p_reports_builtin_buffer_locals() {
+    let results = eval_all(
+        r#"(with-temp-buffer
+             (list (local-variable-p 'major-mode)
+                   (local-variable-p 'mode-name)
+                   (local-variable-p 'buffer-undo-list)))"#,
+    );
+    assert_eq!(results[0], "OK (t t t)");
+}
+
+#[test]
 fn local_variable_p_enforces_buffer_and_symbol_contracts() {
     let results = eval_all(
         r#"(list

@@ -9,6 +9,7 @@
 //! - `PropertyChange(pos, len, old_props)` — text properties changed
 //! - `Boundary` — separates undo groups
 //! - `CursorMove(old_pos)` — cursor was at `old_pos` before the edit
+//! - `FirstChange(modtime)` — first modification since save
 
 use crate::emacs_core::value::Value;
 use crate::gc::GcTrace;
@@ -36,6 +37,9 @@ pub enum UndoRecord {
     /// Cursor position before the next edit.
     CursorMove { pos: usize },
 
+    /// First modification since save, stored as `(t . VISITED-FILE-MODTIME)`.
+    FirstChange { visited_file_modtime: i64 },
+
     /// Boundary separating undo groups.
     Boundary,
 }
@@ -51,6 +55,8 @@ pub struct UndoList {
     enabled: bool,
     /// Whether we are currently inside an undo group (no boundary yet).
     in_group: bool,
+    /// Whether we have already recorded the first-change sentinel.
+    recorded_first_change: bool,
     /// True when `primitive-undo` is executing (suppress re-recording).
     pub undoing: bool,
 }
@@ -62,6 +68,7 @@ impl UndoList {
             limit: 0,
             enabled: true,
             in_group: false,
+            recorded_first_change: false,
             undoing: false,
         }
     }
@@ -71,6 +78,8 @@ impl UndoList {
         self.enabled = enabled;
         if !enabled {
             self.records.clear();
+            self.in_group = false;
+            self.recorded_first_change = false;
         }
     }
 
@@ -82,6 +91,23 @@ impl UndoList {
     pub fn set_limit(&mut self, limit: usize) {
         self.limit = limit;
         self.maybe_truncate();
+    }
+
+    /// Prepare to record a buffer edit at `beg` with point currently at
+    /// `point_before`.
+    pub fn prepare_change(&mut self, beg: usize, point_before: usize) {
+        if !self.enabled || self.undoing {
+            return;
+        }
+
+        if self.ensure_first_change() {
+            self.in_group = true;
+        }
+
+        let at_boundary = matches!(self.records.last(), Some(UndoRecord::Boundary) | None);
+        if at_boundary && point_before != beg {
+            self.record_cursor(point_before);
+        }
     }
 
     /// Record an insertion.
@@ -121,6 +147,7 @@ impl UndoList {
             }
         }
         self.records.push(UndoRecord::CursorMove { pos });
+        self.in_group = true;
     }
 
     /// Record a text property change.
@@ -133,6 +160,7 @@ impl UndoList {
         if !self.enabled || self.undoing {
             return;
         }
+        self.ensure_first_change();
         self.ensure_boundary_if_needed();
         self.records.push(UndoRecord::PropertyChange {
             pos,
@@ -207,7 +235,7 @@ impl UndoList {
     /// Convert to a Lisp value for `buffer-undo-list`.
     pub fn to_value(&self) -> Value {
         let mut items = Vec::new();
-        for record in &self.records {
+        for record in self.records.iter().rev() {
             match record {
                 UndoRecord::Insert { pos, len } => {
                     // (BEG . END) — 1-based positions
@@ -225,6 +253,11 @@ impl UndoList {
                 }
                 UndoRecord::CursorMove { pos } => {
                     items.push(Value::Int((*pos + 1) as i64));
+                }
+                UndoRecord::FirstChange {
+                    visited_file_modtime,
+                } => {
+                    items.push(Value::cons(Value::True, Value::Int(*visited_file_modtime)));
                 }
                 UndoRecord::PropertyChange { pos, len, .. } => {
                     // (nil PROPERTY VALUE BEG . END)
@@ -245,6 +278,17 @@ impl UndoList {
     }
 
     // -- internal helpers ---
+
+    fn ensure_first_change(&mut self) -> bool {
+        if self.recorded_first_change {
+            return false;
+        }
+        self.records.push(UndoRecord::FirstChange {
+            visited_file_modtime: 0,
+        });
+        self.recorded_first_change = true;
+        true
+    }
 
     fn ensure_boundary_if_needed(&mut self) {
         if !self.in_group && !matches!(self.records.last(), Some(UndoRecord::Boundary) | None) {
@@ -270,11 +314,15 @@ impl UndoList {
         self.enabled
     }
     pub(crate) fn from_dump(records: Vec<UndoRecord>, limit: usize, enabled: bool) -> Self {
+        let recorded_first_change = records
+            .iter()
+            .any(|record| matches!(record, UndoRecord::FirstChange { .. }));
         Self {
             records,
             limit,
             enabled,
             in_group: false,
+            recorded_first_change,
             undoing: false,
         }
     }

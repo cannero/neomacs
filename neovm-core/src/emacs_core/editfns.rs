@@ -259,7 +259,7 @@ pub(crate) fn builtin_following_char(
 ) -> EvalResult {
     expect_args("following-char", &args, 0)?;
     match eval.buffers.current_buffer() {
-        Some(buf) => match buf.char_after(buf.pt) {
+        Some(buf) => match (buf.pt < buf.zv).then(|| buf.char_after(buf.pt)).flatten() {
             Some(ch) => Ok(Value::Int(ch as i64)),
             None => Ok(Value::Int(0)),
         },
@@ -274,7 +274,10 @@ pub(crate) fn builtin_preceding_char(
 ) -> EvalResult {
     expect_args("preceding-char", &args, 0)?;
     match eval.buffers.current_buffer() {
-        Some(buf) => match buf.char_before(buf.pt) {
+        Some(buf) => match (buf.pt > buf.begv)
+            .then(|| buf.char_before(buf.pt))
+            .flatten()
+        {
             Some(ch) => Ok(Value::Int(ch as i64)),
             None => Ok(Value::Int(0)),
         },

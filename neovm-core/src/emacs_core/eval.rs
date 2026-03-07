@@ -31,7 +31,7 @@ use super::symbol::Obarray;
 use super::threads::ThreadManager;
 use super::timer::TimerManager;
 use super::value::*;
-use crate::buffer::BufferManager;
+use crate::buffer::{BufferManager, InsertionType};
 use crate::face::FaceTable;
 use crate::gc::GcTrace;
 use crate::gc::ObjId;
@@ -2271,8 +2271,8 @@ impl Evaluator {
 
         // Buffer-local binding on current buffer.
         if let Some(buf) = self.buffers.current_buffer() {
-            if let Some(value) = buf.get_buffer_local(resolved_name) {
-                return Ok(*value);
+            if let Some(value) = buf.buffer_local_value(resolved_name) {
+                return Ok(value);
             }
         }
 
@@ -4366,19 +4366,24 @@ impl Evaluator {
     }
 
     fn sf_save_excursion(&mut self, tail: &[Expr]) -> EvalResult {
-        // Save current buffer, point, and mark; restore after body
         let saved_buf = self.buffers.current_buffer().map(|b| b.id);
-        let (saved_pt, saved_mark) = match self.buffers.current_buffer() {
-            Some(b) => (b.pt, b.mark),
-            None => (0, None),
-        };
+        let saved_marker = saved_buf.and_then(|buf_id| {
+            let point = self.buffers.get(buf_id).map(|buf| buf.pt)?;
+            Some(
+                self.buffers
+                    .create_marker(buf_id, point, InsertionType::Before),
+            )
+        });
         let result = self.sf_progn(tail);
-        // Restore
         if let Some(buf_id) = saved_buf {
             self.buffers.set_current(buf_id);
-            if let Some(buf) = self.buffers.get_mut(buf_id) {
-                buf.pt = saved_pt;
-                buf.mark = saved_mark;
+            if let Some(marker_id) = saved_marker {
+                if let Some(saved_pt) = self.buffers.marker_position(buf_id, marker_id) {
+                    if let Some(buf) = self.buffers.get_mut(buf_id) {
+                        buf.goto_char(saved_pt);
+                    }
+                }
+                self.buffers.remove_marker(marker_id);
             }
         }
         result
@@ -5266,6 +5271,24 @@ impl Evaluator {
 
         // Update existing buffer-local binding if present.
         if let Some(buf) = self.buffers.current_buffer_mut() {
+            if name == "buffer-undo-list" {
+                match value {
+                    Value::True => {
+                        buf.undo_list.set_enabled(false);
+                        buf.set_buffer_local(name, Value::True);
+                    }
+                    Value::Nil => {
+                        buf.undo_list.set_enabled(true);
+                        buf.undo_list.clear();
+                        buf.set_buffer_local(name, Value::Nil);
+                    }
+                    other => {
+                        buf.undo_list.set_enabled(true);
+                        buf.set_buffer_local(name, other);
+                    }
+                }
+                return;
+            }
             if buf.get_buffer_local(name).is_some() {
                 buf.set_buffer_local(name, value);
                 return;
@@ -5305,8 +5328,8 @@ impl Evaluator {
             }
         }
         if let Some(buffer) = self.buffers.current_buffer() {
-            if let Some(value) = buffer.get_buffer_local(name) {
-                return *value;
+            if let Some(value) = buffer.buffer_local_value(name) {
+                return value;
             }
         }
         self.obarray

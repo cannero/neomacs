@@ -421,6 +421,9 @@ pub enum DumpUndoRecord {
     CursorMove {
         pos: usize,
     },
+    FirstChange {
+        visited_file_modtime: i64,
+    },
     Boundary,
 }
 

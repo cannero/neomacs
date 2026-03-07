@@ -102,6 +102,9 @@ impl Buffer {
     pub fn new(id: BufferId, name: String) -> Self {
         let mut properties = HashMap::new();
         properties.insert("buffer-read-only".to_string(), Value::Nil);
+        properties.insert("buffer-undo-list".to_string(), Value::Nil);
+        properties.insert("major-mode".to_string(), Value::symbol("fundamental-mode"));
+        properties.insert("mode-name".to_string(), Value::string("Fundamental"));
 
         Self {
             id,
@@ -168,6 +171,7 @@ impl Buffer {
         }
 
         // Record undo before modifying.
+        self.undo_list.prepare_change(insert_pos, self.pt);
         self.undo_list.record_insert(insert_pos, len);
 
         self.text.insert_str(insert_pos, text);
@@ -218,6 +222,7 @@ impl Buffer {
 
         // Record undo: save the deleted text for restoration.
         let deleted_text = self.text.text_range(start, end);
+        self.undo_list.prepare_change(start, self.pt);
         self.undo_list.record_delete(start, &deleted_text);
 
         self.text.delete_range(start, end);
@@ -358,6 +363,16 @@ impl Buffer {
 
     pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
         self.properties.get(name)
+    }
+
+    pub fn buffer_local_value(&self, name: &str) -> Option<Value> {
+        match name {
+            "buffer-undo-list" => match self.properties.get(name).copied() {
+                Some(Value::True) => Some(Value::True),
+                _ => Some(self.undo_list.to_value()),
+            },
+            _ => self.properties.get(name).copied(),
+        }
     }
 }
 
@@ -516,6 +531,13 @@ impl BufferManager {
                 .find(|m| m.id == marker_id)
                 .map(|m| m.byte_pos)
         })
+    }
+
+    /// Remove a marker registration from any live buffer.
+    pub fn remove_marker(&mut self, marker_id: u64) {
+        for buf in self.buffers.values_mut() {
+            buf.markers.retain(|marker| marker.id != marker_id);
+        }
     }
 
     // pdump accessors
@@ -897,6 +919,21 @@ mod tests {
         assert!(buf.get_buffer_local("fill-column").is_some());
         assert!(buf.get_buffer_local("major-mode").is_some());
         assert!(buf.get_buffer_local("nonexistent").is_none());
+    }
+
+    #[test]
+    fn buffer_local_defaults_include_builtin_per_buffer_vars() {
+        let buf = Buffer::new(BufferId(1), "test".into());
+
+        assert_eq!(
+            buf.buffer_local_value("major-mode"),
+            Some(Value::symbol("fundamental-mode"))
+        );
+        assert_eq!(
+            buf.buffer_local_value("mode-name"),
+            Some(Value::string("Fundamental"))
+        );
+        assert_eq!(buf.buffer_local_value("buffer-undo-list"), Some(Value::Nil));
     }
 
     // -----------------------------------------------------------------------

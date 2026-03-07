@@ -190,7 +190,9 @@ pub(crate) fn builtin_undo(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
                 UndoRecord::CursorMove { pos } => {
                     buffer.goto_char(pos.min(buffer.text.len()));
                 }
-                UndoRecord::PropertyChange { .. } | UndoRecord::Boundary => {
+                UndoRecord::PropertyChange { .. }
+                | UndoRecord::FirstChange { .. }
+                | UndoRecord::Boundary => {
                     // Text property undo entries are intentionally ignored for now.
                 }
             }

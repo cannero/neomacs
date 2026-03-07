@@ -2005,6 +2005,60 @@ fn buffer_save_excursion() {
 }
 
 #[test]
+fn buffer_save_excursion_tracks_marker_through_edits() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"0123456789\")
+           (goto-char 6)
+           (let ((before-point (point)))
+             (save-excursion
+               (goto-char 3)
+               (insert \"XXX\")
+               (goto-char 12)
+               (delete-char 2))
+             (list before-point (point) (buffer-string))))",
+    );
+    assert_eq!(results[0], "OK (6 9 \"01XXX234567\")");
+}
+
+#[test]
+fn buffer_undo_list_reflects_recorded_edits() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (setq buffer-undo-list nil)
+           (insert \"Hello\")
+           (let ((after-insert (not (null buffer-undo-list))))
+             (undo-boundary)
+             (insert \" World\")
+             (undo-boundary)
+             (delete-region 1 6)
+             (undo-boundary)
+             (list after-insert
+                   (not (null buffer-undo-list))
+                   buffer-undo-list)))",
+    );
+    assert_eq!(
+        results[0],
+        "OK (t t (nil (\"Hello\" . 1) 12 nil (6 . 12) nil (1 . 6) (t . 0)))"
+    );
+}
+
+#[test]
+fn char_primitives_respect_narrowing() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"Hello, 世界\")
+           (narrow-to-region 3 8)
+           (goto-char (point-min))
+           (list (following-char)
+                 (preceding-char)
+                 (char-after (point-min))
+                 (char-before (point-min))))",
+    );
+    assert_eq!(results[0], "OK (108 0 108 nil)");
+}
+
+#[test]
 fn save_match_data_restores_after_success_and_error() {
     let results = eval_all(
         "(set-match-data '(1 2))

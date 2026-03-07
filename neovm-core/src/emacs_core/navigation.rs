@@ -147,41 +147,32 @@ fn move_by_lines_narrowed(
     zv: usize,
 ) -> (usize, i64) {
     let zv = zv.min(text.len());
-    if n == 0 {
-        return (line_beginning_byte_narrowed(text, byte_pos, begv), 0);
-    }
     let mut pos = byte_pos.clamp(begv, zv);
     let mut moved: i64 = 0;
-    if n > 0 {
+    if n >= 0 {
+        if n == 0 {
+            return (line_beginning_byte_narrowed(text, pos, begv), 0);
+        }
         for _ in 0..n {
-            // Search for newline only within the narrowed region
             match text[pos..zv].find('\n') {
                 Some(offset) => {
-                    pos = pos + offset + 1;
+                    pos += offset + 1;
                     moved += 1;
                 }
                 None => {
-                    // No more newlines — move to end of narrowed region
                     pos = zv;
                     break;
                 }
             }
         }
     } else {
-        // Move to start of current line first, if not already there.
-        let bol = line_beginning_byte_narrowed(text, pos, begv);
-        if bol < pos {
-            pos = bol;
-            moved -= 1;
-        }
-        let remaining = n - moved; // remaining is still negative
-        for _ in 0..(-remaining) {
-            if pos <= begv {
+        for _ in 0..(-n) {
+            let bol = line_beginning_byte_narrowed(text, pos, begv);
+            if bol <= begv {
+                pos = begv;
                 break;
             }
-            // Move before the newline at pos-1
-            pos -= 1;
-            pos = line_beginning_byte_narrowed(text, pos, begv);
+            pos = line_beginning_byte_narrowed(text, bol - 1, begv);
             moved -= 1;
         }
     }
@@ -290,10 +281,15 @@ pub(crate) fn builtin_line_end_position(
     let begv = buf.begv;
     let zv = buf.zv;
     let mut pos = buf.pt;
+    let mut moved = 0;
     if n != 1 {
         let delta = n - 1;
-        let (new_pos, _) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
+        let (new_pos, actual_moved) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
         pos = new_pos;
+        moved = actual_moved;
+    }
+    if n != 1 && moved != n - 1 && pos == begv {
+        return Ok(Value::Int(byte_to_char_pos(buf, begv)));
     }
     let eol = line_end_byte_narrowed(&text, pos, zv);
     Ok(Value::Int(byte_to_char_pos(buf, eol)))
@@ -474,10 +470,16 @@ pub(crate) fn builtin_end_of_line(
     let begv = buf.begv;
     let zv = buf.zv;
     let mut pos = buf.pt;
+    let mut moved = 0;
     if n != 1 {
         let delta = n - 1;
-        let (new_pos, _) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
+        let (new_pos, actual_moved) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
         pos = new_pos;
+        moved = actual_moved;
+    }
+    if n != 1 && moved != n - 1 && pos == begv {
+        buf.goto_char(begv);
+        return Ok(Value::Nil);
     }
     let eol = line_end_byte_narrowed(&text, pos, zv);
     buf.goto_char(eol);

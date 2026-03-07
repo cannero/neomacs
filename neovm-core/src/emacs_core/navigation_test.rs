@@ -146,6 +146,21 @@ fn test_line_end_position_with_offset() {
 }
 
 #[test]
+fn test_line_positions_with_zero_offset() {
+    let mut ev = eval_with_text("hello world\nfoo bar\nbaz qux\n");
+    eval_str(&mut ev, "(goto-char 14)");
+    assert_eq!(eval_int(&mut ev, "(line-beginning-position 0)"), 1);
+    assert_eq!(eval_int(&mut ev, "(line-end-position 0)"), 12);
+}
+
+#[test]
+fn test_line_end_position_zero_offset_clips_to_point_min() {
+    let mut ev = eval_with_text("hello world\nfoo bar\n");
+    eval_str(&mut ev, "(goto-char 5)");
+    assert_eq!(eval_int(&mut ev, "(line-end-position 0)"), 1);
+}
+
+#[test]
 fn test_line_number_at_pos() {
     let mut ev = eval_with_text("abc\ndef\nghi");
     let n = eval_int(&mut ev, "(line-number-at-pos 6)");
@@ -174,6 +189,15 @@ fn test_forward_line_past_end() {
     let mut ev = eval_with_text("abc\ndef");
     let remainder = eval_int(&mut ev, "(forward-line 5)");
     assert!(remainder > 0);
+}
+
+#[test]
+fn test_forward_line_negative_from_middle_of_line() {
+    let mut ev = eval_with_text("aaa\nbbb\nccc");
+    eval_str(&mut ev, "(goto-char 6)");
+    let remainder = eval_int(&mut ev, "(forward-line -1)");
+    assert_eq!(remainder, 0);
+    assert_eq!(eval_int(&mut ev, "(point)"), 1);
 }
 
 #[test]
