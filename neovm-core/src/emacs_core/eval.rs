@@ -4171,10 +4171,19 @@ impl Evaluator {
         }
         let sym = self.eval(&tail[0])?;
         let def = self.eval(&tail[1])?;
-        if tail.len() > 2 {
-            let _ = self.eval(&tail[2])?;
+        let docstring = if tail.len() > 2 {
+            Some(self.eval(&tail[2])?)
+        } else {
+            None
+        };
+        let result = self.defalias_value(sym, def)?;
+        if let Some(docstring) = docstring.filter(|value| !value.is_nil()) {
+            builtins::builtin_put(
+                self,
+                vec![sym, Value::symbol("function-documentation"), docstring],
+            )?;
         }
-        self.defalias_value(sym, def)
+        Ok(result)
     }
 
     fn sf_provide(&mut self, tail: &[Expr]) -> EvalResult {
@@ -4232,7 +4241,22 @@ impl Evaluator {
         if builtins::would_create_function_alias_cycle(self, symbol, &def) {
             return Err(signal("cyclic-function-indirection", vec![sym]));
         }
-        self.obarray.set_symbol_function_id(symbol, def);
+        let symbol_value = match sym {
+            Value::Nil => Value::Nil,
+            Value::True => Value::True,
+            Value::Keyword(_) => sym,
+            _ => Value::Symbol(symbol),
+        };
+        let hook = self
+            .obarray()
+            .get_property_id(symbol, intern("defalias-fset-function"))
+            .cloned()
+            .unwrap_or(Value::Nil);
+        if hook.is_nil() {
+            self.obarray.set_symbol_function_id(symbol, def);
+        } else {
+            self.apply(hook, vec![symbol_value, def])?;
+        }
         Ok(sym)
     }
 

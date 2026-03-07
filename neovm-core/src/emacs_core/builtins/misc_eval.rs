@@ -312,7 +312,14 @@ pub(crate) fn builtin_previous_single_char_property_change(
 
 pub(crate) fn builtin_defalias(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_range_args("defalias", &args, 2, 3)?;
-    eval.defalias_value(args[0], args[1])
+    let result = eval.defalias_value(args[0], args[1])?;
+    if let Some(docstring) = args.get(2).filter(|value| !value.is_nil()) {
+        super::symbols::builtin_put(
+            eval,
+            vec![args[0], Value::symbol("function-documentation"), *docstring],
+        )?;
+    }
+    Ok(result)
 }
 
 pub(crate) fn builtin_provide(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {

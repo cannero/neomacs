@@ -1325,6 +1325,33 @@ fn defalias_enforces_argument_count() {
 }
 
 #[test]
+fn defalias_honors_defalias_fset_function_hook() {
+    let results = eval_all(
+        "(setq vm-da-hook-log nil)
+         (put 'vm-da-hooked 'defalias-fset-function
+              (lambda (sym def)
+                (setq vm-da-hook-log (list sym def))
+                (fset sym def)))
+         (defalias 'vm-da-hooked 'car)
+         vm-da-hook-log
+         (symbol-function 'vm-da-hooked)",
+    );
+    assert_eq!(results[2], "OK vm-da-hooked");
+    assert_eq!(results[3], "OK (vm-da-hooked car)");
+    assert_eq!(results[4], "OK car");
+}
+
+#[test]
+fn defalias_stores_function_documentation_property() {
+    let results = eval_all(
+        "(defalias 'vm-da-doc (lambda () 'ok) \"vm doc\")
+         (get 'vm-da-doc 'function-documentation)",
+    );
+    assert_eq!(results[0], "OK vm-da-doc");
+    assert_eq!(results[1], "OK \"vm doc\"");
+}
+
+#[test]
 fn compiled_literal_reader_form_is_not_callable() {
     let result = eval_one(
         "(condition-case err
