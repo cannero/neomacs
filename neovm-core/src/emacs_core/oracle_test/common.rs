@@ -187,7 +187,9 @@ fn run_neovm_eval_in_temp_buffer(
     form: &str,
 ) -> Result<Result<Value, EvalError>, String> {
     let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
-    let temp_name = eval.buffers.generate_new_buffer_name(" *temp*");
+    let temp_name = eval
+        .buffers
+        .generate_new_buffer_name(" *neovm-oracle-form*");
     let temp_id = eval.buffers.create_buffer(&temp_name);
 
     {
