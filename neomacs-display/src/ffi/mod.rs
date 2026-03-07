@@ -33,9 +33,9 @@ use crate::backend::wgpu::{
     NEOMACS_EVENT_FILE_DROP, NEOMACS_EVENT_FOCUS_IN, NEOMACS_EVENT_FOCUS_OUT,
     NEOMACS_EVENT_IMAGE_DIMENSIONS_READY, NEOMACS_EVENT_KEY_PRESS, NEOMACS_EVENT_KEY_RELEASE,
     NEOMACS_EVENT_MENU_BAR_CLICK, NEOMACS_EVENT_MENU_SELECTION, NEOMACS_EVENT_MOUSE_MOVE,
-    NEOMACS_EVENT_RESIZE, NEOMACS_EVENT_SCROLL, NEOMACS_EVENT_TERMINAL_EXITED,
-    NEOMACS_EVENT_TERMINAL_TITLE_CHANGED, NEOMACS_EVENT_TOOL_BAR_CLICK, NeomacsInputEvent,
-    WinitBackend,
+    NEOMACS_EVENT_RESIZE, NEOMACS_EVENT_SCROLL, NEOMACS_EVENT_TAB_BAR_CLICK,
+    NEOMACS_EVENT_TERMINAL_EXITED, NEOMACS_EVENT_TERMINAL_TITLE_CHANGED,
+    NEOMACS_EVENT_TOOL_BAR_CLICK, NeomacsInputEvent, WinitBackend,
 };
 
 /// Resize callback function type for C FFI
@@ -443,8 +443,8 @@ pub(crate) static TERMINAL_ID_COUNTER: std::sync::atomic::AtomicU32 =
 
 use crate::render_thread::{RenderThread, SharedImageDimensions, SharedMonitorInfo};
 use crate::thread_comm::{
-    EffectUpdater, EmacsComms, InputEvent, MenuBarItem, PopupMenuItem, RenderCommand, ThreadComms,
-    ToolBarItem,
+    EffectUpdater, EmacsComms, InputEvent, MenuBarItem, PopupMenuItem, RenderCommand, TabBarItem,
+    ThreadComms, ToolBarItem,
 };
 
 /// Global state for threaded mode

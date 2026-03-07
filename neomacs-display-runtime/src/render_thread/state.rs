@@ -6,7 +6,7 @@ use winit::window::Window;
 
 use crate::core::face::Face;
 use crate::core::frame_glyphs::FrameGlyphBuffer;
-use crate::thread_comm::{MenuBarItem, RenderComms, ToolBarItem};
+use crate::thread_comm::{MenuBarItem, RenderComms, TabBarItem, ToolBarItem};
 use neomacs_display_protocol::EffectsConfig;
 use neomacs_renderer_wgpu::{PopupMenuState, TooltipState, WgpuGlyphAtlas, WgpuRenderer};
 
@@ -238,6 +238,15 @@ pub(super) struct RenderApp {
     pub(super) menu_bar_hovered: Option<u32>,
     pub(super) menu_bar_active: Option<u32>,
 
+    // Tab bar state
+    pub(super) tab_bar_items: Vec<TabBarItem>,
+    pub(super) tab_bar_height: f32,
+    pub(super) tab_bar_fg: (f32, f32, f32),
+    pub(super) tab_bar_bg: (f32, f32, f32),
+    pub(super) tab_bar_active_bg: (f32, f32, f32),
+    pub(super) tab_bar_hovered: Option<u32>,
+    pub(super) tab_bar_pressed: Option<u32>,
+
     // Toolbar state
     pub(super) toolbar_items: Vec<ToolBarItem>,
     pub(super) toolbar_height: f32,
@@ -347,6 +356,13 @@ impl RenderApp {
             menu_bar_bg: (0.15, 0.15, 0.15),
             menu_bar_hovered: None,
             menu_bar_active: None,
+            tab_bar_items: Vec::new(),
+            tab_bar_height: 0.0,
+            tab_bar_fg: (0.8, 0.8, 0.8),
+            tab_bar_bg: (0.15, 0.15, 0.15),
+            tab_bar_active_bg: (0.25, 0.25, 0.25),
+            tab_bar_hovered: None,
+            tab_bar_pressed: None,
             toolbar_items: Vec::new(),
             toolbar_height: 0.0,
             toolbar_fg: (0.8, 0.8, 0.8),

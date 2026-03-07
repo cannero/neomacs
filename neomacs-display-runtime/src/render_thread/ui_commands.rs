@@ -352,6 +352,32 @@ impl RenderApp {
                 self.frame_dirty = true;
                 Ok(())
             }
+            RenderCommand::SetTabBar {
+                items,
+                height,
+                fg_r,
+                fg_g,
+                fg_b,
+                bg_r,
+                bg_g,
+                bg_b,
+                active_bg_r,
+                active_bg_g,
+                active_bg_b,
+            } => {
+                tracing::debug!(
+                    "SetTabBar: {} items, height={}",
+                    items.len(),
+                    height,
+                );
+                self.tab_bar_items = items;
+                self.tab_bar_height = height;
+                self.tab_bar_fg = (fg_r, fg_g, fg_b);
+                self.tab_bar_bg = (bg_r, bg_g, bg_b);
+                self.tab_bar_active_bg = (active_bg_r, active_bg_g, active_bg_b);
+                self.frame_dirty = true;
+                Ok(())
+            }
             other => Err(other),
         }
     }

@@ -244,11 +244,36 @@ impl RenderApp {
             return;
         }
 
+        // Tab bar click (between menu bar and toolbar)
+        if state == ElementState::Pressed
+            && button == MouseButton::Left
+            && self.tab_bar_height > 0.0
+            && self.mouse_pos.1 >= self.menu_bar_height
+            && self.mouse_pos.1 < self.menu_bar_height + self.tab_bar_height
+        {
+            if let Some(idx) = self.tab_bar_hit_test(self.mouse_pos.0, self.mouse_pos.1) {
+                self.tab_bar_pressed = Some(idx);
+                self.comms
+                    .send_input(InputEvent::TabBarClick { index: idx as i32 });
+                self.frame_dirty = true;
+            }
+            return;
+        }
+
+        if state == ElementState::Released
+            && button == MouseButton::Left
+            && self.tab_bar_pressed.is_some()
+        {
+            self.tab_bar_pressed = None;
+            self.frame_dirty = true;
+            return;
+        }
+
         if state == ElementState::Pressed
             && button == MouseButton::Left
             && self.toolbar_height > 0.0
-            && self.mouse_pos.1 < self.menu_bar_height + self.toolbar_height
-            && self.mouse_pos.1 >= self.menu_bar_height
+            && self.mouse_pos.1 < self.menu_bar_height + self.tab_bar_height + self.toolbar_height
+            && self.mouse_pos.1 >= self.menu_bar_height + self.tab_bar_height
         {
             if let Some(idx) = self.toolbar_hit_test(self.mouse_pos.0, self.mouse_pos.1) {
                 self.toolbar_pressed = Some(idx);
@@ -424,9 +449,25 @@ impl RenderApp {
             }
         }
 
+        if self.tab_bar_height > 0.0 {
+            let old_hover = self.tab_bar_hovered;
+            if ly >= self.menu_bar_height
+                && ly < self.menu_bar_height + self.tab_bar_height
+            {
+                self.tab_bar_hovered = self.tab_bar_hit_test(lx, ly);
+            } else {
+                self.tab_bar_hovered = None;
+            }
+            if self.tab_bar_hovered != old_hover {
+                self.frame_dirty = true;
+            }
+        }
+
         if self.toolbar_height > 0.0 {
             let old_hover = self.toolbar_hovered;
-            if ly < self.menu_bar_height + self.toolbar_height && ly >= self.menu_bar_height {
+            if ly < self.menu_bar_height + self.tab_bar_height + self.toolbar_height
+                && ly >= self.menu_bar_height + self.tab_bar_height
+            {
                 self.toolbar_hovered = self.toolbar_hit_test(lx, ly);
             } else {
                 self.toolbar_hovered = None;

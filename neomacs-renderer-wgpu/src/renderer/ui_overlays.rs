@@ -7,7 +7,7 @@ use super::WgpuRenderer;
 use cosmic_text::SubpixelBin;
 use neomacs_display_protocol::frame_glyphs::FrameGlyphBuffer;
 use neomacs_display_protocol::types::Color;
-use neomacs_display_protocol::{MenuBarItem, ToolBarItem};
+use neomacs_display_protocol::{MenuBarItem, TabBarItem, ToolBarItem};
 use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 
@@ -2130,6 +2130,170 @@ impl WgpuRenderer {
             overlay_glyphs.len(),
             text_y
         );
+        self.render_overlay_glyphs(view, &mut overlay_glyphs, glyph_atlas);
+    }
+
+    /// Render the GPU tab bar overlay below the menu bar.
+    pub fn render_tab_bar(
+        &self,
+        view: &wgpu::TextureView,
+        items: &[TabBarItem],
+        tab_bar_height: f32,
+        tab_bar_y: f32,
+        fg: (f32, f32, f32),
+        bg: (f32, f32, f32),
+        active_bg: (f32, f32, f32),
+        hovered: Option<u32>,
+        _pressed: Option<u32>,
+        glyph_atlas: &mut WgpuGlyphAtlas,
+        _scale_factor: f32,
+        surface_width: f32,
+        surface_height: f32,
+    ) {
+        let logical_w = surface_width / self.scale_factor;
+        let logical_h = surface_height / self.scale_factor;
+        let uniforms = Uniforms {
+            screen_size: [logical_w, logical_h],
+            time: 0.0,
+            _padding: 0.0,
+        };
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
+
+        let bg_color = Color::new(bg.0, bg.1, bg.2, 1.0).srgb_to_linear();
+        let active_bg_color = Color::new(active_bg.0, active_bg.1, active_bg.2, 1.0).srgb_to_linear();
+        let padding_x = 8.0_f32;
+        let tab_padding = 12.0_f32;
+        let font_size = glyph_atlas.default_font_size();
+        let char_width = glyph_atlas.default_char_width();
+        let font_size_bits = 0.0_f32.to_bits();
+
+        // --- Pass 1: Background bar + tab highlights ---
+        let mut rect_verts: Vec<RectVertex> = Vec::new();
+
+        // Full tab bar background
+        self.add_rect(
+            &mut rect_verts,
+            0.0,
+            tab_bar_y,
+            logical_w,
+            tab_bar_height,
+            &bg_color,
+        );
+
+        // Tab item backgrounds
+        let mut tab_x = padding_x;
+        for item in items {
+            if item.is_separator {
+                tab_x += 12.0;
+                continue;
+            }
+            let tab_width = item.label.len() as f32 * char_width + tab_padding * 2.0;
+
+            if item.selected {
+                self.add_rect(
+                    &mut rect_verts,
+                    tab_x,
+                    tab_bar_y,
+                    tab_width,
+                    tab_bar_height,
+                    &active_bg_color,
+                );
+            } else if hovered == Some(item.index) {
+                let c = Color::new(fg.0, fg.1, fg.2, 0.1).srgb_to_linear();
+                self.add_rect(
+                    &mut rect_verts,
+                    tab_x,
+                    tab_bar_y,
+                    tab_width,
+                    tab_bar_height,
+                    &c,
+                );
+            }
+
+            tab_x += tab_width + 2.0;
+        }
+
+        // Bottom border line
+        let border_color = Color::new(fg.0, fg.1, fg.2, 0.15).srgb_to_linear();
+        self.add_rect(
+            &mut rect_verts,
+            0.0,
+            tab_bar_y + tab_bar_height - 1.0,
+            logical_w,
+            1.0,
+            &border_color,
+        );
+
+        if !rect_verts.is_empty() {
+            let buffer = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Tab Bar Rect Buffer"),
+                    contents: bytemuck::cast_slice(&rect_verts),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Tab Bar Rect Encoder"),
+                });
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Tab Bar Rect Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..rect_verts.len() as u32, 0..1);
+            }
+            self.queue.submit(std::iter::once(encoder.finish()));
+        }
+
+        // --- Pass 2: Text labels via glyph atlas ---
+        let text_color = {
+            let c = Color::new(fg.0, fg.1, fg.2, 1.0).srgb_to_linear();
+            [c.r, c.g, c.b, c.a]
+        };
+
+        let mut overlay_glyphs: Vec<(GlyphKey, f32, f32, [f32; 4])> = Vec::new();
+        let text_y = tab_bar_y + (tab_bar_height - font_size) / 2.0;
+
+        let mut tab_x = padding_x;
+        for item in items {
+            if item.is_separator {
+                tab_x += 12.0;
+                continue;
+            }
+            let label_x = tab_x + tab_padding;
+            for (ci, ch) in item.label.chars().enumerate() {
+                let key = GlyphKey {
+                    charcode: ch as u32,
+                    face_id: 0,
+                    font_size_bits,
+                    x_bin: SubpixelBin::Zero,
+                    y_bin: SubpixelBin::Zero,
+                };
+                glyph_atlas.get_or_create(&self.device, &self.queue, &key, None);
+                overlay_glyphs.push((key, label_x + (ci as f32) * char_width, text_y, text_color));
+            }
+            let tab_width = item.label.len() as f32 * char_width + tab_padding * 2.0;
+            tab_x += tab_width + 2.0;
+        }
+
         self.render_overlay_glyphs(view, &mut overlay_glyphs, glyph_atlas);
     }
 

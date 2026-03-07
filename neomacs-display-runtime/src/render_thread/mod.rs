@@ -60,7 +60,7 @@ use crate::core::types::{
     ease_out_expo, ease_out_quad,
 };
 use crate::thread_comm::{
-    InputEvent, MenuBarItem, PopupMenuItem, RenderCommand, RenderComms, ToolBarItem,
+    InputEvent, MenuBarItem, PopupMenuItem, RenderCommand, RenderComms, TabBarItem, ToolBarItem,
 };
 use cursor::{CornerSpring, CursorState, CursorTarget};
 use neomacs_display_protocol::EffectsConfig;

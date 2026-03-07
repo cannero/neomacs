@@ -2658,4 +2658,35 @@ void neomacs_display_menu_bar_end(struct NeomacsDisplay *handle,
                                    uint32_t fg_color,
                                    uint32_t bg_color);
 
+/* ============================================================================
+ * Tab Bar
+ * ============================================================================ */
+
+#define NEOMACS_EVENT_TAB_BAR_CLICK 18
+
+/**
+ * Begin collecting tab bar items.
+ */
+void neomacs_display_tab_bar_begin(struct NeomacsDisplay *handle,
+                                     int count, float height);
+
+/**
+ * Add a single tab bar item.
+ */
+void neomacs_display_tab_bar_add_item(struct NeomacsDisplay *handle,
+                                        int index,
+                                        const char *label,
+                                        const char *help,
+                                        int enabled,
+                                        int selected,
+                                        int is_separator);
+
+/**
+ * Finish collecting tab bar items and send to render thread.
+ */
+void neomacs_display_tab_bar_end(struct NeomacsDisplay *handle,
+                                   uint32_t fg_color,
+                                   uint32_t bg_color,
+                                   uint32_t active_bg_color);
+
 #endif  /* NEOMACS_DISPLAY_H */

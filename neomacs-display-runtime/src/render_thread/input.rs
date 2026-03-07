@@ -78,6 +78,38 @@ impl RenderApp {
         None
     }
 
+    /// Hit-test tab bar items. Returns the index of the item under (x, y), or None.
+    pub(super) fn tab_bar_hit_test(&self, x: f32, y: f32) -> Option<u32> {
+        if self.tab_bar_height <= 0.0 || self.tab_bar_items.is_empty() {
+            return None;
+        }
+        let tab_bar_y = self.menu_bar_height;
+        if y < tab_bar_y || y >= tab_bar_y + self.tab_bar_height {
+            return None;
+        }
+        let padding_x = 8.0_f32;
+        let tab_padding = 12.0_f32;
+        let char_width = if let Some(ref atlas) = self.glyph_atlas {
+            atlas.default_char_width()
+        } else {
+            8.0
+        };
+
+        let mut tab_x = padding_x;
+        for item in &self.tab_bar_items {
+            if item.is_separator {
+                tab_x += 12.0;
+                continue;
+            }
+            let tab_width = item.label.len() as f32 * char_width + tab_padding * 2.0;
+            if x >= tab_x && x < tab_x + tab_width {
+                return Some(item.index);
+            }
+            tab_x += tab_width + 2.0;
+        }
+        None
+    }
+
     /// Hit-test menu bar items. Returns the index of the item under (x, y), or None.
     pub(super) fn menu_bar_hit_test(&self, x: f32, _y: f32) -> Option<u32> {
         if self.menu_bar_height <= 0.0 || self.menu_bar_items.is_empty() {

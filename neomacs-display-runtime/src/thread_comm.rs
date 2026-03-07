@@ -16,7 +16,7 @@ pub type WakeupFd = RawHandle;
 
 use crate::core::frame_glyphs::FrameGlyphBuffer;
 pub use neomacs_display_protocol::{
-    EffectsConfig, MenuBarItem, PopupMenuItem, ToolBarItem, TransitionPolicy,
+    EffectsConfig, MenuBarItem, PopupMenuItem, TabBarItem, ToolBarItem, TransitionPolicy,
 };
 
 /// Input event from render thread to Emacs
@@ -105,6 +105,7 @@ pub enum InputEvent {
     FileDrop { paths: Vec<String>, x: f32, y: f32 },
     /// Toolbar button clicked (index into toolbar items)
     ToolBarClick { index: i32 },
+    TabBarClick { index: i32 },
     /// Menu bar item clicked (index into menu bar items)
     MenuBarClick { index: i32 },
 }
@@ -485,6 +486,20 @@ pub enum RenderCommand {
         bg_r: f32,
         bg_g: f32,
         bg_b: f32,
+    },
+    /// Set tab bar items (sent each frame when items change)
+    SetTabBar {
+        items: Vec<TabBarItem>,
+        height: f32,
+        fg_r: f32,
+        fg_g: f32,
+        fg_b: f32,
+        bg_r: f32,
+        bg_g: f32,
+        bg_b: f32,
+        active_bg_r: f32,
+        active_bg_g: f32,
+        active_bg_b: f32,
     },
 }
 

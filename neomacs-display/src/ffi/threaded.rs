@@ -518,6 +518,10 @@ pub unsafe extern "C" fn neomacs_display_drain_input(
                         out.kind = NEOMACS_EVENT_MENU_BAR_CLICK;
                         out.x = index;
                     }
+                    InputEvent::TabBarClick { index } => {
+                        out.kind = NEOMACS_EVENT_TAB_BAR_CLICK;
+                        out.x = index;
+                    }
                 }
                 count += 1;
             }

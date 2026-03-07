@@ -36,3 +36,14 @@ pub struct ToolBarItem {
     pub selected: bool,
     pub is_separator: bool,
 }
+
+/// A single tab bar item.
+#[derive(Clone, Debug)]
+pub struct TabBarItem {
+    pub index: u32,
+    pub label: String,
+    pub help: String,
+    pub enabled: bool,
+    pub selected: bool,
+    pub is_separator: bool,
+}

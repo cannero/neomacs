@@ -5033,6 +5033,78 @@ neomacs_send_tool_bar_items (struct frame *f)
   neomacs_display_tool_bar_end (dpyinfo->display_handle, fg_rgb, bg_rgb);
 }
 
+/* Send tab bar items to the GPU tab bar overlay.  */
+static void
+neomacs_send_tab_bar_items (struct frame *f)
+{
+  struct neomacs_display_info *dpyinfo = FRAME_NEOMACS_DISPLAY_INFO (f);
+  if (!dpyinfo || !dpyinfo->display_handle)
+    return;
+
+  /* Check if tab-bar-mode is active.  */
+  if (FRAME_TAB_BAR_LINES (f) <= 0 || NILP (f->tab_bar_items))
+    {
+      /* Send empty tab bar to hide it.  */
+      neomacs_display_tab_bar_begin (dpyinfo->display_handle, 0, 0.0f);
+      neomacs_display_tab_bar_end (dpyinfo->display_handle, 0, 0, 0);
+      return;
+    }
+
+  int nitems = f->n_tab_bar_items;
+  int nslots = TAB_BAR_ITEM_NSLOTS;
+  Lisp_Object items_vec = f->tab_bar_items;
+
+  if (!VECTORP (items_vec) || nitems <= 0)
+    return;
+
+  /* Get tab-bar face colors.  */
+  struct face *tb_face = FACE_FROM_ID_OR_NULL (f, TAB_BAR_FACE_ID);
+  unsigned long fg_pixel = tb_face ? tb_face->foreground : FRAME_FOREGROUND_PIXEL (f);
+  unsigned long bg_pixel = tb_face ? tb_face->background : FRAME_BACKGROUND_PIXEL (f);
+  uint32_t fg_rgb = ((RED_FROM_ULONG (fg_pixel) << 16)
+                     | (GREEN_FROM_ULONG (fg_pixel) << 8)
+                     | BLUE_FROM_ULONG (fg_pixel));
+  uint32_t bg_rgb = ((RED_FROM_ULONG (bg_pixel) << 16)
+                     | (GREEN_FROM_ULONG (bg_pixel) << 8)
+                     | BLUE_FROM_ULONG (bg_pixel));
+
+  /* Active tab gets a brighter background.  Blend fg into bg at 15%.  */
+  uint32_t active_r = (RED_FROM_ULONG (bg_pixel) * 85
+                       + RED_FROM_ULONG (fg_pixel) * 15) / 100;
+  uint32_t active_g = (GREEN_FROM_ULONG (bg_pixel) * 85
+                       + GREEN_FROM_ULONG (fg_pixel) * 15) / 100;
+  uint32_t active_b = (BLUE_FROM_ULONG (bg_pixel) * 85
+                       + BLUE_FROM_ULONG (fg_pixel) * 15) / 100;
+  uint32_t active_bg_rgb = (active_r << 16) | (active_g << 8) | active_b;
+
+  float height = (float) FRAME_LINE_HEIGHT (f) + 4.0f;
+  neomacs_display_tab_bar_begin (dpyinfo->display_handle, nitems, height);
+
+  for (int i = 0; i < nitems; i++)
+    {
+      int base = i * nslots;
+
+      /* Extract enabled/selected state.  */
+      bool enabled = !NILP (AREF (items_vec, base + TAB_BAR_ITEM_ENABLED_P));
+      bool selected = !NILP (AREF (items_vec, base + TAB_BAR_ITEM_SELECTED_P));
+
+      /* Extract label and help strings.  */
+      Lisp_Object caption = AREF (items_vec, base + TAB_BAR_ITEM_CAPTION);
+      Lisp_Object help = AREF (items_vec, base + TAB_BAR_ITEM_HELP);
+      const char *label_str = STRINGP (caption) ? SSDATA (caption) : "";
+      const char *help_str = STRINGP (help) ? SSDATA (help) : label_str;
+
+      neomacs_display_tab_bar_add_item (dpyinfo->display_handle,
+                                          i, label_str, help_str,
+                                          enabled ? 1 : 0,
+                                          selected ? 1 : 0,
+                                          0 /* is_separator */);
+    }
+
+  neomacs_display_tab_bar_end (dpyinfo->display_handle, fg_rgb, bg_rgb,
+                                 active_bg_rgb);
+}
+
 /* Called at the end of updating a frame */
 void
 neomacs_update_end (struct frame *f)
@@ -5256,6 +5328,8 @@ neomacs_update_end (struct frame *f)
       /* Send tool bar items to GPU toolbar instead of extracting
          from glyph matrix (which renders text-based icons).  */
       neomacs_send_tool_bar_items (f);
+      /* Send tab bar items to GPU tab bar overlay.  */
+      neomacs_send_tab_bar_items (f);
 
       /* Signal end of frame to Rust (sends frame to render thread) */
       if (output && output->window_id > 0)
@@ -15407,6 +15481,31 @@ neomacs_display_wakeup_handler (int fd, void *data)
                 if (!NILP (key))
                   {
                     inev.ie.kind = TOOL_BAR_EVENT;
+                    XSETFRAME (inev.ie.frame_or_window, f);
+                    inev.ie.arg = key;
+                    inev.ie.modifiers = 0;
+                    neomacs_evq_enqueue (&inev);
+                  }
+              }
+          }
+          break;
+
+        case NEOMACS_EVENT_TAB_BAR_CLICK:
+          {
+            /* ev->x contains the tab bar item index.  Look up
+               the item KEY from f->tab_bar_items and generate
+               a TAB_BAR_EVENT.  */
+            int idx = ev->x;
+            int nslots = TAB_BAR_ITEM_NSLOTS;
+            int prop_idx = idx * nslots;
+            if (VECTORP (f->tab_bar_items)
+                && prop_idx + TAB_BAR_ITEM_KEY < ASIZE (f->tab_bar_items))
+              {
+                Lisp_Object key = AREF (f->tab_bar_items,
+                                        prop_idx + TAB_BAR_ITEM_KEY);
+                if (!NILP (key))
+                  {
+                    inev.ie.kind = TAB_BAR_EVENT;
                     XSETFRAME (inev.ie.frame_or_window, f);
                     inev.ie.arg = key;
                     inev.ie.modifiers = 0;
