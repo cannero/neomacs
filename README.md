@@ -360,17 +360,19 @@ To build without a feature, use `--no-default-features` and list only the featur
 
 Build commands in this README are run from the repository root. There is no `./rust/` subdirectory.
 
-### Rust-Only Quick Start (Frontend + Backend)
+### Quick Start
 
 ```bash
-# Optional (recommended): use the repo dev shell
+# Optional (recommended): use the repo dev shell (handles all dependencies)
 nix develop --accept-flake-config
 
-# Build pure Rust Neomacs (frontend + backend)
-cargo build --release -p neomacs-bin
+# Build Neomacs
+./autogen.sh
+./configure --with-neomacs
+make -j$(nproc)
 
 # Run
-./target/release/neomacs
+./src/emacs
 ```
 
 ### Linux (Arch Linux)
@@ -392,13 +394,14 @@ sudo pacman -S --needed \
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Build pure Rust Neomacs
-cargo build --release -p neomacs-bin
-```
+# Build Neomacs
+./autogen.sh
+./configure --with-neomacs
+make -j$(nproc)
 
-> **Note:** If you are using the legacy Autotools/C integration path, keep using
-> `./autogen.sh && ./configure ... && make`. The Rust-only workflow above does not
-> require GNU Make/autoconf.
+# Run
+./src/emacs
+```
 
 ### macOS (Experimental)
 
@@ -417,11 +420,14 @@ brew install autoconf automake texinfo pkgconf \
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Build pure Rust Neomacs
-cargo build --release -p neomacs-bin
-```
+# Build Neomacs
+./autogen.sh
+./configure --with-neomacs --without-ns --with-file-notification=no
+make -j$(sysctl -n hw.ncpu)
 
-> **Note:** On macOS, the legacy C/Autotools integration is still experimental.
+# Run
+./src/emacs
+```
 
 #### macOS VM Harness (Docker-OSX)
 
@@ -435,8 +441,8 @@ cd neomacs-build-test/macos
 This defaults to `full` mode and already applies:
 
 - `AUTO_INSTALL_DEPS=1`
-- `RUST_FEATURES='video,neo-term,core-backend-rust'`
-- `NEOMACS_CONFIGURE_FLAGS='--without-ns --with-file-notification=no --with-native-compilation=no --with-neomacs --with-neovm-core-backend=rust'`
+- `RUST_FEATURES='video,neo-term'`
+- `NEOMACS_CONFIGURE_FLAGS='--without-ns --with-file-notification=no --with-native-compilation=no --with-neomacs'`
 
 ### Docker (Build Test)
 
@@ -508,23 +514,18 @@ nix build \
 #### Manual build (inside dev shell)
 
 ```bash
-cargo build --release -p neomacs-bin
+./autogen.sh
+./configure --with-neomacs
+make -j$(nproc)
 ```
-
-### Core Backend Switch
-
-Use `--with-neovm-core-backend=` to select which core backend gets compiled:
-
-- `emacs-c` (default): legacy fallback for C core integration work.
-- `rust`: Rust runtime path used by the Rust-only workflow.
 
 ---
 
 ## Platform Support
 
 - **Linux** – primary supported platform. The steps above document a validated Arch Linux workflow, but other distributions should follow similar dependency installation with their package manager.
-- **macOS** – experimental. Use the Rust-only Cargo workflow above. See [issue #22](https://github.com/eval-exec/neomacs/issues/22) for status.
-- **Windows** – supported.
+- **macOS** – experimental. See [issue #22](https://github.com/eval-exec/neomacs/issues/22) for status.
+- **Windows** – planned.
 - **Mobile (Android/iOS)** – planned.
 - **WebAssembly (WASM)** – planned.
 
