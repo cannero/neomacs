@@ -179,6 +179,13 @@ unsafe extern "C" {
         face_out: *mut FaceDataFFI,
     ) -> i64;
 
+    /// Get full face data for a face ID (for per-run face resolution in status lines).
+    pub fn neomacs_layout_face_by_id(
+        frame: EmacsFrame,
+        face_id: i32,
+        face_out: *mut FaceDataFFI,
+    );
+
     /// Get tab-bar pixel height for a frame.  Returns 0 if disabled.
     pub fn neomacs_layout_tab_bar_height(frame: EmacsFrame) -> f32;
 

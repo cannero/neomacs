@@ -2143,6 +2143,28 @@ fill_face_data (struct frame *f, struct face *face, struct FaceDataFFI *out)
     }
 }
 
+/* Get full face data for a face ID.  Thin wrapper around fill_face_data()
+   so the Rust side can resolve full per-run face attributes in status lines
+   (bold, italic, underline, box, font family/size, etc.).  */
+void
+neomacs_layout_face_by_id (void *frame_ptr, int32_t face_id,
+                            struct FaceDataFFI *out)
+{
+  struct frame *f = (struct frame *) frame_ptr;
+  if (!f || !out)
+    {
+      if (out) memset (out, 0, sizeof *out);
+      return;
+    }
+  struct face *face = FACE_FROM_ID_OR_NULL (f, face_id);
+  if (!face)
+    {
+      memset (out, 0, sizeof *out);
+      return;
+    }
+  fill_face_data (f, face, out);
+}
+
 /* Get stipple bitmap data for a given bitmap ID.
    Returns the XBM bits, width, and height.
    bitmap_id is 1-based (from face->stipple).
@@ -2468,17 +2490,19 @@ extract_propertized_string_data (struct window *w, struct frame *f,
   /* Extract face runs from the propertized string.
      Walk character positions and detect face changes.
      Store face runs in the face_runs area (after text in out_buf).
-     Format: each run = { uint16_t byte_offset, uint32_t fg, uint32_t bg }
-     Total = 10 bytes per run. */
-  if (string_intervals (result) && len + 10 <= out_buf_len)
+     Format: each run = { uint16_t byte_offset, uint32_t fg, uint32_t bg,
+                           uint32_t face_id }
+     Total = 14 bytes per run. */
+  if (string_intervals (result) && len + 14 <= out_buf_len)
     {
       ptrdiff_t charpos = 0;
       ptrdiff_t nchars = SCHARS (result);
       ptrdiff_t run_offset = len;
       int nruns = 0;
-      int max_runs = (int) ((out_buf_len - len) / 10);
+      int max_runs = (int) ((out_buf_len - len) / 14);
       uint32_t prev_fg = 0xFFFFFFFF;
       uint32_t prev_bg = 0xFFFFFFFF;
+      int prev_rid = -1;
 
       while (charpos < nchars && nruns < max_runs)
         {
@@ -2502,11 +2526,12 @@ extract_propertized_string_data (struct window *w, struct frame *f,
              merges the 'face' text property with the base status-line
              face.  */
           uint32_t fg = 0, bg = 0;
+          int rid = remapped_face_id;
           {
             ptrdiff_t endpos;
-            int rid = face_at_string_position (w, result, charpos, 0,
-                                               &endpos, remapped_face_id,
-                                               false, 0);
+            rid = face_at_string_position (w, result, charpos, 0,
+                                           &endpos, remapped_face_id,
+                                           false, 0);
             if (endpos > charpos && endpos < next_pos)
               next_pos = endpos;
 
@@ -2536,19 +2561,22 @@ extract_propertized_string_data (struct window *w, struct frame *f,
               }
           }
 
-          /* Only emit a run if colors changed. */
-          if (fg != prev_fg || bg != prev_bg)
+          /* Only emit a run if colors or face changed. */
+          if (fg != prev_fg || bg != prev_bg || rid != prev_rid)
             {
               ptrdiff_t byte_off = string_char_to_byte (result, charpos);
               if (byte_off > 0xFFFF) byte_off = 0xFFFF;
               uint16_t boff = (uint16_t) byte_off;
+              uint32_t face_id = (uint32_t) rid;
               memcpy (out_buf + run_offset, &boff, 2);
               memcpy (out_buf + run_offset + 2, &fg, 4);
               memcpy (out_buf + run_offset + 6, &bg, 4);
-              run_offset += 10;
+              memcpy (out_buf + run_offset + 10, &face_id, 4);
+              run_offset += 14;
               nruns++;
               prev_fg = fg;
               prev_bg = bg;
+              prev_rid = rid;
             }
 
           charpos = next_pos;
@@ -3205,12 +3233,13 @@ neomacs_layout_check_display_prop (void *buffer_ptr, void *window_ptr,
 
       /* Extract per-character face runs from display string text
          properties.  Face runs are stored after the string text in
-         str_buf, 10 bytes each: u16 byte_offset + u32 fg + u32 bg.
+         str_buf, 14 bytes each: u16 byte_offset + u32 fg + u32 bg
+         + u32 face_id.
          This enables propertized display strings like
          #("text" 0 2 (face bold) 2 4 (face italic)).  */
       if (SCHARS (display_prop) > 0
           && string_intervals (display_prop)
-          && copy_len + 10 <= str_buf_len)
+          && copy_len + 14 <= str_buf_len)
         {
           struct window *sw = window_ptr
             ? (struct window *) window_ptr : NULL;
@@ -3221,7 +3250,7 @@ neomacs_layout_check_display_prop (void *buffer_ptr, void *window_ptr,
               ptrdiff_t nchars = SCHARS (display_prop);
               ptrdiff_t run_offset = copy_len;
               int nruns = 0;
-              int max_runs = (int) ((str_buf_len - copy_len) / 10);
+              int max_runs = (int) ((str_buf_len - copy_len) / 14);
               uint32_t prev_fg = 0xFFFFFFFF;
               uint32_t prev_bg = 0xFFFFFFFF;
 
@@ -3238,6 +3267,7 @@ neomacs_layout_check_display_prop (void *buffer_ptr, void *window_ptr,
                     ? nchars : XFIXNUM (next_change);
 
                   uint32_t fg = 0, bg = 0;
+                  int cur_rid = -1;
                   if (!NILP (face_prop))
                     {
                       int rid = lookup_named_face (
@@ -3246,6 +3276,7 @@ neomacs_layout_check_display_prop (void *buffer_ptr, void *window_ptr,
                           false);
                       if (rid >= 0)
                         {
+                          cur_rid = rid;
                           struct face *rf
                             = FACE_FROM_ID_OR_NULL (sf, rid);
                           if (rf)
@@ -3272,10 +3303,12 @@ neomacs_layout_check_display_prop (void *buffer_ptr, void *window_ptr,
                         = string_char_to_byte (display_prop,
                                                 fcharpos);
                       uint16_t boff = (uint16_t) byte_off;
+                      uint32_t face_id = (uint32_t) (cur_rid >= 0 ? cur_rid : 0);
                       memcpy (str_buf + run_offset, &boff, 2);
                       memcpy (str_buf + run_offset + 2, &fg, 4);
                       memcpy (str_buf + run_offset + 6, &bg, 4);
-                      run_offset += 10;
+                      memcpy (str_buf + run_offset + 10, &face_id, 4);
+                      run_offset += 14;
                       nruns++;
                       prev_fg = fg;
                       prev_bg = bg;
@@ -4161,18 +4194,19 @@ neomacs_layout_overlay_strings_at (void *buffer_ptr, void *window_ptr,
 
               /* Extract per-character face runs from before-string text
                  properties.  Face runs are stored after the string text in
-                 before_buf, 10 bytes each: u16 byte_offset + u32 fg + u32 bg.
+                 before_buf, 14 bytes each: u16 byte_offset + u32 fg + u32 bg
+                 + u32 face_id.
                  Bit 31 of bg encodes :extend (1=extends to end of line). */
               if (SCHARS (bstr) > 0
                   && string_intervals (bstr)
                   && f && copy > 0
-                  && copy + 10 <= before_buf_len)
+                  && copy + 14 <= before_buf_len)
                 {
                   ptrdiff_t fcharpos = 0;
                   ptrdiff_t nchars = SCHARS (bstr);
                   ptrdiff_t run_offset = before_offset;
                   int nruns = 0;
-                  int max_runs = (int) ((before_buf_len - before_offset) / 10);
+                  int max_runs = (int) ((before_buf_len - before_offset) / 14);
                   uint32_t prev_fg = 0xFFFFFFFF;
                   uint32_t prev_bg = 0xFFFFFFFF;
 
@@ -4209,10 +4243,12 @@ neomacs_layout_overlay_strings_at (void *buffer_ptr, void *window_ptr,
                           ptrdiff_t byte_off
                             = string_char_to_byte (bstr, fcharpos);
                           uint16_t boff = (uint16_t) byte_off;
+                          uint32_t face_id = (uint32_t) fid;
                           memcpy (before_buf + run_offset, &boff, 2);
                           memcpy (before_buf + run_offset + 2, &fg, 4);
                           memcpy (before_buf + run_offset + 6, &bg, 4);
-                          run_offset += 10;
+                          memcpy (before_buf + run_offset + 10, &face_id, 4);
+                          run_offset += 14;
                           nruns++;
                           prev_fg = fg;
                           prev_bg = bg;
@@ -4230,7 +4266,7 @@ neomacs_layout_overlay_strings_at (void *buffer_ptr, void *window_ptr,
                  (u16 byte_offset + f32 align_to_cols).  */
               {
                 int align_offset = before_offset
-                  + (*before_nruns_out) * 10;
+                  + (*before_nruns_out) * 14;
                 int na = extract_string_align_entries (
                     bstr, w, before_buf, before_buf_len, align_offset);
                 *before_naligns_out += na;
@@ -4342,18 +4378,19 @@ neomacs_layout_overlay_strings_at (void *buffer_ptr, void *window_ptr,
 
               /* Extract per-character face runs from after-string text
                  properties.  Face runs are stored after the string text in
-                 after_buf, 10 bytes each: u16 byte_offset + u32 fg + u32 bg.
+                 after_buf, 14 bytes each: u16 byte_offset + u32 fg + u32 bg
+                 + u32 face_id.
                  Bit 31 of bg encodes :extend (1=extends to end of line). */
               if (SCHARS (astr) > 0
                   && string_intervals (astr)
                   && f && copy > 0
-                  && copy + 10 <= after_buf_len)
+                  && copy + 14 <= after_buf_len)
                 {
                   ptrdiff_t fcharpos = 0;
                   ptrdiff_t nchars = SCHARS (astr);
                   ptrdiff_t run_offset = after_offset;
                   int nruns = 0;
-                  int max_runs = (int) ((after_buf_len - after_offset) / 10);
+                  int max_runs = (int) ((after_buf_len - after_offset) / 14);
                   uint32_t prev_fg = 0xFFFFFFFF;
                   uint32_t prev_bg = 0xFFFFFFFF;
 
@@ -4390,10 +4427,12 @@ neomacs_layout_overlay_strings_at (void *buffer_ptr, void *window_ptr,
                           ptrdiff_t byte_off
                             = string_char_to_byte (astr, fcharpos);
                           uint16_t boff = (uint16_t) byte_off;
+                          uint32_t face_id = (uint32_t) fid;
                           memcpy (after_buf + run_offset, &boff, 2);
                           memcpy (after_buf + run_offset + 2, &fg, 4);
                           memcpy (after_buf + run_offset + 6, &bg, 4);
-                          run_offset += 10;
+                          memcpy (after_buf + run_offset + 10, &face_id, 4);
+                          run_offset += 14;
                           nruns++;
                           prev_fg = fg;
                           prev_bg = bg;
@@ -4409,7 +4448,7 @@ neomacs_layout_overlay_strings_at (void *buffer_ptr, void *window_ptr,
               /* Extract align-to entries from after-string. */
               {
                 int align_offset = after_offset
-                  + (*after_nruns_out) * 10;
+                  + (*after_nruns_out) * 14;
                 int na = extract_string_align_entries (
                     astr, w, after_buf, after_buf_len, align_offset);
                 *after_naligns_out += na;

@@ -229,7 +229,7 @@ pub(crate) enum StatusLineAdvanceMode {
     Measured { window: EmacsWindow },
 }
 
-/// A face run within an overlay/display string: byte offset + fg/bg colors.
+/// A face run within an overlay/display string: byte offset + fg/bg colors + face_id.
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayFaceRun {
     pub byte_offset: u16,
@@ -237,10 +237,12 @@ pub(crate) struct OverlayFaceRun {
     pub bg: u32,
     /// Face has :extend attribute (bg extends to end of visual line)
     pub extend: bool,
+    /// Emacs face ID for full face attribute resolution via FFI
+    pub face_id: u32,
 }
 
 /// Parse face runs appended after text in a buffer.
-/// Runs are stored as 10-byte records: u16 byte_offset + u32 fg + u32 bg.
+/// Runs are stored as 14-byte records: u16 byte_offset + u32 fg + u32 bg + u32 face_id.
 /// Bit 31 of bg encodes the :extend flag (1 = extends to end of line).
 pub(crate) fn parse_overlay_face_runs(
     buf: &[u8],
@@ -250,19 +252,26 @@ pub(crate) fn parse_overlay_face_runs(
     let mut runs = Vec::with_capacity(nruns as usize);
     let runs_start = text_len;
     for ri in 0..nruns as usize {
-        let off = runs_start + ri * 10;
-        if off + 10 <= buf.len() {
+        let off = runs_start + ri * 14;
+        if off + 14 <= buf.len() {
             let byte_offset = u16::from_ne_bytes([buf[off], buf[off + 1]]);
             let fg = u32::from_ne_bytes([buf[off + 2], buf[off + 3], buf[off + 4], buf[off + 5]]);
             let raw_bg =
                 u32::from_ne_bytes([buf[off + 6], buf[off + 7], buf[off + 8], buf[off + 9]]);
             let extend = (raw_bg & 0x80000000) != 0;
             let bg = raw_bg & 0x00FFFFFF;
+            let face_id = u32::from_ne_bytes([
+                buf[off + 10],
+                buf[off + 11],
+                buf[off + 12],
+                buf[off + 13],
+            ]);
             runs.push(OverlayFaceRun {
                 byte_offset,
                 fg,
                 bg,
                 extend,
+                face_id,
             });
         }
     }
@@ -285,7 +294,7 @@ pub(crate) fn parse_overlay_align_entries(
     naligns: i32,
 ) -> Vec<OverlayAlignEntry> {
     let mut entries = Vec::with_capacity(naligns as usize);
-    let aligns_start = text_len + nruns as usize * 10;
+    let aligns_start = text_len + nruns as usize * 14;
     for ai in 0..naligns as usize {
         let off = aligns_start + ai * 6;
         if off + 6 <= buf.len() {
@@ -559,7 +568,7 @@ impl LayoutEngine {
         } else {
             0
         };
-        let display_start = text_len + nruns * 10;
+        let display_start = text_len + nruns * 14;
         let align_start = display_start + ndisplay * 16;
 
         StatusLineSpec {
@@ -697,19 +706,64 @@ impl LayoutEngine {
                 if byte_idx >= spec.face_runs[current_run].byte_offset as usize {
                     let run = &spec.face_runs[current_run];
                     if run.fg != 0 || run.bg != 0 {
-                        frame_glyphs.set_face(
-                            spec.face.face_id,
-                            Color::from_pixel(run.fg),
-                            Some(Color::from_pixel(run.bg)),
-                            spec.face.font_weight,
-                            spec.face.italic,
-                            spec.face.underline_style,
-                            spec.face.underline_color,
-                            if spec.face.strike_through { 1 } else { 0 },
-                            spec.face.strike_through_color,
-                            if spec.face.overline { 1 } else { 0 },
-                            spec.face.overline_color,
-                        );
+                        if run.face_id != 0 {
+                            if let Some(fr) = frame {
+                                // Resolve full face attributes via FFI
+                                let mut face_ffi = FaceDataFFI::default();
+                                unsafe {
+                                    neomacs_layout_face_by_id(
+                                        fr,
+                                        run.face_id as i32,
+                                        &mut face_ffi,
+                                    )
+                                };
+                                let rf = unsafe { StatusLineFace::from_ffi(&face_ffi) };
+                                frame_glyphs.set_face_with_font(
+                                    run.face_id,
+                                    Color::from_pixel(run.fg),
+                                    Some(Color::from_pixel(run.bg)),
+                                    &rf.font_family,
+                                    rf.font_weight,
+                                    rf.italic,
+                                    rf.font_size,
+                                    rf.underline_style,
+                                    rf.underline_color,
+                                    if rf.strike_through { 1 } else { 0 },
+                                    rf.strike_through_color,
+                                    if rf.overline { 1 } else { 0 },
+                                    rf.overline_color,
+                                    rf.overstrike,
+                                );
+                            } else {
+                                frame_glyphs.set_face(
+                                    spec.face.face_id,
+                                    Color::from_pixel(run.fg),
+                                    Some(Color::from_pixel(run.bg)),
+                                    spec.face.font_weight,
+                                    spec.face.italic,
+                                    spec.face.underline_style,
+                                    spec.face.underline_color,
+                                    if spec.face.strike_through { 1 } else { 0 },
+                                    spec.face.strike_through_color,
+                                    if spec.face.overline { 1 } else { 0 },
+                                    spec.face.overline_color,
+                                );
+                            }
+                        } else {
+                            frame_glyphs.set_face(
+                                spec.face.face_id,
+                                Color::from_pixel(run.fg),
+                                Some(Color::from_pixel(run.bg)),
+                                spec.face.font_weight,
+                                spec.face.italic,
+                                spec.face.underline_style,
+                                spec.face.underline_color,
+                                if spec.face.strike_through { 1 } else { 0 },
+                                spec.face.strike_through_color,
+                                if spec.face.overline { 1 } else { 0 },
+                                spec.face.overline_color,
+                            );
+                        }
                     }
                 }
             }
@@ -819,7 +873,7 @@ impl LayoutEngine {
         let nruns = ((bytes >> 32) & 0xFFFF) as usize;
         let ndisplay = ((bytes >> 48) & 0xFF) as usize;
         let naligns = ((bytes >> 56) & 0xFF) as usize;
-        let display_start = text_len + nruns * 10;
+        let display_start = text_len + nruns * 14;
         let align_start = display_start + ndisplay * 16;
 
         // Get the tab-bar window for measured font advance (same window
@@ -833,6 +887,16 @@ impl LayoutEngine {
             StatusLineAdvanceMode::Fixed
         };
 
+        let text_vec = line_buf[..text_len.min(line_buf.len())].to_vec();
+        let face_runs = parse_overlay_face_runs(&line_buf, text_len, nruns as i32);
+        let display_props = parse_display_props(&line_buf, display_start, ndisplay);
+        let align_entries = parse_status_line_align_entries(&line_buf, align_start, naligns);
+
+        tracing::debug!(
+            "build_ffi_tab_bar_spec: text_len={} nruns={} ndisplay={} naligns={} width={} height={}",
+            text_len, nruns, ndisplay, naligns, width, height
+        );
+
         Some(StatusLineSpec {
             kind: StatusLineKind::TabBar,
             x,
@@ -843,10 +907,10 @@ impl LayoutEngine {
             char_width: char_w,
             ascent,
             face: unsafe { StatusLineFace::from_ffi(&line_face) },
-            text: line_buf[..text_len.min(line_buf.len())].to_vec(),
-            face_runs: parse_overlay_face_runs(&line_buf, text_len, nruns as i32),
-            display_props: parse_display_props(&line_buf, display_start, ndisplay),
-            align_entries: parse_status_line_align_entries(&line_buf, align_start, naligns),
+            text: text_vec,
+            face_runs,
+            display_props,
+            align_entries,
             advance_mode,
         })
     }
@@ -879,13 +943,14 @@ mod tests {
     use neomacs_display_protocol::types::Color;
 
     // ---------------------------------------------------------------
-    // Helper: build a 10-byte face run record (native-endian)
+    // Helper: build a 14-byte face run record (native-endian)
     // ---------------------------------------------------------------
-    fn make_run_bytes(byte_offset: u16, fg: u32, bg: u32) -> [u8; 10] {
-        let mut rec = [0u8; 10];
+    fn make_run_bytes(byte_offset: u16, fg: u32, bg: u32) -> [u8; 14] {
+        let mut rec = [0u8; 14];
         rec[0..2].copy_from_slice(&byte_offset.to_ne_bytes());
         rec[2..6].copy_from_slice(&fg.to_ne_bytes());
         rec[6..10].copy_from_slice(&bg.to_ne_bytes());
+        // face_id defaults to 0
         rec
     }
 
@@ -931,6 +996,7 @@ mod tests {
             fg: 0,
             bg: 0,
             extend: false,
+            face_id: 0,
         };
         assert_eq!(run.byte_offset, 0);
         assert_eq!(run.fg, 0);
@@ -945,6 +1011,7 @@ mod tests {
             fg: u32::MAX,
             bg: u32::MAX,
             extend: true,
+            face_id: 0,
         };
         assert_eq!(run.byte_offset, u16::MAX);
         assert_eq!(run.fg, u32::MAX);
@@ -960,6 +1027,7 @@ mod tests {
             fg: 0x00FFFFFF,
             bg: 0x00000000,
             extend: false,
+            face_id: 0,
         };
         assert_eq!(run.byte_offset, 42);
         assert_eq!(run.fg, 0x00FFFFFF);
@@ -1064,7 +1132,7 @@ mod tests {
 
     #[test]
     fn parse_truncated_single_run() {
-        // Buffer has text but only 5 bytes of run data (needs 10).
+        // Buffer has text but only 5 bytes of run data (needs 14).
         let text = b"ABC";
         let text_len = text.len();
         let mut buf = Vec::from(&text[..]);
@@ -1083,7 +1151,7 @@ mod tests {
 
         let mut buf = Vec::from(&text[..]);
         buf.extend_from_slice(&rec0);
-        buf.extend_from_slice(&[0xFFu8; 7]); // 7 bytes, need 10
+        buf.extend_from_slice(&[0xFFu8; 7]); // 7 bytes, need 14
 
         let runs = parse_overlay_face_runs(&buf, text_len, 2);
         assert_eq!(runs.len(), 1, "only the first complete record should parse");
@@ -1165,13 +1233,13 @@ mod tests {
 
     #[test]
     fn parse_exact_fit() {
-        // Buffer is exactly text_len + 10 bytes — the run should parse.
+        // Buffer is exactly text_len + 14 bytes — the run should parse.
         let text = b"T";
         let text_len = text.len(); // 1
         let rec = make_run_bytes(0, 42, 99);
         let mut buf = Vec::from(&text[..]);
         buf.extend_from_slice(&rec);
-        assert_eq!(buf.len(), text_len + 10);
+        assert_eq!(buf.len(), text_len + 14);
 
         let runs = parse_overlay_face_runs(&buf, text_len, 1);
         assert_eq!(runs.len(), 1);
@@ -1181,12 +1249,12 @@ mod tests {
 
     #[test]
     fn parse_one_byte_short() {
-        // Buffer is text_len + 9 bytes — one byte short, run should NOT parse.
+        // Buffer is text_len + 13 bytes — one byte short, run should NOT parse.
         let text = b"T";
         let text_len = text.len();
         let mut buf = Vec::from(&text[..]);
-        buf.extend_from_slice(&[0u8; 9]);
-        assert_eq!(buf.len(), text_len + 9);
+        buf.extend_from_slice(&[0u8; 13]);
+        assert_eq!(buf.len(), text_len + 13);
 
         let runs = parse_overlay_face_runs(&buf, text_len, 1);
         assert!(runs.is_empty());
@@ -1204,6 +1272,7 @@ mod tests {
             fg: 0x00FF0000,
             bg: 0x00000000,
             extend: false,
+            face_id: 0,
         }];
         let mut fgb = FrameGlyphBuffer::new();
 
@@ -1223,6 +1292,7 @@ mod tests {
             fg: 0x00FF0000,
             bg: 0x0000FF00,
             extend: false,
+            face_id: 0,
         }];
         let mut fgb = FrameGlyphBuffer::new();
 
@@ -1237,6 +1307,7 @@ mod tests {
             fg: 0x00FF0000,
             bg: 0x0000FF00,
             extend: false,
+            face_id: 0,
         }];
         let mut fgb = FrameGlyphBuffer::new();
 
@@ -1252,18 +1323,21 @@ mod tests {
                 fg: 0x00FF0000,
                 bg: 0x00000000,
                 extend: false,
+                face_id: 0,
             },
             OverlayFaceRun {
                 byte_offset: 5,
                 fg: 0x0000FF00,
                 bg: 0x00000000,
                 extend: false,
+                face_id: 0,
             },
             OverlayFaceRun {
                 byte_offset: 10,
                 fg: 0x000000FF,
                 bg: 0x00000000,
                 extend: false,
+                face_id: 0,
             },
         ];
         let mut fgb = FrameGlyphBuffer::new();
@@ -1291,12 +1365,14 @@ mod tests {
                 fg: 1,
                 bg: 0,
                 extend: false,
+                face_id: 0,
             },
             OverlayFaceRun {
                 byte_offset: 5,
                 fg: 2,
                 bg: 0,
                 extend: false,
+                face_id: 0,
             },
         ];
         let mut fgb = FrameGlyphBuffer::new();
@@ -1326,6 +1402,7 @@ mod tests {
             fg: 0,
             bg: 0,
             extend: false,
+            face_id: 0,
         }];
         let mut fgb = FrameGlyphBuffer::new();
         // Record initial state by snapshotting via a glyph
@@ -1348,6 +1425,7 @@ mod tests {
             fg: 0x00FF0000,
             bg: 0,
             extend: false,
+            face_id: 0,
         }];
         let mut fgb = FrameGlyphBuffer::new();
         let (initial_fg, _) = snapshot_face(&mut fgb);
@@ -1367,6 +1445,7 @@ mod tests {
             fg: 0,
             bg: 0x00FF0000,
             extend: false,
+            face_id: 0,
         }];
         let mut fgb = FrameGlyphBuffer::new();
 
@@ -1433,18 +1512,21 @@ mod tests {
                 fg: 1,
                 bg: 0,
                 extend: false,
+                face_id: 0,
             },
             OverlayFaceRun {
                 byte_offset: 5,
                 fg: 2,
                 bg: 0,
                 extend: false,
+                face_id: 0,
             },
             OverlayFaceRun {
                 byte_offset: 10,
                 fg: 3,
                 bg: 0,
                 extend: false,
+                face_id: 0,
             },
         ];
         let mut fgb = FrameGlyphBuffer::new();
@@ -1462,12 +1544,14 @@ mod tests {
                 fg: 1,
                 bg: 0,
                 extend: false,
+                face_id: 0,
             },
             OverlayFaceRun {
                 byte_offset: 5,
                 fg: 2,
                 bg: 0,
                 extend: false,
+                face_id: 0,
             },
         ];
         let mut fgb = FrameGlyphBuffer::new();

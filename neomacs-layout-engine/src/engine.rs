@@ -5966,14 +5966,15 @@ impl LayoutEngine {
                         byte_offset: u16,
                         fg: u32,
                         bg: u32,
+                        _face_id: u32,
                     }
                     let mut dface_runs: Vec<DFaceRun> = Vec::new();
                     let has_face_runs = display_prop.display_nruns > 0;
                     if has_face_runs {
                         let runs_start = display_prop.str_len as usize;
                         for ri in 0..display_prop.display_nruns as usize {
-                            let off = runs_start + ri * 10;
-                            if off + 10 <= display_str_buf.len() {
+                            let off = runs_start + ri * 14;
+                            if off + 14 <= display_str_buf.len() {
                                 let byte_offset = u16::from_ne_bytes([
                                     display_str_buf[off],
                                     display_str_buf[off + 1],
@@ -5990,10 +5991,17 @@ impl LayoutEngine {
                                     display_str_buf[off + 8],
                                     display_str_buf[off + 9],
                                 ]);
+                                let face_id = u32::from_ne_bytes([
+                                    display_str_buf[off + 10],
+                                    display_str_buf[off + 11],
+                                    display_str_buf[off + 12],
+                                    display_str_buf[off + 13],
+                                ]);
                                 dface_runs.push(DFaceRun {
                                     byte_offset,
                                     fg,
                                     bg,
+                                    _face_id: face_id,
                                 });
                             }
                         }
