@@ -296,6 +296,13 @@ pub fn decode_bytes(bytes: &[u8], coding_system: &str) -> String {
     }
 }
 
+fn is_byte_preserving_coding_system(coding_system: &str) -> bool {
+    matches!(
+        coding_system,
+        "binary" | "no-conversion" | "raw-text" | "raw-text-unix" | "raw-text-dos" | "raw-text-mac"
+    )
+}
+
 fn storage_string_to_bytes(s: &str) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(s.len());
     for ch in s.chars() {
@@ -535,6 +542,11 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
             &storage_string_to_bytes(&s),
         )));
     }
+    if is_byte_preserving_coding_system(&coding) {
+        return Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+            &storage_string_to_bytes(&s),
+        )));
+    }
     let bytes = encode_string(&s, &coding);
     Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
         &bytes,
@@ -568,6 +580,11 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
         return Err(signal("coding-system-error", vec![args[1]]));
     }
     let bytes = storage_string_to_bytes(&s);
+    if is_byte_preserving_coding_system(&coding) {
+        return Ok(Value::unibyte_string(bytes_to_unibyte_storage_string(
+            &bytes,
+        )));
+    }
     if matches!(
         coding.as_str(),
         "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac"
@@ -983,6 +1000,38 @@ mod tests {
         assert_eq!(
             props[0].plist,
             Value::list(vec![Value::symbol("charset"), Value::symbol("iso-8859-1")])
+        );
+    }
+
+    #[test]
+    fn encode_no_conversion_preserves_unibyte_storage_bytes() {
+        let source = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
+        let encoded =
+            builtin_encode_coding_string(vec![source, Value::symbol("no-conversion")]).unwrap();
+        let Value::Str(id) = encoded else {
+            panic!("encode-coding-string should return a string");
+        };
+        assert!(!with_heap(|h| h.string_is_multibyte(id)));
+        assert_eq!(
+            with_heap(|h| h.get_string(id).clone()),
+            bytes_to_unibyte_storage_string(&[0xE9])
+        );
+    }
+
+    #[test]
+    fn decode_no_conversion_returns_unibyte_bytes_for_non_ascii_input() {
+        let encoded =
+            builtin_encode_coding_string(vec![Value::string("é"), Value::symbol("no-conversion")])
+                .expect("encoding should succeed");
+        let decoded =
+            builtin_decode_coding_string(vec![encoded, Value::symbol("no-conversion")]).unwrap();
+        let Value::Str(id) = decoded else {
+            panic!("decode-coding-string should return a string");
+        };
+        assert!(!with_heap(|h| h.string_is_multibyte(id)));
+        assert_eq!(
+            with_heap(|h| h.get_string(id).clone()),
+            bytes_to_unibyte_storage_string(&[0xC3, 0xA9])
         );
     }
 
