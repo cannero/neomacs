@@ -2271,12 +2271,6 @@ impl Evaluator {
         let symbol = resolve_sym(sym_id);
         let symbol_is_canonical =
             lookup_interned(symbol).is_some_and(|canonical| canonical == sym_id);
-        if symbol_is_canonical && symbol == "nil" {
-            return Ok(Value::Nil);
-        }
-        if symbol_is_canonical && symbol == "t" {
-            return Ok(Value::True);
-        }
         // Keywords evaluate to themselves
         if symbol_is_canonical && symbol.starts_with(':') {
             return Ok(Value::Keyword(sym_id));
@@ -2285,14 +2279,15 @@ impl Evaluator {
         let resolved = super::builtins::resolve_variable_alias_id(self, sym_id)?;
         let resolved_name = resolve_sym(resolved);
 
-        // If lexical binding is on and symbol is NOT special, check lexenv first.
-        // Use the original sym_id for lookup — this preserves uninterned symbol
-        // identity (an uninterned #:body won't match the interned `body`).
-        if self.lexical_binding() && !self.obarray.is_special_id(sym_id) {
+        // Check the lexical environment first whenever lexical binding is
+        // active. This preserves GNU Emacs behavior for function parameters
+        // named `t`/`nil`: they remain lexical locals inside the current
+        // lambda body, even though the global symbols are self-evaluating.
+        if self.lexical_binding() {
             if let Some(value) = lexenv_lookup(self.lexenv, sym_id) {
                 return Ok(value);
             }
-            if resolved != sym_id && !self.obarray.is_special_id(resolved) {
+            if resolved != sym_id {
                 if let Some(value) = lexenv_lookup(self.lexenv, resolved) {
                     return Ok(value);
                 }
@@ -2309,6 +2304,13 @@ impl Evaluator {
                     return Ok(*value);
                 }
             }
+        }
+
+        if symbol_is_canonical && symbol == "nil" {
+            return Ok(Value::Nil);
+        }
+        if symbol_is_canonical && symbol == "t" {
+            return Ok(Value::True);
         }
 
         let resolved_is_canonical =
@@ -5193,9 +5195,6 @@ impl Evaluator {
             self.push_temp_root(arg);
         }
 
-        // If closure has a captured lexenv, restore it and prepend param bindings.
-        // The old lexenv is saved on a GC-scanned stack so it survives
-        // garbage collection during the function body evaluation.
         let has_lexenv = lambda.env.is_some();
         if let Some(env) = lambda.env {
             let old = std::mem::replace(&mut self.lexenv, env);

@@ -3,6 +3,7 @@ use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::{HashTableTest, Value, with_heap};
+use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -165,6 +166,30 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Eva
     }
 
     eval
+}
+
+#[test]
+fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("startup state");
+    let forms = parse_forms(
+        "(progn
+            (fset 'vm-bootstrap-shadow-foo (lambda () t))
+            (list
+              (funcall (lambda (t) t) 7)
+              (funcall (lambda (nil) nil) 9)
+              (funcall (lambda (t) (vm-bootstrap-shadow-foo)) 7)
+              (funcall (lambda (t) (let ((ok t)) ok)) 7)
+              (mapcar (lambda (t) t) '(1 2 3))
+              (mapcar (lambda (nil) nil) '(4 5 6))))",
+    )
+    .expect("parse");
+    let result = eval.eval_expr(&forms[0]);
+    assert_eq!(
+        format_eval_result(&result),
+        "OK (7 9 t 7 (1 2 3) (4 5 6))",
+        "bootstrap evaluator should match GNU's special-symbol parameter binding"
+    );
 }
 
 fn eval_rendered(eval: &mut Evaluator, form: &str) -> String {

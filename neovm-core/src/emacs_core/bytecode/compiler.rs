@@ -237,6 +237,16 @@ impl Compiler {
     }
 
     fn compile_symbol_ref(&mut self, func: &mut ByteCodeFunction, name: &str) {
+        // Like GNU Emacs, a lambda parameter named `t` or `nil` shadows the
+        // self-evaluating constant while the function body runs. Check the
+        // current stack-local scope before lowering those names to literal
+        // opcodes.
+        if let Some(slot) = self.lex_scope.as_ref().and_then(|s| s.find(name)) {
+            let offset = self.stack_depth as usize - slot - 1;
+            self.emit_tracked(func, Op::StackRef(offset as u16));
+            return;
+        }
+
         match name {
             "nil" => self.emit_tracked(func, Op::Nil),
             "t" => self.emit_tracked(func, Op::True),
@@ -245,13 +255,6 @@ impl Compiler {
                 self.emit_tracked(func, Op::Constant(idx));
             }
             _ => {
-                // Check if name is a stack-local parameter
-                if let Some(slot) = self.lex_scope.as_ref().and_then(|s| s.find(name)) {
-                    let offset = self.stack_depth as usize - slot - 1;
-                    self.emit_tracked(func, Op::StackRef(offset as u16));
-                    return;
-                }
-                // Fall through to VarRef for globals
                 let idx = func.add_symbol(name);
                 self.emit_tracked(func, Op::VarRef(idx));
             }

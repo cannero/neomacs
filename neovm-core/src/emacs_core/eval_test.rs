@@ -730,6 +730,18 @@ fn let_and_let_star_binding_constants_signal_setting_constant() {
 }
 
 #[test]
+fn lambda_parameters_can_shadow_nil_and_t_like_gnu_emacs() {
+    let results = eval_all(
+        "(list
+            (funcall (lambda (t) t) 7)
+            (funcall (lambda (nil) nil) 9)
+            (mapcar (lambda (t) t) '(1 2 3))
+            (mapcar (lambda (nil) nil) '(4 5 6)))",
+    );
+    assert_eq!(results[0], "OK (7 9 (1 2 3) (4 5 6))");
+}
+
+#[test]
 fn setq_constants_signal_setting_constant_after_rhs_evaluation() {
     let results = eval_all(
         "(setq vm-setq-side 0)

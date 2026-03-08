@@ -1009,6 +1009,20 @@ fn vm_dolist() {
 }
 
 #[test]
+fn vm_lambda_parameters_can_shadow_nil_and_t() {
+    assert_eq!(vm_eval_str("(funcall (lambda (t) t) 7)"), "OK 7");
+    assert_eq!(vm_eval_str("(funcall (lambda (nil) nil) 9)"), "OK 9");
+    assert_eq!(
+        vm_eval_str("(mapcar (lambda (t) t) '(1 2 3))"),
+        "OK (1 2 3)"
+    );
+    assert_eq!(
+        vm_eval_str("(mapcar (lambda (nil) nil) '(4 5 6))"),
+        "OK (4 5 6)"
+    );
+}
+
+#[test]
 fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
     let func = ByteCodeFunction {
         ops: vec![

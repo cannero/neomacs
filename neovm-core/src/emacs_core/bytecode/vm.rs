@@ -1300,12 +1300,6 @@ impl<'a> Vm<'a> {
     }
 
     fn lookup_var(&self, name: &str) -> EvalResult {
-        if name == "nil" {
-            return Ok(Value::Nil);
-        }
-        if name == "t" {
-            return Ok(Value::True);
-        }
         if name.starts_with(':') {
             return Ok(Value::Keyword(intern(name)));
         }
@@ -1326,6 +1320,13 @@ impl<'a> Vm<'a> {
         // Obarray
         if let Some(val) = self.obarray.symbol_value(name) {
             return Ok(*val);
+        }
+
+        if name == "nil" {
+            return Ok(Value::Nil);
+        }
+        if name == "t" {
+            return Ok(Value::True);
         }
 
         Err(signal("void-variable", vec![Value::symbol(name)]))
