@@ -1575,11 +1575,11 @@ fn oracle_prop_combination_macro_advice_member_state_and_paths() {
                   (fset 'neovm--combo-m-member-filter (lambda (ret) (+ ret 7)))
                   (unwind-protect
                       (list
-                        (advice-member-p 'neovm--combo-m-member-filter 'neovm--combo-m-member-target)
+                        (if (advice-member-p 'neovm--combo-m-member-filter 'neovm--combo-m-member-target) t nil)
                         (progn
                           (advice-add 'neovm--combo-m-member-target :filter-return 'neovm--combo-m-member-filter)
                           (list
-                            (advice-member-p 'neovm--combo-m-member-filter 'neovm--combo-m-member-target)
+                            (if (advice-member-p 'neovm--combo-m-member-filter 'neovm--combo-m-member-target) t nil)
                             (neovm--combo-m-member-call 2)
                             (eval '(neovm--combo-m-member-call 2))
                             (funcall 'neovm--combo-m-member-target 2)
@@ -1587,7 +1587,7 @@ fn oracle_prop_combination_macro_advice_member_state_and_paths() {
                         (progn
                           (advice-remove 'neovm--combo-m-member-target 'neovm--combo-m-member-filter)
                           (list
-                            (advice-member-p 'neovm--combo-m-member-filter 'neovm--combo-m-member-target)
+                            (if (advice-member-p 'neovm--combo-m-member-filter 'neovm--combo-m-member-target) t nil)
                             (neovm--combo-m-member-call 2)
                             (eval '(neovm--combo-m-member-call 2))
                             (funcall 'neovm--combo-m-member-target 2)
@@ -1821,8 +1821,8 @@ fn oracle_prop_combination_macro_advice_member_alias_visibility_matrix() {
                       (progn
                         (advice-add 'neovm--combo-m-member-alias :filter-return 'neovm--combo-m-member-alias-filter)
                         (list
-                          (advice-member-p 'neovm--combo-m-member-alias-filter 'neovm--combo-m-member-alias)
-                          (advice-member-p 'neovm--combo-m-member-alias-filter 'neovm--combo-m-member-alias-target)
+                          (if (advice-member-p 'neovm--combo-m-member-alias-filter 'neovm--combo-m-member-alias) t nil)
+                          (if (advice-member-p 'neovm--combo-m-member-alias-filter 'neovm--combo-m-member-alias-target) t nil)
                           (funcall 'neovm--combo-m-member-alias 2)
                           (funcall 'neovm--combo-m-member-alias-target 2)))
                     (condition-case nil
@@ -2366,8 +2366,8 @@ fn oracle_prop_combination_advice_added_on_alias_removed_on_target_matrix() {
                             (funcall 'neovm--combo-alias-cross-target 2)
                             (neovm--combo-alias-cross 2)
                             (eval '(neovm--combo-alias-cross 2))
-                            (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross)
-                            (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross-target)))
+                            (if (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross) t nil)
+                            (if (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross-target) t nil)))
                         (progn
                           (advice-remove 'neovm--combo-alias-cross-target 'neovm--combo-alias-cross-filter)
                           (list
@@ -2375,8 +2375,8 @@ fn oracle_prop_combination_advice_added_on_alias_removed_on_target_matrix() {
                             (funcall 'neovm--combo-alias-cross-target 2)
                             (neovm--combo-alias-cross 2)
                             (eval '(neovm--combo-alias-cross 2))
-                            (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross)
-                            (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross-target))))
+                            (if (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross) t nil)
+                            (if (advice-member-p 'neovm--combo-alias-cross-filter 'neovm--combo-alias-cross-target) t nil))))
                     (condition-case nil
                         (advice-remove 'neovm--combo-alias-cross 'neovm--combo-alias-cross-filter)
                       (error nil))
@@ -2448,8 +2448,8 @@ fn oracle_prop_combination_advice_added_on_target_removed_on_alias_matrix() {
                             (funcall 'neovm--combo-target-cross-target 2)
                             (neovm--combo-target-cross 2)
                             (eval '(neovm--combo-target-cross 2))
-                            (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross)
-                            (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross-target)))
+                            (if (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross) t nil)
+                            (if (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross-target) t nil)))
                         (progn
                           (advice-remove 'neovm--combo-target-cross 'neovm--combo-target-cross-filter)
                           (list
@@ -2457,8 +2457,8 @@ fn oracle_prop_combination_advice_added_on_target_removed_on_alias_matrix() {
                             (funcall 'neovm--combo-target-cross-target 2)
                             (neovm--combo-target-cross 2)
                             (eval '(neovm--combo-target-cross 2))
-                            (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross)
-                            (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross-target))))
+                            (if (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross) t nil)
+                            (if (advice-member-p 'neovm--combo-target-cross-filter 'neovm--combo-target-cross-target) t nil))))
                     (condition-case nil
                         (advice-remove 'neovm--combo-target-cross-target 'neovm--combo-target-cross-filter)
                       (error nil))
@@ -2484,22 +2484,22 @@ fn oracle_prop_combination_duplicate_advice_add_remove_lifecycle_matrix() {
                           (advice-add 'neovm--combo-dup-target :filter-return 'neovm--combo-dup-filter)
                           (list
                             (funcall 'neovm--combo-dup-target 3)
-                            (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target)))
+                            (if (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target) t nil)))
                         (progn
                           (advice-add 'neovm--combo-dup-target :filter-return 'neovm--combo-dup-filter)
                           (list
                             (funcall 'neovm--combo-dup-target 3)
-                            (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target)))
+                            (if (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target) t nil)))
                         (progn
                           (advice-remove 'neovm--combo-dup-target 'neovm--combo-dup-filter)
                           (list
                             (funcall 'neovm--combo-dup-target 3)
-                            (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target)))
+                            (if (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target) t nil)))
                         (progn
                           (advice-remove 'neovm--combo-dup-target 'neovm--combo-dup-filter)
                           (list
                             (funcall 'neovm--combo-dup-target 3)
-                            (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target))))
+                            (if (advice-member-p 'neovm--combo-dup-filter 'neovm--combo-dup-target) t nil))))
                     (condition-case nil
                         (advice-remove 'neovm--combo-dup-target 'neovm--combo-dup-filter)
                       (error nil))
@@ -2590,18 +2590,18 @@ fn oracle_prop_combination_two_aliases_cross_advice_remove_matrix() {
                             (funcall 'neovm--combo-two-alias-a 2)
                             (funcall 'neovm--combo-two-alias-b 2)
                             (funcall 'neovm--combo-two-alias-target 2)
-                            (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-a)
-                            (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-b)
-                            (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-target)))
+                            (if (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-a) t nil)
+                            (if (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-b) t nil)
+                            (if (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-target) t nil)))
                         (progn
                           (advice-remove 'neovm--combo-two-alias-b 'neovm--combo-two-alias-filter)
                           (list
                             (funcall 'neovm--combo-two-alias-a 2)
                             (funcall 'neovm--combo-two-alias-b 2)
                             (funcall 'neovm--combo-two-alias-target 2)
-                            (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-a)
-                            (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-b)
-                            (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-target))))
+                            (if (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-a) t nil)
+                            (if (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-b) t nil)
+                            (if (advice-member-p 'neovm--combo-two-alias-filter 'neovm--combo-two-alias-target) t nil))))
                     (condition-case nil
                         (advice-remove 'neovm--combo-two-alias-a 'neovm--combo-two-alias-filter)
                       (error nil))
@@ -8699,11 +8699,11 @@ proptest! {
                (fset 'neovm--combo-prop-member-filter (lambda (ret) (+ ret 7)))
                (unwind-protect
                    (list
-                     (advice-member-p 'neovm--combo-prop-member-filter 'neovm--combo-prop-member-target)
+                     (if (advice-member-p 'neovm--combo-prop-member-filter 'neovm--combo-prop-member-target) t nil)
                      (progn
                        (advice-add 'neovm--combo-prop-member-target :filter-return 'neovm--combo-prop-member-filter)
                        (list
-                         (advice-member-p 'neovm--combo-prop-member-filter 'neovm--combo-prop-member-target)
+                         (if (advice-member-p 'neovm--combo-prop-member-filter 'neovm--combo-prop-member-target) t nil)
                          (neovm--combo-prop-member-call {n})
                          (eval '(neovm--combo-prop-member-call {n}))
                          (funcall 'neovm--combo-prop-member-target {n})
@@ -8711,7 +8711,7 @@ proptest! {
                      (progn
                        (advice-remove 'neovm--combo-prop-member-target 'neovm--combo-prop-member-filter)
                        (list
-                         (advice-member-p 'neovm--combo-prop-member-filter 'neovm--combo-prop-member-target)
+                         (if (advice-member-p 'neovm--combo-prop-member-filter 'neovm--combo-prop-member-target) t nil)
                          (neovm--combo-prop-member-call {n})
                          (eval '(neovm--combo-prop-member-call {n}))
                          (funcall 'neovm--combo-prop-member-target {n})
@@ -8811,34 +8811,33 @@ proptest! {
         return_if_neovm_enable_oracle_proptest_not_set!(Ok(()));
 
         let form = format!(
-            "(let ((n {n}))
-               (progn
-                 (defmacro neovm--combo-prop-make-caller (mode)
-                   (cond
-                     ((eq mode 'direct) '(lambda (x) (neovm--combo-prop-lambda-target x)))
-                     ((eq mode 'funcall) '(lambda (x) (funcall 'neovm--combo-prop-lambda-target x)))
-                     (t '(lambda (x) (apply 'neovm--combo-prop-lambda-target (list x))))))
-                 (fset 'neovm--combo-prop-lambda-target (lambda (x) x))
-                 (fset 'neovm--combo-prop-lambda-filter (lambda (ret) (+ ret 7)))
-                 (unwind-protect
-                     (progn
-                       (advice-add 'neovm--combo-prop-lambda-target :filter-return 'neovm--combo-prop-lambda-filter)
-                       (let ((d (neovm--combo-prop-make-caller 'direct))
-                             (f (neovm--combo-prop-make-caller 'funcall))
-                             (a (neovm--combo-prop-make-caller 'apply)))
-                         (list
-                           (funcall d n)
-                           (funcall f n)
-                           (funcall a n)
-                           (eval '(funcall (neovm--combo-prop-make-caller 'direct) n))
-                           (eval '(funcall (neovm--combo-prop-make-caller 'funcall) n))
-                           (eval '(funcall (neovm--combo-prop-make-caller 'apply) n))))
-                   (condition-case nil
-                       (advice-remove 'neovm--combo-prop-lambda-target 'neovm--combo-prop-lambda-filter)
-                     (error nil))
-                   (fmakunbound 'neovm--combo-prop-lambda-target)
-                   (fmakunbound 'neovm--combo-prop-lambda-filter)
-                   (fmakunbound 'neovm--combo-prop-make-caller))))",
+            "(progn
+               (defmacro neovm--combo-prop-make-caller (mode)
+                 (cond
+                   ((eq mode 'direct) '(lambda (x) (neovm--combo-prop-lambda-target x)))
+                   ((eq mode 'funcall) '(lambda (x) (funcall 'neovm--combo-prop-lambda-target x)))
+                   (t '(lambda (x) (apply 'neovm--combo-prop-lambda-target (list x))))))
+               (fset 'neovm--combo-prop-lambda-target (lambda (x) x))
+               (fset 'neovm--combo-prop-lambda-filter (lambda (ret) (+ ret 7)))
+               (unwind-protect
+                   (progn
+                     (advice-add 'neovm--combo-prop-lambda-target :filter-return 'neovm--combo-prop-lambda-filter)
+                     (let ((d (eval (macroexpand '(neovm--combo-prop-make-caller 'direct))))
+                           (f (eval (macroexpand '(neovm--combo-prop-make-caller 'funcall))))
+                           (a (eval (macroexpand '(neovm--combo-prop-make-caller 'apply)))))
+                       (list
+                         (funcall d {n})
+                         (funcall f {n})
+                         (funcall a {n})
+                         (eval (list 'funcall d {n}))
+                         (eval (list 'funcall f {n}))
+                         (eval (list 'funcall a {n})))))
+                 (condition-case nil
+                     (advice-remove 'neovm--combo-prop-lambda-target 'neovm--combo-prop-lambda-filter)
+                   (error nil))
+                 (fmakunbound 'neovm--combo-prop-lambda-target)
+                 (fmakunbound 'neovm--combo-prop-lambda-filter)
+                 (fmakunbound 'neovm--combo-prop-make-caller)))",
             n = n,
         );
 
@@ -8856,19 +8855,18 @@ proptest! {
         return_if_neovm_enable_oracle_proptest_not_set!(Ok(()));
 
         let form = format!(
-            "(let ((n {n}))
-               (progn
-                 (defmacro neovm--combo-prop-min-caller (mode)
-                   (cond
-                     ((eq mode 'direct) '(lambda (x) (1+ x)))
-                     ((eq mode 'funcall) '(lambda (x) (funcall '+ x 1)))
-                     (t '(lambda (x) (apply '+ (list x 1))))))
-                 (unwind-protect
-                     (list
-                       (eval '(funcall (neovm--combo-prop-min-caller 'direct) n))
-                       (eval '(funcall (neovm--combo-prop-min-caller 'funcall) n))
-                       (eval '(funcall (neovm--combo-prop-min-caller 'apply) n)))
-                   (fmakunbound 'neovm--combo-prop-min-caller))))",
+            "(progn
+               (defmacro neovm--combo-prop-min-caller (mode)
+                 (cond
+                   ((eq mode 'direct) '(lambda (x) (1+ x)))
+                   ((eq mode 'funcall) '(lambda (x) (funcall '+ x 1)))
+                   (t '(lambda (x) (apply '+ (list x 1))))))
+               (unwind-protect
+                   (list
+                     (eval '(funcall (neovm--combo-prop-min-caller 'direct) {n}))
+                     (eval '(funcall (neovm--combo-prop-min-caller 'funcall) {n}))
+                     (eval '(funcall (neovm--combo-prop-min-caller 'apply) {n})))
+                 (fmakunbound 'neovm--combo-prop-min-caller)))",
             n = n,
         );
 
@@ -8933,8 +8931,8 @@ proptest! {
                    (progn
                      (advice-add 'neovm--combo-prop-member-alias :filter-return 'neovm--combo-prop-member-alias-filter)
                      (list
-                       (advice-member-p 'neovm--combo-prop-member-alias-filter 'neovm--combo-prop-member-alias)
-                       (advice-member-p 'neovm--combo-prop-member-alias-filter 'neovm--combo-prop-member-alias-target)
+                       (if (advice-member-p 'neovm--combo-prop-member-alias-filter 'neovm--combo-prop-member-alias) t nil)
+                       (if (advice-member-p 'neovm--combo-prop-member-alias-filter 'neovm--combo-prop-member-alias-target) t nil)
                        (funcall 'neovm--combo-prop-member-alias {n})
                        (funcall 'neovm--combo-prop-member-alias-target {n})))
                  (condition-case nil
@@ -9485,8 +9483,8 @@ proptest! {
                          (funcall 'neovm--combo-prop-alias-cross-target {n})
                          (neovm--combo-prop-alias-cross {n})
                          (eval '(neovm--combo-prop-alias-cross {n}))
-                         (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross)
-                         (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross-target)))
+                         (if (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross-target) t nil)))
                      (progn
                        (advice-remove 'neovm--combo-prop-alias-cross-target 'neovm--combo-prop-alias-cross-filter)
                        (list
@@ -9494,8 +9492,8 @@ proptest! {
                          (funcall 'neovm--combo-prop-alias-cross-target {n})
                          (neovm--combo-prop-alias-cross {n})
                          (eval '(neovm--combo-prop-alias-cross {n}))
-                         (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross)
-                         (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross-target))))
+                         (if (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-alias-cross-filter 'neovm--combo-prop-alias-cross-target) t nil))))
                  (condition-case nil
                      (advice-remove 'neovm--combo-prop-alias-cross 'neovm--combo-prop-alias-cross-filter)
                    (error nil))
@@ -9532,8 +9530,8 @@ proptest! {
                          (funcall 'neovm--combo-prop-target-cross-target {n})
                          (neovm--combo-prop-target-cross {n})
                          (eval '(neovm--combo-prop-target-cross {n}))
-                         (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross)
-                         (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross-target)))
+                         (if (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross-target) t nil)))
                      (progn
                        (advice-remove 'neovm--combo-prop-target-cross 'neovm--combo-prop-target-cross-filter)
                        (list
@@ -9541,8 +9539,8 @@ proptest! {
                          (funcall 'neovm--combo-prop-target-cross-target {n})
                          (neovm--combo-prop-target-cross {n})
                          (eval '(neovm--combo-prop-target-cross {n}))
-                         (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross)
-                         (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross-target))))
+                         (if (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-target-cross-filter 'neovm--combo-prop-target-cross-target) t nil))))
                  (condition-case nil
                      (advice-remove 'neovm--combo-prop-target-cross-target 'neovm--combo-prop-target-cross-filter)
                    (error nil))
@@ -9579,18 +9577,18 @@ proptest! {
                          (funcall 'neovm--combo-prop-two-alias-a {n})
                          (funcall 'neovm--combo-prop-two-alias-b {n})
                          (funcall 'neovm--combo-prop-two-alias-target {n})
-                         (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-a)
-                         (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-b)
-                         (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-target)))
+                         (if (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-a) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-b) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-target) t nil)))
                      (progn
                        (advice-remove 'neovm--combo-prop-two-alias-b 'neovm--combo-prop-two-alias-filter)
                        (list
                          (funcall 'neovm--combo-prop-two-alias-a {n})
                          (funcall 'neovm--combo-prop-two-alias-b {n})
                          (funcall 'neovm--combo-prop-two-alias-target {n})
-                         (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-a)
-                         (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-b)
-                         (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-target))))
+                         (if (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-a) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-b) t nil)
+                         (if (advice-member-p 'neovm--combo-prop-two-alias-filter 'neovm--combo-prop-two-alias-target) t nil))))
                  (condition-case nil
                      (advice-remove 'neovm--combo-prop-two-alias-a 'neovm--combo-prop-two-alias-filter)
                    (error nil))
@@ -9627,22 +9625,22 @@ proptest! {
                        (advice-add 'neovm--combo-prop-dup-target :filter-return 'neovm--combo-prop-dup-filter)
                        (list
                          (funcall 'neovm--combo-prop-dup-target {n})
-                         (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target)))
+                         (if (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target) t nil)))
                      (progn
                        (advice-add 'neovm--combo-prop-dup-target :filter-return 'neovm--combo-prop-dup-filter)
                        (list
                          (funcall 'neovm--combo-prop-dup-target {n})
-                         (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target)))
+                         (if (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target) t nil)))
                      (progn
                        (advice-remove 'neovm--combo-prop-dup-target 'neovm--combo-prop-dup-filter)
                        (list
                          (funcall 'neovm--combo-prop-dup-target {n})
-                         (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target)))
+                         (if (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target) t nil)))
                      (progn
                        (advice-remove 'neovm--combo-prop-dup-target 'neovm--combo-prop-dup-filter)
                        (list
                          (funcall 'neovm--combo-prop-dup-target {n})
-                         (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target))))
+                         (if (advice-member-p 'neovm--combo-prop-dup-filter 'neovm--combo-prop-dup-target) t nil))))
                  (condition-case nil
                      (advice-remove 'neovm--combo-prop-dup-target 'neovm--combo-prop-dup-filter)
                    (error nil))
