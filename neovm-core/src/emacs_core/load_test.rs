@@ -310,6 +310,25 @@ fn bootstrap_runtime_advice_make_preserves_oclosure_type() {
     );
 }
 
+#[test]
+fn bootstrap_runtime_loaded_bytecode_preserves_wrong_arity_shape() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("startup state: {}", format_eval_error(&eval, &err));
+    });
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (condition-case err (advice-add 'car :before) (error err))
+             (condition-case err (advice-remove 'car) (error err))
+             (condition-case err (advice-member-p 'ignore) (error err)))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK ((wrong-number-of-arguments advice-add 2) (wrong-number-of-arguments advice-remove 1) (wrong-number-of-arguments advice-member-p 1))"
+    );
+}
+
 fn eval_rendered(eval: &mut Evaluator, form: &str) -> String {
     let parsed = crate::emacs_core::parser::parse_forms(form).expect("parse eval form");
     match eval.eval_expr(&parsed[0]) {

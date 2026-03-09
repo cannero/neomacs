@@ -254,10 +254,21 @@ impl<'a> Vm<'a> {
         let has_rest = func.params.rest.is_some();
         let nonrest = n_required + n_optional;
 
-        // No arity check here — the bytecode itself handles parameter layout
-        // via StackRef/StackSet. Missing args become nil-padded slots, extra
-        // args are collected into &rest or sit unused. This matches GNU Emacs
-        // bytecode calling convention behavior.
+        // GNU Emacs validates bytecode arity before pushing the frame.
+        // See src/bytecode.c: the VM checks the arg descriptor and signals
+        // wrong-number-of-arguments immediately instead of nil-padding missing
+        // required args.
+        if !(n_required <= nargs && (has_rest || nargs <= nonrest)) {
+            let first = if func_value.is_nil() {
+                Value::cons(Value::Int(n_required as i64), Value::Int(nonrest as i64))
+            } else {
+                func_value
+            };
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![first, Value::Int(nargs as i64)],
+            ));
+        }
 
         // Push required + optional args (pad with nil for missing optionals)
         for i in 0..nonrest {

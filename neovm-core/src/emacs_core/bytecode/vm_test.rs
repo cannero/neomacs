@@ -801,6 +801,58 @@ fn vm_builtin_wrong_arity_uses_subr_payload() {
 }
 
 #[test]
+fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
+    let mut func = ByteCodeFunction::new(
+        crate::emacs_core::bytecode::decode::parse_arglist_descriptor(2 | (3 << 8)),
+    );
+    func.constants = vec![Value::Nil];
+    func.ops = vec![Op::Constant(0), Op::Return];
+    func.max_stack = 1;
+
+    let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut custom = CustomManager::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
+    let mut frames = FrameManager::new();
+    let mut coding_systems = CodingSystemManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags: Vec<Value> = Vec::new();
+    let mut vm = Vm::new(
+        &mut obarray,
+        &mut dynamic,
+        &mut lexenv,
+        &mut features,
+        &mut custom,
+        &mut buffers,
+        &mut category_manager,
+        &mut frames,
+        &mut coding_systems,
+        &mut match_data,
+        &mut watchers,
+        &mut catch_tags,
+    );
+
+    let err = vm
+        .execute(&func, vec![Value::Int(1)])
+        .expect_err("bytecode arity must be validated at VM entry");
+    match map_flow(err) {
+        EvalError::Signal { symbol, data } => {
+            assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
+            assert_eq!(
+                data,
+                vec![Value::cons(Value::Int(2), Value::Int(3)), Value::Int(1)]
+            );
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
 fn vm_string_compare_type_errors_match_oracle() {
     let string_equal_err = vm_eval("(string= \"ab\" 1)").expect_err("string= must type-check");
     match string_equal_err {
