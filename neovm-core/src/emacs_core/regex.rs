@@ -411,6 +411,76 @@ fn match_data_from_captures(caps: &regex::Captures<'_>, offset: usize) -> MatchD
     }
 }
 
+fn next_search_char_boundary(text: &str, pos: usize) -> Option<usize> {
+    if pos >= text.len() {
+        return None;
+    }
+    text[pos..].chars().next().map(|ch| pos + ch.len_utf8())
+}
+
+fn find_forward_match_data(
+    re: &Regex,
+    text: &str,
+    start: usize,
+    limit: usize,
+    offset: usize,
+) -> Option<MatchData> {
+    let mut search_at = start;
+    while search_at <= limit {
+        let caps = re.captures_at(text, search_at)?;
+        let full_match = caps.get(0)?;
+        if full_match.start() > limit {
+            return None;
+        }
+        if full_match.end() <= limit {
+            return Some(match_data_from_captures(&caps, offset));
+        }
+        let Some(next_at) = next_search_char_boundary(text, full_match.start()) else {
+            return None;
+        };
+        if next_at <= search_at {
+            return None;
+        }
+        search_at = next_at;
+    }
+    None
+}
+
+fn find_backward_match_data(
+    re: &Regex,
+    text: &str,
+    start: usize,
+    limit: usize,
+    offset: usize,
+) -> Option<MatchData> {
+    let mut search_at = limit;
+    let mut last = None;
+
+    while search_at <= start {
+        let Some(caps) = re.captures_at(text, search_at) else {
+            break;
+        };
+        let Some(full_match) = caps.get(0) else {
+            break;
+        };
+        if full_match.start() > start {
+            break;
+        }
+        if full_match.end() <= start {
+            last = Some(match_data_from_captures(&caps, offset));
+        }
+        let Some(next_at) = next_search_char_boundary(text, full_match.start()) else {
+            break;
+        };
+        if next_at <= search_at {
+            break;
+        }
+        search_at = next_at;
+    }
+
+    last
+}
+
 // ---------------------------------------------------------------------------
 // Buffer search primitives
 // ---------------------------------------------------------------------------
@@ -542,10 +612,12 @@ pub fn re_search_forward(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let text = buf.text.text_range(start, limit);
+    let region_start = buf.begv;
+    let text = buf.text.text_range(region_start, buf.zv);
+    let start_rel = start - region_start;
+    let limit_rel = limit - region_start;
 
-    if let Some(caps) = re.captures(&text) {
-        let mut md = match_data_from_captures(&caps, start);
+    if let Some(mut md) = find_forward_match_data(&re, &text, start_rel, limit_rel, region_start) {
         md.searched_string = None;
         let full_match = md.groups[0].unwrap();
         buf.pt = full_match.1;
@@ -582,16 +654,12 @@ pub fn re_search_backward(
         return Err(format!("Search failed: \"{}\"", pattern));
     }
 
-    let text = buf.text.text_range(limit, end);
+    let region_start = buf.begv;
+    let text = buf.text.text_range(region_start, buf.zv);
+    let start_rel = end - region_start;
+    let limit_rel = limit - region_start;
 
-    // Find the *last* match by iterating all matches
-    let mut last_caps = None;
-    for caps in re.captures_iter(&text) {
-        last_caps = Some(caps);
-    }
-
-    if let Some(caps) = last_caps {
-        let mut md = match_data_from_captures(&caps, limit);
+    if let Some(mut md) = find_backward_match_data(&re, &text, start_rel, limit_rel, region_start) {
         md.searched_string = None;
         let full_match = md.groups[0].unwrap();
         buf.pt = full_match.0;
@@ -615,31 +683,22 @@ pub fn looking_at(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<bool, String> {
-    let re_pattern = translate_emacs_regex(pattern);
-    // Anchor the pattern at the start
-    let anchored = if re_pattern.starts_with("\\A") || re_pattern.starts_with('^') {
-        re_pattern
-    } else {
-        format!("\\A(?:{})", re_pattern)
-    };
-    let pattern = if case_fold {
-        format!("(?mi:{anchored})")
-    } else {
-        format!("(?m:{anchored})")
-    };
-    let re = Regex::new(&pattern).map_err(|e| format!("Invalid regexp: {}", e))?;
+    let re = compile_emacs_regex_case_fold(pattern, case_fold)?;
 
     let start = buf.pt;
-    let limit = buf.zv;
-
-    if start > limit {
+    if start > buf.zv {
         return Ok(false);
     }
 
-    let text = buf.text.text_range(start, limit);
+    let region_start = buf.begv;
+    let text = buf.text.text_range(region_start, buf.zv);
+    let start_rel = start - region_start;
 
-    if let Some(caps) = re.captures(&text) {
-        let mut md = match_data_from_captures(&caps, start);
+    if let Some(caps) = re.captures_at(&text, start_rel) {
+        let mut md = match_data_from_captures(&caps, region_start);
+        if md.groups[0].unwrap().0 != start {
+            return Ok(false);
+        }
         md.searched_string = None;
         *match_data = Some(md);
         Ok(true)
@@ -668,10 +727,8 @@ pub fn string_match_full_with_case_fold(
         return Ok(None);
     }
 
-    let search_region = &string[start..];
-
-    if let Some(caps) = re.captures(search_region) {
-        let byte_md = match_data_from_captures(&caps, start);
+    if let Some(caps) = re.captures_at(string, start) {
+        let byte_md = match_data_from_captures(&caps, 0);
         // Convert byte positions to character positions for string searches.
         // This matches official Emacs behavior where string match data
         // uses character positions, allowing match-data--translate to

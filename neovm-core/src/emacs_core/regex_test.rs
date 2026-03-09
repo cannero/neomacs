@@ -326,6 +326,42 @@ fn re_search_forward_with_groups() {
     assert_eq!(md.groups[2], Some((6, 10))); // "John"
 }
 
+#[test]
+fn re_search_forward_multiline_anchor_respects_real_line_start() {
+    let mut buf = make_test_buffer("alpha=1\nbeta=2\ngamma=3\n");
+    let mut md = None;
+
+    let first = re_search_forward(
+        &mut buf,
+        "^\\([^=]+\\)=\\([0-9]+\\)$",
+        None,
+        false,
+        false,
+        &mut md,
+    )
+    .expect("first search should succeed");
+    assert_eq!(first, Some("alpha=1".len()));
+    let first_md = md.as_ref().expect("match data for first search");
+    let (s1, e1) = first_md.groups[1].unwrap();
+    assert_eq!(buf.text.text_range(s1, e1), "alpha");
+
+    let second = re_search_forward(
+        &mut buf,
+        "^\\([^=]+\\)=\\([0-9]+\\)$",
+        None,
+        false,
+        false,
+        &mut md,
+    )
+    .expect("second search should succeed");
+    assert_eq!(second, Some("alpha=1\nbeta=2".len()));
+    let second_md = md.as_ref().expect("match data for second search");
+    let (s1, e1) = second_md.groups[1].unwrap();
+    assert_eq!(buf.text.text_range(s1, e1), "beta");
+    let (s2, e2) = second_md.groups[2].unwrap();
+    assert_eq!(buf.text.text_range(s2, e2), "2");
+}
+
 // -----------------------------------------------------------------------
 // Buffer search: re_search_backward
 // -----------------------------------------------------------------------
@@ -544,4 +580,29 @@ fn string_match_optional_group() {
     let md = md.as_ref().unwrap();
     assert_eq!(md.groups[1], Some((0, 3))); // "foo"
     assert_eq!(md.groups[2], None); // optional group didn't match
+}
+
+#[test]
+fn string_match_start_offset_respects_real_line_start() {
+    let mut md = None;
+    let source = "alpha=1\nbeta=2\ngamma=3";
+    let start = "alpha=1".len();
+    let result = string_match_full("^\\([^=]+\\)=\\([0-9]+\\)$", source, start, &mut md)
+        .expect("string match should succeed");
+    assert_eq!(result, Some("alpha=1\n".chars().count()));
+
+    let md = md.as_ref().expect("match data");
+    let searched = md.searched_string.as_ref().expect("searched string");
+    let (s1, e1) = md.groups[1].unwrap();
+    let byte_s1 = searched
+        .char_indices()
+        .nth(s1)
+        .map(|(i, _)| i)
+        .unwrap_or(searched.len());
+    let byte_e1 = searched
+        .char_indices()
+        .nth(e1)
+        .map(|(i, _)| i)
+        .unwrap_or(searched.len());
+    assert_eq!(&searched[byte_s1..byte_e1], "beta");
 }
