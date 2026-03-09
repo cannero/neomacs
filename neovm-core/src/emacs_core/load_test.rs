@@ -226,9 +226,57 @@ fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
                (functionp (symbol-function 'emacs-lisp-mode)))",
     );
     assert_eq!(
-        rendered, "OK (t nil nil nil nil t t t t t t t t t t t t t t t nil t)",
+        rendered, "OK (nil nil nil nil nil t t nil nil nil nil nil nil nil nil t t t t t nil t)",
         "bootstrap runtime should match GNU -Q startup visibility for cl preload and loaddefs"
     );
+}
+
+#[test]
+fn bootstrap_runtime_matches_gnu_oclosure_advice_surface() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("startup state: {}", format_eval_error(&eval, &err));
+    });
+    let rendered = eval_rendered(
+        &mut eval,
+        "(list (fboundp 'advice--copy)
+               (boundp 'advice--copy)
+               (fboundp 'advice--cons)
+               (boundp 'advice--cons)
+               (fboundp 'advice--p)
+               (fboundp 'advice--make)
+               (featurep 'nadvice)
+               (featurep 'oclosure))",
+    );
+    assert_eq!(
+        rendered, "OK (t nil t nil t t t t)",
+        "bootstrap runtime should match GNU -Q oclosure/nadvice surface"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_advice_copy_and_add_behavior() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("startup state: {}", format_eval_error(&eval, &err));
+    });
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (condition-case err
+                 (progn
+                   (funcall 'advice--copy
+                            (cadr (assq :before advice--how-alist))
+                            'ignore nil :before nil)
+                   'ok)
+               (error (cons 'error err)))
+             (condition-case err
+                 (progn
+                   (advice-add '+ :before (lambda (&rest _args) nil))
+                   'ok)
+               (error (cons 'error err))))"#,
+    );
+    assert_eq!(rendered, "OK (ok ok)");
 }
 
 fn eval_rendered(eval: &mut Evaluator, form: &str) -> String {

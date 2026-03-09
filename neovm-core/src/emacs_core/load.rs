@@ -670,7 +670,7 @@ fn cache_key(lexical_binding: bool) -> String {
 // available during later compile-time loads, notably `advice--normalize-place`
 // from `nadvice.el`.
 const ELISP_EXPANDED_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V10";
-const ELISP_EXPANDED_CACHE_SCHEMA: &str = "schema=10";
+const ELISP_EXPANDED_CACHE_SCHEMA: &str = "schema=11";
 const ELISP_EXPANDED_CACHE_LEGACY_MAGIC: &str = "NEOVM-ELISP-CACHE-V2";
 const ELISP_EXPANDED_CACHE_LEGACY_SCHEMA: &str = "schema=2";
 
@@ -1382,7 +1382,7 @@ fn should_preserve_original_replay_form(
         return false;
     };
     let head = heap.cons_car(id);
-    head.is_symbol_named("define-inline") || head.is_symbol_named("oclosure-define")
+    head.is_symbol_named("define-inline")
 }
 
 /// Like `eager_expand_eval`, but also collects fully-expanded forms into a
@@ -1393,8 +1393,8 @@ fn should_preserve_original_replay_form(
 /// otherwise erase GNU source-load side effects:
 /// - `eval-and-compile` forms can collapse into `(quote ...)` while their body
 ///   still needs to run again during replay.
-/// - macros like `define-inline` and `oclosure-define` install runtime-visible
-///   metadata during expansion that is not recoverable from the expanded form.
+/// - `define-inline` installs compiler-macro side effects during expansion that
+///   are not recoverable from the expanded form.
 fn eager_expand_eval_and_collect(
     eval: &mut super::eval::Evaluator,
     form_value: Value,
@@ -1982,8 +1982,9 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 // represent correctly. The March 2026 startup fixes require regenerating
 // cached bootstrap images because eager macroexpansion now follows the live
 // GNU Emacs source-loading path by default instead of the isolated replay
-// experiment.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 6;
+// experiment, and runtime cleanup now mirrors GNU Emacs -Q by stripping
+// cl-lib/cl-seq helper functions from the dumped surface.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 8;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",
@@ -2201,25 +2202,6 @@ fn compile_only_bootstrap_function_names(
     names
 }
 
-fn retained_runtime_cl_lib_function_names(
-    project_root: &Path,
-) -> std::collections::BTreeSet<String> {
-    let mut names = std::collections::BTreeSet::new();
-    let path = project_root.join("lisp/emacs-lisp/cl-lib.el");
-    let Ok(source) = fs::read_to_string(&path) else {
-        tracing::warn!("bootstrap cleanup: failed reading {}", path.display());
-        return names;
-    };
-    let Ok(forms) = crate::emacs_core::parser::parse_forms(&source) else {
-        tracing::warn!("bootstrap cleanup: failed parsing {}", path.display());
-        return names;
-    };
-    for form in &forms {
-        collect_compile_only_function_names(form, &mut names);
-    }
-    names
-}
-
 const SUBR_POST_GV_EAGER_REPLAY_FORMS: &[&str] = &[
     "event--posn-at-point",
     "add-hook",
@@ -2403,14 +2385,12 @@ fn normalize_bootstrap_runtime_surface(
     eval: &mut super::eval::Evaluator,
     project_root: &Path,
 ) -> Result<(), EvalError> {
-    let compile_only_features = ["cl-macs", "cl-extra", "cl-seq", "gv"];
+    let compile_only_features = ["cl-lib", "cl-macs", "cl-extra", "cl-seq", "gv"];
     let strip_autoload_files = ["cl-extra", "cl-macs", "cl-seq", "gv"];
-    let restore_autoload_files = ["cl-extra", "cl-macs", "cl-seq", "gv"];
+    let restore_autoload_files = ["gv"];
     let (restore_autoload_args, restore_property_forms) =
         runtime_loaddefs_restore_state(project_root, &restore_autoload_files)?;
     let mut compile_only_names = compile_only_bootstrap_function_names(project_root);
-    let retained_runtime_names = retained_runtime_cl_lib_function_names(project_root);
-    compile_only_names.retain(|name| !retained_runtime_names.contains(name));
     // The current dumped nadvice bytecode still dereferences gv refs via this
     // runtime helper. Stripping it here leaves the cached bootstrap image
     // internally inconsistent even though `featurep 'gv` remains nil.
@@ -2676,220 +2656,221 @@ pub fn create_bootstrap_evaluator_with_features(
         "lisp/ directory not found at {}",
         lisp_dir.display()
     );
-
-    let mut eval = super::eval::Evaluator::new();
-    for feature in normalized_bootstrap_features(extra_features) {
-        let _ = eval.provide_value(Value::symbol(&feature), None);
-    }
-
-    // Set up load-path with lisp/ and its subdirectories.
-    eval.set_variable(
-        "load-path",
-        Value::list(bootstrap_load_path_entries(&lisp_dir)),
-    );
-    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-    eval.set_variable("purify-flag", Value::Nil);
-    eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
-    eval.set_variable("inhibit-load-charset-map", Value::True);
-    // data-directory: directory of machine-independent data files (etc/)
-    let etc_dir = project_root.join("etc");
-    eval.set_variable(
-        "data-directory",
-        Value::string(format!("{}/", etc_dir.to_string_lossy())),
-    );
-    // source-directory: top-level source tree
-    eval.set_variable(
-        "source-directory",
-        Value::string(format!("{}/", project_root.to_string_lossy())),
-    );
-    eval.set_variable(
-        "installation-directory",
-        Value::string(format!("{}/", project_root.to_string_lossy())),
-    );
-
-    // exec-path: list of dirs from PATH env var (C: callproc.c init_callproc_1)
-    let path_dirs: Vec<Value> = std::env::var("PATH")
-        .unwrap_or_default()
-        .split(':')
-        .filter(|s| !s.is_empty())
-        .map(|s| Value::string(s.to_string()))
-        .collect();
-    eval.set_variable("exec-path", Value::list(path_dirs));
-    eval.set_variable("exec-suffixes", Value::Nil);
-    eval.set_variable("exec-directory", Value::Nil);
-
-    // menu-bar-final-items: list of menu-bar items to put at end (C: xmenu.c)
-    eval.set_variable(
-        "menu-bar-final-items",
-        Value::list(vec![Value::symbol("help-menu")]),
-    );
-
-    // glyphless-char-display: char-table for glyphless character display
-    // (C: xdisp.c syms_of_xdisp). First register extra slots, then create.
-    {
-        let stubs = [
-            "(put 'glyphless-char-display 'char-table-extra-slots 1)",
-            "(setq glyphless-char-display (make-char-table 'glyphless-char-display nil))",
-            "(set-char-table-extra-slot glyphless-char-display 0 'empty-box)",
-        ];
-        for stub in &stubs {
-            if let Ok(forms) = crate::emacs_core::parser::parse_forms(stub) {
-                let _ = eval.eval_forms(&forms);
-            }
+    stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
+        let mut eval = super::eval::Evaluator::new();
+        for feature in normalized_bootstrap_features(extra_features) {
+            let _ = eval.provide_value(Value::symbol(&feature), None);
         }
-    }
 
-    // Suppress eager macro expansion during the bootstrap phase
-    // (mirrors real Emacs loadup.el which wraps pcase loading with
-    // `(let ((macroexp--pending-eager-loads '(skip))) ...)`.
-    eval.set_variable(
-        "macroexp--pending-eager-loads",
-        Value::list(vec![Value::symbol("skip")]),
-    );
+        // Set up load-path with lisp/ and its subdirectories.
+        eval.set_variable(
+            "load-path",
+            Value::list(bootstrap_load_path_entries(&lisp_dir)),
+        );
+        eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+        eval.set_variable("purify-flag", Value::Nil);
+        eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
+        eval.set_variable("inhibit-load-charset-map", Value::True);
+        // data-directory: directory of machine-independent data files (etc/)
+        let etc_dir = project_root.join("etc");
+        eval.set_variable(
+            "data-directory",
+            Value::string(format!("{}/", etc_dir.to_string_lossy())),
+        );
+        // source-directory: top-level source tree
+        eval.set_variable(
+            "source-directory",
+            Value::string(format!("{}/", project_root.to_string_lossy())),
+        );
+        eval.set_variable(
+            "installation-directory",
+            Value::string(format!("{}/", project_root.to_string_lossy())),
+        );
 
-    let load_path = get_load_path(&eval.obarray());
-    let total_files = BOOTSTRAP_LOAD_SEQUENCE.len();
+        // exec-path: list of dirs from PATH env var (C: callproc.c init_callproc_1)
+        let path_dirs: Vec<Value> = std::env::var("PATH")
+            .unwrap_or_default()
+            .split(':')
+            .filter(|s| !s.is_empty())
+            .map(|s| Value::string(s.to_string()))
+            .collect();
+        eval.set_variable("exec-path", Value::list(path_dirs));
+        eval.set_variable("exec-suffixes", Value::Nil);
+        eval.set_variable("exec-directory", Value::Nil);
 
-    for (file_idx, name) in BOOTSTRAP_LOAD_SEQUENCE.iter().enumerate() {
-        // Handle sentinel that enables eager expansion.
-        if *name == "!enable-eager-expansion" {
-            eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
-            tracing::info!("--- eager macro expansion ENABLED ---");
-            continue;
-        }
-        if *name == "!reload-subr-after-gv" {
-            let path = find_file_in_load_path("subr.el", &load_path)
-                .unwrap_or_else(|| panic!("bootstrap source file not found: subr.el"));
-            tracing::info!("REPLAYING: subr runtime-macro defs (post-gv eager replay) ...");
-            let start = std::time::Instant::now();
-            match replay_selected_source_defuns_with_eager_expansion(
-                &mut eval,
-                &path,
-                SUBR_POST_GV_EAGER_REPLAY_FORMS,
-            ) {
-                Ok(_) => {
-                    tracing::info!("  OK: subr eager replay ({:.2?})", start.elapsed());
-                }
-                Err(err) => {
-                    panic!("failed replaying subr from {}: {:?}", path.display(), err);
+        // menu-bar-final-items: list of menu-bar items to put at end (C: xmenu.c)
+        eval.set_variable(
+            "menu-bar-final-items",
+            Value::list(vec![Value::symbol("help-menu")]),
+        );
+
+        // glyphless-char-display: char-table for glyphless character display
+        // (C: xdisp.c syms_of_xdisp). First register extra slots, then create.
+        {
+            let stubs = [
+                "(put 'glyphless-char-display 'char-table-extra-slots 1)",
+                "(setq glyphless-char-display (make-char-table 'glyphless-char-display nil))",
+                "(set-char-table-extra-slot glyphless-char-display 0 'empty-box)",
+            ];
+            for stub in &stubs {
+                if let Ok(forms) = crate::emacs_core::parser::parse_forms(stub) {
+                    let _ = eval.eval_forms(&forms);
                 }
             }
-            continue;
         }
-        // Handle sentinel for loading ldefs-boot.el (autoload definitions).
-        if *name == "!load-ldefs-boot" {
-            let ldefs_path = lisp_dir.join("ldefs-boot.el");
-            if ldefs_path.exists() {
-                tracing::info!("LOADING: ldefs-boot.el ...");
+
+        // Suppress eager macro expansion during the bootstrap phase
+        // (mirrors real Emacs loadup.el which wraps pcase loading with
+        // `(let ((macroexp--pending-eager-loads '(skip))) ...)`.
+        eval.set_variable(
+            "macroexp--pending-eager-loads",
+            Value::list(vec![Value::symbol("skip")]),
+        );
+
+        let load_path = get_load_path(&eval.obarray());
+        let total_files = BOOTSTRAP_LOAD_SEQUENCE.len();
+
+        for (file_idx, name) in BOOTSTRAP_LOAD_SEQUENCE.iter().enumerate() {
+            // Handle sentinel that enables eager expansion.
+            if *name == "!enable-eager-expansion" {
+                eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
+                tracing::info!("--- eager macro expansion ENABLED ---");
+                continue;
+            }
+            if *name == "!reload-subr-after-gv" {
+                let path = find_file_in_load_path("subr.el", &load_path)
+                    .unwrap_or_else(|| panic!("bootstrap source file not found: subr.el"));
+                tracing::info!("REPLAYING: subr runtime-macro defs (post-gv eager replay) ...");
                 let start = std::time::Instant::now();
-                match load_file(&mut eval, &ldefs_path) {
+                match replay_selected_source_defuns_with_eager_expansion(
+                    &mut eval,
+                    &path,
+                    SUBR_POST_GV_EAGER_REPLAY_FORMS,
+                ) {
                     Ok(_) => {
-                        tracing::info!("  OK: ldefs-boot.el ({:.2?})", start.elapsed());
+                        tracing::info!("  OK: subr eager replay ({:.2?})", start.elapsed());
+                    }
+                    Err(err) => {
+                        panic!("failed replaying subr from {}: {:?}", path.display(), err);
+                    }
+                }
+                continue;
+            }
+            // Handle sentinel for loading ldefs-boot.el (autoload definitions).
+            if *name == "!load-ldefs-boot" {
+                let ldefs_path = lisp_dir.join("ldefs-boot.el");
+                if ldefs_path.exists() {
+                    tracing::info!("LOADING: ldefs-boot.el ...");
+                    let start = std::time::Instant::now();
+                    match load_file(&mut eval, &ldefs_path) {
+                        Ok(_) => {
+                            tracing::info!("  OK: ldefs-boot.el ({:.2?})", start.elapsed());
+                        }
+                        Err(e) => {
+                            let msg = format!("{e:?}");
+                            tracing::error!("FAIL: ldefs-boot.el => {msg}");
+                            return Err(e);
+                        }
+                    }
+                } else {
+                    tracing::warn!("SKIP: ldefs-boot.el (not found)");
+                }
+                continue;
+            }
+            // Pre-define minimal cl-preloaded stubs so cl-macs can load.
+            if *name == "!bootstrap-cl-preloaded-stubs" {
+                let stubs = [
+                    "(defmacro cl--find-class (type) `(get ,type 'cl--class))",
+                    "(defun cl--builtin-type-p (name) nil)",
+                    "(defun cl--struct-name-p (name) (and name (symbolp name) (not (keywordp name))))",
+                    "(defvar cl-struct-cl-structure-object-tags nil)",
+                    "(defvar cl--struct-default-parent nil)",
+                    "(defun cl-struct-define (name docstring parent type named slots children-sym tag print) (when children-sym (if (boundp children-sym) (add-to-list children-sym tag) (set children-sym (list tag)))))",
+                    "(defun cl--define-derived-type (name expander predicate &optional parents) nil)",
+                    "(defmacro cl-function (func) `(function ,func))",
+                ];
+                for stub in &stubs {
+                    match crate::emacs_core::parser::parse_forms(stub) {
+                        Ok(forms) => {
+                            let results = eval.eval_forms(&forms);
+                            for r in &results {
+                                if let Err(e) = r {
+                                    tracing::error!("bootstrap stub failed: {stub} => {e:?}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("bootstrap stub parse failed: {stub} => {e:?}");
+                        }
+                    }
+                }
+                tracing::info!("--- cl-preloaded bootstrap stubs defined ---");
+                continue;
+            }
+            // Handle sentinel for (require 'gv) — mirrors loadup.el line 199.
+            if *name == "!require-gv" {
+                tracing::info!("LOADING: (require 'gv) ...");
+                let start = std::time::Instant::now();
+                match eval.require_value(Value::symbol("gv"), None, None) {
+                    Ok(_) => {
+                        tracing::info!("  OK: (require 'gv) ({:.2?})", start.elapsed());
                     }
                     Err(e) => {
                         let msg = format!("{e:?}");
-                        tracing::error!("FAIL: ldefs-boot.el => {msg}");
-                        return Err(e);
+                        tracing::warn!("  WARN: (require 'gv) failed: {msg}");
                     }
                 }
-            } else {
-                tracing::warn!("SKIP: ldefs-boot.el (not found)");
+                continue;
             }
-            continue;
-        }
-        // Pre-define minimal cl-preloaded stubs so cl-macs can load.
-        if *name == "!bootstrap-cl-preloaded-stubs" {
-            let stubs = [
-                "(defmacro cl--find-class (type) `(get ,type 'cl--class))",
-                "(defun cl--builtin-type-p (name) nil)",
-                "(defun cl--struct-name-p (name) (and name (symbolp name) (not (keywordp name))))",
-                "(defvar cl-struct-cl-structure-object-tags nil)",
-                "(defvar cl--struct-default-parent nil)",
-                "(defun cl-struct-define (name docstring parent type named slots children-sym tag print) (when children-sym (if (boundp children-sym) (add-to-list children-sym tag) (set children-sym (list tag)))))",
-                "(defun cl--define-derived-type (name expander predicate &optional parents) nil)",
-                "(defmacro cl-function (func) `(function ,func))",
-            ];
-            for stub in &stubs {
-                match crate::emacs_core::parser::parse_forms(stub) {
-                    Ok(forms) => {
-                        let results = eval.eval_forms(&forms);
-                        for r in &results {
-                            if let Err(e) = r {
-                                tracing::error!("bootstrap stub failed: {stub} => {e:?}");
-                            }
-                        }
+            tracing::info!("[{}/{}] LOADING: {name} ...", file_idx + 1, total_files);
+            let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
+            let start = std::time::Instant::now();
+            match find_file_in_load_path(name, &load_path) {
+                Some(path) => match load_file(&mut eval, &path) {
+                    Ok(_) => {
+                        let dh = eval.macro_cache_hits - h0;
+                        let dm = eval.macro_cache_misses - m0;
+                        tracing::info!(
+                            "  OK: {name} ({:.2?}) [cache hit={dh} miss={dm}]",
+                            start.elapsed()
+                        );
                     }
                     Err(e) => {
-                        tracing::error!("bootstrap stub parse failed: {stub} => {e:?}");
+                        let msg = match &e {
+                            EvalError::Signal { symbol, data } => {
+                                let sym = super::intern::resolve_sym(*symbol);
+                                let data_strs: Vec<String> =
+                                    data.iter().map(|v| format!("{v}")).collect();
+                                format!("({sym} {})", data_strs.join(" "))
+                            }
+                            EvalError::UncaughtThrow { tag, value } => {
+                                format!("(throw {tag} {value})")
+                            }
+                        };
+                        tracing::error!("FAIL: {name} => {msg}");
+                        return Err(e);
                     }
+                },
+                None => {
+                    tracing::error!("SKIP: {name} (not found in load-path)");
+                    return Err(EvalError::Signal {
+                        symbol: intern("error"),
+                        data: vec![Value::string(format!(
+                            "loadup bootstrap: file not found: {name}"
+                        ))],
+                    });
                 }
             }
-            tracing::info!("--- cl-preloaded bootstrap stubs defined ---");
-            continue;
         }
-        // Handle sentinel for (require 'gv) — mirrors loadup.el line 199.
-        if *name == "!require-gv" {
-            tracing::info!("LOADING: (require 'gv) ...");
-            let start = std::time::Instant::now();
-            match eval.require_value(Value::symbol("gv"), None, None) {
-                Ok(_) => {
-                    tracing::info!("  OK: (require 'gv) ({:.2?})", start.elapsed());
-                }
-                Err(e) => {
-                    let msg = format!("{e:?}");
-                    tracing::warn!("  WARN: (require 'gv) failed: {msg}");
-                }
-            }
-            continue;
-        }
-        tracing::info!("[{}/{}] LOADING: {name} ...", file_idx + 1, total_files);
-        let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
-        let start = std::time::Instant::now();
-        match find_file_in_load_path(name, &load_path) {
-            Some(path) => match load_file(&mut eval, &path) {
-                Ok(_) => {
-                    let dh = eval.macro_cache_hits - h0;
-                    let dm = eval.macro_cache_misses - m0;
-                    tracing::info!(
-                        "  OK: {name} ({:.2?}) [cache hit={dh} miss={dm}]",
-                        start.elapsed()
-                    );
-                }
-                Err(e) => {
-                    let msg = match &e {
-                        EvalError::Signal { symbol, data } => {
-                            let sym = super::intern::resolve_sym(*symbol);
-                            let data_strs: Vec<String> =
-                                data.iter().map(|v| format!("{v}")).collect();
-                            format!("({sym} {})", data_strs.join(" "))
-                        }
-                        EvalError::UncaughtThrow { tag, value } => {
-                            format!("(throw {tag} {value})")
-                        }
-                    };
-                    tracing::error!("FAIL: {name} => {msg}");
-                    return Err(e);
-                }
-            },
-            None => {
-                tracing::error!("SKIP: {name} (not found in load-path)");
-                return Err(EvalError::Signal {
-                    symbol: intern("error"),
-                    data: vec![Value::string(format!(
-                        "loadup bootstrap: file not found: {name}"
-                    ))],
-                });
-            }
-        }
-    }
 
-    tracing::info!("\n=== LOADUP BOOTSTRAP COMPLETE ===");
+        tracing::info!("\n=== LOADUP BOOTSTRAP COMPLETE ===");
 
-    // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
-    // and interactive evaluation. Match this for oracle test parity.
-    eval.set_lexical_binding(true);
+        // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
+        // and interactive evaluation. Match this for oracle test parity.
+        eval.set_lexical_binding(true);
 
-    Ok(eval)
+        Ok(eval)
+    })
 }
 
 /// Create a bootstrap evaluator, using a pdump cache file if available.
