@@ -1,7 +1,7 @@
 //! File loading and module system (require/provide/load).
 
 use super::error::{EvalError, map_flow};
-use super::eval::{quote_to_value, value_to_expr};
+use super::eval::{collect_opaque_values, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
@@ -665,14 +665,13 @@ fn cache_key(lexical_binding: bool) -> String {
     format!("{ELISP_CACHE_SCHEMA};vm={ELISP_CACHE_VM_VERSION};lexical={lexical}")
 }
 
-// V5 stores expanded forms in the same structural binary encoding as V4, but
-// invalidates older expanded caches whose replay flattened side-effectful
-// top-level macros like `define-inline`, losing `compiler-macro` installation
-// for `cl-defstruct`/`eieio` accessors. V2 used printed text and cannot
-// preserve repeated `#:foo` identity, so it must not share a wire
-// format/version.
-const ELISP_EXPANDED_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V5";
-const ELISP_EXPANDED_CACHE_SCHEMA: &str = "schema=5";
+// V8 invalidates V7 caches built around the isolated-replay experiment.
+// GNU Emacs source loading mutates the live runtime image while eagerly
+// macroexpanding; the isolated clone diverged on bootstrap files like
+// `cl-preloaded` and `language/chinese`. Rebuild expanded caches against the
+// live evaluator path so replay matches GNU Emacs source semantics.
+const ELISP_EXPANDED_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V8";
+const ELISP_EXPANDED_CACHE_SCHEMA: &str = "schema=8";
 const ELISP_EXPANDED_CACHE_LEGACY_MAGIC: &str = "NEOVM-ELISP-CACHE-V2";
 const ELISP_EXPANDED_CACHE_LEGACY_SCHEMA: &str = "schema=2";
 
@@ -811,6 +810,30 @@ impl CacheExprDecoder {
             ),
             CachedExpr::Bool(b) => Expr::Bool(*b),
         }
+    }
+}
+
+fn sync_interner_growth(
+    live_eval: &mut super::eval::Evaluator,
+    working_eval: &super::eval::Evaluator,
+) {
+    let live_len = live_eval.interner.strings().len();
+    let working_strings = working_eval.interner.strings();
+    if working_strings.len() <= live_len {
+        return;
+    }
+
+    for (index, name) in working_strings.iter().enumerate().skip(live_len) {
+        let expected = SymId(index as u32);
+        let new_id = if working_eval.interner.lookup(name) == Some(expected) {
+            live_eval.interner.intern(name)
+        } else {
+            live_eval.interner.intern_uninterned(name)
+        };
+        debug_assert_eq!(
+            new_id, expected,
+            "working evaluator interner diverged while cloning eager replay state"
+        );
     }
 }
 
@@ -1078,6 +1101,20 @@ fn load_cache_writes_enabled() -> bool {
     }
 }
 
+fn expanded_cache_reads_enabled() -> bool {
+    match std::env::var("NEOVM_DISABLE_EXPANDED_CACHE_READ") {
+        Ok(value) => !cache_write_disabled_env_value(&value),
+        Err(_) => true,
+    }
+}
+
+fn isolated_eager_replay_requested() -> bool {
+    match std::env::var("NEOVM_ENABLE_ISOLATED_EAGER_REPLAY") {
+        Ok(value) => cache_write_disabled_env_value(&value),
+        Err(_) => false,
+    }
+}
+
 fn strip_utf8_bom(source: &str) -> &str {
     source.strip_prefix('\u{feff}').unwrap_or(source)
 }
@@ -1330,16 +1367,10 @@ fn eager_expand_eval(
     Ok(result)
 }
 
-/// Check if a Value is a `(quote ...)` form.
-fn is_quote_form(val: Value, heap: &crate::gc::heap::LispHeap) -> bool {
-    if let Value::Cons(id) = val {
-        heap.cons_car(id).is_symbol_named("quote")
-    } else {
-        false
-    }
-}
-
-fn should_cache_original_form(form_value: Value, heap: &crate::gc::heap::LispHeap) -> bool {
+fn should_preserve_original_replay_form(
+    form_value: Value,
+    heap: &crate::gc::heap::LispHeap,
+) -> bool {
     let Value::Cons(id) = form_value else {
         return false;
     };
@@ -1351,14 +1382,9 @@ fn should_cache_original_form(form_value: Value, heap: &crate::gc::heap::LispHea
 /// `Vec<Expr>` for V2 cache serialization. The expanded Expr is captured
 /// BEFORE eval (while the heap value is still rooted and stable).
 ///
-/// **`eval-and-compile` handling**: Macros like `eval-and-compile` evaluate
-/// their body at expansion time and return `(quote RESULT)`. The side effects
-/// (e.g. type registration via `oclosure--define`) happen during expansion
-/// and are lost in the quoted result. To preserve these side effects for V2
-/// replay, we detect when expansion collapses a non-quote form into a quote
-/// and cache the ORIGINAL form instead. On V2 replay, the evaluator handles
-/// `eval-and-compile` as a special form, re-executing the body and its side
-/// effects.
+/// `define-inline` handling: preserve the original top-level form for replay,
+/// because the inline expander registration side effects are not recoverable
+/// from the fully-expanded result alone.
 fn eager_expand_eval_and_collect(
     eval: &mut super::eval::Evaluator,
     form_value: Value,
@@ -1382,10 +1408,8 @@ fn eager_expand_eval_and_collect(
     // Detect expansion-time side-effect loss while the original form is still
     // rooted, and eagerly materialize the original Expr if we need to cache
     // it for replay.
-    let use_original_for_cache = (is_quote_form(val, &eval.heap)
-        && !is_quote_form(form_value, &eval.heap))
-        || should_cache_original_form(form_value, &eval.heap);
-    let original_cached_expr = use_original_for_cache.then(|| value_to_expr(&form_value));
+    let preserve_original_replay = should_preserve_original_replay_form(form_value, &eval.heap);
+    let original_cached_expr = preserve_original_replay.then(|| value_to_expr(&form_value));
     eval.restore_temp_roots(saved);
 
     // Step 2: if result is (progn ...), recurse into subforms (flattens into
@@ -1394,7 +1418,7 @@ fn eager_expand_eval_and_collect(
     if let Value::Cons(id) = val {
         let car = eval.heap.cons_car(id);
         let cdr = eval.heap.cons_cdr(id);
-        if car.is_symbol_named("progn") && !use_original_for_cache {
+        if car.is_symbol_named("progn") && !preserve_original_replay {
             let saved_progn = eval.save_temp_roots();
             eval.push_temp_root(val);
             let mut result = Value::Nil;
@@ -1424,8 +1448,9 @@ fn eager_expand_eval_and_collect(
     eval.restore_temp_roots(saved);
 
     // Step 4: capture Expr BEFORE eval, then eval.
-    // If the macro had expansion-time side effects (use_original_for_cache),
-    // cache the original form so those side effects re-run on V2 replay.
+    // If the macro had top-level replay side effects (currently define-inline),
+    // cache the original form so replay re-registers them.
+    let use_original_for_cache = preserve_original_replay;
     let saved = eval.save_temp_roots();
     eval.push_temp_root(fully_expanded);
     if use_original_for_cache {
@@ -1479,7 +1504,7 @@ pub fn load_file(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Value
     }
     eval.loads_in_progress.push(canonical);
 
-    let result = load_file_body(eval, path);
+    let result = stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || load_file_body(eval, path));
 
     eval.loads_in_progress.pop();
     result
@@ -1563,7 +1588,7 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
         // === V2 expanded-cache fast path ===
         // If macroexpand is available AND we have a V2 cache hit, just eval
         // the pre-expanded forms directly — no macro expansion needed.
-        if macroexpand_fn.is_some() {
+        if macroexpand_fn.is_some() && expanded_cache_reads_enabled() {
             if let Some(expanded_forms) =
                 maybe_load_expanded_cache(path, &content, eval.lexical_binding())
             {
@@ -1596,59 +1621,126 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
         } else {
             Vec::new()
         };
-
-        for (i, form) in forms.iter().enumerate() {
-            tracing::debug!(
-                "{} FORM[{i}/{}]: {}",
-                file_name,
-                forms.len(),
-                print_expr(form).chars().take(100).collect::<String>()
-            );
-            let start = std::time::Instant::now();
-            let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
-            let eval_result = if let Some(mexp_fn) = macroexpand_fn {
-                let form_value = eval.quote_to_runtime_value(form);
-                eager_expand_eval_and_collect(eval, form_value, mexp_fn, &mut expanded_collector)
-            } else {
-                eval.eval_expr(form)
-            };
-            let elapsed = start.elapsed();
-            let (dh, dm) = (eval.macro_cache_hits - h0, eval.macro_cache_misses - m0);
-            if elapsed.as_millis() > 200 || dm > 0 || dh > 0 {
+        let run_forms = |working_eval: &mut super::eval::Evaluator,
+                         eager_macroexpand_fn: Option<Value>,
+                         expanded_forms: &mut Vec<Expr>|
+         -> Result<(), EvalError> {
+            for (i, form) in forms.iter().enumerate() {
                 tracing::debug!(
-                    "  {file_name} FORM[{i}] ({:.2?}) [cache hit={dh} miss={dm}]: {}",
-                    elapsed,
-                    print_expr(form).chars().take(80).collect::<String>()
+                    "{} FORM[{i}/{}]: {}",
+                    file_name,
+                    forms.len(),
+                    print_expr(form).chars().take(100).collect::<String>()
                 );
-            }
-            if let Err(ref e) = eval_result {
-                // Build a human-readable error message resolving Str ObjIds
-                let err_detail = match e {
-                    EvalError::Signal { symbol, data } => {
-                        let sym_name = super::intern::resolve_sym(*symbol);
-                        let data_strs: Vec<String> =
-                            data.iter().map(|v| format_value_for_error(v)).collect();
-                        format!("({} {})", sym_name, data_strs.join(" "))
-                    }
-                    other => format!("{:?}", other),
+                let start = std::time::Instant::now();
+                let (h0, m0) = (
+                    working_eval.macro_cache_hits,
+                    working_eval.macro_cache_misses,
+                );
+                let eval_result = if let Some(mexp_fn) = eager_macroexpand_fn {
+                    let form_value = working_eval.quote_to_runtime_value(form);
+                    eager_expand_eval_and_collect(working_eval, form_value, mexp_fn, expanded_forms)
+                } else {
+                    working_eval.eval_expr(form)
                 };
-                tracing::error!(
-                    "  !! {file_name} FORM[{i}] FAILED: {} => {}",
-                    print_expr(form).chars().take(120).collect::<String>(),
-                    err_detail
+                let elapsed = start.elapsed();
+                let (dh, dm) = (
+                    working_eval.macro_cache_hits - h0,
+                    working_eval.macro_cache_misses - m0,
                 );
-            }
-            eval_result?;
-            eval.gc_safe_point();
+                if elapsed.as_millis() > 200 || dm > 0 || dh > 0 {
+                    tracing::debug!(
+                        "  {file_name} FORM[{i}] ({:.2?}) [cache hit={dh} miss={dm}]: {}",
+                        elapsed,
+                        print_expr(form).chars().take(80).collect::<String>()
+                    );
+                }
+                if let Err(ref e) = eval_result {
+                    // Build a human-readable error message resolving Str ObjIds
+                    let err_detail = match e {
+                        EvalError::Signal { symbol, data } => {
+                            let sym_name = super::intern::resolve_sym(*symbol);
+                            let data_strs: Vec<String> =
+                                data.iter().map(|v| format_value_for_error(v)).collect();
+                            format!("({} {})", sym_name, data_strs.join(" "))
+                        }
+                        other => format!("{:?}", other),
+                    };
+                    tracing::error!(
+                        "  !! {file_name} FORM[{i}] FAILED: {} => {}",
+                        print_expr(form).chars().take(120).collect::<String>(),
+                        err_detail
+                    );
+                }
+                eval_result?;
+                working_eval.gc_safe_point();
 
-            // Note: we intentionally do NOT re-check `macroexpand_fn`
-            // mid-file.  Enabling eager expansion mid-file breaks pcase.el
-            // loading: once `\`--pcase-macroexpander` is defined, the re-check
-            // would enable eager expansion for `pcase--expand-\``, but
-            // macroexpand-all needs that very function (circular dependency).
-            // Real Emacs prevents this via `macroexp--pending-eager-loads`;
-            // we simply check once at file start and keep that mode for the
-            // whole file.
+                // Note: we intentionally do NOT re-check `macroexpand_fn`
+                // mid-file.  Enabling eager expansion mid-file breaks pcase.el
+                // loading: once `\`--pcase-macroexpander` is defined, the re-check
+                // would enable eager expansion for `pcase--expand-\``, but
+                // macroexpand-all needs that very function (circular dependency).
+                // Real Emacs prevents this via `macroexp--pending-eager-loads`;
+                // we simply check once at file start and keep that mode for the
+                // whole file.
+            }
+            Ok(())
+        };
+
+        if macroexpand_fn.is_some() && isolated_eager_replay_requested() {
+            let mut working_eval =
+                super::pdump::clone_evaluator(eval).map_err(|e| EvalError::Signal {
+                    symbol: intern("error"),
+                    data: vec![Value::string(format!(
+                        "failed to clone evaluator for eager macroexpand replay: {e}"
+                    ))],
+                })?;
+            working_eval.macro_expansion_cache.clear();
+            let working_macroexpand_fn = get_eager_macroexpand_fn(&working_eval)
+                .expect("macroexpand function should exist in cloned evaluator");
+            let working_result = run_forms(
+                &mut working_eval,
+                Some(working_macroexpand_fn),
+                &mut expanded_collector,
+            );
+            sync_interner_growth(eval, &working_eval);
+            eval.setup_thread_locals();
+            working_result?;
+            let replay_forms = std::mem::take(&mut expanded_collector);
+            let replay_saved_roots = eval.save_temp_roots();
+            let mut replay_opaque_roots = Vec::new();
+            for form in &replay_forms {
+                collect_opaque_values(form, &mut replay_opaque_roots);
+            }
+            for value in replay_opaque_roots {
+                eval.push_temp_root(value);
+            }
+            for (i, form) in replay_forms.iter().enumerate() {
+                if let Err(err) = eval.eval_expr(form) {
+                    let err_detail = match &err {
+                        EvalError::Signal { symbol, data } => {
+                            let sym_name = super::intern::resolve_sym(*symbol);
+                            let data_strs: Vec<String> =
+                                data.iter().map(|v| format_value_for_error(v)).collect();
+                            format!("({} {})", sym_name, data_strs.join(" "))
+                        }
+                        other => format!("{other:?}"),
+                    };
+                    tracing::error!(
+                        "  !! {file_name} REPLAY[{i}] FAILED: {} => {}",
+                        print_expr(form).chars().take(120).collect::<String>(),
+                        err_detail
+                    );
+                    return Err(err);
+                }
+                eval.gc_safe_point();
+            }
+            eval.restore_temp_roots(replay_saved_roots);
+            expanded_collector = replay_forms;
+        } else if let Some(mexp_fn) = macroexpand_fn {
+            run_forms(eval, Some(mexp_fn), &mut expanded_collector)?;
+        } else {
+            run_forms(eval, None, &mut expanded_collector)?;
         }
 
         // Write V2 expanded cache if we collected forms and none contain OpaqueValues.
@@ -1875,10 +1967,11 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly.  The March 2026 startup fixes require regenerating
-// cached bootstrap images because derived-mode lambdas and startup buffer
-// state changed semantically.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 4;
+// represent correctly. The March 2026 startup fixes require regenerating
+// cached bootstrap images because eager macroexpansion now follows the live
+// GNU Emacs source-loading path by default instead of the isolated replay
+// experiment.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 6;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",

@@ -192,6 +192,24 @@ fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
     );
 }
 
+#[test]
+fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        "(list (featurep 'cl-lib)
+               (featurep 'seq)
+               (featurep 'cl-generic)
+               (fboundp 'cl-every)
+               (symbol-function 'cl-every))",
+    );
+    assert_eq!(
+        rendered, "OK (nil t t nil nil)",
+        "bootstrap runtime should match GNU -Q startup visibility for cl-lib autoloads"
+    );
+}
+
 fn eval_rendered(eval: &mut Evaluator, form: &str) -> String {
     let parsed = crate::emacs_core::parser::parse_forms(form).expect("parse eval form");
     match eval.eval_expr(&parsed[0]) {
@@ -1221,6 +1239,94 @@ fn compiled_characters_loads_after_case_table() {
             format_eval_error(&eval, &err)
         )
     });
+}
+
+#[test]
+fn source_chinese_loads_after_composite() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    let mut eval = partial_bootstrap_eval_until("language/chinese", false);
+    let load_path = get_load_path(&eval.obarray());
+    let path = bootstrap_fixture_path(&load_path, "language/chinese", false)
+        .expect("source language/chinese fixture path");
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading language/chinese from {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+}
+
+#[test]
+fn define_prefix_command_sets_symbol_value_and_function() {
+    let mut eval = partial_bootstrap_eval_until("keymap", false);
+    let probe = crate::emacs_core::parser::parse_forms(
+        r#"(let ((cmd 'neovm--test-prefix-map))
+             (define-prefix-command cmd nil "Test Prefix")
+             (list (eq cmd 'neovm--test-prefix-map)
+                   (keymapp (symbol-function cmd))
+                   (keymapp (symbol-value cmd))))"#,
+    )
+    .expect("parse define-prefix-command probe");
+    let result = eval
+        .eval_expr(&probe[0])
+        .expect("evaluate define-prefix-command probe");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
+        vec![Value::True, Value::True, Value::True]
+    );
+}
+
+#[test]
+fn lookup_key_returned_submenu_symbol_has_bound_value() {
+    let mut eval = partial_bootstrap_eval_until("keymap", false);
+    let probe = crate::emacs_core::parser::parse_forms(
+        r#"(let* ((root (make-sparse-keymap))
+                  (submenu 'describe-chinese-environment-map))
+             (define-prefix-command submenu nil "Chinese Environment")
+             (define-key-after root (vector 'Chinese) (cons "Chinese" submenu))
+             (let ((found (lookup-key root [Chinese])))
+               (list (eq found submenu)
+                     (keymapp (symbol-value found)))))"#,
+    )
+    .expect("parse lookup-key submenu probe");
+    let result = eval
+        .eval_expr(&probe[0])
+        .expect("evaluate lookup-key submenu probe");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
+        vec![Value::True, Value::True]
+    );
+}
+
+#[test]
+fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
+    let mut eval = partial_bootstrap_eval_until("language/chinese", false);
+    let probe = crate::emacs_core::parser::parse_forms(
+        r#"(progn
+             (set-language-info-alist
+              "Chinese-GB"
+              '((documentation . "GB"))
+              '("Chinese"))
+             (set-language-info-alist
+              "Chinese-BIG5"
+              '((documentation . "BIG5"))
+              '("Chinese"))
+             (keymapp describe-chinese-environment-map))"#,
+    )
+    .expect("parse set-language-info-alist submenu probe");
+    let result = eval
+        .eval_expr(&probe[0])
+        .expect("evaluate set-language-info-alist submenu probe");
+    assert_eq!(result, Value::True);
 }
 
 #[test]

@@ -130,6 +130,16 @@ pub fn load_from_dump(path: &Path) -> Result<Evaluator, DumpError> {
     reconstruct_evaluator(state)
 }
 
+/// Clone a live evaluator through the pdump conversion pipeline.
+///
+/// This gives bootstrap/load code an isolated working evaluator with the same
+/// logical runtime state, without sharing heap objects that can be mutated
+/// during eager macroexpansion.
+pub(crate) fn clone_evaluator(eval: &Evaluator) -> Result<Evaluator, DumpError> {
+    let state = dump_evaluator(eval);
+    reconstruct_evaluator(state)
+}
+
 /// Reconstruct an `Evaluator` from deserialized dump state.
 fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpError> {
     // 1. Reconstruct interner and set thread-local
