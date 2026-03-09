@@ -39,6 +39,9 @@ use crate::gc::ObjId;
 use crate::gc::heap::LispHeap;
 use crate::window::FrameManager;
 
+const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
+const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
+
 /// Compute a content fingerprint of a macro call's args slice.
 ///
 /// Used to detect ABA in the macro expansion cache: when a lambda body
@@ -2223,9 +2226,12 @@ impl Evaluator {
         // exhaustion.  The red-zone (256 KB) must be larger than the
         // combined stack frames between successive eval() calls (through
         // eval_list → apply → apply_lambda → bytecode VM).  When the
-        // remaining stack falls below the red-zone a new 2 MB segment is
-        // allocated on the heap.
-        let result = stacker::maybe_grow(256 * 1024, 2 * 1024 * 1024, || self.eval_inner(expr));
+        // remaining stack falls below the red-zone a new segment is allocated
+        // on the heap. GNU bootstrap/source-load recursion can legitimately
+        // exceed a 2 MB segment long before max-lisp-eval-depth is reached.
+        let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+            self.eval_inner(expr)
+        });
         self.depth -= 1;
         result
     }
@@ -2443,9 +2449,28 @@ impl Evaluator {
             }
 
             // Check for macro expansion (from obarray function cell)
-            if let Some(func) = self.obarray.symbol_function(name).cloned() {
+            if let Some(mut func) = self.obarray.symbol_function(name).cloned() {
                 if func.is_nil() {
                     return Err(signal("void-function", vec![Value::symbol(name)]));
+                }
+
+                if super::autoload::is_autoload_value(&func) {
+                    // GNU eval.c handles macro autoloads before argument
+                    // evaluation: load the file only if the autoload TYPE is
+                    // macro-like, then retry the normal macro-expansion path
+                    // with the freshly installed definition.
+                    let _ = super::autoload::builtin_autoload_do_load(
+                        self,
+                        vec![func, Value::symbol(name), Value::symbol("macro")],
+                    )?;
+                    if let Some(loaded_macro) = self.obarray.symbol_function(name).cloned() {
+                        let is_loaded_macro = matches!(loaded_macro, Value::Macro(_))
+                            || (loaded_macro.is_cons()
+                                && loaded_macro.cons_car().is_symbol_named("macro"));
+                        if is_loaded_macro {
+                            func = loaded_macro;
+                        }
+                    }
                 }
 
                 if let Value::Macro(_) = &func {
@@ -4863,7 +4888,7 @@ impl Evaluator {
         // frames between successive eval() calls. Grow the stack at the
         // function-application boundary so those paths don't exhaust the
         // native thread stack long before max-lisp-eval-depth is reached.
-        let result = stacker::maybe_grow(256 * 1024, 2 * 1024 * 1024, || {
+        let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
             self.apply_inner(function, args)
         });
         self.restore_temp_roots(saved_roots);
@@ -5251,8 +5276,9 @@ impl Evaluator {
 
         // Macros are sometimes invoked directly via apply_lambda during
         // expansion, bypassing apply(). Keep the same stack-growth guard here.
-        let result =
-            stacker::maybe_grow(256 * 1024, 2 * 1024 * 1024, || self.sf_progn(&lambda.body));
+        let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+            self.sf_progn(&lambda.body)
+        });
 
         if let Some(old_mode) = saved_lexical_mode {
             self.set_lexical_binding(old_mode);

@@ -34,6 +34,9 @@ pub enum AutoloadType {
 impl AutoloadType {
     /// Parse a Value into an AutoloadType.
     pub fn from_value(val: &Value) -> Self {
+        if matches!(val, Value::True) {
+            return Self::Macro;
+        }
         match val.as_symbol_name() {
             Some("macro") => Self::Macro,
             Some("keymap") => Self::Keymap,
@@ -114,6 +117,12 @@ impl AutoloadManager {
     /// Get the autoload entry for a function name.
     pub fn get_entry(&self, name: &str) -> Option<&AutoloadEntry> {
         self.entries.get(name)
+    }
+
+    /// Snapshot current autoload entries for callers that need to rebuild
+    /// function cells from the registered autoload metadata.
+    pub fn entries_snapshot(&self) -> Vec<AutoloadEntry> {
+        self.entries.values().cloned().collect()
     }
 
     /// Remove an autoload entry (used after the file has been loaded and the

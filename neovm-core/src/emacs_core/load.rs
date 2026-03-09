@@ -665,13 +665,12 @@ fn cache_key(lexical_binding: bool) -> String {
     format!("{ELISP_CACHE_SCHEMA};vm={ELISP_CACHE_VM_VERSION};lexical={lexical}")
 }
 
-// V8 invalidates V7 caches built around the isolated-replay experiment.
-// GNU Emacs source loading mutates the live runtime image while eagerly
-// macroexpanding; the isolated clone diverged on bootstrap files like
-// `cl-preloaded` and `language/chinese`. Rebuild expanded caches against the
-// live evaluator path so replay matches GNU Emacs source semantics.
-const ELISP_EXPANDED_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V8";
-const ELISP_EXPANDED_CACHE_SCHEMA: &str = "schema=8";
+// V10 invalidates V9 caches because replay now preserves additional
+// `eval-and-compile` source-load side effects whose helpers must remain
+// available during later compile-time loads, notably `advice--normalize-place`
+// from `nadvice.el`.
+const ELISP_EXPANDED_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V10";
+const ELISP_EXPANDED_CACHE_SCHEMA: &str = "schema=10";
 const ELISP_EXPANDED_CACHE_LEGACY_MAGIC: &str = "NEOVM-ELISP-CACHE-V2";
 const ELISP_EXPANDED_CACHE_LEGACY_SCHEMA: &str = "schema=2";
 
@@ -1367,6 +1366,14 @@ fn eager_expand_eval(
     Ok(result)
 }
 
+fn is_quote_form(val: Value, heap: &crate::gc::heap::LispHeap) -> bool {
+    if let Value::Cons(id) = val {
+        heap.cons_car(id).is_symbol_named("quote")
+    } else {
+        false
+    }
+}
+
 fn should_preserve_original_replay_form(
     form_value: Value,
     heap: &crate::gc::heap::LispHeap,
@@ -1375,16 +1382,19 @@ fn should_preserve_original_replay_form(
         return false;
     };
     let head = heap.cons_car(id);
-    head.is_symbol_named("define-inline")
+    head.is_symbol_named("define-inline") || head.is_symbol_named("oclosure-define")
 }
 
 /// Like `eager_expand_eval`, but also collects fully-expanded forms into a
 /// `Vec<Expr>` for V2 cache serialization. The expanded Expr is captured
 /// BEFORE eval (while the heap value is still rooted and stable).
 ///
-/// `define-inline` handling: preserve the original top-level form for replay,
-/// because the inline expander registration side effects are not recoverable
-/// from the fully-expanded result alone.
+/// Preserve original top-level forms for replay when eager macroexpansion would
+/// otherwise erase GNU source-load side effects:
+/// - `eval-and-compile` forms can collapse into `(quote ...)` while their body
+///   still needs to run again during replay.
+/// - macros like `define-inline` and `oclosure-define` install runtime-visible
+///   metadata during expansion that is not recoverable from the expanded form.
 fn eager_expand_eval_and_collect(
     eval: &mut super::eval::Evaluator,
     form_value: Value,
@@ -1408,7 +1418,9 @@ fn eager_expand_eval_and_collect(
     // Detect expansion-time side-effect loss while the original form is still
     // rooted, and eagerly materialize the original Expr if we need to cache
     // it for replay.
-    let preserve_original_replay = should_preserve_original_replay_form(form_value, &eval.heap);
+    let preserve_original_replay = (is_quote_form(val, &eval.heap)
+        && !is_quote_form(form_value, &eval.heap))
+        || should_preserve_original_replay_form(form_value, &eval.heap);
     let original_cached_expr = preserve_original_replay.then(|| value_to_expr(&form_value));
     eval.restore_temp_roots(saved);
 
@@ -2090,8 +2102,344 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Evaluator, project_ro
     }
 }
 
-fn finalize_cached_bootstrap_eval(eval: &mut super::eval::Evaluator, project_root: &Path) {
+fn expr_symbol_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+        _ => None,
+    }
+}
+
+fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+        Expr::List(items) if items.len() == 2 => match (&items[0], &items[1]) {
+            (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(*head) == "quote" => {
+                Some(resolve_sym(*id).to_owned())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn expr_runtime_value(expr: &Expr) -> Option<Value> {
+    match expr {
+        Expr::Int(v) => Some(Value::Int(*v)),
+        Expr::Symbol(id) => match resolve_sym(*id) {
+            "nil" => Some(Value::Nil),
+            "t" => Some(Value::True),
+            name => Some(Value::symbol(name)),
+        },
+        Expr::Keyword(id) => Some(Value::symbol(resolve_sym(*id))),
+        Expr::Str(s) => Some(Value::string(s.clone())),
+        Expr::Char(c) => Some(Value::Char(*c)),
+        Expr::List(_) => expr_quoted_symbol_name(expr).map(|name| Value::symbol(&name)),
+        _ => None,
+    }
+}
+
+fn collect_compile_only_function_names(
+    expr: &Expr,
+    names: &mut std::collections::BTreeSet<String>,
+) {
+    let Expr::List(items) = expr else {
+        return;
+    };
+    let Some(Expr::Symbol(head_id)) = items.first() else {
+        return;
+    };
+    match resolve_sym(*head_id) {
+        "progn" | "eval-and-compile" | "eval-when-compile" => {
+            for item in &items[1..] {
+                collect_compile_only_function_names(item, names);
+            }
+        }
+        "defun"
+        | "defmacro"
+        | "defsubst"
+        | "define-inline"
+        | "defalias"
+        | "fset"
+        | "cl-defun"
+        | "cl-defmacro"
+        | "cl-defsubst"
+        | "cl-define-compiler-macro" => {
+            if let Some(name_expr) = items.get(1)
+                && let Some(name) = expr_symbol_name(name_expr)
+            {
+                names.insert(name);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn compile_only_bootstrap_function_names(
+    project_root: &Path,
+) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for relative in [
+        "lisp/emacs-lisp/cl-extra.el",
+        "lisp/emacs-lisp/cl-macs.el",
+        "lisp/emacs-lisp/cl-seq.el",
+        "lisp/emacs-lisp/gv.el",
+    ] {
+        let path = project_root.join(relative);
+        let Ok(source) = fs::read_to_string(&path) else {
+            tracing::warn!("bootstrap cleanup: failed reading {}", path.display());
+            continue;
+        };
+        let Ok(forms) = crate::emacs_core::parser::parse_forms(&source) else {
+            tracing::warn!("bootstrap cleanup: failed parsing {}", path.display());
+            continue;
+        };
+        for form in &forms {
+            collect_compile_only_function_names(form, &mut names);
+        }
+    }
+    names
+}
+
+const SUBR_POST_GV_EAGER_REPLAY_FORMS: &[&str] = &[
+    "event--posn-at-point",
+    "add-hook",
+    "remove-hook",
+    "internal-pop-keymap",
+];
+
+fn replay_selected_source_defuns_with_eager_expansion(
+    eval: &mut super::eval::Evaluator,
+    path: &Path,
+    names: &[&str],
+) -> Result<(), EvalError> {
+    let content = fs::read_to_string(path).map_err(|err| EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![Value::string(format!(
+            "bootstrap eager replay: failed reading {}: {err}",
+            path.display()
+        ))],
+    })?;
+    let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;
+    let selected = forms.iter().filter(|form| {
+        let Expr::List(items) = form else {
+            return false;
+        };
+        let Some(Expr::Symbol(head_id)) = items.first() else {
+            return false;
+        };
+        if resolve_sym(*head_id) != "defun" {
+            return false;
+        }
+        let Some(Expr::Symbol(name_id)) = items.get(1) else {
+            return false;
+        };
+        names.contains(&resolve_sym(*name_id))
+    });
+
+    let saved_lexical = eval.lexical_binding();
+    let saved_load_file_name = eval.obarray().symbol_value("load-file-name").cloned();
+    if lexical_binding_enabled_for_source(&content) {
+        eval.set_lexical_binding(true);
+    }
+    eval.set_variable(
+        "load-file-name",
+        Value::string(path.to_string_lossy().to_string()),
+    );
+
+    let macroexpand_fn = get_eager_macroexpand_fn(eval).ok_or_else(|| EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![Value::string(format!(
+            "bootstrap eager replay unavailable for {}",
+            path.display()
+        ))],
+    })?;
+
+    for form in selected {
+        let form_value = eval.quote_to_runtime_value(form);
+        eager_expand_eval(eval, form_value, macroexpand_fn)?;
+        eval.gc_safe_point();
+    }
+
+    eval.set_lexical_binding(saved_lexical);
+    match saved_load_file_name {
+        Some(value) => {
+            eval.set_variable("load-file-name", value);
+        }
+        None => {
+            eval.obarray_mut()
+                .set_symbol_value("load-file-name", Value::Nil);
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_runtime_loaddefs_autoload_args(
+    expr: &Expr,
+    restore_autoload_files: &[&str],
+    restore_names: &mut std::collections::BTreeSet<String>,
+    out: &mut Vec<Vec<Value>>,
+) {
+    let Expr::List(items) = expr else {
+        return;
+    };
+    let Some(Expr::Symbol(head_id)) = items.first() else {
+        return;
+    };
+    if resolve_sym(*head_id) != "autoload" {
+        return;
+    }
+
+    let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) else {
+        return;
+    };
+    let Some(Expr::Str(file)) = items.get(2) else {
+        return;
+    };
+    if !restore_autoload_files.contains(&file.as_str()) {
+        return;
+    }
+
+    restore_names.insert(name.clone());
+    let mut args = vec![Value::symbol(&name), Value::string(file.clone())];
+    for expr in items.iter().skip(3).take(3) {
+        let Some(value) = expr_runtime_value(expr) else {
+            return;
+        };
+        args.push(value);
+    }
+    out.push(args);
+}
+
+fn collect_runtime_loaddefs_property_forms(
+    expr: &Expr,
+    restore_names: &std::collections::BTreeSet<String>,
+    out: &mut Vec<Expr>,
+) {
+    let Expr::List(items) = expr else {
+        return;
+    };
+    let Some(Expr::Symbol(head_id)) = items.first() else {
+        return;
+    };
+    let head = resolve_sym(*head_id);
+    if head != "function-put" && head != "put" {
+        return;
+    }
+    let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) else {
+        return;
+    };
+    if restore_names.contains(&name) {
+        out.push(expr.clone());
+    }
+}
+
+fn runtime_loaddefs_restore_state(
+    project_root: &Path,
+    restore_autoload_files: &[&str],
+) -> Result<(Vec<Vec<Value>>, Vec<Expr>), EvalError> {
+    let loaddefs_paths = [
+        project_root.join("lisp/ldefs-boot.el"),
+        project_root.join("lisp/emacs-lisp/cl-loaddefs.el"),
+    ];
+
+    let mut args = Vec::new();
+    let mut restore_names = std::collections::BTreeSet::new();
+    let mut property_forms = Vec::new();
+
+    for loaddefs_path in loaddefs_paths {
+        let source = fs::read_to_string(&loaddefs_path).map_err(|err| EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![Value::string(format!(
+                "bootstrap runtime cleanup: failed reading {}: {err}",
+                loaddefs_path.display()
+            ))],
+        })?;
+        let forms =
+            crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "bootstrap runtime cleanup: failed parsing {}: {err}",
+                    loaddefs_path.display()
+                ))],
+            })?;
+
+        for form in &forms {
+            collect_runtime_loaddefs_autoload_args(
+                form,
+                restore_autoload_files,
+                &mut restore_names,
+                &mut args,
+            );
+        }
+        for form in &forms {
+            collect_runtime_loaddefs_property_forms(form, &restore_names, &mut property_forms);
+        }
+    }
+    Ok((args, property_forms))
+}
+
+fn normalize_bootstrap_runtime_surface(
+    eval: &mut super::eval::Evaluator,
+    project_root: &Path,
+) -> Result<(), EvalError> {
+    let compile_only_features = ["cl-macs", "cl-extra", "cl-seq", "gv"];
+    let strip_autoload_files = ["cl-extra", "cl-macs", "cl-seq", "gv"];
+    let restore_autoload_files = ["cl-extra", "cl-macs", "cl-seq", "gv"];
+    let (restore_autoload_args, restore_property_forms) =
+        runtime_loaddefs_restore_state(project_root, &restore_autoload_files)?;
+    let compile_only_names = compile_only_bootstrap_function_names(project_root);
+
+    for feature in compile_only_features {
+        eval.remove_feature(feature);
+    }
+
+    for name in &compile_only_names {
+        eval.obarray_mut().fmakunbound(&name);
+        eval.autoloads.remove(name);
+        let _ = super::builtins::builtin_put(
+            eval,
+            vec![
+                Value::symbol(name),
+                Value::symbol("autoload-macro"),
+                Value::Nil,
+            ],
+        );
+    }
+
+    let autoload_entries = eval.autoloads.entries_snapshot();
+    for entry in &autoload_entries {
+        if strip_autoload_files.contains(&entry.file.as_str())
+            || compile_only_names.contains(&entry.name)
+        {
+            eval.autoloads.remove(&entry.name);
+            let _ = super::builtins::builtin_put(
+                eval,
+                vec![
+                    Value::symbol(&entry.name),
+                    Value::symbol("autoload-macro"),
+                    Value::Nil,
+                ],
+            );
+        }
+    }
+
+    for args in restore_autoload_args {
+        super::autoload::builtin_autoload(eval, args).map_err(map_flow)?;
+    }
+    for form in &restore_property_forms {
+        eval.eval_expr(form)?;
+    }
+
+    Ok(())
+}
+
+fn finalize_cached_bootstrap_eval(
+    eval: &mut super::eval::Evaluator,
+    project_root: &Path,
+) -> Result<(), EvalError> {
     ensure_startup_compat_variables(eval, project_root);
+    normalize_bootstrap_runtime_surface(eval, project_root)?;
 
     let lisp_dir = project_root.join("lisp");
     eval.set_variable(
@@ -2112,6 +2460,8 @@ fn finalize_cached_bootstrap_eval(eval: &mut super::eval::Evaluator, project_roo
         "installation-directory",
         Value::string(format!("{}/", project_root.to_string_lossy())),
     );
+
+    Ok(())
 }
 
 pub(crate) fn bootstrap_load_path_entries(lisp_dir: &Path) -> Vec<Value> {
@@ -2146,21 +2496,16 @@ fn eval_startup_forms(eval: &mut super::eval::Evaluator, forms_src: &str) -> Res
 ///
 /// The dumped bootstrap image intentionally stops before normal interactive
 /// startup.  Runtime callers that compare against `emacs --batch -Q` still
-/// need the early startup buffer initialization, especially the `*scratch*`
-/// major mode transition from `fundamental-mode` to `initial-major-mode`
-/// (`lisp-interaction-mode` by default).  NeoVM currently cannot rely on the
-/// dumped scratch buffer's cached syntax table being synchronized with its
-/// `major-mode`, so we force the initial major-mode setup here instead of
-/// reproducing GNU Emacs's narrower `major-mode == fundamental-mode` guard.
+/// need the early startup buffer initialization that `startup.el` performs for
+/// the `*scratch*` buffer.
 pub fn apply_runtime_startup_state(eval: &mut super::eval::Evaluator) -> Result<(), EvalError> {
     eval_startup_forms(
         eval,
         r#"
           (if (get-buffer "*scratch*")
-              (progn
-                (set-buffer "*scratch*")
-                (with-current-buffer "*scratch*"
-                  (funcall initial-major-mode))))
+              (with-current-buffer "*scratch*"
+                (if (eq major-mode 'fundamental-mode)
+                    (funcall initial-major-mode))))
         "#,
     )
 }
@@ -2191,6 +2536,7 @@ pub(crate) const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
     "faces",
     "!bootstrap-cl-preloaded-stubs",
     "!require-gv",
+    "!reload-subr-after-gv",
     "!load-ldefs-boot",
     "button",
     "emacs-lisp/cl-preloaded",
@@ -2385,6 +2731,25 @@ pub fn create_bootstrap_evaluator_with_features(
             tracing::info!("--- eager macro expansion ENABLED ---");
             continue;
         }
+        if *name == "!reload-subr-after-gv" {
+            let path = find_file_in_load_path("subr", &load_path)
+                .unwrap_or_else(|| panic!("bootstrap file not found: subr"));
+            tracing::info!("REPLAYING: subr runtime-macro defs (post-gv eager replay) ...");
+            let start = std::time::Instant::now();
+            match replay_selected_source_defuns_with_eager_expansion(
+                &mut eval,
+                &path,
+                SUBR_POST_GV_EAGER_REPLAY_FORMS,
+            ) {
+                Ok(_) => {
+                    tracing::info!("  OK: subr eager replay ({:.2?})", start.elapsed());
+                }
+                Err(err) => {
+                    panic!("failed replaying subr from {}: {:?}", path.display(), err);
+                }
+            }
+            continue;
+        }
         // Handle sentinel for loading ldefs-boot.el (autoload definitions).
         if *name == "!load-ldefs-boot" {
             let ldefs_path = lisp_dir.join("ldefs-boot.el");
@@ -2534,7 +2899,7 @@ fn create_bootstrap_evaluator_cached_at_path(
     // Allow disabling pdump via env var
     if std::env::var("NEOVM_DISABLE_PDUMP").unwrap_or_default() == "1" {
         let mut eval = create_bootstrap_evaluator_with_features(extra_features)?;
-        ensure_startup_compat_variables(&mut eval, project_root);
+        finalize_cached_bootstrap_eval(&mut eval, project_root)?;
         return Ok(eval);
     }
 
@@ -2548,7 +2913,7 @@ fn create_bootstrap_evaluator_cached_at_path(
                     dump_path.display(),
                     start.elapsed()
                 );
-                finalize_cached_bootstrap_eval(&mut eval, project_root);
+                finalize_cached_bootstrap_eval(&mut eval, project_root)?;
 
                 return Ok(eval);
             }
@@ -2587,7 +2952,7 @@ fn create_bootstrap_evaluator_cached_at_path(
                     "pdump: failed to reload freshly written bootstrap image: {e}"
                 ))],
             })?;
-            finalize_cached_bootstrap_eval(&mut loaded, project_root);
+            finalize_cached_bootstrap_eval(&mut loaded, project_root)?;
             tracing::info!(
                 "pdump: reloaded freshly written bootstrap state from {} ({:.2?})",
                 dump_path.display(),

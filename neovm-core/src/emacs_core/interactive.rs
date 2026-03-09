@@ -16,7 +16,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::Evaluator;
+use super::eval::{Evaluator, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{
@@ -2499,6 +2499,40 @@ impl DerivedModeVarSpec {
     }
 }
 
+fn maybe_macroexpand_derived_mode_body(eval: &mut Evaluator, forms: Vec<Expr>) -> Vec<Expr> {
+    let Some(macroexpand_fn) = eval
+        .obarray()
+        .symbol_function("internal-macroexpand-for-load")
+        .cloned()
+    else {
+        return forms;
+    };
+
+    if eval
+        .obarray()
+        .symbol_function("`--pcase-macroexpander")
+        .is_none()
+    {
+        return forms;
+    }
+
+    let saved_roots = eval.save_temp_roots();
+    let mut expanded_forms = Vec::with_capacity(forms.len());
+    for form in forms {
+        let form_value = quote_to_value(&form);
+        eval.push_temp_root(form_value);
+        eval.push_temp_root(macroexpand_fn);
+        let expanded = match eval.apply(macroexpand_fn, vec![form_value, Value::True]) {
+            Ok(value) => value_to_expr(&value),
+            Err(_) => form.clone(),
+        };
+        eval.restore_temp_roots(saved_roots);
+        expanded_forms.push(expanded);
+    }
+    eval.restore_temp_roots(saved_roots);
+    expanded_forms
+}
+
 pub(crate) fn sf_define_derived_mode(eval: &mut Evaluator, tail: &[Expr]) -> EvalResult {
     if tail.len() < 3 {
         return Err(signal(
@@ -2762,6 +2796,8 @@ pub(crate) fn sf_define_derived_mode(eval: &mut Evaluator, tail: &[Expr]) -> Eva
     if let Some(form) = after_hook {
         func_body.push(form);
     }
+
+    let func_body = maybe_macroexpand_derived_mode_body(eval, func_body);
 
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),

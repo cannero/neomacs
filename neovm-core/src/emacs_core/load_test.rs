@@ -171,7 +171,9 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Eva
 #[test]
 fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("startup state");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("startup state: {}", format_eval_error(&eval, &err));
+    });
     let forms = parse_forms(
         "(progn
             (fset 'vm-bootstrap-shadow-foo (lambda () t))
@@ -195,18 +197,35 @@ fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
 #[test]
 fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("startup state");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("startup state: {}", format_eval_error(&eval, &err));
+    });
     let rendered = eval_rendered(
         &mut eval,
         "(list (featurep 'cl-lib)
+               (featurep 'cl-macs)
+               (featurep 'cl-extra)
+               (featurep 'cl-seq)
+               (featurep 'gv)
                (featurep 'seq)
                (featurep 'cl-generic)
                (fboundp 'cl-every)
-               (symbol-function 'cl-every))",
+               (autoloadp (symbol-function 'cl-every))
+               (fboundp 'cl-defstruct)
+               (autoloadp (symbol-function 'cl-defstruct))
+               (fboundp 'cl-reduce)
+               (autoloadp (symbol-function 'cl-reduce))
+               (fboundp 'gv-get)
+               (autoloadp (symbol-function 'gv-get))
+               (fboundp 'setf)
+               (autoloadp (symbol-function 'setf))
+               (fboundp 'emacs-lisp-mode)
+               (autoloadp (symbol-function 'emacs-lisp-mode))
+               (functionp (symbol-function 'emacs-lisp-mode)))",
     );
     assert_eq!(
-        rendered, "OK (nil t t nil nil)",
-        "bootstrap runtime should match GNU -Q startup visibility for cl-lib autoloads"
+        rendered, "OK (t nil nil nil nil t t t t t t t t t t t t t nil t)",
+        "bootstrap runtime should match GNU -Q startup visibility for cl preload and loaddefs"
     );
 }
 
@@ -1986,6 +2005,73 @@ fn expanded_cache_replay_preserves_define_inline_compiler_macro() {
         second,
         "OK (vm--inline-cache-probe--inliner vm--inline-cache-probe--inliner)"
     );
+}
+
+#[test]
+fn expanded_cache_replay_preserves_oclosure_define_class_registration() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-oclosure-cache.el");
+    std::fs::write(
+        &path,
+        r#"
+(oclosure-define advice)
+(cl-defmethod oclosure-interactive-form ((ad advice) &optional _)
+  ad)
+"#,
+    )
+    .expect("write oclosure fixture");
+
+    let form = r#"
+(let ((class (cl--find-class 'advice)))
+  (list (and class t)
+        (ignore-errors (and (cl-generic-generalizers 'advice) t))))
+"#;
+
+    let load_with_partial_bootstrap = || {
+        let mut eval = partial_bootstrap_eval_until("emacs-lisp/nadvice", false);
+        load_file(&mut eval, &path).unwrap_or_else(|err| {
+            panic!(
+                "failed loading {}: {}",
+                path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+        eval_rendered(&mut eval, form)
+    };
+
+    let first = load_with_partial_bootstrap();
+    let second = load_with_partial_bootstrap();
+
+    assert_eq!(first, "OK (t t)");
+    assert_eq!(second, "OK (t t)");
+}
+
+#[test]
+fn expanded_cache_replay_preserves_nadvice_eval_and_compile_helpers() {
+    let load_with_partial_bootstrap = || {
+        std::thread::Builder::new()
+            .name("nadvice-cache-replay".into())
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let mut eval = partial_bootstrap_eval_until("mouse", false);
+                eval_rendered(
+                    &mut eval,
+                    r#"
+(list (fboundp 'advice--normalize-place)
+      (fboundp 'add-function))
+"#,
+                )
+            })
+            .expect("spawn nadvice bootstrap thread")
+            .join()
+            .expect("nadvice bootstrap thread should succeed")
+    };
+
+    let first = load_with_partial_bootstrap();
+    let second = load_with_partial_bootstrap();
+
+    assert_eq!(first, "OK (t t)");
+    assert_eq!(second, "OK (t t)");
 }
 
 #[test]
