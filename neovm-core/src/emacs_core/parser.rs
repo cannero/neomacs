@@ -297,6 +297,14 @@ impl<'a> Parser<'a> {
                                 return Err(self.error("invalid unicode codepoint in \\U escape"));
                             }
                         }
+                        'N' if self.current() == Some('{') => {
+                            let value = self.read_unicode_name_escape()?;
+                            if let Some(c) = char::from_u32(value) {
+                                s.push(c);
+                            } else {
+                                return Err(self.error("invalid unicode codepoint in \\N{...}"));
+                            }
+                        }
                         '0'..='7' => {
                             // Octal escape
                             let mut val = (esc as u32) - ('0' as u32);
@@ -391,6 +399,9 @@ impl<'a> Parser<'a> {
                 'd' => Ok('\x7F' as u32 | modifiers),
                 '\\' => Ok('\\' as u32 | modifiers),
                 '"' => Ok('"' as u32 | modifiers),
+                'N' if self.current() == Some('{') => {
+                    Ok(self.read_unicode_name_escape()? | modifiers)
+                }
                 '^' => {
                     let Some(base) = self.current() else {
                         return Err(self.error("expected char after \\^ in string"));
@@ -473,6 +484,33 @@ impl<'a> Parser<'a> {
             .map_err(|_| self.error("invalid hex escape"))
     }
 
+    fn read_unicode_name_escape(&mut self) -> Result<u32, ParseError> {
+        self.expect('{')?;
+        let start = self.pos;
+        while let Some(ch) = self.current() {
+            if ch == '}' {
+                break;
+            }
+            self.bump();
+        }
+        if self.current() != Some('}') {
+            return Err(self.error("unterminated \\N{...} escape"));
+        }
+        let name = &self.input[start..self.pos];
+        self.bump();
+
+        let hex = name
+            .strip_prefix("U+")
+            .or_else(|| name.strip_prefix("u+"))
+            .ok_or_else(|| self.error("unsupported \\N{...} escape"))?;
+        let value =
+            u32::from_str_radix(hex, 16).map_err(|_| self.error("invalid \\N{...} escape"))?;
+        if value > 0x3F_FFFF {
+            return Err(self.error("\\N{...} escape out of range"));
+        }
+        Ok(value)
+    }
+
     // -- Character literals ?a -----------------------------------------------
 
     fn parse_char_literal(&mut self) -> Result<Expr, ParseError> {
@@ -532,6 +570,7 @@ impl<'a> Parser<'a> {
                 'x' => self.read_hex_digits()?.0,
                 'u' => self.read_fixed_hex(4)?,
                 'U' => self.read_fixed_hex(8)?,
+                'N' if self.current() == Some('{') => self.read_unicode_name_escape()?,
                 '0'..='7' => {
                     let mut val = (esc as u32) - ('0' as u32);
                     for _ in 0..2 {

@@ -189,6 +189,12 @@ fn parse_string_two_digit_hex_raw_byte_as_unibyte_storage() {
 }
 
 #[test]
+fn parse_string_unicode_name_escape_u_plus() {
+    let forms = parse_forms(r#""\N{U+2764}""#).unwrap();
+    assert_eq!(forms, vec![Expr::Str("\u{2764}".into())]);
+}
+
+#[test]
 fn parse_char_literals() {
     let forms = parse_forms("?a ?\\n ?\\t").unwrap();
     assert_eq!(
@@ -225,6 +231,12 @@ fn parse_control_char_literals() {
     assert_eq!(forms[3], Expr::Int(0x4000000)); // \C-\0 = CHAR_CTL
     assert_eq!(forms[4], Expr::Char('\x7F')); // \C-? = DEL
     assert_eq!(forms[5], Expr::Int(0x4000003)); // \C-\C-c
+}
+
+#[test]
+fn parse_char_literal_unicode_name_escape_u_plus() {
+    let forms = parse_forms(r"?\N{U+2764}").unwrap();
+    assert_eq!(forms, vec![Expr::Char('\u{2764}')]);
 }
 
 #[test]
