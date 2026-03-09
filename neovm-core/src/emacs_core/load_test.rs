@@ -246,10 +246,13 @@ fn bootstrap_runtime_matches_gnu_oclosure_advice_surface() {
                (fboundp 'advice--p)
                (fboundp 'advice--make)
                (featurep 'nadvice)
-               (featurep 'oclosure))",
+               (featurep 'oclosure)
+               (and (advice--p (cadr (assq :before advice--how-alist))) t)
+               (type-of (cadr (assq :before advice--how-alist)))
+               (byte-code-function-p (cadr (assq :before advice--how-alist))))",
     );
     assert_eq!(
-        rendered, "OK (t nil t nil t t t t)",
+        rendered, "OK (t nil t nil t t t t t byte-code-function t)",
         "bootstrap runtime should match GNU -Q oclosure/nadvice surface"
     );
 }
@@ -277,6 +280,34 @@ fn bootstrap_runtime_advice_copy_and_add_behavior() {
                (error (cons 'error err))))"#,
     );
     assert_eq!(rendered, "OK (ok ok)");
+}
+
+#[test]
+fn bootstrap_runtime_advice_make_preserves_oclosure_type() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("startup state: {}", format_eval_error(&eval, &err));
+    });
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(let ((target 'neovm--adv-target)
+                 (adv 'neovm--adv-fn))
+             (fset target (lambda (x) x))
+             (fset adv (lambda (&rest _) nil))
+             (unwind-protect
+                 (let* ((main (symbol-function target))
+                        (made (advice--make :before adv main nil)))
+                   (list (and (advice--p made) t)
+                         (advice--car made)
+                         (advice--how made)
+                         (type-of (advice--cdr made))))
+               (fmakunbound target)
+               (fmakunbound adv)))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (t neovm--adv-fn :before interpreted-function)"
+    );
 }
 
 fn eval_rendered(eval: &mut Evaluator, form: &str) -> String {
@@ -476,15 +507,17 @@ fn find_file_with_suffix_flags() {
 
     let plain = dir.join("choice");
     let el = dir.join("choice.el");
+    let elc = dir.join("choice.elc");
     fs::write(&plain, "plain").expect("write plain fixture");
     fs::write(&el, "el").expect("write el fixture");
+    fs::write(&elc, "elc").expect("write elc fixture");
 
     let load_path = vec![dir.to_string_lossy().to_string()];
 
-    // Default mode prefers suffixed files.
+    // GNU `load` prefers compiled Elisp over source by default.
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, false),
-        Some(el.clone())
+        Some(elc.clone())
     );
     // no-suffix mode only tries exact name.
     assert_eq!(
@@ -494,7 +527,7 @@ fn find_file_with_suffix_flags() {
     // must-suffix mode rejects plain file and requires suffixed one.
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, true, false),
-        Some(el)
+        Some(elc)
     );
     // no-suffix takes precedence if both flags are set.
     assert_eq!(
@@ -552,7 +585,7 @@ fn find_file_prefers_newer_source_when_enabled() {
     let load_path = vec![dir.to_string_lossy().to_string()];
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, false),
-        Some(el.clone())
+        Some(elc.clone())
     );
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, true),

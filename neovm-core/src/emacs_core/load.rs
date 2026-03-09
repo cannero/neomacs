@@ -539,12 +539,31 @@ fn prefer_elc() -> bool {
     std::env::var("NEOVM_PREFER_ELC").is_ok()
 }
 
-fn pick_suffixed(base: &Path, _prefer_newer: bool) -> Option<PathBuf> {
-    let el = source_suffixed_path(base);
-    let elc = compiled_suffixed_path(base);
+fn candidate_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    fs::metadata(path).ok()?.modified().ok()
+}
 
-    if prefer_elc() {
-        // Prefer .elc over .el
+fn pick_suffixed(base: &Path, prefer_newer: bool) -> Option<PathBuf> {
+    let elc = compiled_suffixed_path(base);
+    let el = source_suffixed_path(base);
+    let prefers_compiled = prefer_elc() || !prefer_newer;
+
+    if prefer_newer {
+        let mut candidates = Vec::new();
+        if elc.exists() {
+            candidates.push(elc);
+        }
+        if el.exists() {
+            candidates.push(el);
+        }
+        return candidates
+            .into_iter()
+            .filter_map(|path| candidate_mtime(&path).map(|mtime| (mtime, path)))
+            .max_by_key(|(mtime, _)| *mtime)
+            .map(|(_, path)| path);
+    }
+
+    if prefers_compiled {
         if elc.exists() {
             return Some(elc);
         }
@@ -552,7 +571,6 @@ fn pick_suffixed(base: &Path, _prefer_newer: bool) -> Option<PathBuf> {
             return Some(el);
         }
     } else {
-        // Default: prefer .el over .elc
         if el.exists() {
             return Some(el);
         }
@@ -560,6 +578,7 @@ fn pick_suffixed(base: &Path, _prefer_newer: bool) -> Option<PathBuf> {
             return Some(elc);
         }
     }
+
     None
 }
 
@@ -606,9 +625,9 @@ pub fn find_file_in_load_path(name: &str, load_path: &[String]) -> Option<PathBu
 /// Behavior follows Emacs:
 /// - `no_suffix`: load only the exact filename.
 /// - `must_suffix`: require a suffixed file when FILE has no suffix.
-/// - `prefer_newer`: kept for API compatibility; no effect in source-only mode.
-/// - default: search each load-path directory in order, preferring suffixed
-///   files within each directory before bare names.
+/// - `prefer_newer`: ignore suffix order and choose the newest suffixed file.
+/// - default: search each load-path directory in order, trying `.elc` before
+///   `.el`, then bare names when suffixless loading is allowed.
 pub fn find_file_in_load_path_with_flags(
     name: &str,
     load_path: &[String],
@@ -1979,12 +1998,10 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly. The March 2026 startup fixes require regenerating
-// cached bootstrap images because eager macroexpansion now follows the live
-// GNU Emacs source-loading path by default instead of the isolated replay
-// experiment, and runtime cleanup now mirrors GNU Emacs -Q by stripping
-// cl-lib/cl-seq helper functions from the dumped surface.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 8;
+// represent correctly. V9 invalidates earlier caches because load-path suffix
+// resolution now matches GNU Emacs `load`: `.elc` is preferred over `.el`
+// unless `load-prefer-newer` asks for the newest candidate.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 9;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",

@@ -4032,10 +4032,13 @@ pub(crate) fn make_byte_code_from_parts(
         _ => 16, // fallback
     };
 
-    // 6. Extract docstring
-    let doc = match docstring {
-        Some(v) if v.is_string() => v.as_str().map(str::to_string),
-        _ => None,
+    // 6. Extract closure slot 4.
+    // GNU byte-code objects use this slot for either a docstring or an
+    // arbitrary documentation form, notably the oclosure type symbol.
+    let (doc, doc_form) = match docstring.copied() {
+        Some(v) if v.is_string() => (v.as_str().map(str::to_string), None),
+        Some(v) if !v.is_nil() => (None, Some(v)),
+        _ => (None, None),
     };
 
     // 7. Build ByteCodeFunction
@@ -4047,7 +4050,7 @@ pub(crate) fn make_byte_code_from_parts(
         env: None,
         gnu_byte_offset_map: Some(gnu_byte_offset_map),
         docstring: doc,
-        doc_form: None,
+        doc_form,
     };
 
     let _ = interactive; // Not used yet

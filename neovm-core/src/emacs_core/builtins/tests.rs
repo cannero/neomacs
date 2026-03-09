@@ -4515,6 +4515,25 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
 }
 
 #[test]
+fn make_byte_code_from_parts_preserves_non_string_doc_slot_as_doc_form() {
+    let value = make_byte_code_from_parts(
+        &Value::list(vec![]),
+        &Value::string(""),
+        &Value::vector(vec![]),
+        &Value::Int(0),
+        Some(&Value::symbol("advice")),
+        None,
+    )
+    .expect("byte-code constructor should accept oclosure type slot");
+
+    let bytecode = value
+        .get_bytecode_data()
+        .expect("constructor should return a bytecode function");
+    assert_eq!(bytecode.docstring, None);
+    assert_eq!(bytecode.doc_form, Some(Value::symbol("advice")));
+}
+
+#[test]
 fn pure_dispatch_treesit_node_placeholder_cluster_matches_compat_contracts() {
     let node_end = dispatch_builtin_pure("treesit-node-end", vec![Value::Nil])
         .expect("builtin treesit-node-end should resolve")
