@@ -260,12 +260,8 @@ pub(crate) fn parse_overlay_face_runs(
                 u32::from_ne_bytes([buf[off + 6], buf[off + 7], buf[off + 8], buf[off + 9]]);
             let extend = (raw_bg & 0x80000000) != 0;
             let bg = raw_bg & 0x00FFFFFF;
-            let face_id = u32::from_ne_bytes([
-                buf[off + 10],
-                buf[off + 11],
-                buf[off + 12],
-                buf[off + 13],
-            ]);
+            let face_id =
+                u32::from_ne_bytes([buf[off + 10], buf[off + 11], buf[off + 12], buf[off + 13]]);
             runs.push(OverlayFaceRun {
                 byte_offset,
                 fg,
@@ -711,11 +707,7 @@ impl LayoutEngine {
                                 // Resolve full face attributes via FFI
                                 let mut face_ffi = FaceDataFFI::default();
                                 unsafe {
-                                    neomacs_layout_face_by_id(
-                                        fr,
-                                        run.face_id as i32,
-                                        &mut face_ffi,
-                                    )
+                                    neomacs_layout_face_by_id(fr, run.face_id as i32, &mut face_ffi)
                                 };
                                 let rf = unsafe { StatusLineFace::from_ffi(&face_ffi) };
                                 frame_glyphs.set_face_with_font(
@@ -894,7 +886,12 @@ impl LayoutEngine {
 
         tracing::debug!(
             "build_ffi_tab_bar_spec: text_len={} nruns={} ndisplay={} naligns={} width={} height={}",
-            text_len, nruns, ndisplay, naligns, width, height
+            text_len,
+            nruns,
+            ndisplay,
+            naligns,
+            width,
+            height
         );
 
         Some(StatusLineSpec {

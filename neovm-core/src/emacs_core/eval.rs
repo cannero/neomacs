@@ -1811,7 +1811,6 @@ impl Evaluator {
                 roots.push(*val);
             }
         }
-
         // Thread-local statics holding Values
         collect_thread_local_gc_roots(&mut roots);
 
