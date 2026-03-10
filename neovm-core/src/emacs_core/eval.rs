@@ -5390,7 +5390,9 @@ impl Evaluator {
             NamedCallTarget::EvaluatorCallable
         } else if super::subr_info::is_special_form(name) {
             NamedCallTarget::SpecialForm
-        } else if super::builtin_registry::is_dispatch_builtin_name(name) {
+        } else if super::builtin_registry::is_dispatch_builtin_name(name)
+            || builtins::is_pure_builtin_name(name)
+        {
             NamedCallTarget::Builtin
         } else {
             NamedCallTarget::Void

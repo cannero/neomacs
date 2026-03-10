@@ -3265,6 +3265,22 @@ fn condition_case_lexical_handler_binding_restores_outer_let() {
 }
 
 #[test]
+fn pure_builtin_cadr_is_callable_without_subr_runtime() {
+    assert_eq!(eval_one("(cadr '(1 2 3))"), "OK 2");
+}
+
+#[test]
+fn generate_new_buffer_is_callable_without_subr_runtime() {
+    let result = eval_one(
+        r#"(let ((buf (generate-new-buffer " *eval-test-generate-new-buffer*")))
+             (unwind-protect
+                 (list (bufferp buf) (buffer-live-p buf))
+               (kill-buffer buf)))"#,
+    );
+    assert_eq!(result, "OK (t t)");
+}
+
+#[test]
 fn gc_stress_lexical_closure_mutation() {
     // GC stress variant of closure mutation.
     let r = eval_stress(

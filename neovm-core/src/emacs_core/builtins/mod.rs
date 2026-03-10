@@ -736,6 +736,10 @@ enum PureBuiltinId {
     ClearFaceCache,
 }
 
+pub(super) fn is_pure_builtin_name(name: &str) -> bool {
+    name.parse::<PureBuiltinId>().is_ok()
+}
+
 fn dispatch_builtin_id_pure(id: PureBuiltinId, args: Vec<Value>) -> EvalResult {
     match id {
         PureBuiltinId::Add => builtin_add(args),

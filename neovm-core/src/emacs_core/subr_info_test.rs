@@ -1692,6 +1692,7 @@ fn subr_arity_buffer_lookup_primitives_match_oracle() {
     assert_subr_arity("get-buffer", 1, Some(1));
     assert_subr_arity("get-buffer-create", 1, Some(2));
     assert_subr_arity("get-file-buffer", 1, Some(1));
+    assert_subr_arity("generate-new-buffer", 1, Some(2));
     assert_subr_arity("generate-new-buffer-name", 1, Some(2));
 }
 

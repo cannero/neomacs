@@ -400,7 +400,9 @@ fn subr_arity_value(name: &str) -> Value {
         }
         "get-byte" => arity_cons(0, Some(2)),
         "get-buffer" | "get-file-buffer" => arity_cons(1, Some(1)),
-        "get-buffer-create" | "generate-new-buffer-name" => arity_cons(1, Some(2)),
+        "get-buffer-create" | "generate-new-buffer" | "generate-new-buffer-name" => {
+            arity_cons(1, Some(2))
+        }
         "buffer-live-p" | "buffer-swap-text" => arity_cons(1, Some(1)),
         "buffer-local-value" | "buffer-substring" | "buffer-substring-no-properties" => {
             arity_cons(2, Some(2))

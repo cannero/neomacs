@@ -455,6 +455,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "garbage-collect-maybe",
     "gap-position",
     "gap-size",
+    "generate-new-buffer",
     "generate-new-buffer-name",
     "get",
     "get-buffer",

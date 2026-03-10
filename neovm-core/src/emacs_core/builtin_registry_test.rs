@@ -6,6 +6,7 @@ fn registry_contains_common_builtins() {
     assert!(is_dispatch_builtin_name("load"));
     assert!(is_dispatch_builtin_name("symbol-value"));
     assert!(is_dispatch_builtin_name("+"));
+    assert!(is_dispatch_builtin_name("generate-new-buffer"));
     assert!(is_dispatch_builtin_name("if"));
     assert!(is_dispatch_builtin_name("let"));
     assert!(is_dispatch_builtin_name("setq"));
