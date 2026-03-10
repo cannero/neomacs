@@ -34,6 +34,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     // advice-add, advice-member-p, advice-remove: handled by nadvice.el
     "all-completions",
     "all-threads",
+    "alist-get",
     "append",
     "apply",
     "ash",
