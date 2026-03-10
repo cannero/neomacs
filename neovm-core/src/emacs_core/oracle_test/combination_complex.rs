@@ -10,6 +10,7 @@ use proptest::prelude::*;
 
 use super::common::{
     ORACLE_PROP_CASES, assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_oracle_and_neovm,
+    eval_oracle_and_neovm_with_bootstrap,
 };
 
 // ---------------------------------------------------------------------------
@@ -207,7 +208,7 @@ fn oracle_prop_combo_macro_generates_closures() {
                         (funcall (car counter))
                         (funcall (cadr counter)))
                     (fmakunbound 'neovm--test-make-counter)))";
-    let (o, n) = eval_oracle_and_neovm(form);
+    let (o, n) = eval_oracle_and_neovm_with_bootstrap(form);
     assert_ok_eq("13", &o, &n);
 }
 
