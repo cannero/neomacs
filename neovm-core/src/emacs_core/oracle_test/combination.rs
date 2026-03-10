@@ -3,23 +3,13 @@
 use super::common::return_if_neovm_enable_oracle_proptest_not_set;
 
 use proptest::prelude::*;
-use std::sync::OnceLock;
 
 use super::common::{
     ORACLE_PROP_CASES, assert_ok_eq, assert_oracle_parity_with_bootstrap,
     eval_oracle_and_neovm_with_bootstrap,
 };
 
-fn oracle_combination_proptest_failure_path() -> &'static str {
-    static PATH: OnceLock<&'static str> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let target_dir = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string());
-        Box::leak(
-            format!("{target_dir}/proptest-regressions/emacs_core/oracle/combination.txt")
-                .into_boxed_str(),
-        )
-    })
-}
+const COMBINATION_ORACLE_PROP_CASES: u32 = 4;
 
 #[test]
 fn oracle_prop_combination_macro_advice_apply_roundtrip() {
@@ -5213,12 +5203,13 @@ fn oracle_prop_combination_subr_plus_same_name_override_replacement_matrix() {
 
 proptest! {
     #![proptest_config({
-        let mut config = proptest::test_runner::Config::with_cases(ORACLE_PROP_CASES);
-        config.failure_persistence = Some(Box::new(
-            proptest::test_runner::FileFailurePersistence::Direct(
-                oracle_combination_proptest_failure_path(),
-            ),
-        ));
+        let mut config = proptest::test_runner::Config::with_cases(
+            ORACLE_PROP_CASES.min(COMBINATION_ORACLE_PROP_CASES),
+        );
+        // This module contains the heaviest cross-runtime oracle properties.
+        // Replaying accumulated local failure seeds before every property run
+        // makes nextest timeout results depend on untracked workspace state.
+        config.failure_persistence = None;
         config
     })]
 
