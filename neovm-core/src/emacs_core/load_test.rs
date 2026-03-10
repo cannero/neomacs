@@ -673,11 +673,20 @@ fn bootstrap_runtime_loads_gnu_subr_helpers() {
              (equal (listify-key-sequence "Az") '(65 122))
              (key-valid-p "C-x C-f")
              (substring-no-properties
-              (help-key-description (kbd "C-a") (kbd "C-a"))))"#,
+              (help-key-description (kbd "C-a") (kbd "C-a")))
+             (file-size-human-readable 1536)
+             (file-size-human-readable 1572864 'iec)
+             (condition-case nil
+                 (progn (file-size-human-readable 1 nil nil 1) nil)
+               (wrong-type-argument t))
+             (file-size-human-readable-iec 1536)
+             (condition-case nil
+                 (progn (file-size-human-readable-iec "x") nil)
+               (wrong-type-argument t)))"#,
     );
     assert_eq!(
         rendered,
-        "OK (t (ignored (bar . 2)) (1 2) (1 2 3 4) (\"a\" \"b\") t t \"vm\" \"vm  \" \"  vm\" t (t t) \"a-b-c\" t t (control meta) 97 t t t \"C-a\")"
+        "OK (t (ignored (bar . 2)) (1 2) (1 2 3 4) (\"a\" \"b\") t t \"vm\" \"vm  \" \"  vm\" t (t t) \"a-b-c\" t t (control meta) 97 t t t \"C-a\" \"1.5k\" \"1.5MiB\" t \"1.5 KiB\" t)"
     );
 }
 
