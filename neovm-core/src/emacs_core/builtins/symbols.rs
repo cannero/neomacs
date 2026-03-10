@@ -1918,7 +1918,7 @@ fn pure_builtin_symbol_alias_target(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(super) fn resolve_indirect_symbol_by_id(
+pub(crate) fn resolve_indirect_symbol_by_id(
     eval: &super::eval::Evaluator,
     symbol: SymId,
 ) -> Option<(SymId, Value)> {

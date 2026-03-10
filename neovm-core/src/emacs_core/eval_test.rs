@@ -1097,6 +1097,24 @@ fn funcall_throw_is_callable_and_preserves_throw_semantics() {
 }
 
 #[test]
+fn funcall_named_symbol_propagates_inner_invalid_function_payload() {
+    assert_eq!(
+        eval_one(
+            "(progn
+               (fset 'vm-invalid-wrap
+                     (lambda ()
+                       (funcall '(1 2 3))))
+               (unwind-protect
+                   (condition-case err
+                       (funcall 'vm-invalid-wrap)
+                     (invalid-function (cadr err)))
+                 (fmakunbound 'vm-invalid-wrap)))"
+        ),
+        "OK (1 2 3)"
+    );
+}
+
+#[test]
 fn fmakunbound_masks_builtin_special_and_evaluator_callable_fallbacks() {
     let results = eval_all(
         "(fmakunbound 'car)

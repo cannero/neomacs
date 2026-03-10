@@ -2519,11 +2519,30 @@ impl Evaluator {
             return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
         };
 
+        let function_is_callable = self.function_value_is_callable(&function);
         match self.apply(function, args) {
-            Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-function" => {
+            Err(Flow::Signal(sig))
+                if sig.symbol_name() == "invalid-function" && !function_is_callable =>
+            {
                 Err(signal("invalid-function", vec![Value::Symbol(sym_id)]))
             }
             other => other,
+        }
+    }
+
+    fn function_value_is_callable(&self, function: &Value) -> bool {
+        match function {
+            Value::Lambda(_) | Value::ByteCode(_) | Value::Macro(_) => true,
+            Value::Subr(bound_name) => !super::subr_info::is_special_form(resolve_sym(*bound_name)),
+            Value::Cons(_) => {
+                super::autoload::is_autoload_value(function)
+                    || function.cons_car().is_symbol_named("lambda")
+                    || function.cons_car().is_symbol_named("closure")
+                    || function.cons_car().is_symbol_named("macro")
+            }
+            Value::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, *id)
+                .is_some_and(|(_, resolved)| self.function_value_is_callable(&resolved)),
+            _ => false,
         }
     }
 
@@ -2724,13 +2743,7 @@ impl Evaluator {
                     }
                     return result;
                 }
-                let function_is_callable = match &func {
-                    Value::Lambda(_) | Value::ByteCode(_) | Value::Macro(_) => true,
-                    Value::Subr(bound_name) => {
-                        !super::subr_info::is_special_form(resolve_sym(*bound_name))
-                    }
-                    _ => false,
-                };
+                let function_is_callable = self.function_value_is_callable(&func);
                 let alias_target = match &func {
                     Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
                     Value::Subr(bound_name) => Some(resolve_sym(*bound_name).to_owned()),
@@ -5435,6 +5448,7 @@ impl Evaluator {
                         rewrite_builtin_wrong_arity,
                     );
                 }
+                let function_is_callable = self.function_value_is_callable(&func);
                 let alias_target = match &func {
                     Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
                     Value::Subr(bound_name) if resolve_sym(*bound_name) != name => {
@@ -5443,7 +5457,9 @@ impl Evaluator {
                     _ => None,
                 };
                 let result = match self.apply(func, args) {
-                    Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-function" => {
+                    Err(Flow::Signal(sig))
+                        if sig.symbol_name() == "invalid-function" && !function_is_callable =>
+                    {
                         Err(signal("invalid-function", vec![Value::symbol(name)]))
                     }
                     other => other,
@@ -5528,8 +5544,11 @@ impl Evaluator {
             self,
             vec![autoload_form, Value::symbol(name)],
         )?;
+        let function_is_callable = self.function_value_is_callable(&loaded);
         match self.apply(loaded, args) {
-            Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-function" => {
+            Err(Flow::Signal(sig))
+                if sig.symbol_name() == "invalid-function" && !function_is_callable =>
+            {
                 Err(signal("invalid-function", vec![Value::symbol(name)]))
             }
             other => other,
