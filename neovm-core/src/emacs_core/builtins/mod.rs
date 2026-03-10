@@ -634,8 +634,6 @@ enum PureBuiltinId {
     Random,
     #[strum(serialize = "isnan")]
     Isnan,
-    #[strum(serialize = "string-join")]
-    StringJoin,
     #[strum(serialize = "make-string")]
     MakeString,
     #[strum(serialize = "string-width")]
@@ -784,7 +782,6 @@ fn dispatch_builtin_id_pure(id: PureBuiltinId, args: Vec<Value>) -> EvalResult {
         PureBuiltinId::Expt => builtin_expt(args),
         PureBuiltinId::Random => builtin_random(args),
         PureBuiltinId::Isnan => builtin_isnan(args),
-        PureBuiltinId::StringJoin => builtin_string_join(args),
         PureBuiltinId::MakeString => builtin_make_string(args),
         PureBuiltinId::StringWidth => builtin_string_width(args),
         PureBuiltinId::Last => builtin_last(args),
@@ -3092,15 +3089,7 @@ pub(crate) fn dispatch_builtin(
         "kbd" => builtin_kbd(args),
         "single-key-description" => builtin_single_key_description(args),
         "key-description" => builtin_key_description(args),
-        "help-key-description" => builtin_help_key_description(args),
         "event-convert-list" => builtin_event_convert_list(args),
-        "event-basic-type" => builtin_event_basic_type(args),
-        "event-apply-modifier" => builtin_event_apply_modifier(args),
-        "eventp" => builtin_eventp(args),
-        "timeout-event-p" => builtin_timeout_event_p(args),
-        "event-modifiers" => builtin_event_modifiers(args),
-        "listify-key-sequence" => builtin_listify_key_sequence(args),
-        "key-valid-p" => builtin_key_valid_p(args),
         "text-char-description" => builtin_text_char_description(args),
 
         // Process (pure — no evaluator needed)
@@ -4231,7 +4220,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "random" => builtin_random(args),
         "isnan" => builtin_isnan(args),
         // Extended string
-        "string-join" => builtin_string_join(args),
         "make-string" => builtin_make_string(args),
         "string" => builtin_string(args),
         "string-width" => builtin_string_width(args),
@@ -4357,15 +4345,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "kbd" => builtin_kbd(args),
         "single-key-description" => builtin_single_key_description(args),
         "key-description" => builtin_key_description(args),
-        "help-key-description" => builtin_help_key_description(args),
         "event-convert-list" => builtin_event_convert_list(args),
-        "event-basic-type" => builtin_event_basic_type(args),
-        "event-apply-modifier" => builtin_event_apply_modifier(args),
-        "eventp" => builtin_eventp(args),
-        "timeout-event-p" => builtin_timeout_event_p(args),
-        "event-modifiers" => builtin_event_modifiers(args),
-        "listify-key-sequence" => builtin_listify_key_sequence(args),
-        "key-valid-p" => builtin_key_valid_p(args),
         "text-char-description" => builtin_text_char_description(args),
         // Process (pure)
         "shell-command-to-string" => super::process::builtin_shell_command_to_string(args),

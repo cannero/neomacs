@@ -6547,37 +6547,6 @@ fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
 }
 
 #[test]
-fn timeout_event_p_matches_emacs_shape_and_arity() {
-    let timeout_event = Value::list(vec![Value::symbol("timer-event"), Value::Int(1)]);
-    let timeout = dispatch_builtin_pure("timeout-event-p", vec![timeout_event])
-        .expect("timeout-event-p should resolve")
-        .expect("timeout-event-p should evaluate");
-    assert_eq!(timeout, Value::True);
-
-    let not_timeout_event = Value::list(vec![Value::symbol("foo"), Value::Int(1)]);
-    let not_timeout = dispatch_builtin_pure("timeout-event-p", vec![not_timeout_event])
-        .expect("timeout-event-p should resolve")
-        .expect("timeout-event-p should evaluate");
-    assert!(not_timeout.is_nil());
-
-    let atom = dispatch_builtin_pure("timeout-event-p", vec![Value::symbol("timer-event")])
-        .expect("timeout-event-p should resolve")
-        .expect("timeout-event-p should evaluate");
-    assert!(atom.is_nil());
-
-    let arity = dispatch_builtin_pure(
-        "timeout-event-p",
-        vec![Value::Nil, Value::symbol("extra-arg")],
-    )
-    .expect("timeout-event-p should resolve")
-    .expect_err("timeout-event-p should reject extra args");
-    match arity {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
-        other => panic!("expected signal, got {other:?}"),
-    }
-}
-
-#[test]
 fn assoc_delete_all_supports_default_equal_and_optional_test() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
 

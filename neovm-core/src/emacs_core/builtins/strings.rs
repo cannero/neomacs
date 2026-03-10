@@ -1078,28 +1078,6 @@ pub(crate) fn builtin_format_message_eval(
     }
 }
 
-pub(crate) fn builtin_string_join(args: Vec<Value>) -> EvalResult {
-    expect_min_args("string-join", &args, 1)?;
-    expect_max_args("string-join", &args, 2)?;
-    let strs = list_to_vec(&args[0])
-        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[0]]))?;
-    let sep = match args.get(1) {
-        None | Some(Value::Nil) => "".to_string(),
-        Some(other) => expect_string(other)?,
-    };
-    let parts: Result<Vec<String>, Flow> = strs
-        .iter()
-        .map(|value| {
-            let rendered = builtin_concat(vec![*value])?;
-            let Value::Str(id) = rendered else {
-                unreachable!("concat should always return a string");
-            };
-            Ok(with_heap(|h| h.get_string(id).clone()))
-        })
-        .collect();
-    Ok(Value::string(parts?.join(&sep)))
-}
-
 pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("make-string", &args, 2)?;
     expect_max_args("make-string", &args, 3)?;

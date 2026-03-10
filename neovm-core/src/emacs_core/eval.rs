@@ -1595,25 +1595,6 @@ impl Evaluator {
             let bc = Compiler::new(false).compile_lambda(&params, &body);
             obarray.set_symbol_function(name, Value::make_bytecode(bc));
         };
-        let seed_fixed_arity_wrapper =
-            |obarray: &mut Obarray, name: &str, required: &[&str], optional: &[&str]| {
-                let wrapper = format!("neovm--startup-subr-wrapper-{name}");
-                obarray.set_symbol_function(&wrapper, Value::Subr(intern(name)));
-
-                let params = LambdaParams {
-                    required: required.iter().map(|s| intern(s)).collect(),
-                    optional: optional.iter().map(|s| intern(s)).collect(),
-                    rest: None,
-                };
-
-                let mut call = Vec::with_capacity(1 + required.len() + optional.len());
-                call.push(Expr::Symbol(intern(&wrapper)));
-                call.extend(required.iter().map(|s| Expr::Symbol(intern(s))));
-                call.extend(optional.iter().map(|s| Expr::Symbol(intern(s))));
-
-                let bc = Compiler::new(false).compile_lambda(&params, &[Expr::List(call)]);
-                obarray.set_symbol_function(name, Value::make_bytecode(bc));
-            };
         for name in [
             "seq-count",
             "seq-concatenate",
@@ -1640,8 +1621,6 @@ impl Evaluator {
         ] {
             seed_function_wrapper(&mut obarray, name);
         }
-
-        seed_fixed_arity_wrapper(&mut obarray, "string-join", &["strings"], &["separator"]);
 
         // Keep word-at-point unavailable at startup; symbol-at-point lazily
         // materializes it to mirror GNU Emacs thing-at-point bootstrap.

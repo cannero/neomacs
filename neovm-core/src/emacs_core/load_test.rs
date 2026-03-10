@@ -661,11 +661,23 @@ fn bootstrap_runtime_loads_gnu_subr_helpers() {
                (list (and (symbolp g1)
                           (string-prefix-p "g" (symbol-name g1)))
                      (and (symbolp g2)
-                          (string-prefix-p "[1 2]" (symbol-name g2))))))"#,
+                          (string-prefix-p "[1 2]" (symbol-name g2)))))
+             (string-join '("a" "b" "c") "-")
+             (eventp ?a)
+             (timeout-event-p '(timer-event 1))
+             (event-modifiers (event-convert-list '(control meta ?a)))
+             (event-basic-type (event-convert-list '(control meta ?a)))
+             (equal (single-key-description
+                     (event-apply-modifier ?a 'control 26 "C-"))
+                    "C-a")
+             (equal (listify-key-sequence "Az") '(65 122))
+             (key-valid-p "C-x C-f")
+             (substring-no-properties
+              (help-key-description (kbd "C-a") (kbd "C-a"))))"#,
     );
     assert_eq!(
         rendered,
-        "OK (t (ignored (bar . 2)) (1 2) (1 2 3 4) (\"a\" \"b\") t t \"vm\" \"vm  \" \"  vm\" t (t t))"
+        "OK (t (ignored (bar . 2)) (1 2) (1 2 3 4) (\"a\" \"b\") t t \"vm\" \"vm  \" \"  vm\" t (t t) \"a-b-c\" t t (control meta) 97 t t t \"C-a\")"
     );
 }
 

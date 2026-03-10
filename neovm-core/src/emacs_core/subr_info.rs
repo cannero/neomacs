@@ -1241,9 +1241,7 @@ fn subr_arity_value(name: &str) -> Value {
         "define-coding-system-alias" => arity_cons(2, Some(2)),
         "define-key" => arity_cons(3, Some(4)),
         "expand-file-name" => arity_cons(1, Some(2)),
-        "event-basic-type" | "event-convert-list" | "error-message-string" => {
-            arity_cons(1, Some(1))
-        }
+        "event-convert-list" | "error-message-string" => arity_cons(1, Some(1)),
         "copysign" | "equal-including-properties" => arity_cons(2, Some(2)),
         "emacs-pid" => arity_cons(0, Some(0)),
         "eval" => arity_cons(1, Some(2)),

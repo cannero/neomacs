@@ -5,7 +5,7 @@ use super::eval::{collect_opaque_values, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
-use super::value::{HashTableTest, Value, list_to_vec, with_heap_mut};
+use super::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap, with_heap_mut};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -186,20 +186,34 @@ fn generated_register_definition_prefixes(
     })?;
     let table_id = definition_prefixes_table(eval)?;
 
-    with_heap_mut(|heap| {
-        let table = heap.get_hash_table_mut(table_id);
-        for prefix in prefixes {
-            let key = prefix.to_hash_key(&table.test);
+    let table_test = with_heap(|heap| heap.get_hash_table(table_id).test.clone());
+    let keyed_prefixes: Vec<(Value, HashKey)> = prefixes
+        .into_iter()
+        .map(|prefix| {
+            let key = prefix.to_hash_key(&table_test);
+            (prefix, key)
+        })
+        .collect();
+
+    for (prefix, key) in keyed_prefixes {
+        let (old, inserting_new_key) = with_heap_mut(|heap| {
+            let table = heap.get_hash_table_mut(table_id);
             let old = table.data.get(&key).copied().unwrap_or(Value::Nil);
-            let new = Value::cons(file, old);
             let inserting_new_key = !table.data.contains_key(&key);
+            (old, inserting_new_key)
+        });
+
+        let new = Value::cons(file, old);
+
+        with_heap_mut(|heap| {
+            let table = heap.get_hash_table_mut(table_id);
             table.data.insert(key.clone(), new);
             if inserting_new_key {
                 table.key_snapshots.insert(key.clone(), prefix);
                 table.insertion_order.push(key);
             }
-        }
-    });
+        });
+    }
 
     Ok(Value::Nil)
 }
