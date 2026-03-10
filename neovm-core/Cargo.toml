@@ -25,12 +25,11 @@ network-interface.workspace = true
 libloading.workspace = true
 serde.workspace = true
 bincode.workspace = true
-
+tempfile.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
 proptest.workspace = true
-tempfile.workspace = true
 
 [build-dependencies]
 sha2.workspace = true

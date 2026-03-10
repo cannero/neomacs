@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 /// Decode Emacs "extended UTF-8" bytes into a Rust String.
@@ -2027,6 +2029,82 @@ fn bootstrap_dump_path(project_root: &Path, extra_features: &[&str]) -> PathBuf 
     ))
 }
 
+fn bootstrap_dump_lock_path(dump_path: &Path) -> PathBuf {
+    let file_name = dump_path
+        .file_name()
+        .expect("bootstrap dump path should have file name");
+    let mut lock_name = file_name.to_os_string();
+    lock_name.push(".lock");
+    dump_path.with_file_name(lock_name)
+}
+
+struct BootstrapCacheWriteLock {
+    #[cfg(unix)]
+    file: std::fs::File,
+}
+
+impl BootstrapCacheWriteLock {
+    fn acquire(lock_path: &Path) -> Result<Self, EvalError> {
+        if let Some(parent) = lock_path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent).map_err(|err| EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "bootstrap cache lock: failed creating {}: {err}",
+                    parent.display()
+                ))],
+            })?;
+        }
+
+        #[cfg(unix)]
+        {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(lock_path)
+                .map_err(|err| EvalError::Signal {
+                    symbol: intern("error"),
+                    data: vec![Value::string(format!(
+                        "bootstrap cache lock: failed opening {}: {err}",
+                        lock_path.display()
+                    ))],
+                })?;
+
+            // Serialize cache creation/repair across processes while keeping
+            // ordinary pdump reads lock-free.
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            if rc != 0 {
+                return Err(EvalError::Signal {
+                    symbol: intern("error"),
+                    data: vec![Value::string(format!(
+                        "bootstrap cache lock: failed locking {}: {}",
+                        lock_path.display(),
+                        std::io::Error::last_os_error()
+                    ))],
+                });
+            }
+
+            Ok(Self { file })
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = lock_path;
+            Ok(Self {})
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for BootstrapCacheWriteLock {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
 fn ensure_startup_compat_variables(eval: &mut super::eval::Evaluator, project_root: &Path) {
     let etc_dir = format!("{}/", project_root.join("etc").to_string_lossy());
     let source_dir = format!("{}/", project_root.to_string_lossy());
@@ -2972,6 +3050,26 @@ fn create_bootstrap_evaluator_cached_at_path(
             }
             Err(e) => {
                 tracing::warn!("pdump: load failed ({e}), falling back to full bootstrap");
+            }
+        }
+    }
+
+    let _write_lock = BootstrapCacheWriteLock::acquire(&bootstrap_dump_lock_path(dump_path))?;
+
+    if dump_path.exists() {
+        let start = std::time::Instant::now();
+        match pdump::load_from_dump(dump_path) {
+            Ok(mut eval) => {
+                tracing::info!(
+                    "pdump: loaded bootstrap state from {} after lock ({:.2?})",
+                    dump_path.display(),
+                    start.elapsed()
+                );
+                finalize_cached_bootstrap_eval(&mut eval, project_root)?;
+                return Ok(eval);
+            }
+            Err(e) => {
+                tracing::warn!("pdump: load after lock failed ({e}), rebuilding bootstrap cache");
             }
         }
     }

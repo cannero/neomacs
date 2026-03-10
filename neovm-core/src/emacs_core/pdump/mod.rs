@@ -72,15 +72,26 @@ pub fn dump_to_file(eval: &Evaluator, path: &Path) -> Result<(), DumpError> {
     hasher.update(&payload);
     let checksum = hasher.finalize();
 
-    let mut file = std::fs::File::create(path)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
     file.write_all(MAGIC)?;
     file.write_all(&FORMAT_VERSION.to_le_bytes())?;
     file.write_all(&checksum)?;
     file.write_all(&(payload.len() as u32).to_le_bytes())?;
     file.write_all(&payload)?;
     file.flush()?;
+    file.as_file().sync_all()?;
 
-    Ok(())
+    match file.persist(path) {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            if err.error.kind() == std::io::ErrorKind::AlreadyExists && path.exists() {
+                Ok(())
+            } else {
+                Err(DumpError::Io(err.error))
+            }
+        }
+    }
 }
 
 /// Load evaluator state from a pdump file.

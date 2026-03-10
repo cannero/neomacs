@@ -6,6 +6,7 @@ use crate::emacs_core::value::{HashTableTest, Value, with_heap};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct CacheWriteFailGuard;
@@ -459,6 +460,59 @@ fn bootstrap_runtime_matches_gnu_oclosure_advice_surface() {
         rendered, "OK (t nil t nil t t t t t byte-code-function t)",
         "bootstrap runtime should match GNU -Q oclosure/nadvice surface"
     );
+}
+
+const BOOTSTRAP_CACHE_RACE_DUMP_ENV: &str = "NEOVM_BOOTSTRAP_RACE_DUMP_PATH";
+const BOOTSTRAP_CACHE_RACE_WORKER_TEST: &str =
+    "emacs_core::load::tests::bootstrap_cache_parallel_creation_worker";
+
+#[test]
+fn bootstrap_cache_parallel_creation_worker() {
+    let Some(dump_path) = std::env::var_os(BOOTSTRAP_CACHE_RACE_DUMP_ENV) else {
+        return;
+    };
+
+    let dump_path = PathBuf::from(dump_path);
+    let mut eval =
+        create_bootstrap_evaluator_cached_at_path(&[], &dump_path).expect("worker bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("worker runtime startup");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
+    );
+    assert_eq!(rendered, "OK (nil t t)");
+}
+
+#[test]
+fn bootstrap_cache_parallel_creation_is_safe() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dump_path = dir.path().join("parallel-bootstrap.pdump");
+    let exe = std::env::current_exe().expect("current test binary");
+
+    let mut children = Vec::new();
+    for _ in 0..2 {
+        let mut cmd = Command::new(&exe);
+        cmd.env(BOOTSTRAP_CACHE_RACE_DUMP_ENV, &dump_path)
+            .arg("--exact")
+            .arg(BOOTSTRAP_CACHE_RACE_WORKER_TEST)
+            .arg("--nocapture");
+        children.push(cmd.spawn().expect("spawn bootstrap worker"));
+    }
+
+    for mut child in children {
+        let status = child.wait().expect("wait for bootstrap worker");
+        assert!(status.success(), "bootstrap worker failed: {status}");
+    }
+
+    let mut loaded =
+        create_bootstrap_evaluator_cached_at_path(&[], &dump_path).expect("reload dump after race");
+    apply_runtime_startup_state(&mut loaded).expect("runtime startup after race");
+    let rendered = eval_rendered(
+        &mut loaded,
+        "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
+    );
+    assert_eq!(rendered, "OK (nil t t)");
 }
 
 #[test]
