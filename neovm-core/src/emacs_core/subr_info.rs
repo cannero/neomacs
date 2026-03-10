@@ -744,6 +744,7 @@ fn subr_arity_value(name: &str) -> Value {
         "match-beginning" | "match-end" => arity_cons(1, Some(1)),
         "match-data" => arity_cons(0, Some(3)),
         "replace-match" => arity_cons(1, Some(5)),
+        "replace-regexp-in-string" => arity_cons(3, Some(7)),
         "string-match" | "posix-string-match" => arity_cons(2, Some(4)),
         "string-as-multibyte"
         | "string-as-unibyte"

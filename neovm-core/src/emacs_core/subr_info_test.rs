@@ -1436,6 +1436,7 @@ fn subr_arity_read_region_helper_primitives_match_oracle() {
     assert_subr_arity("region-beginning", 0, Some(0));
     assert_subr_arity("region-end", 0, Some(0));
     assert_subr_arity("regexp-quote", 1, Some(1));
+    assert_subr_arity("replace-regexp-in-string", 3, Some(7));
 }
 
 #[test]

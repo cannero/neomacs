@@ -417,6 +417,12 @@ fn regexp_quote_parens_not_escaped() {
 }
 
 #[test]
+fn regexp_quote_right_bracket_not_escaped() {
+    let result = builtin_regexp_quote(vec![Value::string("]")]);
+    assert_str(result.unwrap(), "]");
+}
+
+#[test]
 fn string_match_emacs_groups() {
     // Emacs regex with groups: \(foo\|bar\) matching "test bar"
     let result = builtin_string_match(vec![

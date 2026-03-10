@@ -901,6 +901,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "remove-variable-watcher",
     "rename-file",
     "replace-match",
+    "replace-regexp-in-string",
     "require",
     "redirect-debugging-output",
     "redirect-frame-focus",
