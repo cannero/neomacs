@@ -1782,7 +1782,7 @@ fn next_window_cycles() {
 
 #[test]
 fn one_window_p_tracks_current_window_count() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(list (one-window-p)
                (progn
                  (split-window-internal (selected-window) nil nil nil)
@@ -1793,8 +1793,9 @@ fn one_window_p_tracks_current_window_count() {
 
 #[test]
 fn one_window_p_enforces_max_arity() {
-    let results =
-        eval_with_frame("(condition-case err (one-window-p nil nil nil) (error (car err)))");
+    let results = bootstrap_eval_with_frame(
+        "(condition-case err (one-window-p nil nil nil) (error (car err)))",
+    );
     assert_eq!(results[0], "OK wrong-number-of-arguments");
 }
 

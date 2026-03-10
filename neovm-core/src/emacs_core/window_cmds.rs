@@ -2658,24 +2658,6 @@ pub(crate) fn builtin_other_window(
     Ok(Value::Nil)
 }
 
-/// `(one-window-p &optional NOMINI ALL-FRAMES)` -> non-nil iff only one window.
-///
-/// Batch-focused compatibility implementation: we currently count ordinary
-/// windows on the selected frame and ignore NOMINI/ALL-FRAMES semantics.
-pub(crate) fn builtin_one_window_p(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("one-window-p", &args, 2)?;
-    let Some(fid) = eval.frames.selected_frame().map(|frame| frame.id) else {
-        return Ok(Value::Nil);
-    };
-    let Some(frame) = eval.frames.get(fid) else {
-        return Ok(Value::Nil);
-    };
-    Ok(Value::bool(frame.window_list().len() <= 1))
-}
-
 /// `(other-window-for-scrolling)` -> window object used for scrolling.
 pub(crate) fn builtin_other_window_for_scrolling(
     eval: &mut super::eval::Evaluator,
