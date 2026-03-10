@@ -1837,6 +1837,19 @@ fn read_from_string_hash_s_without_list_payload_matches_oracle() {
 }
 
 #[test]
+fn read_from_string_unmatched_close_paren_payload_matches_oracle() {
+    let mut ev = Evaluator::new();
+    let result = builtin_read_from_string(&mut ev, vec![Value::string(")")]);
+    match result {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "invalid-read-syntax");
+            assert_eq!(sig.data, vec![Value::string(")")]);
+        }
+        other => panic!("expected invalid-read-syntax, got {other:?}"),
+    }
+}
+
+#[test]
 fn read_from_string_char_literal_requires_gnu_emacs_delimiter() {
     let mut ev = Evaluator::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("?child")]);
@@ -2093,6 +2106,29 @@ fn read_from_buffer_invalid_read_syntax_reports_line_and_column_like_gnu_emacs()
             assert_eq!(
                 sig.data,
                 vec![Value::string("?"), Value::Int(1), Value::Int(2)]
+            );
+        }
+        other => panic!("expected invalid-read-syntax, got {other:?}"),
+    }
+}
+
+#[test]
+fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_gnu_emacs() {
+    let mut ev = Evaluator::new();
+    let buf_id = ev.buffers.create_buffer(" *reader-invalid-close-paren*");
+    {
+        let buf = ev.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert(")");
+        buf.pt = 0;
+    }
+
+    let result = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]);
+    match result {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "invalid-read-syntax");
+            assert_eq!(
+                sig.data,
+                vec![Value::string(")"), Value::Int(1), Value::Int(1)]
             );
         }
         other => panic!("expected invalid-read-syntax, got {other:?}"),

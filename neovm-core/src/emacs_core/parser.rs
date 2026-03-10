@@ -101,7 +101,10 @@ impl<'a> Parser<'a> {
 
         match ch {
             '(' => self.parse_list_or_dotted(),
-            ')' => Err(self.error("unexpected ')'")),
+            ')' => {
+                self.bump();
+                Err(self.error(")"))
+            }
             '[' => self.parse_vector(),
             '\'' => {
                 self.bump();
