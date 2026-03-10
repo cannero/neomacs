@@ -1,9 +1,13 @@
+[test-groups.oracle]
+max-threads = 4
+
 [test-groups.oracle-combination-consistency]
 max-threads = 1
 
 [[profile.default.overrides]]
 filter = 'test(/^emacs_core::oracle_test::/)'
 slow-timeout = { period = "120s", terminate-after = 1 }
+test-group = 'oracle'
 
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(=emacs_core::load::tests::neovm_loadup_bootstrap)'
