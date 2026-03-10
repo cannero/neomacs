@@ -61,6 +61,21 @@ fn translate_character_class_passthrough() {
 }
 
 #[test]
+fn translate_character_class_backslash_ranges_like_gnu() {
+    assert_eq!(translate_emacs_regex("[+\\-*/=<>]"), "[+/=<>]");
+}
+
+#[test]
+fn translate_easymenu_command_hint_regexp() {
+    let emacs = r"^[^\]*\(\\\[\([^]]+\)]\)[^\]*$";
+    assert_eq!(
+        translate_emacs_regex(emacs),
+        r"^[^\\]*(\\\[([^\]]+)])[^\\]*$"
+    );
+    compile_emacs_regex_case_fold(emacs, true).expect("easymenu regexp should compile");
+}
+
+#[test]
 fn translate_reversed_range_classes() {
     // Reversed ranges are empty in Emacs.
     assert_eq!(translate_emacs_regex("[z-a]"), "[^\\s\\S]");
@@ -447,6 +462,24 @@ fn looking_at_with_groups() {
     // Actually \w includes digits, so \w+ matches everything
     // Let's check what actually happens
     assert!(md.groups[0].is_some());
+}
+
+#[test]
+fn looking_at_character_class_backslash_range_like_gnu() {
+    let mut md = None;
+    let buf = make_test_buffer("/");
+    let result = looking_at(&buf, "[+\\-*/=<>]", false, &mut md);
+    assert_eq!(result, Ok(true));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 1)));
+
+    let mut md = None;
+    let buf = make_test_buffer("*");
+    assert_eq!(looking_at(&buf, "[+\\-*/=<>]", false, &mut md), Ok(false));
+
+    let mut md = None;
+    let buf = make_test_buffer("-");
+    assert_eq!(looking_at(&buf, "[+\\-*/=<>]", false, &mut md), Ok(false));
 }
 
 // -----------------------------------------------------------------------

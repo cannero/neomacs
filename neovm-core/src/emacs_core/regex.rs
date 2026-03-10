@@ -50,6 +50,14 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
             .and_then(|tail| tail.chars().next().map(|ch| (ch, ch.len_utf8())))
     }
 
+    fn push_rust_class_char(out: &mut String, ch: char) {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '[' => out.push_str("\\["),
+            _ => out.push(ch),
+        }
+    }
+
     let mut out = String::with_capacity(pattern.len() + 8);
     let bytes = pattern.as_bytes();
     let len = bytes.len();
@@ -71,7 +79,7 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
         }
 
         // Inside a character class [...], handle Emacs/Rust differences:
-        //  - `\` is literal in Emacs but an escape in Rust → double it
+        //  - `\` is literal in Emacs and can still participate in ranges
         //  - Reversed ranges like `z-a` are empty in Emacs but error in Rust → remove
         //  - `]` at first position is literal in Emacs → escape it for Rust
         if in_bracket {
@@ -98,9 +106,23 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                 continue;
             }
             if ch == '\\' {
-                // In Emacs, `\` inside [...] is literal.  Escape for Rust.
-                out.push_str("\\\\");
-                i += 1;
+                if i + 2 < len && bytes[i + 1] == b'-' && bytes[i + 2] != b']' {
+                    let (end_ch, end_len) =
+                        next_char_at(pattern, i + 2).expect("byte index must be char boundary");
+                    if ch > end_ch {
+                        // GNU Emacs treats `\-x` like a range from `\` to `x`.
+                        // If the range is reversed, it is empty.
+                        i += 1 + 1 + end_len;
+                        continue;
+                    }
+                    push_rust_class_char(&mut out, ch);
+                    out.push('-');
+                    push_rust_class_char(&mut out, end_ch);
+                    i += 1 + 1 + end_len;
+                } else {
+                    push_rust_class_char(&mut out, ch);
+                    i += 1;
+                }
                 continue;
             }
             if ch == '[' {
