@@ -5,7 +5,8 @@
 
 use regex::Regex;
 
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, BufferId};
+use crate::emacs_core::casefiddle::apply_replace_match_case;
 
 pub(crate) const REPLACE_MATCH_SUBEXP_MISSING: &str = "replace-match subexpression does not exist";
 
@@ -22,6 +23,8 @@ pub struct MatchData {
     /// The string that was searched (for `string-match`).
     /// `None` when the search was performed on a buffer.
     pub searched_string: Option<String>,
+    /// The buffer that was searched, when match data came from a buffer search.
+    pub searched_buffer: Option<BufferId>,
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +446,7 @@ fn match_data_from_captures(caps: &regex::Captures<'_>, offset: usize) -> MatchD
     MatchData {
         groups,
         searched_string: None,
+        searched_buffer: None,
     }
 }
 
@@ -564,6 +568,7 @@ pub fn search_forward(
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
             searched_string: None,
+            searched_buffer: Some(buf.id),
         });
         Ok(Some(match_end))
     } else if noerror {
@@ -615,6 +620,7 @@ pub fn search_backward(
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
             searched_string: None,
+            searched_buffer: Some(buf.id),
         });
         Ok(Some(match_start))
     } else if noerror {
@@ -654,6 +660,7 @@ pub fn re_search_forward(
 
     if let Some(mut md) = find_forward_match_data(&re, &text, start_rel, limit_rel, region_start) {
         md.searched_string = None;
+        md.searched_buffer = Some(buf.id);
         let full_match = md.groups[0].unwrap();
         buf.pt = full_match.1;
         *match_data = Some(md);
@@ -696,6 +703,7 @@ pub fn re_search_backward(
 
     if let Some(mut md) = find_backward_match_data(&re, &text, start_rel, limit_rel, region_start) {
         md.searched_string = None;
+        md.searched_buffer = Some(buf.id);
         let full_match = md.groups[0].unwrap();
         buf.pt = full_match.0;
         *match_data = Some(md);
@@ -735,6 +743,7 @@ pub fn looking_at(
             return Ok(false);
         }
         md.searched_string = None;
+        md.searched_buffer = Some(buf.id);
         *match_data = Some(md);
         Ok(true)
     } else {
@@ -783,6 +792,7 @@ pub fn string_match_full_with_case_fold(
         *match_data = Some(MatchData {
             groups: char_groups,
             searched_string: Some(string.to_string()),
+            searched_buffer: None,
         });
         Ok(Some(result_pos))
     } else {
@@ -970,48 +980,7 @@ fn build_replacement(template: &str, md: &MatchData, source: &str, char_position
 }
 
 fn apply_match_case(replacement: &str, matched: &str) -> String {
-    let mut first_is_upper = false;
-    let mut saw_first_cased = false;
-    let mut has_upper = false;
-    let mut has_lower = false;
-
-    for ch in matched.chars() {
-        if ch.is_uppercase() {
-            has_upper = true;
-            if !saw_first_cased {
-                first_is_upper = true;
-                saw_first_cased = true;
-            }
-        } else if ch.is_lowercase() {
-            has_lower = true;
-            if !saw_first_cased {
-                first_is_upper = false;
-                saw_first_cased = true;
-            }
-        }
-    }
-
-    if has_upper && !has_lower {
-        return replacement.chars().flat_map(char::to_uppercase).collect();
-    }
-
-    if first_is_upper {
-        let mut out = String::with_capacity(replacement.len());
-        let mut uppered = false;
-        for ch in replacement.chars() {
-            if !uppered && ch.is_lowercase() {
-                for uc in ch.to_uppercase() {
-                    out.push(uc);
-                }
-                uppered = true;
-            } else {
-                out.push(ch);
-            }
-        }
-        return out;
-    }
-
-    replacement.to_string()
+    apply_replace_match_case(replacement, matched)
 }
 
 // ---------------------------------------------------------------------------

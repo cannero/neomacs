@@ -1297,40 +1297,7 @@ fn is_delimited_match(text: &str, start: usize, end: usize) -> bool {
 ///   (capitalized), uppercase the first char of replacement and keep the rest.
 /// - Otherwise return `replacement` unmodified.
 fn preserve_case(replacement: &str, matched: &str) -> String {
-    if matched.is_empty() || replacement.is_empty() {
-        return replacement.to_string();
-    }
-
-    let all_upper = matched
-        .chars()
-        .all(|c| !c.is_alphabetic() || c.is_uppercase());
-    let has_alpha = matched.chars().any(|c| c.is_alphabetic());
-
-    if all_upper && has_alpha {
-        return replacement.to_uppercase();
-    }
-
-    let mut chars = matched.chars();
-    let first = chars.next().unwrap();
-    let first_upper = first.is_uppercase();
-    let rest_lower = chars.all(|c| !c.is_alphabetic() || c.is_lowercase());
-
-    if first_upper && rest_lower {
-        // Capitalize first char of replacement; keep remaining chars unchanged.
-        let mut result = String::with_capacity(replacement.len());
-        let mut rchars = replacement.chars();
-        if let Some(rc) = rchars.next() {
-            for uc in rc.to_uppercase() {
-                result.push(uc);
-            }
-        }
-        for rc in rchars {
-            result.push(rc);
-        }
-        return result;
-    }
-
-    replacement.to_string()
+    super::casefiddle::apply_replace_match_case(replacement, matched)
 }
 
 fn expand_emacs_replacement(rep: &str, caps: &regex::Captures<'_>) -> String {

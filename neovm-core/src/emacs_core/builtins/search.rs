@@ -621,7 +621,7 @@ pub(crate) fn builtin_match_string(
 }
 
 pub(crate) fn builtin_match_beginning_with_state(
-    current_buffer: Option<&crate::buffer::Buffer>,
+    buffers: Option<&crate::buffer::BufferManager>,
     match_data: &Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
@@ -645,10 +645,18 @@ pub(crate) fn builtin_match_beginning_with_state(
             if md.searched_string.is_some() {
                 // String search: positions are already character positions
                 Ok(Value::Int(*start as i64))
-            } else if let Some(buf) = current_buffer {
+            } else if let Some(buf) = md
+                .searched_buffer
+                .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
+                .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
+            {
                 // Buffer positions are 1-based character positions.
-                let pos = buf.text.byte_to_char(*start) as i64 + 1;
-                Ok(Value::Int(pos))
+                if *start <= buf.text.len() {
+                    let pos = buf.text.byte_to_char(*start) as i64 + 1;
+                    Ok(Value::Int(pos))
+                } else {
+                    Ok(Value::Int(*start as i64))
+                }
             } else {
                 Ok(Value::Int(*start as i64))
             }
@@ -662,11 +670,11 @@ pub(crate) fn builtin_match_beginning(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_match_beginning_with_state(eval.buffers.current_buffer(), &eval.match_data, &args)
+    builtin_match_beginning_with_state(Some(&eval.buffers), &eval.match_data, &args)
 }
 
 pub(crate) fn builtin_match_end_with_state(
-    current_buffer: Option<&crate::buffer::Buffer>,
+    buffers: Option<&crate::buffer::BufferManager>,
     match_data: &Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
@@ -690,9 +698,17 @@ pub(crate) fn builtin_match_end_with_state(
             if md.searched_string.is_some() {
                 // String search: positions are already character positions
                 Ok(Value::Int(*end as i64))
-            } else if let Some(buf) = current_buffer {
-                let pos = buf.text.byte_to_char(*end) as i64 + 1;
-                Ok(Value::Int(pos))
+            } else if let Some(buf) = md
+                .searched_buffer
+                .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
+                .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
+            {
+                if *end <= buf.text.len() {
+                    let pos = buf.text.byte_to_char(*end) as i64 + 1;
+                    Ok(Value::Int(pos))
+                } else {
+                    Ok(Value::Int(*end as i64))
+                }
             } else {
                 Ok(Value::Int(*end as i64))
             }
@@ -703,10 +719,11 @@ pub(crate) fn builtin_match_end_with_state(
 }
 
 pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    builtin_match_end_with_state(eval.buffers.current_buffer(), &eval.match_data, &args)
+    builtin_match_end_with_state(Some(&eval.buffers), &eval.match_data, &args)
 }
 
 pub(crate) fn builtin_match_data_with_state(
+    mut buffers: Option<&mut crate::buffer::BufferManager>,
     match_data: &Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
@@ -720,6 +737,16 @@ pub(crate) fn builtin_match_data_with_state(
     let Some(md) = match_data else {
         return Ok(Value::Nil);
     };
+    let integers = args.first().is_some_and(|arg| arg.is_truthy());
+    let current_buffer_id = if md.searched_string.is_none() {
+        md.searched_buffer.or_else(|| {
+            buffers
+                .as_ref()
+                .and_then(|bufs| bufs.current_buffer().map(|buffer| buffer.id))
+        })
+    } else {
+        None
+    };
 
     // Emacs trims trailing unmatched groups from match-data output.
     let mut trailing = md.groups.len();
@@ -731,9 +758,50 @@ pub(crate) fn builtin_match_data_with_state(
     for grp in md.groups.iter().take(trailing) {
         match grp {
             Some((start, end)) => {
-                // For string searches, positions are already character positions.
-                // For buffer searches, positions are byte offsets (returned as-is;
-                // match-beginning/match-end handle byte→char conversion).
+                if md.searched_string.is_some() {
+                    flat.push(Value::Int(*start as i64));
+                    flat.push(Value::Int(*end as i64));
+                    continue;
+                }
+
+                let buffer_positions = current_buffer_id.and_then(|buffer_id| {
+                    buffers.as_deref().and_then(|bufs| {
+                        bufs.get(buffer_id).and_then(|buffer| {
+                            if *start <= *end && *end <= buffer.text.len() {
+                                Some((
+                                    buffer.text.byte_to_char(*start) as i64 + 1,
+                                    buffer.text.byte_to_char(*end) as i64 + 1,
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                });
+
+                if integers {
+                    if let Some((start_pos, end_pos)) = buffer_positions {
+                        flat.push(Value::Int(start_pos));
+                        flat.push(Value::Int(end_pos));
+                    } else {
+                        flat.push(Value::Int(*start as i64));
+                        flat.push(Value::Int(*end as i64));
+                    }
+                    continue;
+                }
+
+                if let (Some((start_pos, end_pos)), Some(bufs), Some(buffer_id)) =
+                    (buffer_positions, buffers.as_deref_mut(), current_buffer_id)
+                {
+                    flat.push(super::marker::make_registered_buffer_marker(
+                        bufs, buffer_id, start_pos, false,
+                    ));
+                    flat.push(super::marker::make_registered_buffer_marker(
+                        bufs, buffer_id, end_pos, false,
+                    ));
+                    continue;
+                }
+
                 flat.push(Value::Int(*start as i64));
                 flat.push(Value::Int(*end as i64));
             }
@@ -743,6 +811,12 @@ pub(crate) fn builtin_match_data_with_state(
             }
         }
     }
+
+    if integers && md.searched_string.is_none() {
+        if let Some(buffer_id) = current_buffer_id {
+            flat.push(Value::Buffer(buffer_id));
+        }
+    }
     Ok(Value::list(flat))
 }
 
@@ -750,7 +824,7 @@ pub(crate) fn builtin_match_data_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_match_data_with_state(&eval.match_data, &args)
+    builtin_match_data_with_state(Some(&mut eval.buffers), &eval.match_data, &args)
 }
 
 pub(crate) fn builtin_set_match_data_with_state(
@@ -807,6 +881,7 @@ pub(crate) fn builtin_set_match_data_with_state(
         *match_data = Some(super::regex::MatchData {
             groups,
             searched_string: None,
+            searched_buffer: None,
         });
     }
 

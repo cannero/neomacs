@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::Expr;
+use crate::emacs_core::marker::make_marker_value_with_id;
 
 /// Helper: set up a temporary heap for tests that use Value constructors.
 fn with_test_heap<R>(f: impl FnOnce() -> R) -> R {
@@ -95,6 +96,18 @@ fn string_equality() {
         assert!(equal_value(&a, &b, 0));
         // eq compares ObjId identity — different allocations
         assert!(!eq_value(&a, &b));
+    });
+}
+
+#[test]
+fn marker_equal_ignores_internal_tracking_id() {
+    with_test_heap(|| {
+        let left = make_marker_value_with_id(Some("*scratch*"), Some(4), false, Some(1));
+        let right = make_marker_value_with_id(Some("*scratch*"), Some(4), false, Some(2));
+        let different = make_marker_value_with_id(Some("*scratch*"), Some(5), false, Some(1));
+
+        assert!(equal_value(&left, &right, 0));
+        assert!(!equal_value(&left, &different, 0));
     });
 }
 

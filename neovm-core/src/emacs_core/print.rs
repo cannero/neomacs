@@ -71,8 +71,55 @@ fn with_print_object_guard<R>(
     })
 }
 
-fn print_special_handle(value: &Value) -> Option<String> {
+fn format_marker_handle(
+    value: &Value,
+    buffers: Option<&crate::buffer::BufferManager>,
+) -> Option<String> {
+    if !super::marker::is_marker(value) {
+        return None;
+    }
+
+    let Value::Vector(vector) = value else {
+        return None;
+    };
+    let items = with_heap(|h| h.get_vector(*vector).clone());
+    let buffer_name = match items.get(1) {
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        _ => None,
+    };
+    let position = match items.get(2) {
+        Some(Value::Int(pos)) => Some(*pos),
+        _ => None,
+    };
+    let insertion_type = items.get(3).is_some_and(Value::is_truthy);
+
+    let live_buffer = buffer_name
+        .as_deref()
+        .is_some_and(|name| buffers.is_none_or(|bufs| bufs.find_buffer_by_name(name).is_some()));
+
+    let mut out = String::from("#<marker ");
+    if insertion_type {
+        out.push_str("(moves after insertion) ");
+    }
+    if live_buffer {
+        if let (Some(pos), Some(name)) = (position, buffer_name.as_deref()) {
+            out.push_str(&format!("at {pos} in {name}"));
+        } else {
+            out.push_str("in no buffer");
+        }
+    } else {
+        out.push_str("in no buffer");
+    }
+    out.push('>');
+    Some(out)
+}
+
+fn print_special_handle(
+    value: &Value,
+    buffers: Option<&crate::buffer::BufferManager>,
+) -> Option<String> {
     super::terminal::pure::print_terminal_handle(value)
+        .or_else(|| format_marker_handle(value, buffers))
 }
 
 fn format_frame_handle(id: u64) -> String {
@@ -114,7 +161,7 @@ pub fn print_value_with_buffers_and_options(
     buffers: &crate::buffer::BufferManager,
     options: PrintOptions,
 ) -> String {
-    if let Some(handle) = print_special_handle(value) {
+    if let Some(handle) = print_special_handle(value, Some(buffers)) {
         return handle;
     }
     match value {
@@ -246,7 +293,7 @@ pub fn print_value(value: &Value) -> String {
 }
 
 pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String {
-    if let Some(handle) = print_special_handle(value) {
+    if let Some(handle) = print_special_handle(value, None) {
         return handle;
     }
     match value {
@@ -357,7 +404,7 @@ pub fn print_value_bytes_with_options(value: &Value, options: PrintOptions) -> V
 }
 
 fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
-    if let Some(handle) = print_special_handle(value) {
+    if let Some(handle) = print_special_handle(value, None) {
         out.extend_from_slice(handle.as_bytes());
         return;
     }

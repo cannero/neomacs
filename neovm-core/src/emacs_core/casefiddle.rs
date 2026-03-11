@@ -271,7 +271,7 @@ pub(crate) fn builtin_upcase_initials(args: Vec<Value>) -> EvalResult {
 }
 
 /// Uppercase the first letter of each word, leaving the rest unchanged.
-fn upcase_initials_string(s: &str) -> String {
+pub(crate) fn upcase_initials_string(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut new_word = true;
     for c in s.chars() {
@@ -290,6 +290,57 @@ fn upcase_initials_string(s: &str) -> String {
         }
     }
     result
+}
+
+pub(crate) fn apply_replace_match_case(replacement: &str, matched: &str) -> String {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum CaseAction {
+        NoChange,
+        AllCaps,
+        CapInitial,
+    }
+
+    let mut some_multiletter_word = false;
+    let mut some_lowercase = false;
+    let mut some_uppercase = false;
+    let mut some_nonuppercase_initial = false;
+    let mut prev_is_word = false;
+
+    for ch in matched.chars() {
+        if ch.is_lowercase() {
+            some_lowercase = true;
+            if prev_is_word {
+                some_multiletter_word = true;
+            } else {
+                some_nonuppercase_initial = true;
+            }
+        } else if ch.is_uppercase() {
+            some_uppercase = true;
+            if prev_is_word {
+                some_multiletter_word = true;
+            }
+        } else if !prev_is_word {
+            some_nonuppercase_initial = true;
+        }
+
+        prev_is_word = ch.is_alphanumeric();
+    }
+
+    let case_action = if !some_lowercase && some_multiletter_word {
+        CaseAction::AllCaps
+    } else if !some_nonuppercase_initial && some_multiletter_word {
+        CaseAction::CapInitial
+    } else if !some_nonuppercase_initial && some_uppercase {
+        CaseAction::AllCaps
+    } else {
+        CaseAction::NoChange
+    };
+
+    match case_action {
+        CaseAction::NoChange => replacement.to_string(),
+        CaseAction::AllCaps => replacement.to_uppercase(),
+        CaseAction::CapInitial => upcase_initials_string(replacement),
+    }
 }
 
 /// `(char-resolve-modifiers CHAR)` -- resolve modifier bits in character.

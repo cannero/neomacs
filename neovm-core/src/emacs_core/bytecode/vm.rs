@@ -2179,20 +2179,21 @@ impl<'a> Vm<'a> {
             }),
             "match-beginning" => Some(
                 crate::emacs_core::builtins::search::builtin_match_beginning_with_state(
-                    self.buffers.current_buffer(),
+                    Some(&*self.buffers),
                     self.match_data,
                     args,
                 ),
             ),
             "match-end" => Some(
                 crate::emacs_core::builtins::search::builtin_match_end_with_state(
-                    self.buffers.current_buffer(),
+                    Some(&*self.buffers),
                     self.match_data,
                     args,
                 ),
             ),
             "match-data" => Some(
                 crate::emacs_core::builtins::search::builtin_match_data_with_state(
+                    Some(self.buffers),
                     self.match_data,
                     args,
                 ),

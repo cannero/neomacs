@@ -133,35 +133,7 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
 }
 
 fn preserve_case(replacement: &str, matched: &str) -> String {
-    if matched.is_empty() || replacement.is_empty() {
-        return replacement.to_string();
-    }
-
-    let all_upper = matched
-        .chars()
-        .all(|c| !c.is_alphabetic() || c.is_uppercase());
-    let has_alpha = matched.chars().any(|c| c.is_alphabetic());
-    if all_upper && has_alpha {
-        return replacement.to_uppercase();
-    }
-
-    let mut chars = matched.chars();
-    let first = chars.next().unwrap();
-    let first_upper = first.is_uppercase();
-    let rest_lower = chars.all(|c| !c.is_alphabetic() || c.is_lowercase());
-    if first_upper && rest_lower {
-        let mut out = String::with_capacity(replacement.len());
-        let mut rep_chars = replacement.chars();
-        if let Some(ch) = rep_chars.next() {
-            for uc in ch.to_uppercase() {
-                out.push(uc);
-            }
-        }
-        out.extend(rep_chars);
-        return out;
-    }
-
-    replacement.to_string()
+    super::casefiddle::apply_replace_match_case(replacement, matched)
 }
 
 fn expand_emacs_replacement(rep: &str, caps: &regex::Captures<'_>, literal: bool) -> String {
@@ -426,6 +398,7 @@ pub(crate) fn builtin_set_match_data(args: Vec<Value>) -> EvalResult {
             *slot.borrow_mut() = Some(super::regex::MatchData {
                 groups,
                 searched_string: None,
+                searched_buffer: None,
             });
         }
     });
@@ -477,6 +450,7 @@ pub(crate) fn builtin_looking_at(args: Vec<Value>) -> EvalResult {
                     *slot.borrow_mut() = Some(super::regex::MatchData {
                         groups,
                         searched_string: Some(text.to_string()),
+                        searched_buffer: None,
                     })
                 });
                 Ok(Value::True)
@@ -721,6 +695,7 @@ pub(crate) fn builtin_replace_regexp_in_string_eval(
         eval.match_data = Some(super::regex::MatchData {
             groups,
             searched_string: Some(s.clone()),
+            searched_buffer: None,
         });
 
         out.push_str(&search_region[cursor..replace_start]);

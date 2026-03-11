@@ -1196,6 +1196,12 @@ fn equal_value_inner(
             }
             with_heap(|h| h.get_string(*a) == h.get_string(*b))
         }
+        (Value::Vector(_), Value::Vector(_))
+            if super::marker::is_marker(left) && super::marker::is_marker(right) =>
+        {
+            super::marker::marker_logical_fields(left)
+                == super::marker::marker_logical_fields(right)
+        }
         (Value::Cons(a), Value::Cons(b)) => {
             if a == b {
                 return true;

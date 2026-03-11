@@ -19,6 +19,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::value::*;
+use crate::buffer::{BufferId, BufferManager, InsertionType, MarkerEntry};
 
 // ---------------------------------------------------------------------------
 // Marker struct (for documentation / internal helpers)
@@ -116,6 +117,53 @@ pub(crate) fn make_marker_value_with_id(
             None => Value::Nil,
         },
     ])
+}
+
+pub(crate) fn make_registered_buffer_marker(
+    buffers: &mut BufferManager,
+    buffer_id: BufferId,
+    position: i64,
+    insertion_type: bool,
+) -> Value {
+    let buffer_name = buffers.get(buffer_id).map(|buffer| buffer.name.clone());
+    let marker = make_marker_value(buffer_name.as_deref(), Some(position), insertion_type);
+    let marker_id = buffers.allocate_marker_id();
+    set_marker_id(&marker, marker_id);
+
+    if let Some(buffer) = buffers.get_mut(buffer_id) {
+        buffer.markers.push(MarkerEntry {
+            id: marker_id,
+            byte_pos: lisp_pos_to_byte(buffer, position),
+            insertion_type: if insertion_type {
+                InsertionType::After
+            } else {
+                InsertionType::Before
+            },
+        });
+    }
+
+    marker
+}
+
+pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<String>, Option<i64>, bool)> {
+    if !is_marker(v) {
+        return None;
+    }
+
+    let Value::Vector(vec) = v else {
+        return None;
+    };
+    let elems = with_heap(|h| h.get_vector(*vec).clone());
+    let buffer_name = match elems.get(1) {
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        _ => None,
+    };
+    let position = match elems.get(2) {
+        Some(Value::Int(pos)) => Some(*pos),
+        _ => None,
+    };
+    let insertion_type = elems.get(3).is_some_and(Value::is_truthy);
+    Some((buffer_name, position, insertion_type))
 }
 
 /// Read the marker-id field from a marker vector (index 4), if present.

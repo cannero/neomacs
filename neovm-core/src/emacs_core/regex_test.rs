@@ -76,6 +76,20 @@ fn translate_easymenu_command_hint_regexp() {
 }
 
 #[test]
+fn replace_match_case_capitalizes_each_word_like_gnu() {
+    assert_eq!(apply_match_case("[alice:5]", "Alice"), "[Alice:5]");
+    assert_eq!(
+        apply_match_case("h_hello w_world", "Hello World"),
+        "H_Hello W_World"
+    );
+}
+
+#[test]
+fn replace_match_case_upcases_all_caps_matches() {
+    assert_eq!(apply_match_case("foo-bar", "FOO"), "FOO-BAR");
+}
+
+#[test]
 fn translate_reversed_range_classes() {
     // Reversed ranges are empty in Emacs.
     assert_eq!(translate_emacs_regex("[z-a]"), "[^\\s\\S]");

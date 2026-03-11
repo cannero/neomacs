@@ -939,6 +939,25 @@ fn bootstrap_condition_case_lexical_handler_binding_restores_outer_let() {
     assert_eq!(rendered, "OK ((caught arith-error) original)");
 }
 
+#[test]
+fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-temp-buffer
+             (insert "foobar")
+             (goto-char (point-min))
+             (looking-at "\\(foo\\)\\(bar\\)")
+             (match-data))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (#<marker in no buffer> #<marker in no buffer> #<marker in no buffer> #<marker in no buffer> #<marker in no buffer> #<marker in no buffer>)"
+    );
+}
+
 fn cached_bootstrap_eval_with_loaded_file(path: &std::path::Path, form: &str) -> String {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");

@@ -1,4 +1,5 @@
 use super::super::intern::{intern, intern_uninterned};
+use super::super::marker::make_marker_value;
 use super::*;
 use crate::emacs_core::value::{
     HashTableTest, LambdaData, LambdaParams, StringTextPropertyRun, next_float_id,
@@ -309,4 +310,26 @@ fn print_frame_handles_use_oracle_style_f_prefix() {
     assert_eq!(print_value(&f2), "#<frame F2 0x100000001>");
     assert_eq!(print_value_bytes(&f2), b"#<frame F2 0x100000001>");
     assert_eq!(print_value(&legacy), "#<frame 7>");
+}
+
+#[test]
+fn print_markers_use_gnu_style_handles() {
+    let marker = make_marker_value(None, None, false);
+    assert_eq!(print_value(&marker), "#<marker in no buffer>");
+
+    let mut buffers = crate::buffer::BufferManager::new();
+    let buffer_id = buffers
+        .find_buffer_by_name("*scratch*")
+        .expect("scratch buffer");
+    let marker = make_marker_value(Some("*scratch*"), Some(3), false);
+    assert_eq!(
+        print_value_with_buffers(&marker, &buffers),
+        "#<marker at 3 in *scratch*>"
+    );
+
+    buffers.kill_buffer(buffer_id);
+    assert_eq!(
+        print_value_with_buffers(&marker, &buffers),
+        "#<marker in no buffer>"
+    );
 }
