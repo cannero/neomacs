@@ -1804,7 +1804,6 @@ pub(crate) fn dispatch_builtin(
         "yank-rectangle" => return Some(super::rect::builtin_yank_rectangle(eval, args)),
         "insert-rectangle" => return Some(super::rect::builtin_insert_rectangle(eval, args)),
         "open-rectangle" => return Some(super::rect::builtin_open_rectangle(eval, args)),
-        "clear-rectangle" => return Some(super::rect::builtin_clear_rectangle(eval, args)),
         "string-rectangle" => return Some(super::rect::builtin_string_rectangle(eval, args)),
         "delete-extract-rectangle" => {
             return Some(super::rect::builtin_delete_extract_rectangle(eval, args));

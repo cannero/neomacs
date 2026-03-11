@@ -1,4 +1,17 @@
 use super::*;
+use crate::emacs_core::autoload::is_autoload_value;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::{format_eval_result, parse_forms};
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let forms = parse_forms(src).expect("parse");
+    eval.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
 
 #[test]
 fn rectangle_state_default() {
@@ -369,57 +382,26 @@ fn open_rectangle_eval_mutates_buffer_and_point() {
 }
 
 #[test]
-fn clear_rectangle_returns_point() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_clear_rectangle(&mut eval, vec![Value::Int(1), Value::Int(10)]);
-    assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::Int(_)));
+fn clear_rectangle_startup_is_autoloaded() {
+    let eval = super::super::eval::Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("clear-rectangle")
+        .expect("missing clear-rectangle startup function cell");
+    assert!(is_autoload_value(&function));
 }
 
 #[test]
-fn clear_rectangle_with_fill() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_clear_rectangle(
-        &mut eval,
-        vec![Value::Int(1), Value::Int(10), Value::Char('x')],
+fn clear_rectangle_loads_from_gnu_rect_el() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "abcdef\n123456\n")
+             (clear-rectangle 1 9)
+             (list (replace-regexp-in-string "\n" "|" (buffer-string) nil t)
+                   (point)
+                   (subrp (symbol-function 'clear-rectangle))))"#,
     );
-    assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::Int(_)));
-}
-
-#[test]
-fn clear_rectangle_accepts_non_char_fill() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_clear_rectangle(
-        &mut eval,
-        vec![
-            Value::Int(1),
-            Value::Int(10),
-            Value::Float(1.5, next_float_id()),
-        ],
-    );
-    assert!(result.is_ok());
-}
-
-#[test]
-fn clear_rectangle_eval_mutates_and_restores_point() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abcdef\n123456\n");
-    }
-    let result = builtin_clear_rectangle(&mut eval, vec![Value::Int(1), Value::Int(9)])
-        .expect("clear-rectangle");
-    assert_eq!(result, Value::Int(9));
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist");
-    assert_eq!(buf.buffer_string(), " bcdef\n 23456\n");
-    assert_eq!(buf.text.byte_to_char(buf.point()) as i64 + 1, 15);
+    assert_eq!(result[0], r#"OK (" bcdef| 23456|" 15 nil)"#);
 }
 
 #[test]
