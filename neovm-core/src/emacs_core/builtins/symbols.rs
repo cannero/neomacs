@@ -543,7 +543,6 @@ pub(crate) fn builtin_func_arity_eval(
             if function.is_nil() {
                 return Err(signal("void-function", vec![Value::symbol(name)]));
             }
-            maybe_materialize_thingatpt_word_symbol(eval, name, &function);
             maybe_mark_pcase_fallback_materialized(eval, name, &function);
             if super::subr_info::is_special_form(name) {
                 return super::subr_info::builtin_func_arity(vec![Value::Subr(intern(name))]);
@@ -557,34 +556,6 @@ pub(crate) fn builtin_func_arity_eval(
     }
 
     super::subr_info::builtin_func_arity(vec![args[0]])
-}
-
-fn maybe_materialize_thingatpt_word_symbol(
-    eval: &mut super::eval::Evaluator,
-    name: &str,
-    function: &Value,
-) {
-    if !super::autoload::is_autoload_value(function) {
-        return;
-    }
-    if !matches!(
-        name,
-        "symbol-at-point" | "thing-at-point" | "bounds-of-thing-at-point"
-    ) {
-        return;
-    }
-    let obarray = eval.obarray();
-    if obarray.fboundp("word-at-point") {
-        return;
-    }
-    // Respect explicit user-level `fmakunbound` after materialization. Startup
-    // masking keeps the symbol uninterned and should still allow first bootstrap.
-    if obarray.is_function_unbound("word-at-point")
-        && obarray.intern_soft("word-at-point").is_some()
-    {
-        return;
-    }
-    eval.set_function("word-at-point", Value::Subr(intern("word-at-point")));
 }
 
 fn maybe_mark_pcase_fallback_materialized(

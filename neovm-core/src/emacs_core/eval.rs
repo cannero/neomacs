@@ -1618,8 +1618,8 @@ impl Evaluator {
             seed_function_wrapper(&mut obarray, name);
         }
 
-        // Keep word-at-point unavailable at startup; symbol-at-point lazily
-        // materializes it to mirror GNU Emacs thing-at-point bootstrap.
+        // `word-at-point` is defined in GNU Emacs Lisp by `thingatpt.el`,
+        // not as a startup builtin.
         obarray.clear_function_silent("word-at-point");
 
         // Stub macros needed during bootstrap — these are normally defined in

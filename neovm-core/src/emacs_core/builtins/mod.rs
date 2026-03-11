@@ -2464,14 +2464,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "thing-at-point" => return Some(super::interactive::builtin_thing_at_point(eval, args)),
-        "bounds-of-thing-at-point" => {
-            return Some(super::interactive::builtin_bounds_of_thing_at_point(
-                eval, args,
-            ));
-        }
-        "symbol-at-point" => return Some(super::interactive::builtin_symbol_at_point(eval, args)),
-        "word-at-point" => return Some(super::interactive::builtin_word_at_point(eval, args)),
         // Error hierarchy (evaluator-dependent — reads obarray)
         "error-message-string" => {
             return Some(super::errors::builtin_error_message_string(eval, args));

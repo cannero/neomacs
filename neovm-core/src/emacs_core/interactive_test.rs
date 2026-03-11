@@ -1266,398 +1266,58 @@ fn describe_key_briefly_default_plain_char_reports_self_insert() {
 }
 
 // -------------------------------------------------------------------
-// thing-at-point
+// thing-at-point / symbol-at-point / word-at-point
 // -------------------------------------------------------------------
 
 #[test]
-fn thing_at_point_word() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap")
-           (set-buffer "tap")
-           (insert "hello world")
-           (goto-char 2)"#,
-    );
-    let result = builtin_thing_at_point(&mut ev, vec![Value::symbol("word")]).unwrap();
-    assert_eq!(result.as_str(), Some("hello"));
-}
+fn thingatpt_startup_functions_are_autoloaded() {
+    let ev = Evaluator::new();
 
-#[test]
-fn thing_at_point_symbol() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap2")
-           (set-buffer "tap2")
-           (insert "foo-bar baz")
-           (goto-char 3)"#,
-    );
-    let result = builtin_thing_at_point(&mut ev, vec![Value::symbol("symbol")]).unwrap();
-    assert_eq!(result.as_str(), Some("foo-bar"));
-}
-
-#[test]
-fn thing_at_point_word_and_symbol_boundary() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap-bound")
-           (set-buffer "tap-bound")
-           (insert "alpha my-symbol")
-           (goto-char (point-min))
-           (search-forward "alpha")"#,
-    );
-    let word = builtin_thing_at_point(&mut ev, vec![Value::symbol("word")]).unwrap();
-    assert_eq!(word.as_str(), Some("alpha"));
-
-    eval_all_with(&mut ev, "(search-forward \"my-symbol\")");
-    let symbol = builtin_thing_at_point(&mut ev, vec![Value::symbol("symbol")]).unwrap();
-    assert_eq!(symbol.as_str(), Some("my-symbol"));
-}
-
-#[test]
-fn thing_at_point_line() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap3")
-           (set-buffer "tap3")
-           (insert "line1\nline2\n")
-           (goto-char 1)"#,
-    );
-    let result = builtin_thing_at_point(&mut ev, vec![Value::symbol("line")]).unwrap();
-    let s = result.as_str().unwrap();
-    assert!(s.starts_with("line1"));
-}
-
-#[test]
-fn thing_at_point_url_and_email() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap4")
-           (set-buffer "tap4")
-           (insert "site https://example.com/path?a=1 and mail user@example.com")
-           (goto-char 10)"#,
-    );
-    let url = builtin_thing_at_point(&mut ev, vec![Value::symbol("url")]).unwrap();
-    assert_eq!(url.as_str(), Some("https://example.com/path?a=1"));
-
-    eval_all_with(&mut ev, "(goto-char 46)");
-    let email = builtin_thing_at_point(&mut ev, vec![Value::symbol("email")]).unwrap();
-    assert_eq!(email.as_str(), Some("user@example.com"));
-}
-
-#[test]
-fn thing_at_point_number_returns_numeric_value() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap-num")
-           (set-buffer "tap-num")
-           (insert "v 12.34 56")
-           (goto-char 5)"#,
-    );
-    let float_result = builtin_thing_at_point(&mut ev, vec![Value::symbol("number")]).unwrap();
-    assert_eq!(float_result.as_float(), Some(12.34));
-
-    eval_all_with(&mut ev, "(goto-char 10)");
-    let int_result = builtin_thing_at_point(&mut ev, vec![Value::symbol("number")]).unwrap();
-    assert_eq!(int_result.as_int(), Some(56));
-}
-
-#[test]
-fn thing_at_point_filename() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap5")
-           (set-buffer "tap5")
-           (insert "open ./dir/file.txt now")
-           (goto-char 10)"#,
-    );
-    let result = builtin_thing_at_point(&mut ev, vec![Value::symbol("filename")]).unwrap();
-    assert_eq!(result.as_str(), Some("./dir/file.txt"));
-}
-
-#[test]
-fn thing_at_point_no_buffer() {
-    let mut ev = Evaluator::new();
-    // No buffer set
-    let result = builtin_thing_at_point(&mut ev, vec![Value::symbol("word")]).unwrap();
-    assert!(result.is_nil());
-}
-
-#[test]
-fn thing_at_point_not_symbol() {
-    let mut ev = Evaluator::new();
-    let result = builtin_thing_at_point(&mut ev, vec![Value::Int(42)]);
-    assert!(result.is_err());
-}
-
-// -------------------------------------------------------------------
-// bounds-of-thing-at-point
-// -------------------------------------------------------------------
-
-#[test]
-fn bounds_of_thing_at_point_word() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "bnd")
-           (set-buffer "bnd")
-           (insert "hello world")
-           (goto-char 3)"#,
-    );
-    let result = builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("word")]).unwrap();
-    // Should be (1 . 6) for "hello"
-    if let Value::Cons(cell) = &result {
-        let cell = read_cons(*cell);
-        assert_eq!(cell.car.as_int(), Some(1));
-        assert_eq!(cell.cdr.as_int(), Some(6));
-    } else {
-        panic!("expected cons, got {:?}", result);
-    }
-}
-
-#[test]
-fn bounds_of_thing_at_point_symbol_boundary() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "bnd-bound")
-           (set-buffer "bnd-bound")
-           (insert "my-symbol other")
-           (goto-char (point-min))
-           (search-forward "my-symbol")"#,
-    );
-    let result = builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("symbol")]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let cell = read_cons(*cell);
-        assert_eq!(cell.car.as_int(), Some(1));
-        assert_eq!(cell.cdr.as_int(), Some(10));
-    } else {
-        panic!("expected symbol bounds cons, got {result:?}");
-    }
-}
-
-#[test]
-fn bounds_of_thing_at_point_sentence_and_sexp() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "bnd-sent-sexp")
-           (set-buffer "bnd-sent-sexp")
-           (insert "First sentence. Second sentence!")
-           (goto-char (point-min))
-           (search-forward "Second")"#,
-    );
-    let sentence =
-        builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("sentence")]).unwrap();
-    if let Value::Cons(cell) = &sentence {
-        let cell = read_cons(*cell);
-        assert_eq!(cell.car.as_int(), Some(1));
-        assert_eq!(cell.cdr.as_int(), Some(33));
-    } else {
-        panic!("expected sentence bounds cons, got {sentence:?}");
+    for name in [
+        "bounds-of-thing-at-point",
+        "thing-at-point",
+        "symbol-at-point",
+    ] {
+        let function = ev
+            .obarray
+            .symbol_function(name)
+            .unwrap_or_else(|| panic!("missing startup function cell for {name}"));
+        assert!(
+            crate::emacs_core::autoload::is_autoload_value(&function),
+            "{name} should come from GNU thingatpt.el"
+        );
     }
 
-    eval_all_with(
-        &mut ev,
-        r#"(erase-buffer)
-           (insert "(foo bar) baz")
-           (goto-char (point-min))
-           (search-forward "foo")"#,
-    );
-    let sexp = builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("sexp")]).unwrap();
-    if let Value::Cons(cell) = &sexp {
-        let cell = read_cons(*cell);
-        assert_eq!(cell.car.as_int(), Some(2));
-        assert_eq!(cell.cdr.as_int(), Some(5));
-    } else {
-        panic!("expected sexp bounds cons, got {sexp:?}");
-    }
-}
-
-#[test]
-fn bounds_of_thing_at_point_nil() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "bnd2")
-           (set-buffer "bnd2")
-           (insert "   ")
-           (goto-char 2)"#,
-    );
-    let result = builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("word")]).unwrap();
-    assert!(result.is_nil());
-}
-
-#[test]
-fn bounds_of_thing_at_point_url_and_email() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "bnd3")
-           (set-buffer "bnd3")
-           (insert "site https://example.com/path?a=1 and mail user@example.com.")
-           (goto-char 10)"#,
-    );
-
-    let url = builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("url")]).unwrap();
-    if let Value::Cons(cell) = &url {
-        let cell = read_cons(*cell);
-        assert_eq!(cell.car.as_int(), Some(6));
-        assert_eq!(cell.cdr.as_int(), Some(34));
-    } else {
-        panic!("expected url bounds cons, got {url:?}");
-    }
-
-    eval_all_with(&mut ev, "(goto-char 46)");
-    let email = builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("email")]).unwrap();
-    if let Value::Cons(cell) = &email {
-        let cell = read_cons(*cell);
-        assert_eq!(cell.car.as_int(), Some(44));
-        assert_eq!(cell.cdr.as_int(), Some(61));
-    } else {
-        panic!("expected email bounds cons, got {email:?}");
-    }
-}
-
-#[test]
-fn bounds_of_thing_at_point_filename() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "bnd4")
-           (set-buffer "bnd4")
-           (insert "open ./dir/file.txt now")
-           (goto-char 10)"#,
-    );
-    let result =
-        builtin_bounds_of_thing_at_point(&mut ev, vec![Value::symbol("filename")]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let cell = read_cons(*cell);
-        assert_eq!(cell.car.as_int(), Some(6));
-        assert_eq!(cell.cdr.as_int(), Some(20));
-    } else {
-        panic!("expected filename bounds cons, got {result:?}");
-    }
-}
-
-#[test]
-fn thing_at_point_filename_at_end_boundary() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap6")
-           (set-buffer "tap6")
-           (insert "open ./dir/file.txt now")
-           (goto-char (point-max))"#,
-    );
-    let result = builtin_thing_at_point(&mut ev, vec![Value::symbol("filename")]).unwrap();
-    assert_eq!(result.as_str(), Some("now"));
-}
-
-// -------------------------------------------------------------------
-// word-at-point / symbol-at-point
-// -------------------------------------------------------------------
-
-#[test]
-fn symbol_at_point_basic() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "sap")
-           (set-buffer "sap")
-           (insert "my-symbol other")
-           (goto-char 3)"#,
-    );
-    let result = builtin_symbol_at_point(&mut ev, vec![]).unwrap();
-    assert_eq!(result.as_symbol_name(), Some("my-symbol"));
-}
-
-#[test]
-fn symbol_at_point_bootstraps_word_at_point_binding() {
-    let mut ev = Evaluator::new();
-    assert!(!ev.obarray.fboundp("word-at-point"));
-
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "sap-bootstrap")
-           (set-buffer "sap-bootstrap")
-           (insert "my-symbol other")
-           (goto-char 3)"#,
-    );
-
-    let _ = builtin_symbol_at_point(&mut ev, vec![]).unwrap();
-    assert!(ev.obarray.fboundp("word-at-point"));
-}
-
-#[test]
-fn thing_at_point_bootstraps_word_at_point_binding() {
-    let mut ev = Evaluator::new();
-    assert!(!ev.obarray.fboundp("word-at-point"));
-
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "tap-bootstrap")
-           (set-buffer "tap-bootstrap")
-           (insert "my-symbol other")
-           (goto-char 3)"#,
-    );
-
-    let _ = builtin_thing_at_point(&mut ev, vec![Value::symbol("symbol")]).unwrap();
-    assert!(ev.obarray.fboundp("word-at-point"));
-}
-
-#[test]
-fn symbol_at_point_respects_explicit_fmakunbound_word_at_point() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(get-buffer-create "sap-fmakunbound")
-           (set-buffer "sap-fmakunbound")
-           (insert "my-symbol other")
-           (goto-char 3)"#,
-    );
-
-    let _ = builtin_symbol_at_point(&mut ev, vec![]).unwrap();
-    assert!(ev.obarray.fboundp("word-at-point"));
-
-    eval_all_with(&mut ev, "(fmakunbound 'word-at-point)");
-    assert!(!ev.obarray.fboundp("word-at-point"));
-
-    let result = builtin_symbol_at_point(&mut ev, vec![]).unwrap();
-    assert_eq!(result.as_symbol_name(), Some("my-symbol"));
     assert!(!ev.obarray.fboundp("word-at-point"));
 }
 
 #[test]
-fn word_at_point_basic() {
+fn word_at_point_starts_unbound_before_thingatpt_load() {
     let mut ev = Evaluator::new();
-    eval_all_with(
+    let result = eval_all_with(
         &mut ev,
-        r#"(get-buffer-create "wap")
-           (set-buffer "wap")
-           (insert "alpha beta")
-           (goto-char 3)"#,
+        r#"(progn
+             (get-buffer-create "word-at-point-startup")
+             (set-buffer "word-at-point-startup")
+             (insert "alpha beta")
+             (goto-char 3)
+             (word-at-point))"#,
     );
-    let result = builtin_word_at_point(&mut ev, vec![]).unwrap();
-    match result {
-        Value::Str(id) => {
-            let s = crate::emacs_core::value::with_heap(|h| h.get_string(id).clone());
-            assert_eq!(&*s, "alpha");
-        }
-        other => panic!("expected string, got {other:?}"),
-    }
+    assert_eq!(result[0], "ERR (void-function (word-at-point))");
 }
 
 #[test]
-fn word_at_point_arity() {
-    let mut ev = Evaluator::new();
-    assert!(builtin_word_at_point(&mut ev, vec![Value::Nil, Value::Nil]).is_err());
+fn thingatpt_functions_load_from_gnu_elisp() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "foo bar")
+             (goto-char 2)
+             (list (thing-at-point 'word)
+                   (symbol-name (symbol-at-point))
+                   (fboundp 'word-at-point)
+                   (bounds-of-thing-at-point 'word)))"#,
+    );
+    assert_eq!(result[0], r#"OK ("foo" "foo" t (1 . 4))"#);
 }
 
 // -------------------------------------------------------------------
@@ -3902,65 +3562,6 @@ fn command_remapping_resolves_remap_bindings_on_lisp_keymaps() {
         ),
         "OK nil"
     );
-}
-
-// -------------------------------------------------------------------
-// Extractors (unit tests for internal functions)
-// -------------------------------------------------------------------
-
-#[test]
-fn bounds_word_middle() {
-    let text = "hello world";
-    let bounds = bounds_word(text, 2).unwrap(); // 'l' in "hello"
-    assert_eq!(&text[bounds.0..bounds.1], "hello");
-}
-
-#[test]
-fn bounds_word_at_start() {
-    let text = "abc def";
-    let bounds = bounds_word(text, 0).unwrap();
-    assert_eq!(&text[bounds.0..bounds.1], "abc");
-}
-
-#[test]
-fn bounds_word_at_space() {
-    let text = "abc def";
-    let bounds = bounds_word(text, 3).unwrap(); // between words -> previous word
-    assert_eq!(&text[bounds.0..bounds.1], "abc");
-}
-
-#[test]
-fn bounds_symbol_with_hyphen() {
-    let text = "foo-bar baz";
-    let bounds = bounds_symbol(text, 1).unwrap();
-    assert_eq!(&text[bounds.0..bounds.1], "foo-bar");
-}
-
-#[test]
-fn bounds_line_first_line() {
-    let text = "first\nsecond\n";
-    let bounds = bounds_line(text, 2).unwrap();
-    assert_eq!(&text[bounds.0..bounds.1], "first\n");
-}
-
-#[test]
-fn bounds_whitespace_basic() {
-    let text = "hello   world";
-    let bounds = bounds_whitespace(text, 6).unwrap(); // middle space
-    assert_eq!(&text[bounds.0..bounds.1], "   ");
-}
-
-#[test]
-fn bounds_number_basic() {
-    let text = "val=42.5ok";
-    let bounds = bounds_number(text, 4).unwrap();
-    assert_eq!(&text[bounds.0..bounds.1], "42.5");
-}
-
-#[test]
-fn bounds_number_no_number() {
-    let text = "hello";
-    assert!(bounds_number(text, 0).is_none());
 }
 
 // -------------------------------------------------------------------
