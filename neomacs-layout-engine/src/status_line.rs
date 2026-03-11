@@ -614,8 +614,7 @@ impl LayoutEngine {
             if ch == '\n' || ch == '\r' {
                 continue;
             }
-            let advance =
-                self.status_line_advance(advance_mode, face, fallback_char_width, ch);
+            let advance = self.status_line_advance(advance_mode, face, fallback_char_width, ch);
             frame_glyphs.add_char(ch, x + x_offset, y, advance, row_height, ascent, true);
             x_offset += advance;
         }
