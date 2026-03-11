@@ -233,6 +233,26 @@ pub(crate) fn marker_position_as_int(v: &Value) -> Result<i64, Flow> {
     }
 }
 
+pub(crate) fn marker_position_as_int_eval(
+    eval: &super::eval::Evaluator,
+    v: &Value,
+) -> Result<i64, Flow> {
+    expect_marker("marker-position", v)?;
+
+    if let Some(mid) = marker_id_value(v) {
+        let buf_name_val = marker_buffer_value(v);
+        if let Some(bname) = buf_name_val.as_str()
+            && let Some(buf_id) = eval.buffers.find_buffer_by_name(bname)
+            && let Some(buf) = eval.buffers.get(buf_id)
+            && let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid)
+        {
+            return Ok(buf.text.byte_to_char(marker_entry.byte_pos) as i64 + 1);
+        }
+    }
+
+    marker_position_as_int(v)
+}
+
 /// Read the buffer-name field from a marker vector (index 1).
 fn marker_buffer_value(v: &Value) -> Value {
     match v {

@@ -105,3 +105,30 @@ fn marker_accessors_require_zero_arguments() {
     assert!(builtin_point_max_marker(&mut eval, vec![Value::Nil]).is_err());
     assert!(builtin_mark_marker(&mut eval, vec![Value::Nil]).is_err());
 }
+
+#[test]
+fn numeric_comparisons_use_live_marker_positions() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = super::super::parser::parse_forms(
+        r#"(with-temp-buffer
+             (insert "abcdef\n123456\n")
+             (goto-char 9)
+             (let ((m (copy-marker (line-end-position))))
+               (delete-region 1 2)
+               (delete-region 7 8)
+               (list (marker-position m)
+                     (<= (point-max) m)
+                     (<= (1- (point-max)) m))))"#,
+    )
+    .expect("parse marker comparison regression");
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+    assert_eq!(
+        crate::emacs_core::error::format_eval_result(&Ok(result)),
+        "OK (12 nil t)"
+    );
+}

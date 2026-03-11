@@ -322,10 +322,39 @@ pub(crate) fn builtin_num_eq(args: Vec<Value>) -> EvalResult {
     Ok(Value::t())
 }
 
+pub(crate) fn builtin_num_eq_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("=", &args, 2)?;
+    let first = expect_number_or_marker_f64_eval(eval, &args[0])?;
+    for a in &args[1..] {
+        if expect_number_or_marker_f64_eval(eval, a)? != first {
+            return Ok(Value::Nil);
+        }
+    }
+    Ok(Value::t())
+}
+
 pub(crate) fn builtin_num_lt(args: Vec<Value>) -> EvalResult {
     expect_min_args("<", &args, 2)?;
     for pair in args.windows(2) {
         if !(expect_number_or_marker_f64(&pair[0])? < expect_number_or_marker_f64(&pair[1])?) {
+            return Ok(Value::Nil);
+        }
+    }
+    Ok(Value::t())
+}
+
+pub(crate) fn builtin_num_lt_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("<", &args, 2)?;
+    for pair in args.windows(2) {
+        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
+            < expect_number_or_marker_f64_eval(eval, &pair[1])?)
+        {
             return Ok(Value::Nil);
         }
     }
@@ -342,10 +371,40 @@ pub(crate) fn builtin_num_le(args: Vec<Value>) -> EvalResult {
     Ok(Value::t())
 }
 
+pub(crate) fn builtin_num_le_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("<=", &args, 2)?;
+    for pair in args.windows(2) {
+        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
+            <= expect_number_or_marker_f64_eval(eval, &pair[1])?)
+        {
+            return Ok(Value::Nil);
+        }
+    }
+    Ok(Value::t())
+}
+
 pub(crate) fn builtin_num_gt(args: Vec<Value>) -> EvalResult {
     expect_min_args(">", &args, 2)?;
     for pair in args.windows(2) {
         if !(expect_number_or_marker_f64(&pair[0])? > expect_number_or_marker_f64(&pair[1])?) {
+            return Ok(Value::Nil);
+        }
+    }
+    Ok(Value::t())
+}
+
+pub(crate) fn builtin_num_gt_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args(">", &args, 2)?;
+    for pair in args.windows(2) {
+        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
+            > expect_number_or_marker_f64_eval(eval, &pair[1])?)
+        {
             return Ok(Value::Nil);
         }
     }
@@ -362,10 +421,35 @@ pub(crate) fn builtin_num_ge(args: Vec<Value>) -> EvalResult {
     Ok(Value::t())
 }
 
+pub(crate) fn builtin_num_ge_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args(">=", &args, 2)?;
+    for pair in args.windows(2) {
+        if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
+            >= expect_number_or_marker_f64_eval(eval, &pair[1])?)
+        {
+            return Ok(Value::Nil);
+        }
+    }
+    Ok(Value::t())
+}
+
 pub(crate) fn builtin_num_ne(args: Vec<Value>) -> EvalResult {
     expect_args("/=", &args, 2)?;
     let a = expect_number_or_marker_f64(&args[0])?;
     let b = expect_number_or_marker_f64(&args[1])?;
+    Ok(Value::bool(a != b))
+}
+
+pub(crate) fn builtin_num_ne_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("/=", &args, 2)?;
+    let a = expect_number_or_marker_f64_eval(eval, &args[0])?;
+    let b = expect_number_or_marker_f64_eval(eval, &args[1])?;
     Ok(Value::bool(a != b))
 }
 

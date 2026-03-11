@@ -178,6 +178,23 @@ pub(super) fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     }
 }
 
+pub(super) fn expect_integer_or_marker_eval(
+    eval: &super::eval::Evaluator,
+    value: &Value,
+) -> Result<i64, Flow> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        other if super::marker::is_marker(other) => {
+            super::marker::marker_position_as_int_eval(eval, other)
+        }
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *other],
+        )),
+    }
+}
+
 /// Extract a non-negative integer, signaling `wholenump` on failure.
 pub(super) fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
     let n = match value {
@@ -219,6 +236,24 @@ pub(super) fn expect_number_or_marker(value: &Value) -> Result<NumberOrMarker, F
     }
 }
 
+pub(super) fn expect_number_or_marker_eval(
+    eval: &super::eval::Evaluator,
+    value: &Value,
+) -> Result<NumberOrMarker, Flow> {
+    match value {
+        Value::Int(n) => Ok(NumberOrMarker::Int(*n)),
+        Value::Char(c) => Ok(NumberOrMarker::Int(*c as i64)),
+        Value::Float(f, _) => Ok(NumberOrMarker::Float(*f)),
+        other if super::marker::is_marker(other) => Ok(NumberOrMarker::Int(
+            super::marker::marker_position_as_int_eval(eval, other)?,
+        )),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("number-or-marker-p"), *other],
+        )),
+    }
+}
+
 /// Extract a number as f64.
 pub(super) fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value {
@@ -234,6 +269,16 @@ pub(super) fn expect_number(value: &Value) -> Result<f64, Flow> {
 
 pub(super) fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
     match expect_number_or_marker(value)? {
+        NumberOrMarker::Int(n) => Ok(n as f64),
+        NumberOrMarker::Float(f) => Ok(f),
+    }
+}
+
+pub(super) fn expect_number_or_marker_f64_eval(
+    eval: &super::eval::Evaluator,
+    value: &Value,
+) -> Result<f64, Flow> {
+    match expect_number_or_marker_eval(eval, value)? {
         NumberOrMarker::Int(n) => Ok(n as f64),
         NumberOrMarker::Float(f) => Ok(f),
     }
@@ -792,6 +837,22 @@ fn dispatch_builtin_id_pure(id: PureBuiltinId, args: Vec<Value>) -> EvalResult {
         PureBuiltinId::ByteToString => builtin_byte_to_string(args),
         PureBuiltinId::ClearBufferAutoSaveFailure => builtin_clear_buffer_auto_save_failure(args),
         PureBuiltinId::ClearFaceCache => builtin_clear_face_cache(args),
+    }
+}
+
+fn dispatch_builtin_id_eval(
+    eval: &mut super::eval::Evaluator,
+    id: PureBuiltinId,
+    args: Vec<Value>,
+) -> EvalResult {
+    match id {
+        PureBuiltinId::NumEq => builtin_num_eq_eval(eval, args),
+        PureBuiltinId::NumLt => builtin_num_lt_eval(eval, args),
+        PureBuiltinId::NumLe => builtin_num_le_eval(eval, args),
+        PureBuiltinId::NumGt => builtin_num_gt_eval(eval, args),
+        PureBuiltinId::NumGe => builtin_num_ge_eval(eval, args),
+        PureBuiltinId::NumNe => builtin_num_ne_eval(eval, args),
+        other => dispatch_builtin_id_pure(other, args),
     }
 }
 
@@ -1803,9 +1864,6 @@ pub(crate) fn dispatch_builtin(
         "insert-rectangle" => return Some(super::rect::builtin_insert_rectangle(eval, args)),
         "open-rectangle" => return Some(super::rect::builtin_open_rectangle(eval, args)),
         "string-rectangle" => return Some(super::rect::builtin_string_rectangle(eval, args)),
-        "delete-extract-rectangle" => {
-            return Some(super::rect::builtin_delete_extract_rectangle(eval, args));
-        }
         // Window/frame operations (evaluator-dependent)
         "selected-window" => return Some(super::window_cmds::builtin_selected_window(eval, args)),
         "old-selected-window" => {
@@ -2839,7 +2897,7 @@ pub(crate) fn dispatch_builtin(
     }
 
     if let Ok(id) = name.parse::<PureBuiltinId>() {
-        return Some(dispatch_builtin_id_pure(id, args));
+        return Some(dispatch_builtin_id_eval(eval, id, args));
     }
 
     // Pure builtins (no evaluator needed)
@@ -2865,12 +2923,12 @@ pub(crate) fn dispatch_builtin(
         "ash" => builtin_ash(args),
 
         // Numeric comparisons
-        "=" => builtin_num_eq(args),
-        "<" => builtin_num_lt(args),
-        "<=" => builtin_num_le(args),
-        ">" => builtin_num_gt(args),
-        ">=" => builtin_num_ge(args),
-        "/=" => builtin_num_ne(args),
+        "=" => builtin_num_eq_eval(eval, args),
+        "<" => builtin_num_lt_eval(eval, args),
+        "<=" => builtin_num_le_eval(eval, args),
+        ">" => builtin_num_gt_eval(eval, args),
+        ">=" => builtin_num_ge_eval(eval, args),
+        "/=" => builtin_num_ne_eval(eval, args),
 
         // Type predicates (typed subset is dispatched above)
         // Type predicates (typed subset is dispatched above)
