@@ -86,40 +86,26 @@ fn extract_rectangle_line_validates_args() {
 }
 
 #[test]
-fn delete_rectangle_wrong_type() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result =
-        builtin_delete_rectangle(&mut eval, vec![Value::string("not-int"), Value::Int(10)]);
-    assert!(result.is_err());
+fn delete_rectangle_startup_is_autoloaded() {
+    let eval = super::super::eval::Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("delete-rectangle")
+        .expect("missing delete-rectangle startup function cell");
+    assert!(is_autoload_value(&function));
 }
 
 #[test]
-fn delete_rectangle_returns_nil() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_delete_rectangle(&mut eval, vec![Value::Int(1), Value::Int(10)]);
-    assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::Int(_)));
-}
-
-#[test]
-fn delete_rectangle_eval_mutates_buffer() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abcdef\n123456\n");
-    }
-    let result = builtin_delete_rectangle(&mut eval, vec![Value::Int(1), Value::Int(9)]);
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::Int(7));
-    let buffer_after = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist")
-        .buffer_string();
-    assert_eq!(buffer_after, "bcdef\n23456\n");
+fn delete_rectangle_loads_from_gnu_rect_el() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "abcdef\n123456\n")
+             (delete-rectangle 1 9)
+             (list (replace-regexp-in-string "\n" "|" (buffer-string) nil t)
+                   (point)
+                   (subrp (symbol-function 'delete-rectangle))))"#,
+    );
+    assert_eq!(result[0], r#"OK ("bcdef|23456|" 13 nil)"#);
 }
 
 #[test]

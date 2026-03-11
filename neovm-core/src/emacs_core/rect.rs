@@ -414,60 +414,6 @@ pub(crate) fn builtin_extract_rectangle_line(args: Vec<Value>) -> EvalResult {
     Ok(Value::string(""))
 }
 
-/// `(delete-rectangle START END)` -- delete the rectangular region between
-/// START and END.
-///
-/// Compatibility behavior:
-/// - applies the same rectangle deletion semantics as
-///   `delete-extract-rectangle`
-/// - returns final point as 1-based character position
-pub(crate) fn builtin_delete_rectangle(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("delete-rectangle", &args, 2)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
-    let Some((text, pmin, pmax, start_line, _start_col, end_line, _end_col, left_col, right_col)) =
-        clamped_rect_inputs(eval, start, end)
-    else {
-        return Ok(Value::Int(1));
-    };
-
-    let (.., rewritten) =
-        delete_extract_rectangle_from_text(&text, start_line, end_line, left_col, right_col);
-    let line_indices = rectangle_lines_for_extract(start_line, end_line);
-    let last_line_index = line_indices.last().copied().unwrap_or(start_line);
-    let rewritten_lines: Vec<&str> = rewritten.split('\n').collect();
-    let mut final_rel_char = 0usize;
-    for idx in 0..last_line_index {
-        final_rel_char += rewritten_lines
-            .get(idx)
-            .copied()
-            .unwrap_or("")
-            .chars()
-            .count();
-        final_rel_char += 1; // newline
-    }
-    let last_line_len = rewritten_lines
-        .get(last_line_index)
-        .copied()
-        .unwrap_or("")
-        .chars()
-        .count();
-    final_rel_char += left_col.min(last_line_len);
-
-    let Some(buf) = eval.buffers.current_buffer_mut() else {
-        return Ok(Value::Int(1));
-    };
-    buf.delete_region(pmin, pmax);
-    buf.goto_char(pmin);
-    buf.insert(&rewritten);
-    let final_byte = pmin + char_index_to_byte(&rewritten, final_rel_char);
-    buf.goto_char(final_byte);
-    Ok(Value::Int(buf.text.byte_to_char(final_byte) as i64 + 1))
-}
-
 /// `(kill-rectangle START END)` -- save the rectangular region to the
 /// rectangle kill buffer, then delete it.
 ///
