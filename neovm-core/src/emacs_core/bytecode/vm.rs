@@ -689,22 +689,22 @@ impl<'a> Vm<'a> {
                 Op::Add => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(vm_try!(arith_add(&a, &b)));
+                    stack.push(vm_try!(arith_add(self, &a, &b)));
                 }
                 Op::Sub => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(vm_try!(arith_sub(&a, &b)));
+                    stack.push(vm_try!(arith_sub(self, &a, &b)));
                 }
                 Op::Mul => {
                     let b = stack.pop().unwrap_or(Value::Int(1));
                     let a = stack.pop().unwrap_or(Value::Int(1));
-                    stack.push(vm_try!(arith_mul(&a, &b)));
+                    stack.push(vm_try!(arith_mul(self, &a, &b)));
                 }
                 Op::Div => {
                     let b = stack.pop().unwrap_or(Value::Int(1));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(vm_try!(arith_div(&a, &b)));
+                    stack.push(vm_try!(arith_div(self, &a, &b)));
                 }
                 Op::Rem => {
                     let b = stack.pop().unwrap_or(Value::Int(1));
@@ -713,52 +713,60 @@ impl<'a> Vm<'a> {
                 }
                 Op::Add1 => {
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(vm_try!(arith_add1(&a)));
+                    stack.push(vm_try!(arith_add1(self, &a)));
                 }
                 Op::Sub1 => {
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(vm_try!(arith_sub1(&a)));
+                    stack.push(vm_try!(arith_sub1(self, &a)));
                 }
                 Op::Negate => {
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(vm_try!(arith_negate(&a)));
+                    stack.push(vm_try!(arith_negate(self, &a)));
                 }
 
                 // -- Comparison --
                 Op::Eqlsign => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(vm_try!(num_eq(&a, &b))));
+                    stack.push(Value::bool(vm_try!(num_eq(self, &a, &b))));
                 }
                 Op::Gtr => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) > 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(self, &a, &b)) > 0));
                 }
                 Op::Lss => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) < 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(self, &a, &b)) < 0));
                 }
                 Op::Leq => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) <= 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(self, &a, &b)) <= 0));
                 }
                 Op::Geq => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(Value::bool(vm_try!(num_cmp(&a, &b)) >= 0));
+                    stack.push(Value::bool(vm_try!(num_cmp(self, &a, &b)) >= 0));
                 }
                 Op::Max => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(if vm_try!(num_cmp(&a, &b)) >= 0 { a } else { b });
+                    stack.push(if vm_try!(num_cmp(self, &a, &b)) >= 0 {
+                        a
+                    } else {
+                        b
+                    });
                 }
                 Op::Min => {
                     let b = stack.pop().unwrap_or(Value::Int(0));
                     let a = stack.pop().unwrap_or(Value::Int(0));
-                    stack.push(if vm_try!(num_cmp(&a, &b)) <= 0 { a } else { b });
+                    stack.push(if vm_try!(num_cmp(self, &a, &b)) <= 0 {
+                        a
+                    } else {
+                        b
+                    });
                 }
 
                 // -- List operations --
@@ -2429,40 +2437,40 @@ fn normalize_vm_builtin_error(name: &str, flow: Flow) -> Flow {
     }
 }
 
-fn arith_add(a: &Value, b: &Value) -> EvalResult {
+fn arith_add(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a, b) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_add(*b))),
         _ => {
-            let a = number_or_marker_as_f64(a)?;
-            let b = number_or_marker_as_f64(b)?;
+            let a = number_or_marker_as_f64(vm, a)?;
+            let b = number_or_marker_as_f64(vm, b)?;
             Ok(Value::Float(a + b, next_float_id()))
         }
     }
 }
 
-fn arith_sub(a: &Value, b: &Value) -> EvalResult {
+fn arith_sub(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a, b) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_sub(*b))),
         _ => {
-            let a = number_or_marker_as_f64(a)?;
-            let b = number_or_marker_as_f64(b)?;
+            let a = number_or_marker_as_f64(vm, a)?;
+            let b = number_or_marker_as_f64(vm, b)?;
             Ok(Value::Float(a - b, next_float_id()))
         }
     }
 }
 
-fn arith_mul(a: &Value, b: &Value) -> EvalResult {
+fn arith_mul(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a, b) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_mul(*b))),
         _ => {
-            let a = number_or_marker_as_f64(a)?;
-            let b = number_or_marker_as_f64(b)?;
+            let a = number_or_marker_as_f64(vm, a)?;
+            let b = number_or_marker_as_f64(vm, b)?;
             Ok(Value::Float(a * b, next_float_id()))
         }
     }
 }
 
-fn arith_div(a: &Value, b: &Value) -> EvalResult {
+fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
     match (a, b) {
         (Value::Int(_), Value::Int(0)) => Err(signal(
             "arith-error",
@@ -2470,8 +2478,8 @@ fn arith_div(a: &Value, b: &Value) -> EvalResult {
         )),
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a / b)),
         _ => {
-            let a = number_or_marker_as_f64(a)?;
-            let b = number_or_marker_as_f64(b)?;
+            let a = number_or_marker_as_f64(vm, a)?;
+            let b = number_or_marker_as_f64(vm, b)?;
             if b == 0.0 {
                 return Err(signal(
                     "arith-error",
@@ -2497,12 +2505,13 @@ fn arith_rem(a: &Value, b: &Value) -> EvalResult {
     }
 }
 
-fn arith_add1(a: &Value) -> EvalResult {
+fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a {
         Value::Int(n) => Ok(Value::Int(n.wrapping_add(1))),
         Value::Float(f, _) => Ok(Value::Float(f + 1.0, next_float_id())),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::Int(
-            crate::emacs_core::marker::marker_position_as_int(marker)?.wrapping_add(1),
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?
+                .wrapping_add(1),
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -2511,12 +2520,13 @@ fn arith_add1(a: &Value) -> EvalResult {
     }
 }
 
-fn arith_sub1(a: &Value) -> EvalResult {
+fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a {
         Value::Int(n) => Ok(Value::Int(n.wrapping_sub(1))),
         Value::Float(f, _) => Ok(Value::Float(f - 1.0, next_float_id())),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::Int(
-            crate::emacs_core::marker::marker_position_as_int(marker)?.wrapping_sub(1),
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?
+                .wrapping_sub(1),
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -2525,12 +2535,12 @@ fn arith_sub1(a: &Value) -> EvalResult {
     }
 }
 
-fn arith_negate(a: &Value) -> EvalResult {
+fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
     match a {
         Value::Int(n) => Ok(Value::Int(-n)),
         Value::Float(f, _) => Ok(Value::Float(-f, next_float_id())),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::Int(
-            -crate::emacs_core::marker::marker_position_as_int(marker)?,
+            -crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?,
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -2539,23 +2549,23 @@ fn arith_negate(a: &Value) -> EvalResult {
     }
 }
 
-fn num_eq(a: &Value, b: &Value) -> Result<bool, Flow> {
+fn num_eq(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<bool, Flow> {
     match (a, b) {
         (Value::Int(a), Value::Int(b)) => Ok(a == b),
         _ => {
-            let a = number_or_marker_as_f64(a)?;
-            let b = number_or_marker_as_f64(b)?;
+            let a = number_or_marker_as_f64(vm, a)?;
+            let b = number_or_marker_as_f64(vm, b)?;
             Ok(a == b)
         }
     }
 }
 
-fn num_cmp(a: &Value, b: &Value) -> Result<i32, Flow> {
+fn num_cmp(vm: &Vm<'_>, a: &Value, b: &Value) -> Result<i32, Flow> {
     match (a, b) {
         (Value::Int(a), Value::Int(b)) => Ok(a.cmp(b) as i32),
         _ => {
-            let a = number_or_marker_as_f64(a)?;
-            let b = number_or_marker_as_f64(b)?;
+            let a = number_or_marker_as_f64(vm, a)?;
+            let b = number_or_marker_as_f64(vm, b)?;
             Ok(if a < b {
                 -1
             } else if a > b {
@@ -2567,14 +2577,15 @@ fn num_cmp(a: &Value, b: &Value) -> Result<i32, Flow> {
     }
 }
 
-fn number_or_marker_as_f64(value: &Value) -> Result<f64, Flow> {
+fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
     match value {
         Value::Int(n) => Ok(*n as f64),
         Value::Float(f, _) => Ok(*f),
         Value::Char(c) => Ok(*c as u32 as f64),
-        marker if crate::emacs_core::marker::is_marker(marker) => {
-            Ok(crate::emacs_core::marker::marker_position_as_int(marker)? as f64)
-        }
+        marker if crate::emacs_core::marker::is_marker(marker) => Ok(
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?
+                as f64,
+        ),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *other],

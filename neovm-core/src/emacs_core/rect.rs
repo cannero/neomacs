@@ -428,8 +428,7 @@ pub(crate) fn builtin_kill_rectangle(
     expect_args("kill-rectangle", &args, 2)?;
     let start = expect_int(&args[0])?;
     let end = expect_int(&args[1])?;
-    let extracted =
-        builtin_delete_extract_rectangle(eval, vec![Value::Int(start), Value::Int(end)])?;
+    let extracted = delete_extract_rectangle_eval(eval, start, end)?;
     let killed = list_to_vec(&extracted)
         .unwrap_or_default()
         .into_iter()
@@ -645,14 +644,11 @@ pub(crate) fn builtin_string_rectangle(
 /// - deletes extracted text from each affected line
 /// - when rectangle starts past EOL, returns width spaces and leaves line
 ///   unchanged
-pub(crate) fn builtin_delete_extract_rectangle(
+fn delete_extract_rectangle_eval(
     eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
+    start: i64,
+    end: i64,
 ) -> EvalResult {
-    expect_args("delete-extract-rectangle", &args, 2)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
-
     let Some((text, pmin, pmax, start_line, _start_col, end_line, _end_col, left_col, right_col)) =
         clamped_rect_inputs(eval, start, end)
     else {

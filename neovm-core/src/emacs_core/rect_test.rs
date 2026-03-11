@@ -398,77 +398,99 @@ fn string_rectangle_eval_mutates_buffer_and_point() {
 }
 
 #[test]
-fn delete_extract_rectangle_returns_list() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_delete_extract_rectangle(&mut eval, vec![Value::Int(1), Value::Int(10)]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_list());
+fn delete_extract_rectangle_startup_is_autoloaded() {
+    let eval = super::super::eval::Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("delete-extract-rectangle")
+        .expect("missing delete-extract-rectangle startup function cell");
+    assert!(is_autoload_value(&function));
 }
 
 #[test]
-fn delete_extract_rectangle_eval_basic_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abcdef\n123456\n");
-    }
-    let result = builtin_delete_extract_rectangle(&mut eval, vec![Value::Int(1), Value::Int(9)])
-        .expect("delete-extract-rectangle");
-    assert_eq!(
-        result,
-        Value::list(vec![Value::string("a"), Value::string("1")])
+fn delete_extract_rectangle_loads_from_gnu_rect_el() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "abcdef\n123456\n")
+             (list (delete-extract-rectangle 1 9)
+                   (replace-regexp-in-string "\n" "|" (buffer-string) nil t)
+                   (point)
+                   (subrp (symbol-function 'delete-extract-rectangle))))"#,
     );
-    let buffer_after = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist")
-        .buffer_string();
-    assert_eq!(buffer_after, "bcdef\n23456\n");
+    assert_eq!(result[0], r#"OK (("a" "1") "bcdef|23456|" 13 nil)"#);
 }
 
 #[test]
-fn delete_extract_rectangle_eval_start_line_order() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abcdef\n123456\n");
-    }
-    let result = builtin_delete_extract_rectangle(&mut eval, vec![Value::Int(8), Value::Int(7)])
-        .expect("delete-extract-rectangle order");
-    assert_eq!(result, Value::list(vec![Value::string("123456")]));
-    let buffer_after = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist")
-        .buffer_string();
-    assert_eq!(buffer_after, "abcdef\n\n");
+fn delete_extract_rectangle_after_explicit_rect_load_matches_gnu() {
+    let result = bootstrap_eval_all(
+        r#"(progn
+             (load "rect")
+             (defvar neovm--orig-derl nil)
+             (defvar neovm--trace nil)
+             (setq neovm--orig-derl (symbol-function 'delete-extract-rectangle-line))
+             (fset 'delete-extract-rectangle-line
+                   (lambda (startcol endcol lines fill)
+                     (setq neovm--trace
+                           (cons (list :before
+                                       (point)
+                                       startcol
+                                       endcol
+                                       (replace-regexp-in-string "\n" "|" (buffer-string) nil t))
+                                 neovm--trace))
+                     (prog1
+                         (funcall neovm--orig-derl startcol endcol lines fill)
+                       (setq neovm--trace
+                             (cons (list :after
+                                         (point)
+                                         startcol
+                                         endcol
+                                         (car (cdr lines))
+                                         (replace-regexp-in-string "\n" "|" (buffer-string) nil t))
+                                   neovm--trace)))))
+             (with-temp-buffer
+               (insert "abcdef\n123456\n")
+               (list (delete-extract-rectangle 1 9)
+                     (replace-regexp-in-string "\n" "|" (buffer-string) nil t)
+                     (point)
+                     (nreverse neovm--trace))))"#,
+    );
+    assert_eq!(
+        result[0],
+        r#"OK (("a" "1") "bcdef|23456|" 13 ((:before 1 0 1 "abcdef|123456|") (:after 1 0 1 "a" "bcdef|123456|") (:before 7 0 1 "bcdef|123456|") (:after 7 0 1 "1" "bcdef|23456|")))"#
+    );
 }
 
 #[test]
-fn delete_extract_rectangle_eval_clamps_positions() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abcdef");
-    }
-    let result = builtin_delete_extract_rectangle(&mut eval, vec![Value::Int(20), Value::Int(1)])
-        .expect("delete-extract-rectangle clamped");
-    assert_eq!(result, Value::list(vec![Value::string("abcdef")]));
-    let buffer_after = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist")
-        .buffer_string();
-    assert_eq!(buffer_after, "");
+fn delete_extract_rectangle_line_loaded_state_matches_gnu() {
+    let result = bootstrap_eval_all(
+        r#"(progn
+             (load "rect")
+             (with-temp-buffer
+               (insert "abcdef\n123456\n")
+               (let* ((startcol 0)
+                      (endcol 1)
+                      (startpt (progn (goto-char 1) (line-beginning-position)))
+                      (endpt (progn (goto-char 9) (copy-marker (line-end-position))))
+                      (states nil)
+                      (lines (list nil)))
+                 (goto-char startpt)
+                 (while (progn
+                          (setq states (cons (list :before (point) (marker-position endpt)) states))
+                          (delete-extract-rectangle-line startcol endcol lines nil)
+                          (setq states
+                                (cons (list :after
+                                            (point)
+                                            (marker-position endpt)
+                                            (car (cdr lines))
+                                            (replace-regexp-in-string "\n" "|" (buffer-string) nil t))
+                                      states))
+                          (and (= 0 (forward-line 1)) (bolp) (<= (point) endpt))))
+                 (list (nreverse states) (nreverse (cdr lines))))))"#,
+    );
+    assert_eq!(
+        result[0],
+        r#"OK (((:before 1 14) (:after 1 13 "a" "bcdef|123456|") (:before 7 13) (:after 7 12 "1" "bcdef|23456|")) ("a" "1"))"#
+    );
 }
 
 #[test]
