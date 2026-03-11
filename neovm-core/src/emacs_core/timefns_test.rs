@@ -1,5 +1,7 @@
 use super::*;
 use crate::emacs_core::intern::intern;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
+use crate::emacs_core::{format_eval_result, parse_forms};
 use std::sync::{Mutex, OnceLock};
 
 fn tz_test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -11,6 +13,16 @@ fn tz_test_lock() -> std::sync::MutexGuard<'static, ()> {
 
 fn reset_tz_rule() {
     let _ = builtin_set_time_zone_rule(vec![Value::Nil]);
+}
+
+fn bootstrap_eval(src: &str) -> Vec<String> {
+    let mut ev = create_bootstrap_evaluator().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let forms = parse_forms(src).expect("parse");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
 }
 
 // -----------------------------------------------------------------------
@@ -376,6 +388,7 @@ fn builtin_encode_time_known() {
         Value::Int(1),
         Value::Int(1),
         Value::Int(1970),
+        Value::True,
     ])
     .unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -393,6 +406,7 @@ fn builtin_encode_time_y2k() {
         Value::Int(1),
         Value::Int(1),
         Value::Int(2000),
+        Value::True,
     ])
     .unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -403,8 +417,48 @@ fn builtin_encode_time_y2k() {
 
 #[test]
 fn builtin_encode_time_wrong_arity() {
-    let result = builtin_encode_time(vec![Value::Int(0)]);
+    let result = builtin_encode_time(vec![]);
     assert!(result.is_err());
+}
+
+#[test]
+fn builtin_encode_time_decoded_time_list() {
+    let result = builtin_encode_time(vec![Value::list(vec![
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1970),
+        Value::Nil,
+        Value::Int(-1),
+        Value::True,
+    ])])
+    .unwrap();
+    let items = list_to_vec(&result).unwrap();
+    let high = items[0].as_int().unwrap();
+    let low = items[1].as_int().unwrap();
+    assert_eq!(high * 65536 + low, 0);
+}
+
+#[test]
+fn builtin_encode_time_honors_zone_offset() {
+    let result = builtin_encode_time(vec![Value::list(vec![
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1970),
+        Value::Nil,
+        Value::Int(-1),
+        Value::Int(-3600),
+    ])])
+    .unwrap();
+    let items = list_to_vec(&result).unwrap();
+    let high = items[0].as_int().unwrap();
+    let low = items[1].as_int().unwrap();
+    assert_eq!(high * 65536 + low, 3600);
 }
 
 #[test]
@@ -440,6 +494,7 @@ fn builtin_encode_decode_roundtrip() {
         Value::Int(20),
         Value::Int(3),
         Value::Int(2025),
+        Value::True,
     ])
     .unwrap();
 
@@ -599,42 +654,23 @@ fn builtin_current_time_zone_with_zone_arg() {
 }
 
 #[test]
-fn builtin_safe_date_to_time_iso_utc() {
-    let result =
-        builtin_safe_date_to_time(vec![Value::string("1970-01-01 00:00:00 +0000")]).unwrap();
-    assert_eq!(result, Value::list(vec![Value::Int(0), Value::Int(0)]));
-}
-
-#[test]
-fn builtin_safe_date_to_time_rfc_utc() {
-    let result =
-        builtin_safe_date_to_time(vec![Value::string("Thu, 01 Jan 1970 00:00:00 +0000")]).unwrap();
-    assert_eq!(result, Value::list(vec![Value::Int(0), Value::Int(0)]));
-}
-
-#[test]
-fn builtin_safe_date_to_time_with_offset() {
-    let result =
-        builtin_safe_date_to_time(vec![Value::string("1970-01-01 00:00:00 -0100")]).unwrap();
-    assert_eq!(result, Value::list(vec![Value::Int(0), Value::Int(3600)]));
-}
-
-#[test]
-fn builtin_safe_date_to_time_invalid_returns_zero() {
-    let result = builtin_safe_date_to_time(vec![Value::string("not a date")]).unwrap();
-    assert_eq!(result, Value::Int(0));
-}
-
-#[test]
-fn builtin_safe_date_to_time_non_string_returns_zero() {
-    let result = builtin_safe_date_to_time(vec![Value::Nil]).unwrap();
-    assert_eq!(result, Value::Int(0));
-}
-
-#[test]
-fn builtin_safe_date_to_time_wrong_arity() {
-    let result = builtin_safe_date_to_time(vec![]);
-    assert!(result.is_err());
+fn safe_date_to_time_bootstrap_matches_gnu_elisp() {
+    let results = bootstrap_eval(
+        r#"
+        (safe-date-to-time "1970-01-01 00:00:00 +0000")
+        (safe-date-to-time "Thu, 01 Jan 1970 00:00:00 +0000")
+        (safe-date-to-time "1970-01-01 00:00:00 -0100")
+        (safe-date-to-time "not a date")
+        (safe-date-to-time nil)
+        (condition-case err (safe-date-to-time) (error (car err)))
+        "#,
+    );
+    assert_eq!(results[0], "OK (0 0)");
+    assert_eq!(results[1], "OK (0 0)");
+    assert_eq!(results[2], "OK (0 3600)");
+    assert_eq!(results[3], "OK 0");
+    assert_eq!(results[4], "OK 0");
+    assert_eq!(results[5], "OK wrong-number-of-arguments");
 }
 
 // -----------------------------------------------------------------------

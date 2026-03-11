@@ -2,16 +2,13 @@
 //!
 //! Implements `current-time`, `float-time`, `time-add`, `time-subtract`,
 //! `time-less-p`, `time-equal-p`, `current-time-string`, `current-time-zone`,
-//! `encode-time`, `decode-time`, `time-convert`, `set-time-zone-rule`, and
-//! `safe-date-to-time`.
+//! `encode-time`, `decode-time`, `time-convert`, and `set-time-zone-rule`.
 //!
-//! Uses `std::time::SystemTime`/`UNIX_EPOCH` plus lightweight regex parsing
-//! for a compatibility subset of date string formats.
+//! Uses `std::time::SystemTime`/`UNIX_EPOCH` for time operations.
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
-use regex::Regex;
 use std::cell::RefCell;
 use std::ffi::{CStr, OsString};
 use std::sync::{Mutex, OnceLock};
@@ -491,6 +488,27 @@ fn zone_rule_to_offset_name(rule: &ZoneRule, epoch_secs: i64) -> (i64, String) {
     }
 }
 
+fn require_integer_component(value: &Value) -> Result<i64, Flow> {
+    value.as_int().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integerp"), *value],
+        )
+    })
+}
+
+fn encode_time_zone_offset(zone: &Value, approx_epoch_secs: i64) -> Result<i64, Flow> {
+    let rule = parse_zone_rule(zone)?;
+    let initial = zone_rule_to_offset_name(&rule, approx_epoch_secs).0;
+    Ok(match rule {
+        ZoneRule::Local | ZoneRule::TzString(_) => {
+            let adjusted_epoch = approx_epoch_secs - initial;
+            zone_rule_to_offset_name(&rule, adjusted_epoch).0
+        }
+        _ => initial,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Pure builtins
 // ---------------------------------------------------------------------------
@@ -593,49 +611,50 @@ pub(crate) fn builtin_current_time_zone(args: Vec<Value>) -> EvalResult {
     Ok(Value::list(vec![Value::Int(offset), Value::string(name)]))
 }
 
-/// `(encode-time SECONDS MINUTES HOURS DAY MONTH YEAR &optional ZONE)`
-/// -> `(HIGH LOW)`
+/// `(encode-time TIME &rest OBSOLESCENT-ARGUMENTS)` -> `(HIGH LOW)`
 pub(crate) fn builtin_encode_time(args: Vec<Value>) -> EvalResult {
-    expect_min_max_args("encode-time", &args, 6, 7)?;
-    let sec = args[0].as_int().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integerp"), args[0]],
+    let (sec, min, hour, day, month, year, zone) = if args.len() == 1 {
+        let items = list_to_vec(&args[0])
+            .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[0]]))?;
+        if items.len() < 6 {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), args[0]],
+            ));
+        }
+        (
+            require_integer_component(&items[0])?,
+            require_integer_component(&items[1])?,
+            require_integer_component(&items[2])?,
+            require_integer_component(&items[3])?,
+            require_integer_component(&items[4])?,
+            require_integer_component(&items[5])?,
+            items.get(8).copied().unwrap_or(Value::Nil),
         )
-    })?;
-    let min = args[1].as_int().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integerp"), args[1]],
+    } else if args.len() < 6 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("encode-time"), Value::Int(args.len() as i64)],
+        ));
+    } else {
+        (
+            require_integer_component(&args[0])?,
+            require_integer_component(&args[1])?,
+            require_integer_component(&args[2])?,
+            require_integer_component(&args[3])?,
+            require_integer_component(&args[4])?,
+            require_integer_component(&args[5])?,
+            if args.len() > 6 {
+                args.last().copied().unwrap_or(Value::Nil)
+            } else {
+                Value::Nil
+            },
         )
-    })?;
-    let hour = args[2].as_int().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integerp"), args[2]],
-        )
-    })?;
-    let day = args[3].as_int().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integerp"), args[3]],
-        )
-    })?;
-    let month = args[4].as_int().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integerp"), args[4]],
-        )
-    })?;
-    let year = args[5].as_int().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("integerp"), args[5]],
-        )
-    })?;
-    // ZONE (args[6]) is ignored; UTC assumed.
+    };
 
-    let total_secs = encode_to_epoch_secs(sec, min, hour, day, month, year);
+    let local_secs = encode_to_epoch_secs(sec, min, hour, day, month, year);
+    let zone_offset = encode_time_zone_offset(&zone, local_secs)?;
+    let total_secs = local_secs - zone_offset;
     let high = (total_secs >> 16) & 0xFFFF_FFFF;
     let low = total_secs & 0xFFFF;
     Ok(Value::list(vec![Value::Int(high), Value::Int(low)]))
@@ -713,129 +732,6 @@ pub(crate) fn builtin_set_time_zone_rule(args: Vec<Value>) -> EvalResult {
     let rule = parse_zone_rule(&args[0])?;
     TIME_ZONE_RULE.with(|slot| *slot.borrow_mut() = rule);
     Ok(Value::Nil)
-}
-
-fn parse_tz_offset_hhmm(offset: &str) -> Option<i64> {
-    if offset.len() != 5 {
-        return None;
-    }
-    let sign = match &offset[0..1] {
-        "+" => 1i64,
-        "-" => -1i64,
-        _ => return None,
-    };
-    let hh: i64 = offset[1..3].parse().ok()?;
-    let mm: i64 = offset[3..5].parse().ok()?;
-    if hh > 23 || mm > 59 {
-        return None;
-    }
-    Some(sign * (hh * 3600 + mm * 60))
-}
-
-fn parse_month_abbrev(mon: &str) -> Option<i64> {
-    match mon.to_ascii_lowercase().as_str() {
-        "jan" => Some(1),
-        "feb" => Some(2),
-        "mar" => Some(3),
-        "apr" => Some(4),
-        "may" => Some(5),
-        "jun" => Some(6),
-        "jul" => Some(7),
-        "aug" => Some(8),
-        "sep" => Some(9),
-        "oct" => Some(10),
-        "nov" => Some(11),
-        "dec" => Some(12),
-        _ => None,
-    }
-}
-
-fn parse_i64_capture(caps: &regex::Captures<'_>, idx: usize) -> Option<i64> {
-    caps.get(idx)?.as_str().parse().ok()
-}
-
-fn validate_ymd_hms(year: i64, month: i64, day: i64, hour: i64, min: i64, sec: i64) -> bool {
-    if !(1..=12).contains(&month) {
-        return false;
-    }
-    if day < 1 || day > days_in_month(month, year) {
-        return false;
-    }
-    if !(0..=23).contains(&hour) || !(0..=59).contains(&min) || !(0..=59).contains(&sec) {
-        return false;
-    }
-    true
-}
-
-fn parse_safe_date_to_epoch_secs(input: &str) -> Option<i64> {
-    // Examples:
-    //   1970-01-01 00:00:00 +0000
-    //   1970/01/01 00:00:00 -0100
-    let iso = Regex::new(
-        r"^\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s+([+-]\d{4})\s*$",
-    )
-    .expect("valid safe-date-to-time iso regex");
-    if let Some(caps) = iso.captures(input) {
-        let year = parse_i64_capture(&caps, 1)?;
-        let month = parse_i64_capture(&caps, 2)?;
-        let day = parse_i64_capture(&caps, 3)?;
-        let hour = parse_i64_capture(&caps, 4)?;
-        let min = parse_i64_capture(&caps, 5)?;
-        let sec = caps
-            .get(6)
-            .and_then(|m| m.as_str().parse::<i64>().ok())
-            .unwrap_or(0);
-        if !validate_ymd_hms(year, month, day, hour, min, sec) {
-            return None;
-        }
-        let offset = parse_tz_offset_hhmm(caps.get(7)?.as_str())?;
-        let local_secs = encode_to_epoch_secs(sec, min, hour, day, month, year);
-        return Some(local_secs - offset);
-    }
-
-    // Example:
-    //   Thu, 01 Jan 1970 00:00:00 +0000
-    let rfc = Regex::new(
-        r"^\s*[A-Za-z]{3},\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s+([+-]\d{4})\s*$",
-    )
-    .expect("valid safe-date-to-time rfc regex");
-    if let Some(caps) = rfc.captures(input) {
-        let day = parse_i64_capture(&caps, 1)?;
-        let month = parse_month_abbrev(caps.get(2)?.as_str())?;
-        let year = parse_i64_capture(&caps, 3)?;
-        let hour = parse_i64_capture(&caps, 4)?;
-        let min = parse_i64_capture(&caps, 5)?;
-        let sec = caps
-            .get(6)
-            .and_then(|m| m.as_str().parse::<i64>().ok())
-            .unwrap_or(0);
-        if !validate_ymd_hms(year, month, day, hour, min, sec) {
-            return None;
-        }
-        let offset = parse_tz_offset_hhmm(caps.get(7)?.as_str())?;
-        let local_secs = encode_to_epoch_secs(sec, min, hour, day, month, year);
-        return Some(local_secs - offset);
-    }
-
-    None
-}
-
-/// `(safe-date-to-time DATE-STRING)` -> `(HIGH LOW)` or 0.
-///
-/// Returns `0` when DATE-STRING is not parseable, matching Emacs'
-/// "safe" behavior.
-pub(crate) fn builtin_safe_date_to_time(args: Vec<Value>) -> EvalResult {
-    expect_args("safe-date-to-time", &args, 1)?;
-    let Value::Str(_) = &args[0] else {
-        return Ok(Value::Int(0));
-    };
-    let date_str = args[0].as_str().unwrap();
-    let Some(secs) = parse_safe_date_to_epoch_secs(date_str) else {
-        return Ok(Value::Int(0));
-    };
-    let high = (secs >> 16) & 0xFFFF_FFFF;
-    let low = secs & 0xFFFF;
-    Ok(Value::list(vec![Value::Int(high), Value::Int(low)]))
 }
 
 // ---------------------------------------------------------------------------

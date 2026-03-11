@@ -905,6 +905,7 @@ const CACHE_WRITE_PHASE_AFTER_WRITE: u8 = 2;
 
 pub(crate) const BOOTSTRAP_LOAD_PATH_SUBDIRS: &[&str] = &[
     "",
+    "calendar",
     "emacs-lisp",
     "progmodes",
     "language",

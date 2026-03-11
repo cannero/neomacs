@@ -3322,7 +3322,6 @@ pub(crate) fn dispatch_builtin(
         "decode-time" => super::timefns::builtin_decode_time(args),
         "time-convert" => super::timefns::builtin_time_convert(args),
         "set-time-zone-rule" => super::timefns::builtin_set_time_zone_rule(args),
-        "safe-date-to-time" => super::timefns::builtin_safe_date_to_time(args),
 
         // Float/math (pure)
         "copysign" => super::floatfns::builtin_copysign(args),
@@ -3882,9 +3881,7 @@ pub(crate) fn dispatch_builtin(
         "func-arity" => builtin_func_arity_eval(eval, args),
 
         // Format/string utilities (pure)
-        "format-spec" => super::format::builtin_format_spec(args),
         "format-time-string" => super::format::builtin_format_time_string(args),
-        "format-seconds" => super::format::builtin_format_seconds(args),
         "string-pad" => super::format::builtin_string_pad(args),
         "string-fill" => super::format::builtin_string_fill(args),
         "string-limit" => super::format::builtin_string_limit(args),

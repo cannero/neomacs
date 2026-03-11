@@ -1,70 +1,43 @@
 use super::*;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
+use crate::emacs_core::{format_eval_result, parse_forms};
+
+fn bootstrap_eval(src: &str) -> Vec<String> {
+    let mut ev = create_bootstrap_evaluator().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let forms = parse_forms(src).expect("parse");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
 
 // ===================================================================
 // format-spec tests
 // ===================================================================
 
 #[test]
-fn format_spec_basic() {
-    let spec_alist = Value::list(vec![
-        Value::cons(Value::Char('n'), Value::string("Bob")),
-        Value::cons(Value::Char('a'), Value::string("21")),
-    ]);
-    let result = builtin_format_spec(vec![Value::string("%n is %a"), spec_alist]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "Bob is 21");
-}
-
-#[test]
-fn format_spec_literal_percent() {
-    let result = builtin_format_spec(vec![
-        Value::string("100%% done"),
-        Value::Nil, // empty alist
-    ]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "100% done");
-}
-
-#[test]
-fn format_spec_width_right_align() {
-    let spec_alist = Value::list(vec![Value::cons(Value::Char('n'), Value::string("hi"))]);
-    let result = builtin_format_spec(vec![Value::string("[%10n]"), spec_alist]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "[        hi]");
-}
-
-#[test]
-fn format_spec_width_left_align() {
-    let spec_alist = Value::list(vec![Value::cons(Value::Char('n'), Value::string("hi"))]);
-    let result = builtin_format_spec(vec![Value::string("[%-10n]"), spec_alist]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "[hi        ]");
-}
-
-#[test]
-fn format_spec_zero_pad() {
-    let spec_alist = Value::list(vec![Value::cons(Value::Char('n'), Value::string("42"))]);
-    let result = builtin_format_spec(vec![Value::string("[%05n]"), spec_alist]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "[00042]");
-}
-
-#[test]
-fn format_spec_no_match_passthrough() {
-    let result = builtin_format_spec(vec![Value::string("hello %x world"), Value::Nil]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "hello %x world");
-}
-
-#[test]
-fn format_spec_int_keys() {
-    // Use integers instead of chars for the spec keys.
-    let spec_alist = Value::list(vec![Value::cons(
-        Value::Int('n' as i64),
-        Value::string("Alice"),
-    )]);
-    let result = builtin_format_spec(vec![Value::string("Name: %n"), spec_alist]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "Name: Alice");
-}
-
-#[test]
-fn format_spec_wrong_args() {
-    let result = builtin_format_spec(vec![Value::string("hi")]);
-    assert!(result.is_err());
+fn format_spec_bootstrap_matches_gnu_elisp() {
+    let results = bootstrap_eval(
+        r#"
+        (format-spec "%n is %a" '((?n . "Bob") (?a . "21")))
+        (format-spec "100%% done" nil)
+        (format-spec "[%10n]" '((?n . "hi")))
+        (format-spec "[%-10n]" '((?n . "hi")))
+        (format-spec "[%05n]" '((?n . "42")))
+        (condition-case err (format-spec "hello %x world" nil) (error (car err)))
+        (format-spec "hello %x world" nil 'ignore)
+        (condition-case err (format-spec "hi") (error (car err)))
+        "#,
+    );
+    assert_eq!(results[0], r#"OK "Bob is 21""#);
+    assert_eq!(results[1], r#"OK "100% done""#);
+    assert_eq!(results[2], r#"OK "[        hi]""#);
+    assert_eq!(results[3], r#"OK "[hi        ]""#);
+    assert_eq!(results[4], r#"OK "[00042]""#);
+    assert_eq!(results[5], "OK error");
+    assert_eq!(results[6], r#"OK "hello %x world""#);
+    assert_eq!(results[7], "OK wrong-number-of-arguments");
 }
 
 // ===================================================================
@@ -140,30 +113,19 @@ fn format_time_string_no_time_uses_current() {
 // ===================================================================
 
 #[test]
-fn format_seconds_basic() {
-    // 3661 seconds = 1 hour, 1 minute, 1 second
-    let result = builtin_format_seconds(vec![Value::string("%h:%m:%s"), Value::Int(3661)]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "1:1:1");
-}
-
-#[test]
-fn format_seconds_days() {
-    // 90061 = 1 day + 1 hour + 1 minute + 1 second
-    let result =
-        builtin_format_seconds(vec![Value::string("%d days, %h:%m:%s"), Value::Int(90061)]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "1 days, 1:1:1");
-}
-
-#[test]
-fn format_seconds_zero() {
-    let result = builtin_format_seconds(vec![Value::string("%h:%m:%s"), Value::Int(0)]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "0:0:0");
-}
-
-#[test]
-fn format_seconds_literal_percent() {
-    let result = builtin_format_seconds(vec![Value::string("100%%"), Value::Int(0)]);
-    assert_eq!(result.unwrap().as_str().unwrap(), "100%");
+fn format_seconds_bootstrap_matches_gnu_elisp() {
+    let results = bootstrap_eval(
+        r#"
+        (format-seconds "%h:%m:%s" 3661)
+        (format-seconds "%d days, %h:%m:%s" 90061)
+        (format-seconds "%h:%m:%s" 0)
+        (format-seconds "100%%" 0)
+        "#,
+    );
+    assert_eq!(results[0], r#"OK "1:1:1""#);
+    assert_eq!(results[1], r#"OK "1 days, 1:1:1""#);
+    assert_eq!(results[2], r#"OK "0:0:0""#);
+    assert_eq!(results[3], r#"OK "100%""#);
 }
 
 // ===================================================================
