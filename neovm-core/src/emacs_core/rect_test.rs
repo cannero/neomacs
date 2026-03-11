@@ -486,32 +486,26 @@ fn delete_extract_rectangle_eval_clamps_positions() {
 }
 
 #[test]
-fn replace_rectangle_aliases_string_rectangle() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abcdef\n123456\n");
-    }
-    let result = builtin_replace_rectangle(
-        &mut eval,
-        vec![Value::Int(1), Value::Int(10), Value::string("hi")],
+fn replace_rectangle_startup_aliases_string_rectangle() {
+    let eval = super::super::eval::Evaluator::new();
+    assert_eq!(
+        eval.obarray
+            .symbol_function("replace-rectangle")
+            .expect("missing replace-rectangle startup alias")
+            .as_symbol_name(),
+        Some("string-rectangle")
     );
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::Int(10));
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist");
-    assert_eq!(buf.buffer_string(), "hicdef\nhi3456\n");
-    assert_eq!(buf.text.byte_to_char(buf.point()) as i64 + 1, 10);
 }
 
 #[test]
-fn replace_rectangle_wrong_arity() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_replace_rectangle(&mut eval, vec![Value::Int(1), Value::Int(10)]);
-    assert!(result.is_err());
+fn replace_rectangle_uses_runtime_alias_behavior() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "abcdef\n123456\n")
+             (replace-rectangle 1 9 "ZZ")
+             (list (replace-regexp-in-string "\n" "|" (buffer-string) nil t)
+                   (point)
+                   (symbol-function 'replace-rectangle)))"#,
+    );
+    assert_eq!(result[0], r#"OK ("ZZbcdef|ZZ23456|" 11 string-rectangle)"#);
 }

@@ -1807,8 +1807,6 @@ pub(crate) fn dispatch_builtin(
         "delete-extract-rectangle" => {
             return Some(super::rect::builtin_delete_extract_rectangle(eval, args));
         }
-        "replace-rectangle" => return Some(super::rect::builtin_replace_rectangle(eval, args)),
-
         // Window/frame operations (evaluator-dependent)
         "selected-window" => return Some(super::window_cmds::builtin_selected_window(eval, args)),
         "old-selected-window" => {

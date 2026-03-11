@@ -727,18 +727,6 @@ pub(crate) fn builtin_delete_extract_rectangle(
     ))
 }
 
-/// `(replace-rectangle START END REPLACEMENT)` -- alias for `string-rectangle`.
-///
-/// Compatibility behavior:
-/// - delegates to `string-rectangle` after `replace-rectangle` arity check
-pub(crate) fn builtin_replace_rectangle(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("replace-rectangle", &args, 3)?;
-    builtin_string_rectangle(eval, args)
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
