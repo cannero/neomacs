@@ -1427,18 +1427,6 @@ fn test_builtin_file_name_ops() {
     let result = builtin_file_name_nondirectory(vec![Value::string("/home/user/test.el")]);
     assert_eq!(result.unwrap().as_str(), Some("test.el"));
 
-    let result = builtin_file_name_sans_versions(vec![Value::string("foo.~12~")]);
-    assert_eq!(result.unwrap().as_str(), Some("foo"));
-
-    let result = builtin_file_name_sans_versions(vec![Value::string("foo.~12~.~3~")]);
-    assert_eq!(result.unwrap().as_str(), Some("foo.~12~"));
-
-    let result = builtin_file_name_sans_versions(vec![Value::string("foo.~~")]);
-    assert_eq!(result.unwrap().as_str(), Some("foo.~"));
-
-    let result = builtin_file_name_sans_versions(vec![Value::string("foo.~12~"), Value::True]);
-    assert_eq!(result.unwrap().as_str(), Some("foo.~12~"));
-
     let result = builtin_file_name_as_directory(vec![Value::string("/home/user")]);
     assert_eq!(result.unwrap().as_str(), Some("/home/user/"));
 
@@ -1491,11 +1479,6 @@ fn test_builtin_file_name_ops() {
 fn test_builtin_file_name_ops_strict_types() {
     assert!(builtin_file_name_directory(vec![Value::symbol("x")]).is_err());
     assert!(builtin_file_name_nondirectory(vec![Value::symbol("x")]).is_err());
-    assert!(builtin_file_name_sans_versions(vec![Value::symbol("x")]).is_err());
-    assert!(builtin_file_name_sans_versions(vec![]).is_err());
-    assert!(
-        builtin_file_name_sans_versions(vec![Value::string("x"), Value::Nil, Value::Nil]).is_err()
-    );
     assert!(builtin_file_name_as_directory(vec![Value::symbol("x")]).is_err());
     assert!(builtin_directory_file_name(vec![Value::symbol("x")]).is_err());
     assert!(builtin_backup_file_name_p(vec![Value::symbol("x")]).is_err());
@@ -1589,6 +1572,36 @@ fn file_name_splitters_bootstrap_error_shapes_match_gnu_files_el() {
     assert_eq!(results[3], "OK wrong-type-argument");
     assert_eq!(results[4], "OK wrong-type-argument");
     assert_eq!(results[5], "OK wrong-type-argument");
+}
+
+#[test]
+fn file_name_sans_versions_bootstrap_matches_gnu_files_el() {
+    let results = bootstrap_eval(
+        r#"
+        (subrp (symbol-function 'file-name-sans-versions))
+        (file-name-sans-versions "foo.~12~")
+        (file-name-sans-versions "foo.~12~.~3~")
+        (file-name-sans-versions "foo.~~")
+        (file-name-sans-versions "foo.~12~" t)
+        "#,
+    );
+    assert_eq!(results[0], "OK nil");
+    assert_eq!(results[1], r#"OK "foo""#);
+    assert_eq!(results[2], r#"OK "foo.~12~""#);
+    assert_eq!(results[3], r#"OK "foo.~""#);
+    assert_eq!(results[4], r#"OK "foo.~12~""#);
+}
+
+#[test]
+fn file_name_sans_versions_bootstrap_error_shapes_match_gnu_files_el() {
+    let results = bootstrap_eval(
+        r#"
+        (condition-case err (file-name-sans-versions 'x) (error (car err)))
+        (condition-case err (file-name-sans-versions "x" nil nil) (error (car err)))
+        "#,
+    );
+    assert_eq!(results[0], "OK wrong-type-argument");
+    assert_eq!(results[1], "OK wrong-number-of-arguments");
 }
 
 #[test]
