@@ -2519,7 +2519,6 @@ pub(crate) fn dispatch_builtin(
         }
         "read-string" => return Some(super::reader::builtin_read_string(eval, args)),
         "read-number" => return Some(super::reader::builtin_read_number(eval, args)),
-        "read-passwd" => return Some(super::reader::builtin_read_passwd(eval, args)),
         "completing-read" => return Some(super::reader::builtin_completing_read(eval, args)),
         "read-file-name" => return Some(super::minibuffer::builtin_read_file_name(args)),
         "read-directory-name" => return Some(super::minibuffer::builtin_read_directory_name(args)),

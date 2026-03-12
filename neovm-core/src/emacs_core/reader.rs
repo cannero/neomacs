@@ -617,35 +617,7 @@ pub(crate) fn builtin_read_number(
 }
 
 // ---------------------------------------------------------------------------
-// 8. read-passwd
-// ---------------------------------------------------------------------------
-
-/// `(read-passwd PROMPT &optional CONFIRM DEFAULT)`
-///
-/// In batch/non-interactive mode, if `unread-command-events` is non-empty,
-/// signal `end-of-file` and keep the event queue unchanged (Oracle-compatible
-/// behavior).
-pub(crate) fn builtin_read_passwd(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("read-passwd", &args, 1)?;
-    expect_max_args("read-passwd", &args, 3)?;
-    let _prompt = expect_string(&args[0])?;
-    if eval.peek_unread_command_event().is_some() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    Err(signal(
-        "end-of-file",
-        vec![Value::string("Error reading from stdin")],
-    ))
-}
-
-// ---------------------------------------------------------------------------
-// 9. completing-read
+// 8. completing-read
 // ---------------------------------------------------------------------------
 
 /// `(completing-read PROMPT COLLECTION ...)`

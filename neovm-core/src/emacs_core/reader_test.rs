@@ -1,6 +1,18 @@
 use super::*;
 use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
 use crate::emacs_core::parse_forms;
+use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let forms = parse_bootstrap_forms(src).expect("parse");
+    eval.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
 
 // ===================================================================
 // read-from-string tests
@@ -538,70 +550,67 @@ fn read_number_rejects_non_string_prompt() {
 }
 
 #[test]
-fn read_passwd_signals_end_of_file() {
-    let mut ev = Evaluator::new();
-    let result = builtin_read_passwd(&mut ev, vec![Value::string("")]);
-    assert!(matches!(
-        result,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"
-    ));
+fn read_passwd_startup_is_autoloaded() {
+    let eval = Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("read-passwd")
+        .expect("missing read-passwd startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
 }
 
 #[test]
-fn read_passwd_non_character_event_stays_queued_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
-    ev.obarray.set_symbol_value(
-        "unread-command-events",
-        Value::list(vec![Value::symbol("foo")]),
+fn read_passwd_loads_from_gnu_auth_source() {
+    let results = bootstrap_eval_all(
+        r#"
+        (condition-case err
+            (read-passwd "")
+          (error (list 'err (car err))))
+        (subrp (symbol-function 'read-passwd))
+        "#,
     );
-    let result = builtin_read_passwd(&mut ev, vec![Value::string("Passwd: ")]);
-    assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
-    assert_eq!(
-        ev.obarray.symbol_value("unread-command-events"),
-        Some(&Value::list(vec![Value::symbol("foo")]))
-    );
+    assert_eq!(results[0], r#"OK (err end-of-file)"#);
+    assert_eq!(results[1], "OK nil");
 }
 
 #[test]
-fn read_passwd_accepts_optional_args_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
-    let result = builtin_read_passwd(
-        &mut ev,
-        vec![Value::string(""), Value::True, Value::symbol("default")],
+fn read_passwd_loaded_accepts_optional_args_and_signals_end_of_file() {
+    let results = bootstrap_eval_all(
+        r#"
+        (condition-case err
+            (read-passwd "" t "default")
+          (error (list 'err (car err))))
+        "#,
     );
-    assert!(matches!(
-        result,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"
-    ));
+    assert_eq!(results[0], r#"OK (err end-of-file)"#);
 }
 
 #[test]
-fn read_passwd_rejects_non_string_prompt() {
-    let mut ev = Evaluator::new();
-    let result = builtin_read_passwd(&mut ev, vec![Value::Int(123)]);
-    assert!(matches!(
-        result,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
-    ));
+fn read_passwd_loaded_rejects_non_string_prompt() {
+    let results = bootstrap_eval_all(
+        r#"
+        (condition-case err
+            (read-passwd 123)
+          (error (list 'err (car err))))
+        "#,
+    );
+    assert_eq!(results[0], r#"OK (err wrong-type-argument)"#);
 }
 
 #[test]
-fn read_passwd_rejects_wrong_arity() {
-    let mut ev = Evaluator::new();
-    let too_few = builtin_read_passwd(&mut ev, vec![]);
-    assert!(matches!(
-        too_few,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
-    ));
-
-    let too_many = builtin_read_passwd(
-        &mut ev,
-        vec![Value::string(""), Value::Nil, Value::Nil, Value::Nil],
+fn read_passwd_loaded_rejects_wrong_arity() {
+    let results = bootstrap_eval_all(
+        r#"
+        (condition-case err
+            (read-passwd)
+          (error (list 'err (car err))))
+        (condition-case err
+            (read-passwd "" nil nil nil)
+          (error (list 'err (car err))))
+        "#,
     );
-    assert!(matches!(
-        too_many,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
-    ));
+    assert_eq!(results[0], r#"OK (err wrong-number-of-arguments)"#);
+    assert_eq!(results[1], r#"OK (err wrong-number-of-arguments)"#);
 }
 
 #[test]
