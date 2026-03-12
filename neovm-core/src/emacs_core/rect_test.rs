@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
+use crate::emacs_core::bytecode::opcode::Op;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
@@ -136,69 +137,76 @@ fn kill_rectangle_loads_from_gnu_rect_el() {
 }
 
 #[test]
-fn yank_rectangle_empty_returns_nil() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_yank_rectangle(&mut eval, vec![]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_nil());
+fn yank_rectangle_startup_is_autoloaded() {
+    let eval = super::super::eval::Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("yank-rectangle")
+        .expect("missing yank-rectangle startup function cell");
+    assert!(is_autoload_value(&function));
 }
 
 #[test]
-fn yank_rectangle_after_kill() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abc\ndef\n");
-        buf.goto_char(0);
-    }
-    eval.rectangle.killed = vec!["X".to_string(), "Y".to_string()];
-    let result = builtin_yank_rectangle(&mut eval, vec![]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_nil());
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist");
-    assert_eq!(buf.buffer_string(), "Xabc\nYdef\n");
-    assert_eq!(buf.text.byte_to_char(buf.point()) as i64 + 1, 7);
-}
-
-#[test]
-fn yank_rectangle_uses_killed_rectangle_symbol() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abc\ndef\n");
-        buf.goto_char(0);
-    }
-    eval.obarray.set_symbol_value(
-        "killed-rectangle",
-        Value::list(vec![Value::string("Q"), Value::string("W")]),
+fn yank_rectangle_loads_from_gnu_rect_el() {
+    let result = bootstrap_eval_all(
+        r#"(progn
+             (setq killed-rectangle '("X" "Y"))
+             (with-temp-buffer
+               (insert "abc\ndef\n")
+               (goto-char (point-min))
+               (list (yank-rectangle)
+                     (replace-regexp-in-string "\n" "|" (buffer-string) nil t)
+                     (point)
+                     (subrp (symbol-function 'yank-rectangle)))))"#,
     );
-    let result = builtin_yank_rectangle(&mut eval, vec![]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_nil());
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist");
-    assert_eq!(buf.buffer_string(), "Qabc\nWdef\n");
-    assert_eq!(buf.text.byte_to_char(buf.point()) as i64 + 1, 7);
+    assert_eq!(result[0], r#"OK (nil "Xabc|Ydef|" 7 nil)"#);
 }
 
 #[test]
-fn yank_rectangle_non_list_symbol_errors() {
-    let mut eval = super::super::eval::Evaluator::new();
-    eval.obarray
-        .set_symbol_value("killed-rectangle", Value::Int(1));
-    let result = builtin_yank_rectangle(&mut eval, vec![]);
-    assert!(result.is_err());
+fn yank_rectangle_loaded_rejects_non_list_killed_rectangle() {
+    let result = bootstrap_eval_all(
+        r#"(progn
+             (setq killed-rectangle 1)
+             (condition-case err
+                 (yank-rectangle)
+               (error (list 'err (car err)))))"#,
+    );
+    assert_eq!(result[0], r#"OK (err wrong-type-argument)"#);
+}
+
+#[test]
+fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let forms = parse_forms(r#"(load "rect")"#).expect("parse rect load");
+    let results = eval.eval_forms(&forms);
+    assert!(
+        results.iter().all(Result::is_ok),
+        "rect load failed: {:?}",
+        results.iter().map(format_eval_result).collect::<Vec<_>>()
+    );
+
+    let function = eval
+        .obarray
+        .symbol_function("yank-rectangle")
+        .cloned()
+        .expect("loaded yank-rectangle function cell");
+    let bytecode = function
+        .get_bytecode_data()
+        .expect("yank-rectangle should load as bytecode");
+
+    assert_eq!(
+        bytecode
+            .constants
+            .iter()
+            .map(Value::as_symbol_name)
+            .collect::<Vec<_>>(),
+        vec![Some("killed-rectangle"), Some("insert-rectangle")]
+    );
+    assert_eq!(
+        bytecode.ops,
+        vec![Op::Constant(1), Op::VarRef(0), Op::Call(1), Op::Return]
+    );
 }
 
 #[test]

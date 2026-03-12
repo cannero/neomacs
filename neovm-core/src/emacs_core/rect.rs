@@ -414,35 +414,6 @@ pub(crate) fn builtin_extract_rectangle_line(args: Vec<Value>) -> EvalResult {
     Ok(Value::string(""))
 }
 
-/// `(yank-rectangle)` -- insert the last killed rectangle at point.
-///
-/// Compatibility behavior:
-/// - inserts `RectangleState.killed` at point using `insert-rectangle`
-///   semantics
-/// - returns nil when no rectangle has been killed yet
-pub(crate) fn builtin_yank_rectangle(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("yank-rectangle", &args, 0)?;
-    let rectangle = if let Some(value) = dynamic_or_global_symbol_value(eval, "killed-rectangle") {
-        if value.is_nil() {
-            Vec::new()
-        } else {
-            rectangle_strings_from_value(&value)?
-        }
-    } else {
-        eval.rectangle.killed.clone()
-    };
-    if rectangle.is_empty() {
-        return Ok(Value::Nil);
-    }
-    eval.rectangle.killed = rectangle.clone();
-    eval.obarray
-        .set_symbol_value("killed-rectangle", rectangle_strings_to_value(&rectangle));
-    builtin_insert_rectangle(eval, vec![rectangle_strings_to_value(&rectangle)])
-}
-
 /// `(insert-rectangle RECTANGLE)` -- insert RECTANGLE (a list of strings)
 /// at point, one string per line.
 ///
