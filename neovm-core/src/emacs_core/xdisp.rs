@@ -594,8 +594,6 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("overlay-arrow-variable-list", Value::Nil);
     obarray.set_symbol_value("overlay-arrow-string", Value::string("=>"));
     obarray.set_symbol_value("overlay-arrow-position", Value::Nil);
-    obarray.set_symbol_value("redisplay-highlight-region-function", Value::Nil);
-    obarray.set_symbol_value("redisplay-unhighlight-region-function", Value::Nil);
     // Mirror GNU Emacs: set char-table-extra-slots property for all subtypes
     // that need extra slots. Fmake_char_table reads this property to allocate
     // the correct number of extra slots.
