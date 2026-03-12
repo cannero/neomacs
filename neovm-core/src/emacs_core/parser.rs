@@ -811,7 +811,7 @@ impl<'a> Parser<'a> {
                     _ => Err(self.error(&format!("#{n}"))),
                 }
             }
-            _ => Err(self.error(&format!("#{}", ch))),
+            _ => Err(self.error_after_current(&format!("#{}", ch))),
         }
     }
 
@@ -983,6 +983,13 @@ impl<'a> Parser<'a> {
             position: self.pos,
             message: message.to_string(),
         }
+    }
+
+    fn error_after_current(&mut self, message: &str) -> ParseError {
+        if self.current().is_some() {
+            self.bump();
+        }
+        self.error(message)
     }
 
     fn parse_decimal_usize(&mut self) -> Result<usize, ParseError> {

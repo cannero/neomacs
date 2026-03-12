@@ -2145,6 +2145,29 @@ fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_g
 }
 
 #[test]
+fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_gnu_emacs() {
+    let mut ev = Evaluator::new();
+    let buf_id = ev.buffers.create_buffer(" *reader-invalid-hash-dispatch*");
+    {
+        let buf = ev.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("#t");
+        buf.pt = 0;
+    }
+
+    let result = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]);
+    match result {
+        Err(Flow::Signal(sig)) => {
+            assert_eq!(sig.symbol_name(), "invalid-read-syntax");
+            assert_eq!(
+                sig.data,
+                vec![Value::string("#t"), Value::Int(1), Value::Int(2)]
+            );
+        }
+        other => panic!("expected invalid-read-syntax, got {other:?}"),
+    }
+}
+
+#[test]
 fn read_from_string_hash_bracket_preserves_vector() {
     let mut ev = Evaluator::new();
     let input = "#[nil \"\\300\\207\" [0] 1]";
