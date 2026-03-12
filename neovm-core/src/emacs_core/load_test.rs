@@ -1023,6 +1023,27 @@ fn bootstrap_help_fns_describe_function_writes_help_buffer() {
 }
 
 #[test]
+fn bootstrap_help_fns_describe_variable_writes_help_buffer() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let help_fns = project_root.join("lisp/help-fns.el");
+
+    let rendered = fresh_bootstrap_eval_with_loaded_file(
+        &help_fns,
+        r#"
+(let ((result (funcall (symbol-function 'describe-variable) 'load-path)))
+  (list
+   (stringp result)
+   (bufferp (get-buffer "*Help*"))
+   (with-current-buffer (get-buffer "*Help*")
+     (> (length (buffer-string)) 0))))
+"#,
+    );
+
+    assert_eq!(rendered, "OK (t t t)");
+}
+
+#[test]
 fn bootstrap_runtime_describe_function_autoloads_help_fns() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
