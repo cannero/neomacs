@@ -1899,11 +1899,6 @@ pub(crate) fn dispatch_builtin(
         "next-frame" => return Some(builtin_next_frame_eval(eval, args)),
         "previous-frame" => return Some(builtin_previous_frame_eval(eval, args)),
         "select-frame" => return Some(super::window_cmds::builtin_select_frame(eval, args)),
-        "select-frame-set-input-focus" => {
-            return Some(super::window_cmds::builtin_select_frame_set_input_focus(
-                eval, args,
-            ));
-        }
         "last-nonminibuffer-frame" => {
             return Some(super::window_cmds::builtin_selected_frame(eval, args));
         }
@@ -1911,7 +1906,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::window_cmds::builtin_visible_frame_list(eval, args));
         }
         "frame-list" => return Some(super::window_cmds::builtin_frame_list(eval, args)),
-        "make-frame" => return Some(super::window_cmds::builtin_make_frame(eval, args)),
         "make-frame-visible" => {
             return Some(super::window_cmds::builtin_make_frame_visible(eval, args));
         }
@@ -1992,9 +1986,6 @@ pub(crate) fn dispatch_builtin(
         }
         "frame-id" => return Some(builtin_frame_id_eval(eval, args)),
         "frame-root-frame" => return Some(builtin_frame_root_frame_eval(eval, args)),
-        "display-graphic-p" => {
-            return Some(super::display::builtin_display_graphic_p_eval(eval, args));
-        }
         "send-string-to-terminal" => {
             return Some(super::dispnew::pure::builtin_send_string_to_terminal_eval(
                 eval, args,
@@ -2015,25 +2006,6 @@ pub(crate) fn dispatch_builtin(
         "display-grayscale-p" => {
             return Some(super::display::builtin_display_grayscale_p_eval(eval, args));
         }
-        "display-mouse-p" => return Some(super::display::builtin_display_mouse_p_eval(eval, args)),
-        "display-popup-menus-p" => {
-            return Some(super::display::builtin_display_popup_menus_p_eval(
-                eval, args,
-            ));
-        }
-        "display-symbol-keys-p" => {
-            return Some(super::display::builtin_display_symbol_keys_p_eval(
-                eval, args,
-            ));
-        }
-        "display-pixel-width" => {
-            return Some(super::display::builtin_display_pixel_width_eval(eval, args));
-        }
-        "display-pixel-height" => {
-            return Some(super::display::builtin_display_pixel_height_eval(
-                eval, args,
-            ));
-        }
         "x-open-connection" => {
             return Some(super::display::builtin_x_open_connection_eval(eval, args));
         }
@@ -2045,39 +2017,6 @@ pub(crate) fn dispatch_builtin(
         "x-get-resource" => return Some(super::display::builtin_x_get_resource_eval(eval, args)),
         "x-list-fonts" => return Some(super::display::builtin_x_list_fonts_eval(eval, args)),
         "window-system" => return Some(super::display::builtin_window_system_eval(eval, args)),
-        "frame-edges" => return Some(super::display::builtin_frame_edges_eval(eval, args)),
-        "display-mm-width" => {
-            return Some(super::display::builtin_display_mm_width_eval(eval, args));
-        }
-        "display-mm-height" => {
-            return Some(super::display::builtin_display_mm_height_eval(eval, args));
-        }
-        "display-screens" => return Some(super::display::builtin_display_screens_eval(eval, args)),
-        "display-color-cells" => {
-            return Some(super::display::builtin_display_color_cells_eval(eval, args));
-        }
-        "display-planes" => return Some(super::display::builtin_display_planes_eval(eval, args)),
-        "display-visual-class" => {
-            return Some(super::display::builtin_display_visual_class_eval(
-                eval, args,
-            ));
-        }
-        "display-backing-store" => {
-            return Some(super::display::builtin_display_backing_store_eval(
-                eval, args,
-            ));
-        }
-        "display-save-under" => {
-            return Some(super::display::builtin_display_save_under_eval(eval, args));
-        }
-        "display-selections-p" => {
-            return Some(super::display::builtin_display_selections_p_eval(
-                eval, args,
-            ));
-        }
-        "display-images-p" => {
-            return Some(super::display::builtin_display_images_p_eval(eval, args));
-        }
         "display-supports-face-attributes-p" => {
             return Some(
                 super::display::builtin_display_supports_face_attributes_p_eval(eval, args),
@@ -2138,14 +2077,6 @@ pub(crate) fn dispatch_builtin(
         "resume-tty" => return Some(super::terminal::pure::builtin_resume_tty_eval(eval, args)),
         "frame-terminal" => {
             return Some(super::terminal::pure::builtin_frame_terminal_eval(
-                eval, args,
-            ));
-        }
-        "display-monitor-attributes-list" => {
-            return Some(super::display::builtin_display_monitor_attributes_list_eval(eval, args));
-        }
-        "frame-monitor-attributes" => {
-            return Some(super::display::builtin_frame_monitor_attributes_eval(
                 eval, args,
             ));
         }
@@ -2855,23 +2786,8 @@ pub(crate) fn dispatch_builtin(
         "internal-show-cursor-p" => super::dispnew::pure::builtin_internal_show_cursor_p(args),
         "frame--z-order-lessp" => super::dispnew::pure::builtin_frame_z_order_lessp(args),
         // Display/terminal (pure)
-        "display-graphic-p" => super::display::builtin_display_graphic_p(args),
         "display-color-p" => super::display::builtin_display_color_p(args),
         "display-grayscale-p" => super::display::builtin_display_grayscale_p(args),
-        "display-mouse-p" => super::display::builtin_display_mouse_p(args),
-        "display-popup-menus-p" => super::display::builtin_display_popup_menus_p(args),
-        "display-symbol-keys-p" => super::display::builtin_display_symbol_keys_p(args),
-        "display-pixel-width" => super::display::builtin_display_pixel_width(args),
-        "display-pixel-height" => super::display::builtin_display_pixel_height(args),
-        "display-mm-width" => super::display::builtin_display_mm_width(args),
-        "display-mm-height" => super::display::builtin_display_mm_height(args),
-        "display-screens" => super::display::builtin_display_screens(args),
-        "display-color-cells" => super::display::builtin_display_color_cells(args),
-        "display-planes" => super::display::builtin_display_planes(args),
-        "display-visual-class" => super::display::builtin_display_visual_class(args),
-        "display-backing-store" => super::display::builtin_display_backing_store(args),
-        "display-save-under" => super::display::builtin_display_save_under(args),
-        "display-selections-p" => super::display::builtin_display_selections_p(args),
         "gui-get-primary-selection" => super::display::builtin_gui_get_primary_selection(args),
         "gui-get-selection" => super::display::builtin_gui_get_selection(args),
         "gui-select-text" => super::display::builtin_gui_select_text(args),
@@ -2949,12 +2865,6 @@ pub(crate) fn dispatch_builtin(
         "controlling-tty-p" => super::terminal::pure::builtin_controlling_tty_p(args),
         "suspend-tty" => super::terminal::pure::builtin_suspend_tty(args),
         "resume-tty" => super::terminal::pure::builtin_resume_tty(args),
-        "display-monitor-attributes-list" => {
-            super::display::builtin_display_monitor_attributes_list(args)
-        }
-        "frame-monitor-attributes" => super::display::builtin_frame_monitor_attributes(args),
-        "frame-edges" => super::display::builtin_frame_edges(args),
-        "display-images-p" => super::display::builtin_display_images_p(args),
         "display-supports-face-attributes-p" => {
             super::display::builtin_display_supports_face_attributes_p(args)
         }
@@ -4021,9 +3931,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "char-or-string-p" => crate::encoding::builtin_char_or_string_p(args),
         "max-char" => crate::encoding::builtin_max_char(args),
         // Display/terminal (pure)
-        "display-graphic-p" => super::display::builtin_display_graphic_p(args),
-        "display-pixel-width" => super::display::builtin_display_pixel_width(args),
-        "display-pixel-height" => super::display::builtin_display_pixel_height(args),
         // frame.c missing builtins (pure stubs)
         "frame-id" => builtin_frame_id(args),
         "frame-root-frame" => builtin_frame_root_frame(args),
