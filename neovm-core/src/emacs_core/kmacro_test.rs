@@ -458,8 +458,6 @@ fn test_kmacro_builtin_arity_contracts() {
         )
         .is_err()
     );
-    assert!(builtin_insert_kbd_macro(&mut eval, vec![]).is_err());
-    assert!(builtin_insert_kbd_macro(&mut eval, vec![Value::Nil, Value::Nil, Value::Nil]).is_err());
 }
 
 #[test]
@@ -570,23 +568,34 @@ fn test_resolve_macro_events_wrong_type() {
 }
 
 #[test]
-fn test_insert_kbd_macro() {
-    use super::super::eval::Evaluator;
+fn test_insert_kbd_macro_startup_is_autoloaded() {
+    let eval = super::super::eval::Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("insert-kbd-macro")
+        .expect("missing insert-kbd-macro startup function cell");
+    assert!(is_autoload_value(&function));
+}
 
-    let mut eval = Evaluator::new();
+#[test]
+fn test_insert_kbd_macro_loads_from_gnu_macros_el() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (fset 'test-macro [97 98])
+             (insert-kbd-macro 'test-macro)
+             (list (and (string-match-p "defalias" (buffer-string)) t)
+                   (and (string-match-p "test-macro" (buffer-string)) t)
+                   (subrp (symbol-function 'insert-kbd-macro))))"#,
+    );
+    assert_eq!(result[0], r#"OK (t t nil)"#);
+}
 
-    // Record and name a macro
-    eval.kmacro.start_recording(false);
-    eval.kmacro.store_event(Value::Char('a'));
-    eval.kmacro.store_event(Value::Char('b'));
-    eval.kmacro.stop_recording();
-    let _ = builtin_name_last_kbd_macro(&mut eval, vec![Value::symbol("test-macro")]);
-
-    // Insert it
-    let result = builtin_insert_kbd_macro(&mut eval, vec![Value::symbol("test-macro")]);
-    assert!(result.is_ok());
-    let text = result.unwrap();
-    let s = text.as_str().unwrap();
-    assert!(s.contains("fset"));
-    assert!(s.contains("test-macro"));
+#[test]
+fn test_insert_kbd_macro_loaded_arity_matches_gnu() {
+    let result = bootstrap_eval_all(
+        r#"(condition-case err
+               (insert-kbd-macro)
+             (error (list 'err (car err))))"#,
+    );
+    assert_eq!(result[0], r#"OK (err wrong-number-of-arguments)"#);
 }
