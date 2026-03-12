@@ -2,14 +2,11 @@
 //!
 //! Pure builtins (`Vec<Value> -> EvalResult`):
 //! - `format-time-string` — format time like strftime
-//! - `string-pad` — pad string to a given length
 //! - `string-chop-newline` — remove trailing newline
 //! - `string-lines` — split string into lines
 //! - `string-clean-whitespace` — collapse whitespace and trim
 //! - `string-fill` — fill/wrap text at a given column width
-//! - `string-limit` — truncate string to a given length
 //! - `string-pixel-width` — batch-compatible display-column width
-//! - `string-glyph-split` — split string into grapheme clusters (chars)
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
@@ -461,83 +458,6 @@ fn format_time(fmt: &str, tm: &BrokenDownTime) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// string-pad
-// ---------------------------------------------------------------------------
-
-/// `(string-pad STRING LENGTH &optional PADDING START)` -- pad STRING to LENGTH.
-pub(crate) fn builtin_string_pad(args: Vec<Value>) -> EvalResult {
-    expect_min_max_args("string-pad", &args, 2, 4)?;
-    let s = require_string("string-pad", &args[0])?;
-    let target_len = require_natnum(&args[1])?;
-    let pad_char = if args.len() >= 3 {
-        require_char(&args[2])?
-    } else {
-        ' '
-    };
-    let left_pad = args.len() >= 4 && args[3].is_truthy();
-
-    let current_len = s.chars().count();
-    if current_len >= target_len {
-        return Ok(Value::string(s));
-    }
-
-    let pad_len = target_len - current_len;
-    let padding: String = std::iter::repeat_n(pad_char, pad_len).collect();
-    if left_pad {
-        Ok(Value::string(format!("{padding}{s}")))
-    } else {
-        Ok(Value::string(format!("{s}{padding}")))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// string-fill
-// ---------------------------------------------------------------------------
-
-/// `(string-limit STRING LENGTH &optional END ELLIPSIS)` -- limit STRING size.
-///
-/// If STRING exceeds LENGTH, truncate to fit.  END non-nil truncates from the
-/// start (keeping the right side).  ELLIPSIS is inserted on the truncated side.
-pub(crate) fn builtin_string_limit(args: Vec<Value>) -> EvalResult {
-    expect_min_max_args("string-limit", &args, 2, 4)?;
-    let s = require_string("string-limit", &args[0])?;
-    let limit = require_natnum(&args[1])?;
-    let from_end = args.get(2).is_some_and(Value::is_truthy);
-    let ellipsis = if args.len() >= 4 {
-        require_string("string-limit", &args[3])?
-    } else {
-        String::new()
-    };
-
-    let current_len = s.chars().count();
-    if current_len <= limit {
-        return Ok(Value::string(s));
-    }
-
-    if limit == 0 {
-        return Ok(Value::string(""));
-    }
-
-    let ellipsis_len = ellipsis.chars().count();
-    if ellipsis_len >= limit {
-        let clipped: String = ellipsis.chars().take(limit).collect();
-        return Ok(Value::string(clipped));
-    }
-
-    let keep_len = limit - ellipsis_len;
-    if from_end {
-        let suffix: String = s
-            .chars()
-            .skip(current_len.saturating_sub(keep_len))
-            .collect();
-        Ok(Value::string(format!("{ellipsis}{suffix}")))
-    } else {
-        let prefix: String = s.chars().take(keep_len).collect();
-        Ok(Value::string(format!("{prefix}{ellipsis}")))
-    }
-}
-
-// ---------------------------------------------------------------------------
 // string-chop-newline
 // ---------------------------------------------------------------------------
 
@@ -567,22 +487,6 @@ pub(crate) fn builtin_string_lines(args: Vec<Value>) -> EvalResult {
         .collect();
 
     Ok(Value::list(lines))
-}
-
-// ---------------------------------------------------------------------------
-// string-glyph-split
-// ---------------------------------------------------------------------------
-
-/// `(string-glyph-split STRING)` -- split STRING into a list of grapheme
-/// clusters.
-///
-/// Simplified implementation: splits into individual characters (a full
-/// implementation would use Unicode grapheme cluster segmentation).
-pub(crate) fn builtin_string_glyph_split(args: Vec<Value>) -> EvalResult {
-    expect_args("string-glyph-split", &args, 1)?;
-    let s = require_string("string-glyph-split", &args[0])?;
-    let chars: Vec<Value> = s.chars().map(|c| Value::string(c.to_string())).collect();
-    Ok(Value::list(chars))
 }
 
 // ---------------------------------------------------------------------------

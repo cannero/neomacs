@@ -130,102 +130,61 @@ fn format_seconds_bootstrap_matches_gnu_elisp() {
 }
 
 // ===================================================================
-// string-pad tests
+// subr-x string helper tests
 // ===================================================================
 
 #[test]
-fn string_pad_right_default() {
-    let result = builtin_string_pad(vec![Value::string("x"), Value::Int(2)]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "x ");
-}
-
-#[test]
-fn string_pad_left_custom() {
-    let result = builtin_string_pad(vec![
-        Value::string("x"),
-        Value::Int(4),
-        Value::Char('0'),
-        Value::True,
-    ])
-    .unwrap();
-    assert_eq!(result.as_str().unwrap(), "000x");
-}
-
-#[test]
-fn string_pad_noop_when_long_enough() {
-    let result = builtin_string_pad(vec![Value::string("xyz"), Value::Int(2)]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "xyz");
-}
-
-#[test]
-fn string_pad_type_errors() {
-    assert!(builtin_string_pad(vec![Value::Int(1), Value::Int(2)]).is_err());
-    assert!(builtin_string_pad(vec![Value::string("x"), Value::Int(-1)]).is_err());
-    assert!(
-        builtin_string_pad(vec![Value::string("x"), Value::Int(2), Value::string("x")]).is_err()
-    );
-}
-
-// ===================================================================
-// string-fill tests
-// ===================================================================
-
-#[test]
-fn string_fill_bootstrap_matches_gnu_elisp() {
+fn subr_x_string_helpers_bootstrap_match_gnu() {
     let results = bootstrap_eval(
         r#"
+        (load "subr-x")
+        (let ((pad (symbol-function 'string-pad))
+              (limit (symbol-function 'string-limit))
+              (glyph (symbol-function 'string-glyph-split)))
+          (list (subrp pad)
+                (subrp limit)
+                (subrp glyph)
+                (funcall pad "x" 4 ?0 t)
+                (funcall limit "abcd" 3 t)
+                (funcall glyph "abc")))
         (string-fill "x" 2)
         (string-fill "aa bb ccc d" 5)
         (string-fill "a b\n\nc d" 10)
         (condition-case err (string-fill 1 2) (error (car err)))
         "#,
     );
-    assert_eq!(results[0], r#"OK "x""#);
-    assert_eq!(results[1], "OK \"aa bb\nccc d\"");
-    assert_eq!(results[2], "OK \"a b\n\nc d\"");
-    assert_eq!(results[3], "OK \"\u{1}\"");
-}
-
-// ===================================================================
-// string-limit tests
-// ===================================================================
-
-#[test]
-fn string_limit_noop() {
-    let result = builtin_string_limit(vec![Value::string("x"), Value::Int(2)]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "x");
+    assert_eq!(results[0], "OK t");
+    assert_eq!(results[1], r#"OK (nil nil nil "000x" "bcd" ("a" "b" "c"))"#);
+    assert_eq!(results[2], r#"OK "x""#);
+    assert_eq!(results[3], "OK \"aa bb\nccc d\"");
+    assert_eq!(results[4], "OK \"a b\n\nc d\"");
+    assert_eq!(results[5], "OK \"\u{1}\"");
 }
 
 #[test]
-fn string_limit_truncates_prefix() {
-    let result = builtin_string_limit(vec![Value::string("abcd"), Value::Int(2)]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "ab");
-}
-
-#[test]
-fn string_limit_truncates_from_end_with_ellipsis() {
-    let result = builtin_string_limit(vec![
-        Value::string("abcd"),
-        Value::Int(3),
-        Value::True,
-        Value::string("."),
-    ])
-    .unwrap();
-    assert_eq!(result.as_str().unwrap(), ".cd");
-}
-
-#[test]
-fn string_limit_type_errors() {
-    assert!(builtin_string_limit(vec![Value::Int(1), Value::Int(2)]).is_err());
-    assert!(builtin_string_limit(vec![Value::string("x"), Value::Int(-1)]).is_err());
-    assert!(
-        builtin_string_limit(vec![
-            Value::string("x"),
-            Value::Int(1),
-            Value::Nil,
-            Value::Int(1)
-        ])
-        .is_err()
+fn subr_x_string_helpers_autoload() {
+    let results = bootstrap_eval(
+        r#"
+        (let ((before-pad (symbol-function 'string-pad))
+              (before-limit (symbol-function 'string-limit))
+              (before-glyph (symbol-function 'string-glyph-split)))
+          (list (autoloadp before-pad)
+                (autoloadp before-limit)
+                (autoloadp before-glyph)
+                (string-pad "x" 2)
+                (string-limit "abcd" 2)
+                (string-glyph-split "abc")
+                (autoloadp (symbol-function 'string-pad))
+                (autoloadp (symbol-function 'string-limit))
+                (autoloadp (symbol-function 'string-glyph-split))
+                (subrp (symbol-function 'string-pad))
+                (subrp (symbol-function 'string-limit))
+                (subrp (symbol-function 'string-glyph-split))))
+        "#,
+    );
+    assert_eq!(
+        results[0],
+        r#"OK (t t t "x " "ab" ("a" "b" "c") nil nil nil nil nil nil)"#
     );
 }
 
@@ -365,36 +324,6 @@ fn string_pixel_width_bootstrap_matches_gnu_subr_x() {
     assert_eq!(results[9], "OK nil");
 }
 
-// ===================================================================
-// string-glyph-split tests
-// ===================================================================
-
-#[test]
-fn string_glyph_split_basic() {
-    let result = builtin_string_glyph_split(vec![Value::string("abc")]);
-    let items = list_to_vec(&result.unwrap()).unwrap();
-    assert_eq!(items.len(), 3);
-    assert_eq!(items[0].as_str().unwrap(), "a");
-    assert_eq!(items[1].as_str().unwrap(), "b");
-    assert_eq!(items[2].as_str().unwrap(), "c");
-}
-
-#[test]
-fn string_glyph_split_empty() {
-    let result = builtin_string_glyph_split(vec![Value::string("")]);
-    let items = list_to_vec(&result.unwrap()).unwrap();
-    assert_eq!(items.len(), 0);
-}
-
-#[test]
-fn string_glyph_split_unicode() {
-    let result = builtin_string_glyph_split(vec![Value::string("\u{1F600}")]);
-    let items = list_to_vec(&result.unwrap()).unwrap();
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].as_str().unwrap(), "\u{1F600}");
-}
-
-// ===================================================================
 // unix_to_broken_down internal tests
 // ===================================================================
 

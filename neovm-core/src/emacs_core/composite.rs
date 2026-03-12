@@ -175,7 +175,12 @@ pub(crate) fn builtin_find_composition_internal(args: Vec<Value>) -> EvalResult 
         ));
     }
     let pos = integer_value(&args[0]);
-    if pos <= 0 {
+    if let Some(text) = args[2].as_str() {
+        let len = text.chars().count() as i64;
+        if pos < 0 || pos > len {
+            return Err(signal("args-out-of-range", vec![args[2], Value::Int(pos)]));
+        }
+    } else if pos <= 0 {
         return Err(signal(
             "args-out-of-range",
             vec![Value::Nil, Value::Int(pos)],

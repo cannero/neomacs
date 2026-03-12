@@ -3891,11 +3891,8 @@ pub(crate) fn dispatch_builtin(
 
         // Format/string utilities (pure)
         "format-time-string" => super::format::builtin_format_time_string(args),
-        "string-pad" => super::format::builtin_string_pad(args),
-        "string-limit" => super::format::builtin_string_limit(args),
         "string-chop-newline" => super::format::builtin_string_chop_newline(args),
         "string-lines" => super::format::builtin_string_lines(args),
-        "string-glyph-split" => super::format::builtin_string_glyph_split(args),
         // Marker (pure)
         "markerp" => super::marker::builtin_markerp(args),
         "marker-buffer" => super::marker::builtin_marker_buffer(args),
