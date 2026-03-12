@@ -42,6 +42,7 @@ use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
 const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
+const NAMED_CALL_CACHE_CAPACITY: usize = 8;
 
 /// Compute a content fingerprint of a macro call's args slice.
 ///
@@ -376,8 +377,8 @@ pub struct Evaluator {
     /// self.lexenv with a closure's captured env, the old lexenv is pushed
     /// here so GC can still scan it.  Popped when apply_lambda restores.
     saved_lexenvs: Vec<Value>,
-    /// Single-entry hot cache for named callable resolution in `funcall`/`apply`.
-    named_call_cache: Option<NamedCallCache>,
+    /// Small hot cache for named callable resolution in `funcall`/`apply`.
+    named_call_cache: Vec<NamedCallCache>,
     /// Monotonic `xN` counter used by macroexpand fallback paths that mirror
     /// Oracle pcase temp-symbol naming.
     pcase_macroexpand_temp_counter: usize,
@@ -1903,7 +1904,7 @@ impl Evaluator {
             temp_roots: Vec::new(),
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
-            named_call_cache: None,
+            named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             pcase_macroexpand_temp_counter: 0,
             literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
@@ -1999,7 +2000,7 @@ impl Evaluator {
             temp_roots: Vec::new(),
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
-            named_call_cache: None,
+            named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             pcase_macroexpand_temp_counter: 0,
             literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
@@ -2059,7 +2060,7 @@ impl Evaluator {
         }
 
         // Named call cache — holds a Value when target is Obarray(val)
-        if let Some(cache) = &self.named_call_cache {
+        for cache in &self.named_call_cache {
             if let NamedCallTarget::Obarray(val) = &cache.target {
                 roots.push(*val);
             }
@@ -2627,7 +2628,12 @@ impl Evaluator {
             } else {
                 value_from_symbol_id(sym_id)
             };
-            return self.apply_named_callable(name, args, invalid_fn, rewrite_builtin_wrong_arity);
+            return self.apply_named_callable_by_id(
+                sym_id,
+                args,
+                invalid_fn,
+                rewrite_builtin_wrong_arity,
+            );
         }
 
         if self.obarray.is_function_unbound_id(sym_id) {
@@ -2713,7 +2719,8 @@ impl Evaluator {
         };
 
         if let Expr::Symbol(id) = head {
-            let name = resolve_sym(*id);
+            let sym_id = *id;
+            let name = resolve_sym(sym_id);
 
             // When an Elisp file installs a macro for a name that NeoVM
             // handles as a special form (e.g. pcase.el defines
@@ -2733,7 +2740,7 @@ impl Evaluator {
             }
 
             // Check for macro expansion (from obarray function cell)
-            if let Some(mut func) = self.obarray.symbol_function(name).cloned() {
+            if let Some(mut func) = self.obarray.symbol_function_id(sym_id).cloned() {
                 if func.is_nil() {
                     return Err(signal("void-function", vec![Value::symbol(name)]));
                 }
@@ -2747,7 +2754,7 @@ impl Evaluator {
                         self,
                         vec![func, Value::symbol(name), Value::symbol("macro")],
                     )?;
-                    if let Some(loaded_macro) = self.obarray.symbol_function(name).cloned() {
+                    if let Some(loaded_macro) = self.obarray.symbol_function_id(sym_id).cloned() {
                         let is_loaded_macro = matches!(loaded_macro, Value::Macro(_))
                             || (loaded_macro.is_cons()
                                 && loaded_macro.cons_car().is_symbol_named("macro"));
@@ -2855,7 +2862,7 @@ impl Evaluator {
                 if super::autoload::is_autoload_value(&func) {
                     let writeback_args = args.clone();
                     let result =
-                        self.apply_named_callable(name, args, Value::Subr(intern(name)), false);
+                        self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
                     self.restore_temp_roots(args_saved);
                     if let Ok(value) = &result {
                         self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
@@ -2912,18 +2919,18 @@ impl Evaluator {
             }
 
             // Special forms
-            if !self.obarray.is_function_unbound(name) {
+            if !self.obarray.is_function_unbound_id(sym_id) {
                 if let Some(result) = self.try_special_form(name, tail) {
                     return result;
                 }
             }
 
-            match self.resolve_named_call_target(name) {
+            match self.resolve_named_call_target_by_id(sym_id) {
                 NamedCallTarget::Void => {
                     return Err(signal("void-function", vec![Value::symbol(name)]));
                 }
                 NamedCallTarget::SpecialForm => {
-                    return Err(signal("invalid-function", vec![Value::Subr(intern(name))]));
+                    return Err(signal("invalid-function", vec![Value::Subr(sym_id)]));
                 }
                 _ => {}
             }
@@ -2934,7 +2941,7 @@ impl Evaluator {
             let (args, args_saved) = self.eval_args(tail)?;
 
             let writeback_args = args.clone();
-            let result = self.apply_named_callable(name, args, Value::Subr(intern(name)), false);
+            let result = self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
             self.restore_temp_roots(args_saved);
             if let Ok(value) = &result {
                 self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
@@ -5492,15 +5499,25 @@ impl Evaluator {
     }
 
     #[inline]
-    fn resolve_named_call_target(&mut self, name: &str) -> NamedCallTarget {
+    fn resolve_named_call_target_by_id(&mut self, sym_id: SymId) -> NamedCallTarget {
         let function_epoch = self.obarray.function_epoch();
-        if let Some(cache) = &self.named_call_cache {
-            if cache.symbol == intern(name) && cache.function_epoch == function_epoch {
-                return cache.target.clone();
-            }
+        if self
+            .named_call_cache
+            .first()
+            .is_some_and(|cache| cache.function_epoch != function_epoch)
+        {
+            self.named_call_cache.clear();
+        }
+        if let Some(cache) = self
+            .named_call_cache
+            .iter()
+            .find(|cache| cache.symbol == sym_id && cache.function_epoch == function_epoch)
+        {
+            return cache.target.clone();
         }
 
-        let target = if let Some(func) = self.obarray.symbol_function(name).cloned() {
+        let name = resolve_sym(sym_id);
+        let target = if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
             match &func {
                 Value::Nil => NamedCallTarget::Void,
                 // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
@@ -5517,7 +5534,7 @@ impl Evaluator {
                 }
                 _ => NamedCallTarget::Obarray(func),
             }
-        } else if self.obarray.is_function_unbound(name) {
+        } else if self.obarray.is_function_unbound_id(sym_id) {
             NamedCallTarget::Void
         } else if super::subr_info::is_evaluator_callable_name(name) {
             NamedCallTarget::EvaluatorCallable
@@ -5531,13 +5548,61 @@ impl Evaluator {
             NamedCallTarget::Void
         };
 
-        self.named_call_cache = Some(NamedCallCache {
-            symbol: intern(name),
+        if self.named_call_cache.len() == NAMED_CALL_CACHE_CAPACITY {
+            self.named_call_cache.remove(0);
+        }
+        self.named_call_cache.push(NamedCallCache {
+            symbol: sym_id,
             function_epoch,
             target: target.clone(),
         });
 
         target
+    }
+
+    #[inline]
+    fn resolve_named_call_target(&mut self, name: &str) -> NamedCallTarget {
+        self.resolve_named_call_target_by_id(intern(name))
+    }
+
+    #[inline]
+    fn store_named_call_cache(&mut self, symbol: SymId, target: NamedCallTarget) {
+        let function_epoch = self.obarray.function_epoch();
+        if self
+            .named_call_cache
+            .first()
+            .is_some_and(|cache| cache.function_epoch != function_epoch)
+        {
+            self.named_call_cache.clear();
+        }
+        if let Some(slot) = self
+            .named_call_cache
+            .iter_mut()
+            .find(|cache| cache.symbol == symbol)
+        {
+            slot.function_epoch = function_epoch;
+            slot.target = target;
+            return;
+        }
+        if self.named_call_cache.len() == NAMED_CALL_CACHE_CAPACITY {
+            self.named_call_cache.remove(0);
+        }
+        self.named_call_cache.push(NamedCallCache {
+            symbol,
+            function_epoch,
+            target,
+        });
+    }
+
+    #[inline]
+    fn apply_named_callable_by_id(
+        &mut self,
+        sym_id: SymId,
+        args: Vec<Value>,
+        invalid_fn: Value,
+        rewrite_builtin_wrong_arity: bool,
+    ) -> EvalResult {
+        self.apply_named_callable_by_id_core(sym_id, args, invalid_fn, rewrite_builtin_wrong_arity)
     }
 
     #[inline]
@@ -5549,6 +5614,85 @@ impl Evaluator {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         self.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
+    }
+
+    fn apply_named_callable_by_id_core(
+        &mut self,
+        sym_id: SymId,
+        args: Vec<Value>,
+        invalid_fn: Value,
+        rewrite_builtin_wrong_arity: bool,
+    ) -> EvalResult {
+        let name = resolve_sym(sym_id);
+        match self.resolve_named_call_target_by_id(sym_id) {
+            NamedCallTarget::Obarray(func) => {
+                if super::autoload::is_autoload_value(&func) {
+                    return self.apply_named_autoload_callable(
+                        name,
+                        func,
+                        args,
+                        rewrite_builtin_wrong_arity,
+                    );
+                }
+                let function_is_callable = self.function_value_is_callable(&func);
+                let alias_target = match &func {
+                    Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
+                    Value::Subr(bound_name) if resolve_sym(*bound_name) != name => {
+                        Some(resolve_sym(*bound_name).to_owned())
+                    }
+                    _ => None,
+                };
+                let result = match self.apply(func, args) {
+                    Err(Flow::Signal(sig))
+                        if sig.symbol_name() == "invalid-function" && !function_is_callable =>
+                    {
+                        Err(signal("invalid-function", vec![Value::symbol(name)]))
+                    }
+                    other => other,
+                };
+                if let Some(target) = alias_target {
+                    if rewrite_builtin_wrong_arity {
+                        result
+                    } else {
+                        result.map_err(|flow| {
+                            rewrite_wrong_arity_alias_function_object(flow, name, &target)
+                        })
+                    }
+                } else {
+                    result
+                }
+            }
+            NamedCallTarget::EvaluatorCallable => self.apply_evaluator_callable(name, args),
+            NamedCallTarget::Probe => {
+                if let Some(result) = builtins::dispatch_builtin(self, name, args) {
+                    self.store_named_call_cache(sym_id, NamedCallTarget::Builtin);
+                    let result = result.map_err(|flow| self.validate_throw(flow));
+                    if rewrite_builtin_wrong_arity {
+                        result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
+                    } else {
+                        result
+                    }
+                } else {
+                    self.store_named_call_cache(sym_id, NamedCallTarget::Void);
+                    Err(signal("void-function", vec![Value::symbol(name)]))
+                }
+            }
+            NamedCallTarget::Builtin => {
+                if let Some(result) = builtins::dispatch_builtin(self, name, args) {
+                    let result = result.map_err(|flow| self.validate_throw(flow));
+                    if rewrite_builtin_wrong_arity {
+                        result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
+                    } else {
+                        result
+                    }
+                } else {
+                    self.store_named_call_cache(sym_id, NamedCallTarget::Void);
+                    Err(signal("void-function", vec![Value::symbol(name)]))
+                }
+            }
+            NamedCallTarget::SpecialForm => Err(signal("invalid-function", vec![invalid_fn])),
+            NamedCallTarget::Void => Err(signal("void-function", vec![Value::symbol(name)])),
+        }
     }
 
     fn apply_named_callable_core(
@@ -5599,11 +5743,7 @@ impl Evaluator {
             NamedCallTarget::EvaluatorCallable => self.apply_evaluator_callable(name, args),
             NamedCallTarget::Probe => {
                 if let Some(result) = builtins::dispatch_builtin(self, name, args) {
-                    self.named_call_cache = Some(NamedCallCache {
-                        symbol: intern(name),
-                        function_epoch: self.obarray.function_epoch(),
-                        target: NamedCallTarget::Builtin,
-                    });
+                    self.store_named_call_cache(intern(name), NamedCallTarget::Builtin);
                     let result = result.map_err(|flow| self.validate_throw(flow));
                     if rewrite_builtin_wrong_arity {
                         result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
@@ -5611,11 +5751,7 @@ impl Evaluator {
                         result
                     }
                 } else {
-                    self.named_call_cache = Some(NamedCallCache {
-                        symbol: intern(name),
-                        function_epoch: self.obarray.function_epoch(),
-                        target: NamedCallTarget::Void,
-                    });
+                    self.store_named_call_cache(intern(name), NamedCallTarget::Void);
                     Err(signal("void-function", vec![Value::symbol(name)]))
                 }
             }
@@ -5628,11 +5764,7 @@ impl Evaluator {
                         result
                     }
                 } else {
-                    self.named_call_cache = Some(NamedCallCache {
-                        symbol: intern(name),
-                        function_epoch: self.obarray.function_epoch(),
-                        target: NamedCallTarget::Void,
-                    });
+                    self.store_named_call_cache(intern(name), NamedCallTarget::Void);
                     Err(signal("void-function", vec![Value::symbol(name)]))
                 }
             }

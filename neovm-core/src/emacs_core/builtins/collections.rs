@@ -24,37 +24,39 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         }
         Value::Vector(v) | Value::Record(v) => {
             let idx = idx_fixnum as usize;
-            let items = with_heap(|h| h.get_vector(*v).clone());
-            let is_bool_vector = items.len() >= 2
-                && matches!(&items[0], Value::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
-            if is_bool_vector {
-                let len = match items.get(1) {
-                    Some(Value::Int(n)) if *n >= 0 => *n as usize,
-                    _ => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("bool-vector-p"), args[0]],
-                        ));
+            with_heap(|h| {
+                let items = h.get_vector(*v);
+                let is_bool_vector = items.len() >= 2
+                    && matches!(&items[0], Value::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
+                if is_bool_vector {
+                    let len = match items.get(1) {
+                        Some(Value::Int(n)) if *n >= 0 => *n as usize,
+                        _ => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("bool-vector-p"), args[0]],
+                            ));
+                        }
+                    };
+                    if idx >= len {
+                        return Err(signal("args-out-of-range", vec![args[0], args[1]]));
                     }
-                };
-                if idx >= len {
-                    return Err(signal("args-out-of-range", vec![args[0], args[1]]));
+                    let bit = items
+                        .get(idx + 2)
+                        .copied()
+                        .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))?;
+                    let truthy = match bit {
+                        Value::Int(n) => n != 0,
+                        Value::Nil => false,
+                        other => other.is_truthy(),
+                    };
+                    return Ok(Value::bool(truthy));
                 }
-                let bit = items
-                    .get(idx + 2)
-                    .cloned()
-                    .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))?;
-                let truthy = match bit {
-                    Value::Int(n) => n != 0,
-                    Value::Nil => false,
-                    other => other.is_truthy(),
-                };
-                return Ok(Value::bool(truthy));
-            }
-            items
-                .get(idx)
-                .cloned()
-                .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
+                items
+                    .get(idx)
+                    .copied()
+                    .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
+            })
         }
         Value::Str(id) => {
             let idx = idx_fixnum as usize;

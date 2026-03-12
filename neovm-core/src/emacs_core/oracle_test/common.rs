@@ -28,6 +28,10 @@ pub(crate) fn oracle_prop_enabled() -> bool {
     std::env::var_os("NEOVM_FORCE_ORACLE_PATH").is_some()
 }
 
+fn oracle_timing_enabled() -> bool {
+    std::env::var_os("NEOVM_ORACLE_TIMING").is_some()
+}
+
 macro_rules! return_if_neovm_enable_oracle_proptest_not_set {
     () => {
         if !$crate::emacs_core::oracle_test::common::oracle_prop_enabled() {
@@ -536,8 +540,21 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
 
 pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
     let t0 = std::time::Instant::now();
+    let log_timing = oracle_timing_enabled();
+    if log_timing {
+        println!("oracle-timing: neovm-start");
+    }
+    let neovm_t0 = std::time::Instant::now();
     let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
+    if log_timing {
+        println!("oracle-timing: neovm-done {:.3?}", neovm_t0.elapsed());
+        println!("oracle-timing: oracle-start");
+    }
+    let oracle_t0 = std::time::Instant::now();
     let oracle = run_oracle_eval_with_bootstrap(form).expect("oracle eval should run");
+    if log_timing {
+        println!("oracle-timing: oracle-done {:.3?}", oracle_t0.elapsed());
+    }
     let t1 = std::time::Instant::now();
     tracing::info!("total: {:.3?}", t1 - t0);
     assert_eq!(neovm, oracle, "oracle parity mismatch for form: {form}");
