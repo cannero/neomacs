@@ -300,52 +300,36 @@ fn clear_rectangle_loads_from_gnu_rect_el() {
 }
 
 #[test]
-fn string_rectangle_returns_point() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_string_rectangle(
-        &mut eval,
-        vec![Value::Int(1), Value::Int(10), Value::string("hi")],
-    );
-    assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::Int(_)));
+fn string_rectangle_startup_is_autoloaded() {
+    let eval = super::super::eval::Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("string-rectangle")
+        .expect("missing string-rectangle startup function cell");
+    assert!(is_autoload_value(&function));
 }
 
 #[test]
-fn string_rectangle_wrong_type() {
-    let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_string_rectangle(
-        &mut eval,
-        vec![
-            Value::Int(1),
-            Value::Int(10),
-            Value::Float(1.5, next_float_id()),
-        ],
+fn string_rectangle_loads_from_gnu_rect_el() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "abcdef\n123456\n")
+             (list (string-rectangle 2 10 "XX")
+                   (replace-regexp-in-string "\n" "|" (buffer-string) nil t)
+                   (point)
+                   (subrp (symbol-function 'string-rectangle))))"#,
     );
-    assert!(result.is_err());
+    assert_eq!(result[0], r#"OK (12 "aXXcdef|1XX3456|" 12 nil)"#);
 }
 
 #[test]
-fn string_rectangle_eval_mutates_buffer_and_point() {
-    let mut eval = super::super::eval::Evaluator::new();
-    {
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .expect("current buffer must exist");
-        buf.insert("abcdef\n123456\n");
-    }
-    let result = builtin_string_rectangle(
-        &mut eval,
-        vec![Value::Int(2), Value::Int(10), Value::string("XX")],
-    )
-    .expect("string-rectangle");
-    assert_eq!(result, Value::Int(12));
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .expect("current buffer must exist");
-    assert_eq!(buf.buffer_string(), "aXXcdef\n1XX3456\n");
-    assert_eq!(buf.text.byte_to_char(buf.point()) as i64 + 1, 12);
+fn string_rectangle_loaded_rejects_non_char_or_string() {
+    let result = bootstrap_eval_all(
+        r#"(condition-case err
+               (string-rectangle 1 10 1.5)
+             (error (list 'err (car err))))"#,
+    );
+    assert_eq!(result[0], r#"OK (err wrong-type-argument)"#);
 }
 
 #[test]

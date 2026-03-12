@@ -74,24 +74,6 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
     }
 }
 
-fn expect_char_or_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(_) => Ok(value.as_str().unwrap().to_string()),
-        Value::Char(c) => Ok(c.to_string()),
-        Value::Int(n) if *n >= 0 => match char::from_u32(*n as u32) {
-            Some(ch) => Ok(ch.to_string()),
-            None => Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("char-or-string-p"), *value],
-            )),
-        },
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("char-or-string-p"), *value],
-        )),
-    }
-}
-
 fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
     let name_id = intern(name);
     for frame in eval.dynamic.iter().rev() {
@@ -262,44 +244,6 @@ fn delete_extract_rectangle_from_text(
     (extracted, lines.join("\n"))
 }
 
-fn string_rectangle_into_text(
-    text: &str,
-    start_line: usize,
-    end_line: usize,
-    left_col: usize,
-    right_col: usize,
-    replacement: &str,
-) -> (String, usize) {
-    let mut lines: Vec<String> = text.split('\n').map(ToString::to_string).collect();
-    let line_indices = rectangle_lines_for_extract(start_line, end_line);
-
-    for line_index in &line_indices {
-        while lines.len() <= *line_index {
-            lines.push(String::new());
-        }
-        let line = &mut lines[*line_index];
-        let line_len = line.chars().count();
-        if line_len < left_col {
-            line.push_str(&" ".repeat(left_col - line_len));
-        }
-        let line_len = line.chars().count();
-        let del_end_char = line_len.min(right_col);
-        let del_start_byte = char_index_to_byte(line, left_col);
-        let del_end_byte = char_index_to_byte(line, del_end_char);
-        if del_start_byte < del_end_byte {
-            line.replace_range(del_start_byte..del_end_byte, "");
-        }
-        let insert_at = char_index_to_byte(line, left_col);
-        line.insert_str(insert_at, replacement);
-    }
-
-    let rewritten = lines.join("\n");
-    let last_line = line_indices.last().copied().unwrap_or(start_line);
-    let final_col = left_col + replacement.chars().count();
-    let final_rel_char = line_col_to_char_index(&rewritten, last_line, final_col);
-    (rewritten, final_rel_char)
-}
-
 fn clamped_rect_inputs(
     eval: &super::eval::Evaluator,
     start: i64,
@@ -385,48 +329,6 @@ pub(crate) fn builtin_extract_rectangle_line(args: Vec<Value>) -> EvalResult {
 /// Compatibility behavior:
 /// - fills rectangle width with spaces, then trims trailing spaces in affected
 ///   lines
-/// `(string-rectangle START END STRING)` -- replace each line of the
-/// rectangle with STRING.
-///
-/// Compatibility behavior:
-/// - replaces each target rectangle slice with STRING
-/// - pads short lines before replacement when rectangle starts past EOL
-/// - updates point to end of replacement on the final processed line
-/// - returns new point as 1-based char position
-pub(crate) fn builtin_string_rectangle(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("string-rectangle", &args, 3)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
-    let replacement = expect_char_or_string(&args[2])?;
-    let Some((text, pmin, pmax, start_line, _start_col, end_line, _end_col, left_col, right_col)) =
-        clamped_rect_inputs(eval, start, end)
-    else {
-        return Ok(Value::Int(1));
-    };
-
-    let (rewritten, final_rel_char) = string_rectangle_into_text(
-        &text,
-        start_line,
-        end_line,
-        left_col,
-        right_col,
-        &replacement,
-    );
-
-    let Some(buf) = eval.buffers.current_buffer_mut() else {
-        return Ok(Value::Int(1));
-    };
-    buf.delete_region(pmin, pmax);
-    buf.goto_char(pmin);
-    buf.insert(&rewritten);
-    let final_byte = pmin + char_index_to_byte(&rewritten, final_rel_char);
-    buf.goto_char(final_byte);
-    Ok(Value::Int(buf.text.byte_to_char(final_byte) as i64 + 1))
-}
-
 /// `(delete-extract-rectangle START END)` -- delete the rectangle and
 /// return its contents as a list of strings.
 ///
