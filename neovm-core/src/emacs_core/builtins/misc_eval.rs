@@ -714,12 +714,149 @@ pub(super) fn print_value_eval(eval: &super::eval::Evaluator, value: &Value) -> 
     super::error::print_value_with_eval(eval, value)
 }
 
-fn princ_text_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+fn print_value_princ_list_shorthand(
+    value: &Value,
+    render: &dyn Fn(&Value) -> String,
+) -> Option<String> {
+    let items = super::value::list_to_vec(value)?;
+    if items.len() != 2 {
+        return None;
+    }
+
+    let head = match &items[0] {
+        Value::Symbol(id) => resolve_sym(*id),
+        _ => return None,
+    };
+    let prefix = match head {
+        "quote" => "'",
+        "function" => "#'",
+        "`" => "`",
+        "," => ",",
+        ",@" => ",@",
+        _ => return None,
+    };
+    Some(format!("{prefix}{}", render(&items[1])))
+}
+
+pub(super) fn print_value_princ(value: &Value) -> String {
     match value {
         Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
-        Value::Char(c) => (*c as u32).to_string(),
+        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+        Value::Keyword(id) => resolve_sym(*id).to_owned(),
+        Value::Cons(_) => {
+            if let Some(shorthand) = print_value_princ_list_shorthand(value, &print_value_princ) {
+                return shorthand;
+            }
+            let mut out = String::from("(");
+            let mut cursor = *value;
+            let mut first = true;
+            loop {
+                match cursor {
+                    Value::Cons(cell) => {
+                        if !first {
+                            out.push(' ');
+                        }
+                        let pair = read_cons(cell);
+                        out.push_str(&print_value_princ(&pair.car));
+                        cursor = pair.cdr;
+                        first = false;
+                    }
+                    Value::Nil => break,
+                    other => {
+                        if !first {
+                            out.push_str(" . ");
+                        }
+                        out.push_str(&print_value_princ(&other));
+                        break;
+                    }
+                }
+            }
+            out.push(')');
+            out
+        }
+        Value::Vector(id) => {
+            let items = with_heap(|h| h.get_vector(*id).clone());
+            let parts: Vec<String> = items.iter().map(print_value_princ).collect();
+            format!("[{}]", parts.join(" "))
+        }
+        Value::Record(id) => {
+            let items = with_heap(|h| h.get_vector(*id).clone());
+            let parts: Vec<String> = items.iter().map(print_value_princ).collect();
+            format!("#s({})", parts.join(" "))
+        }
+        other => super::print::print_value(other),
+    }
+}
+
+pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+    match value {
+        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+        Value::Keyword(id) => resolve_sym(*id).to_owned(),
+        Value::Buffer(id) => {
+            if let Some(buf) = eval.buffers.get(*id) {
+                return buf.name.clone();
+            }
+            if eval.buffers.dead_buffer_last_name(*id).is_some() {
+                return "#<killed buffer>".to_string();
+            }
+            print_value_eval(eval, value)
+        }
+        Value::Cons(_) => {
+            if let Some(shorthand) =
+                print_value_princ_list_shorthand(value, &|item| print_value_princ_eval(eval, item))
+            {
+                return shorthand;
+            }
+            let mut out = String::from("(");
+            let mut cursor = *value;
+            let mut first = true;
+            loop {
+                match cursor {
+                    Value::Cons(cell) => {
+                        if !first {
+                            out.push(' ');
+                        }
+                        let pair = read_cons(cell);
+                        out.push_str(&print_value_princ_eval(eval, &pair.car));
+                        cursor = pair.cdr;
+                        first = false;
+                    }
+                    Value::Nil => break,
+                    other => {
+                        if !first {
+                            out.push_str(" . ");
+                        }
+                        out.push_str(&print_value_princ_eval(eval, &other));
+                        break;
+                    }
+                }
+            }
+            out.push(')');
+            out
+        }
+        Value::Vector(id) => {
+            let items = with_heap(|h| h.get_vector(*id).clone());
+            let parts: Vec<String> = items
+                .iter()
+                .map(|item| print_value_princ_eval(eval, item))
+                .collect();
+            format!("[{}]", parts.join(" "))
+        }
+        Value::Record(id) => {
+            let items = with_heap(|h| h.get_vector(*id).clone());
+            let parts: Vec<String> = items
+                .iter()
+                .map(|item| print_value_princ_eval(eval, item))
+                .collect();
+            format!("#s({})", parts.join(" "))
+        }
         other => print_value_eval(eval, other),
     }
+}
+
+fn princ_text_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+    print_value_princ_eval(eval, value)
 }
 
 fn prin1_to_string_value(value: &Value, noescape: bool) -> String {

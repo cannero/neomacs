@@ -41,6 +41,16 @@ fn format_spec_bootstrap_matches_gnu_elisp() {
     assert_eq!(results[7], "OK wrong-number-of-arguments");
 }
 
+#[test]
+fn format_percent_s_uses_recursive_princ_semantics_for_lists() {
+    let results = bootstrap_eval(
+        r#"
+        (format "%s" '("development" "testing" "production"))
+        "#,
+    );
+    assert_eq!(results[0], r#"OK "(development testing production)""#);
+}
+
 // ===================================================================
 // format-time-string tests
 // ===================================================================

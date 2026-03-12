@@ -621,23 +621,7 @@ pub(crate) fn builtin_format_eval(
 }
 
 fn format_percent_s_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
-    // %s uses princ semantics: no quoting for strings, no escaping for
-    // symbol names (important for symbols like ` which must not become \`).
-    match value {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        Value::Keyword(id) => resolve_sym(*id).to_owned(),
-        Value::Buffer(id) => {
-            if let Some(buf) = eval.buffers.get(*id) {
-                return buf.name.clone();
-            }
-            if eval.buffers.dead_buffer_last_name(*id).is_some() {
-                return "#<killed buffer>".to_string();
-            }
-            print_value_eval(eval, value)
-        }
-        _ => print_value_eval(eval, value),
-    }
+    super::misc_eval::print_value_princ_eval(eval, value)
 }
 
 fn format_not_enough_args_error() -> Flow {
@@ -932,12 +916,7 @@ fn format_string_spec(s: &str, spec: &FormatSpec) -> String {
 
 /// Get the princ representation of a value (for %s).
 fn format_value_princ(val: &Value) -> String {
-    match val {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
-        Value::Symbol(id) => resolve_sym(*id).to_string(),
-        Value::Keyword(id) => resolve_sym(*id).to_string(),
-        other => super::print::print_value(other),
-    }
+    super::misc_eval::print_value_princ(val)
 }
 
 /// Core format implementation shared by both pure and eval variants.
