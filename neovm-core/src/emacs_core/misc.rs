@@ -281,60 +281,6 @@ pub(crate) fn builtin_rassq(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// `(assoc-default KEY ALIST &optional TEST DEFAULT)` -- find KEY in ALIST,
-/// return the cdr of the matching entry (nil if not found).
-/// TEST defaults to `equal`; only `eq` and `equal` are accepted in pure mode.
-pub(crate) fn builtin_assoc_default(args: Vec<Value>) -> EvalResult {
-    expect_min_args("assoc-default", &args, 2)?;
-    expect_max_args("assoc-default", &args, 4)?;
-    let key = &args[0];
-    let alist = &args[1];
-    if !alist.is_list() {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("listp"), *alist],
-        ));
-    }
-
-    enum AssocMatcher {
-        Eq,
-        Equal,
-    }
-
-    let matcher = if let Some(test) = args.get(2) {
-        match test {
-            Value::Nil => AssocMatcher::Equal,
-            Value::Symbol(id) if resolve_sym(*id) == "eq" => AssocMatcher::Eq,
-            Value::Symbol(id) if resolve_sym(*id) == "equal" => AssocMatcher::Equal,
-            other => return Err(signal("invalid-function", vec![*other])),
-        }
-    } else {
-        AssocMatcher::Equal
-    };
-
-    let mut cursor = *alist;
-    loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Cons(inner) = &pair.car {
-                    let inner_pair = read_cons(*inner);
-                    let matches = match matcher {
-                        AssocMatcher::Eq => eq_value(&inner_pair.car, key),
-                        AssocMatcher::Equal => equal_value(&inner_pair.car, key, 0),
-                    };
-                    if matches {
-                        return Ok(inner_pair.cdr);
-                    }
-                }
-                cursor = pair.cdr;
-            }
-            _ => return Ok(Value::Nil),
-        }
-    }
-}
-
 /// `(make-list LENGTH INIT)` -- create a list of LENGTH elements, each INIT.
 pub(crate) fn builtin_make_list(args: Vec<Value>) -> EvalResult {
     expect_args("make-list", &args, 2)?;

@@ -1,6 +1,18 @@
 use super::super::intern::intern;
 use super::*;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
 use crate::emacs_core::string_escape;
+use crate::emacs_core::{format_eval_result, parse_forms};
+
+fn bootstrap_eval(src: &str) -> Vec<String> {
+    let mut ev = create_bootstrap_evaluator().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let forms = parse_forms(src).expect("parse");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
 
 // ----- copy-alist -----
 
@@ -81,56 +93,37 @@ fn rassq_not_found() {
 // ----- assoc-default -----
 
 #[test]
-fn assoc_default_found() {
-    let alist = Value::list(vec![Value::cons(Value::string("key"), Value::Int(42))]);
-    let result = builtin_assoc_default(vec![Value::string("key"), alist]).unwrap();
-    assert!(eq_value(&result, &Value::Int(42)));
+fn assoc_default_bootstrap_matches_gnu_subr() {
+    let results = bootstrap_eval(
+        r#"
+        (subrp (symbol-function 'assoc-default))
+        (assoc-default "key" '(("key" . 42)))
+        (assoc-default "missing" '(("key" . 42)) nil -1)
+        (assoc-default 'foo '((foo . 10)) 'eq)
+        (assoc-default 'foo '(foo) nil 'fallback)
+        "#,
+    );
+    assert_eq!(results[0], "OK nil");
+    assert_eq!(results[1], "OK 42");
+    assert_eq!(results[2], "OK nil");
+    assert_eq!(results[3], "OK 10");
+    assert_eq!(results[4], "OK fallback");
 }
 
 #[test]
-fn assoc_default_not_found_returns_nil_even_with_default_arg() {
-    let alist = Value::list(vec![Value::cons(Value::string("key"), Value::Int(42))]);
-    let result = builtin_assoc_default(vec![
-        Value::string("missing"),
-        alist,
-        Value::Nil,
-        Value::Int(-1),
-    ])
-    .unwrap();
-    assert!(result.is_nil());
-}
-
-#[test]
-fn assoc_default_eq_test() {
-    let alist = Value::list(vec![Value::cons(Value::symbol("foo"), Value::Int(10))]);
-    let result =
-        builtin_assoc_default(vec![Value::symbol("foo"), alist, Value::symbol("eq")]).unwrap();
-    assert!(eq_value(&result, &Value::Int(10)));
-}
-
-#[test]
-fn assoc_default_non_list_alist_signals_listp() {
-    let result = builtin_assoc_default(vec![Value::symbol("foo"), Value::Int(1)]);
-    match result {
-        Err(Flow::Signal(sig)) => {
-            assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::Int(1)]);
-        }
-        other => panic!("expected wrong-type-argument signal, got {other:?}"),
-    }
-}
-
-#[test]
-fn assoc_default_invalid_test_signals_invalid_function() {
-    let alist = Value::list(vec![Value::cons(Value::symbol("foo"), Value::Int(10))]);
-    let result = builtin_assoc_default(vec![Value::symbol("foo"), alist, Value::Int(1)]);
-    match result {
-        Err(Flow::Signal(sig)) => {
-            assert_eq!(sig.symbol_name(), "invalid-function");
-            assert_eq!(sig.data, vec![Value::Int(1)]);
-        }
-        other => panic!("expected invalid-function signal, got {other:?}"),
-    }
+fn assoc_default_bootstrap_error_shapes_match_gnu_subr() {
+    let results = bootstrap_eval(
+        r#"
+        (condition-case err
+            (assoc-default 'foo 1)
+          (wrong-type-argument (list (car err) (nth 1 err))))
+        (condition-case err
+            (assoc-default 'foo '((foo . 10)) 1)
+          (error (car err)))
+        "#,
+    );
+    assert_eq!(results[0], "OK (wrong-type-argument listp)");
+    assert_eq!(results[1], "OK invalid-function");
 }
 
 // ----- make-list -----

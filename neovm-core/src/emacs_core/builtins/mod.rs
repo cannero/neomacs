@@ -3940,7 +3940,6 @@ pub(crate) fn dispatch_builtin(
         "copy-alist" => super::misc::builtin_copy_alist(args),
         "rassoc" => super::misc::builtin_rassoc(args),
         "rassq" => super::misc::builtin_rassq(args),
-        "assoc-default" => super::misc::builtin_assoc_default(args),
         "make-list" => super::misc::builtin_make_list(args),
         "safe-length" => super::misc::builtin_safe_length(args),
         "subst-char-in-string" => super::misc::builtin_subst_char_in_string(args),
