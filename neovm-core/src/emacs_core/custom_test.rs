@@ -1,4 +1,6 @@
 use super::*;
+use crate::emacs_core::builtins::symbols::{builtin_set, builtin_symbol_value};
+use crate::emacs_core::intern::{intern, intern_uninterned};
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
@@ -295,6 +297,41 @@ fn uninterned_keyword_defaults_do_not_self_evaluate() {
                    (condition-case e (default-value s) (error (car e)))))"#,
     );
     assert_eq!(results[0], "OK (void-variable void-variable void-variable)");
+}
+
+#[test]
+fn uninterned_value_cells_ignore_buffer_local_namesakes() {
+    let mut eval = Evaluator::new();
+    let canonical = intern("depth-alist");
+    let uninterned = intern_uninterned("depth-alist");
+    eval.buffers
+        .current_buffer_mut()
+        .expect("current buffer")
+        .set_buffer_local("depth-alist", Value::Int(7));
+
+    builtin_set(&mut eval, vec![Value::Symbol(uninterned), Value::Nil])
+        .expect("set should bind uninterned symbol");
+
+    assert_eq!(
+        eval.obarray().symbol_value_id(uninterned).copied(),
+        Some(Value::Nil)
+    );
+    assert_eq!(eval.obarray().symbol_value_id(canonical).copied(), None);
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .get_buffer_local("depth-alist")
+            .copied(),
+        Some(Value::Int(7))
+    );
+
+    let value = builtin_default_value(&mut eval, vec![Value::Symbol(uninterned)])
+        .expect("default-value should read uninterned symbol");
+    assert_eq!(value, Value::Nil);
+    let symbol_value = builtin_symbol_value(&mut eval, vec![Value::Symbol(uninterned)])
+        .expect("symbol-value should read uninterned symbol");
+    assert_eq!(symbol_value, Value::Nil);
 }
 
 #[test]

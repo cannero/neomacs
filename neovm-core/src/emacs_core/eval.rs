@@ -2511,11 +2511,13 @@ impl Evaluator {
             return Ok(Value::Keyword(resolved));
         }
 
-        // Buffer-local binding on current buffer.
-        if let Some(buf) = self.buffers.current_buffer() {
-            if let Some(value) = buf.buffer_local_value(resolved_name) {
-                return Ok(value);
-            }
+        // Buffer-local bindings are name-based and must not intercept
+        // uninterned symbols that merely share the same print name.
+        if resolved_is_canonical
+            && let Some(buf) = self.buffers.current_buffer()
+            && let Some(value) = buf.buffer_local_value(resolved_name)
+        {
+            return Ok(value);
         }
 
         // Obarray value cell
@@ -4453,9 +4455,9 @@ impl Evaluator {
             constants,
             max_stack,
             params: LambdaParams::simple(vec![]),
+            lexical: false,
             env: None,
             gnu_byte_offset_map: Some(gnu_byte_offset_map),
-            lexical: false,
             docstring: None,
             doc_form: None,
         };
@@ -5850,6 +5852,7 @@ impl Evaluator {
     /// uninterned symbol identity (like Emacs's EQ-based setq).
     pub(crate) fn assign_by_id(&mut self, sym_id: SymId, value: Value) {
         let name = resolve_sym(sym_id);
+        let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
         // If lexical binding and not special, check lexenv first
         if self.lexical_binding()
             && !is_runtime_dynamically_special(&self.obarray, sym_id)
@@ -5870,7 +5873,7 @@ impl Evaluator {
         }
 
         // Update existing buffer-local binding if present.
-        if let Some(buf) = self.buffers.current_buffer_mut() {
+        if symbol_is_canonical && let Some(buf) = self.buffers.current_buffer_mut() {
             if name == "buffer-undo-list" {
                 match value {
                     Value::True => {
@@ -5896,7 +5899,7 @@ impl Evaluator {
         }
 
         // Auto-local variables become local upon assignment.
-        if self.custom.is_auto_buffer_local(name) {
+        if symbol_is_canonical && self.custom.is_auto_buffer_local(name) {
             if let Some(buf) = self.buffers.current_buffer_mut() {
                 buf.set_buffer_local(name, value);
                 return;

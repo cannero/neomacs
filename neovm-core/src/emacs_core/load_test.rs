@@ -978,6 +978,29 @@ fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
     );
 }
 
+#[test]
+fn bootstrap_help_fns_loads_and_preserves_hook_depth_metadata() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let help_fns = project_root.join("lisp/help-fns.el");
+
+    let rendered = fresh_bootstrap_eval_with_loaded_file(
+        &help_fns,
+        r#"
+(let* ((depth-sym (get 'help-fns-describe-function-functions 'hook--depth-alist))
+       (depth-alist (default-value depth-sym)))
+  (list
+   (symbolp depth-sym)
+   (not (eq depth-sym 'depth-alist))
+   (equal (symbol-name depth-sym) "depth-alist")
+   (eq (alist-get 'help-fns--compiler-macro depth-alist nil nil #'eq) 100)
+   (memq 'help-fns--compiler-macro help-fns-describe-function-functions)))
+"#,
+    );
+
+    assert_eq!(rendered, "OK (t t t t (help-fns--compiler-macro))");
+}
+
 fn cached_bootstrap_eval_with_loaded_file(path: &std::path::Path, form: &str) -> String {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -996,6 +1019,19 @@ fn cached_bootstrap_with_loaded_source(source: &str, form: &str) -> String {
     let path = dir.path().join("vm-gv-load.el");
     std::fs::write(&path, source).expect("write temp elisp source");
     cached_bootstrap_eval_with_loaded_file(&path, form)
+}
+
+fn fresh_bootstrap_eval_with_loaded_file(path: &std::path::Path, form: &str) -> String {
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap evaluator");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    load_file(&mut eval, path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+    eval_rendered(&mut eval, form)
 }
 
 #[test]

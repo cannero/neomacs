@@ -440,21 +440,23 @@ pub(crate) fn builtin_symbol_value(
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
     let resolved_name = resolve_sym(resolved);
+    let resolved_is_canonical = is_canonical_symbol_id(resolved);
     // Check dynamic bindings first
     for frame in eval.dynamic.iter().rev() {
         if let Some(value) = frame.get(&resolved) {
             return Ok(*value);
         }
     }
-    // Check current buffer-local binding.
-    if let Some(buf) = eval.buffers.current_buffer() {
-        if let Some(value) = buf.get_buffer_local(resolved_name) {
-            return Ok(*value);
-        }
+    // Buffer-local bindings are keyed by canonical symbol names only.
+    if resolved_is_canonical
+        && let Some(buf) = eval.buffers.current_buffer()
+        && let Some(value) = buf.get_buffer_local(resolved_name)
+    {
+        return Ok(*value);
     }
     match eval.obarray().symbol_value_id(resolved).cloned() {
         Some(value) => Ok(value),
-        None if is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') => {
+        None if resolved_is_canonical && resolved_name.starts_with(':') => {
             Ok(Value::Keyword(resolved))
         }
         None => Err(signal("void-variable", vec![args[0]])),
@@ -4096,9 +4098,9 @@ pub(crate) fn make_byte_code_from_parts(
         constants,
         max_stack,
         params,
+        lexical: false,
         env: None,
         gnu_byte_offset_map: Some(gnu_byte_offset_map),
-        lexical: false,
         docstring: doc,
         doc_form,
     };
