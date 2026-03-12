@@ -1395,14 +1395,6 @@ pub(crate) fn dispatch_builtin(
         "name-last-kbd-macro" => {
             return Some(super::kmacro::builtin_name_last_kbd_macro(eval, args));
         }
-        "kmacro-name-last-macro" => {
-            eval.obarray_mut().put_property(
-                "kmacro-name-last-macro",
-                "neovm--kmacro-autoload-promoted",
-                Value::True,
-            );
-            return Some(super::kmacro::builtin_kmacro_name_last_macro(eval, args));
-        }
         "store-kbd-macro-event" => {
             return Some(super::kmacro::builtin_store_kbd_macro_event(eval, args));
         }
@@ -1533,10 +1525,6 @@ pub(crate) fn dispatch_builtin(
         }
 
         // Custom system (evaluator-dependent)
-        "custom-variable-p" => return Some(super::custom::builtin_custom_variable_p(eval, args)),
-        "custom-set-variables" => {
-            return Some(super::custom::builtin_custom_set_variables(eval, args));
-        }
         "make-variable-buffer-local" => {
             return Some(super::custom::builtin_make_variable_buffer_local(
                 eval, args,
@@ -2742,7 +2730,6 @@ pub(crate) fn dispatch_builtin(
         "user-real-login-name" => super::builtins_extra::builtin_user_real_login_name(args),
         "user-full-name" => super::builtins_extra::builtin_user_full_name(args),
         "system-name" => super::builtins_extra::builtin_system_name(args),
-        "emacs-version" => super::builtins_extra::builtin_emacs_version(args),
         "emacs-pid" => super::builtins_extra::builtin_emacs_pid(args),
         "memory-use-counts" => super::builtins_extra::builtin_memory_use_counts(args),
         // Note: overlayp is in the eval-dependent section above
@@ -2885,8 +2872,6 @@ pub(crate) fn dispatch_builtin(
         "zlib-decompress-region" => super::xml::builtin_zlib_decompress_region(args),
 
         // Custom system (pure)
-        "custom-set-faces" => super::custom::builtin_custom_set_faces(args),
-
         // frame.c missing builtins (pure stubs)
         "frame-id" => builtin_frame_id(args),
         "frame-root-frame" => builtin_frame_root_frame(args),
@@ -3300,7 +3285,6 @@ pub(crate) fn dispatch_builtin(
 
         // Format/string utilities (pure)
         "format-time-string" => super::format::builtin_format_time_string(args),
-        "string-chop-newline" => super::format::builtin_string_chop_newline(args),
         // Marker (pure)
         "markerp" => super::marker::builtin_markerp(args),
         "marker-buffer" => super::marker::builtin_marker_buffer(args),
@@ -3466,9 +3450,6 @@ pub(crate) fn dispatch_builtin(
         "md5" => super::fns::builtin_md5(args),
         "secure-hash" => super::fns::builtin_secure_hash(args),
         "equal-including-properties" => super::fns::builtin_equal_including_properties(args),
-        "widget-get" => super::fns::builtin_widget_get(args),
-        "widget-put" => super::fns::builtin_widget_put(args),
-        "widget-apply" => super::fns::builtin_widget_apply(args),
         "string-make-multibyte" => super::fns::builtin_string_make_multibyte(args),
         "string-make-unibyte" => super::fns::builtin_string_make_unibyte(args),
         "compare-strings" => super::fns::builtin_compare_strings(args),
