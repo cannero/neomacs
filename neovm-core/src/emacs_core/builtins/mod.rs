@@ -1322,11 +1322,6 @@ pub(crate) fn dispatch_builtin(
         "set-process-window-size" => {
             return Some(super::process::builtin_set_process_window_size(eval, args));
         }
-        "set-buffer-process-coding-system" => {
-            return Some(super::process::builtin_set_buffer_process_coding_system(
-                eval, args,
-            ));
-        }
         "process-menu-mode" => return Some(super::process::builtin_process_menu_mode(args)),
         "process-tty-name" => return Some(super::process::builtin_process_tty_name(eval, args)),
         "process-plist" => return Some(super::process::builtin_process_plist(eval, args)),
@@ -2257,20 +2252,8 @@ pub(crate) fn dispatch_builtin(
         "map-char-table" => return Some(super::chartable::builtin_map_char_table(eval, args)),
 
         // Coding system (evaluator-dependent — uses coding_systems manager)
-        "coding-system-list" => {
-            return Some(super::coding::builtin_coding_system_list(
-                &eval.coding_systems,
-                args,
-            ));
-        }
         "coding-system-aliases" => {
             return Some(super::coding::builtin_coding_system_aliases(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-get" => {
-            return Some(super::coding::builtin_coding_system_get(
                 &eval.coding_systems,
                 args,
             ));
@@ -2299,24 +2282,6 @@ pub(crate) fn dispatch_builtin(
                 args,
             ));
         }
-        "coding-system-type" => {
-            return Some(super::coding::builtin_coding_system_type(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-change-eol-conversion" => {
-            return Some(super::coding::builtin_coding_system_change_eol_conversion(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-change-text-conversion" => {
-            return Some(super::coding::builtin_coding_system_change_text_conversion(
-                &eval.coding_systems,
-                args,
-            ));
-        }
         "detect-coding-string" => {
             return Some(super::coding::builtin_detect_coding_string(
                 &eval.coding_systems,
@@ -2338,18 +2303,6 @@ pub(crate) fn dispatch_builtin(
         "terminal-coding-system" => {
             return Some(super::coding::builtin_terminal_coding_system(
                 &eval.coding_systems,
-                args,
-            ));
-        }
-        "set-keyboard-coding-system" => {
-            return Some(super::coding::builtin_set_keyboard_coding_system(
-                &mut eval.coding_systems,
-                args,
-            ));
-        }
-        "set-terminal-coding-system" => {
-            return Some(super::coding::builtin_set_terminal_coding_system(
-                &mut eval.coding_systems,
                 args,
             ));
         }
@@ -2770,7 +2723,6 @@ pub(crate) fn dispatch_builtin(
 
         // Character encoding
         "char-width" => crate::encoding::builtin_char_width(args),
-        "char-displayable-p" => crate::encoding::builtin_char_displayable_p(args),
         "string-bytes" => crate::encoding::builtin_string_bytes(args),
         "multibyte-string-p" => crate::encoding::builtin_multibyte_string_p(args),
         "encode-coding-string" => crate::encoding::builtin_encode_coding_string(args),
@@ -3775,7 +3727,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         // Keyboard macro (pure)
         // Character encoding (pure)
         "char-width" => crate::encoding::builtin_char_width(args),
-        "char-displayable-p" => crate::encoding::builtin_char_displayable_p(args),
         "string-bytes" => crate::encoding::builtin_string_bytes(args),
         "multibyte-string-p" => crate::encoding::builtin_multibyte_string_p(args),
         "encode-coding-string" => crate::encoding::builtin_encode_coding_string(args),
