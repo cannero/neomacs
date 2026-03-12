@@ -1029,8 +1029,6 @@ pub(crate) fn dispatch_builtin(
         "re-search-backward" => return Some(builtin_re_search_backward(eval, args)),
         "search-forward-regexp" => return Some(builtin_search_forward_regexp(eval, args)),
         "search-backward-regexp" => return Some(builtin_search_backward_regexp(eval, args)),
-        "isearch-forward" => return Some(super::isearch::builtin_isearch_forward(args)),
-        "isearch-backward" => return Some(super::isearch::builtin_isearch_backward(args)),
         "looking-at" => return Some(builtin_looking_at(eval, args)),
         "posix-looking-at" => return Some(builtin_posix_looking_at(eval, args)),
         "string-match" => return Some(builtin_string_match_eval(eval, args)),
@@ -1041,18 +1039,7 @@ pub(crate) fn dispatch_builtin(
         "match-data--translate" => return Some(builtin_match_data_translate_eval(eval, args)),
         "set-match-data" => return Some(builtin_set_match_data_eval(eval, args)),
         "replace-match" => return Some(builtin_replace_match(eval, args)),
-        "query-replace" => return Some(super::isearch::builtin_query_replace_eval(eval, args)),
-        "query-replace-regexp" => {
-            return Some(super::isearch::builtin_query_replace_regexp_eval(
-                eval, args,
-            ));
-        }
-        "replace-string" => return Some(super::isearch::builtin_replace_string_eval(eval, args)),
-        "replace-regexp" => return Some(super::isearch::builtin_replace_regexp_eval(eval, args)),
-        "how-many" => return Some(super::isearch::builtin_how_many_eval(eval, args)),
         "count-matches" => return Some(super::isearch::builtin_count_matches_eval(eval, args)),
-        "keep-lines" => return Some(super::isearch::builtin_keep_lines_eval(eval, args)),
-        "flush-lines" => return Some(super::isearch::builtin_flush_lines_eval(eval, args)),
         // charset (evaluator-dependent)
         "find-charset-region" => {
             return Some(super::charset::builtin_find_charset_region_eval(eval, args));
@@ -1218,16 +1205,6 @@ pub(crate) fn dispatch_builtin(
         }
         "internal-default-signal-process" => {
             return Some(super::process::builtin_internal_default_signal_process(
-                eval, args,
-            ));
-        }
-        "isearch-process-search-char" => {
-            return Some(super::process::builtin_isearch_process_search_char(
-                eval, args,
-            ));
-        }
-        "isearch-process-search-string" => {
-            return Some(super::process::builtin_isearch_process_search_string(
                 eval, args,
             ));
         }
@@ -1610,10 +1587,7 @@ pub(crate) fn dispatch_builtin(
         "downcase-word" => return Some(super::kill_ring::builtin_downcase_word(eval, args)),
         "upcase-word" => return Some(super::kill_ring::builtin_upcase_word(eval, args)),
         "capitalize-word" => return Some(super::kill_ring::builtin_capitalize_word(eval, args)),
-        "indent-line-to" => return Some(super::kill_ring::builtin_indent_line_to(eval, args)),
         "indent-to" => return Some(super::kill_ring::builtin_indent_to(eval, args)),
-        "tab-to-tab-stop" => return Some(super::kill_ring::builtin_tab_to_tab_stop(eval, args)),
-        "indent-rigidly" => return Some(super::kill_ring::builtin_indent_rigidly(eval, args)),
 
         // Rectangle operations (evaluator-dependent — buffer access)
         // Window/frame operations (evaluator-dependent)
@@ -2431,13 +2405,6 @@ pub(crate) fn dispatch_builtin(
         }
         "current-column" => return Some(super::indent::builtin_current_column_eval(eval, args)),
         "move-to-column" => return Some(super::indent::builtin_move_to_column_eval(eval, args)),
-        "indent-region" => return Some(super::indent::builtin_indent_region(eval, args)),
-        "indent-for-tab-command" => {
-            return Some(super::indent::builtin_indent_for_tab_command(eval, args));
-        }
-        "indent-according-to-mode" => {
-            return Some(super::indent::builtin_indent_according_to_mode(eval, args));
-        }
         // Case/char (evaluator-dependent)
         "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {
@@ -2453,15 +2420,6 @@ pub(crate) fn dispatch_builtin(
             // Reuse regex search engine for now; this replaces nil-stub behavior.
             return Some(builtin_re_search_backward(eval, args));
         }
-        "word-search-forward" => {
-            // Literal fallback keeps search state/point semantics instead of stub nil.
-            return Some(builtin_search_forward(eval, args));
-        }
-        "word-search-backward" => {
-            // Literal fallback keeps search state/point semantics instead of stub nil.
-            return Some(builtin_search_backward(eval, args));
-        }
-
         // Lread (evaluator-dependent)
         "eval-buffer" => return Some(super::lread::builtin_eval_buffer(eval, args)),
         "eval-region" => return Some(super::lread::builtin_eval_region(eval, args)),
