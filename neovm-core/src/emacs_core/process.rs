@@ -3910,12 +3910,6 @@ pub(crate) fn builtin_process_menu_visit_buffer(
     ))
 }
 
-/// (process-menu-mode) -> nil
-pub(crate) fn builtin_process_menu_mode(args: Vec<Value>) -> EvalResult {
-    expect_args("process-menu-mode", &args, 0)?;
-    Ok(Value::Nil)
-}
-
 /// (process-tty-name PROCESS &optional STREAM) -> string-or-nil
 pub(crate) fn builtin_process_tty_name(
     eval: &mut super::eval::Evaluator,

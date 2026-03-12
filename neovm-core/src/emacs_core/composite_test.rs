@@ -298,23 +298,3 @@ fn composition_sort_rules_wrong_arity() {
     let result = builtin_composition_sort_rules(vec![]);
     assert!(result.is_err());
 }
-
-#[test]
-fn auto_composition_mode_no_args() {
-    let result = builtin_auto_composition_mode(vec![]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_truthy());
-}
-
-#[test]
-fn auto_composition_mode_with_arg() {
-    let result = builtin_auto_composition_mode(vec![Value::Int(1)]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_truthy());
-}
-
-#[test]
-fn auto_composition_mode_too_many_args() {
-    let result = builtin_auto_composition_mode(vec![Value::Int(1), Value::Int(2)]);
-    assert!(result.is_err());
-}

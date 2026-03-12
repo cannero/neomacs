@@ -308,17 +308,6 @@ pub(crate) fn builtin_composition_sort_rules(args: Vec<Value>) -> EvalResult {
     Ok(args[0])
 }
 
-/// `(auto-composition-mode &optional ARG)`
-///
-/// Toggle auto-composition mode.  In real Emacs this is a minor mode that
-/// controls whether automatic character composition is performed.
-///
-/// Batch-compatible behavior: return `t`.
-pub(crate) fn builtin_auto_composition_mode(args: Vec<Value>) -> EvalResult {
-    expect_max_args("auto-composition-mode", &args, 1)?;
-    Ok(Value::True)
-}
-
 // ---------------------------------------------------------------------------
 // Bootstrap variables
 // ---------------------------------------------------------------------------

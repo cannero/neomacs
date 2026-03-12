@@ -318,51 +318,6 @@ fn test_abbrev_get_put() {
     )
     .unwrap();
     let sym = builtin_abbrev_symbol(&mut eval, vec![Value::string("hw"), table]).unwrap();
-
-    // abbrev-get :count should be 0
-    let count = builtin_abbrev_get(&mut eval, vec![sym, Value::keyword(":count")]).unwrap();
-    assert_eq!(count, Value::Int(0));
-
-    // abbrev-put and abbrev-get
-    builtin_abbrev_put(
-        &mut eval,
-        vec![sym, Value::keyword(":custom"), Value::Int(42)],
-    )
-    .unwrap();
-    let custom = builtin_abbrev_get(&mut eval, vec![sym, Value::keyword(":custom")]).unwrap();
-    assert_eq!(custom, Value::Int(42));
-}
-
-#[test]
-fn test_abbrev_mode() {
-    use super::super::eval::Evaluator;
-
-    let mut eval = Evaluator::new();
-
-    // Initially off
-    assert!(!eval.abbrevs.is_enabled());
-
-    // Toggle on
-    let result = builtin_abbrev_mode(&mut eval, vec![]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_truthy());
-    assert!(eval.abbrevs.is_enabled());
-
-    // Toggle off
-    let result = builtin_abbrev_mode(&mut eval, vec![]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_nil());
-    assert!(!eval.abbrevs.is_enabled());
-
-    // Explicit enable
-    let result = builtin_abbrev_mode(&mut eval, vec![Value::Int(1)]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_truthy());
-
-    // Explicit disable
-    let result = builtin_abbrev_mode(&mut eval, vec![Value::Int(0)]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_nil());
 }
 
 #[test]

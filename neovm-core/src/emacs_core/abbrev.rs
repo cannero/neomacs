@@ -11,7 +11,6 @@
 //! - `clear-abbrev-table` resets all buckets and preserves the header symbol's
 //!   plist.
 //! - `abbrev-table-get` / `abbrev-table-put` access the header symbol's plist.
-//! - `abbrev-get` / `abbrev-put` access abbrev symbol's plist.
 
 use std::collections::HashMap;
 
@@ -738,58 +737,6 @@ pub(crate) fn builtin_abbrev_table_put(
     Ok(args[2])
 }
 
-/// (abbrev-get SYMBOL PROP) -> value
-///
-/// Get property PROP from abbrev SYMBOL's plist.
-pub(crate) fn builtin_abbrev_get(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("abbrev-get", &args, 2)?;
-    let sym_id = symbol_id(args[0]).ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let prop = args[1].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[1]],
-        )
-    })?;
-    Ok(eval
-        .obarray()
-        .get_property_id(sym_id, intern(prop))
-        .cloned()
-        .unwrap_or(Value::Nil))
-}
-
-/// (abbrev-put SYMBOL PROP VAL) -> VAL
-///
-/// Set property PROP to VAL on abbrev SYMBOL's plist.
-pub(crate) fn builtin_abbrev_put(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("abbrev-put", &args, 3)?;
-    let sym_id = symbol_id(args[0]).ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
-        )
-    })?;
-    let prop = args[1].as_symbol_name().ok_or_else(|| {
-        signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[1]],
-        )
-    })?;
-    eval.obarray_mut()
-        .put_property_id(sym_id, intern(prop), args[2]);
-    Ok(args[2])
-}
-
 fn get_table_property(eval: &super::eval::Evaluator, vec_id: ObjId, prop: &str) -> Option<Value> {
     table_header_symbol(vec_id)
         .and_then(symbol_id)
@@ -988,34 +935,6 @@ pub(crate) fn builtin_expand_abbrev(
 ) -> EvalResult {
     expect_args("expand-abbrev", &args, 0)?;
     Ok(Value::Nil)
-}
-
-/// (abbrev-mode &optional ARG) -> t or nil
-pub(crate) fn builtin_abbrev_mode(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    if args.is_empty() {
-        let new_state = !eval.abbrevs.is_enabled();
-        eval.abbrevs.set_enabled(new_state);
-        Ok(Value::bool(new_state))
-    } else {
-        match &args[0] {
-            Value::Int(n) => {
-                let enabled = *n > 0;
-                eval.abbrevs.set_enabled(enabled);
-                Ok(Value::bool(enabled))
-            }
-            Value::Nil => {
-                eval.abbrevs.set_enabled(false);
-                Ok(Value::Nil)
-            }
-            _ => {
-                eval.abbrevs.set_enabled(true);
-                Ok(Value::True)
-            }
-        }
-    }
 }
 
 /// (insert-abbrev-table-description NAME &optional READABLE) -> nil
