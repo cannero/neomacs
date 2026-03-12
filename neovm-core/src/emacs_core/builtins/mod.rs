@@ -1319,7 +1319,6 @@ pub(crate) fn dispatch_builtin(
         "set-process-window-size" => {
             return Some(super::process::builtin_set_process_window_size(eval, args));
         }
-        "process-menu-mode" => return Some(super::process::builtin_process_menu_mode(args)),
         "process-tty-name" => return Some(super::process::builtin_process_tty_name(eval, args)),
         "process-plist" => return Some(super::process::builtin_process_plist(eval, args)),
         "set-process-plist" => return Some(super::process::builtin_set_process_plist(eval, args)),
@@ -1393,10 +1392,6 @@ pub(crate) fn dispatch_builtin(
         }
         // Bookmark operations (evaluator-dependent)
         // Abbreviation operations (evaluator-dependent)
-        "abbrev-mode" => return Some(super::abbrev::builtin_abbrev_mode(eval, args)),
-        "abbrev-get" => return Some(super::abbrev::builtin_abbrev_get(eval, args)),
-        "abbrev-put" => return Some(super::abbrev::builtin_abbrev_put(eval, args)),
-
         // Text property operations (evaluator-dependent — buffer access)
         "put-text-property" => return Some(super::textprop::builtin_put_text_property(eval, args)),
         "get-text-property" => return Some(super::textprop::builtin_get_text_property(eval, args)),
@@ -3275,8 +3270,6 @@ pub(crate) fn dispatch_builtin(
         "composition-get-gstring" => super::composite::builtin_composition_get_gstring(args),
         "clear-composition-cache" => super::composite::builtin_clear_composition_cache(args),
         "composition-sort-rules" => super::composite::builtin_composition_sort_rules(args),
-        "auto-composition-mode" => super::composite::builtin_auto_composition_mode(args),
-
         // Indentation (pure)
         "current-indentation" => super::indent::builtin_current_indentation(args),
         "indent-to" => super::indent::builtin_indent_to(args),

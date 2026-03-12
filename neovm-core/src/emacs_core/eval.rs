@@ -1358,6 +1358,12 @@ impl Evaluator {
             "Determine the start and end buffer locations for the THING at point.",
         );
         seed_autoload("thing-at-point", "thingatpt", "Return the THING at point.");
+        seed_autoload("abbrev-mode", "abbrev", "Toggle Abbrev mode.");
+        seed_autoload(
+            "auto-composition-mode",
+            "composite",
+            "Toggle auto-composition mode.",
+        );
         seed_autoload(
             "symbol-at-point",
             "thingatpt",
@@ -1455,6 +1461,11 @@ impl Evaluator {
             "Blank out the region-rectangle, shifting text right.",
         );
         seed_autoload(
+            "process-menu-mode",
+            "simple",
+            "Major mode for listing processes.",
+        );
+        seed_autoload(
             "set-mark-command",
             "simple",
             "Set the mark where point is, and activate it; or jump to the mark.",
@@ -1524,6 +1535,16 @@ impl Evaluator {
             "safe-date-to-time",
             "time-date",
             "Parse a string DATE that represents a date-time and return a time value.",
+        );
+        seed_autoload_noninteractive(
+            "abbrev-get",
+            "abbrev",
+            "Return abbrev property PROP for SYMBOL.",
+        );
+        seed_autoload_noninteractive(
+            "abbrev-put",
+            "abbrev",
+            "Set abbrev property PROP to VAL on SYMBOL.",
         );
         seed_autoload_noninteractive("activate-mark", "simple", "Activate the mark.");
         seed_autoload_noninteractive(
