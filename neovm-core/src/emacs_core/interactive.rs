@@ -1968,34 +1968,39 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Evaluator, args: Vec<Value>) 
     let definition = &args[0];
     let first_only = args.get(2).is_some_and(|v| !v.is_nil());
 
-    let keymap = if let Some(keymap_arg) = args.get(1) {
+    let keymaps = if let Some(keymap_arg) = args.get(1) {
         if keymap_arg.is_nil() {
             let gm = get_global_keymap(eval);
             if !is_list_keymap(&gm) {
                 return Ok(Value::Nil);
             }
-            gm
+            vec![gm]
         } else {
-            expect_keymap_value(eval, keymap_arg)?
+            where_is_internal_keymaps(eval, keymap_arg)?
         }
     } else {
         let gm = get_global_keymap(eval);
         if !is_list_keymap(&gm) {
             return Ok(Value::Nil);
         }
-        gm
+        vec![gm]
     };
 
-    let mut prefix = Vec::new();
     let mut sequences = Vec::new();
-    collect_where_is_sequences_value(
-        &keymap,
-        definition,
-        &mut prefix,
-        &mut sequences,
-        first_only,
-        0,
-    );
+    for keymap in &keymaps {
+        let mut prefix = Vec::new();
+        if collect_where_is_sequences_value(
+            keymap,
+            definition,
+            &mut prefix,
+            &mut sequences,
+            first_only,
+            0,
+        ) && first_only
+        {
+            break;
+        }
+    }
 
     if sequences.is_empty() {
         return Ok(Value::Nil);
@@ -2932,6 +2937,22 @@ fn expect_keymap_value(eval: &Evaluator, value: &Value) -> Result<Value, Flow> {
         "wrong-type-argument",
         vec![Value::symbol("keymapp"), *value],
     ))
+}
+
+fn where_is_internal_keymaps(eval: &Evaluator, value: &Value) -> Result<Vec<Value>, Flow> {
+    if is_list_keymap(value) {
+        return Ok(vec![*value]);
+    }
+
+    if let Some(items) = list_to_vec(value) {
+        let mut keymaps = Vec::with_capacity(items.len());
+        for item in items {
+            keymaps.push(expect_keymap_value(eval, &item)?);
+        }
+        return Ok(keymaps);
+    }
+
+    Ok(vec![expect_keymap_value(eval, value)?])
 }
 
 fn lookup_keymap_with_partial_value(keymap: &Value, events: &[KeyEvent]) -> Value {

@@ -3079,6 +3079,20 @@ fn where_is_internal_first_only_returns_vector() {
 }
 
 #[test]
+fn where_is_internal_accepts_list_of_keymaps() {
+    let result = eval_one(
+        r#"(let ((m1 (make-sparse-keymap))
+                 (m2 (make-sparse-keymap)))
+             (define-key m1 "a" 'ignore)
+             (define-key m2 "b" 'ignore)
+             (list (equal (where-is-internal 'ignore (list m2 m1) t) [98])
+                   (equal (where-is-internal 'ignore (list m2 m1))
+                          '([98] [97]))))"#,
+    );
+    assert_eq!(result, "OK (t t)");
+}
+
+#[test]
 fn where_is_internal_keymap_type_errors() {
     let result = eval_one(
         r#"(condition-case err
