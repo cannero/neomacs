@@ -1260,26 +1260,12 @@ impl Evaluator {
         obarray.set_symbol_function("x-select-text", Value::symbol("gui-select-text"));
         obarray.set_symbol_function("x-selection-value", Value::symbol("gui-selection-value"));
         obarray.set_symbol_function("x-set-selection", Value::symbol("gui-set-selection"));
-        // Window size aliases are also preseeded in startup state.
-        obarray.set_symbol_function("window-height", Value::symbol("window-total-height"));
-        obarray.set_symbol_function("window-width", Value::symbol("window-body-width"));
         obarray.set_symbol_function(
             "window-inside-pixel-edges",
             Value::symbol("window-body-pixel-edges"),
         );
         obarray.set_symbol_function("window-inside-edges", Value::symbol("window-body-edges"));
-        // Additional startup aliases exposed as symbol indirections in GNU Emacs.
-        obarray.set_symbol_function("count-matches", Value::symbol("how-many"));
         obarray.set_symbol_function("replace-rectangle", Value::symbol("string-rectangle"));
-        obarray.set_symbol_function("wholenump", Value::symbol("natnump"));
-        obarray.set_symbol_function(
-            "subr-native-elisp-p",
-            Value::symbol("native-comp-function-p"),
-        );
-        obarray.set_symbol_function(
-            "kmacro-name-last-macro",
-            Value::Subr(intern("kmacro-name-last-macro")),
-        );
         // Bootstrap primitive function cells that GNU `simple.el` references
         // before its own Elisp defs overwrite them. Without these placeholders,
         // loaded GNU bytecode can capture `nil` for forward/runtime calls into
@@ -1296,10 +1282,6 @@ impl Evaluator {
         ] {
             obarray.set_symbol_function(name, Value::Subr(intern(name)));
         }
-        obarray.set_symbol_function(
-            "name-last-kbd-macro",
-            Value::symbol("kmacro-name-last-macro"),
-        );
         // GNU Emacs exposes this helper as a Lisp wrapper, not a primitive.
         obarray.set_symbol_function(
             "subr-primitive-p",
@@ -1447,9 +1429,19 @@ impl Evaluator {
             "Insert in buffer the definition of kbd macro MACRONAME, as Lisp code.",
         );
         seed_autoload(
+            "kmacro-name-last-macro",
+            "kmacro",
+            "Assign a name to the last keyboard macro defined.",
+        );
+        seed_autoload(
             "insert-rectangle",
             "rect",
             "Insert text of RECTANGLE with upper left corner at point.",
+        );
+        seed_autoload(
+            "name-last-kbd-macro",
+            "macros",
+            "Assign a name to the last keyboard macro defined.",
         );
         seed_autoload(
             "kbd-macro-query",
@@ -1538,6 +1530,21 @@ impl Evaluator {
             "Parse a string DATE that represents a date-time and return a time value.",
         );
         seed_autoload_noninteractive(
+            "count-matches",
+            "replace",
+            "Count matches for REGEXP following point.",
+        );
+        seed_autoload_noninteractive(
+            "search-forward-regexp",
+            "subr",
+            "Search forward from point for regular expression REGEXP.",
+        );
+        seed_autoload_noninteractive(
+            "search-backward-regexp",
+            "subr",
+            "Search backward from point for regular expression REGEXP.",
+        );
+        seed_autoload_noninteractive(
             "delete-extract-rectangle",
             "rect",
             "Delete the contents of the rectangle with corners at START and END.",
@@ -1553,9 +1560,29 @@ impl Evaluator {
             "Remove FUNCTION from HOOK's functions.",
         );
         seed_autoload_noninteractive(
+            "subr-native-elisp-p",
+            "cl-preloaded",
+            "Return non-nil if OBJECT is native-compiled Elisp code.",
+        );
+        seed_autoload_noninteractive(
             "run-mode-hooks",
             "subr",
             "Run mode hooks `delayed-mode-hooks' and HOOKS, or delay HOOKS.",
+        );
+        seed_autoload_noninteractive(
+            "wholenump",
+            "subr",
+            "Return non-nil if OBJECT is an integer greater than or equal to zero.",
+        );
+        seed_autoload_noninteractive(
+            "window-height",
+            "window",
+            "Return the total height, in lines, of WINDOW.",
+        );
+        seed_autoload_noninteractive(
+            "window-width",
+            "window",
+            "Return the width, in columns, of WINDOW.",
         );
         seed_autoload_noninteractive(
             "insert-rectangle",

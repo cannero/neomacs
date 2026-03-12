@@ -1027,8 +1027,6 @@ pub(crate) fn dispatch_builtin(
         "search-backward" => return Some(builtin_search_backward(eval, args)),
         "re-search-forward" => return Some(builtin_re_search_forward(eval, args)),
         "re-search-backward" => return Some(builtin_re_search_backward(eval, args)),
-        "search-forward-regexp" => return Some(builtin_search_forward_regexp(eval, args)),
-        "search-backward-regexp" => return Some(builtin_search_backward_regexp(eval, args)),
         "looking-at" => return Some(builtin_looking_at(eval, args)),
         "posix-looking-at" => return Some(builtin_posix_looking_at(eval, args)),
         "string-match" => return Some(builtin_string_match_eval(eval, args)),
@@ -1039,7 +1037,6 @@ pub(crate) fn dispatch_builtin(
         "match-data--translate" => return Some(builtin_match_data_translate_eval(eval, args)),
         "set-match-data" => return Some(builtin_set_match_data_eval(eval, args)),
         "replace-match" => return Some(builtin_replace_match(eval, args)),
-        "count-matches" => return Some(super::isearch::builtin_count_matches_eval(eval, args)),
         // charset (evaluator-dependent)
         "find-charset-region" => {
             return Some(super::charset::builtin_find_charset_region_eval(eval, args));
@@ -1385,16 +1382,12 @@ pub(crate) fn dispatch_builtin(
         // Register operations (evaluator-dependent)
         // Keyboard macro operations (evaluator-dependent)
         "cancel-kbd-macro-events" => return Some(builtin_cancel_kbd_macro_events(args)),
-        "defining-kbd-macro" => return Some(super::kmacro::builtin_defining_kbd_macro(eval, args)),
         "start-kbd-macro" => return Some(super::kmacro::builtin_start_kbd_macro(eval, args)),
         "end-kbd-macro" => return Some(super::kmacro::builtin_end_kbd_macro(eval, args)),
         "call-last-kbd-macro" => {
             return Some(super::kmacro::builtin_call_last_kbd_macro(eval, args));
         }
         "execute-kbd-macro" => return Some(super::kmacro::builtin_execute_kbd_macro(eval, args)),
-        "name-last-kbd-macro" => {
-            return Some(super::kmacro::builtin_name_last_kbd_macro(eval, args));
-        }
         "store-kbd-macro-event" => {
             return Some(super::kmacro::builtin_store_kbd_macro_event(eval, args));
         }
@@ -1611,8 +1604,6 @@ pub(crate) fn dispatch_builtin(
         "window-start" => return Some(super::window_cmds::builtin_window_start(eval, args)),
         "window-end" => return Some(super::window_cmds::builtin_window_end(eval, args)),
         "window-point" => return Some(super::window_cmds::builtin_window_point(eval, args)),
-        "window-height" => return Some(super::window_cmds::builtin_window_height(eval, args)),
-        "window-width" => return Some(super::window_cmds::builtin_window_width(eval, args)),
         "window-use-time" => return Some(super::window_cmds::builtin_window_use_time(eval, args)),
         "window-bump-use-time" => {
             return Some(super::window_cmds::builtin_window_bump_use_time(eval, args));
@@ -2725,7 +2716,6 @@ pub(crate) fn dispatch_builtin(
         "byte-code-function-p" => super::builtins_extra::builtin_byte_code_function_p(args),
         "closurep" => super::builtins_extra::builtin_closurep(args),
         "natnump" => super::builtins_extra::builtin_natnump(args),
-        "wholenump" => super::builtins_extra::builtin_wholenump(args),
         "user-login-name" => super::builtins_extra::builtin_user_login_name(args),
         "user-real-login-name" => super::builtins_extra::builtin_user_real_login_name(args),
         "user-full-name" => super::builtins_extra::builtin_user_full_name(args),
@@ -3276,7 +3266,6 @@ pub(crate) fn dispatch_builtin(
         // Subr introspection (pure)
         "subr-name" => super::subr_info::builtin_subr_name(args),
         "subr-arity" => super::subr_info::builtin_subr_arity(args),
-        "subr-native-elisp-p" => super::subr_info::builtin_subr_native_elisp_p(args),
         "native-comp-function-p" => super::subr_info::builtin_native_comp_function_p(args),
         "interpreted-function-p" => super::subr_info::builtin_interpreted_function_p(args),
         "commandp" => super::subr_info::builtin_commandp(args),

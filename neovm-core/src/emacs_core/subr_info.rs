@@ -1222,7 +1222,6 @@ fn subr_arity_value(name: &str) -> Value {
         "catch" | "defvar" | "function" | "let" | "let*" | "prog1" | "quote" | "unwind-protect"
         | "while" => arity_unevalled(1),
         "condition-case" | "defconst" | "if" => arity_unevalled(2),
-        "defining-kbd-macro" => arity_cons(1, Some(2)),
         "start-kbd-macro" => arity_cons(1, Some(2)),
         "cancel-kbd-macro-events" => arity_cons(0, Some(0)),
         "end-kbd-macro" | "call-last-kbd-macro" => arity_cons(0, Some(2)),

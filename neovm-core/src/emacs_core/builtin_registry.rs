@@ -257,7 +257,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "define-fringe-bitmap",
     "define-hash-table-test",
     "define-key",
-    "defining-kbd-macro",
     "delete",
     "delq",
     "delete-all-overlays",
