@@ -1407,12 +1407,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::kmacro::builtin_store_kbd_macro_event(eval, args));
         }
         // Bookmark operations (evaluator-dependent)
-        "bookmark-set" => return Some(super::bookmark::builtin_bookmark_set(eval, args)),
-        "bookmark-jump" => return Some(super::bookmark::builtin_bookmark_jump(eval, args)),
-        "bookmark-delete" => return Some(super::bookmark::builtin_bookmark_delete(eval, args)),
-        "bookmark-rename" => return Some(super::bookmark::builtin_bookmark_rename(eval, args)),
-        "bookmark-save" => return Some(super::bookmark::builtin_bookmark_save(eval, args)),
-        "bookmark-load" => return Some(super::bookmark::builtin_bookmark_load(eval, args)),
         // Abbreviation operations (evaluator-dependent)
         "abbrev-mode" => return Some(super::abbrev::builtin_abbrev_mode(eval, args)),
         "abbrev-get" => return Some(super::abbrev::builtin_abbrev_get(eval, args)),
