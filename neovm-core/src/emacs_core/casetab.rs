@@ -305,19 +305,6 @@ pub(crate) fn builtin_set_standard_case_table_eval(
     Ok(table)
 }
 
-/// `(upcase CHAR)` -- convert a character to uppercase.
-///
-/// If the argument is an integer or character, returns the uppercase version
-/// using the standard ASCII case table.  Characters outside a-z are returned
-/// unchanged.
-pub(crate) fn builtin_upcase_char(args: Vec<Value>) -> EvalResult {
-    expect_args("upcase", &args, 1)?;
-    let c = expect_char(&args[0])?;
-    let manager = CaseTableManager::new();
-    let result = manager.upcase_char(c);
-    Ok(Value::Int(result as i64))
-}
-
 /// `(downcase CHAR)` -- convert a character to lowercase.
 ///
 /// If the argument is an integer or character, returns the lowercase version

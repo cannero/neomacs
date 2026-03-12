@@ -1099,6 +1099,28 @@ fn bootstrap_misc_upcase_char_preserves_point_and_uppercases_region() {
     assert_eq!(rendered, r#"OK ("ABCd" 1)"#);
 }
 
+#[test]
+fn bootstrap_runtime_upcase_char_autoloads_misc() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-temp-buffer
+             (insert "ab")
+             (goto-char (point-min))
+             (let ((before (symbol-function 'upcase-char)))
+               (list
+                (autoloadp before)
+                (null (upcase-char 1))
+                (buffer-string)
+                (autoloadp (symbol-function 'upcase-char))
+                (point))))"#,
+    );
+
+    assert_eq!(rendered, r#"OK (t t "Ab" nil 1)"#);
+}
+
 fn cached_bootstrap_eval_with_loaded_file(path: &std::path::Path, form: &str) -> String {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");

@@ -240,46 +240,6 @@ fn evaluator_case_table_roundtrip_and_isolation() {
 }
 
 #[test]
-fn builtin_upcase_char_lowercase() {
-    // (upcase ?a) -> 65 (i.e., ?A)
-    let result = builtin_upcase_char(vec![Value::Char('a')]).unwrap();
-    assert!(matches!(result, Value::Int(65)));
-}
-
-#[test]
-fn builtin_upcase_char_uppercase_unchanged() {
-    // (upcase ?A) -> 65
-    let result = builtin_upcase_char(vec![Value::Char('A')]).unwrap();
-    assert!(matches!(result, Value::Int(65)));
-}
-
-#[test]
-fn builtin_upcase_char_non_letter() {
-    // (upcase ?0) -> 48
-    let result = builtin_upcase_char(vec![Value::Char('0')]).unwrap();
-    assert!(matches!(result, Value::Int(48)));
-}
-
-#[test]
-fn builtin_upcase_char_from_int() {
-    // (upcase 97) -> 65 (97 = ?a, 65 = ?A)
-    let result = builtin_upcase_char(vec![Value::Int(97)]).unwrap();
-    assert!(matches!(result, Value::Int(65)));
-}
-
-#[test]
-fn builtin_upcase_char_wrong_type() {
-    assert!(builtin_upcase_char(vec![Value::string("a")]).is_err());
-    assert!(builtin_upcase_char(vec![Value::Nil]).is_err());
-}
-
-#[test]
-fn builtin_upcase_char_wrong_arg_count() {
-    assert!(builtin_upcase_char(vec![]).is_err());
-    assert!(builtin_upcase_char(vec![Value::Char('a'), Value::Char('b')]).is_err());
-}
-
-#[test]
 fn builtin_downcase_char_uppercase() {
     // (downcase ?A) -> 97 (i.e., ?a)
     let result = builtin_downcase_char(vec![Value::Char('A')]).unwrap();
