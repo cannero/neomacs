@@ -879,7 +879,6 @@ pub(crate) fn dispatch_builtin(
         "mapconcat" => return Some(builtin_mapconcat(eval, args)),
         "sort" => return Some(builtin_sort(eval, args)),
         "functionp" => return Some(builtin_functionp_eval(eval, args)),
-        "macrop" => return Some(builtin_macrop_eval(eval, args)),
         // Symbol/obarray
         "defvaralias" => return Some(builtin_defvaralias_eval(eval, args)),
         "boundp" => return Some(builtin_boundp(eval, args)),
@@ -921,9 +920,6 @@ pub(crate) fn dispatch_builtin(
             return Some(builtin_run_hook_with_args_until_failure(eval, args));
         }
         "run-hook-wrapped" => return Some(builtin_run_hook_wrapped(eval, args)),
-        "run-hook-query-error-with-timeout" => {
-            return Some(builtin_run_hook_query_error_with_timeout(eval, args));
-        }
         "run-window-configuration-change-hook" => {
             return Some(builtin_run_window_configuration_change_hook(eval, args));
         }
@@ -935,7 +931,6 @@ pub(crate) fn dispatch_builtin(
         "garbage-collect" => return Some(builtin_garbage_collect_eval(eval, args)),
         // Loading
         "load" => return Some(builtin_load(eval, args)),
-        "symbol-file" => return Some(super::autoload::builtin_symbol_file_eval(eval, args)),
         "neovm-precompile-file" => return Some(builtin_neovm_precompile_file(eval, args)),
         "eval" => return Some(builtin_eval(eval, args)),
         // Buffer operations
@@ -990,7 +985,6 @@ pub(crate) fn dispatch_builtin(
         "insert-buffer-substring" => return Some(builtin_insert_buffer_substring(eval, args)),
         "insert-char" => return Some(builtin_insert_char(eval, args)),
         "insert-byte" => return Some(builtin_insert_byte(eval, args)),
-        "replace-buffer-contents" => return Some(builtin_replace_buffer_contents_eval(eval, args)),
         "replace-region-contents" => return Some(builtin_replace_region_contents_eval(eval, args)),
         "set-buffer-multibyte" => return Some(builtin_set_buffer_multibyte_eval(eval, args)),
         "kill-all-local-variables" => return Some(builtin_kill_all_local_variables(eval, args)),
@@ -1042,7 +1036,6 @@ pub(crate) fn dispatch_builtin(
         "posix-looking-at" => return Some(builtin_posix_looking_at(eval, args)),
         "string-match" => return Some(builtin_string_match_eval(eval, args)),
         "posix-string-match" => return Some(builtin_posix_string_match(eval, args)),
-        "match-string" => return Some(builtin_match_string(eval, args)),
         "match-beginning" => return Some(builtin_match_beginning(eval, args)),
         "match-end" => return Some(builtin_match_end(eval, args)),
         "match-data" => return Some(builtin_match_data_eval(eval, args)),
@@ -1198,8 +1191,6 @@ pub(crate) fn dispatch_builtin(
         "copy-keymap" => return Some(builtin_copy_keymap(eval, args)),
         "define-key" => return Some(builtin_define_key(eval, args)),
         "lookup-key" => return Some(builtin_lookup_key(eval, args)),
-        "global-set-key" => return Some(builtin_global_set_key(eval, args)),
-        "local-set-key" => return Some(builtin_local_set_key(eval, args)),
         "use-local-map" => return Some(builtin_use_local_map(eval, args)),
         "use-global-map" => return Some(builtin_use_global_map(eval, args)),
         "current-local-map" => return Some(builtin_current_local_map(eval, args)),
@@ -1329,32 +1320,11 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "start-process" => return Some(super::process::builtin_start_process(eval, args)),
-        "start-process-shell-command" => {
-            return Some(super::process::builtin_start_process_shell_command(
-                eval, args,
-            ));
-        }
         "start-file-process" => {
             return Some(super::process::builtin_start_file_process(eval, args));
         }
-        "start-file-process-shell-command" => {
-            return Some(super::process::builtin_start_file_process_shell_command(
-                eval, args,
-            ));
-        }
         "call-process" => return Some(super::process::builtin_call_process(eval, args)),
-        "call-process-shell-command" => {
-            return Some(super::process::builtin_call_process_shell_command(
-                eval, args,
-            ));
-        }
         "process-file" => return Some(super::process::builtin_process_file(eval, args)),
-        "process-file-shell-command" => {
-            return Some(super::process::builtin_process_file_shell_command(
-                eval, args,
-            ));
-        }
         "call-process-region" => {
             return Some(super::process::builtin_call_process_region(eval, args));
         }
@@ -1372,7 +1342,6 @@ pub(crate) fn dispatch_builtin(
         "process-attributes" => {
             return Some(super::process::builtin_process_attributes(eval, args));
         }
-        "process-live-p" => return Some(super::process::builtin_process_live_p(eval, args)),
         "processp" => return Some(super::process::builtin_processp(eval, args)),
         "process-id" => return Some(super::process::builtin_process_id(eval, args)),
         "process-query-on-exit-flag" => {
@@ -1435,22 +1404,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "process-lines" => return Some(super::process::builtin_process_lines(eval, args)),
-        "process-lines-ignore-status" => {
-            return Some(super::process::builtin_process_lines_ignore_status(
-                eval, args,
-            ));
-        }
-        "process-lines-handling-status" => {
-            return Some(super::process::builtin_process_lines_handling_status(
-                eval, args,
-            ));
-        }
-        "process-kill-buffer-query-function" => {
-            return Some(super::process::builtin_process_kill_buffer_query_function(
-                args,
-            ));
-        }
         "process-menu-delete-process" => {
             return Some(super::process::builtin_process_menu_delete_process(
                 eval, args,
@@ -1465,8 +1418,6 @@ pub(crate) fn dispatch_builtin(
         "process-tty-name" => return Some(super::process::builtin_process_tty_name(eval, args)),
         "process-plist" => return Some(super::process::builtin_process_plist(eval, args)),
         "set-process-plist" => return Some(super::process::builtin_set_process_plist(eval, args)),
-        "process-put" => return Some(super::process::builtin_process_put(eval, args)),
-        "process-get" => return Some(super::process::builtin_process_get(eval, args)),
         "process-mark" => return Some(super::process::builtin_process_mark(eval, args)),
         "process-type" => return Some(super::process::builtin_process_type(eval, args)),
         "process-thread" => return Some(super::process::builtin_process_thread(eval, args)),
@@ -1517,7 +1468,6 @@ pub(crate) fn dispatch_builtin(
         "matching-paren" => {
             return Some(super::syntax::builtin_matching_paren_eval(eval, args));
         }
-        "syntax-after" => return Some(super::syntax::builtin_syntax_after(eval, args)),
         "forward-comment" => return Some(super::syntax::builtin_forward_comment(eval, args)),
         "backward-prefix-chars" => {
             return Some(super::syntax::builtin_backward_prefix_chars(eval, args));
@@ -1684,7 +1634,6 @@ pub(crate) fn dispatch_builtin(
         "overlay-properties" => {
             return Some(super::textprop::builtin_overlay_properties(eval, args));
         }
-        "remove-overlays" => return Some(super::textprop::builtin_remove_overlays(eval, args)),
         "overlayp" => return Some(super::textprop::builtin_overlayp(eval, args)),
 
         // Navigation / mark / region (evaluator-dependent — buffer access)
@@ -2407,12 +2356,6 @@ pub(crate) fn dispatch_builtin(
         "call-interactively" => {
             return Some(super::interactive::builtin_call_interactively(eval, args));
         }
-        "interactive-p" => return Some(super::interactive::builtin_interactive_p(eval, args)),
-        "called-interactively-p" => {
-            return Some(super::interactive::builtin_called_interactively_p(
-                eval, args,
-            ));
-        }
         "commandp" => return Some(super::interactive::builtin_commandp_interactive(eval, args)),
         "command-remapping" => {
             return Some(super::interactive::builtin_command_remapping(eval, args));
@@ -2439,12 +2382,6 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         "key-binding" => return Some(super::interactive::builtin_key_binding(eval, args)),
-        "local-key-binding" => {
-            return Some(super::interactive::builtin_local_key_binding(eval, args));
-        }
-        "global-key-binding" => {
-            return Some(super::interactive::builtin_global_key_binding(eval, args));
-        }
         "minor-mode-key-binding" => {
             return Some(super::interactive::builtin_minor_mode_key_binding(
                 eval, args,
@@ -2477,15 +2414,12 @@ pub(crate) fn dispatch_builtin(
         "message" => return Some(builtin_message_eval(eval, args)),
         "message-box" => return Some(builtin_message_box_eval(eval, args)),
         "message-or-box" => return Some(builtin_message_or_box_eval(eval, args)),
-        "error" => return Some(builtin_error_eval(eval, args)),
-        "user-error" => return Some(builtin_user_error_eval(eval, args)),
         "read-from-string" => return Some(super::reader::builtin_read_from_string(eval, args)),
         "read" => return Some(super::reader::builtin_read(eval, args)),
         "read-from-minibuffer" => {
             return Some(super::reader::builtin_read_from_minibuffer(eval, args));
         }
         "read-string" => return Some(super::reader::builtin_read_string(eval, args)),
-        "read-number" => return Some(super::reader::builtin_read_number(eval, args)),
         "completing-read" => return Some(super::reader::builtin_completing_read(eval, args)),
         "read-buffer" => return Some(super::minibuffer::builtin_read_buffer(args)),
         "read-command" => return Some(super::minibuffer::builtin_read_command(args)),
@@ -2509,7 +2443,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::reader::builtin_waiting_for_user_input_p(args));
         }
         "read-char" => return Some(super::reader::builtin_read_char(eval, args)),
-        "read-key" => return Some(super::reader::builtin_read_key(eval, args)),
         "read-key-sequence" => return Some(super::reader::builtin_read_key_sequence(eval, args)),
         "read-key-sequence-vector" => {
             return Some(super::reader::builtin_read_key_sequence_vector(eval, args));
@@ -2544,7 +2477,6 @@ pub(crate) fn dispatch_builtin(
         "backtrace-frame--internal" => {
             return Some(super::misc::builtin_backtrace_frame_internal(eval, args));
         }
-        "backtrace-frame" => return Some(super::misc::builtin_backtrace_frame(eval, args)),
         "recursion-depth" => return Some(super::misc::builtin_recursion_depth(eval, args)),
         "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
         "recursive-edit" => return Some(super::minibuffer::builtin_recursive_edit(args)),
@@ -2945,8 +2877,6 @@ pub(crate) fn dispatch_builtin(
         "current-message" => builtin_current_message(args),
         "ngettext" => builtin_ngettext(args),
         "secure-hash-algorithms" => builtin_secure_hash_algorithms(args),
-        "error" => builtin_error(args),
-        "user-error" => builtin_user_error(args),
         "prefix-numeric-value" => builtin_prefix_numeric_value(args),
         "command-error-default-function" => builtin_command_error_default_function(args),
         "compute-motion" => builtin_compute_motion(args),
@@ -2963,7 +2893,6 @@ pub(crate) fn dispatch_builtin(
         "syntax-class-to-char" => super::syntax::builtin_syntax_class_to_char(args),
         // matching-paren is now dispatched in dispatch_builtin (eval-dependent)
         // "matching-paren" => handled in dispatch_builtin
-        "make-syntax-table" => super::syntax::builtin_make_syntax_table(args),
         "copy-syntax-table" => super::syntax::builtin_copy_syntax_table(args),
         "syntax-table-p" => super::syntax::builtin_syntax_table_p(args),
         "standard-syntax-table" => super::syntax::builtin_standard_syntax_table(args),
@@ -3045,7 +2974,6 @@ pub(crate) fn dispatch_builtin(
 
         // Timer (pure — no evaluator needed)
         "timerp" => super::timer::builtin_timerp(args),
-        "sit-for" => super::timer::builtin_sit_for(args),
 
         // Undo system (pure — no evaluator needed)
         "undo-boundary" => super::undo::builtin_undo_boundary(args),
@@ -3247,11 +3175,9 @@ pub(crate) fn dispatch_builtin(
         "proper-list-p" => super::builtins_extra::builtin_proper_list_p(args),
         "subrp" => super::builtins_extra::builtin_subrp(args),
         "byte-code-function-p" => super::builtins_extra::builtin_byte_code_function_p(args),
-        "compiled-function-p" => super::builtins_extra::builtin_compiled_function_p(args),
         "closurep" => super::builtins_extra::builtin_closurep(args),
         "natnump" => super::builtins_extra::builtin_natnump(args),
         "wholenump" => super::builtins_extra::builtin_wholenump(args),
-        "zerop" => super::builtins_extra::builtin_zerop(args),
         "user-login-name" => super::builtins_extra::builtin_user_login_name(args),
         "user-real-login-name" => super::builtins_extra::builtin_user_real_login_name(args),
         "user-full-name" => super::builtins_extra::builtin_user_full_name(args),
@@ -3260,8 +3186,6 @@ pub(crate) fn dispatch_builtin(
         "emacs-pid" => super::builtins_extra::builtin_emacs_pid(args),
         "memory-use-counts" => super::builtins_extra::builtin_memory_use_counts(args),
         // Note: overlayp is in the eval-dependent section above
-        "symbol-file" => super::autoload::builtin_symbol_file(args),
-
         // Time/date (pure)
         "time-add" => super::timefns::builtin_time_add(args),
         "time-subtract" => super::timefns::builtin_time_subtract(args),
@@ -3820,10 +3744,7 @@ pub(crate) fn dispatch_builtin(
         "subr-arity" => super::subr_info::builtin_subr_arity(args),
         "subr-native-elisp-p" => super::subr_info::builtin_subr_native_elisp_p(args),
         "native-comp-function-p" => super::subr_info::builtin_native_comp_function_p(args),
-        "subr-primitive-p" => super::subr_info::builtin_subr_primitive_p(args),
         "interpreted-function-p" => super::subr_info::builtin_interpreted_function_p(args),
-        "special-form-p" => super::subr_info::builtin_special_form_p(args),
-        "macrop" => super::subr_info::builtin_macrop(args),
         "commandp" => super::subr_info::builtin_commandp(args),
         "command-modes" => super::interactive::builtin_command_modes(args),
         "func-arity" => builtin_func_arity_eval(eval, args),
@@ -3884,7 +3805,6 @@ pub(crate) fn dispatch_builtin(
         "rassq" => super::misc::builtin_rassq(args),
         "make-list" => super::misc::builtin_make_list(args),
         "safe-length" => super::misc::builtin_safe_length(args),
-        "subst-char-in-string" => super::misc::builtin_subst_char_in_string(args),
         "string-to-multibyte" => super::misc::builtin_string_to_multibyte(args),
         "string-to-unibyte" => super::misc::builtin_string_to_unibyte(args),
         "string-as-unibyte" => super::misc::builtin_string_as_unibyte(args),
@@ -3929,7 +3849,6 @@ pub(crate) fn dispatch_builtin(
         "text-quoting-style" => super::coding::builtin_text_quoting_style(args),
         "locale-info" => super::misc::builtin_locale_info(args),
         // Reader/printer (pure)
-        "y-or-n-p" => super::reader::builtin_y_or_n_p(eval, args),
         "yes-or-no-p" => super::reader::builtin_yes_or_no_p(eval, args),
 
         // Char-table / bool-vector (pure)
@@ -4174,7 +4093,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "syntax-class-to-char" => super::syntax::builtin_syntax_class_to_char(args),
         // matching-paren is now dispatched in dispatch_builtin (eval-dependent)
         // "matching-paren" => handled in dispatch_builtin
-        "make-syntax-table" => super::syntax::builtin_make_syntax_table(args),
         "copy-syntax-table" => super::syntax::builtin_copy_syntax_table(args),
         "syntax-table-p" => super::syntax::builtin_syntax_table_p(args),
         "standard-syntax-table" => super::syntax::builtin_standard_syntax_table(args),
@@ -4257,7 +4175,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "logcount" => super::editfns::builtin_logcount(args),
         // Timer (pure)
         "timerp" => super::timer::builtin_timerp(args),
-        "sit-for" => super::timer::builtin_sit_for(args),
         // Undo system (pure)
         "primitive-undo" => super::undo::builtin_primitive_undo(args),
         // Keyboard macro (pure)
