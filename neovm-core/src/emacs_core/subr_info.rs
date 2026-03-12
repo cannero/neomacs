@@ -761,8 +761,6 @@ fn subr_arity_value(name: &str) -> Value {
         "string-version-lessp" => arity_cons(2, Some(2)),
         "string-width" => arity_cons(1, Some(3)),
         "clear-rectangle" => arity_cons(2, Some(3)),
-        "seq-drop" => arity_cons(1, None),
-        "seq-count" => arity_cons(2, Some(3)),
         "sort" => arity_cons(1, None),
         "self-insert-command"
         | "single-key-description"

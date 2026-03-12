@@ -2286,15 +2286,6 @@ pub(crate) fn dispatch_builtin(
                 super::coding::builtin_find_coding_systems_region_internal_eval(eval, args),
             );
         }
-        "seq-position" => return Some(super::cl_lib::builtin_seq_position(eval, args)),
-        "seq-contains-p" => return Some(super::cl_lib::builtin_seq_contains_p(eval, args)),
-        "seq-mapn" => return Some(super::cl_lib::builtin_seq_mapn(eval, args)),
-        "seq-do" => return Some(super::cl_lib::builtin_seq_do(eval, args)),
-        "seq-count" => return Some(super::cl_lib::builtin_seq_count(eval, args)),
-        "seq-reduce" => return Some(super::cl_lib::builtin_seq_reduce(eval, args)),
-        "seq-some" => return Some(super::cl_lib::builtin_seq_some(eval, args)),
-        "seq-every-p" => return Some(super::cl_lib::builtin_seq_every_p(eval, args)),
-        "seq-sort" => return Some(super::cl_lib::builtin_seq_sort(eval, args)),
         "assoc" => return Some(builtin_assoc_eval(eval, args)),
         "plist-member" => return Some(builtin_plist_member(eval, args)),
         "json-parse-buffer" => return Some(super::json::builtin_json_parse_buffer(eval, args)),
@@ -3396,14 +3387,6 @@ pub(crate) fn dispatch_builtin(
         "bool-vector-subsetp" => super::chartable::builtin_bool_vector_subsetp(args),
 
         // Note: windowp and framep are in the eval-dependent section above
-        "seq-reverse" => super::cl_lib::builtin_seq_reverse(args),
-        "seq-drop" => super::cl_lib::builtin_seq_drop(args),
-        "seq-take" => super::cl_lib::builtin_seq_take(args),
-        "seq-subseq" => super::cl_lib::builtin_seq_subseq(args),
-        "seq-concatenate" => super::cl_lib::builtin_seq_concatenate(args),
-        "seq-empty-p" => super::cl_lib::builtin_seq_empty_p(args),
-        "seq-min" => super::cl_lib::builtin_seq_min(args),
-        "seq-max" => super::cl_lib::builtin_seq_max(args),
         // Search (pure)
         "string-match" => super::search::builtin_string_match(args),
         "regexp-quote" => super::search::builtin_regexp_quote(args),

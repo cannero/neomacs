@@ -1592,6 +1592,27 @@ impl Evaluator {
             "window",
             "Return the width, in columns, of WINDOW.",
         );
+        for name in [
+            "seq-concatenate",
+            "seq-contains-p",
+            "seq-count",
+            "seq-do",
+            "seq-drop",
+            "seq-empty-p",
+            "seq-every-p",
+            "seq-mapn",
+            "seq-max",
+            "seq-min",
+            "seq-position",
+            "seq-reduce",
+            "seq-reverse",
+            "seq-some",
+            "seq-sort",
+            "seq-subseq",
+            "seq-take",
+        ] {
+            seed_autoload_noninteractive(name, "seq", "");
+        }
         seed_autoload_noninteractive(
             "insert-rectangle",
             "rect",
@@ -1712,27 +1733,7 @@ impl Evaluator {
             let bc = Compiler::new(false).compile_lambda(&params, &body);
             obarray.set_symbol_function(name, Value::make_bytecode(bc));
         };
-        for name in [
-            "seq-count",
-            "seq-concatenate",
-            "seq-contains-p",
-            "seq-drop",
-            "seq-do",
-            "seq-empty-p",
-            "seq-every-p",
-            "seq-mapn",
-            "seq-max",
-            "seq-min",
-            "seq-position",
-            "seq-reduce",
-            "seq-reverse",
-            "seq-some",
-            "seq-sort",
-            "seq-subseq",
-            "seq-take",
-            "string-blank-p",
-            "string-empty-p",
-        ] {
+        for name in ["string-blank-p", "string-empty-p"] {
             seed_function_wrapper(&mut obarray, name);
         }
 
