@@ -14,6 +14,24 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(unix)]
+fn assert_same_file_paths(path1: &str, path2: &str) {
+    use std::os::unix::fs::MetadataExt;
+
+    let meta1 = fs::metadata(path1).expect("metadata path1");
+    let meta2 = fs::metadata(path2).expect("metadata path2");
+    assert_eq!(meta1.dev(), meta2.dev());
+    assert_eq!(meta1.ino(), meta2.ino());
+}
+
+#[cfg(not(unix))]
+fn assert_same_file_paths(path1: &str, path2: &str) {
+    assert_eq!(
+        fs::read(path1).expect("read path1"),
+        fs::read(path2).expect("read path2")
+    );
+}
+
 // -----------------------------------------------------------------------
 // Path operations
 // -----------------------------------------------------------------------
@@ -718,7 +736,7 @@ fn test_builtin_add_name_to_file_semantics() {
         Value::Nil
     );
     assert!(file_exists_p(&dst_str));
-    assert!(file_equal_p(&src_str, &dst_str));
+    assert_same_file_paths(&src_str, &dst_str);
 
     let err = builtin_add_name_to_file(vec![Value::string(&src_str), Value::string(&dst_str)])
         .unwrap_err();
@@ -736,7 +754,7 @@ fn test_builtin_add_name_to_file_semantics() {
         .unwrap(),
         Value::Nil
     );
-    assert!(file_equal_p(&src_str, &dst_str));
+    assert_same_file_paths(&src_str, &dst_str);
 
     let missing = dir.join("missing.txt").to_string_lossy().to_string();
     let dst2 = dir.join("alias2.txt").to_string_lossy().to_string();
@@ -1313,10 +1331,10 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
     )
     .unwrap();
     assert!(base.join("delta.txt").exists());
-    assert!(file_equal_p(
+    assert_same_file_paths(
         &base.join("alpha.txt").to_string_lossy(),
         &base.join("delta.txt").to_string_lossy(),
-    ));
+    );
     builtin_delete_file_eval(&eval, vec![Value::string("delta.txt")]).unwrap();
 
     let _ = fs::remove_dir_all(&base);
@@ -1748,10 +1766,6 @@ fn test_builtin_file_predicates_strict_types() {
     assert!(builtin_file_name_case_insensitive_p(vec![Value::Nil]).is_err());
     assert!(builtin_file_newer_than_file_p(vec![Value::Nil, Value::string("/tmp")]).is_err());
     assert!(builtin_file_newer_than_file_p(vec![Value::string("/tmp"), Value::Nil]).is_err());
-    assert!(builtin_file_equal_p(vec![Value::Nil, Value::string("/tmp")]).is_err());
-    assert!(builtin_file_equal_p(vec![Value::string("/tmp"), Value::Nil]).is_err());
-    assert!(builtin_file_in_directory_p(vec![Value::Nil, Value::string("/tmp")]).is_err());
-    assert!(builtin_file_in_directory_p(vec![Value::string("/tmp"), Value::Nil]).is_err());
 }
 
 #[test]
@@ -1883,177 +1897,6 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
     assert_eq!(result, Value::True);
 
     let _ = fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn test_builtin_file_equal_p_semantics() {
-    let base = std::env::temp_dir().join("neovm-file-equal-p");
-    let dir = base.join("dir");
-    let a = dir.join("a.txt");
-    let b = dir.join("b.txt");
-    let missing = dir.join("missing.txt");
-    let _ = fs::remove_dir_all(&base);
-    fs::create_dir_all(&dir).expect("create dir");
-    fs::write(&a, b"a").expect("write a");
-    fs::write(&b, b"b").expect("write b");
-
-    assert_eq!(
-        builtin_file_equal_p(vec![
-            Value::string(a.to_string_lossy()),
-            Value::string(a.to_string_lossy()),
-        ])
-        .expect("same path"),
-        Value::True
-    );
-    assert_eq!(
-        builtin_file_equal_p(vec![
-            Value::string(a.to_string_lossy()),
-            Value::string(b.to_string_lossy()),
-        ])
-        .expect("different files"),
-        Value::Nil
-    );
-    assert_eq!(
-        builtin_file_equal_p(vec![
-            Value::string(a.to_string_lossy()),
-            Value::string(missing.to_string_lossy()),
-        ])
-        .expect("missing file"),
-        Value::Nil
-    );
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::symlink;
-        let link = dir.join("link.txt");
-        symlink(&a, &link).expect("symlink");
-        assert_eq!(
-            builtin_file_equal_p(vec![
-                Value::string(a.to_string_lossy()),
-                Value::string(link.to_string_lossy()),
-            ])
-            .expect("symlink equals target"),
-            Value::True
-        );
-        let _ = fs::remove_file(&link);
-    }
-
-    let _ = fs::remove_dir_all(&base);
-}
-
-#[test]
-fn test_file_equal_p_eval_respects_default_directory() {
-    use super::super::eval::Evaluator;
-
-    let base = std::env::temp_dir().join("neovm-file-equal-p-eval");
-    let dir = base.join("dir");
-    let a = dir.join("a.txt");
-    let _ = fs::remove_dir_all(&base);
-    fs::create_dir_all(&dir).expect("create dir");
-    fs::write(&a, b"a").expect("write a");
-
-    let mut eval = Evaluator::new();
-    eval.obarray.set_symbol_value(
-        "default-directory",
-        Value::string(format!("{}/", base.to_string_lossy())),
-    );
-
-    assert_eq!(
-        builtin_file_equal_p_eval(
-            &eval,
-            vec![Value::string("dir/a.txt"), Value::string("dir/./a.txt")],
-        )
-        .expect("relative equality in default-directory"),
-        Value::True
-    );
-
-    let _ = fs::remove_dir_all(&base);
-}
-
-#[test]
-fn test_builtin_file_in_directory_p_semantics() {
-    let base = std::env::temp_dir().join("neovm-file-in-directory-p");
-    let dir = base.join("dir");
-    let out = base.join("out");
-    let inside = dir.join("inside.txt");
-    let outside = out.join("outside.txt");
-    let _ = fs::remove_dir_all(&base);
-    fs::create_dir_all(&dir).expect("create dir");
-    fs::create_dir_all(&out).expect("create out");
-    fs::write(&inside, b"inside").expect("write inside");
-    fs::write(&outside, b"outside").expect("write outside");
-
-    assert_eq!(
-        builtin_file_in_directory_p(vec![
-            Value::string(inside.to_string_lossy()),
-            Value::string(dir.to_string_lossy()),
-        ])
-        .expect("inside check"),
-        Value::True
-    );
-    assert_eq!(
-        builtin_file_in_directory_p(vec![
-            Value::string(outside.to_string_lossy()),
-            Value::string(dir.to_string_lossy()),
-        ])
-        .expect("outside check"),
-        Value::Nil
-    );
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::symlink;
-        let link = dir.join("link");
-        symlink(&out, &link).expect("symlink");
-        let link_child = link.join("child.txt");
-        assert_eq!(
-            builtin_file_in_directory_p(vec![
-                Value::string(link_child.to_string_lossy()),
-                Value::string(dir.to_string_lossy()),
-            ])
-            .expect("symlink path against dir"),
-            Value::Nil
-        );
-        assert_eq!(
-            builtin_file_in_directory_p(vec![
-                Value::string(link_child.to_string_lossy()),
-                Value::string(out.to_string_lossy()),
-            ])
-            .expect("symlink path against target dir"),
-            Value::True
-        );
-    }
-
-    let _ = fs::remove_dir_all(&base);
-}
-
-#[test]
-fn test_file_in_directory_p_eval_respects_default_directory() {
-    use super::super::eval::Evaluator;
-
-    let base = std::env::temp_dir().join("neovm-file-in-directory-p-eval");
-    let dir = base.join("dir");
-    let file = dir.join("inside.txt");
-    let _ = fs::remove_dir_all(&base);
-    fs::create_dir_all(&dir).expect("create dir");
-    fs::write(&file, b"inside").expect("write file");
-
-    let mut eval = Evaluator::new();
-    eval.obarray.set_symbol_value(
-        "default-directory",
-        Value::string(format!("{}/", base.to_string_lossy())),
-    );
-
-    assert_eq!(
-        builtin_file_in_directory_p_eval(
-            &eval,
-            vec![Value::string("dir/inside.txt"), Value::string("dir")],
-        )
-        .expect("eval in-directory check"),
-        Value::True
-    );
-
-    let _ = fs::remove_dir_all(&base);
 }
 
 #[test]

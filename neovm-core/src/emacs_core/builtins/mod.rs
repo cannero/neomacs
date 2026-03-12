@@ -1099,9 +1099,6 @@ pub(crate) fn dispatch_builtin(
         "expand-file-name" => {
             return Some(super::fileio::builtin_expand_file_name_eval(eval, args));
         }
-        "file-relative-name" => {
-            return Some(super::fileio::builtin_file_relative_name_eval(eval, args));
-        }
         "file-truename" => return Some(super::fileio::builtin_file_truename_eval(eval, args)),
         "insert-file-contents" => {
             return Some(super::fileio::builtin_insert_file_contents(eval, args));
@@ -1193,10 +1190,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::fileio::builtin_file_newer_than_file_p_eval(
                 eval, args,
             ));
-        }
-        "file-equal-p" => return Some(super::fileio::builtin_file_equal_p_eval(eval, args)),
-        "file-in-directory-p" => {
-            return Some(super::fileio::builtin_file_in_directory_p_eval(eval, args));
         }
         "file-modes" => return Some(super::fileio::builtin_file_modes_eval(eval, args)),
         "set-file-modes" => return Some(super::fileio::builtin_set_file_modes_eval(eval, args)),
@@ -3020,7 +3013,6 @@ pub(crate) fn dispatch_builtin(
         "directory-file-name" => super::fileio::builtin_directory_file_name(args),
         "file-name-concat" => super::fileio::builtin_file_name_concat(args),
         "file-name-absolute-p" => super::fileio::builtin_file_name_absolute_p(args),
-        "file-relative-name" => super::fileio::builtin_file_relative_name(args),
         "directory-name-p" => super::fileio::builtin_directory_name_p(args),
         "directory-empty-p" => super::fileio::builtin_directory_empty_p(args),
         "file-nlinks" => super::fileio::builtin_file_nlinks(args),
@@ -3040,8 +3032,6 @@ pub(crate) fn dispatch_builtin(
         "file-symlink-p" => super::fileio::builtin_file_symlink_p(args),
         "file-name-case-insensitive-p" => super::fileio::builtin_file_name_case_insensitive_p(args),
         "file-newer-than-file-p" => super::fileio::builtin_file_newer_than_file_p(args),
-        "file-equal-p" => super::fileio::builtin_file_equal_p(args),
-        "file-in-directory-p" => super::fileio::builtin_file_in_directory_p(args),
         "file-modes" => super::fileio::builtin_file_modes(args),
         "set-file-modes" => super::fileio::builtin_set_file_modes(args),
         "set-file-times" => super::fileio::builtin_set_file_times(args),
@@ -4245,7 +4235,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "directory-file-name" => super::fileio::builtin_directory_file_name(args),
         "file-name-concat" => super::fileio::builtin_file_name_concat(args),
         "file-name-absolute-p" => super::fileio::builtin_file_name_absolute_p(args),
-        "file-relative-name" => super::fileio::builtin_file_relative_name(args),
         "directory-name-p" => super::fileio::builtin_directory_name_p(args),
         "directory-empty-p" => super::fileio::builtin_directory_empty_p(args),
         "file-nlinks" => super::fileio::builtin_file_nlinks(args),
@@ -4265,8 +4254,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "file-symlink-p" => super::fileio::builtin_file_symlink_p(args),
         "file-name-case-insensitive-p" => super::fileio::builtin_file_name_case_insensitive_p(args),
         "file-newer-than-file-p" => super::fileio::builtin_file_newer_than_file_p(args),
-        "file-equal-p" => super::fileio::builtin_file_equal_p(args),
-        "file-in-directory-p" => super::fileio::builtin_file_in_directory_p(args),
         "file-modes" => super::fileio::builtin_file_modes(args),
         "set-file-modes" => super::fileio::builtin_set_file_modes(args),
         "set-file-times" => super::fileio::builtin_set_file_times(args),
