@@ -1292,7 +1292,6 @@ impl Evaluator {
             "region-beginning",
             "region-end",
             "set-mark",
-            "use-region-p",
         ] {
             obarray.set_symbol_function(name, Value::Subr(intern(name)));
         }
@@ -1546,6 +1545,11 @@ impl Evaluator {
             "push-mark",
             "simple",
             "Set mark at LOCATION and push old mark on mark ring.",
+        );
+        seed_autoload_noninteractive(
+            "use-region-p",
+            "simple",
+            "Return t if Transient Mark mode is enabled and the mark is active.",
         );
         seed_autoload_noninteractive(
             "string-clean-whitespace",

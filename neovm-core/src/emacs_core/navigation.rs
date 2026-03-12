@@ -770,27 +770,6 @@ pub(crate) fn builtin_region_end(
     Ok(Value::Int(byte_to_char_pos(buf, end)))
 }
 
-/// (use-region-p) -> t or nil
-pub(crate) fn builtin_use_region_p(
-    eval: &mut super::eval::Evaluator,
-    _args: Vec<Value>,
-) -> EvalResult {
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
-    let mark_active = match dynamic_or_global_symbol_value(eval, "mark-active") {
-        Some(v) => v.is_truthy(),
-        None => buf
-            .properties
-            .get("mark-active")
-            .is_some_and(|v| v.is_truthy()),
-    };
-    let transient_mark_mode =
-        dynamic_or_global_symbol_value(eval, "transient-mark-mode").is_some_and(|v| v.is_truthy());
-    let non_empty_region = buf.mark().is_some_and(|m| m != buf.point());
-    Ok(Value::bool(
-        mark_active && transient_mark_mode && non_empty_region,
-    ))
-}
-
 /// (region-active-p) -> t or nil
 pub(crate) fn builtin_region_active_p(
     eval: &mut super::eval::Evaluator,

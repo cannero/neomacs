@@ -1760,7 +1760,6 @@ pub(crate) fn dispatch_builtin(
         "region-beginning" => return Some(super::navigation::builtin_region_beginning(eval, args)),
         "region-active-p" => return Some(super::navigation::builtin_region_active_p(eval, args)),
         "region-end" => return Some(super::navigation::builtin_region_end(eval, args)),
-        "use-region-p" => return Some(super::navigation::builtin_use_region_p(eval, args)),
         "deactivate-mark" => return Some(super::navigation::builtin_deactivate_mark(eval, args)),
         "activate-mark" => return Some(super::navigation::builtin_activate_mark(eval, args)),
         "transient-mark-mode" => {

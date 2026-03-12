@@ -713,7 +713,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "set-mark",
     "activate-mark",
     "deactivate-mark",
-    "use-region-p",
     "module-load",
     "mouse-pixel-position",
     "mouse-position",

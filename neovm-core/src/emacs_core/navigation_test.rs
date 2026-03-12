@@ -437,6 +437,16 @@ fn test_region_beginning_and_end() {
 }
 
 #[test]
+fn test_use_region_p_startup_is_autoloaded() {
+    let eval = super::super::eval::Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("use-region-p")
+        .expect("missing use-region-p startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
+}
+
+#[test]
 fn test_use_region_p() {
     let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
@@ -553,7 +563,7 @@ fn test_mark_marker() {
 
 #[test]
 fn test_set_mark_activates() {
-    let mut ev = eval_with_text("hello");
+    let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
         "(let ((transient-mark-mode t))
@@ -565,7 +575,7 @@ fn test_set_mark_activates() {
 
 #[test]
 fn test_use_region_p_honors_buffer_local_mark_active_when_global_is_nil() {
-    let mut ev = eval_with_text("hello");
+    let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
         "(with-temp-buffer
