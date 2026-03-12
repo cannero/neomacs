@@ -1079,6 +1079,26 @@ fn bootstrap_runtime_describe_variable_autoloads_help_fns() {
     assert_eq!(rendered, "OK (t t nil t)");
 }
 
+#[test]
+fn bootstrap_misc_upcase_char_preserves_point_and_uppercases_region() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let misc = project_root.join("lisp/misc.el");
+
+    let rendered = fresh_bootstrap_eval_with_loaded_file(
+        &misc,
+        r#"
+(with-temp-buffer
+  (insert "abCd")
+  (goto-char (point-min))
+  (funcall (symbol-function 'upcase-char) 2)
+  (list (buffer-string) (point)))
+"#,
+    );
+
+    assert_eq!(rendered, r#"OK ("ABCd" 1)"#);
+}
+
 fn cached_bootstrap_eval_with_loaded_file(path: &std::path::Path, form: &str) -> String {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
