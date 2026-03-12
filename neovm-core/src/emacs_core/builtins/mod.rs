@@ -935,7 +935,6 @@ pub(crate) fn dispatch_builtin(
         "garbage-collect" => return Some(builtin_garbage_collect_eval(eval, args)),
         // Loading
         "load" => return Some(builtin_load(eval, args)),
-        "load-file" => return Some(builtin_load_file(eval, args)),
         "symbol-file" => return Some(super::autoload::builtin_symbol_file_eval(eval, args)),
         "neovm-precompile-file" => return Some(builtin_neovm_precompile_file(eval, args)),
         "eval" => return Some(builtin_eval(eval, args)),
@@ -1099,17 +1098,12 @@ pub(crate) fn dispatch_builtin(
         "expand-file-name" => {
             return Some(super::fileio::builtin_expand_file_name_eval(eval, args));
         }
-        "file-truename" => return Some(super::fileio::builtin_file_truename_eval(eval, args)),
         "insert-file-contents" => {
             return Some(super::fileio::builtin_insert_file_contents(eval, args));
         }
         "write-region" => return Some(super::fileio::builtin_write_region(eval, args)),
-        "delete-file" => return Some(super::fileio::builtin_delete_file_eval(eval, args)),
         "delete-file-internal" => {
             return Some(super::fileio::builtin_delete_file_internal_eval(eval, args));
-        }
-        "delete-directory" => {
-            return Some(super::fileio::builtin_delete_directory_eval(eval, args));
         }
         "delete-directory-internal" => {
             return Some(super::fileio::builtin_delete_directory_internal_eval(
@@ -1129,13 +1123,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "make-temp-file" => return Some(super::fileio::builtin_make_temp_file_eval(eval, args)),
-        "make-nearby-temp-file" => {
-            return Some(super::fileio::builtin_make_nearby_temp_file_eval(
-                eval, args,
-            ));
-        }
-        "find-file-noselect" => return Some(super::fileio::builtin_find_file_noselect(eval, args)),
         "directory-files" => return Some(super::fileio::builtin_directory_files_eval(eval, args)),
         "directory-files-and-attributes" => {
             return Some(super::dired::builtin_directory_files_and_attributes_eval(
@@ -2431,8 +2418,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::interactive::builtin_command_remapping(eval, args));
         }
         "command-execute" => return Some(super::interactive::builtin_command_execute(eval, args)),
-        "find-file" => return Some(super::interactive::builtin_find_file_command(eval, args)),
-        "save-buffer" => return Some(super::interactive::builtin_save_buffer_command(eval, args)),
         "eval-expression" => return Some(super::interactive::builtin_eval_expression(eval, args)),
         "self-insert-command" => {
             return Some(super::interactive::builtin_self_insert_command(eval, args));
@@ -2468,11 +2453,6 @@ pub(crate) fn dispatch_builtin(
         "where-is-internal" => {
             return Some(super::interactive::builtin_where_is_internal(eval, args));
         }
-        "substitute-command-keys" => {
-            return Some(super::interactive::builtin_substitute_command_keys(
-                eval, args,
-            ));
-        }
         "this-command-keys" => {
             return Some(super::interactive::builtin_this_command_keys(eval, args));
         }
@@ -2507,8 +2487,6 @@ pub(crate) fn dispatch_builtin(
         "read-string" => return Some(super::reader::builtin_read_string(eval, args)),
         "read-number" => return Some(super::reader::builtin_read_number(eval, args)),
         "completing-read" => return Some(super::reader::builtin_completing_read(eval, args)),
-        "read-file-name" => return Some(super::minibuffer::builtin_read_file_name(args)),
-        "read-directory-name" => return Some(super::minibuffer::builtin_read_directory_name(args)),
         "read-buffer" => return Some(super::minibuffer::builtin_read_buffer(args)),
         "read-command" => return Some(super::minibuffer::builtin_read_command(args)),
         "read-variable" => return Some(super::minibuffer::builtin_read_variable(args)),
@@ -3005,7 +2983,6 @@ pub(crate) fn dispatch_builtin(
         // File I/O (pure)
         "access-file" => super::fileio::builtin_access_file(args),
         "expand-file-name" => super::fileio::builtin_expand_file_name(args),
-        "file-truename" => super::fileio::builtin_file_truename(args),
         "file-name-directory" => super::fileio::builtin_file_name_directory(args),
         "file-name-nondirectory" => super::fileio::builtin_file_name_nondirectory(args),
         "file-name-as-directory" => super::fileio::builtin_file_name_as_directory(args),
@@ -3036,18 +3013,14 @@ pub(crate) fn dispatch_builtin(
         "visited-file-modtime" => super::fileio::builtin_visited_file_modtime(args),
         "default-file-modes" => super::fileio::builtin_default_file_modes(args),
         "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
-        "delete-file" => super::fileio::builtin_delete_file(args),
         "delete-file-internal" => super::fileio::builtin_delete_file_internal(args),
-        "delete-directory" => super::fileio::builtin_delete_directory(args),
         "delete-directory-internal" => super::fileio::builtin_delete_directory_internal(args),
         "rename-file" => super::fileio::builtin_rename_file(args),
         "copy-file" => super::fileio::builtin_copy_file(args),
         "add-name-to-file" => super::fileio::builtin_add_name_to_file(args),
         "make-symbolic-link" => super::fileio::builtin_make_symbolic_link(args),
         "make-directory-internal" => super::fileio::builtin_make_directory_internal(args),
-        "make-temp-file" => super::fileio::builtin_make_temp_file(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
-        "make-nearby-temp-file" => super::fileio::builtin_make_nearby_temp_file(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
         "unhandled-file-name-directory" => {
             super::fileio::builtin_unhandled_file_name_directory(args)
@@ -3838,8 +3811,6 @@ pub(crate) fn dispatch_builtin(
         // Documentation/help (pure)
         "documentation-property" => super::doc::builtin_documentation_property(args),
         "Snarf-documentation" => super::doc::builtin_snarf_documentation(args),
-        "substitute-command-keys" => super::doc::builtin_substitute_command_keys(args),
-
         // JSON (pure)
         "json-serialize" => super::json::builtin_json_serialize(args),
         "json-parse-string" => super::json::builtin_json_parse_string(args),
@@ -4007,7 +3978,6 @@ pub(crate) fn dispatch_builtin(
 
         // Lread (pure)
         "get-load-suffixes" => super::lread::builtin_get_load_suffixes(args),
-        "locate-file" => super::lread::builtin_locate_file(args),
         "locate-file-internal" => super::lread::builtin_locate_file_internal(args),
         "read-coding-system" => super::lread::builtin_read_coding_system(args),
         "read-non-nil-coding-system" => super::lread::builtin_read_non_nil_coding_system(args),
@@ -4223,7 +4193,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "invocation-name" => builtin_invocation_name(args),
         // File I/O (pure)
         "expand-file-name" => super::fileio::builtin_expand_file_name(args),
-        "file-truename" => super::fileio::builtin_file_truename(args),
         "file-name-directory" => super::fileio::builtin_file_name_directory(args),
         "file-name-nondirectory" => super::fileio::builtin_file_name_nondirectory(args),
         "file-name-as-directory" => super::fileio::builtin_file_name_as_directory(args),
@@ -4255,13 +4224,11 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "default-file-modes" => super::fileio::builtin_default_file_modes(args),
         "set-default-file-modes" => super::fileio::builtin_set_default_file_modes(args),
         "delete-file-internal" => super::fileio::builtin_delete_file_internal(args),
-        "delete-directory" => super::fileio::builtin_delete_directory(args),
         "delete-directory-internal" => super::fileio::builtin_delete_directory_internal(args),
         "add-name-to-file" => super::fileio::builtin_add_name_to_file(args),
         "make-symbolic-link" => super::fileio::builtin_make_symbolic_link(args),
         "make-directory-internal" => super::fileio::builtin_make_directory_internal(args),
         "make-temp-name" => super::fileio::builtin_make_temp_name(args),
-        "make-nearby-temp-file" => super::fileio::builtin_make_nearby_temp_file(args),
         "next-read-file-uses-dialog-p" => super::fileio::builtin_next_read_file_uses_dialog_p(args),
         "unhandled-file-name-directory" => {
             super::fileio::builtin_unhandled_file_name_directory(args)
