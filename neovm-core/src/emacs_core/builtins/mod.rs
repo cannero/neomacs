@@ -995,7 +995,6 @@ pub(crate) fn dispatch_builtin(
         "delete-all-overlays" => return Some(builtin_delete_all_overlays(eval, args)),
         "erase-buffer" => return Some(builtin_erase_buffer(eval, args)),
         "buffer-enable-undo" => return Some(builtin_buffer_enable_undo(eval, args)),
-        "buffer-disable-undo" => return Some(builtin_buffer_disable_undo(eval, args)),
         "buffer-size" => return Some(builtin_buffer_size(eval, args)),
         "narrow-to-region" => return Some(builtin_narrow_to_region(eval, args)),
         "widen" => return Some(builtin_widen(eval, args)),
@@ -1206,7 +1205,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::process::builtin_backquote_delay_process(eval, args));
         }
         "backquote-process" => return Some(super::process::builtin_backquote_process(eval, args)),
-        "clone-process" => return Some(super::process::builtin_clone_process(eval, args)),
         "internal-default-interrupt-process" => {
             return Some(super::process::builtin_internal_default_interrupt_process(
                 eval, args,
@@ -1300,10 +1298,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::process::builtin_list_system_processes(eval, args));
         }
         "num-processors" => return Some(super::process::builtin_num_processors(eval, args)),
-        "list-processes" => return Some(super::process::builtin_list_processes(eval, args)),
-        "list-processes--refresh" => {
-            return Some(super::process::builtin_list_processes_refresh(eval, args));
-        }
         "make-process" => return Some(super::process::builtin_make_process(eval, args)),
         "make-network-process" => {
             return Some(super::process::builtin_make_network_process(eval, args));
@@ -1320,11 +1314,7 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "start-file-process" => {
-            return Some(super::process::builtin_start_file_process(eval, args));
-        }
         "call-process" => return Some(super::process::builtin_call_process(eval, args)),
-        "process-file" => return Some(super::process::builtin_process_file(eval, args)),
         "call-process-region" => {
             return Some(super::process::builtin_call_process_region(eval, args));
         }
@@ -1404,16 +1394,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "process-menu-delete-process" => {
-            return Some(super::process::builtin_process_menu_delete_process(
-                eval, args,
-            ));
-        }
-        "process-menu-visit-buffer" => {
-            return Some(super::process::builtin_process_menu_visit_buffer(
-                eval, args,
-            ));
-        }
         "process-menu-mode" => return Some(super::process::builtin_process_menu_mode(args)),
         "process-tty-name" => return Some(super::process::builtin_process_tty_name(eval, args)),
         "process-plist" => return Some(super::process::builtin_process_plist(eval, args)),
@@ -1473,7 +1453,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::syntax::builtin_backward_prefix_chars(eval, args));
         }
         "forward-word" => return Some(super::syntax::builtin_forward_word(eval, args)),
-        "backward-word" => return Some(super::syntax::builtin_backward_word(eval, args)),
         "forward-sexp" => return Some(super::syntax::builtin_forward_sexp(eval, args)),
         "backward-sexp" => return Some(super::syntax::builtin_backward_sexp(eval, args)),
         "scan-lists" => return Some(super::syntax::builtin_scan_lists(eval, args)),
@@ -1655,21 +1634,10 @@ pub(crate) fn dispatch_builtin(
             return Some(super::navigation::builtin_line_number_at_pos(eval, args));
         }
         "forward-line" => return Some(super::navigation::builtin_forward_line(eval, args)),
-        "next-line" => return Some(super::navigation::builtin_next_line(eval, args)),
-        "previous-line" => return Some(super::navigation::builtin_previous_line(eval, args)),
         "beginning-of-line" => {
             return Some(super::navigation::builtin_beginning_of_line(eval, args));
         }
-        "beginning-of-buffer" => {
-            return Some(super::navigation::builtin_beginning_of_buffer(eval, args));
-        }
-        "move-beginning-of-line" => {
-            return Some(super::navigation::builtin_beginning_of_line(eval, args));
-        }
         "end-of-line" => return Some(super::navigation::builtin_end_of_line(eval, args)),
-        "end-of-buffer" => return Some(super::navigation::builtin_end_of_buffer(eval, args)),
-        "move-end-of-line" => return Some(super::navigation::builtin_end_of_line(eval, args)),
-        "goto-line" => return Some(super::navigation::builtin_goto_line(eval, args)),
         "forward-char" => return Some(super::navigation::builtin_forward_char(eval, args)),
         "backward-char" => return Some(super::navigation::builtin_backward_char(eval, args)),
         "skip-chars-forward" => {
@@ -1678,14 +1646,9 @@ pub(crate) fn dispatch_builtin(
         "skip-chars-backward" => {
             return Some(super::navigation::builtin_skip_chars_backward(eval, args));
         }
-        "set-mark" => return Some(super::navigation::builtin_set_mark_nav(eval, args)),
-        "mark" => return Some(super::navigation::builtin_mark_nav(eval, args)),
         "mark-marker" => return Some(super::marker::builtin_mark_marker(eval, args)),
         "region-beginning" => return Some(super::navigation::builtin_region_beginning(eval, args)),
-        "region-active-p" => return Some(super::navigation::builtin_region_active_p(eval, args)),
         "region-end" => return Some(super::navigation::builtin_region_end(eval, args)),
-        "deactivate-mark" => return Some(super::navigation::builtin_deactivate_mark(eval, args)),
-        "activate-mark" => return Some(super::navigation::builtin_activate_mark(eval, args)),
         "transient-mark-mode" => {
             return Some(super::navigation::builtin_transient_mark_mode(eval, args));
         }
@@ -1721,22 +1684,6 @@ pub(crate) fn dispatch_builtin(
         "autoload-do-load" => return Some(super::autoload::builtin_autoload_do_load(eval, args)),
 
         // Kill ring / text editing (evaluator-dependent — buffer access)
-        "kill-new" => return Some(super::kill_ring::builtin_kill_new(eval, args)),
-        "kill-append" => return Some(super::kill_ring::builtin_kill_append(eval, args)),
-        "current-kill" => return Some(super::kill_ring::builtin_current_kill(eval, args)),
-        "kill-region" => return Some(super::kill_ring::builtin_kill_region(eval, args)),
-        "kill-ring-save" => return Some(super::kill_ring::builtin_kill_ring_save(eval, args)),
-        "copy-region-as-kill" => {
-            return Some(super::kill_ring::builtin_copy_region_as_kill(eval, args));
-        }
-        "kill-line" => return Some(super::kill_ring::builtin_kill_line(eval, args)),
-        "kill-whole-line" => return Some(super::kill_ring::builtin_kill_whole_line(eval, args)),
-        "kill-word" => return Some(super::kill_ring::builtin_kill_word(eval, args)),
-        "backward-kill-word" => {
-            return Some(super::kill_ring::builtin_backward_kill_word(eval, args));
-        }
-        "yank" => return Some(super::kill_ring::builtin_yank(eval, args)),
-        "yank-pop" => return Some(super::kill_ring::builtin_yank_pop(eval, args)),
         "downcase-region" => return Some(super::kill_ring::builtin_downcase_region(eval, args)),
         "upcase-region" => return Some(super::kill_ring::builtin_upcase_region(eval, args)),
         "capitalize-region" => {
@@ -1745,32 +1692,14 @@ pub(crate) fn dispatch_builtin(
         "downcase-word" => return Some(super::kill_ring::builtin_downcase_word(eval, args)),
         "upcase-word" => return Some(super::kill_ring::builtin_upcase_word(eval, args)),
         "capitalize-word" => return Some(super::kill_ring::builtin_capitalize_word(eval, args)),
-        "transpose-chars" => return Some(super::kill_ring::builtin_transpose_chars(eval, args)),
-        "transpose-sexps" => return Some(super::kill_ring::builtin_transpose_sexps(eval, args)),
         "transpose-sentences" => {
             return Some(super::kill_ring::builtin_transpose_sentences(eval, args));
         }
         "transpose-paragraphs" => {
             return Some(super::kill_ring::builtin_transpose_paragraphs(eval, args));
         }
-        "transpose-words" => return Some(super::kill_ring::builtin_transpose_words(eval, args)),
-        "transpose-lines" => return Some(super::kill_ring::builtin_transpose_lines(eval, args)),
         "indent-line-to" => return Some(super::kill_ring::builtin_indent_line_to(eval, args)),
         "indent-to" => return Some(super::kill_ring::builtin_indent_to(eval, args)),
-        "newline" => return Some(super::kill_ring::builtin_newline(eval, args)),
-        "newline-and-indent" => {
-            return Some(super::kill_ring::builtin_newline_and_indent(eval, args));
-        }
-        "open-line" => return Some(super::kill_ring::builtin_open_line(eval, args)),
-        "delete-horizontal-space" => {
-            return Some(super::kill_ring::builtin_delete_horizontal_space(
-                eval, args,
-            ));
-        }
-        "just-one-space" => return Some(super::kill_ring::builtin_just_one_space(eval, args)),
-        "delete-indentation" => {
-            return Some(super::kill_ring::builtin_delete_indentation(eval, args));
-        }
         "tab-to-tab-stop" => return Some(super::kill_ring::builtin_tab_to_tab_stop(eval, args)),
         "indent-rigidly" => return Some(super::kill_ring::builtin_indent_rigidly(eval, args)),
 
@@ -2360,26 +2289,8 @@ pub(crate) fn dispatch_builtin(
         "command-remapping" => {
             return Some(super::interactive::builtin_command_remapping(eval, args));
         }
-        "command-execute" => return Some(super::interactive::builtin_command_execute(eval, args)),
-        "eval-expression" => return Some(super::interactive::builtin_eval_expression(eval, args)),
         "self-insert-command" => {
             return Some(super::interactive::builtin_self_insert_command(eval, args));
-        }
-        "keyboard-quit" => return Some(super::interactive::builtin_keyboard_quit(eval, args)),
-        "quoted-insert" => {
-            return Some(super::interactive::builtin_quoted_insert_command(
-                eval, args,
-            ));
-        }
-        "universal-argument" => {
-            return Some(super::interactive::builtin_universal_argument_command(
-                eval, args,
-            ));
-        }
-        "execute-extended-command" => {
-            return Some(super::interactive::builtin_execute_extended_command(
-                eval, args,
-            ));
         }
         "key-binding" => return Some(super::interactive::builtin_key_binding(eval, args)),
         "minor-mode-key-binding" => {
@@ -2515,8 +2426,6 @@ pub(crate) fn dispatch_builtin(
 
         // Undo system (evaluator-dependent)
         "undo-boundary" => return Some(super::undo::builtin_undo_boundary_eval(eval, args)),
-        "undo" => return Some(super::undo::builtin_undo(eval, args)),
-
         // Hash-table / obarray (evaluator-dependent)
         "maphash" => return Some(super::hashtab::builtin_maphash(eval, args)),
         "mapatoms" => return Some(super::hashtab::builtin_mapatoms(eval, args)),
@@ -2709,21 +2618,12 @@ pub(crate) fn dispatch_builtin(
         "current-column" => return Some(super::indent::builtin_current_column_eval(eval, args)),
         "move-to-column" => return Some(super::indent::builtin_move_to_column_eval(eval, args)),
         "indent-region" => return Some(super::indent::builtin_indent_region(eval, args)),
-        "reindent-then-newline-and-indent" => {
-            return Some(super::indent::builtin_reindent_then_newline_and_indent(
-                eval, args,
-            ));
-        }
         "indent-for-tab-command" => {
             return Some(super::indent::builtin_indent_for_tab_command(eval, args));
         }
         "indent-according-to-mode" => {
             return Some(super::indent::builtin_indent_according_to_mode(eval, args));
         }
-        "back-to-indentation" => {
-            return Some(super::indent::builtin_back_to_indentation(eval, args));
-        }
-
         // Case/char (evaluator-dependent)
         "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {
@@ -2966,7 +2866,6 @@ pub(crate) fn dispatch_builtin(
         "text-char-description" => builtin_text_char_description(args),
 
         // Process (pure — no evaluator needed)
-        "shell-command-to-string" => super::process::builtin_shell_command_to_string(args),
         "getenv" => super::process::builtin_getenv(args),
         "getenv-internal" => super::process::builtin_getenv_internal(args),
         "setenv" => super::process::builtin_setenv(args),
@@ -2977,8 +2876,6 @@ pub(crate) fn dispatch_builtin(
 
         // Undo system (pure — no evaluator needed)
         "undo-boundary" => super::undo::builtin_undo_boundary(args),
-        "primitive-undo" => super::undo::builtin_primitive_undo(args),
-
         // Keyboard macro (pure — no evaluator needed)
 
         // Case table (pure)
@@ -3903,11 +3800,9 @@ pub(crate) fn dispatch_builtin(
 
         // Editfns (pure)
         "user-uid" => super::editfns::builtin_user_uid(args),
-        "file-user-uid" => super::editfns::builtin_file_user_uid(args),
         "user-real-uid" => super::editfns::builtin_user_real_uid(args),
         "group-name" => super::editfns::builtin_group_name(args),
         "group-gid" => super::editfns::builtin_group_gid(args),
-        "file-group-gid" => super::editfns::builtin_file_group_gid(args),
         "group-real-gid" => super::editfns::builtin_group_real_gid(args),
         "load-average" => super::editfns::builtin_load_average(args),
         "logcount" => super::editfns::builtin_logcount(args),
@@ -4161,7 +4056,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "event-convert-list" => builtin_event_convert_list(args),
         "text-char-description" => builtin_text_char_description(args),
         // Process (pure)
-        "shell-command-to-string" => super::process::builtin_shell_command_to_string(args),
         "getenv" => super::process::builtin_getenv(args),
         "getenv-internal" => super::process::builtin_getenv_internal(args),
         "setenv" => super::process::builtin_setenv(args),
@@ -4169,14 +4063,12 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         // Editfns (pure)
         "group-name" => super::editfns::builtin_group_name(args),
         "group-gid" => super::editfns::builtin_group_gid(args),
-        "file-group-gid" => super::editfns::builtin_file_group_gid(args),
         "group-real-gid" => super::editfns::builtin_group_real_gid(args),
         "load-average" => super::editfns::builtin_load_average(args),
         "logcount" => super::editfns::builtin_logcount(args),
         // Timer (pure)
         "timerp" => super::timer::builtin_timerp(args),
         // Undo system (pure)
-        "primitive-undo" => super::undo::builtin_primitive_undo(args),
         // Keyboard macro (pure)
         // Character encoding (pure)
         "char-width" => crate::encoding::builtin_char_width(args),
