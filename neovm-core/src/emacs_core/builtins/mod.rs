@@ -3285,9 +3285,6 @@ pub(crate) fn dispatch_builtin(
         "max-char" => crate::encoding::builtin_max_char(args),
 
         // Extra builtins
-        "remove" => super::builtins_extra::builtin_remove(args),
-        "remq" => super::builtins_extra::builtin_remq(args),
-        "flatten-tree" => super::builtins_extra::builtin_flatten_tree(args),
         "take" => super::builtins_extra::builtin_take(args),
         "assoc-string" => super::builtins_extra::builtin_assoc_string(args),
         "string-search" => super::builtins_extra::builtin_string_search(args),

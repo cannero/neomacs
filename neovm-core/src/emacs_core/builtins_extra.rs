@@ -177,10 +177,7 @@ fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
 // Advanced list operations
 // ---------------------------------------------------------------------------
 
-/// `(cl-remove-if PREDICATE LIST)` — remove elements matching predicate.
-/// Since we can't call a predicate here (no eval), this is a stub that
-/// works with known predicates like 'null.
-pub(crate) fn builtin_remove(args: Vec<Value>) -> EvalResult {
+pub(crate) fn remove_list_equal(args: Vec<Value>) -> EvalResult {
     expect_args("remove", &args, 2)?;
     let target = &args[0];
     let list_val = &args[1];
@@ -201,50 +198,6 @@ pub(crate) fn builtin_remove(args: Vec<Value>) -> EvalResult {
         }
     }
     Ok(Value::list(result))
-}
-
-/// `(remq ITEM LIST)` — remove by eq.
-pub(crate) fn builtin_remq(args: Vec<Value>) -> EvalResult {
-    expect_args("remq", &args, 2)?;
-    let target = &args[0];
-    let list_val = &args[1];
-
-    let mut result = Vec::new();
-    let mut cursor = *list_val;
-    loop {
-        match cursor {
-            Value::Nil => break,
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if !super::value::eq_value(&pair.car, target) {
-                    result.push(pair.car);
-                }
-                cursor = pair.cdr;
-            }
-            _ => break,
-        }
-    }
-    Ok(Value::list(result))
-}
-
-/// `(flatten-tree TREE)` — flatten nested lists.
-pub(crate) fn builtin_flatten_tree(args: Vec<Value>) -> EvalResult {
-    expect_args("flatten-tree", &args, 1)?;
-    let mut result = Vec::new();
-    flatten_value(&args[0], &mut result);
-    Ok(Value::list(result))
-}
-
-fn flatten_value(val: &Value, out: &mut Vec<Value>) {
-    match val {
-        Value::Nil => {}
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            flatten_value(&pair.car, out);
-            flatten_value(&pair.cdr, out);
-        }
-        other => out.push(*other),
-    }
 }
 
 /// `(take N LIST)` — first N elements.

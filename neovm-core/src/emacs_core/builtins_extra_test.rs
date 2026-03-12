@@ -15,28 +15,23 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 }
 
 #[test]
-fn remove_from_list() {
-    let list = Value::list(vec![
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
-        Value::Int(2),
-    ]);
-    let result = builtin_remove(vec![Value::Int(2), list]).unwrap();
-    let items = super::super::value::list_to_vec(&result).unwrap();
-    assert_eq!(items.len(), 2);
-}
-
-#[test]
-fn flatten_tree() {
-    let nested = Value::list(vec![
-        Value::Int(1),
-        Value::list(vec![Value::Int(2), Value::Int(3)]),
-        Value::Int(4),
-    ]);
-    let result = builtin_flatten_tree(vec![nested]).unwrap();
-    let items = super::super::value::list_to_vec(&result).unwrap();
-    assert_eq!(items.len(), 4);
+fn remove_family_bootstrap_matches_gnu_subr() {
+    let results = bootstrap_eval(
+        r#"
+        (subrp (symbol-function 'remove))
+        (subrp (symbol-function 'remq))
+        (subrp (symbol-function 'flatten-tree))
+        (remove 2 '(1 2 3 2))
+        (remq 'a '(a b a c))
+        (flatten-tree '(1 (2 . 3) nil (4 5 (6)) 7))
+        "#,
+    );
+    assert_eq!(results[0], "OK nil");
+    assert_eq!(results[1], "OK nil");
+    assert_eq!(results[2], "OK nil");
+    assert_eq!(results[3], "OK (1 3)");
+    assert_eq!(results[4], "OK (b c)");
+    assert_eq!(results[5], "OK (1 2 3 4 5 6 7)");
 }
 
 #[test]

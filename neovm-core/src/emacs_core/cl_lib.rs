@@ -259,7 +259,7 @@ pub(crate) fn builtin_cl_adjoin(args: Vec<Value>) -> EvalResult {
 /// `(cl-remove ITEM LIST)` -- CL alias for `remove`.
 #[cfg(test)]
 pub(crate) fn builtin_cl_remove(args: Vec<Value>) -> EvalResult {
-    super::builtins_extra::builtin_remove(args)
+    super::builtins_extra::remove_list_equal(args)
 }
 
 fn seq_position_list_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
