@@ -1341,6 +1341,13 @@ impl<'a> Vm<'a> {
             }
         }
 
+        // Current buffer-local binding.
+        if let Some(buf) = self.buffers.current_buffer()
+            && let Some(value) = buf.buffer_local_value(name)
+        {
+            return Ok(value);
+        }
+
         // Obarray
         if let Some(val) = self.obarray.symbol_value(name) {
             return Ok(*val);
@@ -1376,6 +1383,41 @@ impl<'a> Vm<'a> {
                 return Ok(());
             }
         }
+
+        // Update existing buffer-local binding if present.
+        if let Some(buf) = self.buffers.current_buffer_mut() {
+            if name == "buffer-undo-list" {
+                match value {
+                    Value::True => {
+                        buf.undo_list.set_enabled(false);
+                        buf.set_buffer_local(name, Value::True);
+                    }
+                    Value::Nil => {
+                        buf.undo_list.set_enabled(true);
+                        buf.undo_list.clear();
+                        buf.set_buffer_local(name, Value::Nil);
+                    }
+                    other => {
+                        buf.undo_list.set_enabled(true);
+                        buf.set_buffer_local(name, other);
+                    }
+                }
+                return Ok(());
+            }
+            if buf.get_buffer_local(name).is_some() {
+                buf.set_buffer_local(name, value);
+                return Ok(());
+            }
+        }
+
+        // Auto-local variables become local upon assignment.
+        if self.custom.is_auto_buffer_local(name) {
+            if let Some(buf) = self.buffers.current_buffer_mut() {
+                buf.set_buffer_local(name, value);
+                return Ok(());
+            }
+        }
+
         // Fall through to obarray
         self.obarray.set_symbol_value(name, value);
         self.run_variable_watchers(name, &value, &Value::Nil, "set")
@@ -1598,6 +1640,14 @@ impl<'a> Vm<'a> {
                 let name = resolve_sym(id);
                 // Try obarray function cell
                 if let Some(func) = self.obarray.symbol_function(name).cloned() {
+                    if func.is_nil() {
+                        if builtins::builtin_registry::is_dispatch_builtin_name(name)
+                            || builtins::is_pure_builtin_name(name)
+                        {
+                            return self.dispatch_vm_builtin(name, args);
+                        }
+                        return Err(signal("void-function", vec![Value::symbol(name)]));
+                    }
                     if crate::emacs_core::autoload::is_autoload_value(&func) {
                         let mut extra_roots = Vec::with_capacity(args.len() + 2);
                         extra_roots.push(Value::Symbol(id));
