@@ -182,26 +182,6 @@ fn test_directory_name_p() {
 }
 
 #[test]
-fn test_parse_remote_file_name() {
-    assert_eq!(parse_remote_file_name("/tmp/file"), None);
-    assert_eq!(parse_remote_file_name("ssh:host:/tmp/file"), None);
-    assert_eq!(parse_remote_file_name("/:host:/tmp/file"), None);
-
-    let parsed =
-        parse_remote_file_name("/ssh:user@host#222:/tmp/file").expect("remote file parsed");
-    assert_eq!(parsed.prefix, "/ssh:user@host#222:");
-    assert_eq!(parsed.method, "ssh");
-    assert_eq!(parsed.user, Some("user"));
-    assert_eq!(parsed.host, "host#222");
-    assert_eq!(parsed.localname, "/tmp/file");
-
-    let parsed_no_user = parse_remote_file_name("/ssh:host:/tmp/file").expect("parsed");
-    assert_eq!(parsed_no_user.user, None);
-    assert_eq!(parsed_no_user.host, "host");
-    assert_eq!(parsed_no_user.localname, "/tmp/file");
-}
-
-#[test]
 fn test_substitute_in_file_name() {
     let home = std::env::var("HOME").unwrap_or_default();
 
@@ -1650,49 +1630,6 @@ fn test_builtin_path_predicates() {
     fs::remove_file(&file).unwrap();
 
     fs::remove_dir_all(&base).unwrap();
-
-    let result = builtin_file_remote_p(vec![Value::string("/tmp/local")]);
-    assert_eq!(result.unwrap(), Value::Nil);
-
-    let result = builtin_file_remote_p(vec![Value::string("/ssh:user@host#22:/tmp/file")]);
-    assert_eq!(result.unwrap(), Value::string("/ssh:user@host#22:"));
-
-    let result = builtin_file_remote_p(vec![
-        Value::string("/ssh:user@host#22:/tmp/file"),
-        Value::symbol("method"),
-    ]);
-    assert_eq!(result.unwrap(), Value::string("ssh"));
-
-    let result = builtin_file_remote_p(vec![
-        Value::string("/ssh:user@host#22:/tmp/file"),
-        Value::symbol("user"),
-    ]);
-    assert_eq!(result.unwrap(), Value::string("user"));
-
-    let result = builtin_file_remote_p(vec![
-        Value::string("/ssh:user@host#22:/tmp/file"),
-        Value::symbol("host"),
-    ]);
-    assert_eq!(result.unwrap(), Value::string("host#22"));
-
-    let result = builtin_file_remote_p(vec![
-        Value::string("/ssh:user@host#22:/tmp/file"),
-        Value::symbol("localname"),
-    ]);
-    assert_eq!(result.unwrap(), Value::string("/tmp/file"));
-
-    let result = builtin_file_remote_p(vec![
-        Value::string("/ssh:user@host#22:/tmp/file"),
-        Value::symbol("hop"),
-    ]);
-    assert_eq!(result.unwrap(), Value::Nil);
-
-    let result = builtin_file_remote_p(vec![
-        Value::string("/ssh:user@host#22:/tmp/file"),
-        Value::Nil,
-        Value::True,
-    ]);
-    assert_eq!(result.unwrap(), Value::Nil);
 }
 
 #[test]
@@ -1701,9 +1638,6 @@ fn test_builtin_path_predicates_strict_types() {
     assert!(result.is_err());
 
     let result = builtin_directory_name_p(vec![Value::Nil]);
-    assert!(result.is_err());
-
-    let result = builtin_file_remote_p(vec![Value::Nil]);
     assert!(result.is_err());
 }
 

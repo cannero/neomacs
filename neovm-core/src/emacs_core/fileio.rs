@@ -228,59 +228,6 @@ pub fn directory_name_p(name: &str) -> bool {
     name.ends_with('/')
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct RemoteFileNameParts<'a> {
-    prefix: &'a str,
-    method: &'a str,
-    user: Option<&'a str>,
-    host: &'a str,
-    localname: &'a str,
-}
-
-fn parse_remote_file_name(filename: &str) -> Option<RemoteFileNameParts<'_>> {
-    if !filename.starts_with('/') {
-        return None;
-    }
-
-    let rest = &filename[1..];
-    let method_end = rest.find(':')?;
-    let method = &rest[..method_end];
-    if method.is_empty()
-        || !method
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    {
-        return None;
-    }
-
-    let after_method = &rest[method_end + 1..];
-    let host_end = after_method.find(':')?;
-    let host_spec = &after_method[..host_end];
-    if host_spec.is_empty() || host_spec.contains('/') {
-        return None;
-    }
-
-    let localname = &after_method[host_end + 1..];
-    let (user, host) = match host_spec.rsplit_once('@') {
-        Some((user, host)) if !user.is_empty() && !host.is_empty() => (Some(user), host),
-        Some((_user, _host)) => return None,
-        None => (None, host_spec),
-    };
-    if host.is_empty() {
-        return None;
-    }
-
-    let prefix_len = 1 + method_end + 1 + host_end + 1;
-    let prefix = &filename[..prefix_len];
-    Some(RemoteFileNameParts {
-        prefix,
-        method,
-        user,
-        host,
-        localname,
-    })
-}
-
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 static DEFAULT_FILE_MODE_MASK: AtomicU32 = AtomicU32::new(0o022);
 static DEFAULT_FILE_MODE_MASK_INIT: Once = Once::new();
@@ -1449,31 +1396,6 @@ pub(crate) fn builtin_directory_name_p(args: Vec<Value>) -> EvalResult {
     expect_args("directory-name-p", &args, 1)?;
     let name = expect_string_strict(&args[0])?;
     Ok(Value::bool(directory_name_p(&name)))
-}
-
-/// (file-remote-p FILE &optional IDENTIFICATION CONNECTED) -> remote component or nil
-pub(crate) fn builtin_file_remote_p(args: Vec<Value>) -> EvalResult {
-    expect_min_args("file-remote-p", &args, 1)?;
-    expect_max_args("file-remote-p", &args, 3)?;
-    let filename = expect_string_strict(&args[0])?;
-    let Some(remote) = parse_remote_file_name(&filename) else {
-        return Ok(Value::Nil);
-    };
-
-    if args.get(2).is_some_and(Value::is_truthy) {
-        // NeoVM does not track remote process connections yet.
-        return Ok(Value::Nil);
-    }
-
-    let id = args.get(1).and_then(Value::as_symbol_name);
-    Ok(match id {
-        Some("method") => Value::string(remote.method),
-        Some("user") => remote.user.map(Value::string).unwrap_or(Value::Nil),
-        Some("host") => Value::string(remote.host),
-        Some("localname") => Value::string(remote.localname),
-        Some("hop") => Value::Nil,
-        _ => Value::string(remote.prefix),
-    })
 }
 
 /// (substitute-in-file-name FILENAME) -> string
