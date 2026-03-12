@@ -2583,6 +2583,16 @@ pub(crate) fn builtin_syntax_ppss_flush_cache(
     }
 }
 
+fn lisp_pos_to_byte(buf: &Buffer, raw: i64) -> usize {
+    let point_min = buf.point_min();
+    let accessible_char_start = buf.text.byte_to_char(point_min);
+    let accessible_char_end = buf.text.byte_to_char(buf.point_max());
+    let accessible_len = accessible_char_end - accessible_char_start;
+    let char_index = raw.max(1) as usize - 1;
+    let clamped_char = accessible_char_start + char_index.min(accessible_len);
+    buf.text.char_to_byte(clamped_char)
+}
+
 /// `(skip-syntax-forward SYNTAX &optional LIMIT)` — skip forward over chars
 /// matching the given syntax classes.
 pub(crate) fn builtin_skip_syntax_forward(
@@ -2606,7 +2616,7 @@ pub(crate) fn builtin_skip_syntax_forward(
     };
     let limit = if args.len() > 1 && !args[1].is_nil() {
         match &args[1] {
-            Value::Int(n) => Some(*n as usize),
+            Value::Int(n) => Some(*n),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2623,6 +2633,7 @@ pub(crate) fn builtin_skip_syntax_forward(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
+    let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
     let new_pos = skip_syntax_forward(buf, &table, &syntax_chars, limit);
 
     let old_pt = eval
@@ -2669,7 +2680,7 @@ pub(crate) fn builtin_skip_syntax_backward(
     };
     let limit = if args.len() > 1 && !args[1].is_nil() {
         match &args[1] {
-            Value::Int(n) => Some(*n as usize),
+            Value::Int(n) => Some(*n),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2686,6 +2697,7 @@ pub(crate) fn builtin_skip_syntax_backward(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
+    let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
     let new_pos = skip_syntax_backward(buf, &table, &syntax_chars, limit);
 
     let old_pt = eval

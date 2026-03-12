@@ -75,6 +75,29 @@ fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
 }
 
 fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::Buffer) -> bool {
+    let inhibit_name_id = intern("inhibit-read-only");
+    for frame in eval.dynamic.iter().rev() {
+        if let Some(value) = frame.get(&inhibit_name_id)
+            && value.is_truthy()
+        {
+            return false;
+        }
+    }
+
+    if let Some(value) = buf.get_buffer_local("inhibit-read-only")
+        && value.is_truthy()
+    {
+        return false;
+    }
+
+    if eval
+        .obarray
+        .symbol_value("inhibit-read-only")
+        .is_some_and(|value| value.is_truthy())
+    {
+        return false;
+    }
+
     if buf.read_only {
         return true;
     }

@@ -348,6 +348,29 @@ fn skip_syntax_forward_with_limit() {
     assert_eq!(pos, 3);
 }
 
+#[test]
+fn builtin_skip_syntax_forward_limit_uses_char_positions_for_multibyte_text() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert("éézz");
+        buf.goto_char(buf.point_min());
+    }
+
+    let moved =
+        builtin_skip_syntax_forward(&mut eval, vec![Value::string("w"), Value::Int(3)]).unwrap();
+    assert_eq!(moved, Value::Int(2));
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .point_char() as i64
+            + 1,
+        3
+    );
+}
+
 // -----------------------------------------------------------------------
 // scan_sexps (balanced expressions)
 // -----------------------------------------------------------------------

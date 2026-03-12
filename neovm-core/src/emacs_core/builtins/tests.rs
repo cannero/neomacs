@@ -1375,6 +1375,21 @@ fn buffer_modified_tick_semantics() {
 }
 
 #[test]
+fn insert_honors_inhibit_read_only_override() {
+    let mut eval = super::super::eval::Evaluator::new();
+    eval.obarray
+        .set_symbol_value("buffer-read-only", Value::True);
+    eval.obarray
+        .set_symbol_value("inhibit-read-only", Value::True);
+
+    builtin_insert(&mut eval, vec![Value::string("ok")]).expect("insert should bypass read-only");
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "ok");
+    assert_eq!(buf.point_char() as i64 + 1, 3);
+}
+
+#[test]
 fn insert_inherit_variants_reuse_insert_semantics() {
     let mut eval = super::super::eval::Evaluator::new();
     assert_eq!(
