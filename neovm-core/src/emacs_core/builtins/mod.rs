@@ -1444,18 +1444,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::syntax::builtin_skip_syntax_backward(eval, args));
         }
         // Register operations (evaluator-dependent)
-        "copy-to-register" => return Some(super::register::builtin_copy_to_register(eval, args)),
-        "insert-register" => return Some(super::register::builtin_insert_register(eval, args)),
-        "point-to-register" => return Some(super::register::builtin_point_to_register(eval, args)),
-        "number-to-register" => {
-            return Some(super::register::builtin_number_to_register(eval, args));
-        }
-        "increment-register" => {
-            return Some(super::register::builtin_increment_register(eval, args));
-        }
-        "view-register" => return Some(super::register::builtin_view_register(eval, args)),
-        "get-register" => return Some(super::register::builtin_get_register(eval, args)),
-        "set-register" => return Some(super::register::builtin_set_register(eval, args)),
         // Keyboard macro operations (evaluator-dependent)
         "cancel-kbd-macro-events" => return Some(builtin_cancel_kbd_macro_events(args)),
         "defining-kbd-macro" => return Some(super::kmacro::builtin_defining_kbd_macro(eval, args)),
@@ -1487,24 +1475,7 @@ pub(crate) fn dispatch_builtin(
         "bookmark-save" => return Some(super::bookmark::builtin_bookmark_save(eval, args)),
         "bookmark-load" => return Some(super::bookmark::builtin_bookmark_load(eval, args)),
         // Abbreviation operations (evaluator-dependent)
-        "define-abbrev" => return Some(super::abbrev::builtin_define_abbrev(eval, args)),
-        "expand-abbrev" => return Some(super::abbrev::builtin_expand_abbrev(eval, args)),
         "abbrev-mode" => return Some(super::abbrev::builtin_abbrev_mode(eval, args)),
-        "define-abbrev-table" => {
-            return Some(super::abbrev::builtin_define_abbrev_table(eval, args));
-        }
-        "clear-abbrev-table" => return Some(super::abbrev::builtin_clear_abbrev_table(eval, args)),
-        "abbrev-expansion" => return Some(super::abbrev::builtin_abbrev_expansion(eval, args)),
-        "insert-abbrev-table-description" => {
-            return Some(super::abbrev::builtin_insert_abbrev_table_description(
-                eval, args,
-            ));
-        }
-        "abbrev-table-p" => return Some(super::abbrev::builtin_abbrev_table_p(eval, args)),
-        "make-abbrev-table" => return Some(super::abbrev::builtin_make_abbrev_table(eval, args)),
-        "abbrev-table-get" => return Some(super::abbrev::builtin_abbrev_table_get(eval, args)),
-        "abbrev-table-put" => return Some(super::abbrev::builtin_abbrev_table_put(eval, args)),
-        "abbrev-symbol" => return Some(super::abbrev::builtin_abbrev_symbol(eval, args)),
         "abbrev-get" => return Some(super::abbrev::builtin_abbrev_get(eval, args)),
         "abbrev-put" => return Some(super::abbrev::builtin_abbrev_put(eval, args)),
 
