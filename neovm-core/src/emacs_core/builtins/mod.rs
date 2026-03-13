@@ -3,6 +3,17 @@
 //! All functions here take pre-evaluated `Vec<Value>` arguments and return `EvalResult`.
 //! The evaluator dispatches here after evaluating the argument expressions.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Debug flag: when true, log every dispatch_builtin call name.
+/// Activated after window-setup-hook completes during startup.
+static TRACE_ALL_BUILTINS: AtomicBool = AtomicBool::new(false);
+
+/// Check if post-startup tracing is active.
+pub(crate) fn is_post_startup_tracing() -> bool {
+    TRACE_ALL_BUILTINS.load(Ordering::Relaxed)
+}
+
 pub(super) use super::error::{EvalResult, Flow, signal};
 pub(super) use super::intern::{SymId, intern, intern_uninterned, resolve_sym};
 pub(super) use super::keyboard::pure::{
@@ -911,7 +922,17 @@ pub(crate) fn dispatch_builtin(
         "intern" => return Some(builtin_intern_fn(eval, args)),
         "intern-soft" => return Some(builtin_intern_soft(eval, args)),
         // Hooks
-        "run-hooks" => return Some(builtin_run_hooks(eval, args)),
+        "run-hooks" => {
+            let hook_names: Vec<String> = args.iter().filter_map(|a| a.as_symbol_name().map(|s| s.to_string())).collect();
+            tracing::info!(hooks = ?hook_names, "run-hooks called");
+            let result = builtin_run_hooks(eval, args);
+            tracing::info!(hooks = ?hook_names, "run-hooks returned");
+            if hook_names.iter().any(|h| h == "window-setup-hook") {
+                tracing::info!("Enabling post-startup builtin tracing");
+                TRACE_ALL_BUILTINS.store(true, Ordering::Relaxed);
+            }
+            return Some(result);
+        }
         "run-hook-with-args" => return Some(builtin_run_hook_with_args(eval, args)),
         "run-hook-with-args-until-success" => {
             return Some(builtin_run_hook_with_args_until_success(eval, args));
@@ -930,7 +951,13 @@ pub(crate) fn dispatch_builtin(
         // GC
         "garbage-collect" => return Some(builtin_garbage_collect_eval(eval, args)),
         // Loading
-        "load" => return Some(builtin_load(eval, args)),
+        "load" => {
+            let file_name = args.first().map(|a| format!("{}", a)).unwrap_or_default();
+            tracing::info!(file = %file_name, "load called");
+            let result = builtin_load(eval, args);
+            tracing::info!(file = %file_name, ok = result.is_ok(), "load returned");
+            return Some(result);
+        }
         "neovm-precompile-file" => return Some(builtin_neovm_precompile_file(eval, args)),
         "eval" => return Some(builtin_eval(eval, args)),
         // Buffer operations
@@ -1344,7 +1371,10 @@ pub(crate) fn dispatch_builtin(
         "process-buffer" => return Some(super::process::builtin_process_buffer(eval, args)),
         // Timer operations (evaluator-dependent)
         "sleep-for" => return Some(super::timer::builtin_sleep_for(args)),
-        "sit-for" => return Some(super::timer::builtin_sit_for(eval, args)),
+        "sit-for" => {
+            tracing::info!("dispatch_builtin: sit-for called with {:?}", args);
+            return Some(super::timer::builtin_sit_for(eval, args));
+        }
         // Variable watchers
         "add-variable-watcher" => {
             return Some(super::advice::builtin_add_variable_watcher(eval, args));
@@ -1806,7 +1836,10 @@ pub(crate) fn dispatch_builtin(
             return Some(super::window_cmds::builtin_frame_total_lines(eval, args));
         }
         "frame-position" => return Some(super::window_cmds::builtin_frame_position(eval, args)),
-        "frame-parameter" => return Some(super::window_cmds::builtin_frame_parameter(eval, args)),
+        "frame-parameter" => {
+            tracing::info!(param = ?args.get(1).map(|v| format!("{}", v)), "frame-parameter called");
+            return Some(super::window_cmds::builtin_frame_parameter(eval, args));
+        }
         "frame-parameters" => {
             return Some(super::window_cmds::builtin_frame_parameters(eval, args));
         }
@@ -2065,7 +2098,14 @@ pub(crate) fn dispatch_builtin(
         // Reader/printer (evaluator-dependent)
         "format" => return Some(builtin_format_eval(eval, args)),
         "format-message" => return Some(builtin_format_message_eval(eval, args)),
-        "message" => return Some(builtin_message_eval(eval, args)),
+        "message" => {
+            let msg_preview: String = args.first().map(|a| {
+                let s = format!("{}", a);
+                if s.len() > 120 { format!("{}...", &s[..120]) } else { s }
+            }).unwrap_or_default();
+            tracing::info!(msg = %msg_preview, "message");
+            return Some(builtin_message_eval(eval, args));
+        }
         "message-box" => return Some(builtin_message_box_eval(eval, args)),
         "message-or-box" => return Some(builtin_message_or_box_eval(eval, args)),
         "read-from-string" => return Some(super::reader::builtin_read_from_string(eval, args)),
@@ -2096,7 +2136,10 @@ pub(crate) fn dispatch_builtin(
         "waiting-for-user-input-p" => {
             return Some(super::reader::builtin_waiting_for_user_input_p(args));
         }
-        "read-char" => return Some(super::reader::builtin_read_char(eval, args)),
+        "read-char" => {
+            tracing::info!("read-char called (will block for input)");
+            return Some(super::reader::builtin_read_char(eval, args));
+        }
         "read-key-sequence" => return Some(super::reader::builtin_read_key_sequence(eval, args)),
         "read-key-sequence-vector" => {
             return Some(super::reader::builtin_read_key_sequence_vector(eval, args));
@@ -2133,6 +2176,7 @@ pub(crate) fn dispatch_builtin(
         "recursion-depth" => return Some(super::misc::builtin_recursion_depth(eval, args)),
         "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
         "recursive-edit" => {
+            tracing::info!("dispatch_builtin: recursive-edit called");
             return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args));
         }
         "exit-recursive-edit" => {
@@ -2330,7 +2374,10 @@ pub(crate) fn dispatch_builtin(
         // Lread (evaluator-dependent)
         "eval-buffer" => return Some(super::lread::builtin_eval_buffer(eval, args)),
         "eval-region" => return Some(super::lread::builtin_eval_region(eval, args)),
-        "read-event" => return Some(super::lread::builtin_read_event(eval, args)),
+        "read-event" => {
+            tracing::info!("read-event called (will block for input)");
+            return Some(super::lread::builtin_read_event(eval, args));
+        }
         "read-char-exclusive" => {
             return Some(super::lread::builtin_read_char_exclusive(eval, args));
         }
