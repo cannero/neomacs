@@ -709,7 +709,8 @@ fn builtin_read_file_name_rejects_more_than_six_args() {
 
 #[test]
 fn builtin_read_buffer_signals_end_of_file() {
-    let result = builtin_read_buffer(vec![Value::string("Buffer: "), Value::string("*scratch*")]);
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_read_buffer(&mut eval, vec![Value::string("Buffer: "), Value::string("*scratch*")]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"
@@ -765,7 +766,8 @@ fn builtin_read_directory_name_validates_dir_default_and_initial() {
 
 #[test]
 fn builtin_read_buffer_rejects_more_than_four_args() {
-    let result = builtin_read_buffer(vec![
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_read_buffer(&mut eval, vec![
         Value::string("Buffer: "),
         Value::Nil,
         Value::Nil,
@@ -780,7 +782,8 @@ fn builtin_read_buffer_rejects_more_than_four_args() {
 
 #[test]
 fn builtin_read_command_rejects_more_than_two_args() {
-    let result = builtin_read_command(vec![Value::string("Command: "), Value::Nil, Value::Nil]);
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_read_command(&mut eval, vec![Value::string("Command: "), Value::Nil, Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -789,7 +792,8 @@ fn builtin_read_command_rejects_more_than_two_args() {
 
 #[test]
 fn builtin_read_variable_rejects_more_than_two_args() {
-    let result = builtin_read_variable(vec![Value::string("Variable: "), Value::Nil, Value::Nil]);
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_read_variable(&mut eval, vec![Value::string("Variable: "), Value::Nil, Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"

@@ -582,31 +582,102 @@ pub(crate) fn builtin_read_directory_name(args: Vec<Value>) -> EvalResult {
 
 /// `(read-buffer PROMPT &optional DEFAULT REQUIRE-MATCH PREDICATE)`
 ///
-/// Stub: returns DEFAULT or "".
-pub(crate) fn builtin_read_buffer(args: Vec<Value>) -> EvalResult {
+/// Read a buffer name from the minibuffer with completion.
+/// In interactive mode, delegates to completing-read with buffer name candidates.
+pub(crate) fn builtin_read_buffer(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("read-buffer", &args, 1)?;
     expect_max_args("read-buffer", &args, 4)?;
     let _prompt = expect_string(&args[0])?;
+
+    // Interactive mode: use completing-read with buffer names
+    if eval.input_rx.is_some() {
+        let prompt = args[0];
+        let default = args.get(1).copied().unwrap_or(Value::Nil);
+        let require_match = args.get(2).copied().unwrap_or(Value::Nil);
+        let predicate = args.get(3).copied().unwrap_or(Value::Nil);
+
+        // Collect buffer names as a list for completing-read's COLLECTION
+        let buf_ids = eval.buffer_manager().buffer_list();
+        let buffer_names: Vec<Value> = buf_ids
+            .iter()
+            .filter_map(|id| eval.buffer_manager().get(*id))
+            .map(|b| Value::string(&b.name))
+            .collect();
+        let collection = Value::list(buffer_names);
+
+        return super::reader::builtin_completing_read(
+            eval,
+            vec![prompt, collection, predicate, require_match, Value::Nil, Value::Nil, default],
+        );
+    }
+
     Err(end_of_file_stdin_error())
 }
 
 /// `(read-command PROMPT &optional DEFAULT)`
 ///
-/// Stub: returns DEFAULT or "".
-pub(crate) fn builtin_read_command(args: Vec<Value>) -> EvalResult {
+/// Read a command name from the minibuffer.
+/// In interactive mode, uses read-from-minibuffer and interns the result.
+pub(crate) fn builtin_read_command(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("read-command", &args, 1)?;
     expect_max_args("read-command", &args, 2)?;
     let _prompt = expect_string(&args[0])?;
+
+    // Interactive mode: read a string and intern it as a symbol
+    if eval.input_rx.is_some() {
+        let prompt = args[0];
+        let default = args.get(1).copied().unwrap_or(Value::Nil);
+
+        let result = super::reader::builtin_read_from_minibuffer(
+            eval,
+            vec![prompt, Value::Nil, Value::Nil, Value::Nil, Value::Nil, default],
+        )?;
+        // read-command returns a symbol
+        if let Value::Str(id) = result {
+            let name = super::value::with_heap(|h| h.get_string(id).to_owned());
+            return Ok(Value::symbol(&name));
+        }
+        return Ok(result);
+    }
+
     Err(end_of_file_stdin_error())
 }
 
 /// `(read-variable PROMPT &optional DEFAULT)`
 ///
-/// Stub: returns DEFAULT or "".
-pub(crate) fn builtin_read_variable(args: Vec<Value>) -> EvalResult {
+/// Read a variable name from the minibuffer.
+/// In interactive mode, uses read-from-minibuffer and interns the result.
+pub(crate) fn builtin_read_variable(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("read-variable", &args, 1)?;
     expect_max_args("read-variable", &args, 2)?;
     let _prompt = expect_string(&args[0])?;
+
+    // Interactive mode: read a string and intern it as a symbol
+    if eval.input_rx.is_some() {
+        let prompt = args[0];
+        let default = args.get(1).copied().unwrap_or(Value::Nil);
+
+        let result = super::reader::builtin_read_from_minibuffer(
+            eval,
+            vec![prompt, Value::Nil, Value::Nil, Value::Nil, Value::Nil, default],
+        )?;
+        // read-variable returns a symbol
+        if let Value::Str(id) = result {
+            let name = super::value::with_heap(|h| h.get_string(id).to_owned());
+            return Ok(Value::symbol(&name));
+        }
+        return Ok(result);
+    }
+
     Err(end_of_file_stdin_error())
 }
 

@@ -1068,15 +1068,15 @@ fn interactive_args_from_string_code(
     let mut args = Vec::new();
     for (letter, prompt) in parsed.entries {
         match letter {
-            'a' => args.push(super::minibuffer::builtin_read_command(vec![
+            'a' => args.push(super::minibuffer::builtin_read_command(eval, vec![
                 Value::string(prompt),
             ])?),
-            'b' => args.push(super::minibuffer::builtin_read_buffer(vec![
+            'b' => args.push(super::minibuffer::builtin_read_buffer(eval, vec![
                 Value::string(prompt),
                 Value::Nil,
                 Value::True,
             ])?),
-            'B' => args.push(super::minibuffer::builtin_read_buffer(vec![
+            'B' => args.push(super::minibuffer::builtin_read_buffer(eval, vec![
                 Value::string(prompt),
                 Value::Nil,
                 Value::Nil,
@@ -1085,7 +1085,7 @@ fn interactive_args_from_string_code(
                 eval,
                 vec![Value::string(prompt)],
             )?),
-            'C' => args.push(super::minibuffer::builtin_read_command(vec![
+            'C' => args.push(super::minibuffer::builtin_read_command(eval, vec![
                 Value::string(prompt),
             ])?),
             'd' => args.push(interactive_point_arg(eval)?),
@@ -1167,7 +1167,7 @@ fn interactive_args_from_string_code(
                 args.push(eval.eval_value(&expr_value)?);
             }
             'U' => args.push(Value::Nil),
-            'v' => args.push(super::minibuffer::builtin_read_variable(vec![
+            'v' => args.push(super::minibuffer::builtin_read_variable(eval, vec![
                 Value::string(prompt),
             ])?),
             'z' => args.push(super::lread::builtin_read_coding_system(vec![

@@ -2072,9 +2072,9 @@ pub(crate) fn dispatch_builtin(
         }
         "read-string" => return Some(super::reader::builtin_read_string(eval, args)),
         "completing-read" => return Some(super::reader::builtin_completing_read(eval, args)),
-        "read-buffer" => return Some(super::minibuffer::builtin_read_buffer(args)),
-        "read-command" => return Some(super::minibuffer::builtin_read_command(args)),
-        "read-variable" => return Some(super::minibuffer::builtin_read_variable(args)),
+        "read-buffer" => return Some(super::minibuffer::builtin_read_buffer(eval, args)),
+        "read-command" => return Some(super::minibuffer::builtin_read_command(eval, args)),
+        "read-variable" => return Some(super::minibuffer::builtin_read_variable(eval, args)),
         "try-completion" => return Some(super::minibuffer::builtin_try_completion(args)),
         "all-completions" => return Some(super::minibuffer::builtin_all_completions(args)),
         "test-completion" => return Some(super::minibuffer::builtin_test_completion(args)),
