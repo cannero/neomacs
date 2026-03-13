@@ -88,6 +88,62 @@ fn substring_accepts_vectors_like_gnu_emacs() {
 }
 
 #[test]
+fn substring_then_string_match_preserves_single_char_operator_tokens() {
+    assert_eq!(
+        bootstrap_eval_one(
+            r#"(let* ((code "x = 42;")
+                      (rest (substring code 2)))
+                 (list rest
+                       (string-match "\\`[-+*/=<>!&|(){}\\[\\];,.]" rest)
+                       (match-string 0 rest)))"#
+        ),
+        r#"OK ("= 42;" 0 "=")"#
+    );
+}
+
+#[test]
+fn bootstrap_string_match_posix_upper_class_preserves_case_sensitivity() {
+    assert_eq!(
+        bootstrap_eval_one(
+            r#"(list
+                 (string-match "[[:upper:]]+" "helloWORLDfoo")
+                 (match-string 0 "helloWORLDfoo"))"#
+        ),
+        r#"OK (5 "WORLD")"#
+    );
+}
+
+#[test]
+fn bootstrap_string_match_posix_char_class_sequence_matches_gnu_order() {
+    assert_eq!(
+        bootstrap_eval_one(
+            r#"(list
+                 (string-match "[[:alpha:]]+" "hello123")
+                 (match-string 0 "hello123")
+                 (string-match "[[:digit:]]+" "hello123")
+                 (match-string 0 "hello123")
+                 (string-match "[[:alnum:]]+" "  abc123  ")
+                 (match-string 0 "  abc123  ")
+                 (string-match "[[:space:]]+" "hello   world")
+                 (match-string 0 "hello   world")
+                 (string-match "[[:upper:]]+" "helloWORLDfoo")
+                 (match-string 0 "helloWORLDfoo")
+                 (string-match "[[:lower:]]+" "HELLOworldFOO")
+                 (match-string 0 "HELLOworldFOO")
+                 (string-match "[[:punct:]]+" "hello!@#world")
+                 (match-string 0 "hello!@#world")
+                 (string-match "[^[:digit:]]+" "123abc456")
+                 (match-string 0 "123abc456")
+                 (string-match "[[:alpha:][:digit:]]+" "---abc123---")
+                 (match-string 0 "---abc123---")
+                 (progn (string-match "[[:blank:]]+" "a \t b")
+                        (match-string 0 "a \t b")))"#
+        ),
+        r#"OK (0 "hello" 5 "123" 2 "abc123" 5 "   " 5 "WORLD" 5 "world" 5 "!@#" 3 "abc" 3 "abc123" " 	 ")"#
+    );
+}
+
+#[test]
 fn void_function_symbol_signals_before_evaluating_arguments_like_gnu_emacs() {
     assert_eq!(
         eval_one(
