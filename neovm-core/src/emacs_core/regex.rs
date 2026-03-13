@@ -67,6 +67,8 @@ enum BackrefAtom {
     AnyChar,
     CharClass(BackrefCharClass),
     NonAsciiCategory,
+    Digit,
+    NotDigit,
     WordChar,
     NotWordChar,
     SyntaxClass(BackrefSyntaxClass, bool),
@@ -810,10 +812,15 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | 'W'
                     | 'b'
                     | 'B'
+                    | 'd'
+                    | 'D'
                     | 's'
                     | 'S'
                     | 'c'
                     | '='
+                    | 'n'
+                    | 't'
+                    | 'r'
                     | '`'
                     | '\''
                     | '<'
@@ -950,6 +957,8 @@ impl<'a> BackrefParser<'a> {
                         self.next()?;
                         Some(BackrefAtom::NonAsciiCategory)
                     }
+                    'd' => Some(BackrefAtom::Digit),
+                    'D' => Some(BackrefAtom::NotDigit),
                     'w' => Some(BackrefAtom::WordChar),
                     'W' => Some(BackrefAtom::NotWordChar),
                     's' => Some(BackrefAtom::SyntaxClass(
@@ -960,6 +969,9 @@ impl<'a> BackrefParser<'a> {
                         map_syntax_class(self.next()?),
                         true,
                     )),
+                    'n' => Some(BackrefAtom::Literal('\n')),
+                    't' => Some(BackrefAtom::Literal('\t')),
+                    'r' => Some(BackrefAtom::Literal('\r')),
                     'b' => Some(BackrefAtom::WordBoundary),
                     'B' => Some(BackrefAtom::NotWordBoundary),
                     '=' => Some(BackrefAtom::StartBuffer),
@@ -1830,6 +1842,32 @@ fn match_backref_atom_once(
                 return Vec::new();
             };
             if !ch.is_ascii() {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::Digit => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if ch.is_ascii_digit() {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::NotDigit => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if !ch.is_ascii_digit() {
                 vec![BackrefState {
                     pos: state.pos + len,
                     groups: state.groups.clone(),
