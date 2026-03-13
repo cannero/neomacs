@@ -263,11 +263,11 @@ impl WgpuRenderer {
                 &Color::new(1.0, 1.0, 1.0, 1.0), // color irrelevant, writes disabled
             );
             if !stencil_verts.is_empty() {
-                let mut encoder = self
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Stencil Write Encoder"),
-                    });
+                let mut encoder =
+                    self.device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Stencil Write Encoder"),
+                        });
                 {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Stencil Write Pass"),
