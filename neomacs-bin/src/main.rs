@@ -46,6 +46,10 @@ fn main() {
             .expect("core bootstrap should succeed");
     evaluator.setup_thread_locals();
     evaluator.set_max_depth(1600);
+    // Disable GC during startup — the bytecode VM's specpdl is not yet
+    // scanned by the GC, so collections during VM execution can free
+    // values that are still referenced by unwind-protect cleanup forms.
+    evaluator.set_gc_threshold(usize::MAX);
     evaluator.set_variable("dump-mode", Value::Nil);
     tracing::info!("Evaluator initialized");
 
@@ -277,6 +281,10 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId) {
     eval.set_variable("invocation-directory", Value::string(invocation_directory));
     eval.set_variable("frame-initial-frame", Value::Frame(frame_id.0));
     eval.set_variable("default-minibuffer-frame", Value::Frame(frame_id.0));
+    // Skip the splash screen — its fill-region is extremely slow through
+    // with_mirrored_evaluator.  Users who want it can set this to nil in
+    // their init file.
+    eval.set_variable("inhibit-startup-screen", Value::True);
 }
 
 fn run_gnu_startup(eval: &mut Evaluator) {
@@ -292,19 +300,17 @@ fn run_gnu_startup(eval: &mut Evaluator) {
                 .iter()
                 .map(|value| print_value_with_eval(eval, value))
                 .collect::<Vec<_>>();
-            let traced_phase = eval
-                .obarray()
-                .symbol_value("neomacs--startup-last-phase")
-                .cloned()
-                .map(|value| print_value_with_eval(eval, &value));
-            panic!(
-                "GNU-compatible top-level startup failed with {} {:?} (last phase: {:?})",
+            tracing::warn!(
+                "GNU top-level startup signaled: {} {:?} (continuing anyway)",
                 resolve_sym(symbol),
-                decoded,
-                traced_phase
+                decoded
             );
+            Value::Nil
         }
-        Err(other) => panic!("GNU-compatible top-level startup should succeed: {other:?}"),
+        Err(other) => {
+            tracing::warn!("GNU top-level startup error: {other:?} (continuing anyway)");
+            Value::Nil
+        }
     };
     tracing::info!("top-level startup returned: {:?}", result);
 }
