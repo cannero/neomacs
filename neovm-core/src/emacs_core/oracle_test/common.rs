@@ -7,6 +7,7 @@ use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use crate::emacs_core::{EvalError, Evaluator, Value, print_value_with_buffers};
 
@@ -20,6 +21,61 @@ fn oracle_mem_limit_bytes() -> u64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(500);
     mb * 1024 * 1024
+}
+
+/// Optional virtual address space cap (in bytes) for the NeoVM side of an
+/// oracle test process. This is unset by default because NeoVM runs in-process
+/// inside the test binary; when enabled, nextest's per-test process isolation
+/// keeps the limit scoped to the current test.
+///
+/// Set `NEOVM_NEOVM_MEM_LIMIT_MB` to enable it.
+fn neovm_mem_limit_bytes() -> Option<u64> {
+    let mb: u64 = std::env::var("NEOVM_NEOVM_MEM_LIMIT_MB")
+        .ok()
+        .and_then(|v| v.parse().ok())?;
+    Some(mb * 1024 * 1024)
+}
+
+fn apply_address_space_limit(limit_bytes: u64) -> Result<(), String> {
+    unsafe {
+        let mut current = std::mem::MaybeUninit::<libc::rlimit>::uninit();
+        if libc::getrlimit(libc::RLIMIT_AS, current.as_mut_ptr()) != 0 {
+            return Err(format!(
+                "failed to read RLIMIT_AS: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        let current = current.assume_init();
+        let target = if current.rlim_max == libc::RLIM_INFINITY {
+            limit_bytes as libc::rlim_t
+        } else {
+            std::cmp::min(limit_bytes as libc::rlim_t, current.rlim_max)
+        };
+        let rlim = libc::rlimit {
+            rlim_cur: target,
+            rlim_max: target,
+        };
+        if libc::setrlimit(libc::RLIMIT_AS, &rlim) != 0 {
+            return Err(format!(
+                "failed to set RLIMIT_AS to {} MB: {}",
+                limit_bytes / (1024 * 1024),
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_neovm_mem_limit() -> Result<(), String> {
+    static APPLY_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+
+    let Some(limit_bytes) = neovm_mem_limit_bytes() else {
+        return Ok(());
+    };
+
+    APPLY_RESULT
+        .get_or_init(|| apply_address_space_limit(limit_bytes))
+        .clone()
 }
 
 pub(crate) const ORACLE_PROP_CASES: u32 = 10;
@@ -396,6 +452,7 @@ fn run_neovm_eval_in_temp_buffer(
 /// before dependents (e.g. `"emacs-lisp/oclosure.el"` before
 /// `"emacs-lisp/nadvice.el"`).
 pub(crate) fn run_neovm_eval_with_load(form: &str, load_files: &[&str]) -> Result<String, String> {
+    ensure_neovm_mem_limit()?;
     let mut eval = Evaluator::new();
     // Match oracle's (eval form t): evaluate with lexical binding enabled.
     eval.set_lexical_binding(true);
@@ -468,6 +525,7 @@ pub(crate) fn run_neovm_eval_with_bootstrap_and_load(
     form: &str,
     load_files: &[&str],
 ) -> Result<String, String> {
+    ensure_neovm_mem_limit()?;
     let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached()
         .map_err(|e| format!("bootstrap failed: {e:?}"))?;
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
@@ -497,6 +555,7 @@ pub(crate) fn run_neovm_eval_with_bootstrap_and_load_raw(
     form: &str,
     load_files: &[&str],
 ) -> Result<String, String> {
+    ensure_neovm_mem_limit()?;
     let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached()
         .map_err(|e| format!("bootstrap failed: {e:?}"))?;
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
@@ -525,6 +584,7 @@ pub(crate) fn assert_oracle_parity_with_bootstrap_and_load_raw(form: &str, load_
 /// Run a NeoVM evaluation using a fully bootstrapped evaluator.
 /// Uses pdump cache when available for faster startup.
 pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String> {
+    ensure_neovm_mem_limit()?;
     let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached()
         .map_err(|e| format!("bootstrap failed: {e:?}"))?;
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
