@@ -238,6 +238,36 @@ fn build_lax_whitespace_pattern(pattern: &str, whitespace_regex: &str, case_fold
     }
 }
 
+fn string_matches_regexp(text: &str, pattern: &str, case_fold: bool) -> Result<bool, Flow> {
+    let mut match_data = None;
+    super::regex::string_match_full_with_case_fold(pattern, text, 0, case_fold, &mut match_data)
+        .map(|matched| matched.is_some())
+        .map_err(|e| {
+            signal(
+                "invalid-regexp",
+                vec![Value::string(format!("Invalid regexp: {e}"))],
+            )
+        })
+}
+
+fn count_string_regexp_matches(text: &str, pattern: &str, case_fold: bool) -> Result<i64, Flow> {
+    let iterated = super::regex::iterate_string_matches_with_case_fold(pattern, text, 0, case_fold)
+        .map_err(|e| {
+            signal(
+                "invalid-regexp",
+                vec![Value::string(format!("Invalid regexp: {e}"))],
+            )
+        })?;
+    Ok(iterated
+        .matches
+        .into_iter()
+        .filter_map(|groups| groups.first().and_then(|group| *group))
+        .filter(|(match_start, match_end)| {
+            !(*match_start == *match_end && *match_start >= text.len())
+        })
+        .count() as i64)
+}
+
 // ---------------------------------------------------------------------------
 // Search direction
 // ---------------------------------------------------------------------------
@@ -1785,11 +1815,6 @@ pub(crate) fn builtin_keep_lines_eval(
     };
 
     let case_fold = case_fold_for_pattern(eval, &regexp);
-    let pattern = build_regex_pattern(&regexp, case_fold);
-    let re = match Regex::new(&pattern) {
-        Ok(re) => re,
-        Err(_) => return Ok(Value::Nil),
-    };
 
     let rel_start = start.saturating_sub(point_min).min(source.len());
     let rel_end = end.saturating_sub(point_min).min(source.len());
@@ -1814,7 +1839,14 @@ pub(crate) fn builtin_keep_lines_eval(
             &source[rel_cursor..rel_line_end]
         };
 
-        if !re.is_match(line) {
+        let keep_line = match string_matches_regexp(line, &regexp, case_fold) {
+            Ok(matched) => matched,
+            Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-regexp" => {
+                return Ok(Value::Nil);
+            }
+            Err(err) => return Err(err),
+        };
+        if !keep_line {
             delete_ranges.push((point_min + rel_cursor, point_min + rel_line_end));
         }
         rel_cursor = rel_line_end;
@@ -1858,13 +1890,6 @@ pub(crate) fn builtin_flush_lines_eval(
     };
 
     let case_fold = case_fold_for_pattern(eval, &regexp);
-    let pattern = build_regex_pattern(&regexp, case_fold);
-    let re = Regex::new(&pattern).map_err(|e| {
-        signal(
-            "invalid-regexp",
-            vec![Value::string(format!("Invalid regexp: {e}"))],
-        )
-    })?;
 
     let rel_start = start.saturating_sub(point_min).min(source.len());
     let rel_end = end.saturating_sub(point_min).min(source.len());
@@ -1889,7 +1914,7 @@ pub(crate) fn builtin_flush_lines_eval(
             &source[rel_cursor..rel_line_end]
         };
 
-        if re.is_match(line) {
+        if string_matches_regexp(line, &regexp, case_fold)? {
             delete_ranges.push((point_min + rel_cursor, point_min + rel_line_end));
         }
         rel_cursor = rel_line_end;
@@ -1933,23 +1958,9 @@ pub(crate) fn builtin_how_many_eval(
     }
 
     let case_fold = case_fold_for_pattern(eval, &regexp);
-    let pattern = build_regex_pattern(&regexp, case_fold);
-    let re = Regex::new(&pattern).map_err(|e| {
-        signal(
-            "invalid-regexp",
-            vec![Value::string(format!("Invalid regexp: {e}"))],
-        )
-    })?;
-
-    let mut count: i64 = 0;
-    for m in re.find_iter(&source) {
-        if m.start() == m.end() && m.start() >= source.len() {
-            continue;
-        }
-        count += 1;
-    }
-
-    Ok(Value::Int(count))
+    Ok(Value::Int(count_string_regexp_matches(
+        &source, &regexp, case_fold,
+    )?))
 }
 
 /// `(count-matches REGEXP &optional START END INTERACTIVE)` —
@@ -1975,23 +1986,9 @@ pub(crate) fn builtin_count_matches_eval(
     }
 
     let case_fold = case_fold_for_pattern(eval, &regexp);
-    let pattern = build_regex_pattern(&regexp, case_fold);
-    let re = Regex::new(&pattern).map_err(|e| {
-        signal(
-            "invalid-regexp",
-            vec![Value::string(format!("Invalid regexp: {e}"))],
-        )
-    })?;
-
-    let mut count: i64 = 0;
-    for m in re.find_iter(&source) {
-        if m.start() == m.end() && m.start() >= source.len() {
-            continue;
-        }
-        count += 1;
-    }
-
-    Ok(Value::Int(count))
+    Ok(Value::Int(count_string_regexp_matches(
+        &source, &regexp, case_fold,
+    )?))
 }
 
 /// `(isearch-forward)` — interactive command; returns batch-mode error in
