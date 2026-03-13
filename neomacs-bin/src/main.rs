@@ -34,9 +34,10 @@ fn main() {
     neomacs_display_runtime::init_logging();
 
     tracing::info!(
-        "Neomacs {} starting (pure Rust, backend={})",
+        "Neomacs {} starting (pure Rust, backend={}, pid={})",
         neomacs_display_runtime::VERSION,
-        neomacs_display_runtime::CORE_BACKEND
+        neomacs_display_runtime::CORE_BACKEND,
+        std::process::id()
     );
 
     // 2. Initialize the evaluator from the canonical core bootstrap.
