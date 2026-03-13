@@ -66,6 +66,7 @@ enum BackrefAtom {
     Literal(char),
     AnyChar,
     CharClass(BackrefCharClass),
+    NonAsciiCategory,
     WordChar,
     NotWordChar,
     SyntaxClass(BackrefSyntaxClass, bool),
@@ -811,6 +812,8 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | 'B'
                     | 's'
                     | 'S'
+                    | 'c'
+                    | '='
                     | '`'
                     | '\''
                     | '<'
@@ -824,7 +827,11 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | ']'
                     | '^'
                     | '$' => {
-                        idx += if matches!(next, 's' | 'S') { 3 } else { 2 };
+                        idx += if matches!(next, 's' | 'S' | 'c') {
+                            3
+                        } else {
+                            2
+                        };
                     }
                     _ if !next.is_ascii() => idx += 2,
                     _ => return false,
@@ -939,6 +946,10 @@ impl<'a> BackrefParser<'a> {
                         }
                     }
                     '1'..='9' => Some(BackrefAtom::Backref(next.to_digit(10)? as usize)),
+                    'c' => {
+                        self.next()?;
+                        Some(BackrefAtom::NonAsciiCategory)
+                    }
                     'w' => Some(BackrefAtom::WordChar),
                     'W' => Some(BackrefAtom::NotWordChar),
                     's' => Some(BackrefAtom::SyntaxClass(
@@ -951,6 +962,7 @@ impl<'a> BackrefParser<'a> {
                     )),
                     'b' => Some(BackrefAtom::WordBoundary),
                     'B' => Some(BackrefAtom::NotWordBoundary),
+                    '=' => Some(BackrefAtom::StartBuffer),
                     '`' => Some(BackrefAtom::StartBuffer),
                     '\'' => Some(BackrefAtom::EndBuffer),
                     '<' | '>' => Some(BackrefAtom::WordBoundary),
@@ -1805,6 +1817,19 @@ fn match_backref_atom_once(
                 return Vec::new();
             };
             if char_class_matches(class, ch, case_fold) {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::NonAsciiCategory => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if !ch.is_ascii() {
                 vec![BackrefState {
                     pos: state.pos + len,
                     groups: state.groups.clone(),
