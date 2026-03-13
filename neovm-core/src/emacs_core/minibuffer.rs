@@ -750,30 +750,59 @@ pub(crate) fn builtin_minibufferp(args: Vec<Value>) -> EvalResult {
 
 /// `(recursive-edit)` — enter a recursive edit.
 ///
-/// Stub (batch/non-interactive): returns nil.
+/// Mirrors GNU Emacs keyboard.c:772 `Frecursive_edit`.
+/// In interactive mode, enters the command loop (read → execute → redisplay).
+/// In batch mode, returns nil.
 pub(crate) fn builtin_recursive_edit(args: Vec<Value>) -> EvalResult {
     expect_args("recursive-edit", &args, 0)?;
+    // The actual implementation is in Evaluator::recursive_edit() which needs
+    // &mut self access.  The builtin dispatch calls this stub for the
+    // non-evaluator path; the eval-aware path is registered separately.
     Ok(Value::Nil)
+}
+
+/// Eval-aware `(recursive-edit)` — enters the command loop.
+///
+/// Mirrors GNU Emacs keyboard.c:772 `Frecursive_edit`.
+pub(crate) fn builtin_recursive_edit_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("recursive-edit", &args, 0)?;
+    eval.recursive_edit()
 }
 
 /// `(top-level)` — exit all recursive edits.
 ///
-/// Stub (batch/non-interactive): returns nil.
+/// Mirrors GNU Emacs keyboard.c:1187 `Ftop_level`.
+/// Throws to the `top-level` tag to unwind all recursive edits.
 pub(crate) fn builtin_top_level(args: Vec<Value>) -> EvalResult {
     expect_args("top-level", &args, 0)?;
-    Ok(Value::Nil)
+    Err(Flow::Throw {
+        tag: Value::symbol("top-level"),
+        value: Value::Nil,
+    })
 }
 
 /// `(exit-recursive-edit)` — exit innermost recursive edit.
 ///
-/// Batch/non-interactive: signal GNU-compatible user-error when not in a
-/// recursive edit.
-pub(crate) fn builtin_exit_recursive_edit(args: Vec<Value>) -> EvalResult {
+/// Mirrors GNU Emacs keyboard.c:1211 `Fexit_recursive_edit`.
+/// Throws to the `exit` tag with nil value.
+pub(crate) fn builtin_exit_recursive_edit(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("exit-recursive-edit", &args, 0)?;
-    Err(signal(
-        "user-error",
-        vec![Value::string("No recursive edit is in progress")],
-    ))
+    if eval.command_loop.recursive_depth == 0 {
+        return Err(signal(
+            "user-error",
+            vec![Value::string("No recursive edit is in progress")],
+        ));
+    }
+    Err(Flow::Throw {
+        tag: Value::symbol("exit"),
+        value: Value::Nil,
+    })
 }
 
 /// `(exit-minibuffer)` — exit the active minibuffer.
@@ -799,13 +828,23 @@ pub(crate) fn builtin_abort_minibuffers(args: Vec<Value>) -> EvalResult {
 
 /// `(abort-recursive-edit)` — abort the innermost recursive edit.
 ///
-/// Stub (batch/non-interactive): signals a user-error.
-pub(crate) fn builtin_abort_recursive_edit(args: Vec<Value>) -> EvalResult {
+/// Mirrors GNU Emacs keyboard.c:1222 `Fabort_recursive_edit`.
+/// Throws to the `exit` tag with `t` value (signals quit on catch).
+pub(crate) fn builtin_abort_recursive_edit(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("abort-recursive-edit", &args, 0)?;
-    Err(signal(
-        "user-error",
-        vec![Value::string("No recursive edit is in progress")],
-    ))
+    if eval.command_loop.recursive_depth == 0 {
+        return Err(signal(
+            "user-error",
+            vec![Value::string("No recursive edit is in progress")],
+        ));
+    }
+    Err(Flow::Throw {
+        tag: Value::symbol("exit"),
+        value: Value::True,
+    })
 }
 
 // ---------------------------------------------------------------------------

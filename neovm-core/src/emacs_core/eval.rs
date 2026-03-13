@@ -2156,6 +2156,168 @@ impl Evaluator {
         self.command_loop.running = true;
     }
 
+    // -----------------------------------------------------------------------
+    // Command loop (mirrors keyboard.c)
+    // -----------------------------------------------------------------------
+
+    /// Enter a recursive edit level.
+    ///
+    /// Mirrors GNU Emacs `Frecursive_edit()` (keyboard.c:772).
+    /// Increments recursive depth, enters the command loop, decrements on exit.
+    /// If the command loop exits via `abort-recursive-edit` (throw 'exit t),
+    /// signals quit.  If via `exit-recursive-edit` (throw 'exit nil), returns
+    /// normally.
+    ///
+    /// In batch mode (no input_rx), returns nil immediately.
+    pub(crate) fn recursive_edit(&mut self) -> EvalResult {
+        // Batch mode: no interactive input, return immediately.
+        if self.input_rx.is_none() {
+            return Ok(Value::Nil);
+        }
+
+        self.command_loop.recursive_depth += 1;
+
+        // Register catch tag for 'exit (mirrors keyboard.c catch handler).
+        let exit_tag = Value::symbol("exit");
+        self.catch_tags.push(exit_tag);
+
+        let result = self.command_loop_inner();
+
+        self.catch_tags.pop();
+        self.command_loop.recursive_depth -= 1;
+
+        match result {
+            Ok(val) => Ok(val),
+            // exit-recursive-edit: throw 'exit nil → normal return
+            Err(Flow::Throw { ref tag, ref value }) if tag.is_symbol_named("exit") => {
+                if value.is_truthy() {
+                    // abort-recursive-edit: throw 'exit t → signal quit
+                    Err(super::error::signal("quit", vec![]))
+                } else {
+                    Ok(Value::Nil)
+                }
+            }
+            Err(flow) => Err(flow),
+        }
+    }
+
+    /// Inner command loop with top-level catch.
+    ///
+    /// Mirrors GNU Emacs `command_loop()` (keyboard.c:1104).
+    /// Wraps command_loop_2 in a catch for 'top-level.
+    fn command_loop_inner(&mut self) -> EvalResult {
+        loop {
+            // Catch 'top-level throws (from (top-level) function).
+            let top_level_tag = Value::symbol("top-level");
+            self.catch_tags.push(top_level_tag);
+
+            let result = self.command_loop_2();
+
+            self.catch_tags.pop();
+
+            match result {
+                // top-level throw → restart the loop
+                Err(Flow::Throw { ref tag, .. }) if tag.is_symbol_named("top-level") => {
+                    continue;
+                }
+                // Any other result propagates up
+                other => return other,
+            }
+        }
+    }
+
+    /// Command loop with error recovery.
+    ///
+    /// Mirrors GNU Emacs `command_loop_2()` (keyboard.c:1146).
+    /// Wraps command_loop_1 with condition-case error handling.
+    fn command_loop_2(&mut self) -> EvalResult {
+        loop {
+            match self.command_loop_1() {
+                Ok(val) => return Ok(val),
+                Err(Flow::Throw { .. }) => {
+                    // Throws propagate (exit, top-level, etc.)
+                    return Err(self.command_loop_1().unwrap_err());
+                }
+                Err(Flow::Signal(ref sig)) => {
+                    // Error in command loop — log and restart.
+                    // Mirrors cmd_error() in keyboard.c.
+                    let sym_name = sig.symbol_name().to_string();
+                    let data_str = sig
+                        .data
+                        .iter()
+                        .map(|v| format!("{}", v))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    tracing::error!("Command loop error: ({} {})", sym_name, data_str);
+                    // Continue — restart the command loop.
+                    continue;
+                }
+            }
+        }
+    }
+
+    /// Main command loop — read key sequence, look up binding, execute.
+    ///
+    /// Mirrors GNU Emacs `command_loop_1()` (keyboard.c:1306).
+    /// This is the core interactive loop: read → dispatch → redisplay.
+    ///
+    /// Placeholder: will be fully implemented in Phase 1.
+    fn command_loop_1(&mut self) -> EvalResult {
+        // TODO(Phase 1): Implement the full command loop:
+        // 1. read_key_sequence() — blocks in read_char()
+        // 2. key-binding lookup
+        // 3. (command-execute cmd)
+        // 4. post-command-hook
+        //
+        // For now, drain input events to prevent channel backup,
+        // and return when the window closes.
+        loop {
+            if !self.command_loop.running {
+                return Ok(Value::Nil);
+            }
+
+            // Block on input from render thread
+            if let Some(ref rx) = self.input_rx {
+                match rx.recv() {
+                    Ok(event) => {
+                        self.command_loop.enqueue_event(event);
+                        // Drain any additional queued events
+                        while let Ok(event) = rx.try_recv() {
+                            self.command_loop.enqueue_event(event);
+                        }
+
+                        // Process events from queue
+                        while let Some(_key) = self.command_loop.read_key_event() {
+                            // TODO: key-binding lookup + command-execute
+                            // For now, just consume the event
+                        }
+
+                        // Handle close request
+                        use crate::keyboard::InputEvent;
+                        let mut should_close = false;
+                        for event in self.command_loop.event_queue.iter() {
+                            if matches!(event, InputEvent::CloseRequested) {
+                                should_close = true;
+                            }
+                        }
+                        if should_close {
+                            self.command_loop.running = false;
+                            return Ok(Value::Nil);
+                        }
+                    }
+                    Err(_) => {
+                        // Channel disconnected — render thread exited
+                        self.command_loop.running = false;
+                        return Ok(Value::Nil);
+                    }
+                }
+            } else {
+                // Batch mode — no input source
+                return Ok(Value::Nil);
+            }
+        }
+    }
+
     /// Perform a full mark-and-sweep garbage collection.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect(&mut self) {

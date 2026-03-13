@@ -2120,10 +2120,10 @@ pub(crate) fn dispatch_builtin(
         }
         "recursion-depth" => return Some(super::misc::builtin_recursion_depth(eval, args)),
         "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
-        "recursive-edit" => return Some(super::minibuffer::builtin_recursive_edit(args)),
-        "exit-recursive-edit" => return Some(super::minibuffer::builtin_exit_recursive_edit(args)),
+        "recursive-edit" => return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args)),
+        "exit-recursive-edit" => return Some(super::minibuffer::builtin_exit_recursive_edit(eval, args)),
         "abort-recursive-edit" => {
-            return Some(super::minibuffer::builtin_abort_recursive_edit(args));
+            return Some(super::minibuffer::builtin_abort_recursive_edit(eval, args));
         }
         "abort-minibuffers" => return Some(super::minibuffer::builtin_abort_minibuffers(args)),
 
