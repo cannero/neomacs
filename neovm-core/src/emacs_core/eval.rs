@@ -2497,7 +2497,7 @@ impl Evaluator {
     ///
     /// Mirrors GNU Emacs `redisplay()` (dispnew.c:5259).
     /// In batch mode (no callback), this is a no-op.
-    fn redisplay(&mut self) {
+    pub(crate) fn redisplay(&mut self) {
         // Take the callback out to satisfy the borrow checker:
         // the callback receives &mut self, but we can't call a closure
         // stored in &mut self while &mut self is borrowed.
@@ -2662,6 +2662,17 @@ impl Evaluator {
             }
             _ => None,
         }
+    }
+
+    /// Prepend an event to the `unread-command-events` list so that the next
+    /// `read_char` / `pop_unread_command_event` will consume it first.
+    pub(crate) fn push_unread_command_event(&mut self, event: Value) {
+        let current = match self.eval_symbol("unread-command-events") {
+            Ok(value) => value,
+            Err(_) => Value::Nil,
+        };
+        let new_list = Value::cons(event, current);
+        self.assign("unread-command-events", new_list);
     }
 
     /// Enable or disable lexical binding.

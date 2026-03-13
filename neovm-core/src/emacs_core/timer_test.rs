@@ -224,16 +224,20 @@ fn test_builtin_timerp() {
 
 #[test]
 fn test_builtin_sit_for() {
-    let result = builtin_sit_for(vec![Value::Float(0.1, next_float_id())]);
+    use super::super::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+
+    let result = builtin_sit_for(&mut eval, vec![Value::Float(0.1, next_float_id())]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_truthy());
 
     // Wrong type
-    let result = builtin_sit_for(vec![Value::string("bad")]);
+    let result = builtin_sit_for(&mut eval, vec![Value::string("bad")]);
     assert!(result.is_err());
 
     // Wrong arity
-    let result = builtin_sit_for(vec![Value::Int(0), Value::Nil, Value::Nil]);
+    let result = builtin_sit_for(&mut eval, vec![Value::Int(0), Value::Nil, Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"

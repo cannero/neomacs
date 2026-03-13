@@ -592,11 +592,15 @@ pub(crate) fn builtin_sleep_for(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// (sit-for SECONDS &optional NODISP) -> t
+/// (sit-for SECONDS &optional NODISP) -> t or nil
 ///
-/// Mirrors `sleep-for` timing behavior and always returns non-nil (`t`) unless an
-/// argument validation error is signaled.
-pub(crate) fn builtin_sit_for(args: Vec<Value>) -> EvalResult {
+/// Wait for SECONDS, performing redisplay unless NODISP is non-nil.
+/// Returns t if the full time elapsed, nil if interrupted by input.
+/// In interactive mode, uses recv_timeout on the input channel.
+pub(crate) fn builtin_sit_for(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("sit-for", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -605,10 +609,45 @@ pub(crate) fn builtin_sit_for(args: Vec<Value>) -> EvalResult {
         ));
     }
     let secs = expect_number(&args[0])?;
-    if secs > 0.0 {
-        std::thread::sleep(Duration::from_secs_f64(secs));
+    let nodisp = args.get(1).is_some_and(|v| v.is_truthy());
+
+    // Trigger redisplay before waiting (unless NODISP)
+    if !nodisp {
+        eval.redisplay();
     }
-    Ok(Value::True)
+
+    if secs <= 0.0 {
+        return Ok(Value::True);
+    }
+
+    // Interactive mode: wait with recv_timeout, return nil if input arrives
+    if let Some(ref rx) = eval.input_rx {
+        let timeout = Duration::from_secs_f64(secs);
+        match rx.recv_timeout(timeout) {
+            Ok(event) => {
+                // Input arrived — push key events back as unread, return nil
+                use crate::keyboard::InputEvent;
+                use super::keymap::key_event_to_emacs_event;
+                if let InputEvent::KeyPress(key) = event {
+                    let keymap_key: super::keymap::KeyEvent = key.into();
+                    let emacs_event = key_event_to_emacs_event(&keymap_key);
+                    // Push to unread-command-events so read_char picks it up
+                    eval.push_unread_command_event(emacs_event);
+                }
+                Ok(Value::Nil) // Interrupted by input
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                Ok(Value::True) // Full time elapsed
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                Ok(Value::True) // Channel closed
+            }
+        }
+    } else {
+        // Batch mode: just sleep
+        std::thread::sleep(Duration::from_secs_f64(secs));
+        Ok(Value::True)
+    }
 }
 
 // ===========================================================================
