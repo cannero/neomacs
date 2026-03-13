@@ -842,9 +842,11 @@ pub(crate) fn builtin_yes_or_no_p(
 // 17. read-char
 // ---------------------------------------------------------------------------
 
-/// `(read-char &optional PROMPT ...)`
+/// `(read-char &optional PROMPT INHERIT-INPUT-METHOD SECONDS)`
 ///
-/// Batch-mode: returns next unread character codepoint when available, otherwise nil.
+/// Read a character from the command input (keyboard or macro).
+/// In batch mode, checks `unread-command-events` and returns nil if empty.
+/// In interactive mode, blocks on the input channel via `read_char()`.
 pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     if args.len() > 3 {
         return Err(signal(
@@ -854,6 +856,8 @@ pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Val
     }
     expect_optional_prompt_string(&args)?;
     let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+
+    // 1. Check unread-command-events first (both batch and interactive)
     if let Some(event) = eval.peek_unread_command_event() {
         if let Some(n) = event_to_int(&event) {
             let _ = eval.pop_unread_command_event();
@@ -866,12 +870,31 @@ pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Val
         eval.record_input_event(event);
         return Err(non_character_input_event_error());
     }
+
+    // 2. Interactive mode: block on input channel
+    if eval.input_rx.is_some() {
+        let event = eval.read_char()?;
+        if let Some(n) = event_to_int(&event) {
+            if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+                eval.set_read_command_keys(vec![event]);
+            }
+            return Ok(Value::Int(n));
+        }
+        // Non-character event: push back and signal error
+        eval.assign("unread-command-events", Value::list(vec![event]));
+        eval.record_input_event(event);
+        return Err(non_character_input_event_error());
+    }
+
+    // 3. Batch mode: no input available
     Ok(Value::Nil)
 }
 
 /// `(read-key &optional PROMPT)`
 ///
-/// Batch-mode: return next `unread-command-events` event when present, else nil.
+/// Read a key from the command input.
+/// In batch mode, returns next `unread-command-events` event, else nil.
+/// In interactive mode, blocks on the input channel via `read_char()`.
 pub(crate) fn builtin_read_key(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
@@ -880,6 +903,8 @@ pub(crate) fn builtin_read_key(eval: &mut super::eval::Evaluator, args: Vec<Valu
         ));
     }
     expect_optional_prompt_string(&args)?;
+
+    // 1. Check unread-command-events first
     if let Some(event) = eval.pop_unread_command_event() {
         eval.record_nonmenu_input_event(event);
         eval.set_read_command_keys(vec![event]);
@@ -888,6 +913,19 @@ pub(crate) fn builtin_read_key(eval: &mut super::eval::Evaluator, args: Vec<Valu
         }
         return Ok(event);
     }
+
+    // 2. Interactive mode: block on input channel
+    if eval.input_rx.is_some() {
+        let event = eval.read_char()?;
+        eval.record_nonmenu_input_event(event);
+        eval.set_read_command_keys(vec![event]);
+        if let Some(n) = event_to_int(&event) {
+            return Ok(Value::Int(n));
+        }
+        return Ok(event);
+    }
+
+    // 3. Batch mode: no input
     eval.clear_read_command_keys();
     Ok(Value::Nil)
 }
@@ -896,9 +934,11 @@ pub(crate) fn builtin_read_key(eval: &mut super::eval::Evaluator, args: Vec<Valu
 // 18. read-key-sequence
 // ---------------------------------------------------------------------------
 
-/// `(read-key-sequence PROMPT)`
+/// `(read-key-sequence PROMPT &optional ...)`
 ///
-/// Batch-mode: consume one queued event and return it, or return empty string.
+/// Read a sequence of keystrokes that forms a complete key binding.
+/// In batch mode, consumes one queued event. In interactive mode, uses the
+/// evaluator's `read_key_sequence()` to accumulate keys through prefix keymaps.
 pub(crate) fn builtin_read_key_sequence(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -906,6 +946,8 @@ pub(crate) fn builtin_read_key_sequence(
     expect_min_args("read-key-sequence", &args, 1)?;
     expect_max_args("read-key-sequence", &args, 6)?;
     expect_optional_prompt_string(&args)?;
+
+    // 1. Check unread-command-events first
     if let Some(event) = eval.pop_unread_command_event() {
         eval.record_nonmenu_input_event(event);
         eval.set_read_command_keys(vec![event]);
@@ -914,6 +956,27 @@ pub(crate) fn builtin_read_key_sequence(
         }
         return Ok(Value::vector(vec![event]));
     }
+
+    // 2. Interactive mode: use the full key sequence reader
+    if eval.input_rx.is_some() {
+        let (keys, _binding) = eval.read_key_sequence()?;
+        let mut chars_only = true;
+        let mut s = String::new();
+        for k in &keys {
+            if let Some(c) = event_to_char(k) {
+                s.push(c);
+            } else {
+                chars_only = false;
+                break;
+            }
+        }
+        if chars_only && !keys.is_empty() {
+            return Ok(Value::string(s));
+        }
+        return Ok(Value::vector(keys));
+    }
+
+    // 3. Batch mode: no input
     eval.clear_read_command_keys();
     Ok(Value::string(""))
 }

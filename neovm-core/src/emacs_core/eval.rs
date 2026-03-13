@@ -2357,7 +2357,7 @@ impl Evaluator {
     ///
     /// Returns (key_events_as_emacs_values, binding).
     /// binding is Value::Nil if the key sequence is undefined.
-    fn read_key_sequence(&mut self) -> Result<(Vec<Value>, Value), Flow> {
+    pub(crate) fn read_key_sequence(&mut self) -> Result<(Vec<Value>, Value), Flow> {
         use super::keymap::{key_event_to_emacs_event, is_list_keymap};
 
         let mut events: Vec<Value> = Vec::new();
@@ -2407,7 +2407,7 @@ impl Evaluator {
     /// Mirrors GNU Emacs `read_char()` (keyboard.c:2489).
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
-    fn read_char(&mut self) -> Result<Value, Flow> {
+    pub(crate) fn read_char(&mut self) -> Result<Value, Flow> {
         use crate::keyboard::InputEvent;
         use super::keymap::key_event_to_emacs_event;
 

@@ -208,8 +208,9 @@ fn expect_optional_prompt_string(args: &[Value]) -> Result<(), Flow> {
 
 /// `(read-event &optional PROMPT INHERIT-INPUT-METHOD SECONDS)`
 ///
-/// In batch mode, first reads from `unread-command-events`, consuming
-/// character events and returning non-character events unchanged.
+/// Read an event from the command input.
+/// In batch mode, reads from `unread-command-events`, returns nil if empty.
+/// In interactive mode, blocks on the input channel via `read_char()`.
 pub(crate) fn builtin_read_event(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -221,11 +222,10 @@ pub(crate) fn builtin_read_event(
         ));
     }
     expect_optional_prompt_string(&args)?;
+    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+
+    // 1. Check unread-command-events first (both batch and interactive)
     if let Some(event) = eval.pop_unread_command_event() {
-        // Oracle compatibility: `read-event` seeds this-command-keys* only when
-        // no prior key context is present, and only when SECONDS is omitted or
-        // nil. Existing key context remains authoritative.
-        let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
             eval.set_read_command_keys(vec![event]);
         }
@@ -234,13 +234,28 @@ pub(crate) fn builtin_read_event(
         }
         return Ok(event);
     }
+
+    // 2. Interactive mode: block on input channel
+    if eval.input_rx.is_some() {
+        let event = eval.read_char()?;
+        if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+            eval.set_read_command_keys(vec![event]);
+        }
+        if let Some(n) = event_to_int(&event) {
+            return Ok(Value::Int(n));
+        }
+        return Ok(event);
+    }
+
+    // 3. Batch mode: no input available
     Ok(Value::Nil)
 }
 
 /// `(read-char-exclusive &optional PROMPT INHERIT-INPUT-METHOD SECONDS)`
 ///
-/// In batch mode, consumes unread command events until a character event is found,
-/// returning nil when no character is queued.
+/// Read a character from the command input, discarding non-character events.
+/// In batch mode, consumes `unread-command-events` until a character is found.
+/// In interactive mode, blocks on the input channel, skipping non-character events.
 pub(crate) fn builtin_read_char_exclusive(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -256,6 +271,8 @@ pub(crate) fn builtin_read_char_exclusive(
     }
     expect_optional_prompt_string(&args)?;
     let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+
+    // 1. Check unread-command-events first (both batch and interactive)
     while let Some(event) = eval.pop_unread_command_event() {
         if let Some(n) = event_to_int(&event) {
             if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
@@ -265,6 +282,22 @@ pub(crate) fn builtin_read_char_exclusive(
         }
         // Skip non-character events.
     }
+
+    // 2. Interactive mode: block on input channel, skip non-character events
+    if eval.input_rx.is_some() {
+        loop {
+            let event = eval.read_char()?;
+            if let Some(n) = event_to_int(&event) {
+                if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+                    eval.set_read_command_keys(vec![event]);
+                }
+                return Ok(Value::Int(n));
+            }
+            // Non-character event: discard and keep reading
+        }
+    }
+
+    // 3. Batch mode: no character found
     Ok(Value::Nil)
 }
 
