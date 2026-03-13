@@ -394,6 +394,8 @@ fn builtin_command_name(name: &str) -> bool {
             | "keyboard-quit"
             | "quoted-insert"
             | "universal-argument"
+            | "digit-argument"
+            | "negative-argument"
             | "beginning-of-line"
             | "end-of-line"
             | "move-beginning-of-line"
@@ -1493,18 +1495,75 @@ pub(crate) fn builtin_quoted_insert_command(_eval: &mut Evaluator, args: Vec<Val
 }
 
 /// `(universal-argument)` -- initialize a prefix argument command state.
+///
+/// Sets `prefix-arg` to `(4)` (raw C-u).  When `universal-argument` is
+/// invoked again (C-u C-u), the value is multiplied: `(4)` → `(16)`.
 pub(crate) fn builtin_universal_argument_command(
-    _eval: &mut Evaluator,
+    eval: &mut Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("universal-argument", &args, 0)?;
-    Ok(Value::make_lambda(LambdaData {
-        params: LambdaParams::simple(vec![]),
-        body: vec![Expr::Symbol(intern("nil"))].into(),
-        env: None,
-        docstring: None,
-        doc_form: None,
-    }))
+    let current = dynamic_or_global_symbol_value(eval, "prefix-arg").unwrap_or(Value::Nil);
+    let new_prefix = match current {
+        // Already have raw C-u prefix — multiply by 4
+        Value::Cons(id) => {
+            let pair = super::value::read_cons(id);
+            if let Value::Int(n) = pair.car {
+                Value::list(vec![Value::Int(n * 4)])
+            } else {
+                Value::list(vec![Value::Int(4)])
+            }
+        }
+        // No prefix yet — start with (4)
+        _ => Value::list(vec![Value::Int(4)]),
+    };
+    eval.assign("prefix-arg", new_prefix);
+    Ok(Value::Nil)
+}
+
+/// `(digit-argument ARG)` — handle M-0 through M-9 as prefix digits.
+pub(crate) fn builtin_digit_argument(
+    eval: &mut Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("digit-argument", &args, 1)?;
+    // The digit is in last-command-event
+    let event = dynamic_or_global_symbol_value(eval, "last-command-event").unwrap_or(Value::Nil);
+    let digit = match event {
+        Value::Int(n) => {
+            let ch = (n & 0x1FFFFF) as u8; // mask off modifiers
+            if ch.is_ascii_digit() {
+                (ch - b'0') as i64
+            } else {
+                return Ok(Value::Nil);
+            }
+        }
+        _ => return Ok(Value::Nil),
+    };
+
+    let current = dynamic_or_global_symbol_value(eval, "prefix-arg").unwrap_or(Value::Nil);
+    let new_prefix = match current {
+        Value::Int(n) => Value::Int(n * 10 + digit),
+        Value::Cons(_) => Value::Int(digit), // C-u then digit → just the digit
+        _ => Value::Int(digit),
+    };
+    eval.assign("prefix-arg", new_prefix);
+    Ok(Value::Nil)
+}
+
+/// `(negative-argument ARG)` — handle M-- as negative prefix.
+pub(crate) fn builtin_negative_argument(
+    eval: &mut Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("negative-argument", &args, 1)?;
+    let current = dynamic_or_global_symbol_value(eval, "prefix-arg").unwrap_or(Value::Nil);
+    let new_prefix = match current {
+        Value::Int(n) => Value::Int(-n),
+        _ => Value::symbol("-"),
+    };
+    eval.assign("prefix-arg", new_prefix);
+    Ok(Value::Nil)
 }
 
 /// `(execute-extended-command PREFIXARG &optional COMMAND-NAME TYPED)`

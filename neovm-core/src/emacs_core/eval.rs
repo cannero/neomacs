@@ -2289,11 +2289,20 @@ impl Evaluator {
                 return Ok(Value::Nil);
             }
 
+            // Transfer prefix-arg → current-prefix-arg before each command
+            // (mirrors keyboard.c command_loop_1 logic).
+            let prefix_arg = self
+                .eval_symbol("prefix-arg")
+                .unwrap_or(Value::Nil);
+            self.assign("current-prefix-arg", prefix_arg);
+            self.assign("prefix-arg", Value::Nil);
+
             // Read a complete key sequence (may be multi-key, e.g. C-x C-f).
             let (keys, binding) = self.read_key_sequence()?;
 
             if binding.is_nil() {
-                // Undefined key sequence
+                // Undefined key sequence — reset prefix arg
+                self.assign("prefix-arg", Value::Nil);
                 let desc: Vec<String> = keys.iter().map(|v| format!("{:?}", v)).collect();
                 tracing::debug!("Undefined key sequence: {}", desc.join(" "));
                 continue;

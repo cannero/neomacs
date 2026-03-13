@@ -2023,6 +2023,15 @@ pub(crate) fn dispatch_builtin(
         "self-insert-command" => {
             return Some(super::interactive::builtin_self_insert_command(eval, args));
         }
+        "universal-argument" => {
+            return Some(super::interactive::builtin_universal_argument_command(eval, args));
+        }
+        "digit-argument" => {
+            return Some(super::interactive::builtin_digit_argument(eval, args));
+        }
+        "negative-argument" => {
+            return Some(super::interactive::builtin_negative_argument(eval, args));
+        }
         "key-binding" => return Some(super::interactive::builtin_key_binding(eval, args)),
         "minor-mode-key-binding" => {
             return Some(super::interactive::builtin_minor_mode_key_binding(

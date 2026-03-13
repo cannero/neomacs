@@ -2095,13 +2095,18 @@ fn command_execute_builtin_quoted_insert_reads_stdin_in_batch() {
 }
 
 #[test]
-fn command_execute_builtin_universal_argument_returns_noninteractive_function() {
+fn command_execute_builtin_universal_argument_sets_prefix_arg() {
     let mut ev = Evaluator::new();
     let result = builtin_command_execute(&mut ev, vec![Value::symbol("universal-argument")])
         .expect("universal-argument should execute");
-    assert!(matches!(result, Value::Lambda(_)));
-    let as_command = builtin_commandp_interactive(&mut ev, vec![result]).expect("commandp call");
-    assert!(as_command.is_nil());
+    assert!(result.is_nil());
+    // prefix-arg should now be (4)
+    let prefix = ev
+        .obarray()
+        .symbol_value("prefix-arg")
+        .copied()
+        .unwrap_or(Value::Nil);
+    assert!(matches!(prefix, Value::Cons(_)), "prefix-arg should be a list (4)");
 }
 
 #[test]
