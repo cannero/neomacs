@@ -1201,6 +1201,7 @@ impl Evaluator {
         obarray.set_symbol_value("function-key-map", function_key_map);
         obarray.set_symbol_value("input-decode-map", input_decode_map);
         obarray.set_symbol_value("local-function-key-map", local_function_key_map);
+        obarray.set_symbol_value("keyboard-translate-table", Value::Nil);
 
         // Core eval variables (stay in eval.rs)
         obarray.set_symbol_value("purify-flag", Value::Nil);
