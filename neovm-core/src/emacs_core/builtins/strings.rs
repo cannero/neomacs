@@ -155,135 +155,143 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
 }
 
 pub(crate) fn builtin_substring(args: Vec<Value>) -> EvalResult {
-    substring_impl("substring", &args, true)
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::Substring,
+        || substring_impl("substring", &args, true),
+    )
 }
 
 pub(crate) fn builtin_substring_no_properties(args: Vec<Value>) -> EvalResult {
-    substring_impl("substring-no-properties", &args, false)
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::Substring,
+        || substring_impl("substring-no-properties", &args, false),
+    )
 }
 
 pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
-    fn push_concat_int(result: &mut String, n: i64) -> Result<(), Flow> {
-        if !(0..=0x3FFFFF).contains(&n) {
-            return Err(signal(
+    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Concat, || {
+        fn push_concat_int(result: &mut String, n: i64) -> Result<(), Flow> {
+            if !(0..=0x3FFFFF).contains(&n) {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("characterp"), Value::Int(n)],
+                ));
+            }
+
+            let cp = n as u32;
+            if let Some(c) = char::from_u32(cp) {
+                result.push(c);
+                return Ok(());
+            }
+
+            // Emacs concat path for raw-byte non-Unicode chars uses byte->multibyte encoding.
+            if (0x3FFF00..=0x3FFFFF).contains(&cp) {
+                let b = (cp - 0x3FFF00) as u8;
+                let bytes = if b < 0x80 {
+                    vec![b]
+                } else {
+                    vec![0xC0 | ((b >> 6) & 0x01), 0x80 | (b & 0x3F)]
+                };
+                result.push_str(&bytes_to_storage_string(&bytes));
+                return Ok(());
+            }
+
+            if let Some(encoded) = encode_nonunicode_char_for_storage(cp) {
+                result.push_str(&encoded);
+                return Ok(());
+            }
+
+            Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), Value::Int(n)],
-            ));
+            ))
         }
 
-        let cp = n as u32;
-        if let Some(c) = char::from_u32(cp) {
-            result.push(c);
-            return Ok(());
-        }
-
-        // Emacs concat path for raw-byte non-Unicode chars uses byte->multibyte encoding.
-        if (0x3FFF00..=0x3FFFFF).contains(&cp) {
-            let b = (cp - 0x3FFF00) as u8;
-            let bytes = if b < 0x80 {
-                vec![b]
-            } else {
-                vec![0xC0 | ((b >> 6) & 0x01), 0x80 | (b & 0x3F)]
-            };
-            result.push_str(&bytes_to_storage_string(&bytes));
-            return Ok(());
-        }
-
-        if let Some(encoded) = encode_nonunicode_char_for_storage(cp) {
-            result.push_str(&encoded);
-            return Ok(());
-        }
-
-        Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), Value::Int(n)],
-        ))
-    }
-
-    fn push_concat_element(result: &mut String, value: &Value) -> Result<(), Flow> {
-        match value {
-            Value::Char(c) => {
-                result.push(*c);
-                Ok(())
+        fn push_concat_element(result: &mut String, value: &Value) -> Result<(), Flow> {
+            match value {
+                Value::Char(c) => {
+                    result.push(*c);
+                    Ok(())
+                }
+                Value::Int(n) => push_concat_int(result, *n),
+                other => Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("characterp"), *other],
+                )),
             }
-            Value::Int(n) => push_concat_int(result, *n),
-            other => Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), *other],
-            )),
         }
-    }
 
-    let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg {
-        Value::Str(id) => acc + with_heap(|h| h.get_string(*id).len()),
-        _ => acc,
-    });
-    let mut result = String::with_capacity(preallocated_len);
-    // Track string sources with their byte offsets for property preservation
-    let mut string_sources: Vec<(crate::gc::types::ObjId, usize)> = Vec::new();
+        let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg {
+            Value::Str(id) => acc + with_heap(|h| h.get_string(*id).len()),
+            _ => acc,
+        });
+        let mut result = String::with_capacity(preallocated_len);
+        // Track string sources with their byte offsets for property preservation
+        let mut string_sources: Vec<(crate::gc::types::ObjId, usize)> = Vec::new();
 
-    for arg in &args {
-        match arg {
-            Value::Str(id) => {
-                let offset = result.len();
-                with_heap(|h| result.push_str(h.get_string(*id)));
-                string_sources.push((*id, offset));
-            }
-            Value::Nil => {}
-            Value::Cons(_) => {
-                let mut cursor = *arg;
-                loop {
-                    match cursor {
-                        Value::Nil => break,
-                        Value::Cons(cell) => {
-                            let pair = read_cons(cell);
-                            push_concat_element(&mut result, &pair.car)?;
-                            cursor = pair.cdr;
-                        }
-                        tail => {
-                            return Err(signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("listp"), tail],
-                            ));
+        for arg in &args {
+            match arg {
+                Value::Str(id) => {
+                    let offset = result.len();
+                    with_heap(|h| result.push_str(h.get_string(*id)));
+                    string_sources.push((*id, offset));
+                }
+                Value::Nil => {}
+                Value::Cons(_) => {
+                    let mut cursor = *arg;
+                    loop {
+                        match cursor {
+                            Value::Nil => break,
+                            Value::Cons(cell) => {
+                                let pair = read_cons(cell);
+                                push_concat_element(&mut result, &pair.car)?;
+                                cursor = pair.cdr;
+                            }
+                            tail => {
+                                return Err(signal(
+                                    "wrong-type-argument",
+                                    vec![Value::symbol("listp"), tail],
+                                ));
+                            }
                         }
                     }
                 }
-            }
-            Value::Vector(v) => {
-                let items = with_heap(|h| h.get_vector(*v).clone());
-                for item in items.iter() {
-                    push_concat_element(&mut result, item)?;
+                Value::Vector(v) => {
+                    let items = with_heap(|h| h.get_vector(*v).clone());
+                    for item in items.iter() {
+                        push_concat_element(&mut result, item)?;
+                    }
                 }
-            }
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("sequencep"), *arg],
-                ));
-            }
-        }
-    }
-
-    let new_val = Value::string(&result);
-
-    // Preserve text properties from string sources
-    if let Value::Str(new_id) = &new_val {
-        let mut combined_table = crate::buffer::text_props::TextPropertyTable::new();
-        let mut has_props = false;
-        for (src_id, offset) in &string_sources {
-            if let Some(src_table) = get_string_text_properties_table(*src_id) {
-                if !src_table.is_empty() {
-                    combined_table.append_shifted(&src_table, *offset);
-                    has_props = true;
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("sequencep"), *arg],
+                    ));
                 }
             }
         }
-        if has_props {
-            set_string_text_properties_table(*new_id, combined_table);
-        }
-    }
 
-    Ok(new_val)
+        let new_val = Value::string(&result);
+
+        // Preserve text properties from string sources
+        if let Value::Str(new_id) = &new_val {
+            let mut combined_table = crate::buffer::text_props::TextPropertyTable::new();
+            let mut has_props = false;
+            for (src_id, offset) in &string_sources {
+                if let Some(src_table) = get_string_text_properties_table(*src_id) {
+                    if !src_table.is_empty() {
+                        combined_table.append_shifted(&src_table, *offset);
+                        has_props = true;
+                    }
+                }
+            }
+            if has_props {
+                set_string_text_properties_table(*new_id, combined_table);
+            }
+        }
+
+        Ok(new_val)
+    })
 }
 
 pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
@@ -1003,22 +1011,26 @@ fn do_format(
 }
 
 pub(super) fn builtin_format_wrapper_strict(args: Vec<Value>) -> EvalResult {
-    expect_min_args("format", &args, 1)?;
-    let s = do_format(&args, &format_value_princ, &|v| {
-        super::print::print_value(v)
-    })?;
-    Ok(Value::string(s))
+    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
+        expect_min_args("format", &args, 1)?;
+        let s = do_format(&args, &format_value_princ, &|v| {
+            super::print::print_value(v)
+        })?;
+        Ok(Value::string(s))
+    })
 }
 
 pub(super) fn builtin_format_wrapper_strict_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("format", &args, 1)?;
-    let s = do_format(&args, &|v| format_percent_s_eval(eval, v), &|v| {
-        print_value_eval(eval, v)
-    })?;
-    Ok(Value::string(s))
+    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
+        expect_min_args("format", &args, 1)?;
+        let s = do_format(&args, &|v| format_percent_s_eval(eval, v), &|v| {
+            print_value_eval(eval, v)
+        })?;
+        Ok(Value::string(s))
+    })
 }
 
 /// Apply `text-quoting-style` translation to a string.

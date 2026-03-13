@@ -494,22 +494,28 @@ pub(crate) fn builtin_string_match_with_state(
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
-    expect_range_args("string-match", args, 2, 4)?;
-    let pattern = expect_string(&args[0])?;
-    let s = expect_string(&args[1])?;
-    let start = normalize_string_start_arg(&s, args.get(2))?;
-    let inhibit_modify = args.get(3).is_some_and(|v| v.is_truthy());
-    let target = if inhibit_modify {
-        &mut None
-    } else {
-        match_data
-    };
-    match super::regex::string_match_full_with_case_fold(&pattern, &s, start, case_fold, target) {
-        // string_match_full_with_case_fold returns a character position
-        Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-        Ok(None) => Ok(Value::Nil),
-        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
-    }
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::StringMatch,
+        || {
+            expect_range_args("string-match", args, 2, 4)?;
+            let pattern = expect_string(&args[0])?;
+            let s = expect_string(&args[1])?;
+            let start = normalize_string_start_arg(&s, args.get(2))?;
+            let inhibit_modify = args.get(3).is_some_and(|v| v.is_truthy());
+            let target = if inhibit_modify {
+                &mut None
+            } else {
+                match_data
+            };
+            match super::regex::string_match_full_with_case_fold(
+                &pattern, &s, start, case_fold, target,
+            ) {
+                Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
+                Ok(None) => Ok(Value::Nil),
+                Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+            }
+        },
+    )
 }
 
 /// Evaluator-dependent `string-match`: updates match data on the evaluator.
@@ -625,45 +631,48 @@ pub(crate) fn builtin_match_beginning_with_state(
     match_data: &Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
-    expect_args("match-beginning", args, 1)?;
-    let group = expect_int(&args[0])?;
-    if group < 0 {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::Int(group), Value::Int(0)],
-        ));
-    }
-    let group = group as usize;
-
-    let md = match match_data {
-        Some(md) => md,
-        None => return Ok(Value::Nil),
-    };
-
-    match md.groups.get(group) {
-        Some(Some((start, _end))) => {
-            if md.searched_string.is_some() {
-                // String search: positions are already character positions
-                Ok(Value::Int(*start as i64))
-            } else if let Some(buf) = md
-                .searched_buffer
-                .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
-                .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
-            {
-                // Buffer positions are 1-based character positions.
-                if *start <= buf.text.len() {
-                    let pos = buf.text.byte_to_char(*start) as i64 + 1;
-                    Ok(Value::Int(pos))
-                } else {
-                    Ok(Value::Int(*start as i64))
-                }
-            } else {
-                Ok(Value::Int(*start as i64))
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::MatchBeginning,
+        || {
+            expect_args("match-beginning", args, 1)?;
+            let group = expect_int(&args[0])?;
+            if group < 0 {
+                return Err(signal(
+                    "args-out-of-range",
+                    vec![Value::Int(group), Value::Int(0)],
+                ));
             }
-        }
-        Some(None) => Ok(Value::Nil),
-        None => Ok(Value::Nil),
-    }
+            let group = group as usize;
+
+            let md = match match_data {
+                Some(md) => md,
+                None => return Ok(Value::Nil),
+            };
+
+            match md.groups.get(group) {
+                Some(Some((start, _end))) => {
+                    if md.searched_string.is_some() {
+                        Ok(Value::Int(*start as i64))
+                    } else if let Some(buf) = md
+                        .searched_buffer
+                        .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
+                        .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
+                    {
+                        if *start <= buf.text.len() {
+                            let pos = buf.text.byte_to_char(*start) as i64 + 1;
+                            Ok(Value::Int(pos))
+                        } else {
+                            Ok(Value::Int(*start as i64))
+                        }
+                    } else {
+                        Ok(Value::Int(*start as i64))
+                    }
+                }
+                Some(None) => Ok(Value::Nil),
+                None => Ok(Value::Nil),
+            }
+        },
+    )
 }
 
 pub(crate) fn builtin_match_beginning(
@@ -678,44 +687,48 @@ pub(crate) fn builtin_match_end_with_state(
     match_data: &Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
-    expect_args("match-end", args, 1)?;
-    let group = expect_int(&args[0])?;
-    if group < 0 {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::Int(group), Value::Int(0)],
-        ));
-    }
-    let group = group as usize;
-
-    let md = match match_data {
-        Some(md) => md,
-        None => return Ok(Value::Nil),
-    };
-
-    match md.groups.get(group) {
-        Some(Some((_start, end))) => {
-            if md.searched_string.is_some() {
-                // String search: positions are already character positions
-                Ok(Value::Int(*end as i64))
-            } else if let Some(buf) = md
-                .searched_buffer
-                .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
-                .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
-            {
-                if *end <= buf.text.len() {
-                    let pos = buf.text.byte_to_char(*end) as i64 + 1;
-                    Ok(Value::Int(pos))
-                } else {
-                    Ok(Value::Int(*end as i64))
-                }
-            } else {
-                Ok(Value::Int(*end as i64))
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::MatchEnd,
+        || {
+            expect_args("match-end", args, 1)?;
+            let group = expect_int(&args[0])?;
+            if group < 0 {
+                return Err(signal(
+                    "args-out-of-range",
+                    vec![Value::Int(group), Value::Int(0)],
+                ));
             }
-        }
-        Some(None) => Ok(Value::Nil),
-        None => Ok(Value::Nil),
-    }
+            let group = group as usize;
+
+            let md = match match_data {
+                Some(md) => md,
+                None => return Ok(Value::Nil),
+            };
+
+            match md.groups.get(group) {
+                Some(Some((_start, end))) => {
+                    if md.searched_string.is_some() {
+                        Ok(Value::Int(*end as i64))
+                    } else if let Some(buf) = md
+                        .searched_buffer
+                        .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
+                        .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
+                    {
+                        if *end <= buf.text.len() {
+                            let pos = buf.text.byte_to_char(*end) as i64 + 1;
+                            Ok(Value::Int(pos))
+                        } else {
+                            Ok(Value::Int(*end as i64))
+                        }
+                    } else {
+                        Ok(Value::Int(*end as i64))
+                    }
+                }
+                Some(None) => Ok(Value::Nil),
+                None => Ok(Value::Nil),
+            }
+        },
+    )
 }
 
 pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {

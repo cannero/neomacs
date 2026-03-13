@@ -250,25 +250,24 @@ pub(crate) fn builtin_string_match_p(args: Vec<Value>) -> EvalResult {
 /// `(regexp-quote STRING)` -- return a regexp that matches STRING literally,
 /// quoting all special regex characters.
 pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
-    expect_args("regexp-quote", &args, 1)?;
-    let s = expect_string(&args[0])?;
-    // Quote Emacs regex special characters.
-    // In Emacs regex, the special characters that need quoting when used
-    // literally are: . * + ? [ ^ $ \
-    // Note: In Emacs, ( ) { } | are literal by default (their escaped
-    // forms \( \) \{ \} \| are the special ones), so they do NOT need
-    // quoting.
-    let mut result = String::with_capacity(s.len() + 8);
-    for ch in s.chars() {
-        match ch {
-            '.' | '*' | '+' | '?' | '[' | '^' | '$' | '\\' => {
-                result.push('\\');
-                result.push(ch);
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexpQuote,
+        || {
+            expect_args("regexp-quote", &args, 1)?;
+            let s = expect_string(&args[0])?;
+            let mut result = String::with_capacity(s.len() + 8);
+            for ch in s.chars() {
+                match ch {
+                    '.' | '*' | '+' | '?' | '[' | '^' | '$' | '\\' => {
+                        result.push('\\');
+                        result.push(ch);
+                    }
+                    _ => result.push(ch),
+                }
             }
-            _ => result.push(ch),
-        }
-    }
-    Ok(Value::string(result))
+            Ok(Value::string(result))
+        },
+    )
 }
 
 /// `(match-beginning SUBEXP)` -- return the start position of the SUBEXPth

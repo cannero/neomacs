@@ -719,54 +719,57 @@ pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_assoc(args: Vec<Value>) -> EvalResult {
-    expect_args("assoc", &args, 2)?;
-    let key = &args[0];
-    let list = args[1];
-    let mut cursor = list;
-    loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Cons(ref entry) = pair.car {
-                    let entry_pair = read_cons(*entry);
-                    if equal_value(key, &entry_pair.car, 0) {
-                        return Ok(pair.car);
+    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Assoc, || {
+        expect_args("assoc", &args, 2)?;
+        let key = &args[0];
+        let list = args[1];
+        let mut cursor = list;
+        loop {
+            match cursor {
+                Value::Nil => return Ok(Value::Nil),
+                Value::Cons(cell) => {
+                    let pair = read_cons(cell);
+                    if let Value::Cons(ref entry) = pair.car {
+                        let entry_pair = read_cons(*entry);
+                        if equal_value(key, &entry_pair.car, 0) {
+                            return Ok(pair.car);
+                        }
                     }
+                    cursor = pair.cdr;
                 }
-                cursor = pair.cdr;
-            }
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("listp"), list],
-                ));
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("listp"), list],
+                    ));
+                }
             }
         }
-    }
+    })
 }
 
 pub(crate) fn builtin_assoc_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("assoc", &args, 2, 3)?;
-    let key = &args[0];
-    let list = args[1];
-    let test_fn = args
-        .get(2)
-        .and_then(|value| if value.is_nil() { None } else { Some(*value) });
-    // Only need GC protection when a test function is provided.
-    if test_fn.is_some() {
-        let saved = eval.save_temp_roots();
-        eval.push_temp_root(*key);
-        eval.push_temp_root(list);
-        eval.push_temp_root(test_fn.unwrap());
-        let result = builtin_assoc_eval_inner(eval, key, list, &test_fn);
-        eval.restore_temp_roots(saved);
-        return result;
-    }
-    builtin_assoc_eval_inner(eval, key, list, &test_fn)
+    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Assoc, || {
+        expect_range_args("assoc", &args, 2, 3)?;
+        let key = &args[0];
+        let list = args[1];
+        let test_fn = args
+            .get(2)
+            .and_then(|value| if value.is_nil() { None } else { Some(*value) });
+        if test_fn.is_some() {
+            let saved = eval.save_temp_roots();
+            eval.push_temp_root(*key);
+            eval.push_temp_root(list);
+            eval.push_temp_root(test_fn.unwrap());
+            let result = builtin_assoc_eval_inner(eval, key, list, &test_fn);
+            eval.restore_temp_roots(saved);
+            return result;
+        }
+        builtin_assoc_eval_inner(eval, key, list, &test_fn)
+    })
 }
 
 fn builtin_assoc_eval_inner(

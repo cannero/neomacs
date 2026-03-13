@@ -623,10 +623,12 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
 
     ensure_nonempty_form(form)?;
 
+    crate::emacs_core::perf_trace::reset_hotpath_stats();
     let eval_t0 = std::time::Instant::now();
     let result = run_neovm_eval_in_temp_buffer(&mut eval, form)?;
     if log_timing {
         tracing::info!("oracle-timing: neovm-form-eval {:.3?}", eval_t0.elapsed());
+        crate::emacs_core::perf_trace::log_hotpath_stats("oracle-hotpath");
     }
 
     let rendered = render_neovm_oracle_result(&eval, result);
