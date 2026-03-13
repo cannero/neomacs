@@ -13,8 +13,6 @@ use std::sync::Once;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use regex::Regex;
-
 use super::error::{EvalResult, Flow, signal};
 use super::eval::Evaluator;
 use super::intern::{intern, resolve_sym};
@@ -635,13 +633,6 @@ fn directory_files(
         return Ok(Vec::new());
     }
 
-    let re = match match_regex {
-        Some(pattern) => Some(Regex::new(pattern).map_err(|e| {
-            DirectoryFilesError::InvalidRegexp(format!("Invalid regexp \"{}\": {}", pattern, e))
-        })?),
-        None => None,
-    };
-
     let names = read_directory_names(dir)?;
 
     // Emacs builds this list via `cons` while scanning readdir output.
@@ -656,8 +647,22 @@ fn directory_files(
     };
 
     for name in names {
-        if let Some(re) = re.as_ref() {
-            if !re.is_match(&name) {
+        if let Some(pattern) = match_regex {
+            let mut throwaway = None;
+            let matched = super::regex::string_match_full_with_case_fold(
+                pattern,
+                &name,
+                0,
+                false,
+                &mut throwaway,
+            )
+            .map_err(|msg| {
+                DirectoryFilesError::InvalidRegexp(format!(
+                    "Invalid regexp \"{}\": {}",
+                    pattern, msg
+                ))
+            })?;
+            if matched.is_none() {
                 continue;
             }
         }

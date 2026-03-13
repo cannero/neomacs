@@ -485,32 +485,31 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
         return Ok(Value::Nil);
     }
 
-    // Compile regex if provided.
-    let re = match &match_regexp {
-        Some(pattern) => {
-            let compiled = regex::Regex::new(pattern).map_err(|e| {
-                signal(
-                    "invalid-regexp",
-                    vec![Value::string(format!(
-                        "Invalid regexp \"{}\": {}",
-                        pattern, e
-                    ))],
-                )
-            })?;
-            Some(compiled)
-        }
-        None => None,
-    };
-
     let names = read_directory_names(&dir)?;
 
     let dir_with_slash = ensure_trailing_slash(&dir);
     let mut items: VecDeque<(String, String)> = VecDeque::new();
     let mut remaining = count.unwrap_or(usize::MAX);
     for name in names {
-        // Apply regex filter.
-        if let Some(ref re) = re {
-            if !re.is_match(&name) {
+        if let Some(pattern) = match_regexp.as_deref() {
+            let mut throwaway = None;
+            let matched = super::regex::string_match_full_with_case_fold(
+                pattern,
+                &name,
+                0,
+                false,
+                &mut throwaway,
+            )
+            .map_err(|msg| {
+                signal(
+                    "invalid-regexp",
+                    vec![Value::string(format!(
+                        "Invalid regexp \"{}\": {}",
+                        pattern, msg
+                    ))],
+                )
+            })?;
+            if matched.is_none() {
                 continue;
             }
         }
