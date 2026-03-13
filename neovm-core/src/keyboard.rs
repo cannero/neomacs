@@ -338,6 +338,77 @@ impl Default for KeySequence {
 }
 
 // ---------------------------------------------------------------------------
+// Keysym conversion (X11/winit keysyms → neovm-core KeyEvent)
+// ---------------------------------------------------------------------------
+
+// X11 keysym constants used by the render thread (winit).
+const XK_RETURN: u32 = 0xFF0D;
+const XK_TAB: u32 = 0xFF09;
+const XK_BACKSPACE: u32 = 0xFF08;
+const XK_DELETE: u32 = 0xFFFF;
+const XK_ESCAPE: u32 = 0xFF1B;
+const XK_LEFT: u32 = 0xFF51;
+const XK_UP: u32 = 0xFF52;
+const XK_RIGHT: u32 = 0xFF53;
+const XK_DOWN: u32 = 0xFF54;
+const XK_HOME: u32 = 0xFF50;
+const XK_END: u32 = 0xFF57;
+const XK_PAGE_UP: u32 = 0xFF55;
+const XK_PAGE_DOWN: u32 = 0xFF56;
+const XK_INSERT: u32 = 0xFF63;
+const XK_F1: u32 = 0xFFBE;
+const XK_F24: u32 = 0xFFD5;
+
+// Render thread modifier bitmask constants.
+const RENDER_SHIFT_MASK: u32 = 1 << 0;
+const RENDER_CTRL_MASK: u32 = 1 << 1;
+const RENDER_META_MASK: u32 = 1 << 2;
+const RENDER_SUPER_MASK: u32 = 1 << 3;
+
+/// Convert a raw keysym and modifier bitmask (from the render thread) into
+/// a neovm-core `KeyEvent`.
+///
+/// Returns `None` for keysyms that should be ignored (modifier-only keys,
+/// unknown keysyms, etc.).
+pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
+    let mods = Modifiers {
+        ctrl: modifiers & RENDER_CTRL_MASK != 0,
+        meta: modifiers & RENDER_META_MASK != 0,
+        shift: modifiers & RENDER_SHIFT_MASK != 0,
+        super_: modifiers & RENDER_SUPER_MASK != 0,
+        hyper: false,
+    };
+
+    let key = match keysym {
+        // Printable ASCII
+        0x20..=0x7E => Key::Char(keysym as u8 as char),
+        // Named keys
+        XK_RETURN => Key::Named(NamedKey::Return),
+        XK_TAB => Key::Named(NamedKey::Tab),
+        XK_BACKSPACE => Key::Named(NamedKey::Backspace),
+        XK_DELETE => Key::Named(NamedKey::Delete),
+        XK_ESCAPE => Key::Named(NamedKey::Escape),
+        XK_LEFT => Key::Named(NamedKey::Left),
+        XK_RIGHT => Key::Named(NamedKey::Right),
+        XK_UP => Key::Named(NamedKey::Up),
+        XK_DOWN => Key::Named(NamedKey::Down),
+        XK_HOME => Key::Named(NamedKey::Home),
+        XK_END => Key::Named(NamedKey::End),
+        XK_PAGE_UP => Key::Named(NamedKey::PageUp),
+        XK_PAGE_DOWN => Key::Named(NamedKey::PageDown),
+        XK_INSERT => Key::Named(NamedKey::Insert),
+        // Function keys F1-F24
+        k if (XK_F1..=XK_F24).contains(&k) => {
+            Key::Named(NamedKey::F((k - XK_F1 + 1) as u8))
+        }
+        // Ignore modifier-only keys and unknown keysyms
+        _ => return None,
+    };
+
+    Some(KeyEvent { key, modifiers: mods })
+}
+
+// ---------------------------------------------------------------------------
 // Input event types
 // ---------------------------------------------------------------------------
 
