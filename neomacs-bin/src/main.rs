@@ -60,15 +60,10 @@ fn main() {
         .id;
     configure_gnu_startup_state(&mut evaluator, frame_id);
     maybe_install_startup_phase_trace(&mut evaluator);
-    run_gnu_startup(&mut evaluator);
-    tracing::info!("GNU startup complete");
 
-    // Add undo boundary after startup so initial content isn't undoable
-    if let Some(buf) = evaluator.buffer_manager_mut().current_buffer_mut() {
-        buf.undo_list.boundary();
-    }
-
-    // 4. Create communication channels
+    // 4. Create communication channels — must happen BEFORE gnu startup,
+    //    because `(eval top-level)` enters the command loop (infinite loop)
+    //    which needs the display system to be running for input and redisplay.
     let comms = ThreadComms::new().expect("Failed to create thread comms");
     let (emacs_comms, render_comms) = comms.split();
 
@@ -123,7 +118,19 @@ fn main() {
         let _ = frame_tx.try_send(frame_glyphs.clone());
     }));
 
-    // 10. Enter the command loop — this drives everything
+    // Add undo boundary after startup so initial content isn't undoable
+    if let Some(buf) = evaluator.buffer_manager_mut().current_buffer_mut() {
+        buf.undo_list.boundary();
+    }
+
+    // 10. Run GNU startup — this evaluates `(eval top-level)` which enters
+    //     the command loop and blocks forever.  The render thread and input
+    //     bridge must already be running before this point.
+    tracing::info!("Running GNU startup (eval top-level)...");
+    run_gnu_startup(&mut evaluator);
+    tracing::info!("GNU startup returned (unexpected)");
+
+    // If top-level returns (shouldn't normally happen), fall back to recursive-edit
     tracing::info!("Entering command loop (recursive-edit)");
     let exit_status = evaluator.recursive_edit();
     if exit_status.is_ok() {
