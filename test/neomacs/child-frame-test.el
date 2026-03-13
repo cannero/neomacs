@@ -259,7 +259,8 @@ Insert some text into its buffer and return the frame."
 (defun child-frame-test--rapid-lifecycle ()
   "Create and delete child frames rapidly to test stale cleanup."
   (child-frame-test--cleanup)
-  (let ((count 0))
+  (let ((created 0)
+        (deleted 0))
     (dotimes (i 5)
       (let ((f (child-frame-test--make-child
                 (format "rapid-%d" i)
@@ -267,15 +268,18 @@ Insert some text into its buffer and return the frame."
         (with-selected-frame f
           (insert (format "Frame %d\n" (1+ i)))
           (insert "Created then deleted\n"))
-        (setq count (1+ count))
-        (sit-for 0.3)
-        ;; Delete every other frame
+        (setq created (1+ created))
+        (redisplay t)
+        ;; Delete every other frame immediately
         (when (= (mod i 2) 0)
           (delete-frame f)
           (setq child-frame-test--frames
-                (delq f child-frame-test--frames)))))
-    (message "Test 8: Rapid lifecycle — created 5, deleted 3, %d remaining"
-             (length child-frame-test--frames))))
+                (delq f child-frame-test--frames))
+          (setq deleted (1+ deleted)))))
+    ;; Clean up all remaining frames too
+    (child-frame-test--cleanup)
+    (message "Test 8: Rapid lifecycle -- created %d, deleted %d, all cleaned up"
+             created deleted)))
 
 ;; ============================================================================
 ;; Test 9: Posframe-like tooltip
@@ -306,6 +310,70 @@ Insert some text into its buffer and return the frame."
   (message "Test 9: Tooltip — posframe-like popup near cursor"))
 
 ;; ============================================================================
+;; Test 10: Rounded corners clipping
+;; ============================================================================
+
+(defun child-frame-test--rounded-corners ()
+  "Test rounded corner clipping -- content should not bleed past corners.
+Creates 4 child frames simultaneously with corner radii 0, 8, 20, 30."
+  (child-frame-test--cleanup)
+  ;; Put visible content in parent so we can verify clipping
+  (with-current-buffer (get-buffer-create "*child-frame-test*")
+    (erase-buffer)
+    (dotimes (i 40)
+      (insert (format "Parent bg line %03d -- " (1+ i)))
+      (insert (propertize "VISIBLE THROUGH CORNERS?"
+                          'face '(:foreground "red")))
+      (insert "\n"))
+    (goto-char (point-min)))
+  (switch-to-buffer "*child-frame-test*")
+  ;; Helper to fill a child frame with colored content that would bleed
+  (let ((fill-frame
+         (lambda (f title bg-color fill-color heading-color)
+           (with-selected-frame f
+             (face-remap-add-relative 'default :background bg-color)
+             (insert (propertize (concat title "\n")
+                                'face (list :foreground heading-color :weight 'bold)))
+             (insert (propertize "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n"
+                                'face (list :background heading-color :foreground "white")))
+             (dotimes (i 6)
+               (insert (propertize
+                        (format "  filled line %d                        \n" (1+ i))
+                        'face (list :background fill-color))))))))
+    ;; Frame 1: sharp corners (radius 0)
+    (when (fboundp 'neomacs-set-child-frame-style)
+      (neomacs-set-child-frame-style :corner-radius 0 :shadow nil))
+    (let ((f1 (child-frame-test--make-child "sharp" 30 30 40 10
+                '((child-frame-border-width . 2)))))
+      (funcall fill-frame f1 "radius=0 sharp" "#330033" "#550055" "magenta"))
+    ;; Frame 2: small radius (8)
+    (when (fboundp 'neomacs-set-child-frame-style)
+      (neomacs-set-child-frame-style :corner-radius 8 :shadow t
+       :shadow-layers 4 :shadow-offset 2 :shadow-opacity 30))
+    (let ((f2 (child-frame-test--make-child "small-radius" 30 250 40 10
+                '((child-frame-border-width . 2)))))
+      (funcall fill-frame f2 "radius=8 small" "#003300" "#005500" "lime green"))
+    ;; Frame 3: large radius (20)
+    (when (fboundp 'neomacs-set-child-frame-style)
+      (neomacs-set-child-frame-style :corner-radius 20 :shadow t
+       :shadow-layers 6 :shadow-offset 3 :shadow-opacity 40))
+    (let ((f3 (child-frame-test--make-child "large-radius" 400 30 40 10
+                '((child-frame-border-width . 3)))))
+      (funcall fill-frame f3 "radius=20 large" "#000033" "#000055" "dodger blue"))
+    ;; Frame 4: very round (30) + alpha
+    (when (fboundp 'neomacs-set-child-frame-style)
+      (neomacs-set-child-frame-style :corner-radius 30 :shadow t
+       :shadow-layers 6 :shadow-offset 3 :shadow-opacity 40))
+    (let ((f4 (child-frame-test--make-child "very-round" 400 250 40 10
+                '((child-frame-border-width . 2) (alpha-background . 80)))))
+      (funcall fill-frame f4 "radius=30 very round" "#332200" "#553300" "orange")))
+  ;; Reset to reasonable default
+  (when (fboundp 'neomacs-set-child-frame-style)
+    (neomacs-set-child-frame-style :corner-radius 8 :shadow t
+     :shadow-layers 4 :shadow-offset 2 :shadow-opacity 30))
+  (message "Test 10: Rounded corners -- 4 frames: sharp, small, large, very-round -- check clipping"))
+
+;; ============================================================================
 ;; Test runner
 ;; ============================================================================
 
@@ -318,7 +386,8 @@ Insert some text into its buffer and return the frame."
     ("Cursor focus" . child-frame-test--cursor-focus)
     ("Style config" . child-frame-test--style-config)
     ("Rapid lifecycle" . child-frame-test--rapid-lifecycle)
-    ("Tooltip" . child-frame-test--tooltip))
+    ("Tooltip" . child-frame-test--tooltip)
+    ("Rounded corners" . child-frame-test--rounded-corners))
   "Alist of (name . function) for child frame tests.")
 
 (defun child-frame-test-next ()
@@ -335,13 +404,18 @@ Insert some text into its buffer and return the frame."
     (setq child-frame-test--step (1+ child-frame-test--step))))
 
 (defun child-frame-test-run-all ()
-  "Run all tests sequentially with pauses."
+  "Run all tests sequentially with pauses.
+Each test is preceded by explicit cleanup to ensure no stale frames remain."
   (interactive)
+  (child-frame-test--cleanup)
   (setq child-frame-test--step 0)
   (let ((i 0))
     (dolist (test child-frame-test--tests)
       (run-at-time (* i 3) nil
                    (lambda (test-pair idx)
+                     ;; Explicit cleanup before each test to guarantee
+                     ;; no frames from the previous test linger.
+                     (child-frame-test--cleanup)
                      (message "\n=== Test %d/%d: %s ==="
                               (1+ idx)
                               (length child-frame-test--tests)
@@ -349,9 +423,10 @@ Insert some text into its buffer and return the frame."
                      (funcall (cdr test-pair)))
                    test i)
       (setq i (1+ i)))
-    ;; Final cleanup message
+    ;; Final cleanup
     (run-at-time (* i 3) nil
                  (lambda ()
+                   (child-frame-test--cleanup)
                    (message "\n=== All %d child frame tests complete ===" (length child-frame-test--tests))
                    (message "Press 'q' to clean up, 'n' for individual test, 'a' to run all again"))))
   (message "Running all %d tests (3 second intervals)..." (length child-frame-test--tests)))
@@ -374,12 +449,13 @@ Insert some text into its buffer and return the frame."
 (define-key child-frame-test-map (kbd "7") (lambda () (interactive) (child-frame-test--style-config)))
 (define-key child-frame-test-map (kbd "8") (lambda () (interactive) (child-frame-test--rapid-lifecycle)))
 (define-key child-frame-test-map (kbd "9") (lambda () (interactive) (child-frame-test--tooltip)))
+(define-key child-frame-test-map (kbd "0") (lambda () (interactive) (child-frame-test--rounded-corners)))
 
 (set-transient-map child-frame-test-map t)
 
 ;; Setup on load
 (message "=== Child Frame Test Suite ===")
-(message "Keys: n=next  a=run-all  1-9=specific test  q=cleanup")
-(child-frame-test--basic)
+(message "Keys: n=next  a=run-all  1-9,0=specific test  q=cleanup")
+(child-frame-test-run-all)
 
 ;;; child-frame-test.el ends here
