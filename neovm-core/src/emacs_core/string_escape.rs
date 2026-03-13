@@ -389,8 +389,8 @@ pub(crate) fn storage_byte_to_char(s: &str, byte_pos: usize) -> usize {
     units.len()
 }
 
-/// Slice NeoVM string storage by logical Emacs character index.
-pub(crate) fn storage_substring(s: &str, from: usize, to: usize) -> Option<String> {
+/// Compute byte bounds for a logical Emacs character slice.
+pub(crate) fn storage_substring_bounds(s: &str, from: usize, to: usize) -> Option<(usize, usize)> {
     if from > to {
         return None;
     }
@@ -406,7 +406,7 @@ pub(crate) fn storage_substring(s: &str, from: usize, to: usize) -> Option<Strin
         }
         let start_byte = plain_utf8_char_to_byte(s, from);
         let end_byte = plain_utf8_char_to_byte(s, to);
-        return Some(s[start_byte..end_byte].to_string());
+        return Some((start_byte, end_byte));
     }
 
     let units = scan_storage_units(s);
@@ -424,6 +424,12 @@ pub(crate) fn storage_substring(s: &str, from: usize, to: usize) -> Option<Strin
     } else {
         units[to].0
     };
+    Some((start_byte, end_byte))
+}
+
+/// Slice NeoVM string storage by logical Emacs character index.
+pub(crate) fn storage_substring(s: &str, from: usize, to: usize) -> Option<String> {
+    let (start_byte, end_byte) = storage_substring_bounds(s, from, to)?;
     Some(s[start_byte..end_byte].to_string())
 }
 

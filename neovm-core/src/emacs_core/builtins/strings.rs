@@ -30,34 +30,64 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
     expect_max_args(name, args, 3)?;
     match &args[0] {
         Value::Str(src_id) => {
+            let src_props = if preserve_props {
+                get_string_text_properties_table(*src_id).filter(|table| !table.is_empty())
+            } else {
+                None
+            };
             let (result, sliced_props) = with_heap(|h| {
                 let s = h.get_string(*src_id);
-                let len = storage_char_len(s) as i64;
-
-                let normalize_index = |value: &Value, default: i64| -> Result<i64, Flow> {
-                    let raw = if value.is_nil() {
-                        default
-                    } else {
-                        expect_int(value)?
+                let normalize_index =
+                    |value: &Value, default: i64, len: i64| -> Result<i64, Flow> {
+                        let raw = if value.is_nil() {
+                            default
+                        } else {
+                            expect_int(value)?
+                        };
+                        let idx = if raw < 0 { len + raw } else { raw };
+                        if idx < 0 || idx > len {
+                            return Err(signal(
+                                "args-out-of-range",
+                                vec![args[0], args[1], args.get(2).cloned().unwrap_or(Value::Nil)],
+                            ));
+                        }
+                        Ok(idx)
                     };
-                    let idx = if raw < 0 { len + raw } else { raw };
-                    if idx < 0 || idx > len {
+
+                if src_props.is_none() && s.is_ascii() {
+                    let len = s.len() as i64;
+                    let from = if args.len() > 1 {
+                        normalize_index(&args[1], 0, len)?
+                    } else {
+                        0
+                    } as usize;
+                    let to = if args.len() > 2 {
+                        normalize_index(&args[2], len, len)?
+                    } else {
+                        len
+                    } as usize;
+                    if from > to {
                         return Err(signal(
                             "args-out-of-range",
-                            vec![args[0], args[1], args.get(2).cloned().unwrap_or(Value::Nil)],
+                            vec![
+                                args[0],
+                                args.get(1).cloned().unwrap_or(Value::Int(0)),
+                                args.get(2).cloned().unwrap_or(Value::Nil),
+                            ],
                         ));
                     }
-                    Ok(idx)
-                };
+                    return Ok::<_, Flow>((s[from..to].to_string(), None));
+                }
 
+                let len = storage_char_len(s) as i64;
                 let from = if args.len() > 1 {
-                    normalize_index(&args[1], 0)?
+                    normalize_index(&args[1], 0, len)?
                 } else {
                     0
                 } as usize;
 
                 let to = if args.len() > 2 {
-                    normalize_index(&args[2], len)?
+                    normalize_index(&args[2], len, len)?
                 } else {
                     len
                 } as usize;
@@ -72,7 +102,10 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         ],
                     ));
                 }
-                let result = storage_substring(s, from, to).ok_or_else(|| {
+                let (byte_from, byte_to) = super::super::string_escape::storage_substring_bounds(
+                    s, from, to,
+                )
+                .ok_or_else(|| {
                     signal(
                         "args-out-of-range",
                         vec![
@@ -82,14 +115,10 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         ],
                     )
                 })?;
-                let sliced_props = if preserve_props {
-                    get_string_text_properties_table(*src_id).and_then(|src_table| {
-                        use super::super::string_escape::storage_char_to_byte;
-                        let byte_from = storage_char_to_byte(s, from);
-                        let byte_to = storage_char_to_byte(s, to);
-                        let sliced = src_table.slice(byte_from, byte_to);
-                        (!sliced.is_empty()).then_some(sliced)
-                    })
+                let result = s[byte_from..byte_to].to_string();
+                let sliced_props = if let Some(src_table) = src_props.as_ref() {
+                    let sliced = src_table.slice(byte_from, byte_to);
+                    (!sliced.is_empty()).then_some(sliced)
                 } else {
                     None
                 };
@@ -218,6 +247,36 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), *other],
                 )),
+            }
+        }
+
+        if args.iter().all(|arg| matches!(arg, Value::Str(_))) {
+            let has_text_props = args.iter().any(|arg| {
+                matches!(
+                    arg,
+                    Value::Str(id)
+                        if get_string_text_properties_table(*id)
+                            .is_some_and(|table| !table.is_empty())
+                )
+            });
+            if !has_text_props {
+                let result = with_heap(|h| {
+                    let total_len = args
+                        .iter()
+                        .map(|arg| match arg {
+                            Value::Str(id) => h.get_string(*id).len(),
+                            _ => 0,
+                        })
+                        .sum();
+                    let mut result = String::with_capacity(total_len);
+                    for arg in &args {
+                        if let Value::Str(id) = arg {
+                            result.push_str(h.get_string(*id));
+                        }
+                    }
+                    result
+                });
+                return Ok(Value::string(result));
             }
         }
 
