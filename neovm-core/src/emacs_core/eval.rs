@@ -2440,18 +2440,34 @@ impl Evaluator {
             }
 
             // Check if binding is a keymap (prefix key) — need more keys
-            if is_list_keymap(&binding) {
-                // It's a prefix keymap — read more keys
-                continue;
-            }
+            let is_prefix = if is_list_keymap(&binding) {
+                true
+            } else if let Some(sym_name) = binding.as_symbol_name() {
+                self.obarray
+                    .symbol_function(sym_name)
+                    .copied()
+                    .is_some_and(|f| is_list_keymap(&f))
+            } else {
+                false
+            };
 
-            // Check if binding is a symbol whose function is a keymap
-            if let Some(sym_name) = binding.as_symbol_name() {
-                if let Some(func) = self.obarray.symbol_function(sym_name).copied() {
-                    if is_list_keymap(&func) {
-                        continue;
+            if is_prefix {
+                // Echo the partial key sequence in the echo area
+                // (mirrors GNU Emacs echo-keystrokes behavior)
+                let key_vec = Value::vector(events.clone());
+                if let Ok(desc) = super::builtins::keymaps::builtin_key_description(
+                    vec![key_vec],
+                ) {
+                    if let Some(s) = desc.as_str() {
+                        let echo_msg = format!("{}-", s);
+                        let _ = super::builtins::dispatch_builtin(
+                            self,
+                            "message",
+                            vec![Value::string(echo_msg)],
+                        );
                     }
                 }
+                continue;
             }
 
             // Found a complete binding (command)

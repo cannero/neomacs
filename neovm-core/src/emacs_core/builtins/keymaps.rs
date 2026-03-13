@@ -598,7 +598,7 @@ pub(super) fn builtin_single_key_description(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(key-description KEYS &optional PREFIX)` -> string
-pub(super) fn builtin_key_description(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_key_description(args: Vec<Value>) -> EvalResult {
     expect_range_args("key-description", &args, 1, 2)?;
     let mut events = if let Some(prefix) = args.get(1) {
         key_sequence_values(prefix)?
