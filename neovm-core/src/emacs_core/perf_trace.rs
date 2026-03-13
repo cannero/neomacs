@@ -5,6 +5,10 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Copy)]
 pub(crate) enum HotpathOp {
     StringMatch,
+    RegexCompileHit,
+    RegexCompileMiss,
+    RegexLiteralFind,
+    RegexMatchDataChars,
     MatchBeginning,
     MatchEnd,
     RegexpQuote,
@@ -32,6 +36,10 @@ impl HotpathCounter {
 #[derive(Clone, Default)]
 struct HotpathStats {
     string_match: HotpathCounter,
+    regex_compile_hit: HotpathCounter,
+    regex_compile_miss: HotpathCounter,
+    regex_literal_find: HotpathCounter,
+    regex_match_data_chars: HotpathCounter,
     match_beginning: HotpathCounter,
     match_end: HotpathCounter,
     regexp_quote: HotpathCounter,
@@ -45,6 +53,10 @@ impl HotpathStats {
     fn counter_mut(&mut self, op: HotpathOp) -> &mut HotpathCounter {
         match op {
             HotpathOp::StringMatch => &mut self.string_match,
+            HotpathOp::RegexCompileHit => &mut self.regex_compile_hit,
+            HotpathOp::RegexCompileMiss => &mut self.regex_compile_miss,
+            HotpathOp::RegexLiteralFind => &mut self.regex_literal_find,
+            HotpathOp::RegexMatchDataChars => &mut self.regex_match_data_chars,
             HotpathOp::MatchBeginning => &mut self.match_beginning,
             HotpathOp::MatchEnd => &mut self.match_end,
             HotpathOp::RegexpQuote => &mut self.regexp_quote,
@@ -55,9 +67,13 @@ impl HotpathStats {
         }
     }
 
-    fn entries(&self) -> [(&'static str, HotpathCounter); 8] {
+    fn entries(&self) -> [(&'static str, HotpathCounter); 12] {
         [
             ("string-match", self.string_match),
+            ("regex-compile-hit", self.regex_compile_hit),
+            ("regex-compile-miss", self.regex_compile_miss),
+            ("regex-literal-find", self.regex_literal_find),
+            ("regex-match-data-chars", self.regex_match_data_chars),
             ("match-beginning", self.match_beginning),
             ("match-end", self.match_end),
             ("regexp-quote", self.regexp_quote),

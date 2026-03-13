@@ -959,35 +959,46 @@ fn compile_emacs_regex_case_fold(pattern: &str, case_fold: bool) -> Result<Regex
 }
 
 fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSearchPattern, String> {
-    if let Some(cached) = SEARCH_PATTERN_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        let index = cache
-            .iter()
-            .position(|(cached_case_fold, cached_pattern, _)| {
-                *cached_case_fold == case_fold && cached_pattern == pattern
-            })?;
-        let entry = cache.remove(index);
-        cache.insert(0, entry.clone());
-        Some(entry.2)
-    }) {
+    if let Some(cached) = crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexCompileHit,
+        || {
+            SEARCH_PATTERN_CACHE.with(|cache| {
+                let mut cache = cache.borrow_mut();
+                let index = cache
+                    .iter()
+                    .position(|(cached_case_fold, cached_pattern, _)| {
+                        *cached_case_fold == case_fold && cached_pattern == pattern
+                    })?;
+                let entry = cache.remove(index);
+                cache.insert(0, entry.clone());
+                Some(entry.2)
+            })
+        },
+    ) {
         return Ok(cached);
     }
 
-    let compiled = if pattern_contains_backrefs(pattern) {
-        if let Some(backref) = BackrefParser::new(pattern).parse() {
-            CompiledSearchPattern::Backref(backref)
-        } else {
-            CompiledSearchPattern::Regex(compile_emacs_regex_case_fold(pattern, case_fold)?)
-        }
-    } else if let Some(segmented) = parse_segmented_pattern(pattern) {
-        CompiledSearchPattern::Segmented(segmented)
-    } else if let Some(literal) = literal_from_trivial_regexp(pattern)
-        && (!case_fold || literal.is_ascii())
-    {
-        CompiledSearchPattern::Literal(literal)
-    } else {
-        CompiledSearchPattern::Regex(compile_emacs_regex_case_fold(pattern, case_fold)?)
-    };
+    let compiled = crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexCompileMiss,
+        || {
+            if pattern_contains_backrefs(pattern) {
+                if let Some(backref) = BackrefParser::new(pattern).parse() {
+                    Ok(CompiledSearchPattern::Backref(backref))
+                } else {
+                    compile_emacs_regex_case_fold(pattern, case_fold)
+                        .map(CompiledSearchPattern::Regex)
+                }
+            } else if let Some(segmented) = parse_segmented_pattern(pattern) {
+                Ok(CompiledSearchPattern::Segmented(segmented))
+            } else if let Some(literal) = literal_from_trivial_regexp(pattern)
+                && (!case_fold || literal.is_ascii())
+            {
+                Ok(CompiledSearchPattern::Literal(literal))
+            } else {
+                compile_emacs_regex_case_fold(pattern, case_fold).map(CompiledSearchPattern::Regex)
+            }
+        },
+    )?;
 
     SEARCH_PATTERN_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -1013,29 +1024,34 @@ fn match_data_from_captures(caps: &regex::Captures<'_>, offset: usize) -> MatchD
 }
 
 fn string_char_match_data(searched_string: SearchedString, byte_md: MatchData) -> MatchData {
-    let char_groups = searched_string.with_str(|string| {
-        if string.is_ascii() {
-            return byte_md.groups.clone();
-        }
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexMatchDataChars,
+        || {
+            let char_groups = searched_string.with_str(|string| {
+                if string.is_ascii() {
+                    return byte_md.groups.clone();
+                }
 
-        byte_md
-            .groups
-            .iter()
-            .map(|g| {
-                g.map(|(bs, be)| {
-                    let cs = string.get(..bs).map_or(0, |s| s.chars().count());
-                    let ce = string.get(..be).map_or(0, |s| s.chars().count());
-                    (cs, ce)
-                })
-            })
-            .collect()
-    });
+                byte_md
+                    .groups
+                    .iter()
+                    .map(|g| {
+                        g.map(|(bs, be)| {
+                            let cs = string.get(..bs).map_or(0, |s| s.chars().count());
+                            let ce = string.get(..be).map_or(0, |s| s.chars().count());
+                            (cs, ce)
+                        })
+                    })
+                    .collect()
+            });
 
-    MatchData {
-        groups: char_groups,
-        searched_string: Some(searched_string),
-        searched_buffer: None,
-    }
+            MatchData {
+                groups: char_groups,
+                searched_string: Some(searched_string),
+                searched_buffer: None,
+            }
+        },
+    )
 }
 
 fn single_group_match_data(start: usize, end: usize) -> MatchData {
@@ -1219,21 +1235,31 @@ fn ascii_case_fold_rfind(haystack: &str, needle: &str) -> Option<usize> {
 }
 
 fn literal_find(text: &str, literal: &str, case_fold: bool) -> Option<(usize, usize)> {
-    let start = if case_fold {
-        ascii_case_fold_find(text, literal)?
-    } else {
-        text.find(literal)?
-    };
-    Some((start, start + literal.len()))
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
+        || {
+            let start = if case_fold {
+                ascii_case_fold_find(text, literal)?
+            } else {
+                text.find(literal)?
+            };
+            Some((start, start + literal.len()))
+        },
+    )
 }
 
 fn literal_rfind(text: &str, literal: &str, case_fold: bool) -> Option<(usize, usize)> {
-    let start = if case_fold {
-        ascii_case_fold_rfind(text, literal)?
-    } else {
-        text.rfind(literal)?
-    };
-    Some((start, start + literal.len()))
+    crate::emacs_core::perf_trace::time_op(
+        crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
+        || {
+            let start = if case_fold {
+                ascii_case_fold_rfind(text, literal)?
+            } else {
+                text.rfind(literal)?
+            };
+            Some((start, start + literal.len()))
+        },
+    )
 }
 
 fn char_at(text: &str, pos: usize) -> Option<(char, usize)> {

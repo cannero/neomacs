@@ -99,7 +99,7 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
     }
 
     let raw_start = expect_int(start_val)?;
-    let len = string.chars().count() as i64;
+    let len = super::string_escape::storage_char_len(string) as i64;
     let normalized = if raw_start < 0 {
         len.checked_add(raw_start)
     } else {
@@ -125,11 +125,10 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
         return Ok(string.len());
     }
 
-    Ok(string
-        .char_indices()
-        .nth(start_char_idx)
-        .map(|(byte_idx, _)| byte_idx)
-        .unwrap_or(string.len()))
+    Ok(super::string_escape::storage_char_to_byte(
+        string,
+        start_char_idx,
+    ))
 }
 
 fn preserve_case(replacement: &str, matched: &str) -> String {
