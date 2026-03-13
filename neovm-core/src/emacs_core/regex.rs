@@ -1072,10 +1072,23 @@ fn segmented_capture_accepts(
     match capture {
         SegmentedCapture::AnyLazy => true,
         SegmentedCapture::NegatedCharPlus(forbidden) => {
-            start != end
-                && text[start..end]
-                    .chars()
-                    .all(|ch| !char_eq_case_fold(ch, forbidden, case_fold))
+            if start == end {
+                return false;
+            }
+            let slice = &text[start..end];
+            if slice.is_ascii() && forbidden.is_ascii() {
+                let forbidden = forbidden as u8;
+                if case_fold {
+                    return !slice
+                        .as_bytes()
+                        .iter()
+                        .any(|b| b.eq_ignore_ascii_case(&forbidden));
+                }
+                return !slice.as_bytes().contains(&forbidden);
+            }
+            slice
+                .chars()
+                .all(|ch| !char_eq_case_fold(ch, forbidden, case_fold))
         }
     }
 }
@@ -1321,6 +1334,23 @@ fn char_eq_case_fold(left: char, right: char, case_fold: bool) -> bool {
 }
 
 fn substring_starts_with(text: &str, pos: usize, needle: &str, case_fold: bool) -> Option<usize> {
+    if text.is_ascii() && needle.is_ascii() {
+        let hay = text.get(pos..)?.as_bytes();
+        let needle = needle.as_bytes();
+        if hay.len() < needle.len() {
+            return None;
+        }
+        let matched = if case_fold {
+            hay[..needle.len()]
+                .iter()
+                .zip(needle.iter())
+                .all(|(lhs, rhs)| lhs.eq_ignore_ascii_case(rhs))
+        } else {
+            &hay[..needle.len()] == needle
+        };
+        return matched.then_some(pos + needle.len());
+    }
+
     let mut hay_pos = pos;
     for needle_ch in needle.chars() {
         let (hay_ch, hay_len) = char_at(text, hay_pos)?;
