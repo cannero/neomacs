@@ -1078,4 +1078,46 @@ mod tests {
         cl.signal_quit();
         assert!(!cl.quit_flag); // should not be set when inhibited
     }
+
+    // ===================================================================
+    // keysym_to_key_event — control characters
+    // ===================================================================
+
+    #[test]
+    fn keysym_ctrl_x_from_control_char() {
+        // Ctrl+x → winit gives keysym 0x18 (control character)
+        let event = keysym_to_key_event(0x18, RENDER_CTRL_MASK).unwrap();
+        assert_eq!(event.key, Key::Char('x'));
+        assert!(event.modifiers.ctrl);
+    }
+
+    #[test]
+    fn keysym_ctrl_a_from_control_char() {
+        let event = keysym_to_key_event(0x01, RENDER_CTRL_MASK).unwrap();
+        assert_eq!(event.key, Key::Char('a'));
+        assert!(event.modifiers.ctrl);
+    }
+
+    #[test]
+    fn keysym_ctrl_z_from_control_char() {
+        let event = keysym_to_key_event(0x1A, RENDER_CTRL_MASK).unwrap();
+        assert_eq!(event.key, Key::Char('z'));
+        assert!(event.modifiers.ctrl);
+    }
+
+    #[test]
+    fn keysym_ctrl_g_from_control_char_no_modifier() {
+        // Even without explicit ctrl modifier bit, control char implies ctrl
+        let event = keysym_to_key_event(0x07, 0).unwrap();
+        assert_eq!(event.key, Key::Char('g'));
+        assert!(event.modifiers.ctrl);
+    }
+
+    #[test]
+    fn keysym_ctrl_x_from_printable_with_modifier() {
+        // Ctrl+x when winit gives keysym 0x78 ('x') with ctrl modifier
+        let event = keysym_to_key_event(0x78, RENDER_CTRL_MASK).unwrap();
+        assert_eq!(event.key, Key::Char('x'));
+        assert!(event.modifiers.ctrl);
+    }
 }
