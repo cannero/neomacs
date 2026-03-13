@@ -667,6 +667,15 @@ fn parse_segmented_capture(body: &str) -> Option<SegmentedCapture> {
     Some(SegmentedCapture::NegatedCharPlus(forbidden))
 }
 
+fn segmented_literal_escape(ch: char) -> Option<char> {
+    match ch {
+        '\\' | '[' | ']' | '{' | '}' | '(' | ')' | '|' | '.' | '*' | '+' | '?' | '^' | '$' => {
+            Some(ch)
+        }
+        _ => None,
+    }
+}
+
 fn parse_segmented_pattern(pattern: &str) -> Option<SegmentedPattern> {
     let chars: Vec<char> = pattern.chars().collect();
     let mut idx = 0usize;
@@ -715,7 +724,7 @@ fn parse_segmented_pattern(pattern: &str) -> Option<SegmentedPattern> {
         }
 
         if chars[idx] == '\\' && idx + 1 < chars.len() {
-            literal.push(chars[idx + 1]);
+            literal.push(segmented_literal_escape(chars[idx + 1])?);
             idx += 2;
             continue;
         }

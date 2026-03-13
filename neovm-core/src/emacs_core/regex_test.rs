@@ -1,5 +1,20 @@
 use super::*;
 use crate::buffer::{Buffer, BufferId};
+use crate::emacs_core::value::{with_heap, with_heap_mut};
+use crate::gc::types::LispString;
+
+fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {
+    let searched = match md.searched_string.as_ref()? {
+        SearchedString::Heap(id) => SearchedString::Heap(*id),
+        SearchedString::Owned(text) => SearchedString::Owned(text.clone()),
+    };
+    let (start, end) = md.groups.get(group).and_then(|group| *group)?;
+    searched.with_str(|text| {
+        let byte_start = char_pos_to_byte(text, start);
+        let byte_end = char_pos_to_byte(text, end);
+        text.get(byte_start..byte_end).map(str::to_owned)
+    })
+}
 
 // -----------------------------------------------------------------------
 // translate_emacs_regex
@@ -175,6 +190,14 @@ fn compile_search_pattern_routes_symbol_boundaries_through_backref_engine() {
 }
 
 #[test]
+fn compile_search_pattern_routes_bracket_section_anchor_through_backref_engine() {
+    assert!(matches!(
+        compile_search_pattern("\\`\\[\\([^]]+\\)\\]\\'", true),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+}
+
+#[test]
 fn string_match_supported_capture_pattern_uses_backref_engine_semantics() {
     let mut md = None;
     let result =
@@ -310,6 +333,185 @@ fn string_match_symbol_boundary_pattern_uses_backref_engine_semantics() {
     assert_eq!(result, Ok(Some(2)));
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((2, 5)));
+}
+
+#[test]
+fn string_match_posix_upper_class_ignores_case_fold() {
+    let mut md = None;
+    let result =
+        string_match_full_with_case_fold("[[:upper:]]+", "helloWORLDfoo", 0, true, &mut md);
+    assert_eq!(result, Ok(Some(5)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((5, 10)));
+}
+
+#[test]
+fn string_match_posix_upper_class_ignores_case_fold_on_lisp_string() {
+    let mut md = None;
+    let string = LispString::new("helloWORLDfoo".to_string(), false);
+    let result = string_match_full_with_case_fold_source_lisp(
+        "[[:upper:]]+",
+        &string,
+        SearchedString::Owned("helloWORLDfoo".to_string()),
+        0,
+        true,
+        &mut md,
+    );
+    assert_eq!(result, Ok(Some(5)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((5, 10)));
+}
+
+#[test]
+fn string_match_anchored_operator_char_class_matches_punctuation() {
+    let mut md = None;
+    let result =
+        string_match_full_with_case_fold("\\`[-+*/=<>!&|(){}\\[\\];,.]", "=", 0, true, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 1)));
+}
+
+#[test]
+fn string_match_anchored_operator_char_class_matches_punctuation_on_lisp_slice() {
+    let mut md = None;
+    let source = LispString::new("x = 42;".to_string(), false);
+    let slice = source.slice(2, source.byte_len()).expect("slice");
+    let result = string_match_full_with_case_fold_source_lisp(
+        "\\`[-+*/=<>!&|(){}\\[\\];,.]",
+        &slice,
+        SearchedString::Owned(slice.as_str().to_string()),
+        0,
+        true,
+        &mut md,
+    );
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 1)));
+}
+
+#[test]
+fn heap_match_string_on_lisp_slice_preserves_anchored_operator_match() {
+    let mut md = None;
+    let source = LispString::new("x = 42;".to_string(), false);
+    let slice = source.slice(2, source.byte_len()).expect("slice");
+    let slice_id = with_heap_mut(|heap| heap.alloc_lisp_string(slice.clone()));
+    let stored_slice = with_heap(|heap| heap.get_lisp_string(slice_id).clone());
+    let result = string_match_full_with_case_fold_source_lisp(
+        "\\`[-+*/=<>!&|(){}\\[\\];,.]",
+        &stored_slice,
+        SearchedString::Heap(slice_id),
+        0,
+        true,
+        &mut md,
+    );
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(extract_heap_match_string(&md, 0), Some("=".to_string()));
+}
+
+#[test]
+fn heap_tokenizer_loop_preserves_single_char_operators() {
+    let code = LispString::new(
+        "let x = 42; if x >= 10 && x != 0 { return x + 1; }".to_string(),
+        false,
+    );
+    let keywords = ["if", "else", "while", "return", "let", "fn"];
+    let patterns = [
+        ("\\`[ \t\n]+", "skip"),
+        ("\\`[0-9]+\\(?:\\.[0-9]+\\)?", "number"),
+        ("\\`\"[^\"]*\"", "string"),
+        ("\\`\\(?:==\\|!=\\|<=\\|>=\\|&&\\|||\\|->\\)", "operator"),
+        ("\\`[-+*/=<>!&|(){}\\[\\];,.]", "operator"),
+        ("\\`[a-zA-Z_][a-zA-Z0-9_]*", "identifier"),
+    ];
+
+    let mut pos = 0usize;
+    let mut tokens = Vec::new();
+    while pos < code.byte_len() {
+        let rest = code.slice(pos, code.byte_len()).expect("rest slice");
+        let rest_id = with_heap_mut(|heap| heap.alloc_lisp_string(rest.clone()));
+        let stored_rest = with_heap(|heap| heap.get_lisp_string(rest_id).clone());
+        let mut matched = false;
+
+        for (pattern, mut kind) in patterns {
+            if matched {
+                break;
+            }
+
+            let mut md = None;
+            if let Ok(Some(_)) = string_match_full_with_case_fold_source_lisp(
+                pattern,
+                &stored_rest,
+                SearchedString::Heap(rest_id),
+                0,
+                true,
+                &mut md,
+            ) {
+                let md = md.expect("match data");
+                let text = extract_heap_match_string(&md, 0).expect("matched text");
+                pos += text.len();
+                if kind != "skip" {
+                    if kind == "identifier" && keywords.contains(&text.as_str()) {
+                        kind = "keyword";
+                    }
+                    tokens.push((kind.to_string(), text));
+                }
+                matched = true;
+            }
+        }
+
+        if !matched {
+            pos += 1;
+        }
+    }
+
+    assert_eq!(
+        tokens,
+        vec![
+            ("keyword".to_string(), "let".to_string()),
+            ("identifier".to_string(), "x".to_string()),
+            ("operator".to_string(), "=".to_string()),
+            ("number".to_string(), "42".to_string()),
+            ("operator".to_string(), ";".to_string()),
+            ("keyword".to_string(), "if".to_string()),
+            ("identifier".to_string(), "x".to_string()),
+            ("operator".to_string(), ">=".to_string()),
+            ("number".to_string(), "10".to_string()),
+            ("operator".to_string(), "&&".to_string()),
+            ("identifier".to_string(), "x".to_string()),
+            ("operator".to_string(), "!=".to_string()),
+            ("number".to_string(), "0".to_string()),
+            ("operator".to_string(), "{".to_string()),
+            ("keyword".to_string(), "return".to_string()),
+            ("identifier".to_string(), "x".to_string()),
+            ("operator".to_string(), "+".to_string()),
+            ("number".to_string(), "1".to_string()),
+            ("operator".to_string(), ";".to_string()),
+            ("operator".to_string(), "}".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn string_match_bracket_section_anchor_pattern_matches_whole_string() {
+    let mut md = None;
+    let result =
+        string_match_full_with_case_fold("\\`\\[\\([^]]+\\)\\]\\'", "[database]", 0, true, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 10)));
+    assert_eq!(md.groups[1], Some((1, 9)));
+}
+
+#[test]
+fn backref_match_at_bracket_section_anchor_pattern_matches_whole_string() {
+    let pattern = BackrefParser::new("\\`\\[\\([^]]+\\)\\]\\'")
+        .parse()
+        .expect("pattern should parse");
+    let md = backref_match_at(&pattern, "[database]", 0, 0, true).expect("match data");
+    assert_eq!(md.groups[0], Some((0, 10)));
+    assert_eq!(md.groups[1], Some((1, 9)));
 }
 
 #[test]
