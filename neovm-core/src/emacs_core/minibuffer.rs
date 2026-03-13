@@ -532,8 +532,12 @@ fn compute_common_prefix(strings: &[String]) -> Option<String> {
 
 /// `(read-file-name PROMPT &optional DIR DEFAULT MUSTMATCH INITIAL PREDICATE)`
 ///
-/// Stub: returns INITIAL or DEFAULT or "".
-pub(crate) fn builtin_read_file_name(args: Vec<Value>) -> EvalResult {
+/// Read a file name from the minibuffer.
+/// In interactive mode, uses read-from-minibuffer with initial directory context.
+pub(crate) fn builtin_read_file_name(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("read-file-name", &args, 1)?;
     expect_max_args("read-file-name", &args, 6)?;
     let _prompt = expect_string(&args[0])?;
@@ -552,13 +556,37 @@ pub(crate) fn builtin_read_file_name(args: Vec<Value>) -> EvalResult {
             let _ = expect_string(initial)?;
         }
     }
+
+    // Interactive mode: use read-from-minibuffer with initial input
+    if eval.input_rx.is_some() {
+        let prompt = args[0];
+        let initial = args.get(4).copied().unwrap_or(Value::Nil);
+        let default = args.get(2).copied().unwrap_or(Value::Nil);
+
+        // If no initial input but DIR is provided, use DIR as initial
+        let effective_initial = if initial.is_nil() {
+            args.get(1).copied().unwrap_or(Value::Nil)
+        } else {
+            initial
+        };
+
+        return super::reader::builtin_read_from_minibuffer(
+            eval,
+            vec![prompt, effective_initial, Value::Nil, Value::Nil, Value::Nil, default],
+        );
+    }
+
     Err(end_of_file_stdin_error())
 }
 
 /// `(read-directory-name PROMPT &optional DIR DEFAULT MUSTMATCH INITIAL)`
 ///
-/// Stub: returns INITIAL or DEFAULT or "".
-pub(crate) fn builtin_read_directory_name(args: Vec<Value>) -> EvalResult {
+/// Read a directory name from the minibuffer.
+/// In interactive mode, uses read-from-minibuffer with initial directory context.
+pub(crate) fn builtin_read_directory_name(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("read-directory-name", &args, 1)?;
     expect_max_args("read-directory-name", &args, 5)?;
     let _prompt = expect_string(&args[0])?;
@@ -577,6 +605,24 @@ pub(crate) fn builtin_read_directory_name(args: Vec<Value>) -> EvalResult {
             let _ = expect_string(initial)?;
         }
     }
+
+    // Interactive mode: use read-from-minibuffer
+    if eval.input_rx.is_some() {
+        let prompt = args[0];
+        let initial = args.get(4).copied().unwrap_or(Value::Nil);
+        let default = args.get(2).copied().unwrap_or(Value::Nil);
+        let effective_initial = if initial.is_nil() {
+            args.get(1).copied().unwrap_or(Value::Nil)
+        } else {
+            initial
+        };
+
+        return super::reader::builtin_read_from_minibuffer(
+            eval,
+            vec![prompt, effective_initial, Value::Nil, Value::Nil, Value::Nil, default],
+        );
+    }
+
     Err(end_of_file_stdin_error())
 }
 

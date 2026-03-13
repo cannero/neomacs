@@ -1089,7 +1089,7 @@ fn interactive_args_from_string_code(
                 Value::string(prompt),
             ])?),
             'd' => args.push(interactive_point_arg(eval)?),
-            'D' => args.push(super::minibuffer::builtin_read_directory_name(vec![
+            'D' => args.push(super::minibuffer::builtin_read_directory_name(eval, vec![
                 Value::string(prompt),
             ])?),
             'e' => {
@@ -1104,16 +1104,16 @@ fn interactive_args_from_string_code(
                     ));
                 }
             }
-            'f' => args.push(super::minibuffer::builtin_read_file_name(vec![
+            'f' => args.push(super::minibuffer::builtin_read_file_name(eval, vec![
                 Value::string(prompt),
                 Value::Nil,
                 Value::Nil,
                 Value::True,
             ])?),
-            'F' => args.push(super::minibuffer::builtin_read_file_name(vec![
+            'F' => args.push(super::minibuffer::builtin_read_file_name(eval, vec![
                 Value::string(prompt),
             ])?),
-            'G' => args.push(super::minibuffer::builtin_read_file_name(vec![
+            'G' => args.push(super::minibuffer::builtin_read_file_name(eval, vec![
                 Value::string(prompt),
             ])?),
             'i' => args.push(Value::Nil),
