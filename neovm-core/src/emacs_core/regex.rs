@@ -76,6 +76,8 @@ enum BackrefAtom {
     LineEnd,
     WordBoundary,
     NotWordBoundary,
+    SymbolStart,
+    SymbolEnd,
     StartPoint,
     StartBuffer,
     EndBuffer,
@@ -399,6 +401,24 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                     '>' => {
                         out.push_str("\\b");
                         i += 1 + next_len;
+                    }
+                    '_' => {
+                        i += 1 + next_len;
+                        if i < len {
+                            let (boundary_ch, boundary_len) =
+                                next_char_at(pattern, i).expect("byte index must be char boundary");
+                            match boundary_ch {
+                                '<' | '>' => {
+                                    i += boundary_len;
+                                    out.push_str("\\b");
+                                }
+                                _ => {
+                                    out.push('_');
+                                }
+                            }
+                        } else {
+                            out.push('_');
+                        }
                     }
                     // Back-references (1-9) — not supported by `regex` crate,
                     // but translate the syntax for pattern acceptance.
@@ -860,6 +880,7 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | 's'
                     | 'S'
                     | 'c'
+                    | '_'
                     | '='
                     | 'n'
                     | 't'
@@ -878,7 +899,10 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | '^'
                     | '$' => {
                         just_consumed_quantifier = false;
-                        idx += if matches!(next, 's' | 'S' | 'c') {
+                        if matches!(next, 's' | 'S' | 'c' | '_') && chars.get(idx + 2).is_none() {
+                            return false;
+                        }
+                        idx += if matches!(next, 's' | 'S' | 'c' | '_') {
                             3
                         } else {
                             2
@@ -1021,6 +1045,11 @@ impl<'a> BackrefParser<'a> {
                         map_syntax_class(self.next()?),
                         true,
                     )),
+                    '_' => match self.next()? {
+                        '<' => Some(BackrefAtom::SymbolStart),
+                        '>' => Some(BackrefAtom::SymbolEnd),
+                        _ => None,
+                    },
                     'n' => Some(BackrefAtom::Literal('\n')),
                     't' => Some(BackrefAtom::Literal('\t')),
                     'r' => Some(BackrefAtom::Literal('\r')),
@@ -1880,6 +1909,22 @@ fn word_boundary_at(text: &str, pos: usize) -> bool {
     left != right
 }
 
+fn is_symbol_char(ch: char) -> bool {
+    matches_syntax_class(ch, BackrefSyntaxClass::Symbol)
+}
+
+fn symbol_start_at(text: &str, pos: usize) -> bool {
+    let left = text[..pos].chars().next_back().is_some_and(is_symbol_char);
+    let right = char_at(text, pos).is_some_and(|(ch, _)| is_symbol_char(ch));
+    !left && right
+}
+
+fn symbol_end_at(text: &str, pos: usize) -> bool {
+    let left = text[..pos].chars().next_back().is_some_and(is_symbol_char);
+    let right = char_at(text, pos).is_some_and(|(ch, _)| is_symbol_char(ch));
+    left && !right
+}
+
 fn line_start_at(text: &str, pos: usize) -> bool {
     pos == 0 || text[..pos].chars().next_back() == Some('\n')
 }
@@ -2035,6 +2080,14 @@ fn match_backref_atom_once(
             .into_iter()
             .collect(),
         BackrefAtom::NotWordBoundary => (!word_boundary_at(text, state.pos))
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::SymbolStart => symbol_start_at(text, state.pos)
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::SymbolEnd => symbol_end_at(text, state.pos)
             .then(|| state.clone())
             .into_iter()
             .collect(),

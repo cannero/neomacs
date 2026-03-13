@@ -48,6 +48,11 @@ fn translate_word_boundary() {
 }
 
 #[test]
+fn translate_symbol_boundary() {
+    assert_eq!(translate_emacs_regex("\\_<word\\_>"), "\\bword\\b");
+}
+
+#[test]
 fn translate_buffer_boundaries() {
     // Emacs \` → Rust \A, Emacs \' → Rust \z
     assert_eq!(translate_emacs_regex("\\`foo\\'"), "\\Afoo\\z");
@@ -158,6 +163,14 @@ fn compile_search_pattern_keeps_lazy_quantifiers_on_fallback() {
     assert!(matches!(
         compile_search_pattern("a.*?b", false),
         Ok(CompiledSearchPattern::Regex(_))
+    ));
+}
+
+#[test]
+fn compile_search_pattern_routes_symbol_boundaries_through_backref_engine() {
+    assert!(matches!(
+        compile_search_pattern("\\_<foo\\_>", false),
+        Ok(CompiledSearchPattern::Backref(_))
     ));
 }
 
@@ -288,6 +301,15 @@ fn string_match_lazy_quantifier_preserves_fallback_semantics() {
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((0, 4)));
+}
+
+#[test]
+fn string_match_symbol_boundary_pattern_uses_backref_engine_semantics() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("\\_<foo\\_>", "x foo y", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(2)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((2, 5)));
 }
 
 #[test]
