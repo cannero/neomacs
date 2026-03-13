@@ -2186,6 +2186,7 @@ impl Evaluator {
     /// Enter a recursive edit level (public API).
     ///
     /// Returns `Ok(())` on normal exit, `Err(description)` on error.
+    #[tracing::instrument(skip_all)]
     pub fn recursive_edit(&mut self) -> Result<(), String> {
         match self.recursive_edit_inner() {
             Ok(_) => Ok(()),
@@ -2193,9 +2194,11 @@ impl Evaluator {
         }
     }
 
+    #[tracing::instrument(skip_all, fields(depth = self.command_loop.recursive_depth, has_input = self.input_rx.is_some()))]
     pub(crate) fn recursive_edit_inner(&mut self) -> EvalResult {
         // Batch mode: no interactive input, return immediately.
         if self.input_rx.is_none() {
+            tracing::info!("recursive_edit_inner: batch mode, returning immediately");
             return Ok(Value::Nil);
         }
 
@@ -2229,6 +2232,7 @@ impl Evaluator {
     ///
     /// Mirrors GNU Emacs `command_loop()` (keyboard.c:1104).
     /// Wraps command_loop_2 in a catch for 'top-level.
+    #[tracing::instrument(skip_all)]
     fn command_loop_inner(&mut self) -> EvalResult {
         loop {
             // Catch 'top-level throws (from (top-level) function).
@@ -2254,6 +2258,7 @@ impl Evaluator {
     ///
     /// Mirrors GNU Emacs `command_loop_2()` (keyboard.c:1146).
     /// Wraps command_loop_1 with condition-case error handling.
+    #[tracing::instrument(skip_all)]
     fn command_loop_2(&mut self) -> EvalResult {
         loop {
             match self.command_loop_1() {
@@ -2305,6 +2310,7 @@ impl Evaluator {
     ///
     /// Mirrors GNU Emacs `command_loop_1()` (keyboard.c:1306).
     /// This is the core interactive loop: read → dispatch → redisplay.
+    #[tracing::instrument(skip_all)]
     fn command_loop_1(&mut self) -> EvalResult {
         loop {
             if !self.command_loop.running {
@@ -2513,10 +2519,14 @@ impl Evaluator {
         self.fire_pending_timers();
 
         // 5. Block on input (with timer-aware timeout)
+        tracing::debug!("read_char: blocking on input (input_rx={})...", self.input_rx.is_some());
         loop {
             let rx = match self.input_rx {
                 Some(ref rx) => rx.clone(),
-                None => return Ok(Value::Nil), // Batch mode
+                None => {
+                    tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
+                    return Ok(Value::Nil);
+                }
             };
 
             // Use recv_timeout if timers are pending, otherwise block indefinitely
@@ -2563,12 +2573,13 @@ impl Evaluator {
                     // TODO: run focus hooks
                     continue;
                 }
-                InputEvent::KeyPress(key) => {
+                InputEvent::KeyPress(ref key) => {
+                    tracing::debug!("read_char: received KeyPress {:?}", key);
                     // Record for keyboard macro
                     if self.command_loop.defining_kbd_macro {
                         self.command_loop.kbd_macro_events.push(key.clone());
                     }
-                    let keymap_key: super::keymap::KeyEvent = key.into();
+                    let keymap_key: super::keymap::KeyEvent = key.clone().into();
                     return Ok(key_event_to_emacs_event(&keymap_key));
                 }
                 InputEvent::MousePress {
