@@ -76,6 +76,7 @@ enum BackrefAtom {
     LineEnd,
     WordBoundary,
     NotWordBoundary,
+    StartPoint,
     StartBuffer,
     EndBuffer,
     Group(usize, BackrefExpr),
@@ -141,6 +142,7 @@ impl Quantifier {
 #[derive(Clone)]
 struct BackrefState {
     pos: usize,
+    search_start: usize,
     groups: Vec<Option<(usize, usize)>>,
 }
 
@@ -998,7 +1000,7 @@ impl<'a> BackrefParser<'a> {
                     'r' => Some(BackrefAtom::Literal('\r')),
                     'b' => Some(BackrefAtom::WordBoundary),
                     'B' => Some(BackrefAtom::NotWordBoundary),
-                    '=' => Some(BackrefAtom::StartBuffer),
+                    '=' => Some(BackrefAtom::StartPoint),
                     '`' => Some(BackrefAtom::StartBuffer),
                     '\'' => Some(BackrefAtom::EndBuffer),
                     '<' | '>' => Some(BackrefAtom::WordBoundary),
@@ -1874,6 +1876,7 @@ fn match_backref_atom_once(
             if char_eq_case_fold(ch, *expected, case_fold) {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1889,6 +1892,7 @@ fn match_backref_atom_once(
             } else {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             }
@@ -1900,6 +1904,7 @@ fn match_backref_atom_once(
             if char_class_matches(class, ch, case_fold) {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1913,6 +1918,7 @@ fn match_backref_atom_once(
             if !ch.is_ascii() {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1926,6 +1932,7 @@ fn match_backref_atom_once(
             if ch.is_ascii_digit() {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1939,6 +1946,7 @@ fn match_backref_atom_once(
             if !ch.is_ascii_digit() {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1952,6 +1960,7 @@ fn match_backref_atom_once(
             if is_word_char(ch) {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1965,6 +1974,7 @@ fn match_backref_atom_once(
             if !is_word_char(ch) {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1979,6 +1989,7 @@ fn match_backref_atom_once(
             if matched != *negated {
                 vec![BackrefState {
                     pos: state.pos + len,
+                    search_start: state.search_start,
                     groups: state.groups.clone(),
                 }]
             } else {
@@ -1998,6 +2009,10 @@ fn match_backref_atom_once(
             .into_iter()
             .collect(),
         BackrefAtom::NotWordBoundary => (!word_boundary_at(text, state.pos))
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::StartPoint => (state.pos == state.search_start)
             .then(|| state.clone())
             .into_iter()
             .collect(),
@@ -2029,6 +2044,7 @@ fn match_backref_atom_once(
             };
             vec![BackrefState {
                 pos: end_pos,
+                search_start: state.search_start,
                 groups: state.groups.clone(),
             }]
         }
@@ -2113,10 +2129,12 @@ fn backref_match_at(
     pattern: &BackrefPattern,
     text: &str,
     start: usize,
+    search_start: usize,
     case_fold: bool,
 ) -> Option<MatchData> {
     let initial = BackrefState {
         pos: start,
+        search_start,
         groups: vec![None; pattern.group_count + 1],
     };
     let mut state = match_backref_expr(&pattern.expr, text, initial, case_fold)
@@ -2150,7 +2168,7 @@ fn find_forward_backref_match_data(
 ) -> Option<MatchData> {
     let mut search_at = start;
     while search_at <= limit {
-        if let Some(md) = backref_match_at(pattern, text, search_at, case_fold) {
+        if let Some(md) = backref_match_at(pattern, text, search_at, start, case_fold) {
             let full_match = md.groups[0]?;
             if full_match.1 <= limit {
                 return Some(offset_match_data(md, offset));
@@ -2176,7 +2194,7 @@ fn find_backward_backref_match_data(
     let mut search_at = limit;
     let mut last = None;
     while search_at <= start {
-        if let Some(md) = backref_match_at(pattern, text, search_at, case_fold) {
+        if let Some(md) = backref_match_at(pattern, text, search_at, start, case_fold) {
             let full_match = md.groups[0]?;
             if full_match.1 <= start {
                 last = Some(offset_match_data(md, offset));
@@ -2622,7 +2640,8 @@ pub fn looking_at(
             }
         }
         CompiledSearchPattern::Backref(backref) => {
-            if let Some(mut md) = backref_match_at(&backref, &text, start_rel, case_fold) {
+            if let Some(mut md) = backref_match_at(&backref, &text, start_rel, start_rel, case_fold)
+            {
                 if md.groups[0].unwrap().0 != start_rel {
                     return Ok(false);
                 }
@@ -2688,7 +2707,7 @@ pub fn looking_at_string(
             }
         }
         CompiledSearchPattern::Backref(backref) => {
-            if let Some(md) = backref_match_at(&backref, string, 0, case_fold) {
+            if let Some(md) = backref_match_at(&backref, string, 0, 0, case_fold) {
                 *match_data = Some(string_char_match_data(
                     SearchedString::Owned(string.to_string()),
                     md,
