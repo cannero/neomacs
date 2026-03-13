@@ -419,6 +419,25 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                     }
                     // Emacs repetition braces → Rust repetition braces
                     '{' => {
+                        let interval_start = i + 1 + next_len;
+                        let mut scan = interval_start;
+                        while scan < len {
+                            if bytes[scan] == b'\\' && scan + 1 < len && bytes[scan + 1] == b'}' {
+                                let interval = &pattern[interval_start..scan];
+                                out.push('{');
+                                if let Some(rest) = interval.strip_prefix(',') {
+                                    out.push('0');
+                                    out.push(',');
+                                    out.push_str(rest);
+                                } else {
+                                    out.push_str(interval);
+                                }
+                                out.push('}');
+                                i = scan + 2;
+                                continue;
+                            }
+                            scan += 1;
+                        }
                         out.push('{');
                         i += 1 + next_len;
                     }
@@ -924,8 +943,6 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     }
                     ')'
                     | '|'
-                    | '{'
-                    | '}'
                     | '1'..='9'
                     | 'w'
                     | 'W'
@@ -964,6 +981,27 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                             2
                         };
                     }
+                    '{' => {
+                        let mut scan = idx + 2;
+                        let has_min = matches!(chars.get(scan), Some('0'..='9'));
+                        while matches!(chars.get(scan), Some('0'..='9')) {
+                            scan += 1;
+                        }
+                        if chars.get(scan) == Some(&',') {
+                            scan += 1;
+                            while matches!(chars.get(scan), Some('0'..='9')) {
+                                scan += 1;
+                            }
+                        } else if !has_min {
+                            return false;
+                        }
+                        if chars.get(scan) != Some(&'\\') || chars.get(scan + 1) != Some(&'}') {
+                            return false;
+                        }
+                        pending_quantifier = true;
+                        idx = scan + 2;
+                    }
+                    '}' => return false,
                     _ if !next.is_ascii() => {
                         pending_quantifier = false;
                         idx += 2;
@@ -1266,7 +1304,11 @@ impl<'a> BackrefParser<'a> {
             Some('\\') if self.peek_n(1) == Some('{') => {
                 let saved = self.idx;
                 self.idx += 2;
-                let min = self.parse_usize()?;
+                let min = if self.peek() == Some(',') {
+                    0
+                } else {
+                    self.parse_usize()?
+                };
                 let max = if self.peek() == Some(',') {
                     self.idx += 1;
                     if self.peek() == Some('\\') && self.peek_n(1) == Some('}') {

@@ -126,6 +126,18 @@ fn bootstrap_string_match_explicit_numbered_group_preserves_group_slot() {
 }
 
 #[test]
+fn bootstrap_string_match_open_interval_quantifier_matches_gnu_semantics() {
+    assert_eq!(
+        bootstrap_eval_one(
+            r#"(list
+                 (string-match "a\\{,2\\}b" "aab")
+                 (match-string 0 "aab"))"#
+        ),
+        r#"OK (0 "aab")"#
+    );
+}
+
+#[test]
 fn bootstrap_string_match_posix_char_class_sequence_matches_gnu_order() {
     assert_eq!(
         bootstrap_eval_one(

@@ -186,6 +186,14 @@ fn compile_search_pattern_routes_lazy_quantifiers_through_backref_engine() {
 }
 
 #[test]
+fn compile_search_pattern_routes_open_interval_quantifiers_through_backref_engine() {
+    assert!(matches!(
+        compile_search_pattern("a\\{,2\\}b", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+}
+
+#[test]
 fn compile_search_pattern_routes_explicit_numbered_groups_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\(?1:[^}]*\\)", false),
@@ -367,6 +375,15 @@ fn string_match_lazy_counted_quantifier_prefers_shorter_match() {
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((0, 5)));
+}
+
+#[test]
+fn string_match_open_interval_quantifier_matches_gnu_semantics() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("a\\{,2\\}b", "aab", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 3)));
 }
 
 #[test]
@@ -594,6 +611,13 @@ fn translate_explicit_numbered_group_keeps_fallback_compilable() {
     assert_eq!(translate_emacs_regex(emacs), "(.*?)");
     compile_emacs_regex_case_fold(emacs, true)
         .expect("explicit numbered group regexp should compile");
+}
+
+#[test]
+fn translate_open_interval_quantifier_keeps_fallback_compilable() {
+    let emacs = "a\\{,2\\}b";
+    assert_eq!(translate_emacs_regex(emacs), "a{0,2}b");
+    compile_emacs_regex_case_fold(emacs, true).expect("open interval regexp should compile");
 }
 
 #[test]
