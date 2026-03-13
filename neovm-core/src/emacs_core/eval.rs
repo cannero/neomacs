@@ -2182,7 +2182,17 @@ impl Evaluator {
     /// normally.
     ///
     /// In batch mode (no input_rx), returns nil immediately.
-    pub(crate) fn recursive_edit(&mut self) -> EvalResult {
+    /// Enter a recursive edit level (public API).
+    ///
+    /// Returns `Ok(())` on normal exit, `Err(description)` on error.
+    pub fn recursive_edit(&mut self) -> Result<(), String> {
+        match self.recursive_edit_inner() {
+            Ok(_) => Ok(()),
+            Err(flow) => Err(format!("{:?}", flow)),
+        }
+    }
+
+    pub(crate) fn recursive_edit_inner(&mut self) -> EvalResult {
         // Batch mode: no interactive input, return immediately.
         if self.input_rx.is_none() {
             return Ok(Value::Nil);

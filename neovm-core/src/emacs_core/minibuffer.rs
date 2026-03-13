@@ -769,7 +769,7 @@ pub(crate) fn builtin_recursive_edit_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("recursive-edit", &args, 0)?;
-    eval.recursive_edit()
+    eval.recursive_edit_inner()
 }
 
 /// `(top-level)` — exit all recursive edits.
