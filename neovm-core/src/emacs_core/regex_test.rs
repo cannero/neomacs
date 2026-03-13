@@ -174,10 +174,14 @@ fn compile_search_pattern_routes_char_class_escapes_through_backref_engine() {
 }
 
 #[test]
-fn compile_search_pattern_keeps_lazy_quantifiers_on_fallback() {
+fn compile_search_pattern_routes_lazy_quantifiers_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("a.*?b", false),
-        Ok(CompiledSearchPattern::Regex(_))
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+    assert!(matches!(
+        compile_search_pattern("a\\{2,4\\}?b", false),
+        Ok(CompiledSearchPattern::Backref(_))
     ));
 }
 
@@ -327,6 +331,33 @@ fn string_match_lazy_quantifier_preserves_fallback_semantics() {
 }
 
 #[test]
+fn string_match_lazy_plus_quantifier_prefers_shorter_match() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("a.+?b", "aXXbYYb", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 4)));
+}
+
+#[test]
+fn string_match_lazy_optional_quantifier_prefers_zero_width_choice() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("ab??c", "abc", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 3)));
+}
+
+#[test]
+fn string_match_lazy_counted_quantifier_prefers_shorter_match() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("a\\{2,4\\}?b", "aaaab", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 5)));
+}
+
+#[test]
 fn string_match_symbol_boundary_pattern_uses_backref_engine_semantics() {
     let mut md = None;
     let result = string_match_full_with_case_fold("\\_<foo\\_>", "x foo y", 0, false, &mut md);
@@ -336,17 +367,17 @@ fn string_match_symbol_boundary_pattern_uses_backref_engine_semantics() {
 }
 
 #[test]
-fn string_match_posix_upper_class_ignores_case_fold() {
+fn string_match_posix_upper_class_folds_to_alpha_under_case_fold() {
     let mut md = None;
     let result =
         string_match_full_with_case_fold("[[:upper:]]+", "helloWORLDfoo", 0, true, &mut md);
-    assert_eq!(result, Ok(Some(5)));
+    assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
-    assert_eq!(md.groups[0], Some((5, 10)));
+    assert_eq!(md.groups[0], Some((0, 13)));
 }
 
 #[test]
-fn string_match_posix_upper_class_ignores_case_fold_on_lisp_string() {
+fn string_match_posix_upper_class_folds_to_alpha_on_lisp_string() {
     let mut md = None;
     let string = LispString::new("helloWORLDfoo".to_string(), false);
     let result = string_match_full_with_case_fold_source_lisp(
@@ -357,23 +388,22 @@ fn string_match_posix_upper_class_ignores_case_fold_on_lisp_string() {
         true,
         &mut md,
     );
-    assert_eq!(result, Ok(Some(5)));
+    assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
-    assert_eq!(md.groups[0], Some((5, 10)));
+    assert_eq!(md.groups[0], Some((0, 13)));
 }
 
 #[test]
-fn string_match_anchored_operator_char_class_matches_punctuation() {
+fn string_match_anchored_operator_char_class_mirrors_gnu_bracket_closing() {
     let mut md = None;
     let result =
         string_match_full_with_case_fold("\\`[-+*/=<>!&|(){}\\[\\];,.]", "=", 0, true, &mut md);
-    assert_eq!(result, Ok(Some(0)));
-    let md = md.expect("match data");
-    assert_eq!(md.groups[0], Some((0, 1)));
+    assert_eq!(result, Ok(None));
+    assert!(md.is_none());
 }
 
 #[test]
-fn string_match_anchored_operator_char_class_matches_punctuation_on_lisp_slice() {
+fn string_match_anchored_operator_char_class_on_lisp_slice_mirrors_gnu_bracket_closing() {
     let mut md = None;
     let source = LispString::new("x = 42;".to_string(), false);
     let slice = source.slice(2, source.byte_len()).expect("slice");
@@ -385,13 +415,12 @@ fn string_match_anchored_operator_char_class_matches_punctuation_on_lisp_slice()
         true,
         &mut md,
     );
-    assert_eq!(result, Ok(Some(0)));
-    let md = md.expect("match data");
-    assert_eq!(md.groups[0], Some((0, 1)));
+    assert_eq!(result, Ok(None));
+    assert!(md.is_none());
 }
 
 #[test]
-fn heap_match_string_on_lisp_slice_preserves_anchored_operator_match() {
+fn heap_match_string_on_lisp_slice_mirrors_gnu_bracket_closing() {
     let mut md = None;
     let source = LispString::new("x = 42;".to_string(), false);
     let slice = source.slice(2, source.byte_len()).expect("slice");
@@ -405,13 +434,12 @@ fn heap_match_string_on_lisp_slice_preserves_anchored_operator_match() {
         true,
         &mut md,
     );
-    assert_eq!(result, Ok(Some(0)));
-    let md = md.expect("match data");
-    assert_eq!(extract_heap_match_string(&md, 0), Some("=".to_string()));
+    assert_eq!(result, Ok(None));
+    assert!(md.is_none());
 }
 
 #[test]
-fn heap_tokenizer_loop_preserves_single_char_operators() {
+fn heap_tokenizer_loop_mirrors_gnu_single_char_operator_behavior() {
     let code = LispString::new(
         "let x = 42; if x >= 10 && x != 0 { return x + 1; }".to_string(),
         false,
@@ -471,9 +499,7 @@ fn heap_tokenizer_loop_preserves_single_char_operators() {
         vec![
             ("keyword".to_string(), "let".to_string()),
             ("identifier".to_string(), "x".to_string()),
-            ("operator".to_string(), "=".to_string()),
             ("number".to_string(), "42".to_string()),
-            ("operator".to_string(), ";".to_string()),
             ("keyword".to_string(), "if".to_string()),
             ("identifier".to_string(), "x".to_string()),
             ("operator".to_string(), ">=".to_string()),
@@ -482,13 +508,9 @@ fn heap_tokenizer_loop_preserves_single_char_operators() {
             ("identifier".to_string(), "x".to_string()),
             ("operator".to_string(), "!=".to_string()),
             ("number".to_string(), "0".to_string()),
-            ("operator".to_string(), "{".to_string()),
             ("keyword".to_string(), "return".to_string()),
             ("identifier".to_string(), "x".to_string()),
-            ("operator".to_string(), "+".to_string()),
             ("number".to_string(), "1".to_string()),
-            ("operator".to_string(), ";".to_string()),
-            ("operator".to_string(), "}".to_string()),
         ]
     );
 }

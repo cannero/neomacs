@@ -128,16 +128,18 @@ enum BackrefPosixClass {
     Blank,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Quantifier {
     min: usize,
     max: Option<usize>,
+    greedy: bool,
 }
 
 impl Quantifier {
     const ONE: Self = Self {
         min: 1,
         max: Some(1),
+        greedy: true,
     };
 }
 
@@ -277,6 +279,14 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                 continue;
             }
             if ch == '\\' {
+                if i + 1 < len && bytes[i + 1] == b']' {
+                    // GNU Emacs does not treat \] inside [...] as a literal ].
+                    // Keep the backslash as a literal class member and let the
+                    // following ] close the class on the next iteration.
+                    push_rust_class_char(&mut out, ch);
+                    i += 1;
+                    continue;
+                }
                 if i + 2 < len && bytes[i + 1] == b'-' && bytes[i + 2] != b']' {
                     let (end_ch, end_len) =
                         next_char_at(pattern, i + 2).expect("byte index must be char boundary");
@@ -775,14 +785,14 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
     let mut idx = 0usize;
     let mut in_class = false;
     let mut first_in_class = false;
-    let mut just_consumed_quantifier = false;
+    let mut pending_quantifier = false;
 
     while idx < chars.len() {
         let ch = chars[idx];
         if in_class {
             if ch == ']' && !first_in_class {
                 in_class = false;
-                just_consumed_quantifier = false;
+                pending_quantifier = false;
                 idx += 1;
                 continue;
             }
@@ -804,19 +814,24 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                 ) {
                     return false;
                 }
-                just_consumed_quantifier = false;
+                pending_quantifier = false;
                 idx += 2;
                 continue;
             }
 
             if ch == '\\' {
+                if matches!(chars.get(idx + 1), Some(']')) {
+                    pending_quantifier = false;
+                    idx += 1;
+                    continue;
+                }
                 let Some(next) = chars.get(idx + 1) else {
                     return false;
                 };
                 match *next {
                     'd' | 'D' | 'w' | 'W' | 'n' | 't' | 'r' | '\\' | '[' | ']' | '-' | '^'
                     | '.' | '*' | '+' | '?' | '{' | '}' | '(' | ')' | '|' => {
-                        just_consumed_quantifier = false;
+                        pending_quantifier = false;
                         idx += 2;
                         continue;
                     }
@@ -824,12 +839,12 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                         if chars.get(idx + 2).is_none() {
                             return false;
                         }
-                        just_consumed_quantifier = false;
+                        pending_quantifier = false;
                         idx += 3;
                         continue;
                     }
                     _ if !next.is_ascii() => {
-                        just_consumed_quantifier = false;
+                        pending_quantifier = false;
                         idx += 2;
                         continue;
                     }
@@ -837,7 +852,7 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                 }
             }
 
-            just_consumed_quantifier = false;
+            pending_quantifier = false;
             idx += 1;
             continue;
         }
@@ -846,18 +861,19 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
             '[' => {
                 in_class = true;
                 first_in_class = true;
-                just_consumed_quantifier = false;
+                pending_quantifier = false;
                 idx += 1;
             }
             '*' | '+' => {
-                just_consumed_quantifier = true;
+                pending_quantifier = true;
                 idx += 1;
             }
             '?' => {
-                if just_consumed_quantifier {
-                    return false;
+                if pending_quantifier {
+                    pending_quantifier = false;
+                } else {
+                    pending_quantifier = true;
                 }
-                just_consumed_quantifier = true;
                 idx += 1;
             }
             '\\' => {
@@ -907,7 +923,7 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | ']'
                     | '^'
                     | '$' => {
-                        just_consumed_quantifier = false;
+                        pending_quantifier = false;
                         if matches!(next, 's' | 'S' | 'c' | '_') && chars.get(idx + 2).is_none() {
                             return false;
                         }
@@ -918,14 +934,14 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                         };
                     }
                     _ if !next.is_ascii() => {
-                        just_consumed_quantifier = false;
+                        pending_quantifier = false;
                         idx += 2;
                     }
                     _ => return false,
                 }
             }
             _ => {
-                just_consumed_quantifier = false;
+                pending_quantifier = false;
                 idx += 1;
             }
         }
@@ -1094,6 +1110,12 @@ impl<'a> BackrefParser<'a> {
             }
             first = false;
 
+            if ch == '\\' && self.peek_n(1) == Some(']') {
+                self.idx += 1;
+                items.push(BackrefCharClassItem::Literal('\\'));
+                continue;
+            }
+
             if ch == '[' && self.peek_n(1) == Some(':') {
                 self.idx += 2;
                 let start = self.idx;
@@ -1177,20 +1199,29 @@ impl<'a> BackrefParser<'a> {
     }
 
     fn parse_quantifier(&mut self) -> Option<Quantifier> {
-        match self.peek() {
+        let mut quantifier = match self.peek() {
             Some('*') => {
                 self.idx += 1;
-                Some(Quantifier { min: 0, max: None })
+                Some(Quantifier {
+                    min: 0,
+                    max: None,
+                    greedy: true,
+                })
             }
             Some('+') => {
                 self.idx += 1;
-                Some(Quantifier { min: 1, max: None })
+                Some(Quantifier {
+                    min: 1,
+                    max: None,
+                    greedy: true,
+                })
             }
             Some('?') => {
                 self.idx += 1;
                 Some(Quantifier {
                     min: 0,
                     max: Some(1),
+                    greedy: true,
                 })
             }
             Some('\\') if self.peek_n(1) == Some('{') => {
@@ -1212,10 +1243,21 @@ impl<'a> BackrefParser<'a> {
                     return Some(Quantifier::ONE);
                 }
                 self.idx += 2;
-                Some(Quantifier { min, max })
+                Some(Quantifier {
+                    min,
+                    max,
+                    greedy: true,
+                })
             }
             _ => Some(Quantifier::ONE),
+        }?;
+
+        if quantifier != Quantifier::ONE && self.peek() == Some('?') {
+            self.idx += 1;
+            quantifier.greedy = false;
         }
+
+        Some(quantifier)
     }
 
     fn parse_usize(&mut self) -> Option<usize> {
@@ -1801,12 +1843,13 @@ fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
 
-fn matches_posix_class(ch: char, class: BackrefPosixClass) -> bool {
+fn matches_posix_class(ch: char, class: BackrefPosixClass, case_fold: bool) -> bool {
     match class {
         BackrefPosixClass::Alpha => ch.is_alphabetic(),
         BackrefPosixClass::Alnum => ch.is_alphanumeric(),
         BackrefPosixClass::Digit => ch.is_ascii_digit(),
         BackrefPosixClass::Space => ch.is_whitespace(),
+        BackrefPosixClass::Upper | BackrefPosixClass::Lower if case_fold => ch.is_alphabetic(),
         BackrefPosixClass::Upper => ch.is_uppercase(),
         BackrefPosixClass::Lower => ch.is_lowercase(),
         BackrefPosixClass::Punct => ch.is_ascii_punctuation(),
@@ -1860,7 +1903,7 @@ fn char_class_matches(class: &BackrefCharClass, ch: char, case_fold: bool) -> bo
             };
             range_start <= normalized && normalized <= range_end
         }
-        BackrefCharClassItem::Posix(posix) => matches_posix_class(ch, *posix),
+        BackrefCharClassItem::Posix(posix) => matches_posix_class(ch, *posix, case_fold),
         BackrefCharClassItem::NonAsciiCategory => !ch.is_ascii(),
         BackrefCharClassItem::Digit => ch.is_ascii_digit(),
         BackrefCharClassItem::NotDigit => !ch.is_ascii_digit(),
@@ -2153,6 +2196,10 @@ fn match_backref_repetition(
         count: usize,
         out: &mut Vec<BackrefState>,
     ) {
+        if !node.repeat.greedy && count >= node.repeat.min {
+            out.push(state.clone());
+        }
+
         let can_repeat_more = node.repeat.max.is_none_or(|max| count < max);
         if can_repeat_more {
             for next in match_backref_atom_once(&node.atom, text, &state, case_fold) {
@@ -2165,7 +2212,7 @@ fn match_backref_repetition(
                 rec(node, text, next, case_fold, count + 1, out);
             }
         }
-        if count >= node.repeat.min {
+        if node.repeat.greedy && count >= node.repeat.min {
             out.push(state);
         }
     }

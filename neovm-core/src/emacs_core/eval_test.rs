@@ -88,28 +88,27 @@ fn substring_accepts_vectors_like_gnu_emacs() {
 }
 
 #[test]
-fn substring_then_string_match_preserves_single_char_operator_tokens() {
+fn substring_then_string_match_mirrors_gnu_bracket_class_closing() {
     assert_eq!(
         bootstrap_eval_one(
             r#"(let* ((code "x = 42;")
                       (rest (substring code 2)))
                  (list rest
-                       (string-match "\\`[-+*/=<>!&|(){}\\[\\];,.]" rest)
-                       (match-string 0 rest)))"#
+                       (string-match "\\`[-+*/=<>!&|(){}\\[\\];,.]" rest)))"#
         ),
-        r#"OK ("= 42;" 0 "=")"#
+        r#"OK ("= 42;" nil)"#
     );
 }
 
 #[test]
-fn bootstrap_string_match_posix_upper_class_preserves_case_sensitivity() {
+fn bootstrap_string_match_posix_upper_class_folds_to_alpha_under_case_fold() {
     assert_eq!(
         bootstrap_eval_one(
             r#"(list
                  (string-match "[[:upper:]]+" "helloWORLDfoo")
                  (match-string 0 "helloWORLDfoo"))"#
         ),
-        r#"OK (5 "WORLD")"#
+        r#"OK (0 "helloWORLDfoo")"#
     );
 }
 
@@ -139,7 +138,7 @@ fn bootstrap_string_match_posix_char_class_sequence_matches_gnu_order() {
                  (progn (string-match "[[:blank:]]+" "a \t b")
                         (match-string 0 "a \t b")))"#
         ),
-        r#"OK (0 "hello" 5 "123" 2 "abc123" 5 "   " 5 "WORLD" 5 "world" 5 "!@#" 3 "abc" 3 "abc123" " 	 ")"#
+        r#"OK (0 "hello" 5 "123" 2 "abc123" 5 "   " 0 "helloWORLDfoo" 0 "HELLOworldFOO" 5 "!@#" 3 "abc" 3 "abc123" " 	 ")"#
     );
 }
 
