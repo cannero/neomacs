@@ -2355,10 +2355,15 @@ impl Evaluator {
     /// Reads keys one at a time, following prefix keymaps until a
     /// complete binding (command) or undefined key is found.
     ///
+    /// After each key, checks translation maps in order:
+    /// 1. `input-decode-map` — terminal-specific key decoding
+    /// 2. `local-function-key-map` (inherits `function-key-map`) — function key translation
+    /// 3. `key-translation-map` — user-defined key translations
+    ///
     /// Returns (key_events_as_emacs_values, binding).
     /// binding is Value::Nil if the key sequence is undefined.
     pub(crate) fn read_key_sequence(&mut self) -> Result<(Vec<Value>, Value), Flow> {
-        use super::keymap::{key_event_to_emacs_event, is_list_keymap};
+        use super::keymap::{is_list_keymap, list_keymap_lookup_seq};
 
         let mut events: Vec<Value> = Vec::new();
 
@@ -2369,6 +2374,58 @@ impl Evaluator {
 
             // Record as last-input-event
             self.record_input_event(emacs_event);
+
+            // Apply translation maps to the current key sequence.
+            // Each map can replace the sequence with a translated version.
+            // Process in order: input-decode-map, local-function-key-map,
+            // key-translation-map (same order as GNU Emacs).
+            for map_name in &[
+                "input-decode-map",
+                "local-function-key-map",
+                "key-translation-map",
+            ] {
+                let map = self
+                    .eval_symbol(map_name)
+                    .unwrap_or(Value::Nil);
+                if map.is_nil() || !is_list_keymap(&map) {
+                    continue;
+                }
+                let translation = list_keymap_lookup_seq(&map, &events);
+                // If we got a complete (non-nil, non-keymap, non-integer) binding,
+                // it's a translation.  Replace the events with the translated form.
+                if translation.is_nil() {
+                    continue;
+                }
+                if is_list_keymap(&translation) {
+                    // Prefix in translation map — need more keys before translating
+                    continue;
+                }
+                if matches!(translation, Value::Int(_)) {
+                    // Integer means partial match consumed some prefix — skip
+                    continue;
+                }
+                // The translation is a replacement key or key sequence.
+                // It can be a vector of events or a single event value.
+                if let Value::Vector(id) = translation {
+                    let new_events: Vec<Value> = super::value::with_heap(|h| {
+                        let len = h.vector_len(id);
+                        (0..len).map(|i| h.vector_ref(id, i)).collect()
+                    });
+                    events = new_events;
+                } else if translation.is_string() {
+                    // String translations: each char becomes an event
+                    if let Some(s) = translation.as_str() {
+                        events.clear();
+                        for ch in s.chars() {
+                            events.push(Value::Int(ch as i64));
+                        }
+                    }
+                } else {
+                    // Single event replacement
+                    events.clear();
+                    events.push(translation);
+                }
+            }
 
             // Look up the full sequence so far
             let key_vec = Value::vector(events.clone());
