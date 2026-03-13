@@ -69,9 +69,28 @@ impl HotpathStats {
     }
 }
 
-thread_local! {
-    static HOTPATH_STATS: RefCell<HotpathStats> = RefCell::new(HotpathStats::default());
+struct HotpathState {
+    stats: HotpathStats,
+    op_events: u64,
+    last_live_log: Instant,
 }
+
+impl Default for HotpathState {
+    fn default() -> Self {
+        Self {
+            stats: HotpathStats::default(),
+            op_events: 0,
+            last_live_log: Instant::now(),
+        }
+    }
+}
+
+thread_local! {
+    static HOTPATH_STATE: RefCell<HotpathState> = RefCell::new(HotpathState::default());
+}
+
+const LIVE_LOG_EVERY_OPS: u64 = 2_048;
+const LIVE_LOG_EVERY: Duration = Duration::from_secs(5);
 
 pub(crate) fn hotpath_timing_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -88,8 +107,17 @@ pub(crate) fn time_op<R>(op: HotpathOp, f: impl FnOnce() -> R) -> R {
 
     let start = Instant::now();
     let result = f();
-    HOTPATH_STATS.with(|stats| {
-        stats.borrow_mut().counter_mut(op).record(start.elapsed());
+    HOTPATH_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        state.stats.counter_mut(op).record(start.elapsed());
+        state.op_events += 1;
+        if state.op_events % LIVE_LOG_EVERY_OPS == 0
+            && state.last_live_log.elapsed() >= LIVE_LOG_EVERY
+        {
+            log_snapshot("oracle-hotpath-live", &state.stats);
+            state.stats = HotpathStats::default();
+            state.last_live_log = Instant::now();
+        }
     });
     result
 }
@@ -98,8 +126,8 @@ pub(crate) fn reset_hotpath_stats() {
     if !hotpath_timing_enabled() {
         return;
     }
-    HOTPATH_STATS.with(|stats| {
-        *stats.borrow_mut() = HotpathStats::default();
+    HOTPATH_STATE.with(|state| {
+        *state.borrow_mut() = HotpathState::default();
     });
 }
 
@@ -108,22 +136,28 @@ pub(crate) fn log_hotpath_stats(label: &str) {
         return;
     }
 
-    HOTPATH_STATS.with(|stats| {
-        let snapshot = std::mem::take(&mut *stats.borrow_mut());
-        for (name, counter) in snapshot.entries() {
-            if counter.count == 0 {
-                continue;
-            }
-            let total_ms = counter.total.as_secs_f64() * 1000.0;
-            let avg_ms = total_ms / counter.count as f64;
-            let max_ms = counter.max.as_secs_f64() * 1000.0;
-            tracing::info!(
-                "{label}: builtin={name} count={} total_ms={:.3} avg_ms={:.3} max_ms={:.3}",
-                counter.count,
-                total_ms,
-                avg_ms,
-                max_ms
-            );
-        }
+    HOTPATH_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let snapshot = std::mem::take(&mut state.stats);
+        log_snapshot(label, &snapshot);
+        state.last_live_log = Instant::now();
     });
+}
+
+fn log_snapshot(label: &str, snapshot: &HotpathStats) {
+    for (name, counter) in snapshot.entries() {
+        if counter.count == 0 {
+            continue;
+        }
+        let total_ms = counter.total.as_secs_f64() * 1000.0;
+        let avg_ms = total_ms / counter.count as f64;
+        let max_ms = counter.max.as_secs_f64() * 1000.0;
+        tracing::info!(
+            "{label}: builtin={name} count={} total_ms={:.3} avg_ms={:.3} max_ms={:.3}",
+            counter.count,
+            total_ms,
+            avg_ms,
+            max_ms
+        );
+    }
 }
