@@ -142,6 +142,18 @@ fn compile_search_pattern_routes_digit_classes_through_backref_engine() {
 }
 
 #[test]
+fn compile_search_pattern_routes_char_class_escapes_through_backref_engine() {
+    assert!(matches!(
+        compile_search_pattern("[\\w-]+", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+    assert!(matches!(
+        compile_search_pattern("[\\s-]+", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+}
+
+#[test]
 fn string_match_supported_capture_pattern_uses_backref_engine_semantics() {
     let mut md = None;
     let result =
@@ -224,6 +236,24 @@ fn string_match_control_escape_uses_backref_engine_semantics() {
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((0, 3)));
+}
+
+#[test]
+fn string_match_char_class_word_escape_uses_backref_engine_semantics() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("[\\w-]+", "foo-bar!", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 7)));
+}
+
+#[test]
+fn string_match_char_class_syntax_escape_uses_backref_engine_semantics() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("[\\s-]+", " \tfoo", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 2)));
 }
 
 #[test]

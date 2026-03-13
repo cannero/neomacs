@@ -105,6 +105,12 @@ enum BackrefCharClassItem {
     Literal(char),
     Range(char, char),
     Posix(BackrefPosixClass),
+    NonAsciiCategory,
+    Digit,
+    NotDigit,
+    WordChar,
+    NotWordChar,
+    SyntaxClass(BackrefSyntaxClass, bool),
 }
 
 #[derive(Clone, Copy)]
@@ -773,11 +779,25 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                 let Some(next) = chars.get(idx + 1) else {
                     return false;
                 };
-                if next.is_ascii_alphanumeric() {
-                    return false;
+                match *next {
+                    'd' | 'D' | 'w' | 'W' | 'n' | 't' | 'r' | '\\' | '[' | ']' | '-' | '^'
+                    | '.' | '*' | '+' | '?' | '{' | '}' | '(' | ')' | '|' => {
+                        idx += 2;
+                        continue;
+                    }
+                    's' | 'S' | 'c' => {
+                        if chars.get(idx + 2).is_none() {
+                            return false;
+                        }
+                        idx += 3;
+                        continue;
+                    }
+                    _ if !next.is_ascii() => {
+                        idx += 2;
+                        continue;
+                    }
+                    _ => return false,
                 }
-                idx += 2;
-                continue;
             }
 
             idx += 1;
@@ -1037,28 +1057,57 @@ impl<'a> BackrefParser<'a> {
                 continue;
             }
 
-            let start_ch = if ch == '\\' {
-                self.idx += 1;
-                self.next()?
-            } else {
-                self.next()?
-            };
+            let (start_item, start_literal) = self.parse_char_class_item()?;
 
-            if self.peek() == Some('-') && self.peek_n(1) != Some(']') {
-                self.idx += 1;
-                let end_ch = if self.peek() == Some('\\') {
+            if let Some(start_ch) = start_literal {
+                if self.peek() == Some('-') && self.peek_n(1) != Some(']') {
                     self.idx += 1;
-                    self.next()?
-                } else {
-                    self.next()?
-                };
-                items.push(BackrefCharClassItem::Range(start_ch, end_ch));
+                    let (end_item, end_literal) = self.parse_char_class_item()?;
+                    let end_ch = end_literal?;
+                    if !matches!(end_item, BackrefCharClassItem::Literal(_)) {
+                        return None;
+                    }
+                    items.push(BackrefCharClassItem::Range(start_ch, end_ch));
+                    continue;
+                }
+                items.push(start_item);
             } else {
-                items.push(BackrefCharClassItem::Literal(start_ch));
+                items.push(start_item);
             }
         }
 
         None
+    }
+
+    fn parse_char_class_item(&mut self) -> Option<(BackrefCharClassItem, Option<char>)> {
+        let ch = self.next()?;
+        if ch != '\\' {
+            return Some((BackrefCharClassItem::Literal(ch), Some(ch)));
+        }
+
+        let next = self.next()?;
+        match next {
+            'c' => {
+                self.next()?;
+                Some((BackrefCharClassItem::NonAsciiCategory, None))
+            }
+            'd' => Some((BackrefCharClassItem::Digit, None)),
+            'D' => Some((BackrefCharClassItem::NotDigit, None)),
+            'w' => Some((BackrefCharClassItem::WordChar, None)),
+            'W' => Some((BackrefCharClassItem::NotWordChar, None)),
+            's' => Some((
+                BackrefCharClassItem::SyntaxClass(map_syntax_class(self.next()?), false),
+                None,
+            )),
+            'S' => Some((
+                BackrefCharClassItem::SyntaxClass(map_syntax_class(self.next()?), true),
+                None,
+            )),
+            'n' => Some((BackrefCharClassItem::Literal('\n'), Some('\n'))),
+            't' => Some((BackrefCharClassItem::Literal('\t'), Some('\t'))),
+            'r' => Some((BackrefCharClassItem::Literal('\r'), Some('\r'))),
+            _ => Some((BackrefCharClassItem::Literal(next), Some(next))),
+        }
     }
 
     fn parse_quantifier(&mut self) -> Option<Quantifier> {
@@ -1746,6 +1795,14 @@ fn char_class_matches(class: &BackrefCharClass, ch: char, case_fold: bool) -> bo
             range_start <= normalized && normalized <= range_end
         }
         BackrefCharClassItem::Posix(posix) => matches_posix_class(ch, *posix),
+        BackrefCharClassItem::NonAsciiCategory => !ch.is_ascii(),
+        BackrefCharClassItem::Digit => ch.is_ascii_digit(),
+        BackrefCharClassItem::NotDigit => !ch.is_ascii_digit(),
+        BackrefCharClassItem::WordChar => is_word_char(ch),
+        BackrefCharClassItem::NotWordChar => !is_word_char(ch),
+        BackrefCharClassItem::SyntaxClass(class, negated) => {
+            matches_syntax_class(ch, *class) != *negated
+        }
     });
     if class.negated { !matched } else { matched }
 }
