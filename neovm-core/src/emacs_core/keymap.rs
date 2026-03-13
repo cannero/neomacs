@@ -41,6 +41,59 @@ pub enum KeyEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Conversion from keyboard::KeyEvent → keymap::KeyEvent
+// ---------------------------------------------------------------------------
+
+impl From<crate::keyboard::KeyEvent> for KeyEvent {
+    fn from(ke: crate::keyboard::KeyEvent) -> Self {
+        use crate::keyboard::{Key, NamedKey};
+        match ke.key {
+            Key::Char(c) => KeyEvent::Char {
+                code: c,
+                ctrl: ke.modifiers.ctrl,
+                meta: ke.modifiers.meta,
+                shift: ke.modifiers.shift,
+                super_: ke.modifiers.super_,
+            },
+            Key::Named(named) => {
+                let name = match named {
+                    NamedKey::Return => "return",
+                    NamedKey::Tab => "tab",
+                    NamedKey::Escape => "escape",
+                    NamedKey::Backspace => "backspace",
+                    NamedKey::Delete => "delete",
+                    NamedKey::Insert => "insert",
+                    NamedKey::Home => "home",
+                    NamedKey::End => "end",
+                    NamedKey::PageUp => "prior",
+                    NamedKey::PageDown => "next",
+                    NamedKey::Left => "left",
+                    NamedKey::Right => "right",
+                    NamedKey::Up => "up",
+                    NamedKey::Down => "down",
+                    NamedKey::F(n) => {
+                        return KeyEvent::Function {
+                            name: format!("f{}", n),
+                            ctrl: ke.modifiers.ctrl,
+                            meta: ke.modifiers.meta,
+                            shift: ke.modifiers.shift,
+                            super_: ke.modifiers.super_,
+                        };
+                    }
+                };
+                KeyEvent::Function {
+                    name: name.to_string(),
+                    ctrl: ke.modifiers.ctrl,
+                    meta: ke.modifiers.meta,
+                    shift: ke.modifiers.shift,
+                    super_: ke.modifiers.super_,
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Key description parsing  ("kbd" style)
 // ---------------------------------------------------------------------------
 

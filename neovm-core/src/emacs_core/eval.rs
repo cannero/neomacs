@@ -2273,17 +2273,10 @@ impl Evaluator {
     ///
     /// Mirrors GNU Emacs `command_loop_1()` (keyboard.c:1306).
     /// This is the core interactive loop: read → dispatch → redisplay.
-    ///
-    /// Placeholder: will be fully implemented in Phase 1.
     fn command_loop_1(&mut self) -> EvalResult {
-        // TODO(Phase 1): Implement the full command loop:
-        // 1. read_key_sequence() — blocks in read_char()
-        // 2. key-binding lookup
-        // 3. (command-execute cmd)
-        // 4. post-command-hook
-        //
-        // For now, drain input events to prevent channel backup,
-        // and return when the window closes.
+        use crate::keyboard::{InputEvent, keysym_to_key_event};
+        use super::keymap::key_event_to_emacs_event;
+
         loop {
             if !self.command_loop.running {
                 return Ok(Value::Nil);
@@ -2293,44 +2286,125 @@ impl Evaluator {
             self.redisplay();
 
             // Block on input from render thread
-            if let Some(ref rx) = self.input_rx {
-                match rx.recv() {
-                    Ok(event) => {
+            let rx = match self.input_rx {
+                Some(ref rx) => rx.clone(),
+                None => return Ok(Value::Nil), // Batch mode
+            };
+
+            match rx.recv() {
+                Ok(event) => {
+                    self.command_loop.enqueue_event(event);
+                    // Drain any additional queued events
+                    while let Ok(event) = rx.try_recv() {
                         self.command_loop.enqueue_event(event);
-                        // Drain any additional queued events
-                        while let Ok(event) = rx.try_recv() {
-                            self.command_loop.enqueue_event(event);
-                        }
-
-                        // Process events from queue
-                        while let Some(_key) = self.command_loop.read_key_event() {
-                            // TODO: key-binding lookup + command-execute
-                            // For now, just consume the event
-                        }
-
-                        // Handle close request
-                        use crate::keyboard::InputEvent;
-                        let mut should_close = false;
-                        for event in self.command_loop.event_queue.iter() {
-                            if matches!(event, InputEvent::CloseRequested) {
-                                should_close = true;
-                            }
-                        }
-                        if should_close {
-                            self.command_loop.running = false;
-                            return Ok(Value::Nil);
-                        }
                     }
-                    Err(_) => {
-                        // Channel disconnected — render thread exited
+                }
+                Err(_) => {
+                    // Channel disconnected — render thread exited
+                    self.command_loop.running = false;
+                    return Ok(Value::Nil);
+                }
+            }
+
+            // Process events from queue
+            // First, handle non-key events (resize, close, focus).
+            let mut pending_keys = Vec::new();
+            while let Some(event) = self.command_loop.event_queue.pop_front() {
+                match event {
+                    InputEvent::CloseRequested => {
                         self.command_loop.running = false;
                         return Ok(Value::Nil);
                     }
+                    InputEvent::Resize { width: _, height: _ } => {
+                        // TODO: update frame dimensions
+                    }
+                    InputEvent::Focus(_focused) => {
+                        // TODO: run focus hooks
+                    }
+                    InputEvent::KeyPress(key) => {
+                        pending_keys.push(key);
+                    }
+                    _ => {
+                        // TODO: mouse events, etc.
+                    }
                 }
-            } else {
-                // Batch mode — no input source
-                return Ok(Value::Nil);
             }
+
+            // Process key events: look up binding → command-execute.
+            for key in pending_keys {
+                let key_desc = key.to_description();
+                let keymap_key: super::keymap::KeyEvent = key.into();
+                let emacs_event = key_event_to_emacs_event(&keymap_key);
+
+                // Record as last-input-event
+                self.record_input_event(emacs_event);
+
+                // Look up key binding via (key-binding KEY)
+                let key_vec = Value::vector(vec![emacs_event]);
+                let binding = super::interactive::builtin_key_binding(
+                    self,
+                    vec![key_vec],
+                );
+
+                match binding {
+                    Ok(cmd) if !cmd.is_nil() => {
+                        // Set this-command
+                        self.assign("this-command", cmd);
+
+                        // Run pre-command-hook
+                        let _ = self.run_hook_if_bound("pre-command-hook");
+
+                        // Execute: (command-execute cmd)
+                        let exec_result = super::interactive::builtin_command_execute(
+                            self,
+                            vec![cmd],
+                        );
+
+                        if let Err(ref flow) = exec_result {
+                            match flow {
+                                Flow::Throw { .. } => return exec_result,
+                                Flow::Signal(sig) => {
+                                    // Log error but continue the loop
+                                    // (mirrors cmd_error in keyboard.c)
+                                    tracing::warn!(
+                                        "Command error: ({} {:?})",
+                                        sig.symbol_name(),
+                                        sig.data
+                                    );
+                                }
+                            }
+                        }
+
+                        // Update last-command
+                        if let Ok(this_cmd) = self.eval_symbol("this-command") {
+                            self.assign("last-command", this_cmd);
+                        }
+
+                        // Run post-command-hook
+                        let _ = self.run_hook_if_bound("post-command-hook");
+                    }
+                    _ => {
+                        // Undefined key — beep or message
+                        tracing::debug!("Undefined key: {}", key_desc);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Run a named hook if it is bound and non-nil.
+    fn run_hook_if_bound(&mut self, hook_name: &str) -> EvalResult {
+        match self.eval_symbol(hook_name) {
+            Ok(hook_val) if !hook_val.is_nil() => {
+                // (run-hooks 'HOOK)
+                super::builtins::dispatch_builtin(
+                    self,
+                    "run-hooks",
+                    vec![Value::symbol(hook_name)],
+                )
+                .unwrap_or(Ok(Value::Nil))
+            }
+            _ => Ok(Value::Nil),
         }
     }
 
