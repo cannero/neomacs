@@ -382,6 +382,29 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                 match next {
                     // Emacs group → Rust group
                     '(' => {
+                        let group_idx = i + 1 + next_len;
+                        if group_idx < len && bytes[group_idx] == b'?' {
+                            if group_idx + 1 < len && bytes[group_idx + 1] == b':' {
+                                out.push_str("(?:");
+                                i = group_idx + 2;
+                                continue;
+                            }
+
+                            let digits_start = group_idx + 1;
+                            let mut digits_end = digits_start;
+                            while digits_end < len && bytes[digits_end].is_ascii_digit() {
+                                digits_end += 1;
+                            }
+                            if digits_end > digits_start
+                                && digits_end < len
+                                && bytes[digits_end] == b':'
+                            {
+                                out.push('(');
+                                i = digits_end + 1;
+                                continue;
+                            }
+                        }
+
                         out.push('(');
                         i += 1 + next_len;
                     }
@@ -883,10 +906,18 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                 match next {
                     '(' => {
                         if chars.get(idx + 2) == Some(&'?') {
-                            if chars.get(idx + 3) != Some(&':') {
-                                return false;
+                            if chars.get(idx + 3) == Some(&':') {
+                                idx += 4;
+                            } else {
+                                let mut digits_idx = idx + 3;
+                                while matches!(chars.get(digits_idx), Some('0'..='9')) {
+                                    digits_idx += 1;
+                                }
+                                if digits_idx == idx + 3 || chars.get(digits_idx) != Some(&':') {
+                                    return false;
+                                }
+                                idx = digits_idx + 1;
                             }
-                            idx += 4;
                         } else {
                             idx += 2;
                         }
@@ -1035,10 +1066,18 @@ impl<'a> BackrefParser<'a> {
                 let next = self.next()?;
                 match next {
                     '(' => {
-                        let noncapturing = self.peek() == Some('?') && self.peek_n(1) == Some(':');
+                        let mut noncapturing = false;
                         let mut group_index = None;
-                        if noncapturing {
-                            self.idx += 2;
+                        if self.peek() == Some('?') {
+                            if self.peek_n(1) == Some(':') {
+                                noncapturing = true;
+                                self.idx += 2;
+                            } else if let Some(explicit_index) = self.parse_explicit_group_index() {
+                                self.group_count = self.group_count.max(explicit_index);
+                                group_index = Some(explicit_index);
+                            } else {
+                                return None;
+                            }
                         } else {
                             self.group_count += 1;
                             group_index = Some(self.group_count);
@@ -1273,6 +1312,22 @@ impl<'a> BackrefParser<'a> {
             .collect::<String>()
             .parse()
             .ok()
+    }
+
+    fn parse_explicit_group_index(&mut self) -> Option<usize> {
+        if self.peek() != Some('?') {
+            return None;
+        }
+
+        let saved = self.idx;
+        self.idx += 1;
+        let number = self.parse_usize()?;
+        if self.peek() != Some(':') {
+            self.idx = saved;
+            return None;
+        }
+        self.idx += 1;
+        Some(number)
     }
 }
 

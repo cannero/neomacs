@@ -186,6 +186,18 @@ fn compile_search_pattern_routes_lazy_quantifiers_through_backref_engine() {
 }
 
 #[test]
+fn compile_search_pattern_routes_explicit_numbered_groups_through_backref_engine() {
+    assert!(matches!(
+        compile_search_pattern("\\(?1:[^}]*\\)", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+    assert!(matches!(
+        compile_search_pattern("\\(?9:.*?\\)", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+}
+
+#[test]
 fn compile_search_pattern_routes_symbol_boundaries_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\_<foo\\_>", false),
@@ -355,6 +367,18 @@ fn string_match_lazy_counted_quantifier_prefers_shorter_match() {
     assert_eq!(result, Ok(Some(0)));
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((0, 5)));
+}
+
+#[test]
+fn string_match_explicit_numbered_group_preserves_group_slot() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("\\(?9:[A-Z]+\\)", "xxABCyy", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(2)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups.len(), 10);
+    assert_eq!(md.groups[0], Some((2, 5)));
+    assert!(md.groups[1..9].iter().all(Option::is_none));
+    assert_eq!(md.groups[9], Some((2, 5)));
 }
 
 #[test]
@@ -562,6 +586,14 @@ fn translate_complex_pattern() {
     let rust = translate_emacs_regex(emacs);
     // After translation: (defun|defvar)\s+(\w+)
     assert_eq!(rust, "(defun|defvar)\\s+(\\w+)");
+}
+
+#[test]
+fn translate_explicit_numbered_group_keeps_fallback_compilable() {
+    let emacs = "\\(?9:.*?\\)";
+    assert_eq!(translate_emacs_regex(emacs), "(.*?)");
+    compile_emacs_regex_case_fold(emacs, true)
+        .expect("explicit numbered group regexp should compile");
 }
 
 #[test]

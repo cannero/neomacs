@@ -113,6 +113,19 @@ fn bootstrap_string_match_posix_upper_class_folds_to_alpha_under_case_fold() {
 }
 
 #[test]
+fn bootstrap_string_match_explicit_numbered_group_preserves_group_slot() {
+    assert_eq!(
+        bootstrap_eval_one(
+            r#"(let ((case-fold-search nil))
+                 (list
+                  (string-match "\\(?9:[A-Z]+\\)" "xxABCyy")
+                  (match-string 9 "xxABCyy")))"#
+        ),
+        r#"OK (2 "ABC")"#
+    );
+}
+
+#[test]
 fn bootstrap_string_match_posix_char_class_sequence_matches_gnu_order() {
     assert_eq!(
         bootstrap_eval_one(
