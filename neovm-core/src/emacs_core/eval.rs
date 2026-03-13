@@ -350,6 +350,19 @@ pub struct Evaluator {
     pub(crate) category_manager: CategoryManager,
     /// Keyboard macro manager — recording, playback, macro ring.
     pub(crate) kmacro: KmacroManager,
+    /// Command loop state — event queue, prefix args, kbd macros, quit flag.
+    /// Used by the interactive command loop (recursive-edit → command_loop).
+    pub(crate) command_loop: crate::keyboard::CommandLoop,
+    /// Input event receiver from the display/render thread.
+    /// `None` in batch mode (tests, non-interactive evaluation).
+    /// When `Some`, `read_char()` blocks on this channel for interactive input.
+    pub input_rx: Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
+    /// Wakeup file descriptor — the read end of a pipe that the render thread
+    /// writes to when input is available.  Used by `wait_for_input()` with
+    /// `pselect()`/`poll()` to multiplex input with process I/O and timers.
+    /// `None` in batch mode.
+    #[cfg(unix)]
+    pub wakeup_fd: Option<std::os::unix::io::RawFd>,
     /// Coding system manager — encoding/decoding registry.
     pub(crate) coding_systems: CodingSystemManager,
     /// Face table — global registry of named face definitions.
@@ -1894,6 +1907,10 @@ impl Evaluator {
             threads: ThreadManager::new(),
             category_manager: CategoryManager::new(),
             kmacro: KmacroManager::new(),
+            command_loop: crate::keyboard::CommandLoop::new(),
+            input_rx: None,
+            #[cfg(unix)]
+            wakeup_fd: None,
             coding_systems: CodingSystemManager::new(),
             face_table: FaceTable::new(),
             depth: 0,
@@ -1990,6 +2007,10 @@ impl Evaluator {
             threads: ThreadManager::new(),
             category_manager,
             kmacro,
+            command_loop: crate::keyboard::CommandLoop::new(),
+            input_rx: None,
+            #[cfg(unix)]
+            wakeup_fd: None,
             coding_systems,
             face_table,
             depth: 0,
