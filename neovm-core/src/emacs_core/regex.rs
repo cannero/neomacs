@@ -15,8 +15,27 @@ const SEARCH_PATTERN_CACHE_SIZE: usize = 20;
 #[derive(Clone)]
 enum CompiledSearchPattern {
     Literal(String),
+    Segmented(SegmentedPattern),
     Backref(BackrefPattern),
     Regex(Regex),
+}
+
+#[derive(Clone)]
+struct SegmentedPattern {
+    segments: Vec<SegmentedPatternPart>,
+    capture_count: usize,
+}
+
+#[derive(Clone)]
+enum SegmentedPatternPart {
+    Literal(String),
+    Capture(SegmentedCapture),
+}
+
+#[derive(Clone, Copy)]
+enum SegmentedCapture {
+    AnyLazy,
+    NegatedCharPlus(char),
 }
 
 #[derive(Clone)]
@@ -555,6 +574,102 @@ fn literal_from_trivial_regexp(pattern: &str) -> Option<String> {
     Some(out)
 }
 
+fn parse_segmented_capture(body: &str) -> Option<SegmentedCapture> {
+    if body == r"\(?:.\|\n\)*?" {
+        return Some(SegmentedCapture::AnyLazy);
+    }
+
+    let mut chars = body.chars();
+    if chars.next()? != '[' || chars.next()? != '^' {
+        return None;
+    }
+    let forbidden = chars.next()?;
+    if chars.next()? != ']' || chars.next()? != '+' || chars.next().is_some() {
+        return None;
+    }
+    Some(SegmentedCapture::NegatedCharPlus(forbidden))
+}
+
+fn parse_segmented_pattern(pattern: &str) -> Option<SegmentedPattern> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut idx = 0usize;
+    let mut literal = String::new();
+    let mut segments = Vec::new();
+    let mut capture_count = 0usize;
+
+    while idx < chars.len() {
+        if chars[idx] == '\\' && idx + 1 < chars.len() && chars[idx + 1] == '(' {
+            if !literal.is_empty() {
+                segments.push(SegmentedPatternPart::Literal(std::mem::take(&mut literal)));
+            }
+            idx += 2;
+            let start = idx;
+            let mut nested_groups = 0usize;
+            while idx + 1 < chars.len() {
+                if chars[idx] == '\\' {
+                    match chars[idx + 1] {
+                        '(' => {
+                            nested_groups += 1;
+                            idx += 2;
+                            continue;
+                        }
+                        ')' => {
+                            if nested_groups == 0 {
+                                break;
+                            }
+                            nested_groups -= 1;
+                            idx += 2;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                idx += 1;
+            }
+            if idx + 1 >= chars.len() {
+                return None;
+            }
+            let body: String = chars[start..idx].iter().collect();
+            let capture = parse_segmented_capture(&body)?;
+            segments.push(SegmentedPatternPart::Capture(capture));
+            capture_count += 1;
+            idx += 2;
+            continue;
+        }
+
+        if chars[idx] == '\\' && idx + 1 < chars.len() {
+            literal.push(chars[idx + 1]);
+            idx += 2;
+            continue;
+        }
+
+        literal.push(chars[idx]);
+        idx += 1;
+    }
+
+    if !literal.is_empty() {
+        segments.push(SegmentedPatternPart::Literal(literal));
+    }
+
+    if capture_count == 0 {
+        return None;
+    }
+    if !matches!(segments.first(), Some(SegmentedPatternPart::Literal(_))) {
+        return None;
+    }
+    if !segments
+        .iter()
+        .any(|part| matches!(part, SegmentedPatternPart::Capture(_)))
+    {
+        return None;
+    }
+
+    Some(SegmentedPattern {
+        segments,
+        capture_count,
+    })
+}
+
 fn pattern_contains_backrefs(pattern: &str) -> bool {
     let mut chars = pattern.chars();
     while let Some(ch) = chars.next() {
@@ -838,6 +953,8 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
         } else {
             CompiledSearchPattern::Regex(compile_emacs_regex_case_fold(pattern, case_fold)?)
         }
+    } else if let Some(segmented) = parse_segmented_pattern(pattern) {
+        CompiledSearchPattern::Segmented(segmented)
     } else if let Some(literal) = literal_from_trivial_regexp(pattern)
         && (!case_fold || literal.is_ascii())
     {
@@ -895,6 +1012,140 @@ fn single_group_match_data(start: usize, end: usize) -> MatchData {
         searched_string: None,
         searched_buffer: None,
     }
+}
+
+fn segmented_capture_accepts(
+    capture: SegmentedCapture,
+    text: &str,
+    start: usize,
+    end: usize,
+    case_fold: bool,
+) -> bool {
+    match capture {
+        SegmentedCapture::AnyLazy => true,
+        SegmentedCapture::NegatedCharPlus(forbidden) => {
+            start != end
+                && text[start..end]
+                    .chars()
+                    .all(|ch| !char_eq_case_fold(ch, forbidden, case_fold))
+        }
+    }
+}
+
+fn segmented_next_literal(pattern: &SegmentedPattern, from_index: usize) -> Option<&str> {
+    pattern.segments[from_index + 1..]
+        .iter()
+        .find_map(|part| match part {
+            SegmentedPatternPart::Literal(literal) => Some(literal.as_str()),
+            SegmentedPatternPart::Capture(_) => None,
+        })
+}
+
+fn segmented_match_at(
+    pattern: &SegmentedPattern,
+    text: &str,
+    start: usize,
+    limit: usize,
+    case_fold: bool,
+) -> Option<MatchData> {
+    let mut pos = start;
+    let mut groups = Vec::with_capacity(pattern.capture_count + 1);
+    groups.push(None);
+    let mut capture_index = 1usize;
+
+    for (idx, part) in pattern.segments.iter().enumerate() {
+        match part {
+            SegmentedPatternPart::Literal(literal) => {
+                pos = substring_starts_with(text, pos, literal, case_fold)?;
+                if pos > limit {
+                    return None;
+                }
+            }
+            SegmentedPatternPart::Capture(capture) => {
+                let next_literal = segmented_next_literal(pattern, idx)?;
+                let mut search_from = pos;
+                let capture_end = loop {
+                    let (literal_start, _) =
+                        literal_find(&text[search_from..limit], next_literal, case_fold)?;
+                    let candidate_end = search_from + literal_start;
+                    if segmented_capture_accepts(*capture, text, pos, candidate_end, case_fold) {
+                        break candidate_end;
+                    }
+                    let Some((_, step)) = char_at(text, candidate_end) else {
+                        return None;
+                    };
+                    search_from = candidate_end + step;
+                };
+                groups.push(Some((pos, capture_end)));
+                capture_index += 1;
+                pos = capture_end;
+            }
+        }
+    }
+
+    debug_assert_eq!(capture_index, pattern.capture_count + 1);
+    groups[0] = Some((start, pos));
+    Some(MatchData {
+        groups,
+        searched_string: None,
+        searched_buffer: None,
+    })
+}
+
+fn find_forward_segmented_match_data(
+    pattern: &SegmentedPattern,
+    text: &str,
+    start: usize,
+    limit: usize,
+    offset: usize,
+    case_fold: bool,
+) -> Option<MatchData> {
+    let first_literal = match pattern.segments.first()? {
+        SegmentedPatternPart::Literal(literal) => literal,
+        SegmentedPatternPart::Capture(_) => return None,
+    };
+
+    let mut search_from = start;
+    while search_from <= limit {
+        let (literal_start, _) = literal_find(&text[search_from..limit], first_literal, case_fold)?;
+        let candidate = search_from + literal_start;
+        if let Some(md) = segmented_match_at(pattern, text, candidate, limit, case_fold) {
+            return Some(offset_match_data(md, offset));
+        }
+        let Some((_, step)) = char_at(text, candidate) else {
+            break;
+        };
+        search_from = candidate + step;
+    }
+    None
+}
+
+fn find_backward_segmented_match_data(
+    pattern: &SegmentedPattern,
+    text: &str,
+    start: usize,
+    limit: usize,
+    offset: usize,
+    case_fold: bool,
+) -> Option<MatchData> {
+    let first_literal = match pattern.segments.first()? {
+        SegmentedPatternPart::Literal(literal) => literal,
+        SegmentedPatternPart::Capture(_) => return None,
+    };
+
+    let mut window_end = start;
+    while window_end >= limit {
+        let (literal_start, _) = literal_rfind(&text[limit..window_end], first_literal, case_fold)?;
+        let candidate = limit + literal_start;
+        if let Some(md) = segmented_match_at(pattern, text, candidate, start, case_fold) {
+            return Some(offset_match_data(md, offset));
+        }
+        if candidate == 0 {
+            break;
+        }
+        window_end = candidate;
+    }
+    None
 }
 
 fn ascii_case_fold_find(haystack: &str, needle: &str) -> Option<usize> {
@@ -1526,6 +1777,27 @@ pub fn re_search_forward(
                 Err(format!("Search failed: \"{}\"", pattern))
             }
         }
+        CompiledSearchPattern::Segmented(segmented) => {
+            if let Some(mut md) = find_forward_segmented_match_data(
+                &segmented,
+                &text,
+                start_rel,
+                limit_rel,
+                region_start,
+                case_fold,
+            ) {
+                md.searched_string = None;
+                md.searched_buffer = Some(buf.id);
+                let full_match = md.groups[0].unwrap();
+                buf.pt = full_match.1;
+                *match_data = Some(md);
+                Ok(Some(full_match.1))
+            } else if noerror {
+                Ok(None)
+            } else {
+                Err(format!("Search failed: \"{}\"", pattern))
+            }
+        }
         CompiledSearchPattern::Backref(backref) => {
             if let Some(mut md) = find_forward_backref_match_data(
                 &backref,
@@ -1612,6 +1884,27 @@ pub fn re_search_backward(
                 Err(format!("Search failed: \"{}\"", pattern))
             }
         }
+        CompiledSearchPattern::Segmented(segmented) => {
+            if let Some(mut md) = find_backward_segmented_match_data(
+                &segmented,
+                &text,
+                start_rel,
+                limit_rel,
+                region_start,
+                case_fold,
+            ) {
+                md.searched_string = None;
+                md.searched_buffer = Some(buf.id);
+                let full_match = md.groups[0].unwrap();
+                buf.pt = full_match.0;
+                *match_data = Some(md);
+                Ok(Some(full_match.0))
+            } else if noerror {
+                Ok(None)
+            } else {
+                Err(format!("Search failed: \"{}\"", pattern))
+            }
+        }
         CompiledSearchPattern::Backref(backref) => {
             if let Some(mut md) = find_backward_backref_match_data(
                 &backref,
@@ -1687,6 +1980,19 @@ pub fn looking_at(
             });
             Ok(true)
         }
+        CompiledSearchPattern::Segmented(segmented) => {
+            if let Some(mut md) =
+                segmented_match_at(&segmented, &text, start_rel, text.len(), case_fold)
+            {
+                md = offset_match_data(md, region_start);
+                md.searched_string = None;
+                md.searched_buffer = Some(buf.id);
+                *match_data = Some(md);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
         CompiledSearchPattern::Backref(backref) => {
             if let Some(mut md) = backref_match_at(&backref, &text, start_rel, case_fold) {
                 if md.groups[0].unwrap().0 != start_rel {
@@ -1742,6 +2048,14 @@ pub fn looking_at_string(
             ));
             Ok(true)
         }
+        CompiledSearchPattern::Segmented(segmented) => {
+            if let Some(md) = segmented_match_at(&segmented, string, 0, string.len(), case_fold) {
+                *match_data = Some(string_char_match_data(string, md));
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
         CompiledSearchPattern::Backref(backref) => {
             if let Some(md) = backref_match_at(&backref, string, 0, case_fold) {
                 *match_data = Some(string_char_match_data(string, md));
@@ -1790,6 +2104,23 @@ pub fn string_match_full_with_case_fold(
             if let Some((byte_start, byte_end)) = byte_match {
                 let char_md =
                     string_char_match_data(string, single_group_match_data(byte_start, byte_end));
+                let result_pos = char_md.groups[0].unwrap().0;
+                *match_data = Some(char_md);
+                Ok(Some(result_pos))
+            } else {
+                Ok(None)
+            }
+        }
+        CompiledSearchPattern::Segmented(segmented) => {
+            if let Some(md) = find_forward_segmented_match_data(
+                &segmented,
+                string,
+                start,
+                string.len(),
+                0,
+                case_fold,
+            ) {
+                let char_md = string_char_match_data(string, md);
                 let result_pos = char_md.groups[0].unwrap().0;
                 *match_data = Some(char_md);
                 Ok(Some(result_pos))

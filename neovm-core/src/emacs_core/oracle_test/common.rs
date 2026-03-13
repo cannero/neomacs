@@ -88,6 +88,21 @@ fn oracle_timing_enabled() -> bool {
     std::env::var_os("NEOVM_ORACLE_TIMING").is_some()
 }
 
+fn ensure_oracle_timing_tracing() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    if !oracle_timing_enabled() {
+        return;
+    }
+    INIT.get_or_init(|| {
+        let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_test_writer()
+            .try_init();
+    });
+}
+
 macro_rules! return_if_neovm_enable_oracle_proptest_not_set {
     () => {
         if !$crate::emacs_core::oracle_test::common::oracle_prop_enabled() {
@@ -585,14 +600,34 @@ pub(crate) fn assert_oracle_parity_with_bootstrap_and_load_raw(form: &str, load_
 /// Uses pdump cache when available for faster startup.
 pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String> {
     ensure_neovm_mem_limit()?;
+    ensure_oracle_timing_tracing();
+    let log_timing = oracle_timing_enabled();
+    let bootstrap_t0 = std::time::Instant::now();
     let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached()
         .map_err(|e| format!("bootstrap failed: {e:?}"))?;
+    if log_timing {
+        tracing::info!(
+            "oracle-timing: neovm-bootstrap-cache {:.3?}",
+            bootstrap_t0.elapsed()
+        );
+    }
+    let startup_t0 = std::time::Instant::now();
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
         .map_err(|e| format!("startup state failed: {e:?}"))?;
+    if log_timing {
+        tracing::info!(
+            "oracle-timing: neovm-startup-state {:.3?}",
+            startup_t0.elapsed()
+        );
+    }
 
     ensure_nonempty_form(form)?;
 
+    let eval_t0 = std::time::Instant::now();
     let result = run_neovm_eval_in_temp_buffer(&mut eval, form)?;
+    if log_timing {
+        tracing::info!("oracle-timing: neovm-form-eval {:.3?}", eval_t0.elapsed());
+    }
 
     let rendered = render_neovm_oracle_result(&eval, result);
     Ok(rendered)
@@ -601,19 +636,20 @@ pub(crate) fn run_neovm_eval_with_bootstrap(form: &str) -> Result<String, String
 pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
     let t0 = std::time::Instant::now();
     let log_timing = oracle_timing_enabled();
+    ensure_oracle_timing_tracing();
     if log_timing {
-        println!("oracle-timing: neovm-start");
+        tracing::info!("oracle-timing: neovm-start");
     }
     let neovm_t0 = std::time::Instant::now();
     let neovm = run_neovm_eval_with_bootstrap(form).expect("neovm eval should run");
     if log_timing {
-        println!("oracle-timing: neovm-done {:.3?}", neovm_t0.elapsed());
-        println!("oracle-timing: oracle-start");
+        tracing::info!("oracle-timing: neovm-done {:.3?}", neovm_t0.elapsed());
+        tracing::info!("oracle-timing: oracle-start");
     }
     let oracle_t0 = std::time::Instant::now();
     let oracle = run_oracle_eval_with_bootstrap(form).expect("oracle eval should run");
     if log_timing {
-        println!("oracle-timing: oracle-done {:.3?}", oracle_t0.elapsed());
+        tracing::info!("oracle-timing: oracle-done {:.3?}", oracle_t0.elapsed());
     }
     let t1 = std::time::Instant::now();
     tracing::info!("total: {:.3?}", t1 - t0);

@@ -152,6 +152,24 @@ fn trivial_regexp_matches_gnu_meta_rules() {
     assert!(!trivial_regexp_p("trailing\\"));
 }
 
+#[test]
+fn parse_segmented_template_patterns() {
+    let interpolation = parse_segmented_pattern(r"{{\([^}]+\)}}").expect("interpolation");
+    assert_eq!(interpolation.capture_count, 1);
+
+    let foreach = parse_segmented_pattern(
+        r"{%foreach \([^ ]+\) in \([^%]+\)%}\(\(?:.\|\n\)*?\){%endforeach%}",
+    )
+    .expect("foreach");
+    assert_eq!(foreach.capture_count, 3);
+
+    let conditional = parse_segmented_pattern(
+        r"{%if \([^%]+\)%}\(\(?:.\|\n\)*?\){%else%}\(\(?:.\|\n\)*?\){%endif%}",
+    )
+    .expect("conditional");
+    assert_eq!(conditional.capture_count, 3);
+}
+
 // -----------------------------------------------------------------------
 // string_match_full
 // -----------------------------------------------------------------------
@@ -259,6 +277,50 @@ fn string_match_backreference_with_char_class_group() {
     let md = md.unwrap();
     assert_eq!(md.groups[0], Some((0, 7)));
     assert_eq!(md.groups[1], Some((0, 3)));
+}
+
+#[test]
+fn string_match_template_interpolation_pattern() {
+    let mut md = None;
+    let result = string_match_full(r"{{\([^}]+\)}}", "x {{name}} y", 0, &mut md).unwrap();
+    assert_eq!(result, Some(2));
+    let md = md.unwrap();
+    assert_eq!(md.groups[0], Some((2, 10)));
+    assert_eq!(md.groups[1], Some((4, 8)));
+}
+
+#[test]
+fn string_match_template_foreach_pattern() {
+    let mut md = None;
+    let result = string_match_full(
+        r"{%foreach \([^ ]+\) in \([^%]+\)%}\(\(?:.\|\n\)*?\){%endforeach%}",
+        "Items: {%foreach x in items%}[{{x}}] {%endforeach%}",
+        0,
+        &mut md,
+    )
+    .unwrap();
+    assert_eq!(result, Some(7));
+    let md = md.unwrap();
+    assert_eq!(md.groups[1], Some((17, 18)));
+    assert_eq!(md.groups[2], Some((22, 27)));
+    assert_eq!(md.groups[3], Some((29, 37)));
+}
+
+#[test]
+fn string_match_template_conditional_pattern() {
+    let mut md = None;
+    let result = string_match_full(
+        r"{%if \([^%]+\)%}\(\(?:.\|\n\)*?\){%else%}\(\(?:.\|\n\)*?\){%endif%}",
+        "{%if admin%}[ADMIN]{%else%}[USER]{%endif%}",
+        0,
+        &mut md,
+    )
+    .unwrap();
+    assert_eq!(result, Some(0));
+    let md = md.unwrap();
+    assert_eq!(md.groups[1], Some((5, 10)));
+    assert_eq!(md.groups[2], Some((12, 19)));
+    assert_eq!(md.groups[3], Some((27, 33)));
 }
 
 #[test]
