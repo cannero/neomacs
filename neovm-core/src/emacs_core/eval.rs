@@ -2136,6 +2136,26 @@ impl Evaluator {
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
     }
 
+    /// Connect the input system for interactive mode.
+    ///
+    /// This mirrors GNU Emacs's `init_keyboard()` — it connects the evaluator
+    /// to the render thread's input channel so that `read_char()` can block
+    /// waiting for user input instead of returning immediately (batch mode).
+    ///
+    /// # Arguments
+    /// * `input_rx` — Receiver end of the crossbeam channel from the render thread
+    /// * `wakeup_fd` — Read end of the wakeup pipe (render thread writes to signal input)
+    #[cfg(unix)]
+    pub fn init_input_system(
+        &mut self,
+        input_rx: crossbeam_channel::Receiver<crate::keyboard::InputEvent>,
+        wakeup_fd: std::os::unix::io::RawFd,
+    ) {
+        self.input_rx = Some(input_rx);
+        self.wakeup_fd = Some(wakeup_fd);
+        self.command_loop.running = true;
+    }
+
     /// Perform a full mark-and-sweep garbage collection.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect(&mut self) {
