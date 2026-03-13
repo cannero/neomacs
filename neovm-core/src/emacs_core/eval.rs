@@ -2261,8 +2261,8 @@ impl Evaluator {
                     // Throws propagate (exit, top-level, etc.)
                     return Err(self.command_loop_1().unwrap_err());
                 }
-                Err(Flow::Signal(ref sig)) => {
-                    // Error in command loop — log and restart.
+                Err(Flow::Signal(sig)) => {
+                    // Error in command loop — display and restart.
                     // Mirrors cmd_error() in keyboard.c.
                     let sym_name = sig.symbol_name().to_string();
                     let data_str = sig
@@ -2271,8 +2271,33 @@ impl Evaluator {
                         .map(|v| format!("{}", v))
                         .collect::<Vec<_>>()
                         .join(" ");
-                    tracing::error!("Command loop error: ({} {})", sym_name, data_str);
-                    // Continue — restart the command loop.
+
+                    // Display the error in the echo area
+                    let error_msg = if data_str.is_empty() {
+                        sym_name.clone()
+                    } else {
+                        format!("{}: {}", sym_name, data_str)
+                    };
+                    let _ = super::builtins::dispatch_builtin(
+                        self,
+                        "message",
+                        vec![Value::string(&error_msg)],
+                    );
+                    tracing::error!("Command loop error: {}", error_msg);
+
+                    // Clear prefix arg on error (like GNU Emacs)
+                    self.assign("prefix-arg", Value::Nil);
+
+                    // Ring the bell for quit signals
+                    if sym_name == "quit" {
+                        let _ = super::builtins::dispatch_builtin(
+                            self,
+                            "ding",
+                            vec![],
+                        );
+                    }
+
+                    // Restart the command loop.
                     continue;
                 }
             }
