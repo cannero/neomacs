@@ -1636,6 +1636,19 @@ impl LayoutEngine {
                 (char_w, char_h, font_ascent)
             };
 
+        tracing::debug!(
+            "layout font metrics: family={:?} weight={} italic={} size={} char_w={:.2} char_h={:.2} ascent={:.2} (window char_w={:.2} char_h={:.2})",
+            default_resolved.font_family,
+            default_resolved.font_weight,
+            default_resolved.italic,
+            default_resolved.font_size,
+            default_face_char_w,
+            default_face_h,
+            default_face_ascent,
+            char_w,
+            char_h,
+        );
+
         // Per-face metrics — start with defaults, updated on face change
         let mut face_char_w = default_face_char_w;
         let mut face_h = default_face_h;
@@ -3806,11 +3819,22 @@ impl LayoutEngine {
                 let expr_str = "(format-mode-line mode-line-format)";
                 match neovm_core::emacs_core::parse_forms(expr_str) {
                     Ok(forms) if !forms.is_empty() => match evaluator.eval_expr(&forms[0]) {
-                        Ok(val) => val
-                            .as_str_owned()
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or_else(|| format!(" {} ", buffer_name)),
-                        Err(_) => format!(" {} ", buffer_name),
+                        Ok(val) => {
+                            let result = val
+                                .as_str_owned()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or_else(|| format!(" {} ", buffer_name));
+                            tracing::debug!(
+                                "mode-line eval result: {:?} (len={})",
+                                &result[..result.len().min(120)],
+                                result.len()
+                            );
+                            result
+                        }
+                        Err(e) => {
+                            tracing::debug!("mode-line eval error: {:?}", e);
+                            format!(" {} ", buffer_name)
+                        }
                     },
                     _ => format!(" {} ", buffer_name),
                 }
