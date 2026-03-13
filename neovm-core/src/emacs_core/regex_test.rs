@@ -102,6 +102,53 @@ fn translate_backslash_w() {
 }
 
 #[test]
+fn compile_search_pattern_uses_backref_engine_for_supported_captures() {
+    assert!(matches!(
+        compile_search_pattern("\\([a-z]+\\)-\\([0-9]+\\)", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+}
+
+#[test]
+fn compile_search_pattern_uses_backref_engine_for_noncapturing_groups() {
+    assert!(matches!(
+        compile_search_pattern("\\(?:foo\\|bar\\)+", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+}
+
+#[test]
+fn compile_search_pattern_keeps_syntax_classes_on_regex_fallback() {
+    assert!(matches!(
+        compile_search_pattern("\\(defun\\|defvar\\)\\s-+\\(\\w+\\)", false),
+        Ok(CompiledSearchPattern::Regex(_))
+    ));
+}
+
+#[test]
+fn string_match_supported_capture_pattern_uses_backref_engine_semantics() {
+    let mut md = None;
+    let result =
+        string_match_full_with_case_fold("\\([a-z]+\\)-\\([0-9]+\\)", "foo-123", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 7)));
+    assert_eq!(md.groups[1], Some((0, 3)));
+    assert_eq!(md.groups[2], Some((4, 7)));
+}
+
+#[test]
+fn string_match_noncapturing_group_pattern_uses_backref_engine_semantics() {
+    let mut md = None;
+    let result =
+        string_match_full_with_case_fold("\\(?:foo\\|bar\\)+", "foobar", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 6)));
+    assert_eq!(md.groups.len(), 1);
+}
+
+#[test]
 fn translate_complex_pattern() {
     // Emacs: \(defun\|defvar\)\s-+\(\w+\)
     // Rust:  (defun|defvar)\s+(\w+)

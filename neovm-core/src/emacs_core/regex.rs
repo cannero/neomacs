@@ -73,6 +73,7 @@ enum BackrefAtom {
     StartBuffer,
     EndBuffer,
     Group(usize, BackrefExpr),
+    NonCapturing(BackrefExpr),
     Backref(usize),
 }
 
@@ -715,6 +716,113 @@ fn pattern_contains_backrefs(pattern: &str) -> bool {
     false
 }
 
+fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut idx = 0usize;
+    let mut in_class = false;
+    let mut first_in_class = false;
+
+    while idx < chars.len() {
+        let ch = chars[idx];
+        if in_class {
+            if ch == ']' && !first_in_class {
+                in_class = false;
+                idx += 1;
+                continue;
+            }
+            first_in_class = false;
+
+            if ch == '[' && idx + 1 < chars.len() && chars[idx + 1] == ':' {
+                idx += 2;
+                let start = idx;
+                while idx + 1 < chars.len() && !(chars[idx] == ':' && chars[idx + 1] == ']') {
+                    idx += 1;
+                }
+                if idx + 1 >= chars.len() {
+                    return false;
+                }
+                let name: String = chars[start..idx].iter().collect();
+                if !matches!(
+                    name.as_str(),
+                    "alpha" | "alnum" | "digit" | "space" | "upper" | "lower" | "punct" | "blank"
+                ) {
+                    return false;
+                }
+                idx += 2;
+                continue;
+            }
+
+            if ch == '\\' {
+                let Some(next) = chars.get(idx + 1) else {
+                    return false;
+                };
+                if next.is_ascii_alphanumeric() {
+                    return false;
+                }
+                idx += 2;
+                continue;
+            }
+
+            idx += 1;
+            continue;
+        }
+
+        match ch {
+            '[' => {
+                in_class = true;
+                first_in_class = true;
+                idx += 1;
+            }
+            '\\' => {
+                let Some(next) = chars.get(idx + 1).copied() else {
+                    return false;
+                };
+                match next {
+                    '(' => {
+                        if chars.get(idx + 2) == Some(&'?') {
+                            if chars.get(idx + 3) != Some(&':') {
+                                return false;
+                            }
+                            idx += 4;
+                        } else {
+                            idx += 2;
+                        }
+                    }
+                    ')'
+                    | '|'
+                    | '{'
+                    | '}'
+                    | '1'..='9'
+                    | 'w'
+                    | 'W'
+                    | 'b'
+                    | 'B'
+                    | '`'
+                    | '\''
+                    | '<'
+                    | '>'
+                    | '\\'
+                    | '.'
+                    | '*'
+                    | '+'
+                    | '?'
+                    | '['
+                    | ']'
+                    | '^'
+                    | '$' => {
+                        idx += 2;
+                    }
+                    _ if !next.is_ascii() => idx += 2,
+                    _ => return false,
+                }
+            }
+            _ => idx += 1,
+        }
+    }
+
+    !in_class
+}
+
 struct BackrefParser<'a> {
     chars: Vec<char>,
     idx: usize,
@@ -798,13 +906,23 @@ impl<'a> BackrefParser<'a> {
                 let next = self.next()?;
                 match next {
                     '(' => {
-                        self.group_count += 1;
-                        let group_index = self.group_count;
+                        let noncapturing = self.peek() == Some('?') && self.peek_n(1) == Some(':');
+                        let mut group_index = None;
+                        if noncapturing {
+                            self.idx += 2;
+                        } else {
+                            self.group_count += 1;
+                            group_index = Some(self.group_count);
+                        }
                         let expr = self.parse_expr(true)?;
                         if self.next() != Some('\\') || self.next() != Some(')') {
                             return None;
                         }
-                        Some(BackrefAtom::Group(group_index, expr))
+                        if noncapturing {
+                            Some(BackrefAtom::NonCapturing(expr))
+                        } else {
+                            Some(BackrefAtom::Group(group_index?, expr))
+                        }
                     }
                     '1'..='9' => Some(BackrefAtom::Backref(next.to_digit(10)? as usize)),
                     'w' => Some(BackrefAtom::WordChar),
@@ -817,7 +935,7 @@ impl<'a> BackrefParser<'a> {
                     '\\' | '.' | '*' | '+' | '?' | '[' | ']' | '^' | '$' | '{' | '}' | '|'
                     | ')' => Some(BackrefAtom::Literal(next)),
                     _ if !next.is_ascii() => Some(BackrefAtom::Literal(next)),
-                    _ => Some(BackrefAtom::Literal(next)),
+                    _ => None,
                 }
             }
             _ => Some(BackrefAtom::Literal(ch)),
@@ -986,19 +1104,19 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
     let compiled = crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexCompileMiss,
         || {
-            if pattern_contains_backrefs(pattern) {
+            if let Some(segmented) = parse_segmented_pattern(pattern) {
+                Ok(CompiledSearchPattern::Segmented(segmented))
+            } else if let Some(literal) = literal_from_trivial_regexp(pattern)
+                && (!case_fold || literal.is_ascii())
+            {
+                Ok(CompiledSearchPattern::Literal(literal))
+            } else if pattern_supported_by_backref_engine(pattern) {
                 if let Some(backref) = BackrefParser::new(pattern).parse() {
                     Ok(CompiledSearchPattern::Backref(backref))
                 } else {
                     compile_emacs_regex_case_fold(pattern, case_fold)
                         .map(CompiledSearchPattern::Regex)
                 }
-            } else if let Some(segmented) = parse_segmented_pattern(pattern) {
-                Ok(CompiledSearchPattern::Segmented(segmented))
-            } else if let Some(literal) = literal_from_trivial_regexp(pattern)
-                && (!case_fold || literal.is_ascii())
-            {
-                Ok(CompiledSearchPattern::Literal(literal))
             } else {
                 compile_emacs_regex_case_fold(pattern, case_fold).map(CompiledSearchPattern::Regex)
             }
@@ -1699,6 +1817,7 @@ fn match_backref_atom_once(
             }
             out
         }
+        BackrefAtom::NonCapturing(expr) => match_backref_expr(expr, text, state.clone(), case_fold),
         BackrefAtom::Backref(index) => {
             let Some(Some((group_start, group_end))) = state.groups.get(*index) else {
                 return Vec::new();
