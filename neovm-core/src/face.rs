@@ -496,6 +496,7 @@ impl FaceTable {
         default.weight = Some(FontWeight::NORMAL);
         default.slant = Some(FontSlant::Normal);
         default.height = Some(FaceHeight::Absolute(120));
+        default.family = Some("Monospace".to_string());
         self.define(default);
 
         // bold
