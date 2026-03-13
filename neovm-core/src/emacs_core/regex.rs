@@ -746,12 +746,14 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
     let mut idx = 0usize;
     let mut in_class = false;
     let mut first_in_class = false;
+    let mut just_consumed_quantifier = false;
 
     while idx < chars.len() {
         let ch = chars[idx];
         if in_class {
             if ch == ']' && !first_in_class {
                 in_class = false;
+                just_consumed_quantifier = false;
                 idx += 1;
                 continue;
             }
@@ -773,6 +775,7 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                 ) {
                     return false;
                 }
+                just_consumed_quantifier = false;
                 idx += 2;
                 continue;
             }
@@ -784,6 +787,7 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                 match *next {
                     'd' | 'D' | 'w' | 'W' | 'n' | 't' | 'r' | '\\' | '[' | ']' | '-' | '^'
                     | '.' | '*' | '+' | '?' | '{' | '}' | '(' | ')' | '|' => {
+                        just_consumed_quantifier = false;
                         idx += 2;
                         continue;
                     }
@@ -791,10 +795,12 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                         if chars.get(idx + 2).is_none() {
                             return false;
                         }
+                        just_consumed_quantifier = false;
                         idx += 3;
                         continue;
                     }
                     _ if !next.is_ascii() => {
+                        just_consumed_quantifier = false;
                         idx += 2;
                         continue;
                     }
@@ -802,6 +808,7 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                 }
             }
 
+            just_consumed_quantifier = false;
             idx += 1;
             continue;
         }
@@ -810,6 +817,18 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
             '[' => {
                 in_class = true;
                 first_in_class = true;
+                just_consumed_quantifier = false;
+                idx += 1;
+            }
+            '*' | '+' => {
+                just_consumed_quantifier = true;
+                idx += 1;
+            }
+            '?' => {
+                if just_consumed_quantifier {
+                    return false;
+                }
+                just_consumed_quantifier = true;
                 idx += 1;
             }
             '\\' => {
@@ -858,17 +877,24 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | ']'
                     | '^'
                     | '$' => {
+                        just_consumed_quantifier = false;
                         idx += if matches!(next, 's' | 'S' | 'c') {
                             3
                         } else {
                             2
                         };
                     }
-                    _ if !next.is_ascii() => idx += 2,
+                    _ if !next.is_ascii() => {
+                        just_consumed_quantifier = false;
+                        idx += 2;
+                    }
                     _ => return false,
                 }
             }
-            _ => idx += 1,
+            _ => {
+                just_consumed_quantifier = false;
+                idx += 1;
+            }
         }
     }
 
