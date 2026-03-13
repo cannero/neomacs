@@ -380,6 +380,16 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
     };
 
     let key = match keysym {
+        // Control characters (Ctrl + letter): winit gives us the control
+        // character (0x01-0x1A) as the keysym when Ctrl is held.  Convert
+        // back to the corresponding letter and force the ctrl modifier.
+        0x01..=0x1A => {
+            let ch = (keysym + 0x60) as u8 as char; // 0x18 → 'x'
+            return Some(KeyEvent {
+                key: Key::Char(ch),
+                modifiers: Modifiers { ctrl: true, ..mods },
+            });
+        }
         // Printable ASCII
         0x20..=0x7E => Key::Char(keysym as u8 as char),
         // Named keys
