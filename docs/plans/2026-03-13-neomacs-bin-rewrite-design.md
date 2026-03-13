@@ -86,26 +86,27 @@ neomacs-bin main() (~100 lines)
 
 ## Evaluator Changes
 
-New fields on `Evaluator`:
+neovm-core already has `CommandLoop`, `InputEvent`, `KeyEvent`, `KeySequence`,
+`Modifiers`, and `PrefixArg` types in `keyboard.rs`. The `CommandLoop` struct
+manages the event queue, prefix args, kbd macros, and quit flag.
+
+New fields added to `Evaluator`:
 
 ```rust
-// Input system (replaces keyboard.c globals)
-pub input_rx: Option<Receiver<InputEvent>>,     // from render thread
-pub wakeup_fd: Option<RawFd>,                   // for pselect()
-pub frame_tx: Option<Sender<FrameGlyphBuffer>>, // to render thread
-pub cmd_tx: Option<Sender<RenderCommand>>,      // to render thread
+// CommandLoop from keyboard.rs (event queue, prefix args, etc.)
+pub(crate) command_loop: CommandLoop,
 
-pub command_loop_level: i32,                     // recursive edit depth
+// Input from render thread — None in batch mode
+pub input_rx: Option<crossbeam_channel::Receiver<InputEvent>>,
 
-// Key sequence state
-pub raw_keybuf: Vec<Value>,                      // current raw key sequence
-pub this_command: Value,                         // current command being executed
-pub last_command: Value,                         // previous command
-
-// Layout engine
-pub layout_engine: LayoutEngine,
-pub frame_glyphs: FrameGlyphBuffer,
+// Wakeup fd for pselect() multiplexing — None in batch mode
+#[cfg(unix)]
+pub wakeup_fd: Option<RawFd>,
 ```
+
+Note: `neomacs-layout-engine` depends on `neovm-core`, so neovm-core cannot
+depend on the layout engine (circular dependency). Redisplay is handled via
+a callback or trait that neomacs-bin wires up.
 
 ## Key Functions
 
