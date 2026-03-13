@@ -404,6 +404,15 @@ fn search_forward_case_fold_true() {
 }
 
 #[test]
+fn search_forward_case_fold_true_unicode_literal() {
+    let mut buf = make_test_buffer("Äx");
+    let mut md = None;
+    let result = search_forward(&mut buf, "ä", None, false, true, &mut md);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some('Ä'.len_utf8()));
+}
+
+#[test]
 fn re_search_forward_trivial_regexp_follows_literal_case_fold_path() {
     let mut buf = make_test_buffer("A.b");
     let mut md = None;
@@ -469,6 +478,17 @@ fn search_backward_finds_last_occurrence() {
     // Should find the LAST "aaa" (at position 8)
     assert_eq!(result.unwrap(), Some(8));
     assert_eq!(buf.pt, 8);
+}
+
+#[test]
+fn search_backward_case_fold_true_unicode_literal() {
+    let mut buf = make_test_buffer("Ää");
+    buf.pt = "Ää".len();
+    let mut md = None;
+    let result = search_backward(&mut buf, "ä", None, false, true, &mut md);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some('Ä'.len_utf8()));
+    assert_eq!(buf.pt, 'Ä'.len_utf8());
 }
 
 // -----------------------------------------------------------------------

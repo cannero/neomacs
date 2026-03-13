@@ -1347,10 +1347,52 @@ fn ascii_case_fold_rfind(haystack: &str, needle: &str) -> Option<usize> {
     })
 }
 
+fn build_unicode_folded_literal_index(text: &str) -> (Vec<char>, Vec<(usize, usize)>) {
+    let mut folded = Vec::new();
+    let mut mapping = Vec::new();
+    for (byte_start, ch) in text.char_indices() {
+        let byte_end = byte_start + ch.len_utf8();
+        for folded_ch in ch.to_lowercase() {
+            folded.push(folded_ch);
+            mapping.push((byte_start, byte_end));
+        }
+    }
+    (folded, mapping)
+}
+
+fn unicode_case_fold_literal_find(text: &str, literal: &str) -> Option<(usize, usize)> {
+    let needle: Vec<char> = literal.chars().flat_map(|ch| ch.to_lowercase()).collect();
+    if needle.is_empty() {
+        return Some((0, 0));
+    }
+    let (haystack, mapping) = build_unicode_folded_literal_index(text);
+    let start_char = haystack
+        .windows(needle.len())
+        .position(|window| window == needle.as_slice())?;
+    let end_char = start_char + needle.len() - 1;
+    Some((mapping[start_char].0, mapping[end_char].1))
+}
+
+fn unicode_case_fold_literal_rfind(text: &str, literal: &str) -> Option<(usize, usize)> {
+    let needle: Vec<char> = literal.chars().flat_map(|ch| ch.to_lowercase()).collect();
+    if needle.is_empty() {
+        return Some((text.len(), text.len()));
+    }
+    let (haystack, mapping) = build_unicode_folded_literal_index(text);
+    let start_char = haystack
+        .windows(needle.len())
+        .rposition(|window| window == needle.as_slice())?;
+    let end_char = start_char + needle.len() - 1;
+    Some((mapping[start_char].0, mapping[end_char].1))
+}
+
 fn literal_find(text: &str, literal: &str, case_fold: bool) -> Option<(usize, usize)> {
     crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
         || {
+            if case_fold && (!literal.is_ascii() || !text.is_ascii()) {
+                return unicode_case_fold_literal_find(text, literal);
+            }
             let start = if case_fold {
                 ascii_case_fold_find(text, literal)?
             } else {
@@ -1454,6 +1496,9 @@ fn literal_rfind(text: &str, literal: &str, case_fold: bool) -> Option<(usize, u
     crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
         || {
+            if case_fold && (!literal.is_ascii() || !text.is_ascii()) {
+                return unicode_case_fold_literal_rfind(text, literal);
+            }
             let start = if case_fold {
                 ascii_case_fold_rfind(text, literal)?
             } else {
@@ -1930,14 +1975,7 @@ pub fn search_forward(
 
     let text = buf.text.text_range(start, limit);
 
-    let found = if case_fold && !pattern.is_ascii() {
-        let escaped = regex::escape(pattern);
-        let re =
-            Regex::new(&format!("(?i:{escaped})")).map_err(|e| format!("Invalid regexp: {}", e))?;
-        re.find(&text).map(|m| (m.start(), m.end()))
-    } else {
-        literal_find(&text, pattern, case_fold)
-    };
+    let found = literal_find(&text, pattern, case_fold);
 
     if let Some((rel_start, rel_end)) = found {
         let match_start = start + rel_start;
@@ -1982,14 +2020,7 @@ pub fn search_backward(
 
     let text = buf.text.text_range(limit, end);
 
-    let found = if case_fold && !pattern.is_ascii() {
-        let escaped = regex::escape(pattern);
-        let re =
-            Regex::new(&format!("(?i:{escaped})")).map_err(|e| format!("Invalid regexp: {}", e))?;
-        re.find_iter(&text).last().map(|m| (m.start(), m.end()))
-    } else {
-        literal_rfind(&text, pattern, case_fold)
-    };
+    let found = literal_rfind(&text, pattern, case_fold);
 
     if let Some((rel_start, rel_end)) = found {
         let match_start = limit + rel_start;
