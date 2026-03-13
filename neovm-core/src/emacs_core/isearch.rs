@@ -15,8 +15,6 @@ use super::intern::intern;
 use super::value::{Value, with_heap};
 use crate::buffer::Buffer;
 
-use regex::Regex;
-
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies, matching builtins.rs convention)
 // ---------------------------------------------------------------------------
@@ -201,10 +199,24 @@ fn resolve_search_whitespace_regexp(eval: &super::eval::Evaluator) -> Option<Str
         Some(Value::Nil) | None => "[ \t\n\r]+".to_string(),
         Some(_) => return None,
     };
-    Some(super::regex::translate_emacs_regex(&raw))
+    Some(raw)
 }
 
-fn build_lax_whitespace_pattern(pattern: &str, whitespace_regex: &str, case_fold: bool) -> String {
+fn quote_emacs_regexp_literal(literal: &str) -> String {
+    let mut result = String::with_capacity(literal.len() + 8);
+    for ch in literal.chars() {
+        match ch {
+            '.' | '*' | '+' | '?' | '[' | '^' | '$' | '\\' => {
+                result.push('\\');
+                result.push(ch);
+            }
+            _ => result.push(ch),
+        }
+    }
+    result
+}
+
+fn build_lax_whitespace_pattern(pattern: &str, whitespace_regex: &str) -> String {
     let mut raw = String::new();
     let mut literal = String::new();
     let mut in_space_run = false;
@@ -212,13 +224,13 @@ fn build_lax_whitespace_pattern(pattern: &str, whitespace_regex: &str, case_fold
     for ch in pattern.chars() {
         if ch == ' ' {
             if !literal.is_empty() {
-                raw.push_str(&regex::escape(&literal));
+                raw.push_str(&quote_emacs_regexp_literal(&literal));
                 literal.clear();
             }
             if !in_space_run {
-                raw.push_str("(?:");
+                raw.push_str("\\(");
                 raw.push_str(whitespace_regex);
-                raw.push(')');
+                raw.push_str("\\)");
                 in_space_run = true;
             }
         } else {
@@ -228,14 +240,10 @@ fn build_lax_whitespace_pattern(pattern: &str, whitespace_regex: &str, case_fold
     }
 
     if !literal.is_empty() {
-        raw.push_str(&regex::escape(&literal));
+        raw.push_str(&quote_emacs_regexp_literal(&literal));
     }
 
-    if case_fold {
-        format!("(?i:{raw})")
-    } else {
-        raw
-    }
+    raw
 }
 
 fn string_matches_regexp(text: &str, pattern: &str, case_fold: bool) -> Result<bool, Flow> {
@@ -1502,17 +1510,20 @@ fn replace_string_eval_impl(
     let mut query_forward_point = None;
 
     if let Some(whitespace_regex) = lax_whitespace_regex {
-        let pattern = build_lax_whitespace_pattern(&from, &whitespace_regex, case_fold);
-        let re = Regex::new(&pattern).map_err(|e| {
-            signal(
-                "invalid-regexp",
-                vec![Value::string(format!("Invalid regexp: {e}"))],
-            )
-        })?;
+        let pattern = build_lax_whitespace_pattern(&from, &whitespace_regex);
+        let iterated =
+            super::regex::iterate_string_matches_with_case_fold(&pattern, &source, 0, case_fold)
+                .map_err(|e| {
+                    signal(
+                        "invalid-regexp",
+                        vec![Value::string(format!("Invalid regexp: {e}"))],
+                    )
+                })?;
         let mut last = 0usize;
-        for m in re.find_iter(&source) {
-            let m_start = m.start();
-            let m_end = m.end();
+        for groups in iterated.matches {
+            let Some((m_start, m_end)) = groups.first().and_then(|group| *group) else {
+                continue;
+            };
             if delimited && !is_delimited_match(&source, m_start, m_end) {
                 continue;
             }
