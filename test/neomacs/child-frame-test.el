@@ -13,11 +13,12 @@
   "Current test step for the automated sequence.")
 
 (defun child-frame-test--cleanup ()
-  "Delete all test child frames."
+  "Delete all test child frames and force a redisplay."
   (dolist (f child-frame-test--frames)
     (when (frame-live-p f)
       (delete-frame f)))
-  (setq child-frame-test--frames nil))
+  (setq child-frame-test--frames nil)
+  (redisplay t))
 
 (defun child-frame-test--make-child (name x y w h &optional params)
   "Create a child frame at (X, Y) with size (W, H) and extra PARAMS.
