@@ -2487,95 +2487,115 @@ impl Evaluator {
         // 3. Redisplay before blocking (same as GNU Emacs)
         self.redisplay();
 
-        // 4. Block on input
+        // 4. Fire any already-expired timers before blocking
+        self.fire_pending_timers();
+
+        // 5. Block on input (with timer-aware timeout)
         loop {
             let rx = match self.input_rx {
                 Some(ref rx) => rx.clone(),
                 None => return Ok(Value::Nil), // Batch mode
             };
 
-            match rx.recv() {
-                Ok(event) => {
-                    // Handle the event directly
-                    match event {
-                        InputEvent::CloseRequested => {
-                            self.command_loop.running = false;
-                            // Signal quit to break out of the command loop
-                            return Err(super::error::signal("quit", vec![]));
-                        }
-                        InputEvent::Resize { width: _, height: _ } => {
-                            // TODO: update frame dimensions
-                            continue;
-                        }
-                        InputEvent::Focus(_focused) => {
-                            // TODO: run focus hooks
-                            continue;
-                        }
-                        InputEvent::KeyPress(key) => {
-                            // Record for keyboard macro
-                            if self.command_loop.defining_kbd_macro {
-                                self.command_loop.kbd_macro_events.push(key.clone());
-                            }
-                            let keymap_key: super::keymap::KeyEvent = key.into();
-                            return Ok(key_event_to_emacs_event(&keymap_key));
-                        }
-                        InputEvent::MousePress {
-                            button,
-                            x,
-                            y,
-                            modifiers,
-                        } => {
-                            let event = Self::make_mouse_event(
-                                &button, x, y, &modifiers, "down-mouse", self,
-                            );
-                            return Ok(event);
-                        }
-                        InputEvent::MouseRelease { button, x, y } => {
-                            let event = Self::make_mouse_event(
-                                &button,
-                                x,
-                                y,
-                                &crate::keyboard::Modifiers::none(),
-                                "mouse",
-                                self,
-                            );
-                            return Ok(event);
-                        }
-                        InputEvent::MouseScroll {
-                            delta_x: _,
-                            delta_y,
-                            x,
-                            y,
-                            modifiers,
-                        } => {
-                            // Scroll events: wheel-up / wheel-down
-                            let dir = if delta_y > 0.0 {
-                                "wheel-up"
-                            } else {
-                                "wheel-down"
-                            };
-                            let mut sym = String::new();
-                            Self::append_modifier_prefix(
-                                &modifiers, &mut sym,
-                            );
-                            sym.push_str(dir);
-                            let position = Self::make_mouse_position(x, y, self);
-                            return Ok(Value::list(vec![
-                                Value::symbol(&sym),
-                                position,
-                            ]));
-                        }
-                        InputEvent::MouseMove { .. } => {
-                            // Movement events are not typically returned by
-                            // read_char — they are handled by tracking state.
-                            continue;
-                        }
+            // Use recv_timeout if timers are pending, otherwise block indefinitely
+            let event = if let Some(timeout) = self.timers.next_fire_time() {
+                match rx.recv_timeout(timeout) {
+                    Ok(event) => event,
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        // Timer fired — run pending timers and loop back
+                        self.fire_pending_timers();
+                        continue;
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        self.command_loop.running = false;
+                        return Err(super::error::signal("quit", vec![]));
                     }
                 }
-                Err(_) => {
-                    // Channel disconnected — render thread exited
+            } else {
+                match rx.recv() {
+                    Ok(event) => event,
+                    Err(_) => {
+                        self.command_loop.running = false;
+                        return Err(super::error::signal("quit", vec![]));
+                    }
+                }
+            };
+
+            // Fire any timers that expired during the wait
+            self.fire_pending_timers();
+
+            // Handle the event directly
+            match event {
+                InputEvent::CloseRequested => {
                     self.command_loop.running = false;
                     return Err(super::error::signal("quit", vec![]));
+                }
+                InputEvent::Resize { width: _, height: _ } => {
+                    // TODO: update frame dimensions
+                    continue;
+                }
+                InputEvent::Focus(_focused) => {
+                    // TODO: run focus hooks
+                    continue;
+                }
+                InputEvent::KeyPress(key) => {
+                    // Record for keyboard macro
+                    if self.command_loop.defining_kbd_macro {
+                        self.command_loop.kbd_macro_events.push(key.clone());
+                    }
+                    let keymap_key: super::keymap::KeyEvent = key.into();
+                    return Ok(key_event_to_emacs_event(&keymap_key));
+                }
+                InputEvent::MousePress {
+                    button,
+                    x,
+                    y,
+                    modifiers,
+                } => {
+                    let event = Self::make_mouse_event(
+                        &button, x, y, &modifiers, "down-mouse", self,
+                    );
+                    return Ok(event);
+                }
+                InputEvent::MouseRelease { button, x, y } => {
+                    let event = Self::make_mouse_event(
+                        &button,
+                        x,
+                        y,
+                        &crate::keyboard::Modifiers::none(),
+                        "mouse",
+                        self,
+                    );
+                    return Ok(event);
+                }
+                InputEvent::MouseScroll {
+                    delta_x: _,
+                    delta_y,
+                    x,
+                    y,
+                    modifiers,
+                } => {
+                    // Scroll events: wheel-up / wheel-down
+                    let dir = if delta_y > 0.0 {
+                        "wheel-up"
+                    } else {
+                        "wheel-down"
+                    };
+                    let mut sym = String::new();
+                    Self::append_modifier_prefix(
+                        &modifiers, &mut sym,
+                    );
+                    sym.push_str(dir);
+                    let position = Self::make_mouse_position(x, y, self);
+                    return Ok(Value::list(vec![
+                        Value::symbol(&sym),
+                        position,
+                    ]));
+                }
+                InputEvent::MouseMove { .. } => {
+                    // Movement events are not typically returned by
+                    // read_char — they are handled by tracking state.
+                    continue;
                 }
             }
         }
@@ -2653,6 +2673,29 @@ impl Evaluator {
         }
         if modifiers.hyper {
             out.push_str("H-");
+        }
+    }
+
+    /// Run a named hook if it is bound and non-nil.
+    /// Fire all pending timers and execute their callbacks.
+    ///
+    /// Mirrors GNU Emacs `timer_check()` (keyboard.c:4644).
+    /// Collects expired timers and invokes each callback via the evaluator.
+    fn fire_pending_timers(&mut self) {
+        let now = std::time::Instant::now();
+        let fired = self.timers.fire_pending_timers(now);
+        for (callback, args) in fired {
+            let mut call_args = vec![callback];
+            call_args.extend(args);
+            if let Err(e) = super::builtins::dispatch_builtin(
+                self,
+                "funcall",
+                call_args,
+            )
+            .unwrap_or(Ok(Value::Nil))
+            {
+                tracing::warn!("Timer callback error: {:?}", e);
+            }
         }
     }
 
