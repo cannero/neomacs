@@ -3044,19 +3044,22 @@ pub(crate) fn builtin_scroll_down(
     Err(scroll_down_batch_error())
 }
 
-/// `(recenter-top-bottom &optional ARG)` -> signal no-window error in batch mode.
+/// `(recenter-top-bottom &optional ARG)` — no-op for now.
 pub(crate) fn builtin_recenter_top_bottom(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("recenter-top-bottom", &args, 1)?;
-    Err(recenter_missing_display_error())
+    Ok(Value::Nil)
 }
 
-/// `(recenter &optional ARG REDISPLAY)` -> signal no-window error in batch mode.
+/// `(recenter &optional ARG REDISPLAY)` — no-op for now.
+///
+/// GNU Emacs recenters point in the selected window.  We don't have
+/// per-window scroll state yet, so just return nil.
 pub(crate) fn builtin_recenter(_eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_max_args("recenter", &args, 2)?;
-    Err(recenter_missing_display_error())
+    Ok(Value::Nil)
 }
 
 /// `(iconify-frame &optional FRAME)` -> nil.
