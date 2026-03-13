@@ -68,6 +68,8 @@ enum BackrefAtom {
     CharClass(BackrefCharClass),
     WordChar,
     NotWordChar,
+    Whitespace,
+    NotWhitespace,
     WordBoundary,
     NotWordBoundary,
     StartBuffer,
@@ -797,6 +799,8 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | 'W'
                     | 'b'
                     | 'B'
+                    | 's'
+                    | 'S'
                     | '`'
                     | '\''
                     | '<'
@@ -810,7 +814,7 @@ fn pattern_supported_by_backref_engine(pattern: &str) -> bool {
                     | ']'
                     | '^'
                     | '$' => {
-                        idx += 2;
+                        idx += if matches!(next, 's' | 'S') { 3 } else { 2 };
                     }
                     _ if !next.is_ascii() => idx += 2,
                     _ => return false,
@@ -927,6 +931,14 @@ impl<'a> BackrefParser<'a> {
                     '1'..='9' => Some(BackrefAtom::Backref(next.to_digit(10)? as usize)),
                     'w' => Some(BackrefAtom::WordChar),
                     'W' => Some(BackrefAtom::NotWordChar),
+                    's' => {
+                        self.next()?;
+                        Some(BackrefAtom::Whitespace)
+                    }
+                    'S' => {
+                        self.next()?;
+                        Some(BackrefAtom::NotWhitespace)
+                    }
                     'b' => Some(BackrefAtom::WordBoundary),
                     'B' => Some(BackrefAtom::NotWordBoundary),
                     '`' => Some(BackrefAtom::StartBuffer),
@@ -1784,6 +1796,32 @@ fn match_backref_atom_once(
                 return Vec::new();
             };
             if !is_word_char(ch) {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::Whitespace => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if ch.is_whitespace() {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::NotWhitespace => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if !ch.is_whitespace() {
                 vec![BackrefState {
                     pos: state.pos + len,
                     groups: state.groups.clone(),

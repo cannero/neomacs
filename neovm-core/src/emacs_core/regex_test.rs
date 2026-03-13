@@ -118,9 +118,17 @@ fn compile_search_pattern_uses_backref_engine_for_noncapturing_groups() {
 }
 
 #[test]
-fn compile_search_pattern_keeps_syntax_classes_on_regex_fallback() {
+fn compile_search_pattern_routes_syntax_classes_through_backref_engine() {
     assert!(matches!(
         compile_search_pattern("\\(defun\\|defvar\\)\\s-+\\(\\w+\\)", false),
+        Ok(CompiledSearchPattern::Backref(_))
+    ));
+}
+
+#[test]
+fn compile_search_pattern_keeps_category_classes_on_regex_fallback() {
+    assert!(matches!(
+        compile_search_pattern("[ \t]\\|\\c|.\\|.\\c|", false),
         Ok(CompiledSearchPattern::Regex(_))
     ));
 }
@@ -146,6 +154,23 @@ fn string_match_noncapturing_group_pattern_uses_backref_engine_semantics() {
     let md = md.expect("match data");
     assert_eq!(md.groups[0], Some((0, 6)));
     assert_eq!(md.groups.len(), 1);
+}
+
+#[test]
+fn string_match_syntax_class_pattern_uses_backref_engine_semantics() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold(
+        "\\(defun\\|defvar\\)\\s-+\\(\\w+\\)",
+        "defvar foo",
+        0,
+        false,
+        &mut md,
+    );
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 10)));
+    assert_eq!(md.groups[1], Some((0, 6)));
+    assert_eq!(md.groups[2], Some((7, 10)));
 }
 
 #[test]
