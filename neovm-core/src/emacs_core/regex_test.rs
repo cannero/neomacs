@@ -227,6 +227,24 @@ fn string_match_control_escape_uses_backref_engine_semantics() {
 }
 
 #[test]
+fn string_match_line_anchor_pattern_uses_backref_engine_semantics() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("^foo$", "foo", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(0)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((0, 3)));
+}
+
+#[test]
+fn string_match_line_anchor_pattern_respects_multiline_semantics() {
+    let mut md = None;
+    let result = string_match_full_with_case_fold("^foo$", "a\nfoo\nb", 0, false, &mut md);
+    assert_eq!(result, Ok(Some(2)));
+    let md = md.expect("match data");
+    assert_eq!(md.groups[0], Some((2, 5)));
+}
+
+#[test]
 fn translate_complex_pattern() {
     // Emacs: \(defun\|defvar\)\s-+\(\w+\)
     // Rust:  (defun|defvar)\s+(\w+)

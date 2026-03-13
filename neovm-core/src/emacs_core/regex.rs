@@ -72,6 +72,8 @@ enum BackrefAtom {
     WordChar,
     NotWordChar,
     SyntaxClass(BackrefSyntaxClass, bool),
+    LineStart,
+    LineEnd,
     WordBoundary,
     NotWordBoundary,
     StartBuffer,
@@ -928,6 +930,8 @@ impl<'a> BackrefParser<'a> {
     fn parse_atom(&mut self) -> Option<BackrefAtom> {
         let ch = self.next()?;
         match ch {
+            '^' => Some(BackrefAtom::LineStart),
+            '$' => Some(BackrefAtom::LineEnd),
             '.' => Some(BackrefAtom::AnyChar),
             '[' => self.parse_char_class(),
             '\\' => {
@@ -1791,6 +1795,14 @@ fn word_boundary_at(text: &str, pos: usize) -> bool {
     left != right
 }
 
+fn line_start_at(text: &str, pos: usize) -> bool {
+    pos == 0 || text[..pos].chars().next_back() == Some('\n')
+}
+
+fn line_end_at(text: &str, pos: usize) -> bool {
+    pos == text.len() || char_at(text, pos).is_some_and(|(ch, _)| ch == '\n')
+}
+
 fn match_backref_atom_once(
     atom: &BackrefAtom,
     text: &str,
@@ -1916,6 +1928,14 @@ fn match_backref_atom_once(
                 Vec::new()
             }
         }
+        BackrefAtom::LineStart => line_start_at(text, state.pos)
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::LineEnd => line_end_at(text, state.pos)
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
         BackrefAtom::WordBoundary => word_boundary_at(text, state.pos)
             .then(|| state.clone())
             .into_iter()
