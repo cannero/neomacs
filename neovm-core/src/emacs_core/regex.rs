@@ -15,7 +15,84 @@ const SEARCH_PATTERN_CACHE_SIZE: usize = 20;
 #[derive(Clone)]
 enum CompiledSearchPattern {
     Literal(String),
+    Backref(BackrefPattern),
     Regex(Regex),
+}
+
+#[derive(Clone)]
+struct BackrefPattern {
+    expr: BackrefExpr,
+    group_count: usize,
+}
+
+#[derive(Clone)]
+struct BackrefExpr {
+    branches: Vec<Vec<BackrefNode>>,
+}
+
+#[derive(Clone)]
+struct BackrefNode {
+    atom: BackrefAtom,
+    repeat: Quantifier,
+}
+
+#[derive(Clone)]
+enum BackrefAtom {
+    Literal(char),
+    AnyChar,
+    CharClass(BackrefCharClass),
+    WordChar,
+    NotWordChar,
+    WordBoundary,
+    NotWordBoundary,
+    StartBuffer,
+    EndBuffer,
+    Group(usize, BackrefExpr),
+    Backref(usize),
+}
+
+#[derive(Clone)]
+struct BackrefCharClass {
+    negated: bool,
+    items: Vec<BackrefCharClassItem>,
+}
+
+#[derive(Clone)]
+enum BackrefCharClassItem {
+    Literal(char),
+    Range(char, char),
+    Posix(BackrefPosixClass),
+}
+
+#[derive(Clone, Copy)]
+enum BackrefPosixClass {
+    Alpha,
+    Alnum,
+    Digit,
+    Space,
+    Upper,
+    Lower,
+    Punct,
+    Blank,
+}
+
+#[derive(Clone, Copy)]
+struct Quantifier {
+    min: usize,
+    max: Option<usize>,
+}
+
+impl Quantifier {
+    const ONE: Self = Self {
+        min: 1,
+        max: Some(1),
+    };
+}
+
+#[derive(Clone)]
+struct BackrefState {
+    pos: usize,
+    groups: Vec<Option<(usize, usize)>>,
 }
 
 thread_local! {
@@ -478,6 +555,256 @@ fn literal_from_trivial_regexp(pattern: &str) -> Option<String> {
     Some(out)
 }
 
+fn pattern_contains_backrefs(pattern: &str) -> bool {
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('1'..='9') => return true,
+                Some(_) => {}
+                None => break,
+            }
+        }
+    }
+    false
+}
+
+struct BackrefParser<'a> {
+    chars: Vec<char>,
+    idx: usize,
+    group_count: usize,
+    _source: &'a str,
+}
+
+impl<'a> BackrefParser<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            chars: source.chars().collect(),
+            idx: 0,
+            group_count: 0,
+            _source: source,
+        }
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.chars.get(self.idx).copied()
+    }
+
+    fn peek_n(&self, n: usize) -> Option<char> {
+        self.chars.get(self.idx + n).copied()
+    }
+
+    fn next(&mut self) -> Option<char> {
+        let ch = self.peek()?;
+        self.idx += 1;
+        Some(ch)
+    }
+
+    fn parse(mut self) -> Option<BackrefPattern> {
+        let expr = self.parse_expr(false)?;
+        if self.idx != self.chars.len() {
+            return None;
+        }
+        Some(BackrefPattern {
+            expr,
+            group_count: self.group_count,
+        })
+    }
+
+    fn parse_expr(&mut self, in_group: bool) -> Option<BackrefExpr> {
+        let mut branches = Vec::new();
+        loop {
+            branches.push(self.parse_branch(in_group)?);
+            if self.peek() == Some('\\') && self.peek_n(1) == Some('|') {
+                self.idx += 2;
+                continue;
+            }
+            break;
+        }
+        Some(BackrefExpr { branches })
+    }
+
+    fn parse_branch(&mut self, in_group: bool) -> Option<Vec<BackrefNode>> {
+        let mut nodes = Vec::new();
+        loop {
+            if self.idx >= self.chars.len() {
+                break;
+            }
+            if in_group && self.peek() == Some('\\') && self.peek_n(1) == Some(')') {
+                break;
+            }
+            if self.peek() == Some('\\') && self.peek_n(1) == Some('|') {
+                break;
+            }
+            let atom = self.parse_atom()?;
+            let repeat = self.parse_quantifier()?;
+            nodes.push(BackrefNode { atom, repeat });
+        }
+        Some(nodes)
+    }
+
+    fn parse_atom(&mut self) -> Option<BackrefAtom> {
+        let ch = self.next()?;
+        match ch {
+            '.' => Some(BackrefAtom::AnyChar),
+            '[' => self.parse_char_class(),
+            '\\' => {
+                let next = self.next()?;
+                match next {
+                    '(' => {
+                        self.group_count += 1;
+                        let group_index = self.group_count;
+                        let expr = self.parse_expr(true)?;
+                        if self.next() != Some('\\') || self.next() != Some(')') {
+                            return None;
+                        }
+                        Some(BackrefAtom::Group(group_index, expr))
+                    }
+                    '1'..='9' => Some(BackrefAtom::Backref(next.to_digit(10)? as usize)),
+                    'w' => Some(BackrefAtom::WordChar),
+                    'W' => Some(BackrefAtom::NotWordChar),
+                    'b' => Some(BackrefAtom::WordBoundary),
+                    'B' => Some(BackrefAtom::NotWordBoundary),
+                    '`' => Some(BackrefAtom::StartBuffer),
+                    '\'' => Some(BackrefAtom::EndBuffer),
+                    '<' | '>' => Some(BackrefAtom::WordBoundary),
+                    '\\' | '.' | '*' | '+' | '?' | '[' | ']' | '^' | '$' | '{' | '}' | '|'
+                    | ')' => Some(BackrefAtom::Literal(next)),
+                    _ if !next.is_ascii() => Some(BackrefAtom::Literal(next)),
+                    _ => Some(BackrefAtom::Literal(next)),
+                }
+            }
+            _ => Some(BackrefAtom::Literal(ch)),
+        }
+    }
+
+    fn parse_char_class(&mut self) -> Option<BackrefAtom> {
+        let mut negated = false;
+        if self.peek() == Some('^') {
+            self.idx += 1;
+            negated = true;
+        }
+
+        let mut items = Vec::new();
+        let mut first = true;
+        while let Some(ch) = self.peek() {
+            if ch == ']' && !first {
+                self.idx += 1;
+                return Some(BackrefAtom::CharClass(BackrefCharClass { negated, items }));
+            }
+            first = false;
+
+            if ch == '[' && self.peek_n(1) == Some(':') {
+                self.idx += 2;
+                let start = self.idx;
+                while self.peek() != Some(':') {
+                    self.idx += 1;
+                    if self.idx >= self.chars.len() {
+                        return None;
+                    }
+                }
+                let name: String = self.chars[start..self.idx].iter().collect();
+                if self.peek() != Some(':') || self.peek_n(1) != Some(']') {
+                    return None;
+                }
+                self.idx += 2;
+                let posix = match name.as_str() {
+                    "alpha" => BackrefPosixClass::Alpha,
+                    "alnum" => BackrefPosixClass::Alnum,
+                    "digit" => BackrefPosixClass::Digit,
+                    "space" => BackrefPosixClass::Space,
+                    "upper" => BackrefPosixClass::Upper,
+                    "lower" => BackrefPosixClass::Lower,
+                    "punct" => BackrefPosixClass::Punct,
+                    "blank" => BackrefPosixClass::Blank,
+                    _ => return None,
+                };
+                items.push(BackrefCharClassItem::Posix(posix));
+                continue;
+            }
+
+            let start_ch = if ch == '\\' {
+                self.idx += 1;
+                self.next()?
+            } else {
+                self.next()?
+            };
+
+            if self.peek() == Some('-') && self.peek_n(1) != Some(']') {
+                self.idx += 1;
+                let end_ch = if self.peek() == Some('\\') {
+                    self.idx += 1;
+                    self.next()?
+                } else {
+                    self.next()?
+                };
+                items.push(BackrefCharClassItem::Range(start_ch, end_ch));
+            } else {
+                items.push(BackrefCharClassItem::Literal(start_ch));
+            }
+        }
+
+        None
+    }
+
+    fn parse_quantifier(&mut self) -> Option<Quantifier> {
+        match self.peek() {
+            Some('*') => {
+                self.idx += 1;
+                Some(Quantifier { min: 0, max: None })
+            }
+            Some('+') => {
+                self.idx += 1;
+                Some(Quantifier { min: 1, max: None })
+            }
+            Some('?') => {
+                self.idx += 1;
+                Some(Quantifier {
+                    min: 0,
+                    max: Some(1),
+                })
+            }
+            Some('\\') if self.peek_n(1) == Some('{') => {
+                let saved = self.idx;
+                self.idx += 2;
+                let min = self.parse_usize()?;
+                let max = if self.peek() == Some(',') {
+                    self.idx += 1;
+                    if self.peek() == Some('\\') && self.peek_n(1) == Some('}') {
+                        None
+                    } else {
+                        Some(self.parse_usize()?)
+                    }
+                } else {
+                    Some(min)
+                };
+                if self.peek() != Some('\\') || self.peek_n(1) != Some('}') {
+                    self.idx = saved;
+                    return Some(Quantifier::ONE);
+                }
+                self.idx += 2;
+                Some(Quantifier { min, max })
+            }
+            _ => Some(Quantifier::ONE),
+        }
+    }
+
+    fn parse_usize(&mut self) -> Option<usize> {
+        let start = self.idx;
+        while matches!(self.peek(), Some('0'..='9')) {
+            self.idx += 1;
+        }
+        if self.idx == start {
+            return None;
+        }
+        self.chars[start..self.idx]
+            .iter()
+            .collect::<String>()
+            .parse()
+            .ok()
+    }
+}
+
 fn compile_emacs_regex_case_fold(pattern: &str, case_fold: bool) -> Result<Regex, String> {
     let rust_pattern = translate_emacs_regex(pattern);
     // Emacs regexes always treat ^ and $ as matching at line boundaries,
@@ -505,7 +832,13 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
         return Ok(cached);
     }
 
-    let compiled = if let Some(literal) = literal_from_trivial_regexp(pattern)
+    let compiled = if pattern_contains_backrefs(pattern) {
+        if let Some(backref) = BackrefParser::new(pattern).parse() {
+            CompiledSearchPattern::Backref(backref)
+        } else {
+            CompiledSearchPattern::Regex(compile_emacs_regex_case_fold(pattern, case_fold)?)
+        }
+    } else if let Some(literal) = literal_from_trivial_regexp(pattern)
         && (!case_fold || literal.is_ascii())
     {
         CompiledSearchPattern::Literal(literal)
@@ -618,6 +951,353 @@ fn literal_rfind(text: &str, literal: &str, case_fold: bool) -> Option<(usize, u
         text.rfind(literal)?
     };
     Some((start, start + literal.len()))
+}
+
+fn char_at(text: &str, pos: usize) -> Option<(char, usize)> {
+    text.get(pos..)
+        .and_then(|tail| tail.chars().next().map(|ch| (ch, ch.len_utf8())))
+}
+
+fn is_word_char(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_'
+}
+
+fn matches_posix_class(ch: char, class: BackrefPosixClass) -> bool {
+    match class {
+        BackrefPosixClass::Alpha => ch.is_alphabetic(),
+        BackrefPosixClass::Alnum => ch.is_alphanumeric(),
+        BackrefPosixClass::Digit => ch.is_ascii_digit(),
+        BackrefPosixClass::Space => ch.is_whitespace(),
+        BackrefPosixClass::Upper => ch.is_uppercase(),
+        BackrefPosixClass::Lower => ch.is_lowercase(),
+        BackrefPosixClass::Punct => ch.is_ascii_punctuation(),
+        BackrefPosixClass::Blank => matches!(ch, ' ' | '\t'),
+    }
+}
+
+fn char_class_matches(class: &BackrefCharClass, ch: char, case_fold: bool) -> bool {
+    let matched = class.items.iter().any(|item| match item {
+        BackrefCharClassItem::Literal(expected) => char_eq_case_fold(ch, *expected, case_fold),
+        BackrefCharClassItem::Range(start, end) => {
+            let normalized = if case_fold && ch.is_ascii() {
+                ch.to_ascii_lowercase()
+            } else {
+                ch
+            };
+            let range_start = if case_fold && start.is_ascii() {
+                start.to_ascii_lowercase()
+            } else {
+                *start
+            };
+            let range_end = if case_fold && end.is_ascii() {
+                end.to_ascii_lowercase()
+            } else {
+                *end
+            };
+            range_start <= normalized && normalized <= range_end
+        }
+        BackrefCharClassItem::Posix(posix) => matches_posix_class(ch, *posix),
+    });
+    if class.negated { !matched } else { matched }
+}
+
+fn char_eq_case_fold(left: char, right: char, case_fold: bool) -> bool {
+    if !case_fold {
+        return left == right;
+    }
+    if left.is_ascii() && right.is_ascii() {
+        return left.eq_ignore_ascii_case(&right);
+    }
+    left.to_lowercase().to_string() == right.to_lowercase().to_string()
+}
+
+fn substring_starts_with(text: &str, pos: usize, needle: &str, case_fold: bool) -> Option<usize> {
+    let mut hay_pos = pos;
+    for needle_ch in needle.chars() {
+        let (hay_ch, hay_len) = char_at(text, hay_pos)?;
+        if !char_eq_case_fold(hay_ch, needle_ch, case_fold) {
+            return None;
+        }
+        hay_pos += hay_len;
+    }
+    Some(hay_pos)
+}
+
+fn word_boundary_at(text: &str, pos: usize) -> bool {
+    let left = text[..pos].chars().next_back().is_some_and(is_word_char);
+    let right = char_at(text, pos).is_some_and(|(ch, _)| is_word_char(ch));
+    left != right
+}
+
+fn match_backref_atom_once(
+    atom: &BackrefAtom,
+    text: &str,
+    state: &BackrefState,
+    case_fold: bool,
+) -> Vec<BackrefState> {
+    match atom {
+        BackrefAtom::Literal(expected) => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if char_eq_case_fold(ch, *expected, case_fold) {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::AnyChar => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if ch == '\n' {
+                Vec::new()
+            } else {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            }
+        }
+        BackrefAtom::CharClass(class) => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if char_class_matches(class, ch, case_fold) {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::WordChar => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if is_word_char(ch) {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::NotWordChar => {
+            let Some((ch, len)) = char_at(text, state.pos) else {
+                return Vec::new();
+            };
+            if !is_word_char(ch) {
+                vec![BackrefState {
+                    pos: state.pos + len,
+                    groups: state.groups.clone(),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        BackrefAtom::WordBoundary => word_boundary_at(text, state.pos)
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::NotWordBoundary => (!word_boundary_at(text, state.pos))
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::StartBuffer => (state.pos == 0)
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::EndBuffer => (state.pos == text.len())
+            .then(|| state.clone())
+            .into_iter()
+            .collect(),
+        BackrefAtom::Group(index, expr) => {
+            let start = state.pos;
+            let mut out = Vec::new();
+            for mut inner in match_backref_expr(expr, text, state.clone(), case_fold) {
+                inner.groups[*index] = Some((start, inner.pos));
+                out.push(inner);
+            }
+            out
+        }
+        BackrefAtom::Backref(index) => {
+            let Some(Some((group_start, group_end))) = state.groups.get(*index) else {
+                return Vec::new();
+            };
+            let capture = &text[*group_start..*group_end];
+            let Some(end_pos) = substring_starts_with(text, state.pos, capture, case_fold) else {
+                return Vec::new();
+            };
+            vec![BackrefState {
+                pos: end_pos,
+                groups: state.groups.clone(),
+            }]
+        }
+    }
+}
+
+fn match_backref_repetition(
+    node: &BackrefNode,
+    text: &str,
+    state: BackrefState,
+    case_fold: bool,
+) -> Vec<BackrefState> {
+    fn rec(
+        node: &BackrefNode,
+        text: &str,
+        state: BackrefState,
+        case_fold: bool,
+        count: usize,
+        out: &mut Vec<BackrefState>,
+    ) {
+        let can_repeat_more = node.repeat.max.is_none_or(|max| count < max);
+        if can_repeat_more {
+            for next in match_backref_atom_once(&node.atom, text, &state, case_fold) {
+                if next.pos == state.pos {
+                    if count + 1 >= node.repeat.min {
+                        out.push(next);
+                    }
+                    continue;
+                }
+                rec(node, text, next, case_fold, count + 1, out);
+            }
+        }
+        if count >= node.repeat.min {
+            out.push(state);
+        }
+    }
+
+    let mut out = Vec::new();
+    rec(node, text, state, case_fold, 0, &mut out);
+    out
+}
+
+fn match_backref_sequence(
+    nodes: &[BackrefNode],
+    text: &str,
+    initial: BackrefState,
+    case_fold: bool,
+) -> Vec<BackrefState> {
+    let mut states = vec![initial];
+    for node in nodes {
+        let mut next_states = Vec::new();
+        for state in states {
+            next_states.extend(match_backref_repetition(node, text, state, case_fold));
+        }
+        if next_states.is_empty() {
+            return next_states;
+        }
+        states = next_states;
+    }
+    states
+}
+
+fn match_backref_expr(
+    expr: &BackrefExpr,
+    text: &str,
+    initial: BackrefState,
+    case_fold: bool,
+) -> Vec<BackrefState> {
+    let mut out = Vec::new();
+    for branch in &expr.branches {
+        out.extend(match_backref_sequence(
+            branch,
+            text,
+            initial.clone(),
+            case_fold,
+        ));
+    }
+    out
+}
+
+fn backref_match_at(
+    pattern: &BackrefPattern,
+    text: &str,
+    start: usize,
+    case_fold: bool,
+) -> Option<MatchData> {
+    let initial = BackrefState {
+        pos: start,
+        groups: vec![None; pattern.group_count + 1],
+    };
+    let mut state = match_backref_expr(&pattern.expr, text, initial, case_fold)
+        .into_iter()
+        .next()?;
+    state.groups[0] = Some((start, state.pos));
+    Some(MatchData {
+        groups: state.groups,
+        searched_string: None,
+        searched_buffer: None,
+    })
+}
+
+fn offset_match_data(mut md: MatchData, offset: usize) -> MatchData {
+    for group in &mut md.groups {
+        if let Some((start, end)) = group {
+            *start += offset;
+            *end += offset;
+        }
+    }
+    md
+}
+
+fn find_forward_backref_match_data(
+    pattern: &BackrefPattern,
+    text: &str,
+    start: usize,
+    limit: usize,
+    offset: usize,
+    case_fold: bool,
+) -> Option<MatchData> {
+    let mut search_at = start;
+    while search_at <= limit {
+        if let Some(md) = backref_match_at(pattern, text, search_at, case_fold) {
+            let full_match = md.groups[0]?;
+            if full_match.1 <= limit {
+                return Some(offset_match_data(md, offset));
+            }
+        }
+        let next_at = next_search_char_boundary(text, search_at)?;
+        if next_at <= search_at {
+            return None;
+        }
+        search_at = next_at;
+    }
+    None
+}
+
+fn find_backward_backref_match_data(
+    pattern: &BackrefPattern,
+    text: &str,
+    start: usize,
+    limit: usize,
+    offset: usize,
+    case_fold: bool,
+) -> Option<MatchData> {
+    let mut search_at = limit;
+    let mut last = None;
+    while search_at <= start {
+        if let Some(md) = backref_match_at(pattern, text, search_at, case_fold) {
+            let full_match = md.groups[0]?;
+            if full_match.1 <= start {
+                last = Some(offset_match_data(md, offset));
+            }
+        }
+        let Some(next_at) = next_search_char_boundary(text, search_at) else {
+            break;
+        };
+        if next_at <= search_at {
+            break;
+        }
+        search_at = next_at;
+    }
+    last
 }
 
 fn next_search_char_boundary(text: &str, pos: usize) -> Option<usize> {
@@ -846,6 +1526,27 @@ pub fn re_search_forward(
                 Err(format!("Search failed: \"{}\"", pattern))
             }
         }
+        CompiledSearchPattern::Backref(backref) => {
+            if let Some(mut md) = find_forward_backref_match_data(
+                &backref,
+                &text,
+                start_rel,
+                limit_rel,
+                region_start,
+                case_fold,
+            ) {
+                md.searched_string = None;
+                md.searched_buffer = Some(buf.id);
+                let full_match = md.groups[0].unwrap();
+                buf.pt = full_match.1;
+                *match_data = Some(md);
+                Ok(Some(full_match.1))
+            } else if noerror {
+                Ok(None)
+            } else {
+                Err(format!("Search failed: \"{}\"", pattern))
+            }
+        }
         CompiledSearchPattern::Regex(re) => {
             if let Some(mut md) =
                 find_forward_match_data(&re, &text, start_rel, limit_rel, region_start)
@@ -911,6 +1612,27 @@ pub fn re_search_backward(
                 Err(format!("Search failed: \"{}\"", pattern))
             }
         }
+        CompiledSearchPattern::Backref(backref) => {
+            if let Some(mut md) = find_backward_backref_match_data(
+                &backref,
+                &text,
+                start_rel,
+                limit_rel,
+                region_start,
+                case_fold,
+            ) {
+                md.searched_string = None;
+                md.searched_buffer = Some(buf.id);
+                let full_match = md.groups[0].unwrap();
+                buf.pt = full_match.0;
+                *match_data = Some(md);
+                Ok(Some(full_match.0))
+            } else if noerror {
+                Ok(None)
+            } else {
+                Err(format!("Search failed: \"{}\"", pattern))
+            }
+        }
         CompiledSearchPattern::Regex(re) => {
             if let Some(mut md) =
                 find_backward_match_data(&re, &text, start_rel, limit_rel, region_start)
@@ -965,6 +1687,20 @@ pub fn looking_at(
             });
             Ok(true)
         }
+        CompiledSearchPattern::Backref(backref) => {
+            if let Some(mut md) = backref_match_at(&backref, &text, start_rel, case_fold) {
+                if md.groups[0].unwrap().0 != start_rel {
+                    return Ok(false);
+                }
+                md = offset_match_data(md, region_start);
+                md.searched_string = None;
+                md.searched_buffer = Some(buf.id);
+                *match_data = Some(md);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
         CompiledSearchPattern::Regex(re) => {
             if let Some(caps) = re.captures_at(&text, start_rel) {
                 let mut md = match_data_from_captures(&caps, region_start);
@@ -1006,6 +1742,14 @@ pub fn looking_at_string(
             ));
             Ok(true)
         }
+        CompiledSearchPattern::Backref(backref) => {
+            if let Some(md) = backref_match_at(&backref, string, 0, case_fold) {
+                *match_data = Some(string_char_match_data(string, md));
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
         CompiledSearchPattern::Regex(re) => {
             if let Some(caps) = re.captures_at(string, 0) {
                 let byte_md = match_data_from_captures(&caps, 0);
@@ -1046,6 +1790,18 @@ pub fn string_match_full_with_case_fold(
             if let Some((byte_start, byte_end)) = byte_match {
                 let char_md =
                     string_char_match_data(string, single_group_match_data(byte_start, byte_end));
+                let result_pos = char_md.groups[0].unwrap().0;
+                *match_data = Some(char_md);
+                Ok(Some(result_pos))
+            } else {
+                Ok(None)
+            }
+        }
+        CompiledSearchPattern::Backref(backref) => {
+            if let Some(md) =
+                find_forward_backref_match_data(&backref, string, start, string.len(), 0, case_fold)
+            {
+                let char_md = string_char_match_data(string, md);
                 let result_pos = char_md.groups[0].unwrap().0;
                 *match_data = Some(char_md);
                 Ok(Some(result_pos))

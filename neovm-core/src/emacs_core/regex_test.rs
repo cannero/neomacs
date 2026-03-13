@@ -211,6 +211,57 @@ fn string_match_trivial_escaped_literal_uses_character_positions() {
 }
 
 #[test]
+fn string_match_backreference_reuses_captured_text() {
+    let mut md = None;
+    let result = string_match_full("\\(..\\)\\1", "zzabab", 0, &mut md);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some(2));
+    let md = md.unwrap();
+    assert_eq!(md.groups[0], Some((2, 6)));
+    assert_eq!(md.groups[1], Some((2, 4)));
+}
+
+#[test]
+fn looking_at_string_backreference_matches_at_start() {
+    let mut md = None;
+    let matched = looking_at_string("\\(x\\)\\1\\1", "xxx!", false, &mut md).unwrap();
+    assert!(matched);
+    let md = md.unwrap();
+    assert_eq!(md.groups[0], Some((0, 3)));
+    assert_eq!(md.groups[1], Some((0, 1)));
+}
+
+#[test]
+fn re_search_forward_backreference_word_boundary() {
+    let mut buf = make_test_buffer("the the cat");
+    let mut md = None;
+    let result = re_search_forward(
+        &mut buf,
+        "\\b\\(\\w+\\) \\1\\b",
+        None,
+        false,
+        false,
+        &mut md,
+    );
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some(7));
+    let md = md.unwrap();
+    assert_eq!(md.groups[0], Some((0, 7)));
+    assert_eq!(md.groups[1], Some((0, 3)));
+}
+
+#[test]
+fn string_match_backreference_with_char_class_group() {
+    let mut md = None;
+    let result = string_match_full("\\([a-z]+\\) \\1", "the the cat", 0, &mut md);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some(0));
+    let md = md.unwrap();
+    assert_eq!(md.groups[0], Some((0, 7)));
+    assert_eq!(md.groups[1], Some((0, 3)));
+}
+
+#[test]
 fn string_match_with_start_offset() {
     let mut md = None;
     let result = string_match_full("world", "hello world", 6, &mut md);
