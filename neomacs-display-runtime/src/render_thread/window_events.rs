@@ -200,7 +200,7 @@ impl RenderApp {
                                     if keysym != 0 {
                                         self.comms.send_input(InputEvent::Key {
                                             keysym,
-                                            modifiers: 0,
+                                            modifiers: self.modifiers,
                                             pressed: true,
                                         });
                                     }
