@@ -96,9 +96,9 @@ pub(crate) fn builtin_format_mode_line(args: Vec<Value>) -> EvalResult {
 
 /// `(format-mode-line &optional FORMAT FACE WINDOW BUFFER)` evaluator-backed variant.
 ///
-/// When FORMAT is a string, returns it with basic %-construct expansion:
-///   %b → buffer name, %f → file name, %* → modified flag, %% → literal %
-/// Lists and other complex format specs fall back to empty string.
+/// Handles string formats with %-construct expansion and list-based format
+/// specs by recursively processing elements (symbols, strings, :eval, :propertize,
+/// and conditional cons cells).
 pub(crate) fn builtin_format_mode_line_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -107,74 +107,196 @@ pub(crate) fn builtin_format_mode_line_eval(
     validate_optional_window_designator(eval, args.get(2), "windowp")?;
     validate_optional_buffer_designator(eval, args.get(3))?;
 
-    let format_val = &args[0];
-    // Handle string FORMAT with basic %-construct expansion
-    if let Some(fmt_str) = format_val.as_str() {
-        let buf = eval.buffer_manager().current_buffer();
-        let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
-        let file_name = buf.and_then(|b| b.file_name.as_deref()).unwrap_or("");
-        let modified = buf.map(|b| b.is_modified()).unwrap_or(false);
-        let _readonly = false; // TODO: implement read-only buffers
+    let format_val = args[0];
+    let mut result = String::new();
+    format_mode_line_recursive(eval, &format_val, &mut result, 0);
+    Ok(Value::string(&result))
+}
 
-        // Compute line and column numbers for %l and %c
-        let (line_num, col_num) = if let Some(b) = buf {
-            let pt = b.pt;
-            let text = b.text.to_string();
-            let before = &text[..pt.min(text.len())];
-            let line = before.chars().filter(|&c| c == '\n').count() + 1;
-            let col = before.rfind('\n').map(|nl| pt - nl - 1).unwrap_or(pt);
-            (line, col)
-        } else {
-            (1, 0)
-        };
+/// Recursively process a mode-line format spec, appending output to `result`.
+///
+/// FORMAT can be:
+/// - A string: expand %-constructs (%b, %f, %*, %l, %c, %p, etc.)
+/// - A symbol: look up its value, recursively format
+/// - A list: process each element in sequence
+/// - `(:eval FORM)`: evaluate FORM, use result as format
+/// - `(:propertize ELT PROPS...)`: process ELT (ignore text properties)
+/// - A cons `(SYMBOL . REST)`: if SYMBOL's value is non-nil, process REST
+fn format_mode_line_recursive(
+    eval: &mut super::eval::Evaluator,
+    format: &Value,
+    result: &mut String,
+    depth: usize,
+) {
+    if depth > 20 {
+        return; // Guard against infinite recursion
+    }
 
-        let mut result = String::with_capacity(fmt_str.len());
-        let mut chars = fmt_str.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch == '%' {
-                match chars.next() {
-                    Some('b') => result.push_str(buf_name),
-                    Some('f') => result.push_str(file_name),
-                    Some('*') => result.push(if modified { '*' } else { '-' }),
-                    Some('+') => result.push(if modified { '+' } else { '-' }),
-                    Some('-') => result.push('-'),
-                    Some('%') => result.push('%'),
-                    Some('n') => {} // Narrow indicator, skip
-                    Some('l') => result.push_str(&line_num.to_string()),
-                    Some('c') => result.push_str(&col_num.to_string()),
-                    Some('p') => {
-                        // %p: percentage of buffer above window top
-                        if let Some(b) = buf {
-                            let total = b.text.len();
-                            if total == 0 {
-                                result.push_str("All");
+    match format {
+        Value::Nil => {}
+
+        Value::Str(_) => {
+            if let Some(fmt_str) = format.as_str() {
+                expand_mode_line_percent(eval, fmt_str, result);
+            }
+        }
+
+        Value::Int(n) => {
+            // Integer in mode-line-format: if positive, specifies minimum
+            // field width; if negative, max width with truncation.
+            // The actual padding/truncation is applied to subsequent elements
+            // which we don't track here, so just ignore the width spec.
+            let _ = n;
+        }
+
+        _ if format.is_symbol() => {
+            if let Some(name) = format.as_symbol_name() {
+                // Skip well-known problematic symbols
+                if name == "mode-line-front-space"
+                    || name == "mode-line-end-spaces"
+                {
+                    result.push(' ');
+                    return;
+                }
+                // Look up the symbol's value and recurse
+                if let Ok(val) = eval.eval_symbol(name) {
+                    if !val.is_nil() {
+                        format_mode_line_recursive(eval, &val, result, depth + 1);
+                    }
+                }
+            }
+        }
+
+        _ if format.is_cons() => {
+            let car = format.cons_car();
+            let cdr = format.cons_cdr();
+
+            // (:eval FORM)
+            if car.is_symbol_named(":eval") {
+                if cdr.is_cons() {
+                    let form_val = cdr.cons_car();
+                    if let Ok(val) = eval.eval_value(&form_val) {
+                        format_mode_line_recursive(eval, &val, result, depth + 1);
+                    }
+                }
+                return;
+            }
+
+            // (:propertize ELT PROPS...) — process ELT, ignore properties
+            if car.is_symbol_named(":propertize") {
+                if cdr.is_cons() {
+                    let elt = cdr.cons_car();
+                    format_mode_line_recursive(eval, &elt, result, depth + 1);
+                }
+                return;
+            }
+
+            // Check if car is a symbol — conditional semantics:
+            // (SYMBOL . REST) where if SYMBOL's value is non-nil, process REST
+            if car.is_symbol() && !car.is_symbol_named("t") {
+                if let Some(sym_name) = car.as_symbol_name() {
+                    if let Ok(val) = eval.eval_symbol(sym_name) {
+                        if !val.is_nil() {
+                            format_mode_line_recursive(eval, &cdr, result, depth + 1);
+                        }
+                    }
+                }
+                return;
+            }
+
+            // Regular list: process each element
+            if let Some(elements) = list_to_vec(format) {
+                for elem in &elements {
+                    format_mode_line_recursive(eval, elem, result, depth + 1);
+                }
+            }
+        }
+
+        _ => {
+            // Unknown format type — try to get a string representation
+            if let Some(s) = format.as_str() {
+                result.push_str(s);
+            }
+        }
+    }
+}
+
+/// Expand %-constructs in a mode-line format string.
+fn expand_mode_line_percent(
+    eval: &super::eval::Evaluator,
+    fmt_str: &str,
+    result: &mut String,
+) {
+    let buf = eval.buffer_manager().current_buffer();
+    let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
+    let file_name = buf.and_then(|b| b.file_name.as_deref()).unwrap_or("");
+    let modified = buf.map(|b| b.is_modified()).unwrap_or(false);
+
+    let (line_num, col_num) = if let Some(b) = buf {
+        let pt = b.pt;
+        let text = b.text.to_string();
+        let before = &text[..pt.min(text.len())];
+        let line = before.chars().filter(|&c| c == '\n').count() + 1;
+        let col = before.rfind('\n').map(|nl| pt - nl - 1).unwrap_or(pt);
+        (line, col)
+    } else {
+        (1, 0)
+    };
+
+    let mut chars = fmt_str.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            // Skip optional field width digits (e.g. %12b, %-3c)
+            if chars.peek() == Some(&'-') {
+                chars.next();
+            }
+            while chars.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                chars.next();
+            }
+            match chars.next() {
+                Some('b') => result.push_str(buf_name),
+                Some('f') => result.push_str(file_name),
+                Some('F') => result.push_str("Neomacs"),
+                Some('*') => result.push(if modified { '*' } else { '-' }),
+                Some('+') => result.push(if modified { '+' } else { '-' }),
+                Some('-') => result.push('-'),
+                Some('%') => result.push('%'),
+                Some('n') => {} // Narrow indicator
+                Some('l') => result.push_str(&line_num.to_string()),
+                Some('c') => result.push_str(&col_num.to_string()),
+                Some('p') | Some('P') => {
+                    if let Some(b) = buf {
+                        let total = b.text.len();
+                        if total == 0 {
+                            result.push_str("All");
+                        } else {
+                            let pct = (b.pt * 100) / total;
+                            if pct == 0 {
+                                result.push_str("Top");
+                            } else if pct >= 99 {
+                                result.push_str("Bot");
                             } else {
-                                let pct = (b.pt * 100) / total;
-                                if pct == 0 {
-                                    result.push_str("Top");
-                                } else if pct >= 99 {
-                                    result.push_str("Bot");
-                                } else {
-                                    result.push_str(&format!("{}%", pct));
-                                }
+                                result.push_str(&format!("{}%", pct));
                             }
                         }
                     }
-                    Some(c) => {
-                        result.push('%');
-                        result.push(c);
-                    }
-                    None => result.push('%'),
                 }
-            } else {
-                result.push(ch);
+                Some('z') => result.push_str("U"), // Coding system mnemonic (simplified)
+                Some('@') => result.push('-'),    // Default input method indicator
+                Some('Z') => result.push_str("U"), // Like %z but includes eol type
+                Some('[') | Some(']') => {}        // Recursive edit depth brackets
+                Some('e') => {}                    // Error message area
+                Some(' ') => result.push(' '),
+                Some(c) => {
+                    result.push('%');
+                    result.push(c);
+                }
+                None => result.push('%'),
             }
+        } else {
+            result.push(ch);
         }
-        return Ok(Value::string(&result));
     }
-
-    // Nil or non-string format: return empty
-    Ok(Value::string(""))
 }
 
 /// (invisible-p POS-OR-PROP) -> boolean

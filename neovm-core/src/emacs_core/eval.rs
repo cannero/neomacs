@@ -3236,7 +3236,7 @@ impl Evaluator {
         Err(signal("void-variable", vec![value_from_symbol_id(sym_id)]))
     }
 
-    fn eval_symbol(&self, symbol: &str) -> EvalResult {
+    pub(crate) fn eval_symbol(&self, symbol: &str) -> EvalResult {
         self.eval_symbol_by_id(intern(symbol))
     }
 
