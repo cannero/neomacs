@@ -248,6 +248,67 @@ impl WgpuRenderer {
             self.queue.submit(std::iter::once(encoder.finish()));
         }
 
+        // Stencil-write pass: write rounded rect shape into stencil buffer
+        // so content rendering clips to the rounded corners.
+        if corner_radius > 0.0 {
+            let mut stencil_verts: Vec<RoundedRectVertex> = Vec::new();
+            self.add_rounded_rect(
+                &mut stencil_verts,
+                offset_x,
+                offset_y,
+                frame_w,
+                frame_h,
+                0.0, // filled (no border)
+                corner_radius,
+                &Color::new(1.0, 1.0, 1.0, 1.0), // color irrelevant, writes disabled
+            );
+            if !stencil_verts.is_empty() {
+                let mut encoder = self
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Stencil Write Encoder"),
+                    });
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Stencil Write Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &self.stencil_view,
+                            depth_ops: None,
+                            stencil_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    let buffer =
+                        self.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Stencil Write Buffer"),
+                                contents: bytemuck::cast_slice(&stencil_verts),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            });
+                    pass.set_pipeline(&self.stencil_write_pipeline);
+                    pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                    pass.set_vertex_buffer(0, buffer.slice(..));
+                    pass.set_stencil_reference(1);
+                    pass.draw(0..stencil_verts.len() as u32, 0..1);
+                }
+                self.queue.submit(std::iter::once(encoder.finish()));
+            }
+        }
+
         self.render_frame_content(
             view,
             child,
@@ -259,6 +320,7 @@ impl WgpuRenderer {
             offset_y,
             cursor_visible,
             animated_cursor,
+            corner_radius,
         );
     }
 }

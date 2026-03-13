@@ -154,6 +154,15 @@ pub struct WgpuRenderer {
     pub(super) render_start_time: std::time::Instant,
     /// Whether any fancy (animated) border styles are present in the current frame
     pub has_animated_borders: bool,
+    // --- Stencil-based clipping for child frame rounded corners ---
+    pub(super) stencil_texture: wgpu::Texture,
+    pub(super) stencil_view: wgpu::TextureView,
+    pub(super) stencil_rect_pipeline: wgpu::RenderPipeline,
+    pub(super) stencil_rounded_rect_pipeline: wgpu::RenderPipeline,
+    pub(super) stencil_glyph_pipeline: wgpu::RenderPipeline,
+    pub(super) stencil_image_pipeline: wgpu::RenderPipeline,
+    pub(super) stencil_opaque_image_pipeline: wgpu::RenderPipeline,
+    pub(super) stencil_write_pipeline: wgpu::RenderPipeline,
 }
 
 /// Entry for an active scroll momentum indicator
@@ -771,6 +780,295 @@ impl WgpuRenderer {
                 multiview_mask: None,
             });
 
+        // --- Stencil texture for child frame rounded-corner clipping ---
+        let (stencil_texture, stencil_view) =
+            Self::create_stencil_texture_static(&device, width, height);
+
+        // Stencil state for content pipelines: pass only where stencil==reference
+        let stencil_read_state = wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Stencil8,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState {
+                front: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::Equal,
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::Keep,
+                },
+                back: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::Equal,
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::Keep,
+                },
+                read_mask: 0xFF,
+                write_mask: 0x00,
+            },
+            bias: wgpu::DepthBiasState::default(),
+        };
+
+        // Stencil-read rect pipeline
+        let stencil_rect_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Stencil Rect Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &rect_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[RectVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &rect_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(stencil_read_state.clone()),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                cache: None,
+                multiview_mask: None,
+            });
+
+        // Stencil-read rounded rect pipeline
+        let stencil_rounded_rect_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Stencil Rounded Rect Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &rounded_rect_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[RoundedRectVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &rounded_rect_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(stencil_read_state.clone()),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                cache: None,
+                multiview_mask: None,
+            });
+
+        // Stencil-read glyph pipeline
+        let stencil_glyph_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Stencil Glyph Pipeline"),
+                layout: Some(&glyph_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &glyph_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[GlyphVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &glyph_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(stencil_read_state.clone()),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                cache: None,
+                multiview_mask: None,
+            });
+
+        // Stencil-read image pipeline
+        let stencil_image_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Stencil Image Pipeline"),
+                layout: Some(&image_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &image_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[GlyphVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &image_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(stencil_read_state.clone()),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                cache: None,
+                multiview_mask: None,
+            });
+
+        // Stencil-read opaque image pipeline
+        let stencil_opaque_image_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Stencil Opaque Image Pipeline"),
+                layout: Some(&image_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &image_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[GlyphVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &image_shader,
+                    entry_point: Some("fs_main_opaque"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(stencil_read_state),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                cache: None,
+                multiview_mask: None,
+            });
+
+        // Stencil-write pipeline: writes shape to stencil, no color output
+        let stencil_write_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Stencil Write Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &rounded_rect_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[RoundedRectVertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &rounded_rect_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::empty(),
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Stencil8,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    stencil: wgpu::StencilState {
+                        front: wgpu::StencilFaceState {
+                            compare: wgpu::CompareFunction::Always,
+                            fail_op: wgpu::StencilOperation::Keep,
+                            depth_fail_op: wgpu::StencilOperation::Keep,
+                            pass_op: wgpu::StencilOperation::Replace,
+                        },
+                        back: wgpu::StencilFaceState {
+                            compare: wgpu::CompareFunction::Always,
+                            fail_op: wgpu::StencilOperation::Keep,
+                            depth_fail_op: wgpu::StencilOperation::Keep,
+                            pass_op: wgpu::StencilOperation::Replace,
+                        },
+                        read_mask: 0xFF,
+                        write_mask: 0xFF,
+                    },
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                cache: None,
+                multiview_mask: None,
+            });
+
         // Create surface_config from format if we have a surface
         let surface_config = if let Some(ref s) = surface {
             let config = wgpu::SurfaceConfiguration {
@@ -890,6 +1188,14 @@ impl WgpuRenderer {
             aurora_start: std::time::Instant::now(),
             render_start_time: std::time::Instant::now(),
             has_animated_borders: false,
+            stencil_texture,
+            stencil_view,
+            stencil_rect_pipeline,
+            stencil_rounded_rect_pipeline,
+            stencil_glyph_pipeline,
+            stencil_image_pipeline,
+            stencil_opaque_image_pipeline,
+            stencil_write_pipeline,
         }
     }
 
@@ -953,6 +1259,32 @@ impl WgpuRenderer {
     }
 
     /// Resize the renderer's surface.
+    /// Create a Stencil8 texture and view for rounded-corner clipping.
+    fn create_stencil_texture_static(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> (wgpu::Texture, wgpu::TextureView) {
+        let w = width.max(1);
+        let h = height.max(1);
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Stencil Texture"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Stencil8,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
@@ -967,6 +1299,12 @@ impl WgpuRenderer {
             config.height = height;
             surface.configure(&self.device, config);
         }
+
+        // Recreate stencil texture at new size
+        let (stencil_texture, stencil_view) =
+            Self::create_stencil_texture_static(&self.device, width, height);
+        self.stencil_texture = stencil_texture;
+        self.stencil_view = stencil_view;
 
         // Update uniform buffer with logical size so vertex positions from Emacs map correctly
         let logical_w = width as f32 / self.scale_factor;

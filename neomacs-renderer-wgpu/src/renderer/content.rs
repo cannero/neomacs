@@ -39,6 +39,7 @@ impl WgpuRenderer {
         offset_y: f32,
         cursor_visible: bool,
         animated_cursor: Option<AnimatedCursor>,
+        clip_corner_radius: f32,
     ) {
         tracing::debug!(
             "render_frame_content: frame={}x{} offset=({:.1},{:.1}) {} glyphs",
@@ -766,6 +767,47 @@ impl WgpuRenderer {
         }
 
         // === GPU submission: single encoder, single submit ===
+        // Select pipelines: stencil-aware variants when clipping to rounded corners
+        let use_stencil = clip_corner_radius > 0.0;
+        let rect_pl = if use_stencil {
+            &self.stencil_rect_pipeline
+        } else {
+            &self.rect_pipeline
+        };
+        let rounded_rect_pl = if use_stencil {
+            &self.stencil_rounded_rect_pipeline
+        } else {
+            &self.rounded_rect_pipeline
+        };
+        let glyph_pl = if use_stencil {
+            &self.stencil_glyph_pipeline
+        } else {
+            &self.glyph_pipeline
+        };
+        let image_pl = if use_stencil {
+            &self.stencil_image_pipeline
+        } else {
+            &self.image_pipeline
+        };
+        let _opaque_image_pl = if use_stencil {
+            &self.stencil_opaque_image_pipeline
+        } else {
+            &self.opaque_image_pipeline
+        };
+
+        let stencil_attachment = if use_stencil {
+            Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+            })
+        } else {
+            None
+        };
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -783,11 +825,15 @@ impl WgpuRenderer {
                     },
                     depth_slice: None,
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: stencil_attachment,
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+
+            if use_stencil {
+                pass.set_stencil_reference(1);
+            }
 
             // --- Draw backgrounds ---
             if !bg_vertices.is_empty() {
@@ -798,7 +844,7 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&bg_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_pipeline(rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..bg_vertices.len() as u32, 0..1);
@@ -814,7 +860,7 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&cursor_bg_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_pipeline(rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..cursor_bg_vertices.len() as u32, 0..1);
@@ -829,7 +875,7 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&rounded_fill_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rounded_rect_pipeline);
+                pass.set_pipeline(rounded_rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..rounded_fill_vertices.len() as u32, 0..1);
@@ -857,7 +903,7 @@ impl WgpuRenderer {
                         usage: wgpu::BufferUsages::VERTEX,
                     });
 
-                pass.set_pipeline(&self.glyph_pipeline);
+                pass.set_pipeline(glyph_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
 
@@ -902,7 +948,7 @@ impl WgpuRenderer {
                         usage: wgpu::BufferUsages::VERTEX,
                     });
 
-                pass.set_pipeline(&self.image_pipeline);
+                pass.set_pipeline(image_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
 
@@ -927,7 +973,7 @@ impl WgpuRenderer {
 
             // --- Draw composed mask glyphs ---
             if !composed_mask_data.is_empty() {
-                pass.set_pipeline(&self.glyph_pipeline);
+                pass.set_pipeline(glyph_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
                 for (ckey, verts) in &composed_mask_data {
@@ -948,7 +994,7 @@ impl WgpuRenderer {
 
             // --- Draw composed color glyphs (emoji ZWJ sequences) ---
             if !composed_color_data.is_empty() {
-                pass.set_pipeline(&self.image_pipeline);
+                pass.set_pipeline(image_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
                 for (ckey, verts) in &composed_color_data {
@@ -976,7 +1022,7 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&decoration_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_pipeline(rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..decoration_vertices.len() as u32, 0..1);
@@ -991,7 +1037,7 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&sharp_border_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_pipeline(rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..sharp_border_vertices.len() as u32, 0..1);
@@ -1006,14 +1052,14 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&rounded_border_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rounded_rect_pipeline);
+                pass.set_pipeline(rounded_rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..rounded_border_vertices.len() as u32, 0..1);
             }
 
             // --- Draw inline images ---
-            pass.set_pipeline(&self.image_pipeline);
+            pass.set_pipeline(image_pl);
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
             for glyph in &frame.glyphs {
@@ -1159,7 +1205,7 @@ impl WgpuRenderer {
             // --- Draw inline webkit views ---
             #[cfg(feature = "wpe-webkit")]
             {
-                pass.set_pipeline(&self.opaque_image_pipeline);
+                pass.set_pipeline(_opaque_image_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
                 for glyph in &frame.glyphs {
@@ -1239,7 +1285,7 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&cursor_vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_pipeline(rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..cursor_vertices.len() as u32, 0..1);
@@ -1267,7 +1313,7 @@ impl WgpuRenderer {
                         contents: bytemuck::cast_slice(&rounded_verts),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                pass.set_pipeline(&self.rounded_rect_pipeline);
+                pass.set_pipeline(rounded_rect_pl);
                 pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 pass.set_vertex_buffer(0, buffer.slice(..));
                 pass.draw(0..rounded_verts.len() as u32, 0..1);
