@@ -1344,7 +1344,7 @@ fn preserve_case(replacement: &str, matched: &str) -> String {
     super::casefiddle::apply_replace_match_case(replacement, matched)
 }
 
-fn expand_emacs_replacement(rep: &str, caps: &regex::Captures<'_>) -> String {
+fn expand_emacs_replacement(rep: &str, groups: &[Option<(usize, usize)>], source: &str) -> String {
     let mut out = String::with_capacity(rep.len());
     let mut chars = rep.chars().peekable();
 
@@ -1361,14 +1361,18 @@ fn expand_emacs_replacement(rep: &str, caps: &regex::Captures<'_>) -> String {
 
         match next {
             '&' => {
-                if let Some(m) = caps.get(0) {
-                    out.push_str(m.as_str());
+                if let Some(Some((start, end))) = groups.first()
+                    && let Some(text) = source.get(*start..*end)
+                {
+                    out.push_str(text);
                 }
             }
             '1'..='9' => {
                 let idx = next.to_digit(10).unwrap() as usize;
-                if let Some(m) = caps.get(idx) {
-                    out.push_str(m.as_str());
+                if let Some(Some((start, end))) = groups.get(idx)
+                    && let Some(text) = source.get(*start..*end)
+                {
+                    out.push_str(text);
                 }
             }
             '\\' => out.push('\\'),
@@ -1654,8 +1658,10 @@ fn replace_regexp_eval_impl(
 
     let case_fold = case_fold_for_pattern(eval, &from);
     let preserve_match_case = case_fold && case_replace_enabled(eval);
-    let pattern = build_regex_pattern(&from, case_fold);
-    let re = Regex::new(&pattern).map_err(|e| {
+    let iterated = super::regex::iterate_string_matches_with_case_fold(
+        &from, &source, 0, case_fold,
+    )
+    .map_err(|e| {
         signal(
             "invalid-regexp",
             vec![Value::string(format!("Invalid regexp: {e}"))],
@@ -1667,52 +1673,52 @@ fn replace_regexp_eval_impl(
     let mut replaced = 0usize;
     let mut backward_point = None;
     let mut query_forward_point = None;
-    for caps in re.captures_iter(&source) {
-        let Some(m) = caps.get(0) else {
+    for groups in iterated.matches {
+        let Some((match_start, match_end)) = groups.first().and_then(|group| *group) else {
             continue;
         };
-        if delimited && !is_delimited_match(&source, m.start(), m.end()) {
+        if delimited && !is_delimited_match(&source, match_start, match_end) {
             continue;
         }
-        if m.start() == m.end() {
+        if match_start == match_end {
             if backward {
                 // Backward path inserts after each character and at region end, not at start.
-                if m.start() == 0 {
+                if match_start == 0 {
                     continue;
                 }
             } else {
                 // Forward path inserts before each character, not at end.
-                if m.start() >= source.len() {
+                if match_start >= source.len() {
                     continue;
                 }
             }
-            out.push_str(&source[last..m.start()]);
-            let expanded = expand_emacs_replacement(&to, &caps);
+            out.push_str(&source[last..match_start]);
+            let expanded = expand_emacs_replacement(&to, &groups, &source);
             if preserve_match_case {
-                out.push_str(&preserve_case(&expanded, m.as_str()));
+                out.push_str(&preserve_case(&expanded, &source[match_start..match_end]));
             } else {
                 out.push_str(&expanded);
             }
             query_forward_point = Some(out.len());
-            last = m.start();
+            last = match_start;
             if backward && backward_point.is_none() {
-                backward_point = Some(m.start());
+                backward_point = Some(match_start);
             }
             replaced += 1;
             continue;
         }
 
-        out.push_str(&source[last..m.start()]);
-        let expanded = expand_emacs_replacement(&to, &caps);
+        out.push_str(&source[last..match_start]);
+        let expanded = expand_emacs_replacement(&to, &groups, &source);
         if preserve_match_case {
-            out.push_str(&preserve_case(&expanded, m.as_str()));
+            out.push_str(&preserve_case(&expanded, &source[match_start..match_end]));
         } else {
             out.push_str(&expanded);
         }
         query_forward_point = Some(out.len());
-        last = m.end();
+        last = match_end;
         if backward && backward_point.is_none() {
-            backward_point = Some(m.start());
+            backward_point = Some(match_start);
         }
         replaced += 1;
     }
