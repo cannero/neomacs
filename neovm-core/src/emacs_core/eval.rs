@@ -2284,18 +2284,145 @@ impl Evaluator {
     /// Mirrors GNU Emacs `command_loop_1()` (keyboard.c:1306).
     /// This is the core interactive loop: read → dispatch → redisplay.
     fn command_loop_1(&mut self) -> EvalResult {
-        use crate::keyboard::{InputEvent, keysym_to_key_event};
-        use super::keymap::key_event_to_emacs_event;
-
         loop {
             if !self.command_loop.running {
                 return Ok(Value::Nil);
             }
 
-            // Redisplay before blocking (same as GNU Emacs read_char).
-            self.redisplay();
+            // Read a complete key sequence (may be multi-key, e.g. C-x C-f).
+            let (keys, binding) = self.read_key_sequence()?;
 
-            // Block on input from render thread
+            if binding.is_nil() {
+                // Undefined key sequence
+                let desc: Vec<String> = keys.iter().map(|v| format!("{:?}", v)).collect();
+                tracing::debug!("Undefined key sequence: {}", desc.join(" "));
+                continue;
+            }
+
+            // Set this-command, last-command-event, this-command-keys
+            self.assign("this-command", binding);
+            if let Some(last) = keys.last() {
+                self.assign("last-command-event", *last);
+            }
+            self.read_command_keys = keys;
+
+            // Run pre-command-hook
+            let _ = self.run_hook_if_bound("pre-command-hook");
+
+            // Execute: (command-execute cmd)
+            let exec_result = super::interactive::builtin_command_execute(
+                self,
+                vec![binding],
+            );
+
+            if let Err(ref flow) = exec_result {
+                match flow {
+                    Flow::Throw { .. } => return exec_result,
+                    Flow::Signal(sig) => {
+                        // Log error but continue the loop
+                        // (mirrors cmd_error in keyboard.c)
+                        tracing::warn!(
+                            "Command error: ({} {:?})",
+                            sig.symbol_name(),
+                            sig.data
+                        );
+                    }
+                }
+            }
+
+            // Update last-command
+            if let Ok(this_cmd) = self.eval_symbol("this-command") {
+                self.assign("last-command", this_cmd);
+            }
+
+            // Run post-command-hook
+            let _ = self.run_hook_if_bound("post-command-hook");
+        }
+    }
+
+    /// Read a complete key sequence through keymaps.
+    ///
+    /// Mirrors GNU Emacs `read_key_sequence()` (keyboard.c:10098).
+    /// Reads keys one at a time, following prefix keymaps until a
+    /// complete binding (command) or undefined key is found.
+    ///
+    /// Returns (key_events_as_emacs_values, binding).
+    /// binding is Value::Nil if the key sequence is undefined.
+    fn read_key_sequence(&mut self) -> Result<(Vec<Value>, Value), Flow> {
+        use super::keymap::{key_event_to_emacs_event, is_list_keymap};
+
+        let mut events: Vec<Value> = Vec::new();
+
+        loop {
+            // Read next key
+            let emacs_event = self.read_char()?;
+            events.push(emacs_event);
+
+            // Record as last-input-event
+            self.record_input_event(emacs_event);
+
+            // Look up the full sequence so far
+            let key_vec = Value::vector(events.clone());
+            let binding = super::interactive::builtin_key_binding(
+                self,
+                vec![key_vec],
+            )?;
+
+            if binding.is_nil() {
+                // Undefined key sequence
+                return Ok((events, Value::Nil));
+            }
+
+            // Check if binding is a keymap (prefix key) — need more keys
+            if is_list_keymap(&binding) {
+                // It's a prefix keymap — read more keys
+                continue;
+            }
+
+            // Check if binding is a symbol whose function is a keymap
+            if let Some(sym_name) = binding.as_symbol_name() {
+                if let Some(func) = self.obarray.symbol_function(sym_name).copied() {
+                    if is_list_keymap(&func) {
+                        continue;
+                    }
+                }
+            }
+
+            // Found a complete binding (command)
+            return Ok((events, binding));
+        }
+    }
+
+    /// Read a single input event, blocking if necessary.
+    ///
+    /// Mirrors GNU Emacs `read_char()` (keyboard.c:2489).
+    /// This is THE blocking point in the command loop.
+    /// Before blocking, triggers redisplay.
+    fn read_char(&mut self) -> Result<Value, Flow> {
+        use crate::keyboard::InputEvent;
+        use super::keymap::key_event_to_emacs_event;
+
+        // 1. Check unread command events
+        if let Some(key) = self.command_loop.unread_events.pop_front() {
+            let keymap_key: super::keymap::KeyEvent = key.into();
+            return Ok(key_event_to_emacs_event(&keymap_key));
+        }
+
+        // 2. Check keyboard macro playback
+        if let Some(ref macro_events) = self.command_loop.executing_kbd_macro {
+            if self.command_loop.kbd_macro_index < macro_events.len() {
+                let key = macro_events[self.command_loop.kbd_macro_index].clone();
+                self.command_loop.kbd_macro_index += 1;
+                let keymap_key: super::keymap::KeyEvent = key.into();
+                return Ok(key_event_to_emacs_event(&keymap_key));
+            }
+        }
+
+        // 3. Redisplay before blocking (same as GNU Emacs)
+        self.redisplay();
+
+        // 4. Block on input
+        loop {
             let rx = match self.input_rx {
                 Some(ref rx) => rx.clone(),
                 None => return Ok(Value::Nil), // Batch mode
@@ -2303,100 +2430,39 @@ impl Evaluator {
 
             match rx.recv() {
                 Ok(event) => {
-                    self.command_loop.enqueue_event(event);
-                    // Drain any additional queued events
-                    while let Ok(event) = rx.try_recv() {
-                        self.command_loop.enqueue_event(event);
+                    // Handle the event directly
+                    match event {
+                        InputEvent::CloseRequested => {
+                            self.command_loop.running = false;
+                            // Signal quit to break out of the command loop
+                            return Err(super::error::signal("quit", vec![]));
+                        }
+                        InputEvent::Resize { width: _, height: _ } => {
+                            // TODO: update frame dimensions
+                            continue;
+                        }
+                        InputEvent::Focus(_focused) => {
+                            // TODO: run focus hooks
+                            continue;
+                        }
+                        InputEvent::KeyPress(key) => {
+                            // Record for keyboard macro
+                            if self.command_loop.defining_kbd_macro {
+                                self.command_loop.kbd_macro_events.push(key.clone());
+                            }
+                            let keymap_key: super::keymap::KeyEvent = key.into();
+                            return Ok(key_event_to_emacs_event(&keymap_key));
+                        }
+                        _ => {
+                            // TODO: mouse events, etc.
+                            continue;
+                        }
                     }
                 }
                 Err(_) => {
                     // Channel disconnected — render thread exited
                     self.command_loop.running = false;
-                    return Ok(Value::Nil);
-                }
-            }
-
-            // Process events from queue
-            // First, handle non-key events (resize, close, focus).
-            let mut pending_keys = Vec::new();
-            while let Some(event) = self.command_loop.event_queue.pop_front() {
-                match event {
-                    InputEvent::CloseRequested => {
-                        self.command_loop.running = false;
-                        return Ok(Value::Nil);
-                    }
-                    InputEvent::Resize { width: _, height: _ } => {
-                        // TODO: update frame dimensions
-                    }
-                    InputEvent::Focus(_focused) => {
-                        // TODO: run focus hooks
-                    }
-                    InputEvent::KeyPress(key) => {
-                        pending_keys.push(key);
-                    }
-                    _ => {
-                        // TODO: mouse events, etc.
-                    }
-                }
-            }
-
-            // Process key events: look up binding → command-execute.
-            for key in pending_keys {
-                let key_desc = key.to_description();
-                let keymap_key: super::keymap::KeyEvent = key.into();
-                let emacs_event = key_event_to_emacs_event(&keymap_key);
-
-                // Record as last-input-event
-                self.record_input_event(emacs_event);
-
-                // Look up key binding via (key-binding KEY)
-                let key_vec = Value::vector(vec![emacs_event]);
-                let binding = super::interactive::builtin_key_binding(
-                    self,
-                    vec![key_vec],
-                );
-
-                match binding {
-                    Ok(cmd) if !cmd.is_nil() => {
-                        // Set this-command
-                        self.assign("this-command", cmd);
-
-                        // Run pre-command-hook
-                        let _ = self.run_hook_if_bound("pre-command-hook");
-
-                        // Execute: (command-execute cmd)
-                        let exec_result = super::interactive::builtin_command_execute(
-                            self,
-                            vec![cmd],
-                        );
-
-                        if let Err(ref flow) = exec_result {
-                            match flow {
-                                Flow::Throw { .. } => return exec_result,
-                                Flow::Signal(sig) => {
-                                    // Log error but continue the loop
-                                    // (mirrors cmd_error in keyboard.c)
-                                    tracing::warn!(
-                                        "Command error: ({} {:?})",
-                                        sig.symbol_name(),
-                                        sig.data
-                                    );
-                                }
-                            }
-                        }
-
-                        // Update last-command
-                        if let Ok(this_cmd) = self.eval_symbol("this-command") {
-                            self.assign("last-command", this_cmd);
-                        }
-
-                        // Run post-command-hook
-                        let _ = self.run_hook_if_bound("post-command-hook");
-                    }
-                    _ => {
-                        // Undefined key — beep or message
-                        tracing::debug!("Undefined key: {}", key_desc);
-                    }
+                    return Err(super::error::signal("quit", vec![]));
                 }
             }
         }
