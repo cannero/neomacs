@@ -2519,8 +2519,55 @@ impl Evaluator {
                             let keymap_key: super::keymap::KeyEvent = key.into();
                             return Ok(key_event_to_emacs_event(&keymap_key));
                         }
-                        _ => {
-                            // TODO: mouse events, etc.
+                        InputEvent::MousePress {
+                            button,
+                            x,
+                            y,
+                            modifiers,
+                        } => {
+                            let event = Self::make_mouse_event(
+                                &button, x, y, &modifiers, "down-mouse", self,
+                            );
+                            return Ok(event);
+                        }
+                        InputEvent::MouseRelease { button, x, y } => {
+                            let event = Self::make_mouse_event(
+                                &button,
+                                x,
+                                y,
+                                &crate::keyboard::Modifiers::none(),
+                                "mouse",
+                                self,
+                            );
+                            return Ok(event);
+                        }
+                        InputEvent::MouseScroll {
+                            delta_x: _,
+                            delta_y,
+                            x,
+                            y,
+                            modifiers,
+                        } => {
+                            // Scroll events: wheel-up / wheel-down
+                            let dir = if delta_y > 0.0 {
+                                "wheel-up"
+                            } else {
+                                "wheel-down"
+                            };
+                            let mut sym = String::new();
+                            Self::append_modifier_prefix(
+                                &modifiers, &mut sym,
+                            );
+                            sym.push_str(dir);
+                            let position = Self::make_mouse_position(x, y, self);
+                            return Ok(Value::list(vec![
+                                Value::symbol(&sym),
+                                position,
+                            ]));
+                        }
+                        InputEvent::MouseMove { .. } => {
+                            // Movement events are not typically returned by
+                            // read_char — they are handled by tracking state.
                             continue;
                         }
                     }
@@ -2531,6 +2578,81 @@ impl Evaluator {
                     return Err(super::error::signal("quit", vec![]));
                 }
             }
+        }
+    }
+
+    /// Build an Emacs mouse event value.
+    ///
+    /// Returns `(EVENT-SYMBOL POSITION)` where EVENT-SYMBOL is e.g.
+    /// `mouse-1`, `down-mouse-2`, `C-mouse-1`, etc.
+    fn make_mouse_event(
+        button: &crate::keyboard::MouseButton,
+        x: f32,
+        y: f32,
+        modifiers: &crate::keyboard::Modifiers,
+        prefix: &str,
+        eval: &Self,
+    ) -> Value {
+        use crate::keyboard::MouseButton;
+        let button_num = match button {
+            MouseButton::Left => 1,
+            MouseButton::Middle => 2,
+            MouseButton::Right => 3,
+            MouseButton::Button4 => 4,
+            MouseButton::Button5 => 5,
+        };
+        let mut sym = String::new();
+        Self::append_modifier_prefix(modifiers, &mut sym);
+        sym.push_str(&format!("{}-{}", prefix, button_num));
+
+        let position = Self::make_mouse_position(x, y, eval);
+        Value::list(vec![Value::symbol(&sym), position])
+    }
+
+    /// Build an Emacs mouse position value.
+    ///
+    /// Returns `(WINDOW POS (X . Y) TIMESTAMP)` where WINDOW is the
+    /// selected window, POS is the current point, and TIMESTAMP is 0.
+    fn make_mouse_position(x: f32, y: f32, eval: &Self) -> Value {
+        let window = eval
+            .eval_symbol("selected-window")
+            .unwrap_or(Value::Nil);
+        // Use selected window value, or fall back to a generic list
+        let window_val = if window.is_nil() {
+            Value::Nil
+        } else {
+            window
+        };
+        let pos = eval
+            .buffers
+            .current_buffer()
+            .map(|buf| Value::Int(buf.text.byte_to_char(buf.point()) as i64 + 1))
+            .unwrap_or(Value::Int(1));
+        let xy = Value::cons(Value::Int(x as i64), Value::Int(y as i64));
+        Value::list(vec![
+            Value::list(vec![window_val, pos, xy, Value::Int(0)]),
+        ])
+    }
+
+    /// Append modifier prefix characters to a symbol name string.
+    fn append_modifier_prefix(
+        modifiers: &crate::keyboard::Modifiers,
+        out: &mut String,
+    ) {
+        if modifiers.ctrl {
+            out.push_str("C-");
+        }
+        if modifiers.meta {
+            out.push_str("M-");
+        }
+        if modifiers.shift {
+            out.push_str("S-");
+        }
+        if modifiers.super_ {
+            out.push_str("s-");
+        }
+        if modifiers.hyper {
+            out.push_str("H-");
         }
     }
 
