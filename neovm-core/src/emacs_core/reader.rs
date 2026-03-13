@@ -726,21 +726,43 @@ pub(crate) fn builtin_read_string(
 
 /// `(read-number PROMPT &optional DEFAULT)`
 ///
-/// In batch mode, if `unread-command-events` is non-empty, signal
-/// `end-of-file` and keep the event queue unchanged (Oracle-compatible
-/// behavior).
+/// Read a numeric value from the minibuffer.
+/// Delegates to read-from-minibuffer with READ=t, then validates the result
+/// is a number.
 pub(crate) fn builtin_read_number(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("read-number", &args, 1)?;
     expect_max_args("read-number", &args, 3)?;
-    let _prompt = expect_string(&args[0])?;
+    let prompt = args[0];
+    expect_string(&prompt)?;
     if let Some(default) = args.get(1) {
         if !default.is_nil() {
             expect_number(default)?;
         }
     }
+
+    // Interactive mode: use read-from-minibuffer with READ=t
+    if eval.input_rx.is_some() {
+        let default_val = args.get(1).copied().unwrap_or(Value::Nil);
+        let result = builtin_read_from_minibuffer(
+            eval,
+            vec![prompt, Value::Nil, Value::Nil, Value::True, Value::Nil, default_val],
+        )?;
+        // Validate result is a number
+        match result {
+            Value::Int(_) | Value::Float(..) => return Ok(result),
+            _ => {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Not a number")],
+                ));
+            }
+        }
+    }
+
+    // Batch mode
     if eval.peek_unread_command_event().is_some() {
         return Err(signal(
             "end-of-file",
@@ -757,21 +779,63 @@ pub(crate) fn builtin_read_number(
 // 8. completing-read
 // ---------------------------------------------------------------------------
 
-/// `(completing-read PROMPT COLLECTION ...)`
+/// `(completing-read PROMPT COLLECTION &optional PREDICATE REQUIRE-MATCH
+///                    INITIAL-INPUT HIST DEF INHERIT-INPUT-METHOD)`
 ///
-/// In batch/non-interactive mode, if `unread-command-events` is non-empty,
-/// signal `end-of-file` and keep the event queue unchanged (Oracle-compatible
-/// behavior).
+/// Read a string from the minibuffer with completion.
+/// In interactive mode, delegates to read-from-minibuffer with
+/// minibuffer-local-completion-map (or minibuffer-local-must-match-map
+/// if REQUIRE-MATCH is non-nil).
 pub(crate) fn builtin_completing_read(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("completing-read", &args, 2)?;
     expect_max_args("completing-read", &args, 8)?;
-    let _prompt = expect_string(&args[0])?;
+    let prompt = args[0];
+    expect_string(&prompt)?;
     if let Some(initial) = args.get(4) {
         expect_completing_read_initial_input(initial)?;
     }
+
+    // Interactive mode: use read-from-minibuffer with completion keymap
+    if eval.input_rx.is_some() {
+        let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+        let initial_input = args.get(4).copied().unwrap_or(Value::Nil);
+        let hist = args.get(5).copied().unwrap_or(Value::Nil);
+        let default_val = args.get(6).copied().unwrap_or(Value::Nil);
+        let inherit = args.get(7).copied().unwrap_or(Value::Nil);
+
+        // Choose keymap: must-match or completion
+        let keymap = if !require_match.is_nil() {
+            eval.obarray().symbol_value("minibuffer-local-must-match-map")
+                .copied()
+                .unwrap_or(Value::Nil)
+        } else {
+            eval.obarray().symbol_value("minibuffer-local-completion-map")
+                .copied()
+                .unwrap_or(Value::Nil)
+        };
+
+        // Store completion table for TAB completion (minibuffer-completion-table)
+        let collection = args[1];
+        eval.assign("minibuffer-completion-table", collection);
+        let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+        eval.assign("minibuffer-completion-predicate", predicate);
+
+        let result = builtin_read_from_minibuffer(
+            eval,
+            vec![prompt, initial_input, keymap, Value::Nil, hist, default_val, inherit],
+        );
+
+        // Clean up completion state
+        eval.assign("minibuffer-completion-table", Value::Nil);
+        eval.assign("minibuffer-completion-predicate", Value::Nil);
+
+        return result;
+    }
+
+    // Batch mode
     if eval.peek_unread_command_event().is_some() {
         return Err(signal(
             "end-of-file",
