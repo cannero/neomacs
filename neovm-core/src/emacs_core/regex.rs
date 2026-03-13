@@ -68,8 +68,7 @@ enum BackrefAtom {
     CharClass(BackrefCharClass),
     WordChar,
     NotWordChar,
-    Whitespace,
-    NotWhitespace,
+    SyntaxClass(BackrefSyntaxClass, bool),
     WordBoundary,
     NotWordBoundary,
     StartBuffer,
@@ -77,6 +76,17 @@ enum BackrefAtom {
     Group(usize, BackrefExpr),
     NonCapturing(BackrefExpr),
     Backref(usize),
+}
+
+#[derive(Clone, Copy)]
+enum BackrefSyntaxClass {
+    Whitespace,
+    Word,
+    Symbol,
+    Punct,
+    OpenDelim,
+    CloseDelim,
+    StringQuote,
 }
 
 #[derive(Clone)]
@@ -931,14 +941,14 @@ impl<'a> BackrefParser<'a> {
                     '1'..='9' => Some(BackrefAtom::Backref(next.to_digit(10)? as usize)),
                     'w' => Some(BackrefAtom::WordChar),
                     'W' => Some(BackrefAtom::NotWordChar),
-                    's' => {
-                        self.next()?;
-                        Some(BackrefAtom::Whitespace)
-                    }
-                    'S' => {
-                        self.next()?;
-                        Some(BackrefAtom::NotWhitespace)
-                    }
+                    's' => Some(BackrefAtom::SyntaxClass(
+                        map_syntax_class(self.next()?),
+                        false,
+                    )),
+                    'S' => Some(BackrefAtom::SyntaxClass(
+                        map_syntax_class(self.next()?),
+                        true,
+                    )),
                     'b' => Some(BackrefAtom::WordBoundary),
                     'B' => Some(BackrefAtom::NotWordBoundary),
                     '`' => Some(BackrefAtom::StartBuffer),
@@ -1661,6 +1671,31 @@ fn matches_posix_class(ch: char, class: BackrefPosixClass) -> bool {
     }
 }
 
+fn map_syntax_class(ch: char) -> BackrefSyntaxClass {
+    match ch {
+        '-' | ' ' | '\'' | '<' | '>' | '!' | '|' | '/' => BackrefSyntaxClass::Whitespace,
+        'w' => BackrefSyntaxClass::Word,
+        '_' => BackrefSyntaxClass::Symbol,
+        '.' => BackrefSyntaxClass::Punct,
+        '(' => BackrefSyntaxClass::OpenDelim,
+        ')' => BackrefSyntaxClass::CloseDelim,
+        '"' => BackrefSyntaxClass::StringQuote,
+        _ => BackrefSyntaxClass::Whitespace,
+    }
+}
+
+fn matches_syntax_class(ch: char, class: BackrefSyntaxClass) -> bool {
+    match class {
+        BackrefSyntaxClass::Whitespace => ch.is_whitespace(),
+        BackrefSyntaxClass::Word => is_word_char(ch),
+        BackrefSyntaxClass::Symbol => is_word_char(ch) || ch == '_',
+        BackrefSyntaxClass::Punct => ch.is_ascii_punctuation(),
+        BackrefSyntaxClass::OpenDelim => matches!(ch, '[' | '(' | '{'),
+        BackrefSyntaxClass::CloseDelim => matches!(ch, ']' | ')' | '}'),
+        BackrefSyntaxClass::StringQuote => matches!(ch, '"' | '\''),
+    }
+}
+
 fn char_class_matches(class: &BackrefCharClass, ch: char, case_fold: bool) -> bool {
     let matched = class.items.iter().any(|item| match item {
         BackrefCharClassItem::Literal(expected) => char_eq_case_fold(ch, *expected, case_fold),
@@ -1804,24 +1839,12 @@ fn match_backref_atom_once(
                 Vec::new()
             }
         }
-        BackrefAtom::Whitespace => {
+        BackrefAtom::SyntaxClass(class, negated) => {
             let Some((ch, len)) = char_at(text, state.pos) else {
                 return Vec::new();
             };
-            if ch.is_whitespace() {
-                vec![BackrefState {
-                    pos: state.pos + len,
-                    groups: state.groups.clone(),
-                }]
-            } else {
-                Vec::new()
-            }
-        }
-        BackrefAtom::NotWhitespace => {
-            let Some((ch, len)) = char_at(text, state.pos) else {
-                return Vec::new();
-            };
-            if !ch.is_whitespace() {
+            let matched = matches_syntax_class(ch, *class);
+            if matched != *negated {
                 vec![BackrefState {
                     pos: state.pos + len,
                     groups: state.groups.clone(),
