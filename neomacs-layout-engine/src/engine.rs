@@ -1314,6 +1314,12 @@ impl LayoutEngine {
         );
 
         for params in &window_params_list {
+            tracing::debug!(
+                "layout window: id={} buf={} bounds=({:.0},{:.0},{:.0},{:.0}) mini={} selected={} mode_line_h={:.0}",
+                params.window_id, params.buffer_id,
+                params.bounds.x, params.bounds.y, params.bounds.width, params.bounds.height,
+                params.is_minibuffer, params.selected, params.mode_line_height,
+            );
             // Add window background
             frame_glyphs.add_background(
                 params.bounds.x,
