@@ -525,21 +525,29 @@ pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
 // 5. read-from-minibuffer
 // ---------------------------------------------------------------------------
 
-/// `(read-from-minibuffer PROMPT ...)`
+/// `(read-from-minibuffer PROMPT &optional INITIAL KEYMAP READ HIST DEFAULT INHERIT-INPUT-METHOD)`
 ///
-/// In batch/non-interactive mode, if `unread-command-events` is non-empty,
-/// signal `end-of-file` and keep the event queue unchanged (Oracle-compatible
-/// behavior).
+/// Read a string from the minibuffer.
+/// In interactive mode, sets up the minibuffer buffer, enters recursive-edit,
+/// and returns the user's input when they press RET (exit-minibuffer).
+/// In batch mode, signals `end-of-file`.
 pub(crate) fn builtin_read_from_minibuffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("read-from-minibuffer", &args, 1)?;
     expect_max_args("read-from-minibuffer", &args, 7)?;
-    let _prompt = expect_string(&args[0])?;
+    let prompt = expect_string(&args[0])?;
     if let Some(initial) = args.get(1) {
         expect_initial_input_stringish(initial)?;
     }
+
+    // Interactive mode: use the minibuffer with recursive edit
+    if eval.input_rx.is_some() {
+        return read_from_minibuffer_interactive(eval, &prompt, &args);
+    }
+
+    // Batch mode: signal end-of-file
     if eval.peek_unread_command_event().is_some() {
         return Err(signal(
             "end-of-file",
@@ -552,35 +560,164 @@ pub(crate) fn builtin_read_from_minibuffer(
     ))
 }
 
+/// Interactive read-from-minibuffer implementation.
+///
+/// Mirrors GNU Emacs `read_minibuf()` in minibuf.c:
+/// 1. Save current buffer/keymap state
+/// 2. Set up *Minibuf-N* buffer with prompt
+/// 3. Set local keymap (minibuffer-local-map or KEYMAP arg)
+/// 4. Enter recursive edit (command loop runs in minibuffer)
+/// 5. User presses RET → exit-minibuffer → throw 'exit
+/// 6. Read buffer contents after prompt, restore state, return string
+fn read_from_minibuffer_interactive(
+    eval: &mut super::eval::Evaluator,
+    prompt: &str,
+    args: &[Value],
+) -> EvalResult {
+    // Extract optional arguments
+    let initial_input = args
+        .get(1)
+        .and_then(|v| match v {
+            Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+            _ => None,
+        });
+    let keymap_arg = args.get(2).copied().unwrap_or(Value::Nil);
+    let read_arg = args.get(3).copied().unwrap_or(Value::Nil);
+    let default_val = args.get(5).copied().unwrap_or(Value::Nil);
+
+    // Save state
+    let saved_local_map = eval.current_local_map;
+    let saved_buffer_id = eval.buffer_manager().current_buffer().map(|b| b.id);
+
+    // Find or create *Minibuf-N* buffer
+    let depth = eval.command_loop.recursive_depth;
+    let minibuf_name = format!(" *Minibuf-{}*", depth);
+    let minibuf_id = eval
+        .buffer_manager()
+        .find_buffer_by_name(&minibuf_name)
+        .unwrap_or_else(|| eval.buffer_manager_mut().create_buffer(&minibuf_name));
+
+    // Clear the minibuffer buffer and insert prompt + initial input
+    let prompt_byte_len;
+    {
+        let buf = eval.buffer_manager_mut().get_mut(minibuf_id).unwrap();
+        let text_len = buf.text.len();
+        if text_len > 0 {
+            buf.text.delete_range(0, text_len);
+        }
+        buf.text.insert_str(0, prompt);
+        prompt_byte_len = prompt.len();
+        if let Some(ref initial) = initial_input {
+            buf.text.insert_str(prompt_byte_len, initial);
+        }
+        let total_len = buf.text.len();
+        buf.begv = 0;
+        buf.zv = total_len;
+        buf.pt = total_len; // cursor at end of initial input
+    }
+
+    // Switch to minibuffer buffer
+    eval.buffer_manager_mut().set_current(minibuf_id);
+
+    // Set local keymap: use KEYMAP arg if provided, otherwise minibuffer-local-map
+    let minibuf_keymap = if !keymap_arg.is_nil() {
+        keymap_arg
+    } else {
+        eval.obarray().symbol_value("minibuffer-local-map")
+            .copied()
+            .unwrap_or(Value::Nil)
+    };
+    eval.current_local_map = minibuf_keymap;
+
+    // Set minibuffer-related variables
+    eval.assign("minibuffer-prompt", Value::string(prompt));
+    let prev_depth = eval.obarray().symbol_value("minibuffer-depth")
+        .copied()
+        .unwrap_or(Value::Int(0));
+    eval.assign("minibuffer-depth", Value::Int(depth as i64));
+
+    // Enter recursive edit — the command loop runs until exit-minibuffer throws 'exit
+    let edit_result = eval.recursive_edit_inner();
+
+    // Read the minibuffer contents (everything after the prompt)
+    let result_string = if let Some(buf) = eval.buffer_manager().get(minibuf_id) {
+        let total_len = buf.text.len();
+        if total_len > prompt_byte_len {
+            buf.buffer_substring(prompt_byte_len, total_len)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    // Restore state
+    eval.current_local_map = saved_local_map;
+    if let Some(buf_id) = saved_buffer_id {
+        eval.buffer_manager_mut().set_current(buf_id);
+    }
+    eval.assign("minibuffer-depth", prev_depth);
+
+    // Handle the recursive edit result
+    match edit_result {
+        Ok(_) | Err(Flow::Throw { .. }) => {
+            // Normal exit (throw 'exit from exit-minibuffer)
+            // If READ arg is non-nil, evaluate the result as a Lisp expression
+            if !read_arg.is_nil() && !result_string.is_empty() {
+                // READ is non-nil: parse the result string as a Lisp expression
+                // (like calling (read STRING)) and return the parsed object.
+                let read_result = builtin_read_from_string(
+                    eval,
+                    vec![Value::string(&result_string)],
+                )?;
+                // read-from-string returns (OBJECT . END-POS), extract OBJECT
+                if let Value::Cons(id) = read_result {
+                    let snap = super::value::read_cons(id);
+                    return Ok(snap.car);
+                }
+                return Ok(read_result);
+            }
+
+            // If result is empty and DEFAULT is provided, use it
+            if result_string.is_empty() && !default_val.is_nil() {
+                return Ok(default_val);
+            }
+
+            Ok(Value::string(result_string))
+        }
+        Err(flow) => Err(flow),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 6. read-string
 // ---------------------------------------------------------------------------
 
-/// `(read-string PROMPT ...)`
+/// `(read-string PROMPT &optional INITIAL HISTORY DEFAULT INHERIT-INPUT-METHOD)`
 ///
-/// In batch/non-interactive mode, if `unread-command-events` is non-empty,
-/// signal `end-of-file` and keep the event queue unchanged (Oracle-compatible
-/// behavior).
+/// Read a string from the minibuffer.  Delegates to `read-from-minibuffer`.
 pub(crate) fn builtin_read_string(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("read-string", &args, 1)?;
     expect_max_args("read-string", &args, 5)?;
-    let _prompt = expect_string(&args[0])?;
+    let prompt = args[0];
     if let Some(initial) = args.get(1) {
         expect_initial_input_stringish(initial)?;
     }
-    if eval.peek_unread_command_event().is_some() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    Err(signal(
-        "end-of-file",
-        vec![Value::string("Error reading from stdin")],
-    ))
+
+    // Build args for read-from-minibuffer:
+    // (read-from-minibuffer PROMPT INITIAL nil nil HIST DEFAULT INHERIT-INPUT-METHOD)
+    let initial = args.get(1).copied().unwrap_or(Value::Nil);
+    let history = args.get(2).copied().unwrap_or(Value::Nil);
+    let default = args.get(3).copied().unwrap_or(Value::Nil);
+    let inherit = args.get(4).copied().unwrap_or(Value::Nil);
+
+    builtin_read_from_minibuffer(
+        eval,
+        vec![prompt, initial, Value::Nil, Value::Nil, history, default, inherit],
+    )
 }
 
 // ---------------------------------------------------------------------------
