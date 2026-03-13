@@ -21,6 +21,11 @@ enum CompiledSearchPattern {
     Regex(Regex),
 }
 
+pub(crate) struct IteratedStringMatches {
+    pub capture_count: usize,
+    pub matches: Vec<Vec<Option<(usize, usize)>>>,
+}
+
 #[derive(Clone)]
 struct SegmentedPattern {
     segments: Vec<SegmentedPatternPart>,
@@ -1009,6 +1014,101 @@ fn compile_search_pattern(pattern: &str, case_fold: bool) -> Result<CompiledSear
     });
 
     Ok(compiled)
+}
+
+fn compiled_capture_count(compiled: &CompiledSearchPattern) -> usize {
+    match compiled {
+        CompiledSearchPattern::Literal(_) => 1,
+        CompiledSearchPattern::Segmented(pattern) => pattern.capture_count + 1,
+        CompiledSearchPattern::Backref(pattern) => pattern.group_count + 1,
+        CompiledSearchPattern::Regex(re) => re.captures_len(),
+    }
+}
+
+fn find_forward_match_data_compiled(
+    compiled: &CompiledSearchPattern,
+    text: &str,
+    start: usize,
+    limit: usize,
+    offset: usize,
+    case_fold: bool,
+) -> Option<MatchData> {
+    match compiled {
+        CompiledSearchPattern::Literal(literal) => {
+            let (match_start, match_end) = literal_find(&text[start..limit], literal, case_fold)?;
+            Some(MatchData {
+                groups: vec![Some((
+                    offset + start + match_start,
+                    offset + start + match_end,
+                ))],
+                searched_string: None,
+                searched_buffer: None,
+            })
+        }
+        CompiledSearchPattern::Segmented(pattern) => {
+            find_forward_segmented_match_data(pattern, text, start, limit, offset, case_fold)
+        }
+        CompiledSearchPattern::Backref(pattern) => {
+            find_forward_backref_match_data(pattern, text, start, limit, offset, case_fold)
+        }
+        CompiledSearchPattern::Regex(re) => find_forward_match_data(re, text, start, limit, offset),
+    }
+}
+
+pub(crate) fn iterate_string_matches_with_case_fold(
+    pattern: &str,
+    string: &str,
+    start: usize,
+    case_fold: bool,
+) -> Result<IteratedStringMatches, String> {
+    let compiled = compile_search_pattern(pattern, case_fold)?;
+    let capture_count = compiled_capture_count(&compiled);
+    if start > string.len() {
+        return Ok(IteratedStringMatches {
+            capture_count,
+            matches: Vec::new(),
+        });
+    }
+    let mut matches = Vec::new();
+    let mut search_at = start;
+
+    while search_at <= string.len() {
+        let Some(md) = find_forward_match_data_compiled(
+            &compiled,
+            string,
+            search_at,
+            string.len(),
+            0,
+            case_fold,
+        ) else {
+            break;
+        };
+        let Some((match_start, match_end)) = md.groups.first().and_then(|group| *group) else {
+            break;
+        };
+        matches.push(md.groups);
+
+        if match_end > search_at {
+            search_at = match_end;
+            continue;
+        }
+
+        let Some(next_at) = next_search_char_boundary(string, match_end) else {
+            break;
+        };
+        if next_at <= search_at {
+            break;
+        }
+        search_at = next_at;
+        if match_start == match_end && search_at > string.len() {
+            break;
+        }
+    }
+
+    Ok(IteratedStringMatches {
+        capture_count,
+        matches,
+    })
 }
 
 fn match_data_from_captures(caps: &regex::Captures<'_>, offset: usize) -> MatchData {

@@ -172,7 +172,12 @@ fn preserve_case(replacement: &str, matched: &str) -> String {
     super::casefiddle::apply_replace_match_case(replacement, matched)
 }
 
-fn expand_emacs_replacement(rep: &str, caps: &regex::Captures<'_>, literal: bool) -> String {
+fn expand_emacs_replacement(
+    rep: &str,
+    groups: &[Option<(usize, usize)>],
+    source: &str,
+    literal: bool,
+) -> String {
     if literal {
         return rep.to_string();
     }
@@ -192,14 +197,18 @@ fn expand_emacs_replacement(rep: &str, caps: &regex::Captures<'_>, literal: bool
 
         match next {
             '&' => {
-                if let Some(m) = caps.get(0) {
-                    out.push_str(m.as_str());
+                if let Some(Some((start, end))) = groups.first()
+                    && let Some(text) = source.get(*start..*end)
+                {
+                    out.push_str(text);
                 }
             }
             '1'..='9' => {
                 let idx = next.to_digit(10).unwrap() as usize;
-                if let Some(m) = caps.get(idx) {
-                    out.push_str(m.as_str());
+                if let Some(Some((start, end))) = groups.get(idx)
+                    && let Some(text) = source.get(*start..*end)
+                {
+                    out.push_str(text);
                 }
             }
             '\\' => out.push('\\'),
@@ -539,16 +548,11 @@ fn replace_regexp_in_string_core(
         parse_replace_regexp_subexp_start(args, &s)?
     };
 
-    let translated = super::regex::translate_emacs_regex(&pattern);
-    let rust_pattern = if case_fold {
-        format!("(?mi:{translated})")
-    } else {
-        format!("(?m:{translated})")
-    };
-    let re = regex::Regex::new(&rust_pattern)
-        .map_err(|e| signal("invalid-regexp", vec![Value::string(e.to_string())]))?;
+    let iterated =
+        super::regex::iterate_string_matches_with_case_fold(&pattern, &s, start, case_fold)
+            .map_err(|msg| signal("invalid-regexp", vec![Value::string(msg)]))?;
 
-    let max_subexp = re.captures_len().saturating_sub(1);
+    let max_subexp = iterated.capture_count.saturating_sub(1);
     if (subexp as usize) > max_subexp {
         return Err(signal(
             "error",
@@ -559,22 +563,26 @@ fn replace_regexp_in_string_core(
         ));
     }
 
-    let search_region = &s[start..];
-    let mut out = String::with_capacity(search_region.len());
-    let mut cursor = 0usize;
+    let mut out = String::with_capacity(s.len().saturating_sub(start));
+    let mut cursor = start;
 
-    for caps in re.captures_iter(search_region) {
-        let full_match = match caps.get(0) {
-            Some(m) => m,
-            None => continue,
+    for groups in iterated.matches {
+        let Some((_, full_end)) = groups.first().and_then(|group| *group) else {
+            continue;
         };
-
         let (replace_start, replace_end, case_source) = if subexp == 0 {
-            let src = full_match.as_str();
-            (full_match.start(), full_match.end(), src)
-        } else if let Some(g) = caps.get(subexp as usize) {
-            let src = g.as_str();
-            (g.start(), g.end(), src)
+            let Some((match_start, match_end)) = groups.first().and_then(|group| *group) else {
+                continue;
+            };
+            let Some(src) = s.get(match_start..match_end) else {
+                continue;
+            };
+            (match_start, match_end, src)
+        } else if let Some(Some((group_start, group_end))) = groups.get(subexp as usize) {
+            let Some(src) = s.get(*group_start..*group_end) else {
+                continue;
+            };
+            (*group_start, *group_end, src)
         } else {
             return Err(signal(
                 "error",
@@ -585,18 +593,18 @@ fn replace_regexp_in_string_core(
             ));
         };
 
-        out.push_str(&search_region[cursor..replace_start]);
-        let base = expand_emacs_replacement(rep, &caps, literal);
+        out.push_str(&s[cursor..replace_start]);
+        let base = expand_emacs_replacement(rep, &groups, &s, literal);
         let replacement = if fixedcase {
             base
         } else {
             preserve_case(&base, case_source)
         };
         out.push_str(&replacement);
-        cursor = replace_end;
+        cursor = if subexp == 0 { full_end } else { replace_end };
     }
 
-    out.push_str(&search_region[cursor..]);
+    out.push_str(&s[cursor..]);
     Ok(Value::string(out))
 }
 
@@ -635,16 +643,11 @@ pub(crate) fn builtin_replace_regexp_in_string_eval(
     let _literal = args.get(4).is_some_and(|v| v.is_truthy());
     let (subexp, start) = parse_replace_regexp_subexp_start(&args, &s)?;
 
-    let translated = super::regex::translate_emacs_regex(&pattern);
-    let rust_pattern = if case_fold {
-        format!("(?mi:{translated})")
-    } else {
-        format!("(?m:{translated})")
-    };
-    let re = regex::Regex::new(&rust_pattern)
-        .map_err(|e| signal("invalid-regexp", vec![Value::string(e.to_string())]))?;
+    let iterated =
+        super::regex::iterate_string_matches_with_case_fold(&pattern, &s, start, case_fold)
+            .map_err(|msg| signal("invalid-regexp", vec![Value::string(msg)]))?;
 
-    let max_subexp = re.captures_len().saturating_sub(1);
+    let max_subexp = iterated.capture_count.saturating_sub(1);
     if (subexp as usize) > max_subexp {
         return Err(signal(
             "error",
@@ -655,28 +658,33 @@ pub(crate) fn builtin_replace_regexp_in_string_eval(
         ));
     }
 
-    let search_region = s[start..].to_string();
+    let search_region = &s[start..];
     let mut out = String::with_capacity(search_region.len());
-    let mut cursor = 0usize;
-
-    // Collect all matches first to avoid borrow issues
-    let all_caps: Vec<_> = re.captures_iter(&search_region).collect();
+    let mut cursor = start;
+    let prefix_chars = s[..start].chars().count();
+    let searched_string = match args[2] {
+        Value::Str(id) => super::regex::SearchedString::Heap(id),
+        _ => super::regex::SearchedString::Owned(s.clone()),
+    };
 
     let saved = eval.save_temp_roots();
     eval.push_temp_root(func);
 
-    for caps in &all_caps {
-        let full_match = match caps.get(0) {
-            Some(m) => m,
-            None => continue,
+    for groups in &iterated.matches {
+        let Some((full_start, full_end)) = groups.first().and_then(|group| *group) else {
+            continue;
         };
 
         let (replace_start, replace_end, case_source) = if subexp == 0 {
-            let src = full_match.as_str().to_string();
-            (full_match.start(), full_match.end(), src)
-        } else if let Some(g) = caps.get(subexp as usize) {
-            let src = g.as_str().to_string();
-            (g.start(), g.end(), src)
+            let Some(src) = s.get(full_start..full_end) else {
+                continue;
+            };
+            (full_start, full_end, src.to_string())
+        } else if let Some(Some((group_start, group_end))) = groups.get(subexp as usize) {
+            let Some(src) = s.get(*group_start..*group_end) else {
+                continue;
+            };
+            (*group_start, *group_end, src.to_string())
         } else {
             eval.restore_temp_roots(saved);
             return Err(signal(
@@ -692,28 +700,24 @@ pub(crate) fn builtin_replace_regexp_in_string_eval(
         // In Emacs, replace-regexp-in-string calls string-match on the
         // whole STRING with START, so match positions are character
         // positions relative to the whole string.
-        let prefix_chars = s[..start].chars().count();
-        let mut groups = Vec::with_capacity(caps.len());
-        for i in 0..caps.len() {
-            groups.push(caps.get(i).map(|m| {
-                let cs = search_region[..m.start()].chars().count() + prefix_chars;
-                let ce = search_region[..m.end()].chars().count() + prefix_chars;
+        let mut match_groups = Vec::with_capacity(groups.len());
+        for group in groups {
+            match_groups.push(group.map(|(group_start, group_end)| {
+                let cs = search_region[..group_start - start].chars().count() + prefix_chars;
+                let ce = search_region[..group_end - start].chars().count() + prefix_chars;
                 (cs, ce)
             }));
         }
         eval.match_data = Some(super::regex::MatchData {
-            groups,
-            searched_string: Some(match args[2] {
-                Value::Str(id) => super::regex::SearchedString::Heap(id),
-                _ => super::regex::SearchedString::Owned(s.clone()),
-            }),
+            groups: match_groups,
+            searched_string: Some(searched_string.clone()),
             searched_buffer: None,
         });
 
-        out.push_str(&search_region[cursor..replace_start]);
+        out.push_str(&s[cursor..replace_start]);
 
         // Call the function with the matched string
-        let matched_str = full_match.as_str();
+        let matched_str = &s[full_start..full_end];
         let func_result = eval.apply(func, vec![Value::string(matched_str)])?;
         let base = match func_result.as_str() {
             Some(s) => s.to_string(),
@@ -732,11 +736,11 @@ pub(crate) fn builtin_replace_regexp_in_string_eval(
             preserve_case(&base, &case_source)
         };
         out.push_str(&replacement);
-        cursor = replace_end;
+        cursor = if subexp == 0 { full_end } else { replace_end };
     }
 
     eval.restore_temp_roots(saved);
-    out.push_str(&search_region[cursor..]);
+    out.push_str(&s[cursor..]);
     Ok(Value::string(out))
 }
 
