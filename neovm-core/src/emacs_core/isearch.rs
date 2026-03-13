@@ -621,16 +621,23 @@ impl IsearchManager {
         let region = &text[start..end];
 
         if state.regexp {
-            let pattern = build_regex_pattern(&state.search_string, case_fold);
-            if let Ok(re) = Regex::new(&pattern) {
-                for m in re.find_iter(region) {
-                    let ms = start + m.start();
-                    let me = start + m.end();
-                    // Skip zero-length matches to avoid infinite loop
-                    if ms == me {
+            if let Ok(iterated) = super::regex::iterate_string_matches_with_case_fold(
+                &state.search_string,
+                region,
+                0,
+                case_fold,
+            ) {
+                for groups in iterated.matches {
+                    let Some((match_start, match_end)) = groups.first().and_then(|group| *group)
+                    else {
+                        continue;
+                    };
+                    if match_start == match_end {
                         continue;
                     }
-                    state.lazy_matches.push((ms, me));
+                    state
+                        .lazy_matches
+                        .push((start + match_start, start + match_end));
                 }
             }
         } else {
@@ -1218,23 +1225,30 @@ fn find_match(
     let text_len = text.len();
 
     if regexp {
-        let re_pat = build_regex_pattern(pattern, case_fold);
-        let re = Regex::new(&re_pat).ok()?;
-
         if forward {
             let start = from.min(text_len);
-            let region = &text[start..];
-            let m = re.find(region)?;
-            Some((start + m.start(), start + m.end()))
+            let iterated = super::regex::iterate_string_matches_with_case_fold(
+                pattern, text, start, case_fold,
+            )
+            .ok()?;
+            iterated
+                .matches
+                .into_iter()
+                .find_map(|groups| groups.first().and_then(|group| *group))
         } else {
-            // Backward: search in text[0..from] and pick the last match.
             let end = from.min(text_len);
-            let region = &text[..end];
-            let mut last = None;
-            for m in re.find_iter(region) {
-                last = Some((m.start(), m.end()));
-            }
-            last
+            let iterated = super::regex::iterate_string_matches_with_case_fold(
+                pattern,
+                &text[..end],
+                0,
+                case_fold,
+            )
+            .ok()?;
+            iterated
+                .matches
+                .into_iter()
+                .filter_map(|groups| groups.first().and_then(|group| *group))
+                .last()
         }
     } else {
         // Literal search.
