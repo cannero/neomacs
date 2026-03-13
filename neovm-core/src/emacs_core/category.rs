@@ -364,7 +364,7 @@ pub(crate) fn builtin_define_category(args: Vec<Value>) -> EvalResult {
 
     let cat = extract_char(&args[0], "define-category")?;
     let docstring = match &args[1] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -511,7 +511,7 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
     expect_args("make-category-set", &args, 1)?;
 
     let cats = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -676,7 +676,7 @@ pub(crate) fn builtin_define_category_eval(
 
     let cat = extract_char(&args[0], "define-category")?;
     let docstring = match &args[1] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",

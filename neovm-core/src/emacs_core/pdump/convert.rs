@@ -319,7 +319,7 @@ pub(crate) fn dump_heap_object(obj: &HeapObject) -> DumpHeapObject {
         HeapObject::Vector(items) => DumpHeapObject::Vector(items.iter().map(dump_value).collect()),
         HeapObject::HashTable(ht) => DumpHeapObject::HashTable(dump_hash_table(ht)),
         HeapObject::Str(s) => DumpHeapObject::Str {
-            text: s.text.clone(),
+            text: s.as_str().to_owned(),
             multibyte: s.multibyte,
         },
         HeapObject::Lambda(d) => DumpHeapObject::Lambda(dump_lambda_data(d)),
@@ -1489,10 +1489,9 @@ fn load_heap_object_phase1(obj: &DumpHeapObject) -> HeapObject {
                 insertion_order: Vec::new(),
             })
         }
-        DumpHeapObject::Str { text, multibyte } => HeapObject::Str(crate::gc::types::LispString {
-            text: text.clone(),
-            multibyte: *multibyte,
-        }),
+        DumpHeapObject::Str { text, multibyte } => {
+            HeapObject::Str(crate::gc::types::LispString::new(text.clone(), *multibyte))
+        }
         DumpHeapObject::Lambda(d) => HeapObject::Lambda(load_lambda_data(d)),
         DumpHeapObject::Macro(d) => HeapObject::Macro(load_lambda_data(d)),
         DumpHeapObject::ByteCode(bc) => HeapObject::ByteCode(load_bytecode(bc)),

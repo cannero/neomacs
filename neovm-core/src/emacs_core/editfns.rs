@@ -137,7 +137,7 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
     for arg in args {
         match arg {
             Value::Str(id) => {
-                let s = with_heap(|h| h.get_string(*id).clone());
+                let s = with_heap(|h| h.get_string(*id).to_owned());
                 text.push_str(&s);
             }
             Value::Char(c) => text.push(*c),

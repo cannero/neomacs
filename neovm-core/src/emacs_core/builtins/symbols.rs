@@ -2138,7 +2138,7 @@ pub(crate) fn builtin_intern_soft(
     if let Some(Value::Vector(vec_id)) = args.get(1).filter(|v| !v.is_nil()) {
         let vec_id = *vec_id;
         let name = match &args[0] {
-            Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
             Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
             Value::Nil => "nil".to_owned(),
             Value::True => "t".to_owned(),
@@ -2160,7 +2160,7 @@ pub(crate) fn builtin_intern_soft(
 
     // Global obarray path
     let name = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         Value::Nil => "nil".to_owned(),
         Value::True => "t".to_owned(),
         Value::Keyword(id) | Value::Symbol(id) => resolve_sym(*id).to_owned(),
@@ -4142,7 +4142,7 @@ pub(crate) fn make_interpreted_closure_from_parts(
     };
 
     let (docstring, doc_form) = match &docstring_value {
-        Value::Str(id) => (Some(with_heap(|h| h.get_string(*id).clone())), None),
+        Value::Str(id) => (Some(with_heap(|h| h.get_string(*id).to_owned())), None),
         Value::Nil => (None, None),
         other => (None, Some(*other)),
     };

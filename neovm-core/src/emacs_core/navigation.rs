@@ -628,7 +628,7 @@ pub(crate) fn builtin_skip_chars_forward(
 ) -> EvalResult {
     expect_min_args("skip-chars-forward", &args, 1)?;
     let set_str = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -676,7 +676,7 @@ pub(crate) fn builtin_skip_chars_backward(
 ) -> EvalResult {
     expect_min_args("skip-chars-backward", &args, 1)?;
     let set_str = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",

@@ -51,7 +51,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -830,13 +830,13 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             items
                 .iter()
                 .filter_map(|item| match item {
-                    Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+                    Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
                     Value::Symbol(id) => Some(resolve_sym(*id).to_owned()),
                     // Alist entry: (STRING . _)
                     Value::Cons(cell) => {
                         let pair = read_cons(*cell);
                         match &pair.car {
-                            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+                            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
                             Value::Symbol(id) => Some(resolve_sym(*id).to_owned()),
                             _ => None,
                         }
@@ -849,7 +849,7 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             let vec = with_heap(|h| h.get_vector(*v).clone());
             vec.iter()
                 .filter_map(|item| match item {
-                    Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+                    Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
                     Value::Symbol(id) => Some(resolve_sym(*id).to_owned()),
                     _ => None,
                 })

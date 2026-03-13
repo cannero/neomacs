@@ -126,17 +126,19 @@ impl LispHeap {
 
     pub fn alloc_string(&mut self, s: String) -> ObjId {
         let multibyte = crate::encoding::is_multibyte_string(&s);
-        self.alloc(HeapObject::Str(crate::gc::types::LispString {
-            text: s,
-            multibyte,
-        }))
+        self.alloc(HeapObject::Str(crate::gc::types::LispString::new(
+            s, multibyte,
+        )))
     }
 
     pub fn alloc_string_with_flag(&mut self, s: String, multibyte: bool) -> ObjId {
-        self.alloc(HeapObject::Str(crate::gc::types::LispString {
-            text: s,
-            multibyte,
-        }))
+        self.alloc(HeapObject::Str(crate::gc::types::LispString::new(
+            s, multibyte,
+        )))
+    }
+
+    pub fn alloc_lisp_string(&mut self, s: crate::gc::types::LispString) -> ObjId {
+        self.alloc(HeapObject::Str(s))
     }
 
     pub fn alloc_lambda(&mut self, data: LambdaData) -> ObjId {
@@ -229,7 +231,10 @@ impl LispHeap {
                     HeapObject::Cons { car, cdr } => format!("Cons(car={}, cdr={})", car, cdr),
                     HeapObject::Vector(v) => format!("Vector(len={})", v.len()),
                     HeapObject::HashTable(_) => "HashTable".to_string(),
-                    HeapObject::Str(s) => format!("Str({:?})", &s.text[..s.text.len().min(40)]),
+                    HeapObject::Str(s) => {
+                        let text = s.as_str();
+                        format!("Str({:?})", &text[..text.len().min(40)])
+                    }
                     HeapObject::Lambda(_) => "Lambda".to_string(),
                     HeapObject::Macro(_) => "Macro".to_string(),
                     HeapObject::ByteCode(_) => "ByteCode".to_string(),
@@ -383,17 +388,24 @@ impl LispHeap {
     // String accessors
     // -----------------------------------------------------------------------
 
-    pub fn get_string(&self, id: ObjId) -> &String {
+    pub fn get_string(&self, id: ObjId) -> &str {
         match self.get(id) {
-            HeapObject::Str(s) => &s.text,
+            HeapObject::Str(s) => s.as_str(),
             _ => panic!("get_string on non-string"),
+        }
+    }
+
+    pub fn get_lisp_string(&self, id: ObjId) -> &crate::gc::types::LispString {
+        match self.get(id) {
+            HeapObject::Str(s) => s,
+            _ => panic!("get_lisp_string on non-string"),
         }
     }
 
     pub fn get_string_mut(&mut self, id: ObjId) -> &mut String {
         self.write_barrier(id);
         match self.get_mut(id) {
-            HeapObject::Str(s) => &mut s.text,
+            HeapObject::Str(s) => s.make_mut(),
             _ => panic!("get_string_mut on non-string"),
         }
     }

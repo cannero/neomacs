@@ -490,7 +490,7 @@ fn expect_min_args(
 
 fn expect_string(val: &Value) -> Result<String, crate::emacs_core::error::Flow> {
     match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -1072,7 +1072,7 @@ mod tests {
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
         assert_eq!(
-            with_heap(|h| h.get_string(id).clone()),
+            with_heap(|h| h.get_string(id).to_owned()),
             bytes_to_unibyte_storage_string(&[0xE9])
         );
     }
@@ -1089,7 +1089,7 @@ mod tests {
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
         assert_eq!(
-            with_heap(|h| h.get_string(id).clone()),
+            with_heap(|h| h.get_string(id).to_owned()),
             bytes_to_unibyte_storage_string(&[0xC3, 0xA9])
         );
     }
@@ -1130,7 +1130,7 @@ mod tests {
             panic!("encode-coding-string should return a string");
         };
         assert_eq!(
-            with_heap(|heap| heap.get_string(id).clone()),
+            with_heap(|heap| heap.get_string(id).to_owned()),
             bytes_to_unibyte_storage_string(b"a\r\nb")
         );
 
@@ -1143,7 +1143,7 @@ mod tests {
             panic!("decode-coding-string should return a string");
         };
         assert_eq!(
-            with_heap(|heap| heap.get_string(id).clone()),
+            with_heap(|heap| heap.get_string(id).to_owned()),
             bytes_to_unibyte_storage_string(b"a\nb")
         );
     }

@@ -1476,7 +1476,7 @@ pub(crate) fn builtin_font_at(args: Vec<Value>) -> EvalResult {
             return Err(signal(
                 "args-out-of-range",
                 vec![
-                    Value::string(with_heap(|h| h.get_string(*s).clone())),
+                    Value::string(with_heap(|h| h.get_string(*s).to_owned())),
                     Value::Int(pos),
                 ],
             ));

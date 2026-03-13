@@ -127,7 +127,7 @@ where
             Ok(())
         }
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             for cp in decode_storage_char_codes(&s) {
                 f(Value::Int(cp as i64))?;
             }

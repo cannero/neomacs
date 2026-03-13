@@ -503,17 +503,20 @@ pub(crate) fn builtin_string_match_with_state(
             match (&args[0], &args[1]) {
                 (Value::Str(pattern_id), Value::Str(string_id)) => with_heap(|h| {
                     let pattern = h.get_string(*pattern_id);
-                    let s = h.get_string(*string_id);
-                    let start = normalize_string_start_arg(s, args.get(2))?;
+                    let string = h.get_lisp_string(*string_id);
+                    let start = crate::emacs_core::search::normalize_lisp_string_start_arg(
+                        string,
+                        args.get(2),
+                    )?;
                     let mut throwaway = None;
                     let target = if inhibit_modify {
                         &mut throwaway
                     } else {
                         match_data
                     };
-                    match super::regex::string_match_full_with_case_fold_source(
+                    match super::regex::string_match_full_with_case_fold_source_lisp(
                         pattern,
-                        s,
+                        string,
                         super::regex::SearchedString::Heap(*string_id),
                         start,
                         case_fold,
@@ -563,12 +566,13 @@ pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Val
     match (&args[0], &args[1]) {
         (Value::Str(pattern_id), Value::Str(string_id)) => with_heap(|h| {
             let pattern = h.get_string(*pattern_id);
-            let s = h.get_string(*string_id);
-            let start = normalize_string_start_arg(s, args.get(2))?;
+            let string = h.get_lisp_string(*string_id);
+            let start =
+                crate::emacs_core::search::normalize_lisp_string_start_arg(string, args.get(2))?;
             let mut throwaway = None;
-            match super::regex::string_match_full_with_case_fold_source(
+            match super::regex::string_match_full_with_case_fold_source_lisp(
                 pattern,
-                s,
+                string,
                 super::regex::SearchedString::Heap(*string_id),
                 start,
                 case_fold,
@@ -644,6 +648,24 @@ pub(crate) fn builtin_match_string(
 
     // If an optional second arg is a string, use that first.
     if args.len() > 1 {
+        if let Value::Str(id) = args[1] {
+            return with_heap(|h| {
+                let string = h.get_lisp_string(id);
+                let text = string.as_str();
+                let (byte_start, byte_end) = if md.searched_string.is_some() {
+                    (char_pos_to_byte(text, start), char_pos_to_byte(text, end))
+                } else {
+                    (start, end)
+                };
+                if byte_end <= text.len() && byte_start <= byte_end {
+                    if let Some(slice) = string.slice(byte_start, byte_end) {
+                        return Ok(Value::heap_string(slice));
+                    }
+                }
+                Ok(Value::Nil)
+            });
+        }
+
         if let Some(s) = args[1].as_str() {
             let (byte_start, byte_end) = if md.searched_string.is_some() {
                 (char_pos_to_byte(s, start), char_pos_to_byte(s, end))
@@ -659,6 +681,21 @@ pub(crate) fn builtin_match_string(
 
     // Otherwise, if the match was against a string, use that string.
     if let Some(ref searched) = md.searched_string {
+        if let super::regex::SearchedString::Heap(id) = searched {
+            return with_heap(|h| {
+                let string = h.get_lisp_string(*id);
+                let text = string.as_str();
+                let byte_start = char_pos_to_byte(text, start);
+                let byte_end = char_pos_to_byte(text, end);
+                if byte_end <= text.len() && byte_start <= byte_end {
+                    if let Some(slice) = string.slice(byte_start, byte_end) {
+                        return Ok(Value::heap_string(slice));
+                    }
+                }
+                Ok(Value::Nil)
+            });
+        }
+
         return searched.with_str(|searched| {
             let byte_start = char_pos_to_byte(searched, start);
             let byte_end = char_pos_to_byte(searched, end);

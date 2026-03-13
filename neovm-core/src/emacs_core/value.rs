@@ -673,6 +673,13 @@ impl Value {
         Value::Str(id)
     }
 
+    pub fn heap_string(s: crate::gc::types::LispString) -> Self {
+        add_wrapping(&STRINGS_CONSED, 1);
+        add_wrapping(&STRING_CHARS_CONSED, s.as_str().len() as u64);
+        let id = with_heap_mut(|heap| heap.alloc_lisp_string(s));
+        Value::Str(id)
+    }
+
     pub fn multibyte_string(s: impl Into<String>) -> Self {
         let s = s.into();
         add_wrapping(&STRINGS_CONSED, 1);
@@ -942,7 +949,7 @@ impl Value {
             Value::Str(id) => {
                 let ptr = current_heap_ptr();
                 let heap = unsafe { &*ptr };
-                Some(heap.get_string(*id).as_str())
+                Some(heap.get_string(*id))
             }
             _ => None,
         }

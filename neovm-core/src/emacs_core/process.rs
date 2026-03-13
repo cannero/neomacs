@@ -324,7 +324,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).clone())),
+        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).to_owned())),
         Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
         Value::Nil => Ok("nil".to_string()),
         Value::True => Ok("t".to_string()),
@@ -383,7 +383,7 @@ fn char_from_codepoint_value(value: &Value) -> Result<char, Flow> {
 
 fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).clone())),
+        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).to_owned())),
         Value::Vector(items) => {
             let vec = with_heap(|h| h.get_vector(*items).clone());
             let chars = vec
@@ -500,14 +500,14 @@ fn signal_wrong_type_string(value: Value) -> Flow {
 
 fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).clone())),
+        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).to_owned())),
         other => Err(signal_wrong_type_string(*other)),
     }
 }
 
 fn expect_process_name_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).clone())),
+        Value::Str(s) => Ok(with_heap(|h| h.get_string(*s).to_owned())),
         _ => Err(signal(
             "error",
             vec![Value::string(":name value not a string")],
@@ -570,7 +570,7 @@ fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<Strin
         Value::True => Ok((StderrTarget::ToStdoutTarget, None)),
         Value::Str(s) => Ok((
             StderrTarget::File,
-            Some(with_heap(|h| h.get_string(*s).clone())),
+            Some(with_heap(|h| h.get_string(*s).to_owned())),
         )),
         other => Err(signal_wrong_type_string(*other)),
     }
@@ -624,7 +624,7 @@ fn insert_process_output(
 ) -> Result<(), Flow> {
     match destination {
         Value::Str(name) => {
-            let name_str = with_heap(|h| h.get_string(*name).clone());
+            let name_str = with_heap(|h| h.get_string(*name).to_owned());
             let id = eval
                 .buffers
                 .find_buffer_by_name(&name_str)
@@ -925,7 +925,7 @@ fn resolve_process_or_wrong_type(
             }
         }
         Value::Str(s) => {
-            let name = with_heap(|h| h.get_string(*s).clone());
+            let name = with_heap(|h| h.get_string(*s).to_owned());
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -948,7 +948,7 @@ fn resolve_process_or_wrong_type_any(
             }
         }
         Value::Str(s) => {
-            let name = with_heap(|h| h.get_string(*s).clone());
+            let name = with_heap(|h| h.get_string(*s).to_owned());
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_wrong_type_processp(*value))
@@ -963,7 +963,7 @@ fn resolve_process_or_missing_error(
 ) -> Result<ProcessId, Flow> {
     match value {
         Value::Str(s) => {
-            let name = with_heap(|h| h.get_string(*s).clone());
+            let name = with_heap(|h| h.get_string(*s).to_owned());
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
@@ -978,7 +978,7 @@ fn resolve_process_or_missing_error_any(
 ) -> Result<ProcessId, Flow> {
     match value {
         Value::Str(s) => {
-            let name = with_heap(|h| h.get_string(*s).clone());
+            let name = with_heap(|h| h.get_string(*s).to_owned());
             eval.processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
@@ -1001,7 +1001,7 @@ fn resolve_process_for_status(
             }
         }
         Value::Str(s) => {
-            let name = with_heap(|h| h.get_string(*s).clone());
+            let name = with_heap(|h| h.get_string(*s).to_owned());
             Ok(eval.processes.find_by_name(&name))
         }
         _ => Err(signal_wrong_type_processp(*value)),
@@ -1021,7 +1021,7 @@ fn resolve_buffer_name_for_process_lookup(
             .and_then(|id| eval.buffers.get(id))
             .map(|buf| buf.name.clone())),
         Value::Str(name) => {
-            let name_str = with_heap(|h| h.get_string(*name).clone());
+            let name_str = with_heap(|h| h.get_string(*name).to_owned());
             Ok(eval
                 .buffers
                 .find_buffer_by_name(&name_str)
@@ -1196,7 +1196,7 @@ fn resolve_signal_process_target(
         if !v.is_nil() {
             return match v {
                 Value::Str(name) => {
-                    let name_str = with_heap(|h| h.get_string(*name).clone());
+                    let name_str = with_heap(|h| h.get_string(*name).to_owned());
                     Ok(match eval.processes.find_by_name(&name_str) {
                         Some(id) => SignalProcessTarget::Process(id),
                         None => SignalProcessTarget::MissingNamedProcess,
@@ -1582,7 +1582,7 @@ fn parse_make_process_buffer(
     match value {
         Value::Nil => Ok(None),
         Value::Str(name) => {
-            let name_str = with_heap(|h| h.get_string(*name).clone());
+            let name_str = with_heap(|h| h.get_string(*name).to_owned());
             if eval.buffers.find_buffer_by_name(&name_str).is_none() {
                 let _ = eval.buffers.create_buffer(&name_str);
             }
@@ -2247,7 +2247,7 @@ pub(crate) fn builtin_format_network_address(
 
     let omit_port = args.get(1).is_some_and(Value::is_truthy);
     match &args[0] {
-        Value::Str(s) => Ok(Value::string(with_heap(|h| h.get_string(*s).clone()))),
+        Value::Str(s) => Ok(Value::string(with_heap(|h| h.get_string(*s).to_owned()))),
         Value::Nil => Ok(Value::Nil),
         Value::Vector(_) => {
             let Some(items) = vector_nonnegative_integers(&args[0]) else {
@@ -2772,7 +2772,7 @@ pub(crate) fn builtin_serial_process_configure(
             }
             ":name" => match value {
                 Value::Str(name) => {
-                    let name_str = with_heap(|h| h.get_string(name).clone());
+                    let name_str = with_heap(|h| h.get_string(name).to_owned());
                     process_id = Some(
                         eval.processes
                             .find_by_name(&name_str)
@@ -3107,7 +3107,7 @@ pub(crate) fn builtin_call_process_region(
                     vec![Value::symbol("integer-or-marker-p"), args[0]],
                 ));
             }
-            with_heap(|h| h.get_string(*s).clone())
+            with_heap(|h| h.get_string(*s).to_owned())
         }
         _ => {
             let start = expect_int_or_marker(&args[0])?;
@@ -3526,7 +3526,7 @@ pub(crate) fn builtin_make_process(
         };
         match key_name {
             Some(":name") => match value {
-                Value::Str(s) => name = Some(with_heap(|h| h.get_string(s).clone())),
+                Value::Str(s) => name = Some(with_heap(|h| h.get_string(s).to_owned())),
                 _ => {
                     return Err(signal(
                         "error",

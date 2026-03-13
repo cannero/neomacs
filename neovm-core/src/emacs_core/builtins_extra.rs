@@ -55,7 +55,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -109,7 +109,7 @@ fn list_car_or_signal(value: &Value) -> Result<Value, Flow> {
 
 fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         _ => symbol_like_name(value)
             .map(ToOwned::to_owned)
             .ok_or_else(|| {
@@ -123,7 +123,7 @@ fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
 
 fn assoc_string_entry_name(value: &Value) -> Option<String> {
     match value {
-        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => symbol_like_name(value).map(ToOwned::to_owned),
     }
 }
@@ -163,7 +163,7 @@ fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
         }
         Value::Vector(v) | Value::Record(v) => Ok(with_heap(|h| h.get_vector(*v).clone())),
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(s.chars().map(|ch| Value::Int(ch as i64)).collect())
         }
         other => Err(signal(
@@ -588,7 +588,7 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
                     .unwrap_or(Value::Nil)
             }
             Value::Str(id) => {
-                let login = with_heap(|h| h.get_string(*id).clone());
+                let login = with_heap(|h| h.get_string(*id).to_owned());
                 lookup_full_name_by_login(&login)
                     .map(Value::string)
                     .unwrap_or(Value::Nil)

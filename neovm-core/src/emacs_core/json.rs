@@ -274,7 +274,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         }
 
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(json_encode_string(&s))
         }
 
@@ -354,7 +354,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
 /// Convert a HashKey to a string suitable as a JSON object key.
 fn hash_key_to_string(key: &HashKey) -> Result<String, Flow> {
     match key {
-        HashKey::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        HashKey::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         HashKey::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
         HashKey::Keyword(id) => {
             let s = resolve_sym(*id);
@@ -1046,7 +1046,7 @@ pub(crate) fn builtin_json_serialize(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("json-parse-string", &args, 1)?;
     let input = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",

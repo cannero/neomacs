@@ -4738,7 +4738,7 @@ impl Evaluator {
 
         let result = (|| -> EvalResult {
             let filename = match &filename {
-                Some(Value::Str(id)) => self.heap.get_string(*id).clone(),
+                Some(Value::Str(id)) => self.heap.get_string(*id).to_owned(),
                 Some(_) | None => name.clone(),
             };
 
@@ -4790,7 +4790,7 @@ impl Evaluator {
         let target_id = match &buf_val {
             Value::Buffer(id) => *id,
             Value::Str(id) => {
-                let s = self.heap.get_string(*id).clone();
+                let s = self.heap.get_string(*id).to_owned();
                 self.buffers.find_buffer_by_name(&s).ok_or_else(|| {
                     signal("error", vec![Value::string(format!("No buffer named {s}"))])
                 })?
@@ -6366,7 +6366,7 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
         Value::Float(f, _) => Expr::Float(*f),
         Value::Symbol(id) => Expr::Symbol(*id),
         Value::Keyword(id) => Expr::Keyword(*id),
-        Value::Str(id) => Expr::Str(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Expr::Str(with_heap(|h| h.get_string(*id).to_owned())),
         Value::Char(c) => Expr::Char(*c),
         Value::Cons(_) => {
             if let Some(items) = list_to_vec(value) {

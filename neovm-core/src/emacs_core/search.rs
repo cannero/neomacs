@@ -82,7 +82,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -129,6 +129,43 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
         string,
         start_char_idx,
     ))
+}
+
+pub(crate) fn normalize_lisp_string_start_arg(
+    string: &crate::gc::types::LispString,
+    start: Option<&Value>,
+) -> Result<usize, Flow> {
+    let Some(start_val) = start else {
+        return Ok(0);
+    };
+    if start_val.is_nil() {
+        return Ok(0);
+    }
+
+    let raw_start = expect_int(start_val)?;
+    if string.is_ascii() {
+        let len = string.byte_len() as i64;
+        let normalized = if raw_start < 0 {
+            len.checked_add(raw_start)
+        } else {
+            Some(raw_start)
+        };
+        let Some(start_idx) = normalized else {
+            return Err(signal(
+                "args-out-of-range",
+                vec![Value::string(string.as_str()), Value::Int(raw_start)],
+            ));
+        };
+        if !(0..=len).contains(&start_idx) {
+            return Err(signal(
+                "args-out-of-range",
+                vec![Value::string(string.as_str()), Value::Int(raw_start)],
+            ));
+        }
+        return Ok(start_idx as usize);
+    }
+
+    normalize_string_start_arg(string.as_str(), start)
 }
 
 fn preserve_case(replacement: &str, matched: &str) -> String {

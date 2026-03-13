@@ -54,10 +54,7 @@ fn trace_values_hash_table() {
 
 #[test]
 fn trace_values_str_empty() {
-    let obj = HeapObject::Str(LispString {
-        text: "hello".to_string(),
-        multibyte: false,
-    });
+    let obj = HeapObject::Str(LispString::new("hello".to_string(), false));
     let traced = obj.trace_values();
     assert!(traced.is_empty());
 }
@@ -67,4 +64,31 @@ fn trace_values_free_empty() {
     let obj = HeapObject::Free;
     let traced = obj.trace_values();
     assert!(traced.is_empty());
+}
+
+#[test]
+fn slice_make_mut_detaches_from_original() {
+    let original = LispString::new("hello world".to_string(), false);
+    let mut slice = original.slice(6, 11).expect("valid slice");
+
+    slice.make_mut().push('!');
+
+    assert_eq!(original.as_str(), "hello world");
+    assert_eq!(slice.as_str(), "world!");
+}
+
+#[test]
+fn concat_string_slices_across_segment_boundaries() {
+    let left = LispString::new("hello".to_string(), false);
+    let right = LispString::new("world".to_string(), false);
+    let mut parts = Vec::new();
+    left.append_parts_to(&mut parts);
+    right.append_parts_to(&mut parts);
+    let combined = LispString::from_parts(parts, false);
+
+    assert_eq!(combined.as_str(), "helloworld");
+    assert_eq!(
+        combined.slice(3, 8).expect("cross-segment slice").as_str(),
+        "lowor"
+    );
 }

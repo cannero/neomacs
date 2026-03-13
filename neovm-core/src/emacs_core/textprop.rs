@@ -203,7 +203,7 @@ pub(crate) fn builtin_put_text_property(
     let val = args[3];
 
     if let Some(str_id) = is_string_object(args.get(4)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -235,7 +235,7 @@ pub(crate) fn builtin_get_text_property(
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         if let Some(table) = get_string_text_properties_table(str_id) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
             if let Some(v) = table.get_property(byte_pos, &prop) {
@@ -286,7 +286,7 @@ pub(crate) fn builtin_add_text_properties(
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -348,7 +348,7 @@ pub(crate) fn builtin_add_face_text_property(
     let object = args.get(4);
 
     if let Some(str_id) = is_string_object(object) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -397,7 +397,7 @@ pub(crate) fn builtin_remove_text_properties(
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -445,7 +445,7 @@ pub(crate) fn builtin_set_text_properties(
     };
 
     if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -485,7 +485,7 @@ pub(crate) fn builtin_remove_list_of_text_properties(
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[2]]))?;
 
     if let Some(str_id) = is_string_object(args.get(3)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -539,7 +539,7 @@ pub(crate) fn builtin_text_properties_at(
     let pos = expect_int(&args[0])?;
 
     if let Some(str_id) = is_string_object(args.get(1)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         if let Some(table) = get_string_text_properties_table(str_id) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
             let props = table.get_properties(byte_pos);
@@ -570,7 +570,7 @@ pub(crate) fn builtin_next_single_property_change(
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(3) {
@@ -683,7 +683,7 @@ pub(crate) fn builtin_previous_single_property_change(
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(3) {
@@ -797,7 +797,7 @@ pub(crate) fn builtin_next_property_change(
     let pos = expect_int(&args[0])?;
 
     if let Some(str_id) = is_string_object(args.get(1)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_pos = string_elisp_pos_to_byte(&s, pos);
         let limit_arg = args.get(2);
@@ -894,7 +894,7 @@ pub(crate) fn builtin_text_property_any(
     let val = &args[3];
 
     if let Some(str_id) = is_string_object(args.get(4)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
@@ -952,7 +952,7 @@ pub(crate) fn builtin_text_property_not_all(
     let val = &args[3];
 
     if let Some(str_id) = is_string_object(args.get(4)) {
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);

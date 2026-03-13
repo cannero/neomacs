@@ -156,7 +156,7 @@ pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<String>, Option
     };
     let elems = with_heap(|h| h.get_vector(*vec).clone());
     let buffer_name = match elems.get(1) {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     };
     let position = match elems.get(2) {
@@ -530,7 +530,7 @@ pub(crate) fn builtin_set_marker(
     // Resolve buffer (by name or Value::Buffer)
     let buffer_name: Option<String> = if args.len() > 2 && args[2].is_truthy() {
         match &args[2] {
-            Value::Str(sid) => Some(with_heap(|h| h.get_string(*sid).clone())),
+            Value::Str(sid) => Some(with_heap(|h| h.get_string(*sid).to_owned())),
             Value::Buffer(id) => eval.buffers.get(*id).map(|b| b.name.clone()),
             other => {
                 return Err(signal(

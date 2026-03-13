@@ -1505,7 +1505,7 @@ pub(crate) fn builtin_x_parse_geometry(args: Vec<Value>) -> EvalResult {
     expect_args("x-parse-geometry", &args, 1)?;
     match &args[0] {
         Value::Str(id) => {
-            let spec = with_heap(|h| h.get_string(*id).clone());
+            let spec = with_heap(|h| h.get_string(*id).to_owned());
             Ok(parse_x_geometry(&spec).unwrap_or(Value::Nil))
         }
         other => Err(signal(
@@ -1867,7 +1867,7 @@ pub(crate) fn builtin_x_open_connection(args: Vec<Value>) -> EvalResult {
             vec![Value::string("Display nil can’t be opened")],
         )),
         Value::Str(id) => {
-            let display = with_heap(|h| h.get_string(*id).clone());
+            let display = with_heap(|h| h.get_string(*id).to_owned());
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],
@@ -1903,7 +1903,7 @@ pub(crate) fn builtin_x_close_connection(args: Vec<Value>) -> EvalResult {
             vec![Value::string("X windows are not in use or not initialized")],
         )),
         Value::Str(id) => {
-            let display = with_heap(|h| h.get_string(*id).clone());
+            let display = with_heap(|h| h.get_string(*id).to_owned());
             Err(signal(
                 "error",
                 vec![Value::string(format!("Display {display} can’t be opened"))],

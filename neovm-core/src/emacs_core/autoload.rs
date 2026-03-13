@@ -267,7 +267,7 @@ pub(crate) fn builtin_autoload_do_load(
     // items[0] = 'autoload, items[1] = file, ...
     let file = if items.len() > 1 {
         match &items[1] {
-            Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
             _ => return Ok(*fundef),
         }
     } else {
@@ -364,7 +364,7 @@ fn register_autoload(eval: &mut super::eval::Evaluator, args: &[Value]) -> EvalR
 
     let file_val = args[1];
     let file = match &file_val {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -375,7 +375,7 @@ fn register_autoload(eval: &mut super::eval::Evaluator, args: &[Value]) -> EvalR
 
     let docstring_val = args.get(2).cloned().unwrap_or(Value::Nil);
     let docstring = match &docstring_val {
-        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     };
 
@@ -466,7 +466,7 @@ pub(crate) fn builtin_symbol_file_eval(
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
                 if let Some(Value::Str(id)) = items.get(1) {
-                    return Ok(Value::string(with_heap(|h| h.get_string(*id).clone())));
+                    return Ok(Value::string(with_heap(|h| h.get_string(*id).to_owned())));
                 }
             }
         }

@@ -405,7 +405,7 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(elems[n..].to_vec()))
         }
         Value::Str(s) => {
-            let string = with_heap(|h| h.get_string(*s).clone());
+            let string = with_heap(|h| h.get_string(*s).to_owned());
             let chars: Vec<char> = string.chars().collect();
             if n <= 0 {
                 return Ok(Value::string(string));
@@ -461,7 +461,7 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(elems[..n].to_vec()))
         }
         Value::Str(s) => {
-            let string = with_heap(|h| h.get_string(*s).clone());
+            let string = with_heap(|h| h.get_string(*s).to_owned());
             let chars: Vec<char> = string.chars().collect();
             if n <= 0 {
                 return Ok(Value::string(""));
@@ -772,7 +772,7 @@ pub(crate) fn builtin_cl_gensym(args: Vec<Value>) -> EvalResult {
     let prefix = match args.first() {
         None => "G".to_string(),
         Some(Value::Nil) => "G".to_string(),
-        Some(Value::Str(s)) => with_heap(|h| h.get_string(*s).clone()),
+        Some(Value::Str(s)) => with_heap(|h| h.get_string(*s).to_owned()),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",

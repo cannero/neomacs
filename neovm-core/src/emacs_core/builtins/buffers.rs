@@ -51,7 +51,7 @@ pub(crate) fn builtin_get_buffer(
     match &args[0] {
         Value::Buffer(_) => Ok(args[0]),
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             if let Some(buf_id) = eval.buffers.find_buffer_by_name(&s) {
                 Ok(Value::Buffer(buf_id))
             } else {
@@ -208,7 +208,7 @@ pub(crate) fn builtin_kill_buffer(
             *id
         }
         Some(Value::Str(name_id)) => {
-            let name = with_heap(|h| h.get_string(*name_id).clone());
+            let name = with_heap(|h| h.get_string(*name_id).to_owned());
             match eval.buffers.find_buffer_by_name(&name) {
                 Some(id) => id,
                 None => {
@@ -283,7 +283,7 @@ pub(crate) fn builtin_set_buffer(
             *id
         }
         Value::Str(str_id) => {
-            let s = with_heap(|h| h.get_string(*str_id).clone());
+            let s = with_heap(|h| h.get_string(*str_id).to_owned());
             eval.buffers.find_buffer_by_name(&s).ok_or_else(|| {
                 signal("error", vec![Value::string(format!("No buffer named {s}"))])
             })?
@@ -485,7 +485,7 @@ fn resolve_buffer_designator_allow_nil_current(
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
         Value::Buffer(id) => Ok(eval.buffers.get(*id).map(|_| *id)),
         Value::Str(name_id) => {
-            let name = with_heap(|h| h.get_string(*name_id).clone());
+            let name = with_heap(|h| h.get_string(*name_id).to_owned());
             eval.buffers
                 .find_buffer_by_name(&name)
                 .map(Some)
@@ -625,7 +625,7 @@ fn replace_region_source_text(
     source: &Value,
 ) -> Result<String, Flow> {
     match source {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         Value::Buffer(id) => Ok(eval
             .buffers
             .get(*id)
@@ -1438,7 +1438,7 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>
     for arg in &args {
         match arg {
             Value::Str(id) => {
-                let s = with_heap(|h| h.get_string(*id).clone());
+                let s = with_heap(|h| h.get_string(*id).to_owned());
                 let insert_pos = buf.pt;
                 buf.insert(&s);
                 // Transfer string text properties to buffer
@@ -1725,7 +1725,7 @@ pub(crate) fn builtin_buffer_enable_undo(
                 *id
             }
             Value::Str(name_id) => {
-                let name = with_heap(|h| h.get_string(*name_id).clone());
+                let name = with_heap(|h| h.get_string(*name_id).to_owned());
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
@@ -1782,7 +1782,7 @@ pub(crate) fn builtin_buffer_disable_undo(
                 *id
             }
             Value::Str(name_id) => {
-                let name = with_heap(|h| h.get_string(*name_id).clone());
+                let name = with_heap(|h| h.get_string(*name_id).to_owned());
                 match eval.buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
@@ -1979,7 +1979,7 @@ pub(crate) fn builtin_other_buffer(
         None | Some(Value::Nil) => current_id,
         Some(Value::Buffer(id)) => Some(*id),
         Some(Value::Str(name_id)) => {
-            let name = with_heap(|h| h.get_string(*name_id).clone());
+            let name = with_heap(|h| h.get_string(*name_id).to_owned());
             eval.buffers.find_buffer_by_name(&name)
         }
         // GNU Emacs is permissive for non-buffer designators here; treat as

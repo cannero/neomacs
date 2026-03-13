@@ -413,7 +413,7 @@ pub(crate) use symbols::*;
 
 pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -423,7 +423,7 @@ pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
 
 pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         _ => value.as_symbol_name().map(str::to_owned).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
@@ -435,7 +435,7 @@ pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, 
 
 pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],

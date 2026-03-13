@@ -60,7 +60,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         }
         Value::Str(id) => {
             let idx = idx_fixnum as usize;
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             let codes = decode_storage_char_codes(&s);
             codes
                 .get(idx)
@@ -107,7 +107,7 @@ pub(crate) fn aset_string_replacement(
     let idx = expect_fixnum(index)? as usize;
     let (original_str, multibyte) = with_heap(|h| {
         (
-            h.get_string(*original).clone(),
+            h.get_string(*original).to_owned(),
             h.string_is_multibyte(*original),
         )
     });
@@ -229,7 +229,7 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
                 result.extend(with_heap(|h| h.get_vector(*v).clone()).into_iter())
             }
             Value::Str(id) => {
-                let s = with_heap(|h| h.get_string(*id).clone());
+                let s = with_heap(|h| h.get_string(*id).to_owned());
                 result.extend(
                     decode_storage_char_codes(&s)
                         .into_iter()

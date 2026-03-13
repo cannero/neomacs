@@ -393,7 +393,7 @@ pub(crate) fn sf_define_error(eval: &mut super::eval::Evaluator, tail: &[Expr]) 
         Value::string("")
     };
     let message = match &message_val {
-        Value::Str(id) => crate::emacs_core::value::with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => crate::emacs_core::value::with_heap(|h| h.get_string(*id).to_owned()),
         _ => {
             return Err(signal(
                 "wrong-type-argument",

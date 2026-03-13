@@ -828,7 +828,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
         Value::Nil => Ok("nil".to_string()),
         Value::True => Ok("t".to_string()),
@@ -841,7 +841,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -851,7 +851,7 @@ fn expect_string_strict(value: &Value) -> Result<String, Flow> {
 
 fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         Value::Nil | Value::Cons(_) | Value::Vector(_) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
@@ -959,12 +959,12 @@ fn temporary_file_directory_for_eval(eval: &Evaluator) -> Option<String> {
     for frame in eval.dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
             if let Value::Str(id) = value {
-                return Some(with_heap(|h| h.get_string(*id).clone()));
+                return Some(with_heap(|h| h.get_string(*id).to_owned()));
             }
         }
     }
     match eval.obarray.symbol_value("temporary-file-directory") {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     }
 }
@@ -1087,7 +1087,7 @@ pub(crate) fn builtin_expand_file_name(args: Vec<Value>) -> EvalResult {
     let default_dir = if let Some(arg) = args.get(1) {
         match arg {
             Value::Nil => None,
-            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
             // Emacs treats non-string DEFAULT-DIRECTORY as root.
             _ => Some("/".to_string()),
         }
@@ -1117,7 +1117,7 @@ pub(crate) fn builtin_expand_file_name_eval(eval: &Evaluator, args: Vec<Value>) 
     let default_dir = if let Some(arg) = args.get(1) {
         match arg {
             Value::Nil => default_directory_for_eval(eval),
-            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
             // Emacs treats non-string DEFAULT-DIRECTORY as root.
             _ => Some("/".to_string()),
         }
@@ -1152,7 +1152,7 @@ pub(crate) fn builtin_make_temp_file(args: Vec<Value>) -> EvalResult {
     };
     let text = match args.get(3) {
         None | Some(Value::Nil) => None,
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         Some(_) => None,
     };
     let temp_dir = std::env::temp_dir().to_string_lossy().into_owned();
@@ -1213,7 +1213,7 @@ pub(crate) fn builtin_make_temp_file_eval(eval: &Evaluator, args: Vec<Value>) ->
     };
     let text = match args.get(3) {
         None | Some(Value::Nil) => None,
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         Some(_) => None,
     };
     let temp_dir = temporary_file_directory_for_eval(eval)
@@ -1366,7 +1366,7 @@ pub(crate) fn builtin_file_name_concat(args: Vec<Value>) -> EvalResult {
         match value {
             Value::Nil => {}
             Value::Str(id) => {
-                let s = with_heap(|h| h.get_string(id).clone());
+                let s = with_heap(|h| h.get_string(id).to_owned());
                 if !s.is_empty() {
                     parts.push(s);
                 }
@@ -1410,13 +1410,13 @@ fn default_directory_for_eval(eval: &Evaluator) -> Option<String> {
     for frame in eval.dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
             return match value {
-                Value::Str(id) => Some(with_heap(|h| h.get_string(*id).clone())),
+                Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
                 _ => None,
             };
         }
     }
     match eval.obarray.symbol_value("default-directory") {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     }
 }

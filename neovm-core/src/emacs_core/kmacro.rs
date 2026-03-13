@@ -379,7 +379,7 @@ fn name_last_kbd_macro_impl(
 
     let name = match &args[0] {
         Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -500,7 +500,7 @@ pub(crate) fn builtin_kmacro_set_format(
     expect_args("kmacro-set-format", &args, 1)?;
     let format = match &args[0] {
         Value::Str(id) => {
-            let s = crate::emacs_core::value::with_heap(|h| h.get_string(*id).clone());
+            let s = crate::emacs_core::value::with_heap(|h| h.get_string(*id).to_owned());
             if s.is_empty() { "%d".to_string() } else { s }
         }
         other => {
@@ -540,7 +540,7 @@ fn resolve_macro_events(value: &Value) -> Result<Vec<Value>, Flow> {
         }
         Value::Str(id) => {
             // Each character in the string becomes a Char event.
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(s.chars().map(Value::Char).collect())
         }
         Value::Cons(_) | Value::Nil => {

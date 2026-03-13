@@ -2781,7 +2781,7 @@ fn substring_value(array: &Value, from: &Value, to: &Value) -> EvalResult {
 
     match array {
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             let result = storage_substring(&s, start, end)
                 .ok_or_else(|| signal("args-out-of-range", vec![*array, *from, *to]))?;
             Ok(Value::string(result))

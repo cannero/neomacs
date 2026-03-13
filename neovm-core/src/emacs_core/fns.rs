@@ -58,7 +58,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -569,7 +569,7 @@ fn md5_hex_for_string(
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
     let input = match object {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         _ => unreachable!("md5_hex_for_string only accepts string object"),
     };
     let len = storage_char_len(&input) as i64;
@@ -710,7 +710,7 @@ fn hash_slice_for_string(
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
     let input = match object {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         _ => unreachable!("hash_slice_for_string only accepts string object"),
     };
     let len = storage_char_len(&input) as i64;
@@ -851,7 +851,7 @@ pub(crate) fn builtin_buffer_hash_eval(
         match &args[0] {
             Value::Buffer(id) => *id,
             Value::Str(id) => {
-                let name = with_heap(|h| h.get_string(*id).clone());
+                let name = with_heap(|h| h.get_string(*id).to_owned());
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
@@ -1021,7 +1021,7 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-make-multibyte", &args, 1)?;
     match &args[0] {
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             let mut out = String::with_capacity(s.len());
             for ch in s.chars() {
                 let cp = ch as u32;
@@ -1053,7 +1053,7 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-make-unibyte", &args, 1)?;
     match &args[0] {
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             let bytes: Vec<u8> = decode_storage_char_codes(&s)
                 .into_iter()
                 .map(|cp| (cp & 0xFF) as u8)

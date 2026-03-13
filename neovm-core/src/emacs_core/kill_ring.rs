@@ -163,7 +163,7 @@ fn expect_indent_column(value: &Value) -> Result<i64, Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],

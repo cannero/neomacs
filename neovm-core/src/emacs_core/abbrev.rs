@@ -410,7 +410,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
         Value::Nil => Ok("nil".to_string()),
         Value::True => Ok("t".to_string()),
@@ -994,7 +994,7 @@ pub(crate) fn builtin_insert_abbrev_table_description(
                 continue;
             }
             let exp_str = match &expansion {
-                Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+                Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
                 _ => continue,
             };
             let count = eval

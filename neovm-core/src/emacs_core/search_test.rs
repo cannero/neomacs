@@ -18,7 +18,7 @@ fn assert_true(val: Value) {
 fn assert_str(val: Value, expected: &str) {
     match val {
         Value::Str(id) => {
-            let s = crate::emacs_core::value::with_heap(|h| h.get_string(id).clone());
+            let s = crate::emacs_core::value::with_heap(|h| h.get_string(id).to_owned());
             assert_eq!(&*s, expected);
         }
         other => panic!("Expected string {:?}, got {:?}", expected, other),

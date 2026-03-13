@@ -107,7 +107,7 @@ fn normalize_keyboard_coding_system(name: &str) -> String {
 fn coding_system_name(val: &Value) -> Result<String, Flow> {
     match val {
         Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         Value::Nil => Ok("nil".to_string()),
         other => Err(signal(
             "wrong-type-argument",
@@ -1932,7 +1932,7 @@ pub(crate) fn builtin_find_coding_systems_region_internal_eval(
         let exclude = args.get(2).and_then(super::value::list_to_vec);
         let (text, multibyte) = with_heap(|heap| {
             (
-                heap.get_string(string).clone(),
+                heap.get_string(string).to_owned(),
                 heap.string_is_multibyte(string),
             )
         });

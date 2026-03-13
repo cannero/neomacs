@@ -526,7 +526,7 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
                 elements.extend(with_heap(|h| h.get_vector(*v).clone()).into_iter())
             }
             Value::Str(id) => {
-                let s = with_heap(|h| h.get_string(*id).clone());
+                let s = with_heap(|h| h.get_string(*id).to_owned());
                 elements.extend(
                     decode_storage_char_codes(&s)
                         .into_iter()
@@ -573,7 +573,7 @@ pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
             Ok(Value::vector(items))
         }
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             let reversed: String = s.chars().rev().collect();
             Ok(Value::string(reversed))
         }
@@ -875,7 +875,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             Ok(Value::list(items))
         }
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             let new_val = Value::string(&s);
             // Copy text properties
             if let Value::Str(new_id) = &new_val {
@@ -1003,7 +1003,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
         Value::Str(id) => {
             let mut changed = false;
             let mut kept = Vec::new();
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             for cp in decode_storage_char_codes(&s) {
                 let ch = Value::Int(cp as i64);
                 if equal_value(elt, &ch, 0) {

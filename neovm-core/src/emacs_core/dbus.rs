@@ -99,7 +99,7 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
     match &args[1] {
         Value::Symbol(_) | Value::Keyword(_) => Ok(Value::Nil),
         Value::Str(id) => {
-            let dest = crate::emacs_core::value::with_heap(|h| h.get_string(*id).clone());
+            let dest = crate::emacs_core::value::with_heap(|h| h.get_string(*id).to_owned());
             if !dest.contains(':') {
                 Err(signal(
                     "dbus-error",

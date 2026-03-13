@@ -39,7 +39,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
     match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],

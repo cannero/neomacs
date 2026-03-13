@@ -41,7 +41,7 @@ pub(crate) fn builtin_message(args: Vec<Value>) -> EvalResult {
     } else {
         // GNU Emacs's `message` uses `format-message` internally.
         match builtin_format_message(args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
     };
@@ -58,7 +58,7 @@ pub(crate) fn builtin_message_box(args: Vec<Value>) -> EvalResult {
         expect_strict_string(&args[0])?
     } else {
         match builtin_format_wrapper_strict(args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
     };
@@ -75,7 +75,7 @@ pub(crate) fn builtin_message_or_box(args: Vec<Value>) -> EvalResult {
         expect_strict_string(&args[0])?
     } else {
         match builtin_format_wrapper_strict(args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
     };
@@ -96,7 +96,7 @@ pub(crate) fn builtin_message_eval(
     } else {
         // GNU Emacs's `message` uses `format-message` internally.
         match builtin_format_message_eval(eval, args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
     };
@@ -116,7 +116,7 @@ pub(crate) fn builtin_message_box_eval(
         expect_strict_string(&args[0])?
     } else {
         match builtin_format_wrapper_strict_eval(eval, args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
     };
@@ -136,7 +136,7 @@ pub(crate) fn builtin_message_or_box_eval(
         expect_strict_string(&args[0])?
     } else {
         match builtin_format_wrapper_strict_eval(eval, args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
     };
@@ -235,7 +235,7 @@ pub(crate) fn builtin_error(args: Vec<Value>) -> EvalResult {
     // GNU Emacs's `error` uses `format-message` (not `format`) so that
     // backtick/apostrophe quoting respects `text-quoting-style`.
     let msg = match builtin_format_message(args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
         _ => "error".to_string(),
     };
     Err(signal("error", vec![Value::string(msg)]))
@@ -249,7 +249,7 @@ pub(crate) fn builtin_error_eval(
     // GNU Emacs's `error` uses `format-message` (not `format`) so that
     // backtick/apostrophe quoting respects `text-quoting-style`.
     let msg = match builtin_format_message_eval(eval, args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
         _ => "error".to_string(),
     };
     Err(signal("error", vec![Value::string(msg)]))
@@ -258,7 +258,7 @@ pub(crate) fn builtin_error_eval(
 pub(crate) fn builtin_user_error(args: Vec<Value>) -> EvalResult {
     expect_min_args("user-error", &args, 1)?;
     let msg = match builtin_format_message(args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
         _ => "user-error".to_string(),
     };
     Err(signal("user-error", vec![Value::string(msg)]))
@@ -270,7 +270,7 @@ pub(crate) fn builtin_user_error_eval(
 ) -> EvalResult {
     expect_min_args("user-error", &args, 1)?;
     let msg = match builtin_format_message_eval(eval, args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
         _ => "user-error".to_string(),
     };
     Err(signal("user-error", vec![Value::string(msg)]))

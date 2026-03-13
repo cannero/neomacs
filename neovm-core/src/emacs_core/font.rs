@@ -169,7 +169,7 @@ fn font_spec_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
 
 fn font_spec_field_to_string(value: &Value) -> String {
     match value {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
         _ => "*".to_string(),
     }
@@ -207,7 +207,7 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
     match value {
         None => "*-*".to_string(),
         Some(Value::Str(id)) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             if !s.contains('-') {
                 format!("{}-*", s)
             } else {
@@ -237,7 +237,7 @@ fn sanitize_style_field(value: &Value) -> String {
             .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
             .collect(),
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             s.chars()
                 .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
                 .collect()
@@ -268,7 +268,7 @@ fn spacing_field(value: Option<&Value>) -> String {
 fn avg_width_field(value: Option<&Value>) -> String {
     match value {
         Some(Value::Int(n)) => n.to_string(),
-        Some(Value::Str(id)) => with_heap(|h| h.get_string(*id).clone()),
+        Some(Value::Str(id)) => with_heap(|h| h.get_string(*id).to_owned()),
         Some(Value::Symbol(id)) | Some(Value::Keyword(id)) => resolve_sym(*id).to_owned(),
         _ => "*".to_string(),
     }
@@ -986,7 +986,7 @@ fn require_symbol_face_name(face: &Value) -> Result<String, Flow> {
 
 fn known_face_name(face: &Value) -> Option<String> {
     let name = match face {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         _ => symbol_name_for_face_value(face)?,
     };
     if KNOWN_FACES.contains(&name.as_str()) || is_created_lisp_face(&name) {
@@ -1010,7 +1010,7 @@ fn resolve_copy_source_face_symbol(face: &Value) -> Result<String, Flow> {
 fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face {
         Value::Str(id) => {
-            let name = with_heap(|h| h.get_string(*id).clone());
+            let name = with_heap(|h| h.get_string(*id).to_owned());
             if face_exists_for_domain(&name, defaults_frame) {
                 Err(signal(
                     "wrong-type-argument",
@@ -1040,7 +1040,7 @@ fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<St
 fn resolve_face_name_for_merge(face: &Value) -> Result<String, Flow> {
     match face {
         Value::Str(id) => {
-            let name = with_heap(|h| h.get_string(*id).clone());
+            let name = with_heap(|h| h.get_string(*id).to_owned());
             if face_exists_for_domain(&name, true) {
                 Ok(name)
             } else {
@@ -1211,7 +1211,7 @@ fn lisp_face_attribute_value(face: &str, attr: &str, defaults_frame: bool) -> Va
 fn resolve_known_face_name_for_compare(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
     match face {
         Value::Str(id) => {
-            let name = with_heap(|h| h.get_string(*id).clone());
+            let name = with_heap(|h| h.get_string(*id).to_owned());
             if face_exists_for_domain(&name, defaults_frame) {
                 Ok(name)
             } else {
@@ -1755,7 +1755,7 @@ pub(crate) fn builtin_face_list(args: Vec<Value>) -> EvalResult {
 
 fn expect_color_string(value: &Value) -> Result<String, Flow> {
     match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).clone())),
+        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -1806,7 +1806,7 @@ pub(crate) fn builtin_color_values(args: Vec<Value>) -> EvalResult {
     expect_max_args("color-values", &args, 2)?;
     expect_optional_color_device_arg(&args, 1)?;
     let color_name = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         _ => return Ok(Value::Nil),
     };
     let lower = color_name.trim().to_lowercase();
@@ -1888,7 +1888,7 @@ fn parse_color_distance_input(value: &Value) -> Result<(i64, i64, i64), Flow> {
     let Value::Str(color_id) = value else {
         return Err(invalid_color_error(value));
     };
-    let color = with_heap(|h| h.get_string(*color_id).clone());
+    let color = with_heap(|h| h.get_string(*color_id).to_owned());
     let Some(rgb) = parse_color_16bit_any(&color).map(approximate_tty_color) else {
         return Err(invalid_color_error(value));
     };
@@ -2068,7 +2068,7 @@ pub(crate) fn builtin_face_font(args: Vec<Value>) -> EvalResult {
     expect_max_args("face-font", &args, 3)?;
     match &args[0] {
         Value::Str(id) => {
-            let name = with_heap(|h| h.get_string(*id).clone());
+            let name = with_heap(|h| h.get_string(*id).to_owned());
             if KNOWN_FACES.contains(&name.as_str()) {
                 Ok(Value::Nil)
             } else {
@@ -2187,7 +2187,7 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
         for member in members {
             match member {
                 Value::Str(id) => {
-                    converted.push(Value::symbol(with_heap(|h| h.get_string(id).clone())))
+                    converted.push(Value::symbol(with_heap(|h| h.get_string(id).to_owned())))
                 }
                 other => {
                     return Err(signal(
@@ -2225,7 +2225,7 @@ pub(crate) fn builtin_internal_set_alternative_font_registry_alist(args: Vec<Val
 pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
     expect_args("x-load-color-file", &args, 1)?;
     let filename = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",

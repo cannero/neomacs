@@ -84,7 +84,7 @@ fn format_marker_handle(
     };
     let items = with_heap(|h| h.get_vector(*vector).clone());
     let buffer_name = match items.get(1) {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).clone())),
+        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     };
     let position = match items.get(2) {
@@ -304,7 +304,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         Value::Symbol(id) => format_symbol(*id, options),
         Value::Keyword(id) => resolve_sym(*id).to_owned(),
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             match get_string_text_properties(*id) {
                 Some(runs) => format_lisp_propertized_string(&s, &runs, options),
                 None => format_lisp_string(&s),
@@ -416,7 +416,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         Value::Symbol(id) => append_symbol_bytes(*id, out, options),
         Value::Keyword(id) => out.extend_from_slice(resolve_sym(*id).as_bytes()),
         Value::Str(id) => {
-            let s = with_heap(|h| h.get_string(*id).clone());
+            let s = with_heap(|h| h.get_string(*id).to_owned());
             if let Some(runs) = get_string_text_properties(*id) {
                 out.extend_from_slice(b"#(");
                 out.extend_from_slice(&format_lisp_string_bytes(&s));

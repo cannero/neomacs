@@ -36,7 +36,8 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                 None
             };
             let (result, sliced_props) = with_heap(|h| {
-                let s = h.get_string(*src_id);
+                let src = h.get_lisp_string(*src_id);
+                let s = src.as_str();
                 let normalize_index =
                     |value: &Value, default: i64, len: i64| -> Result<i64, Flow> {
                         let raw = if value.is_nil() {
@@ -76,7 +77,10 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                             ],
                         ));
                     }
-                    return Ok::<_, Flow>((s[from..to].to_string(), None));
+                    return Ok::<_, Flow>((
+                        src.slice(from, to).expect("validated ascii slice"),
+                        None,
+                    ));
                 }
 
                 let len = storage_char_len(s) as i64;
@@ -115,7 +119,9 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         ],
                     )
                 })?;
-                let result = s[byte_from..byte_to].to_string();
+                let result = src
+                    .slice(byte_from, byte_to)
+                    .expect("validated storage substring bounds");
                 let sliced_props = if let Some(src_table) = src_props.as_ref() {
                     let sliced = src_table.slice(byte_from, byte_to);
                     (!sliced.is_empty()).then_some(sliced)
@@ -124,7 +130,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                 };
                 Ok::<_, Flow>((result, sliced_props))
             })?;
-            let new_val = Value::string(result);
+            let new_val = Value::heap_string(result);
 
             // Preserve text properties from source string
             if let (true, Value::Str(new_id), Some(sliced)) =
@@ -261,22 +267,18 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             });
             if !has_text_props {
                 let result = with_heap(|h| {
-                    let total_len = args
-                        .iter()
-                        .map(|arg| match arg {
-                            Value::Str(id) => h.get_string(*id).len(),
-                            _ => 0,
-                        })
-                        .sum();
-                    let mut result = String::with_capacity(total_len);
+                    let mut parts = Vec::new();
+                    let mut multibyte = false;
                     for arg in &args {
                         if let Value::Str(id) = arg {
-                            result.push_str(h.get_string(*id));
+                            let string = h.get_lisp_string(*id);
+                            string.append_parts_to(&mut parts);
+                            multibyte |= string.multibyte;
                         }
                     }
-                    result
+                    crate::gc::types::LispString::from_parts(parts, multibyte)
                 });
-                return Ok(Value::string(result));
+                return Ok(Value::heap_string(result));
             }
         }
 
@@ -458,7 +460,7 @@ pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
     expect_args("upcase", &args, 1)?;
     match &args[0] {
         Value::Str(id) => Ok(Value::string(upcase_string_emacs_compat(&with_heap(|h| {
-            h.get_string(*id).clone()
+            h.get_string(*id).to_owned()
         })))),
         Value::Char(c) => {
             let mapped = upcase_char_code_emacs_compat(*c as i64);
@@ -616,7 +618,7 @@ pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
     expect_args("downcase", &args, 1)?;
     match &args[0] {
         Value::Str(id) => Ok(Value::string(downcase_string_emacs_compat(&with_heap(
-            |h| h.get_string(*id).clone(),
+            |h| h.get_string(*id).to_owned(),
         )))),
         Value::Char(c) => {
             let mapped = downcase_char_code_emacs_compat(*c as i64);
@@ -1116,7 +1118,7 @@ pub(crate) fn builtin_format_message(args: Vec<Value>) -> EvalResult {
     let formatted = builtin_format(args)?;
     match formatted {
         Value::Str(id) => {
-            let s = super::super::value::with_heap(|h| h.get_string(id).clone());
+            let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());
             Ok(Value::string(apply_text_quoting(&s)))
         }
         other => Ok(other),
@@ -1131,7 +1133,7 @@ pub(crate) fn builtin_format_message_eval(
     let formatted = builtin_format_eval(eval, args)?;
     match formatted {
         Value::Str(id) => {
-            let s = super::super::value::with_heap(|h| h.get_string(id).clone());
+            let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());
             Ok(Value::string(apply_text_quoting(&s)))
         }
         other => Ok(other),

@@ -88,7 +88,7 @@ pub(crate) fn builtin_previous_property_change(
     // --- String OBJECT ---
     if let Some(Value::Str(str_id)) = args.get(1) {
         let str_id = *str_id;
-        let s = with_heap(|h| h.get_string(str_id).clone());
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
         let table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_pos = textprop::string_elisp_pos_to_byte(&s, pos);
         let (byte_limit, limit_val) = match args.get(2) {
@@ -608,7 +608,7 @@ fn write_print_output(
             Ok(())
         }
         Value::Str(name_id) => {
-            let name = with_heap(|h| h.get_string(name_id).clone());
+            let name = with_heap(|h| h.get_string(name_id).to_owned());
             let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -642,7 +642,7 @@ fn write_terpri_output(eval: &mut super::eval::Evaluator, target: Value) -> Resu
             Ok(())
         }
         Value::Str(name_id) => {
-            let name = with_heap(|h| h.get_string(name_id).clone());
+            let name = with_heap(|h| h.get_string(name_id).to_owned());
             let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                 return Err(signal(
                     "error",
@@ -740,7 +740,7 @@ fn print_value_princ_list_shorthand(
 
 pub(super) fn print_value_princ(value: &Value) -> String {
     match value {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         Value::Symbol(id) => resolve_sym(*id).to_owned(),
         Value::Keyword(id) => resolve_sym(*id).to_owned(),
         Value::Cons(_) => {
@@ -790,7 +790,7 @@ pub(super) fn print_value_princ(value: &Value) -> String {
 
 pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
     match value {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         Value::Symbol(id) => resolve_sym(*id).to_owned(),
         Value::Keyword(id) => resolve_sym(*id).to_owned(),
         Value::Buffer(id) => {
@@ -862,7 +862,7 @@ fn princ_text_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
 fn prin1_to_string_value(value: &Value, noescape: bool) -> String {
     if noescape {
         match value {
-            Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
             other => super::print::print_value(other),
         }
     } else {
@@ -877,7 +877,7 @@ fn prin1_to_string_value_eval(
 ) -> String {
     if noescape {
         match value {
-            Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+            Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
             other => print_value_eval(eval, other),
         }
     } else if let Some(handle) = print_threading_handle(eval, value) {
@@ -1007,7 +1007,7 @@ pub(crate) fn builtin_write_char_eval(
         }
         Value::Str(name_id) => {
             if let Some(text) = write_char_rendered_text(char_code) {
-                let name = with_heap(|h| h.get_string(name_id).clone());
+                let name = with_heap(|h| h.get_string(name_id).to_owned());
                 let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
                     return Err(signal(
                         "error",
@@ -1040,7 +1040,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     expect_min_args("propertize", &args, 1)?;
 
     let s = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).clone()),
+        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
