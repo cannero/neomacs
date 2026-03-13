@@ -521,9 +521,15 @@ fn builtin_recursive_edit_rejects_args() {
 }
 
 #[test]
-fn builtin_top_level_returns_nil() {
-    let result = builtin_top_level(vec![]).unwrap();
-    assert!(matches!(result, Value::Nil));
+fn builtin_top_level_throws_top_level_tag() {
+    let result = builtin_top_level(vec![]);
+    // top-level now throws 'top-level to exit all recursive edits
+    // (mirrors GNU Emacs keyboard.c:1187 Ftop_level).
+    assert!(matches!(
+        result,
+        Err(Flow::Throw { tag, value })
+            if matches!(tag, Value::Symbol(ref id) if resolve_sym(*id) == "top-level") && value.is_nil()
+    ));
 }
 
 #[test]
@@ -537,7 +543,9 @@ fn builtin_top_level_rejects_args() {
 
 #[test]
 fn builtin_exit_recursive_edit_signals_user_error() {
-    let result = builtin_exit_recursive_edit(vec![]);
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_exit_recursive_edit(&mut eval, vec![]);
+    // Not in a recursive edit → user-error
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "user-error"
@@ -546,7 +554,8 @@ fn builtin_exit_recursive_edit_signals_user_error() {
 
 #[test]
 fn builtin_exit_recursive_edit_rejects_args() {
-    let result = builtin_exit_recursive_edit(vec![Value::Nil]);
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_exit_recursive_edit(&mut eval, vec![Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -617,7 +626,9 @@ fn builtin_abort_minibuffers_rejects_args() {
 
 #[test]
 fn builtin_abort_recursive_edit_signals_user_error() {
-    let result = builtin_abort_recursive_edit(vec![]);
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_abort_recursive_edit(&mut eval, vec![]);
+    // Not in a recursive edit → user-error
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "user-error"
@@ -626,7 +637,8 @@ fn builtin_abort_recursive_edit_signals_user_error() {
 
 #[test]
 fn builtin_abort_recursive_edit_rejects_args() {
-    let result = builtin_abort_recursive_edit(vec![Value::Nil]);
+    let mut eval = super::super::eval::Evaluator::new();
+    let result = builtin_abort_recursive_edit(&mut eval, vec![Value::Nil]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
