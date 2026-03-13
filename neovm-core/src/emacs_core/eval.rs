@@ -363,6 +363,17 @@ pub struct Evaluator {
     /// `None` in batch mode.
     #[cfg(unix)]
     pub wakeup_fd: Option<std::os::unix::io::RawFd>,
+    /// Redisplay callback — called before blocking for input in `read_char()`.
+    ///
+    /// In GNU Emacs, `read_char()` calls `redisplay()` directly (keyboard.c
+    /// calls xdisp.c, both in the same binary). In our crate structure,
+    /// `neomacs-layout-engine` depends on `neovm-core`, so neovm-core cannot
+    /// call the layout engine directly (circular dependency). Instead,
+    /// `neomacs-bin` sets this callback to run the layout engine and send
+    /// the resulting `FrameGlyphBuffer` to the render thread.
+    ///
+    /// `None` in batch mode (no display).
+    pub redisplay_fn: Option<Box<dyn FnMut(&mut Self)>>,
     /// Coding system manager — encoding/decoding registry.
     pub(crate) coding_systems: CodingSystemManager,
     /// Face table — global registry of named face definitions.
@@ -1911,6 +1922,7 @@ impl Evaluator {
             input_rx: None,
             #[cfg(unix)]
             wakeup_fd: None,
+            redisplay_fn: None,
             coding_systems: CodingSystemManager::new(),
             face_table: FaceTable::new(),
             depth: 0,
@@ -2011,6 +2023,7 @@ impl Evaluator {
             input_rx: None,
             #[cfg(unix)]
             wakeup_fd: None,
+            redisplay_fn: None,
             coding_systems,
             face_table,
             depth: 0,
@@ -2276,6 +2289,9 @@ impl Evaluator {
                 return Ok(Value::Nil);
             }
 
+            // Redisplay before blocking (same as GNU Emacs read_char).
+            self.redisplay();
+
             // Block on input from render thread
             if let Some(ref rx) = self.input_rx {
                 match rx.recv() {
@@ -2315,6 +2331,20 @@ impl Evaluator {
                 // Batch mode — no input source
                 return Ok(Value::Nil);
             }
+        }
+    }
+
+    /// Trigger redisplay — calls the layout engine and sends frame to render thread.
+    ///
+    /// Mirrors GNU Emacs `redisplay()` (dispnew.c:5259).
+    /// In batch mode (no callback), this is a no-op.
+    fn redisplay(&mut self) {
+        // Take the callback out to satisfy the borrow checker:
+        // the callback receives &mut self, but we can't call a closure
+        // stored in &mut self while &mut self is borrowed.
+        if let Some(mut f) = self.redisplay_fn.take() {
+            f(self);
+            self.redisplay_fn = Some(f);
         }
     }
 
