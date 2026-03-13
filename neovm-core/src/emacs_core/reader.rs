@@ -999,8 +999,12 @@ pub(crate) fn builtin_waiting_for_user_input_p(args: Vec<Value>) -> EvalResult {
 // 15. y-or-n-p
 // ---------------------------------------------------------------------------
 
-/// `(y-or-n-p PROMPT)` currently returns EOF in batch mode.
-pub(crate) fn builtin_y_or_n_p(_eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+/// `(y-or-n-p PROMPT)`
+///
+/// Ask user a yes-or-no question. Returns t for 'y', nil for 'n'.
+/// In interactive mode, reads a single character.
+/// In batch mode, signals end-of-file.
+pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("y-or-n-p", &args, 1)?;
     match &args[0] {
         Value::Str(_) | Value::Vector(_) | Value::Nil => {}
@@ -1011,6 +1015,29 @@ pub(crate) fn builtin_y_or_n_p(_eval: &mut super::eval::Evaluator, args: Vec<Val
             ));
         }
     }
+
+    // Interactive mode: read single character
+    if eval.input_rx.is_some() {
+        // Display prompt in echo area (message)
+        if let Value::Str(id) = &args[0] {
+            let prompt_str = super::value::with_heap(|h| h.get_string(*id).to_owned());
+            let msg = format!("{} (y or n) ", prompt_str);
+            eval.assign("minibuffer-message", Value::string(&msg));
+        }
+        loop {
+            let event = eval.read_char()?;
+            if let Some(n) = event_to_int(&event) {
+                let ch = char::from_u32(n as u32).unwrap_or('\0');
+                match ch {
+                    'y' | 'Y' => return Ok(Value::True),
+                    'n' | 'N' => return Ok(Value::Nil),
+                    _ => continue, // Invalid response, try again
+                }
+            }
+            // Non-character event, ignore
+        }
+    }
+
     Err(signal(
         "end-of-file",
         vec![Value::string("Error reading from stdin")],
@@ -1021,9 +1048,13 @@ pub(crate) fn builtin_y_or_n_p(_eval: &mut super::eval::Evaluator, args: Vec<Val
 // 16. yes-or-no-p
 // ---------------------------------------------------------------------------
 
-/// `(yes-or-no-p PROMPT)` currently returns EOF in batch mode.
+/// `(yes-or-no-p PROMPT)`
+///
+/// Ask user a yes-or-no question requiring "yes" or "no" typed in full.
+/// In interactive mode, uses read-from-minibuffer.
+/// In batch mode, signals end-of-file.
 pub(crate) fn builtin_yes_or_no_p(
-    _eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("yes-or-no-p", &args, 1)?;
@@ -1033,6 +1064,31 @@ pub(crate) fn builtin_yes_or_no_p(
             vec![Value::symbol("stringp"), args[0]],
         ));
     }
+
+    // Interactive mode: read "yes" or "no" from minibuffer
+    if eval.input_rx.is_some() {
+        let prompt_str = if let Value::Str(id) = &args[0] {
+            super::value::with_heap(|h| h.get_string(*id).to_owned())
+        } else {
+            String::new()
+        };
+        loop {
+            let full_prompt = format!("{} (yes or no) ", prompt_str);
+            let result = builtin_read_from_minibuffer(
+                eval,
+                vec![Value::string(&full_prompt)],
+            )?;
+            if let Value::Str(id) = result {
+                let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
+                match answer.trim() {
+                    "yes" => return Ok(Value::True),
+                    "no" => return Ok(Value::Nil),
+                    _ => continue, // Ask again
+                }
+            }
+        }
+    }
+
     Err(signal(
         "end-of-file",
         vec![Value::string("Error reading from stdin")],
