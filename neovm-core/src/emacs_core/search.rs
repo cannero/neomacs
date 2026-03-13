@@ -667,7 +667,10 @@ pub(crate) fn builtin_replace_regexp_in_string_eval(
         }
         eval.match_data = Some(super::regex::MatchData {
             groups,
-            searched_string: Some(s.clone()),
+            searched_string: Some(match args[2] {
+                Value::Str(id) => super::regex::SearchedString::Heap(id),
+                _ => super::regex::SearchedString::Owned(s.clone()),
+            }),
             searched_buffer: None,
         });
 

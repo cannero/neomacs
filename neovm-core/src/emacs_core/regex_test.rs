@@ -182,7 +182,7 @@ fn string_match_basic() {
     assert_eq!(result.unwrap(), Some(0));
     let md = md.unwrap();
     assert_eq!(md.groups[0], Some((0, 5)));
-    assert_eq!(md.searched_string, Some("hello world".to_string()));
+    assert_eq!(md.searched_string_text(), Some("hello world".to_string()));
 }
 
 #[test]
@@ -756,7 +756,7 @@ fn string_match_then_match_data() {
     let mut md = None;
     let _ = string_match_full("\\([0-9]+\\)-\\([0-9]+\\)", "date: 2024-01-15", 0, &mut md);
     let md = md.as_ref().unwrap();
-    let string = md.searched_string.as_ref().unwrap();
+    let string = md.searched_string_text().unwrap();
 
     // match-beginning 0
     let (s0, _e0) = md.groups[0].unwrap();
@@ -791,7 +791,7 @@ fn string_match_start_offset_respects_real_line_start() {
     assert_eq!(result, Some("alpha=1\n".chars().count()));
 
     let md = md.as_ref().expect("match data");
-    let searched = md.searched_string.as_ref().expect("searched string");
+    let searched = md.searched_string_text().expect("searched string");
     let (s1, e1) = md.groups[1].unwrap();
     let byte_s1 = searched
         .char_indices()

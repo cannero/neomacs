@@ -8,6 +8,7 @@ use std::cell::RefCell;
 
 use crate::buffer::{Buffer, BufferId};
 use crate::emacs_core::casefiddle::apply_replace_match_case;
+use crate::emacs_core::value::with_heap;
 
 pub(crate) const REPLACE_MATCH_SUBEXP_MISSING: &str = "replace-match subexpression does not exist";
 const SEARCH_PATTERN_CACHE_SIZE: usize = 20;
@@ -131,9 +132,34 @@ pub struct MatchData {
     pub groups: Vec<Option<(usize, usize)>>,
     /// The string that was searched (for `string-match`).
     /// `None` when the search was performed on a buffer.
-    pub searched_string: Option<String>,
+    pub searched_string: Option<SearchedString>,
     /// The buffer that was searched, when match data came from a buffer search.
     pub searched_buffer: Option<BufferId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SearchedString {
+    Heap(crate::gc::types::ObjId),
+    Owned(String),
+}
+
+impl SearchedString {
+    pub(crate) fn with_str<R>(&self, f: impl FnOnce(&str) -> R) -> R {
+        match self {
+            Self::Heap(id) => with_heap(|heap| f(heap.get_string(*id))),
+            Self::Owned(text) => f(text),
+        }
+    }
+
+    pub(crate) fn to_owned(&self) -> String {
+        self.with_str(str::to_owned)
+    }
+}
+
+impl MatchData {
+    pub(crate) fn searched_string_text(&self) -> Option<String> {
+        self.searched_string.as_ref().map(SearchedString::to_owned)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -986,22 +1012,28 @@ fn match_data_from_captures(caps: &regex::Captures<'_>, offset: usize) -> MatchD
     }
 }
 
-fn string_char_match_data(string: &str, byte_md: MatchData) -> MatchData {
-    let char_groups: Vec<Option<(usize, usize)>> = byte_md
-        .groups
-        .iter()
-        .map(|g| {
-            g.map(|(bs, be)| {
-                let cs = string.get(..bs).map_or(0, |s| s.chars().count());
-                let ce = string.get(..be).map_or(0, |s| s.chars().count());
-                (cs, ce)
+fn string_char_match_data(searched_string: SearchedString, byte_md: MatchData) -> MatchData {
+    let char_groups = searched_string.with_str(|string| {
+        if string.is_ascii() {
+            return byte_md.groups.clone();
+        }
+
+        byte_md
+            .groups
+            .iter()
+            .map(|g| {
+                g.map(|(bs, be)| {
+                    let cs = string.get(..bs).map_or(0, |s| s.chars().count());
+                    let ce = string.get(..be).map_or(0, |s| s.chars().count());
+                    (cs, ce)
+                })
             })
-        })
-        .collect();
+            .collect()
+    });
 
     MatchData {
         groups: char_groups,
-        searched_string: Some(string.to_string()),
+        searched_string: Some(searched_string),
         searched_buffer: None,
     }
 }
@@ -2043,14 +2075,17 @@ pub fn looking_at_string(
                 return Ok(false);
             }
             *match_data = Some(string_char_match_data(
-                string,
+                SearchedString::Owned(string.to_string()),
                 single_group_match_data(0, literal.len()),
             ));
             Ok(true)
         }
         CompiledSearchPattern::Segmented(segmented) => {
             if let Some(md) = segmented_match_at(&segmented, string, 0, string.len(), case_fold) {
-                *match_data = Some(string_char_match_data(string, md));
+                *match_data = Some(string_char_match_data(
+                    SearchedString::Owned(string.to_string()),
+                    md,
+                ));
                 Ok(true)
             } else {
                 Ok(false)
@@ -2058,7 +2093,10 @@ pub fn looking_at_string(
         }
         CompiledSearchPattern::Backref(backref) => {
             if let Some(md) = backref_match_at(&backref, string, 0, case_fold) {
-                *match_data = Some(string_char_match_data(string, md));
+                *match_data = Some(string_char_match_data(
+                    SearchedString::Owned(string.to_string()),
+                    md,
+                ));
                 Ok(true)
             } else {
                 Ok(false)
@@ -2070,7 +2108,10 @@ pub fn looking_at_string(
                 if byte_md.groups[0].unwrap().0 != 0 {
                     return Ok(false);
                 }
-                *match_data = Some(string_char_match_data(string, byte_md));
+                *match_data = Some(string_char_match_data(
+                    SearchedString::Owned(string.to_string()),
+                    byte_md,
+                ));
                 Ok(true)
             } else {
                 Ok(false)
@@ -2093,6 +2134,24 @@ pub fn string_match_full_with_case_fold(
     case_fold: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<Option<usize>, String> {
+    string_match_full_with_case_fold_source(
+        pattern,
+        string,
+        SearchedString::Owned(string.to_string()),
+        start,
+        case_fold,
+        match_data,
+    )
+}
+
+pub(crate) fn string_match_full_with_case_fold_source(
+    pattern: &str,
+    string: &str,
+    searched_string: SearchedString,
+    start: usize,
+    case_fold: bool,
+    match_data: &mut Option<MatchData>,
+) -> Result<Option<usize>, String> {
     if start > string.len() {
         return Ok(None);
     }
@@ -2102,8 +2161,10 @@ pub fn string_match_full_with_case_fold(
             let byte_match = literal_find(&string[start..], &literal, case_fold)
                 .map(|(match_start, match_end)| (start + match_start, start + match_end));
             if let Some((byte_start, byte_end)) = byte_match {
-                let char_md =
-                    string_char_match_data(string, single_group_match_data(byte_start, byte_end));
+                let char_md = string_char_match_data(
+                    searched_string,
+                    single_group_match_data(byte_start, byte_end),
+                );
                 let result_pos = char_md.groups[0].unwrap().0;
                 *match_data = Some(char_md);
                 Ok(Some(result_pos))
@@ -2120,7 +2181,7 @@ pub fn string_match_full_with_case_fold(
                 0,
                 case_fold,
             ) {
-                let char_md = string_char_match_data(string, md);
+                let char_md = string_char_match_data(searched_string, md);
                 let result_pos = char_md.groups[0].unwrap().0;
                 *match_data = Some(char_md);
                 Ok(Some(result_pos))
@@ -2132,7 +2193,7 @@ pub fn string_match_full_with_case_fold(
             if let Some(md) =
                 find_forward_backref_match_data(&backref, string, start, string.len(), 0, case_fold)
             {
-                let char_md = string_char_match_data(string, md);
+                let char_md = string_char_match_data(searched_string, md);
                 let result_pos = char_md.groups[0].unwrap().0;
                 *match_data = Some(char_md);
                 Ok(Some(result_pos))
@@ -2142,7 +2203,8 @@ pub fn string_match_full_with_case_fold(
         }
         CompiledSearchPattern::Regex(re) => {
             if let Some(caps) = re.captures_at(string, start) {
-                let char_md = string_char_match_data(string, match_data_from_captures(&caps, 0));
+                let char_md =
+                    string_char_match_data(searched_string, match_data_from_captures(&caps, 0));
                 let result_pos = char_md.groups[0].unwrap().0;
                 *match_data = Some(char_md);
                 Ok(Some(result_pos))

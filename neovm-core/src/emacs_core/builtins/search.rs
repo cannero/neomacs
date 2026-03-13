@@ -498,21 +498,50 @@ pub(crate) fn builtin_string_match_with_state(
         crate::emacs_core::perf_trace::HotpathOp::StringMatch,
         || {
             expect_range_args("string-match", args, 2, 4)?;
-            let pattern = expect_string(&args[0])?;
-            let s = expect_string(&args[1])?;
-            let start = normalize_string_start_arg(&s, args.get(2))?;
             let inhibit_modify = args.get(3).is_some_and(|v| v.is_truthy());
-            let target = if inhibit_modify {
-                &mut None
-            } else {
-                match_data
-            };
-            match super::regex::string_match_full_with_case_fold(
-                &pattern, &s, start, case_fold, target,
-            ) {
-                Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-                Ok(None) => Ok(Value::Nil),
-                Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+
+            match (&args[0], &args[1]) {
+                (Value::Str(pattern_id), Value::Str(string_id)) => with_heap(|h| {
+                    let pattern = h.get_string(*pattern_id);
+                    let s = h.get_string(*string_id);
+                    let start = normalize_string_start_arg(s, args.get(2))?;
+                    let mut throwaway = None;
+                    let target = if inhibit_modify {
+                        &mut throwaway
+                    } else {
+                        match_data
+                    };
+                    match super::regex::string_match_full_with_case_fold_source(
+                        pattern,
+                        s,
+                        super::regex::SearchedString::Heap(*string_id),
+                        start,
+                        case_fold,
+                        target,
+                    ) {
+                        Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
+                        Ok(None) => Ok(Value::Nil),
+                        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+                    }
+                }),
+                _ => {
+                    let pattern = expect_string(&args[0])?;
+                    let s = expect_string(&args[1])?;
+                    let start = normalize_string_start_arg(&s, args.get(2))?;
+                    let mut throwaway = None;
+                    let target = if inhibit_modify {
+                        &mut throwaway
+                    } else {
+                        match_data
+                    };
+                    match super::regex::string_match_full_with_case_fold(
+                        &pattern, &s, start, case_fold, target,
+                    ) {
+                        Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
+                        Ok(None) => Ok(Value::Nil),
+                        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+                    }
+                }
             }
         },
     )
@@ -531,22 +560,43 @@ pub(crate) fn builtin_string_match_eval(
 
 pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Value]) -> EvalResult {
     expect_range_args("string-match-p", args, 2, 3)?;
-    let pattern = expect_string(&args[0])?;
-    let s = expect_string(&args[1])?;
-    let start = normalize_string_start_arg(&s, args.get(2))?;
-    let mut throwaway = None;
+    match (&args[0], &args[1]) {
+        (Value::Str(pattern_id), Value::Str(string_id)) => with_heap(|h| {
+            let pattern = h.get_string(*pattern_id);
+            let s = h.get_string(*string_id);
+            let start = normalize_string_start_arg(s, args.get(2))?;
+            let mut throwaway = None;
+            match super::regex::string_match_full_with_case_fold_source(
+                pattern,
+                s,
+                super::regex::SearchedString::Heap(*string_id),
+                start,
+                case_fold,
+                &mut throwaway,
+            ) {
+                Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
+                Ok(None) => Ok(Value::Nil),
+                Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+            }
+        }),
+        _ => {
+            let pattern = expect_string(&args[0])?;
+            let s = expect_string(&args[1])?;
+            let start = normalize_string_start_arg(&s, args.get(2))?;
+            let mut throwaway = None;
 
-    match super::regex::string_match_full_with_case_fold(
-        &pattern,
-        &s,
-        start,
-        case_fold,
-        &mut throwaway,
-    ) {
-        // string_match_full_with_case_fold returns a character position
-        Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-        Ok(None) => Ok(Value::Nil),
-        Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+            match super::regex::string_match_full_with_case_fold(
+                &pattern,
+                &s,
+                start,
+                case_fold,
+                &mut throwaway,
+            ) {
+                Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
+                Ok(None) => Ok(Value::Nil),
+                Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
+            }
+        }
     }
 }
 
@@ -592,27 +642,32 @@ pub(crate) fn builtin_match_string(
         _ => return Ok(Value::Nil),
     };
 
-    // If the match was against a string, use that string
-    if let Some(ref searched) = md.searched_string {
-        // Match data stores character positions for string searches;
-        // convert to byte offsets for slicing.
-        let byte_start = char_pos_to_byte(searched, start);
-        let byte_end = char_pos_to_byte(searched, end);
-        if byte_end <= searched.len() {
-            return Ok(Value::string(&searched[byte_start..byte_end]));
-        }
-        return Ok(Value::Nil);
-    }
-
-    // Otherwise use current buffer
-    // If an optional second arg is a string, use that
+    // If an optional second arg is a string, use that first.
     if args.len() > 1 {
         if let Some(s) = args[1].as_str() {
-            if end <= s.len() {
-                return Ok(Value::string(&s[start..end]));
+            let (byte_start, byte_end) = if md.searched_string.is_some() {
+                (char_pos_to_byte(s, start), char_pos_to_byte(s, end))
+            } else {
+                (start, end)
+            };
+            if byte_end <= s.len() && byte_start <= byte_end {
+                return Ok(Value::string(&s[byte_start..byte_end]));
             }
             return Ok(Value::Nil);
         }
+    }
+
+    // Otherwise, if the match was against a string, use that string.
+    if let Some(ref searched) = md.searched_string {
+        return searched.with_str(|searched| {
+            let byte_start = char_pos_to_byte(searched, start);
+            let byte_end = char_pos_to_byte(searched, end);
+            if byte_end <= searched.len() {
+                Ok(Value::string(&searched[byte_start..byte_end]))
+            } else {
+                Ok(Value::Nil)
+            }
+        });
     }
 
     let buf = match eval.buffers.current_buffer() {
