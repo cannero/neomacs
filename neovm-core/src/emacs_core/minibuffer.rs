@@ -572,7 +572,14 @@ pub(crate) fn builtin_read_file_name(
 
         return super::reader::builtin_read_from_minibuffer(
             eval,
-            vec![prompt, effective_initial, Value::Nil, Value::Nil, Value::Nil, default],
+            vec![
+                prompt,
+                effective_initial,
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+                default,
+            ],
         );
     }
 
@@ -619,7 +626,14 @@ pub(crate) fn builtin_read_directory_name(
 
         return super::reader::builtin_read_from_minibuffer(
             eval,
-            vec![prompt, effective_initial, Value::Nil, Value::Nil, Value::Nil, default],
+            vec![
+                prompt,
+                effective_initial,
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+                default,
+            ],
         );
     }
 
@@ -656,7 +670,15 @@ pub(crate) fn builtin_read_buffer(
 
         return super::reader::builtin_completing_read(
             eval,
-            vec![prompt, collection, predicate, require_match, Value::Nil, Value::Nil, default],
+            vec![
+                prompt,
+                collection,
+                predicate,
+                require_match,
+                Value::Nil,
+                Value::Nil,
+                default,
+            ],
         );
     }
 
@@ -682,7 +704,14 @@ pub(crate) fn builtin_read_command(
 
         let result = super::reader::builtin_read_from_minibuffer(
             eval,
-            vec![prompt, Value::Nil, Value::Nil, Value::Nil, Value::Nil, default],
+            vec![
+                prompt,
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+                default,
+            ],
         )?;
         // read-command returns a symbol
         if let Value::Str(id) = result {
@@ -714,7 +743,14 @@ pub(crate) fn builtin_read_variable(
 
         let result = super::reader::builtin_read_from_minibuffer(
             eval,
-            vec![prompt, Value::Nil, Value::Nil, Value::Nil, Value::Nil, default],
+            vec![
+                prompt,
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+                default,
+            ],
         )?;
         // read-variable returns a symbol
         if let Value::Str(id) = result {

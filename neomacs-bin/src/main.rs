@@ -349,11 +349,7 @@ fn ensure_dir_string(path: &Path) -> String {
 }
 
 /// Run the layout engine on the current frame state.
-fn run_layout(
-    evaluator: &mut Evaluator,
-    frame_id: FrameId,
-    frame_glyphs: &mut FrameGlyphBuffer,
-) {
+fn run_layout(evaluator: &mut Evaluator, frame_id: FrameId, frame_glyphs: &mut FrameGlyphBuffer) {
     use neomacs_display_runtime::layout::LayoutEngine;
 
     thread_local! {

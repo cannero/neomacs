@@ -648,13 +648,16 @@ fn builtin_abort_recursive_edit_rejects_args() {
 #[test]
 fn builtin_read_file_name_signals_end_of_file() {
     let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_read_file_name(&mut eval, vec![
-        Value::string("File: "),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::string("/tmp/test.txt"),
-    ]);
+    let result = builtin_read_file_name(
+        &mut eval,
+        vec![
+            Value::string("File: "),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::string("/tmp/test.txt"),
+        ],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -672,20 +675,25 @@ fn builtin_read_file_name_validates_dir_default_and_initial() {
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
     ));
 
-    let bad_default =
-        builtin_read_file_name(&mut eval, vec![Value::string("File: "), Value::Nil, Value::Int(1)]);
+    let bad_default = builtin_read_file_name(
+        &mut eval,
+        vec![Value::string("File: "), Value::Nil, Value::Int(1)],
+    );
     assert!(matches!(
         bad_default,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
     ));
 
-    let bad_initial = builtin_read_file_name(&mut eval, vec![
-        Value::string("File: "),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(1),
-    ]);
+    let bad_initial = builtin_read_file_name(
+        &mut eval,
+        vec![
+            Value::string("File: "),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Int(1),
+        ],
+    );
     assert!(matches!(
         bad_initial,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -695,15 +703,18 @@ fn builtin_read_file_name_validates_dir_default_and_initial() {
 #[test]
 fn builtin_read_file_name_rejects_more_than_six_args() {
     let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_read_file_name(&mut eval, vec![
-        Value::string("File: "),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let result = builtin_read_file_name(
+        &mut eval,
+        vec![
+            Value::string("File: "),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+        ],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -713,7 +724,10 @@ fn builtin_read_file_name_rejects_more_than_six_args() {
 #[test]
 fn builtin_read_buffer_signals_end_of_file() {
     let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_read_buffer(&mut eval, vec![Value::string("Buffer: "), Value::string("*scratch*")]);
+    let result = builtin_read_buffer(
+        &mut eval,
+        vec![Value::string("Buffer: "), Value::string("*scratch*")],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"
@@ -723,14 +737,17 @@ fn builtin_read_buffer_signals_end_of_file() {
 #[test]
 fn builtin_read_directory_name_rejects_more_than_five_args() {
     let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_read_directory_name(&mut eval, vec![
-        Value::string("Directory: "),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let result = builtin_read_directory_name(
+        &mut eval,
+        vec![
+            Value::string("Directory: "),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+        ],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -740,29 +757,32 @@ fn builtin_read_directory_name_rejects_more_than_five_args() {
 #[test]
 fn builtin_read_directory_name_validates_dir_default_and_initial() {
     let mut eval = super::super::eval::Evaluator::new();
-    let bad_dir = builtin_read_directory_name(&mut eval, vec![Value::string("Directory: "), Value::Int(1)]);
+    let bad_dir =
+        builtin_read_directory_name(&mut eval, vec![Value::string("Directory: "), Value::Int(1)]);
     assert!(matches!(
         bad_dir,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
     ));
 
-    let bad_default = builtin_read_directory_name(&mut eval, vec![
-        Value::string("Directory: "),
-        Value::Nil,
-        Value::Int(1),
-    ]);
+    let bad_default = builtin_read_directory_name(
+        &mut eval,
+        vec![Value::string("Directory: "), Value::Nil, Value::Int(1)],
+    );
     assert!(matches!(
         bad_default,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
     ));
 
-    let bad_initial = builtin_read_directory_name(&mut eval, vec![
-        Value::string("Directory: "),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(1),
-    ]);
+    let bad_initial = builtin_read_directory_name(
+        &mut eval,
+        vec![
+            Value::string("Directory: "),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Int(1),
+        ],
+    );
     assert!(matches!(
         bad_initial,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -772,13 +792,16 @@ fn builtin_read_directory_name_validates_dir_default_and_initial() {
 #[test]
 fn builtin_read_buffer_rejects_more_than_four_args() {
     let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_read_buffer(&mut eval, vec![
-        Value::string("Buffer: "),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-    ]);
+    let result = builtin_read_buffer(
+        &mut eval,
+        vec![
+            Value::string("Buffer: "),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+        ],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -788,7 +811,10 @@ fn builtin_read_buffer_rejects_more_than_four_args() {
 #[test]
 fn builtin_read_command_rejects_more_than_two_args() {
     let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_read_command(&mut eval, vec![Value::string("Command: "), Value::Nil, Value::Nil]);
+    let result = builtin_read_command(
+        &mut eval,
+        vec![Value::string("Command: "), Value::Nil, Value::Nil],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -798,7 +824,10 @@ fn builtin_read_command_rejects_more_than_two_args() {
 #[test]
 fn builtin_read_variable_rejects_more_than_two_args() {
     let mut eval = super::super::eval::Evaluator::new();
-    let result = builtin_read_variable(&mut eval, vec![Value::string("Variable: "), Value::Nil, Value::Nil]);
+    let result = builtin_read_variable(
+        &mut eval,
+        vec![Value::string("Variable: "), Value::Nil, Value::Nil],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"

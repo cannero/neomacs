@@ -2025,7 +2025,9 @@ pub(crate) fn dispatch_builtin(
             return Some(super::interactive::builtin_self_insert_command(eval, args));
         }
         "universal-argument" => {
-            return Some(super::interactive::builtin_universal_argument_command(eval, args));
+            return Some(super::interactive::builtin_universal_argument_command(
+                eval, args,
+            ));
         }
         "digit-argument" => {
             return Some(super::interactive::builtin_digit_argument(eval, args));
@@ -2130,8 +2132,12 @@ pub(crate) fn dispatch_builtin(
         }
         "recursion-depth" => return Some(super::misc::builtin_recursion_depth(eval, args)),
         "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
-        "recursive-edit" => return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args)),
-        "exit-recursive-edit" => return Some(super::minibuffer::builtin_exit_recursive_edit(eval, args)),
+        "recursive-edit" => {
+            return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args));
+        }
+        "exit-recursive-edit" => {
+            return Some(super::minibuffer::builtin_exit_recursive_edit(eval, args));
+        }
         "abort-recursive-edit" => {
             return Some(super::minibuffer::builtin_abort_recursive_edit(eval, args));
         }

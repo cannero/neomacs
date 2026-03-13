@@ -1068,30 +1068,31 @@ fn interactive_args_from_string_code(
     let mut args = Vec::new();
     for (letter, prompt) in parsed.entries {
         match letter {
-            'a' => args.push(super::minibuffer::builtin_read_command(eval, vec![
-                Value::string(prompt),
-            ])?),
-            'b' => args.push(super::minibuffer::builtin_read_buffer(eval, vec![
-                Value::string(prompt),
-                Value::Nil,
-                Value::True,
-            ])?),
-            'B' => args.push(super::minibuffer::builtin_read_buffer(eval, vec![
-                Value::string(prompt),
-                Value::Nil,
-                Value::Nil,
-            ])?),
+            'a' => args.push(super::minibuffer::builtin_read_command(
+                eval,
+                vec![Value::string(prompt)],
+            )?),
+            'b' => args.push(super::minibuffer::builtin_read_buffer(
+                eval,
+                vec![Value::string(prompt), Value::Nil, Value::True],
+            )?),
+            'B' => args.push(super::minibuffer::builtin_read_buffer(
+                eval,
+                vec![Value::string(prompt), Value::Nil, Value::Nil],
+            )?),
             'c' => args.push(super::reader::builtin_read_char(
                 eval,
                 vec![Value::string(prompt)],
             )?),
-            'C' => args.push(super::minibuffer::builtin_read_command(eval, vec![
-                Value::string(prompt),
-            ])?),
+            'C' => args.push(super::minibuffer::builtin_read_command(
+                eval,
+                vec![Value::string(prompt)],
+            )?),
             'd' => args.push(interactive_point_arg(eval)?),
-            'D' => args.push(super::minibuffer::builtin_read_directory_name(eval, vec![
-                Value::string(prompt),
-            ])?),
+            'D' => args.push(super::minibuffer::builtin_read_directory_name(
+                eval,
+                vec![Value::string(prompt)],
+            )?),
             'e' => {
                 if let Some(event) = interactive_next_event_with_parameters(eval, context) {
                     args.push(event);
@@ -1104,18 +1105,18 @@ fn interactive_args_from_string_code(
                     ));
                 }
             }
-            'f' => args.push(super::minibuffer::builtin_read_file_name(eval, vec![
-                Value::string(prompt),
-                Value::Nil,
-                Value::Nil,
-                Value::True,
-            ])?),
-            'F' => args.push(super::minibuffer::builtin_read_file_name(eval, vec![
-                Value::string(prompt),
-            ])?),
-            'G' => args.push(super::minibuffer::builtin_read_file_name(eval, vec![
-                Value::string(prompt),
-            ])?),
+            'f' => args.push(super::minibuffer::builtin_read_file_name(
+                eval,
+                vec![Value::string(prompt), Value::Nil, Value::Nil, Value::True],
+            )?),
+            'F' => args.push(super::minibuffer::builtin_read_file_name(
+                eval,
+                vec![Value::string(prompt)],
+            )?),
+            'G' => args.push(super::minibuffer::builtin_read_file_name(
+                eval,
+                vec![Value::string(prompt)],
+            )?),
             'i' => args.push(Value::Nil),
             'k' => args.push(super::reader::builtin_read_key_sequence(
                 eval,
@@ -1167,9 +1168,10 @@ fn interactive_args_from_string_code(
                 args.push(eval.eval_value(&expr_value)?);
             }
             'U' => args.push(Value::Nil),
-            'v' => args.push(super::minibuffer::builtin_read_variable(eval, vec![
-                Value::string(prompt),
-            ])?),
+            'v' => args.push(super::minibuffer::builtin_read_variable(
+                eval,
+                vec![Value::string(prompt)],
+            )?),
             'z' => args.push(super::lread::builtin_read_coding_system(vec![
                 Value::string(prompt),
             ])?),
@@ -1522,10 +1524,7 @@ pub(crate) fn builtin_universal_argument_command(
 }
 
 /// `(digit-argument ARG)` — handle M-0 through M-9 as prefix digits.
-pub(crate) fn builtin_digit_argument(
-    eval: &mut Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_digit_argument(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("digit-argument", &args, 1)?;
     // The digit is in last-command-event
     let event = dynamic_or_global_symbol_value(eval, "last-command-event").unwrap_or(Value::Nil);
@@ -1552,10 +1551,7 @@ pub(crate) fn builtin_digit_argument(
 }
 
 /// `(negative-argument ARG)` — handle M-- as negative prefix.
-pub(crate) fn builtin_negative_argument(
-    eval: &mut Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_negative_argument(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("negative-argument", &args, 1)?;
     let current = dynamic_or_global_symbol_value(eval, "prefix-arg").unwrap_or(Value::Nil);
     let new_prefix = match current {

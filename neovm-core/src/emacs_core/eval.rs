@@ -2290,11 +2290,7 @@ impl Evaluator {
 
                     // Ring the bell for quit signals
                     if sym_name == "quit" {
-                        let _ = super::builtins::dispatch_builtin(
-                            self,
-                            "ding",
-                            vec![],
-                        );
+                        let _ = super::builtins::dispatch_builtin(self, "ding", vec![]);
                     }
 
                     // Restart the command loop.
@@ -2316,9 +2312,7 @@ impl Evaluator {
 
             // Transfer prefix-arg → current-prefix-arg before each command
             // (mirrors keyboard.c command_loop_1 logic).
-            let prefix_arg = self
-                .eval_symbol("prefix-arg")
-                .unwrap_or(Value::Nil);
+            let prefix_arg = self.eval_symbol("prefix-arg").unwrap_or(Value::Nil);
             self.assign("current-prefix-arg", prefix_arg);
             self.assign("prefix-arg", Value::Nil);
 
@@ -2344,10 +2338,7 @@ impl Evaluator {
             let _ = self.run_hook_if_bound("pre-command-hook");
 
             // Execute: (command-execute cmd)
-            let exec_result = super::interactive::builtin_command_execute(
-                self,
-                vec![binding],
-            );
+            let exec_result = super::interactive::builtin_command_execute(self, vec![binding]);
 
             if let Err(ref flow) = exec_result {
                 match flow {
@@ -2355,11 +2346,7 @@ impl Evaluator {
                     Flow::Signal(sig) => {
                         // Log error but continue the loop
                         // (mirrors cmd_error in keyboard.c)
-                        tracing::warn!(
-                            "Command error: ({} {:?})",
-                            sig.symbol_name(),
-                            sig.data
-                        );
+                        tracing::warn!("Command error: ({} {:?})", sig.symbol_name(), sig.data);
                     }
                 }
             }
@@ -2409,9 +2396,7 @@ impl Evaluator {
                 "local-function-key-map",
                 "key-translation-map",
             ] {
-                let map = self
-                    .eval_symbol(map_name)
-                    .unwrap_or(Value::Nil);
+                let map = self.eval_symbol(map_name).unwrap_or(Value::Nil);
                 if map.is_nil() || !is_list_keymap(&map) {
                     continue;
                 }
@@ -2454,10 +2439,7 @@ impl Evaluator {
 
             // Look up the full sequence so far
             let key_vec = Value::vector(events.clone());
-            let binding = super::interactive::builtin_key_binding(
-                self,
-                vec![key_vec],
-            )?;
+            let binding = super::interactive::builtin_key_binding(self, vec![key_vec])?;
 
             if binding.is_nil() {
                 // Undefined key sequence
@@ -2480,9 +2462,7 @@ impl Evaluator {
                 // Echo the partial key sequence in the echo area
                 // (mirrors GNU Emacs echo-keystrokes behavior)
                 let key_vec = Value::vector(events.clone());
-                if let Ok(desc) = super::builtins::keymaps::builtin_key_description(
-                    vec![key_vec],
-                ) {
+                if let Ok(desc) = super::builtins::keymaps::builtin_key_description(vec![key_vec]) {
                     if let Some(s) = desc.as_str() {
                         let echo_msg = format!("{}-", s);
                         let _ = super::builtins::dispatch_builtin(
@@ -2506,8 +2486,8 @@ impl Evaluator {
     /// This is THE blocking point in the command loop.
     /// Before blocking, triggers redisplay.
     pub(crate) fn read_char(&mut self) -> Result<Value, Flow> {
-        use crate::keyboard::InputEvent;
         use super::keymap::key_event_to_emacs_event;
+        use crate::keyboard::InputEvent;
 
         // 1. Check unread command events
         if let Some(key) = self.command_loop.unread_events.pop_front() {
@@ -2571,7 +2551,10 @@ impl Evaluator {
                     self.command_loop.running = false;
                     return Err(super::error::signal("quit", vec![]));
                 }
-                InputEvent::Resize { width: _, height: _ } => {
+                InputEvent::Resize {
+                    width: _,
+                    height: _,
+                } => {
                     // TODO: update frame dimensions
                     continue;
                 }
@@ -2593,9 +2576,8 @@ impl Evaluator {
                     y,
                     modifiers,
                 } => {
-                    let event = Self::make_mouse_event(
-                        &button, x, y, &modifiers, "down-mouse", self,
-                    );
+                    let event =
+                        Self::make_mouse_event(&button, x, y, &modifiers, "down-mouse", self);
                     return Ok(event);
                 }
                 InputEvent::MouseRelease { button, x, y } => {
@@ -2623,15 +2605,10 @@ impl Evaluator {
                         "wheel-down"
                     };
                     let mut sym = String::new();
-                    Self::append_modifier_prefix(
-                        &modifiers, &mut sym,
-                    );
+                    Self::append_modifier_prefix(&modifiers, &mut sym);
                     sym.push_str(dir);
                     let position = Self::make_mouse_position(x, y, self);
-                    return Ok(Value::list(vec![
-                        Value::symbol(&sym),
-                        position,
-                    ]));
+                    return Ok(Value::list(vec![Value::symbol(&sym), position]));
                 }
                 InputEvent::MouseMove { .. } => {
                     // Movement events are not typically returned by
@@ -2675,31 +2652,20 @@ impl Evaluator {
     /// Returns `(WINDOW POS (X . Y) TIMESTAMP)` where WINDOW is the
     /// selected window, POS is the current point, and TIMESTAMP is 0.
     fn make_mouse_position(x: f32, y: f32, eval: &Self) -> Value {
-        let window = eval
-            .eval_symbol("selected-window")
-            .unwrap_or(Value::Nil);
+        let window = eval.eval_symbol("selected-window").unwrap_or(Value::Nil);
         // Use selected window value, or fall back to a generic list
-        let window_val = if window.is_nil() {
-            Value::Nil
-        } else {
-            window
-        };
+        let window_val = if window.is_nil() { Value::Nil } else { window };
         let pos = eval
             .buffers
             .current_buffer()
             .map(|buf| Value::Int(buf.text.byte_to_char(buf.point()) as i64 + 1))
             .unwrap_or(Value::Int(1));
         let xy = Value::cons(Value::Int(x as i64), Value::Int(y as i64));
-        Value::list(vec![
-            Value::list(vec![window_val, pos, xy, Value::Int(0)]),
-        ])
+        Value::list(vec![Value::list(vec![window_val, pos, xy, Value::Int(0)])])
     }
 
     /// Append modifier prefix characters to a symbol name string.
-    fn append_modifier_prefix(
-        modifiers: &crate::keyboard::Modifiers,
-        out: &mut String,
-    ) {
+    fn append_modifier_prefix(modifiers: &crate::keyboard::Modifiers, out: &mut String) {
         if modifiers.ctrl {
             out.push_str("C-");
         }
@@ -2728,12 +2694,8 @@ impl Evaluator {
         for (callback, args) in fired {
             let mut call_args = vec![callback];
             call_args.extend(args);
-            if let Err(e) = super::builtins::dispatch_builtin(
-                self,
-                "funcall",
-                call_args,
-            )
-            .unwrap_or(Ok(Value::Nil))
+            if let Err(e) = super::builtins::dispatch_builtin(self, "funcall", call_args)
+                .unwrap_or(Ok(Value::Nil))
             {
                 tracing::warn!("Timer callback error: {:?}", e);
             }
@@ -2745,12 +2707,8 @@ impl Evaluator {
         match self.eval_symbol(hook_name) {
             Ok(hook_val) if !hook_val.is_nil() => {
                 // (run-hooks 'HOOK)
-                super::builtins::dispatch_builtin(
-                    self,
-                    "run-hooks",
-                    vec![Value::symbol(hook_name)],
-                )
-                .unwrap_or(Ok(Value::Nil))
+                super::builtins::dispatch_builtin(self, "run-hooks", vec![Value::symbol(hook_name)])
+                    .unwrap_or(Ok(Value::Nil))
             }
             _ => Ok(Value::Nil),
         }

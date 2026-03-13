@@ -66,11 +66,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
                     modifiers: render_mods_to_modifiers(modifiers),
                 })
             } else {
-                Some(KbInputEvent::MouseRelease {
-                    button: mb,
-                    x,
-                    y,
-                })
+                Some(KbInputEvent::MouseRelease { button: mb, x, y })
             }
         }
         DisplayEvent::MouseMove {

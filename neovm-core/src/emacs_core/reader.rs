@@ -575,12 +575,10 @@ fn read_from_minibuffer_interactive(
     args: &[Value],
 ) -> EvalResult {
     // Extract optional arguments
-    let initial_input = args
-        .get(1)
-        .and_then(|v| match v {
-            Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
-            _ => None,
-        });
+    let initial_input = args.get(1).and_then(|v| match v {
+        Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+        _ => None,
+    });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::Nil);
     let read_arg = args.get(3).copied().unwrap_or(Value::Nil);
     let default_val = args.get(5).copied().unwrap_or(Value::Nil);
@@ -623,7 +621,8 @@ fn read_from_minibuffer_interactive(
     let minibuf_keymap = if !keymap_arg.is_nil() {
         keymap_arg
     } else {
-        eval.obarray().symbol_value("minibuffer-local-map")
+        eval.obarray()
+            .symbol_value("minibuffer-local-map")
             .copied()
             .unwrap_or(Value::Nil)
     };
@@ -631,7 +630,9 @@ fn read_from_minibuffer_interactive(
 
     // Set minibuffer-related variables
     eval.assign("minibuffer-prompt", Value::string(prompt));
-    let prev_depth = eval.obarray().symbol_value("minibuffer-depth")
+    let prev_depth = eval
+        .obarray()
+        .symbol_value("minibuffer-depth")
         .copied()
         .unwrap_or(Value::Int(0));
     eval.assign("minibuffer-depth", Value::Int(depth as i64));
@@ -666,10 +667,8 @@ fn read_from_minibuffer_interactive(
             if !read_arg.is_nil() && !result_string.is_empty() {
                 // READ is non-nil: parse the result string as a Lisp expression
                 // (like calling (read STRING)) and return the parsed object.
-                let read_result = builtin_read_from_string(
-                    eval,
-                    vec![Value::string(&result_string)],
-                )?;
+                let read_result =
+                    builtin_read_from_string(eval, vec![Value::string(&result_string)])?;
                 // read-from-string returns (OBJECT . END-POS), extract OBJECT
                 if let Value::Cons(id) = read_result {
                     let snap = super::value::read_cons(id);
@@ -716,7 +715,15 @@ pub(crate) fn builtin_read_string(
 
     builtin_read_from_minibuffer(
         eval,
-        vec![prompt, initial, Value::Nil, Value::Nil, history, default, inherit],
+        vec![
+            prompt,
+            initial,
+            Value::Nil,
+            Value::Nil,
+            history,
+            default,
+            inherit,
+        ],
     )
 }
 
@@ -748,16 +755,20 @@ pub(crate) fn builtin_read_number(
         let default_val = args.get(1).copied().unwrap_or(Value::Nil);
         let result = builtin_read_from_minibuffer(
             eval,
-            vec![prompt, Value::Nil, Value::Nil, Value::True, Value::Nil, default_val],
+            vec![
+                prompt,
+                Value::Nil,
+                Value::Nil,
+                Value::True,
+                Value::Nil,
+                default_val,
+            ],
         )?;
         // Validate result is a number
         match result {
             Value::Int(_) | Value::Float(..) => return Ok(result),
             _ => {
-                return Err(signal(
-                    "error",
-                    vec![Value::string("Not a number")],
-                ));
+                return Err(signal("error", vec![Value::string("Not a number")]));
             }
         }
     }
@@ -808,11 +819,13 @@ pub(crate) fn builtin_completing_read(
 
         // Choose keymap: must-match or completion
         let keymap = if !require_match.is_nil() {
-            eval.obarray().symbol_value("minibuffer-local-must-match-map")
+            eval.obarray()
+                .symbol_value("minibuffer-local-must-match-map")
                 .copied()
                 .unwrap_or(Value::Nil)
         } else {
-            eval.obarray().symbol_value("minibuffer-local-completion-map")
+            eval.obarray()
+                .symbol_value("minibuffer-local-completion-map")
                 .copied()
                 .unwrap_or(Value::Nil)
         };
@@ -825,7 +838,15 @@ pub(crate) fn builtin_completing_read(
 
         let result = builtin_read_from_minibuffer(
             eval,
-            vec![prompt, initial_input, keymap, Value::Nil, hist, default_val, inherit],
+            vec![
+                prompt,
+                initial_input,
+                keymap,
+                Value::Nil,
+                hist,
+                default_val,
+                inherit,
+            ],
         );
 
         // Clean up completion state
@@ -1074,10 +1095,7 @@ pub(crate) fn builtin_yes_or_no_p(
         };
         loop {
             let full_prompt = format!("{} (yes or no) ", prompt_str);
-            let result = builtin_read_from_minibuffer(
-                eval,
-                vec![Value::string(&full_prompt)],
-            )?;
+            let result = builtin_read_from_minibuffer(eval, vec![Value::string(&full_prompt)])?;
             if let Value::Str(id) = result {
                 let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
                 match answer.trim() {

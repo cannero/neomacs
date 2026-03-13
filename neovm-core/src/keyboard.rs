@@ -398,14 +398,15 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
         XK_PAGE_DOWN => Key::Named(NamedKey::PageDown),
         XK_INSERT => Key::Named(NamedKey::Insert),
         // Function keys F1-F24
-        k if (XK_F1..=XK_F24).contains(&k) => {
-            Key::Named(NamedKey::F((k - XK_F1 + 1) as u8))
-        }
+        k if (XK_F1..=XK_F24).contains(&k) => Key::Named(NamedKey::F((k - XK_F1 + 1) as u8)),
         // Ignore modifier-only keys and unknown keysyms
         _ => return None,
     };
 
-    Some(KeyEvent { key, modifiers: mods })
+    Some(KeyEvent {
+        key,
+        modifiers: mods,
+    })
 }
 
 // ---------------------------------------------------------------------------

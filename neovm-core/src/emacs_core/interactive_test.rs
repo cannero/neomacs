@@ -2106,7 +2106,10 @@ fn command_execute_builtin_universal_argument_sets_prefix_arg() {
         .symbol_value("prefix-arg")
         .copied()
         .unwrap_or(Value::Nil);
-    assert!(matches!(prefix, Value::Cons(_)), "prefix-arg should be a list (4)");
+    assert!(
+        matches!(prefix, Value::Cons(_)),
+        "prefix-arg should be a list (4)"
+    );
 }
 
 #[test]

@@ -597,10 +597,7 @@ pub(crate) fn builtin_sleep_for(args: Vec<Value>) -> EvalResult {
 /// Wait for SECONDS, performing redisplay unless NODISP is non-nil.
 /// Returns t if the full time elapsed, nil if interrupted by input.
 /// In interactive mode, uses recv_timeout on the input channel.
-pub(crate) fn builtin_sit_for(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_sit_for(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_min_args("sit-for", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -626,8 +623,8 @@ pub(crate) fn builtin_sit_for(
         match rx.recv_timeout(timeout) {
             Ok(event) => {
                 // Input arrived — push key events back as unread, return nil
-                use crate::keyboard::InputEvent;
                 use super::keymap::key_event_to_emacs_event;
+                use crate::keyboard::InputEvent;
                 if let InputEvent::KeyPress(key) = event {
                     let keymap_key: super::keymap::KeyEvent = key.into();
                     let emacs_event = key_event_to_emacs_event(&keymap_key);
