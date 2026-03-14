@@ -2493,27 +2493,7 @@ pub(crate) fn builtin_map_charset_chars(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_map_keymap(args: Vec<Value>) -> EvalResult {
-    expect_range_args("map-keymap", &args, 2, 3)?;
-    if !is_lisp_keymap_object(&args[1]) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("keymapp"), args[1]],
-        ));
-    }
-    Ok(Value::Nil)
-}
-
-pub(crate) fn builtin_map_keymap_internal(args: Vec<Value>) -> EvalResult {
-    expect_args("map-keymap-internal", &args, 2)?;
-    if !is_lisp_keymap_object(&args[1]) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("keymapp"), args[1]],
-        ));
-    }
-    Ok(Value::Nil)
-}
+// map-keymap and map-keymap-internal are now eval-backed in keymaps.rs
 
 pub(crate) fn builtin_mapbacktrace(args: Vec<Value>) -> EvalResult {
     expect_range_args("mapbacktrace", &args, 1, 2)?;

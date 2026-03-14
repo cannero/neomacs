@@ -1226,6 +1226,8 @@ pub(crate) fn dispatch_builtin(
         "set-keymap-parent" => return Some(builtin_set_keymap_parent(eval, args)),
         "keymapp" => return Some(builtin_keymapp(eval, args)),
         "accessible-keymaps" => return Some(builtin_accessible_keymaps(eval, args)),
+        "map-keymap" => return Some(builtin_map_keymap(eval, args)),
+        "map-keymap-internal" => return Some(builtin_map_keymap_internal(eval, args)),
         // Process operations (evaluator-dependent)
         "internal-default-interrupt-process" => {
             return Some(super::process::builtin_internal_default_interrupt_process(
@@ -3103,8 +3105,7 @@ pub(crate) fn dispatch_builtin(
         "make-record" => builtin_make_record(args),
         "make-temp-file-internal" => builtin_make_temp_file_internal(args),
         "map-charset-chars" => builtin_map_charset_chars(args),
-        "map-keymap" => builtin_map_keymap(args),
-        "map-keymap-internal" => builtin_map_keymap_internal(args),
+        "map-keymap" | "map-keymap-internal" => return None, // eval-backed in keymaps.rs
         "mapbacktrace" => builtin_mapbacktrace(args),
         // match-data--translate dispatched in eval path (needs &mut eval)
         "memory-info" => builtin_memory_info(args),
@@ -3928,8 +3929,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "make-record" => builtin_make_record(args),
         "make-temp-file-internal" => builtin_make_temp_file_internal(args),
         "map-charset-chars" => builtin_map_charset_chars(args),
-        "map-keymap" => builtin_map_keymap(args),
-        "map-keymap-internal" => builtin_map_keymap_internal(args),
+        "map-keymap" | "map-keymap-internal" => return None, // eval-backed in keymaps.rs
         "mapbacktrace" => builtin_mapbacktrace(args),
         // match-data--translate dispatched in eval path (needs &mut eval)
         "memory-info" => builtin_memory_info(args),

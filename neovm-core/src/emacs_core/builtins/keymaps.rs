@@ -497,6 +497,103 @@ fn assq_in_alist(alist: &Value, key: &Value) -> bool {
     false
 }
 
+/// `(map-keymap FUNCTION KEYMAP &optional SORT-FIRST)` -> nil.
+///
+/// Call FUNCTION for each binding in KEYMAP and its parents.
+/// FUNCTION receives two arguments: the event and the binding definition.
+pub(super) fn builtin_map_keymap(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("map-keymap", &args, 2)?;
+    expect_max_args("map-keymap", &args, 3)?;
+    let function = args[0];
+    let mut keymap = expect_keymap(eval, &args[1])?;
+
+    // Traverse this keymap and all parents.
+    loop {
+        keymap = map_keymap_internal_impl(eval, function, keymap)?;
+        if keymap.is_nil() {
+            break;
+        }
+        // keymap is the parent; continue if it's a valid keymap.
+        if !is_list_keymap(&keymap) {
+            break;
+        }
+    }
+    Ok(Value::Nil)
+}
+
+/// `(map-keymap-internal FUNCTION KEYMAP)` -> parent keymap or nil.
+///
+/// Call FUNCTION for each binding in KEYMAP (not its parents).
+/// Returns the parent keymap if it has one.
+pub(super) fn builtin_map_keymap_internal(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("map-keymap-internal", &args, 2)?;
+    let function = args[0];
+    let keymap = expect_keymap(eval, &args[1])?;
+    map_keymap_internal_impl(eval, function, keymap)
+}
+
+/// Core implementation: iterate over one level of keymap entries,
+/// calling `function(event, binding)` for each. Returns the parent
+/// keymap (or nil if none).
+fn map_keymap_internal_impl(
+    eval: &mut super::eval::Evaluator,
+    function: Value,
+    keymap: Value,
+) -> EvalResult {
+    // Keymap is (keymap [char-table] (event . binding) ... [parent-keymap])
+    // Skip the 'keymap symbol at the head.
+    let Some(entries) = list_to_vec(&keymap) else {
+        return Ok(Value::Nil);
+    };
+
+    for (i, entry) in entries.iter().enumerate() {
+        if i == 0 {
+            // Skip the 'keymap symbol.
+            if entry.is_symbol_named("keymap") {
+                continue;
+            }
+        }
+
+        // If entry is itself a keymap (embedded parent), return it.
+        if is_list_keymap(entry) {
+            return Ok(*entry);
+        }
+
+        match entry {
+            Value::Cons(cell) => {
+                let pair = read_cons(*cell);
+                let event = pair.car;
+                let binding = pair.cdr;
+                // Skip if binding is nil.
+                if !binding.is_nil() {
+                    eval.apply(function, vec![event, binding])?;
+                }
+            }
+            // Char-table or vector: iterate each entry.
+            Value::Vector(obj_id) => {
+                let items = with_heap(|h| h.get_vector(*obj_id).clone());
+                for (idx, binding) in items.iter().enumerate() {
+                    if !binding.is_nil() {
+                        let event = Value::Int(idx as i64);
+                        eval.apply(function, vec![event, *binding])?;
+                    }
+                }
+            }
+            _ => {
+                // Skip other entries (e.g., strings used as menu prompts).
+            }
+        }
+    }
+
+    Ok(Value::Nil)
+}
+
 /// (keymap-parent KEYMAP) -> keymap or nil
 pub(super) fn builtin_keymap_parent(
     eval: &mut super::eval::Evaluator,
