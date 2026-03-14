@@ -495,6 +495,17 @@ fn get_leaf(frames: &FrameManager, fid: FrameId, wid: WindowId) -> Result<&Windo
         .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))
 }
 
+/// Look up any window (leaf or internal) by id, including the root window.
+fn get_window(frames: &FrameManager, fid: FrameId, wid: WindowId) -> Result<&Window, Flow> {
+    let frame = frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    // find_window checks root_window tree + minibuffer_leaf
+    frame
+        .find_window(wid)
+        .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))
+}
+
 /// Ensure a selected frame exists and return its id.
 ///
 /// In batch compatibility mode, GNU Emacs still has an initial frame (`F1`).
@@ -1490,6 +1501,8 @@ pub(crate) fn builtin_window_top_line(
 }
 
 /// `(window-pixel-left &optional WINDOW)` -> integer.
+///
+/// GNU Emacs returns `w->pixel_left` — the left pixel edge of the window.
 pub(crate) fn builtin_window_pixel_left(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1497,17 +1510,13 @@ pub(crate) fn builtin_window_pixel_left(
     expect_max_args("window-pixel-left", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
-    let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    let left = if cw > 0.0 {
-        (w.bounds().x / cw) as i64
-    } else {
-        0
-    };
-    Ok(Value::Int(left))
+    let w = get_window(&eval.frames, fid, wid)?;
+    Ok(Value::Int(w.bounds().x as i64))
 }
 
 /// `(window-pixel-top &optional WINDOW)` -> integer.
+///
+/// GNU Emacs returns `w->pixel_top` — the top pixel edge of the window.
 pub(crate) fn builtin_window_pixel_top(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1515,14 +1524,8 @@ pub(crate) fn builtin_window_pixel_top(
     expect_max_args("window-pixel-top", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
-    let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
-    let top = if ch > 0.0 {
-        (w.bounds().y / ch) as i64
-    } else {
-        0
-    };
-    Ok(Value::Int(top))
+    let w = get_window(&eval.frames, fid, wid)?;
+    Ok(Value::Int(w.bounds().y as i64))
 }
 
 /// `(window-hscroll &optional WINDOW)` -> integer.
@@ -1845,7 +1848,7 @@ pub(crate) fn builtin_window_header_line_height(
 
 /// `(window-pixel-height &optional WINDOW)` -> integer.
 ///
-/// Batch GNU Emacs reports character-line units for this query.
+/// GNU Emacs returns `w->pixel_height` — actual pixel height of the window.
 pub(crate) fn builtin_window_pixel_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1853,14 +1856,13 @@ pub(crate) fn builtin_window_pixel_height(
     expect_max_args("window-pixel-height", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
-    let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
-    Ok(Value::Int(window_height_lines(w, ch)))
+    let w = get_window(&eval.frames, fid, wid)?;
+    Ok(Value::Int(w.bounds().height as i64))
 }
 
 /// `(window-pixel-width &optional WINDOW)` -> integer.
 ///
-/// Batch GNU Emacs reports character-column units for this query.
+/// GNU Emacs returns `w->pixel_width` — actual pixel width of the window.
 pub(crate) fn builtin_window_pixel_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1868,9 +1870,8 @@ pub(crate) fn builtin_window_pixel_width(
     expect_max_args("window-pixel-width", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
-    let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    Ok(Value::Int(window_width_cols(w, cw)))
+    let w = get_window(&eval.frames, fid, wid)?;
+    Ok(Value::Int(w.bounds().width as i64))
 }
 
 /// `(window-body-height &optional WINDOW PIXELWISE)` -> integer.
