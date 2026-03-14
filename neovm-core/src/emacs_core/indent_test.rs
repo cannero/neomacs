@@ -1,9 +1,45 @@
+use super::super::eval::Evaluator;
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use std::fs;
+use std::path::PathBuf;
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let forms = super::super::parser::parse_forms(src).expect("parse forms");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(super::super::format_eval_result)
+        .collect()
+}
+
+fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing GNU simple.el marker: {marker}"));
+    let forms = super::super::parser::parse_forms(&source[start..])
+        .unwrap_or_else(|err| panic!("parse GNU simple.el from {marker} failed: {:?}", err));
+    let form = forms
+        .first()
+        .unwrap_or_else(|| panic!("no GNU simple.el form found after marker: {marker}"));
+    eval.eval_expr(form)
+        .unwrap_or_else(|err| panic!("evaluate GNU simple.el form {marker} failed: {:?}", err));
+}
+
+fn gnu_simple_indent_eval() -> Evaluator {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
+
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    eval_first_form_after_marker(&mut ev, &simple_source, "(defun back-to-indentation ()");
+    ev
+}
+
+fn eval_all(ev: &mut Evaluator, src: &str) -> Vec<String> {
     let forms = super::super::parser::parse_forms(src).expect("parse forms");
     ev.eval_forms(&forms)
         .iter()
@@ -148,45 +184,45 @@ fn eval_move_to_column_force_subset() {
 }
 
 #[test]
-fn eval_back_to_indentation_subset() {
-    let mut ev = super::super::eval::Evaluator::new();
-    let forms = super::super::parser::parse_forms(
-        r#"
-        (with-temp-buffer
-          (insert "  abc")
-          (goto-char (point-max))
-          (back-to-indentation)
-          (point))
-        (with-temp-buffer
-          (insert "   ")
-          (goto-char (point-max))
-          (back-to-indentation)
-          (point))
-        (with-temp-buffer
-          (insert (string 9 97 98 99))
-          (goto-char (point-max))
-          (back-to-indentation)
-          (point))
-        (with-temp-buffer
-          (insert (string 10 32 32 97 98 99))
-          (goto-char (point-max))
-          (back-to-indentation)
-          (point))
-        "#,
-    )
-    .expect("parse forms");
+fn gnu_back_to_indentation_matches_simple_el() {
+    let mut ev = gnu_simple_indent_eval();
+    let results = eval_all(
+        &mut ev,
+        r#"(subrp (symbol-function 'back-to-indentation))
+           (with-temp-buffer
+             (insert "  abc")
+             (goto-char (point-max))
+             (back-to-indentation)
+             (point))
+           (with-temp-buffer
+             (insert "   ")
+             (goto-char (point-max))
+             (back-to-indentation)
+             (point))
+           (with-temp-buffer
+             (insert (string 9 97 98 99))
+             (goto-char (point-max))
+             (back-to-indentation)
+             (point))
+           (with-temp-buffer
+             (insert (string 10 32 32 97 98 99))
+             (goto-char (point-max))
+             (back-to-indentation)
+             (point))"#,
+    );
 
-    let first = ev.eval(&forms[0]).expect("eval nonblank line");
-    assert_eq!(first, Value::Int(3));
+    assert_eq!(results[0], "OK nil");
+    assert_eq!(results[1], "OK 3");
+    assert_eq!(results[2], "OK 4");
+    assert_eq!(results[3], "OK 2");
+    assert_eq!(results[4], "OK 4");
+}
 
-    let second = ev.eval(&forms[1]).expect("eval whitespace-only line");
-    assert_eq!(second, Value::Int(4));
-
-    let third = ev.eval(&forms[2]).expect("eval tab-indent line");
-    assert_eq!(third, Value::Int(2));
-
-    let fourth = ev.eval(&forms[3]).expect("eval indented second line");
-    assert_eq!(fourth, Value::Int(4));
+#[test]
+fn back_to_indentation_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "back-to-indentation"
+    ));
 }
 
 #[test]

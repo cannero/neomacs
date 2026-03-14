@@ -50,7 +50,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "backtrace-eval",
     "backtrace-frame--internal",
     "backward-char",
-    "back-to-indentation",
     "backward-prefix-chars",
     "base64-decode-region",
     "base64-decode-string",

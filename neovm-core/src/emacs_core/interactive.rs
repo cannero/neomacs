@@ -404,7 +404,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "add-name-to-file"
             | "advice-remove"
             | "auto-composition-mode"
-            | "back-to-indentation"
             | "backward-sexp"
             | "backward-word"
             | "base64-decode-region"

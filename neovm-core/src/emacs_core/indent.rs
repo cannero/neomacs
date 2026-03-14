@@ -4,8 +4,7 @@
 //! - `current-indentation`, `indent-to`, `current-column`, `move-to-column`
 //! - `indent-region`, `indent-line-to`, `indent-rigidly`, `newline-and-indent`,
 //!   `indent-for-tab-command`,
-//!   `indent-according-to-mode`, `tab-to-tab-stop`, `back-to-indentation`,
-//!   `delete-indentation`
+//!   `indent-according-to-mode`, `tab-to-tab-stop`, `delete-indentation`
 //!
 //! Variables: `tab-width`, `indent-tabs-mode`, `standard-indent`, `tab-stop-list`
 
@@ -655,37 +654,6 @@ pub(crate) fn builtin_indent_according_to_mode(
         .delete_buffer_region(current_id, bol, indent_end);
     let _ = eval.buffers.goto_buffer_byte(current_id, new_pt);
 
-    Ok(Value::Nil)
-}
-
-/// (back-to-indentation) -> nil
-///
-/// Move point to first non-space/tab on current line.
-pub(crate) fn builtin_back_to_indentation(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("back-to-indentation", &args, 0)?;
-    let Some(current_id) = eval.buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
-    };
-    let Some(buf) = eval.buffers.get(current_id) else {
-        return Ok(Value::Nil);
-    };
-    let text = buf.text.to_string();
-    let pt = buf.pt.clamp(buf.begv, buf.zv);
-    let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, pt);
-    let line = &text[bol..eol];
-
-    let mut dest = eol;
-    for (rel, ch) in line.char_indices() {
-        if ch != ' ' && ch != '\t' {
-            dest = bol + rel;
-            break;
-        }
-    }
-
-    let _ = eval.buffers.goto_buffer_byte(current_id, dest);
     Ok(Value::Nil)
 }
 

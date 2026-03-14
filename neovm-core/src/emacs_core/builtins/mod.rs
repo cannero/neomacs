@@ -2410,9 +2410,6 @@ pub(crate) fn dispatch_builtin(
         "indent-according-to-mode" => {
             return Some(super::indent::builtin_indent_according_to_mode(eval, args));
         }
-        "back-to-indentation" => {
-            return Some(super::indent::builtin_back_to_indentation(eval, args));
-        }
         // Case/char (evaluator-dependent)
         "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {
