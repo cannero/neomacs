@@ -1875,6 +1875,10 @@ pub(crate) fn builtin_window_pixel_width(
 }
 
 /// `(window-body-height &optional WINDOW PIXELWISE)` -> integer.
+///
+/// Returns the body height of WINDOW. When PIXELWISE is non-nil,
+/// return pixels; otherwise return character lines.
+/// Body excludes mode-line (one row) for non-minibuffer windows.
 pub(crate) fn builtin_window_body_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1883,15 +1887,25 @@ pub(crate) fn builtin_window_body_height(
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id(eval, args.first())?;
     let w = get_leaf(&eval.frames, fid, wid)?;
-    let _pixelwise = args.get(1);
-    // Batch GNU Emacs returns character-height values even when PIXELWISE is non-nil.
-    // The body area excludes one mode-line row for regular windows, but
-    // minibuffer windows report their full single-line height.
-    let body_lines = window_body_height_lines(&eval.frames, fid, wid, w);
-    Ok(Value::Int(body_lines))
+    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    if pixelwise {
+        let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
+        let body_px = if is_minibuffer_window(&eval.frames, fid, wid) {
+            w.bounds().height as i64
+        } else {
+            (w.bounds().height - ch).max(0.0) as i64
+        };
+        Ok(Value::Int(body_px))
+    } else {
+        let body_lines = window_body_height_lines(&eval.frames, fid, wid, w);
+        Ok(Value::Int(body_lines))
+    }
 }
 
 /// `(window-body-width &optional WINDOW PIXELWISE)` -> integer.
+///
+/// Returns the body width of WINDOW. When PIXELWISE is non-nil,
+/// return pixels; otherwise return character columns.
 pub(crate) fn builtin_window_body_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1900,10 +1914,13 @@ pub(crate) fn builtin_window_body_width(
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id(eval, args.first())?;
     let w = get_leaf(&eval.frames, fid, wid)?;
-    let _pixelwise = args.get(1);
-    // Batch GNU Emacs returns character-width values even when PIXELWISE is non-nil.
-    let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    Ok(Value::Int(window_width_cols(w, cw)))
+    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    if pixelwise {
+        Ok(Value::Int(w.bounds().width as i64))
+    } else {
+        let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+        Ok(Value::Int(window_width_cols(w, cw)))
+    }
 }
 
 /// `(window-text-height &optional WINDOW PIXELWISE)` -> integer.
@@ -1938,9 +1955,12 @@ pub(crate) fn builtin_window_text_width(
     Ok(Value::Int(window_width_cols(w, cw)))
 }
 
-/// `(window-edges &optional WINDOW BODY ABSOLUTE)`.
+/// `(window-edges &optional WINDOW BODY ABSOLUTE PIXELWISE)`.
 ///
-/// GNU Emacs currently reports max arity 4; trailing args are accepted.
+/// GNU Emacs returns (LEFT TOP RIGHT BOTTOM) edges of WINDOW.
+/// When PIXELWISE is non-nil, return pixel coordinates instead of
+/// character-cell units.  When BODY is non-nil, return body edges
+/// (excluding mode-line).
 pub(crate) fn builtin_window_edges(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -1948,31 +1968,50 @@ pub(crate) fn builtin_window_edges(
     expect_max_args("window-edges", &args, 4)?;
     let _ = ensure_selected_frame_id(eval);
     let body = args.get(1).is_some_and(Value::is_truthy);
+    let _absolute = args.get(2).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let live_only = body;
     let (fid, wid) = resolve_window_id_or_window_error(eval, args.first(), live_only)?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_window(&eval.frames, fid, wid)?;
     let frame = eval
         .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    let (left, top, right, bottom) = if body {
-        window_body_edges_cols_lines(
-            &eval.frames,
-            fid,
-            wid,
-            w,
-            frame.char_width,
-            frame.char_height,
-        )
+
+    if pixelwise {
+        let b = w.bounds();
+        let (left, top, right) = (b.x as i64, b.y as i64, (b.x + b.width) as i64);
+        let bottom = if body && !is_minibuffer_window(&eval.frames, fid, wid) {
+            (b.y + b.height) as i64 - frame.char_height as i64
+        } else {
+            (b.y + b.height) as i64
+        };
+        Ok(Value::list(vec![
+            Value::Int(left),
+            Value::Int(top),
+            Value::Int(right),
+            Value::Int(bottom),
+        ]))
     } else {
-        window_edges_cols_lines(w, frame.char_width, frame.char_height)
-    };
-    Ok(Value::list(vec![
-        Value::Int(left),
-        Value::Int(top),
-        Value::Int(right),
-        Value::Int(bottom),
-    ]))
+        let (left, top, right, bottom) = if body {
+            window_body_edges_cols_lines(
+                &eval.frames,
+                fid,
+                wid,
+                w,
+                frame.char_width,
+                frame.char_height,
+            )
+        } else {
+            window_edges_cols_lines(w, frame.char_width, frame.char_height)
+        };
+        Ok(Value::list(vec![
+            Value::Int(left),
+            Value::Int(top),
+            Value::Int(right),
+            Value::Int(bottom),
+        ]))
+    }
 }
 
 /// `(window-total-height &optional WINDOW ROUND)` -> integer.
