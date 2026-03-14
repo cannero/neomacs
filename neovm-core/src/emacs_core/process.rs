@@ -3477,6 +3477,13 @@ pub(crate) fn builtin_continue_process(
     }
     let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
     if let Some(proc) = eval.processes.get_mut(id) {
+        // Send SIGCONT to resume the child process.
+        #[cfg(unix)]
+        if let Some(ref child) = proc.child {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGCONT);
+            }
+        }
         proc.status = ProcessStatus::Run;
     }
     Ok(ret)
@@ -3498,6 +3505,13 @@ pub(crate) fn builtin_interrupt_process(
     }
     let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
     if let Some(proc) = eval.processes.get_mut(id) {
+        // Send SIGINT to actual child process.
+        #[cfg(unix)]
+        if let Some(ref child) = proc.child {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGINT);
+            }
+        }
         proc.status = ProcessStatus::Signal(2);
     }
     Ok(ret)
@@ -3516,6 +3530,10 @@ pub(crate) fn builtin_kill_process(
     }
     let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
     if let Some(proc) = eval.processes.get_mut(id) {
+        // Kill the actual child process.
+        if let Some(child) = proc.child.as_mut() {
+            let _ = child.kill();
+        }
         proc.status = ProcessStatus::Signal(9);
     }
     Ok(ret)
@@ -3587,6 +3605,13 @@ pub(crate) fn builtin_stop_process(
     }
     let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
     if let Some(proc) = eval.processes.get_mut(id) {
+        // Send SIGTSTP to stop the child process.
+        #[cfg(unix)]
+        if let Some(ref child) = proc.child {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGTSTP);
+            }
+        }
         proc.status = ProcessStatus::Stop;
     }
     Ok(ret)
@@ -3604,7 +3629,15 @@ pub(crate) fn builtin_quit_process(
         ));
     }
     let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
-    let _ = eval.processes.get(id);
+    if let Some(proc) = eval.processes.get_mut(id) {
+        // Send SIGQUIT to the child process.
+        #[cfg(unix)]
+        if let Some(ref child) = proc.child {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGQUIT);
+            }
+        }
+    }
     Ok(ret)
 }
 
