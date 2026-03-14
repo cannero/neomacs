@@ -1130,19 +1130,44 @@ pub(crate) fn builtin_window_end(
             buffer_id,
             ..
         } => {
-            // Clamp the display estimate to the buffer's end position so empty
-            // buffers report their 1-based start/end as GNU Emacs does.
             let frame = eval.frames.get(fid).unwrap();
-            let lines = (bounds.height / frame.char_height) as usize;
-            let cols = (bounds.width / frame.char_width) as usize;
-            let estimated_end = window_start.saturating_add(lines.saturating_mul(cols));
-            let buffer_end = eval
-                .buffers
-                .get(*buffer_id)
-                .map(|buf| buf.text.char_count().saturating_add(1))
+            let body_lines = if is_minibuffer_window(&eval.frames, fid, wid) {
+                (bounds.height / frame.char_height) as usize
+            } else {
+                ((bounds.height / frame.char_height) as usize).saturating_sub(1)
+            };
+
+            // Scan the buffer text to find where body_lines newlines occur
+            // after window_start, giving a line-based estimate of window-end.
+            let buf = eval.buffers.get(*buffer_id);
+            let buffer_end = buf
+                .map(|b| b.text.char_count().saturating_add(1))
                 .unwrap_or(*window_start);
-            let clamped_end = estimated_end.min(buffer_end.max(*window_start));
-            Ok(Value::Int(clamped_end as i64))
+
+            if let Some(buf) = buf {
+                let text = buf.text.to_string();
+                // window_start is 1-based char position; convert to 0-based char index
+                let start_char = (*window_start).saturating_sub(1);
+                let mut char_pos = start_char;
+                let mut lines_seen = 0usize;
+                for (i, ch) in text.char_indices().skip(start_char) {
+                    if lines_seen >= body_lines {
+                        // char_pos is the 0-based char index at start of next line
+                        // after body_lines newlines; convert to 1-based
+                        let _ = i; // suppress unused
+                        let end_pos = (char_pos + 1).min(buffer_end);
+                        return Ok(Value::Int(end_pos as i64));
+                    }
+                    char_pos = text[..=i].chars().count();
+                    if ch == '\n' {
+                        lines_seen += 1;
+                    }
+                }
+                // Reached end of buffer before filling all lines.
+                Ok(Value::Int(buffer_end as i64))
+            } else {
+                Ok(Value::Int(*window_start as i64))
+            }
         }
         _ => Ok(Value::Int(0)),
     }
