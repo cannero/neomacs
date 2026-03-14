@@ -2453,11 +2453,16 @@ pub(crate) fn builtin_delete_window_internal(
 ) -> EvalResult {
     expect_args("delete-window-internal", &args, 1)?;
 
-    let (fid, wid) = if args[0].is_nil() {
-        resolve_window_id(eval, None)?
-    } else {
-        resolve_window_id_with_pred(eval, args.first(), "windowp")?
-    };
+    let wid = resolve_window_object_id_with_pred(eval, args.first(), "windowp")?;
+    if !eval.frames.is_valid_window_id(wid) {
+        // GNU Emacs treats deleting an already deleted window object as a no-op.
+        return Ok(Value::Nil);
+    }
+
+    let fid = eval
+        .frames
+        .find_valid_window_frame_id(wid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
     let frame = eval
         .frames
@@ -2475,7 +2480,11 @@ pub(crate) fn builtin_delete_window_internal(
         ));
     }
 
-    Err(signal("error", vec![Value::string("Deletion failed")]))
+    if eval.frames.delete_window(fid, wid) {
+        Ok(Value::Nil)
+    } else {
+        Err(signal("error", vec![Value::string("Deletion failed")]))
+    }
 }
 
 /// `(delete-other-windows-internal &optional WINDOW ALL-FRAMES)` -> nil.

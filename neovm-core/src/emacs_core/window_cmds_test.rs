@@ -911,7 +911,7 @@ fn split_delete_window_invalid_designators_signal_error() {
 
 #[test]
 fn delete_window_after_split() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(let ((new-win (split-window-internal (selected-window) nil nil nil)))
            (delete-window new-win)
            (length (window-list)))",
@@ -965,7 +965,7 @@ fn delete_window_and_delete_other_windows_enforce_max_arity() {
 
 #[test]
 fn delete_other_windows_keeps_one() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(split-window-internal (selected-window) nil nil nil)
          (split-window-internal (selected-window) nil nil nil)
          (delete-other-windows)
@@ -1041,7 +1041,7 @@ fn select_window_updates_current_buffer_to_selected_window_buffer() {
 
 #[test]
 fn other_window_cycles() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(let ((w1 (selected-window)))
            (split-window-internal (selected-window) nil nil nil)
            (other-window 1)
@@ -2426,7 +2426,7 @@ fn window_end_greater_than_start() {
 
 #[test]
 fn display_buffer_returns_window() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(get-buffer-create \"disp-buf\")
          (windowp (display-buffer \"disp-buf\"))",
     );
