@@ -3008,40 +3008,132 @@ fn scroll_down_batch_error() -> Flow {
     signal("beginning-of-buffer", vec![])
 }
 
-/// `(scroll-up-command &optional ARG)` -> signal `end-of-buffer` in batch mode.
+/// `(scroll-up-command &optional ARG)` — delegates to scroll-up.
 pub(crate) fn builtin_scroll_up_command(
-    _eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("scroll-up-command", &args, 1)?;
-    Err(scroll_up_batch_error())
+    builtin_scroll_up(eval, args)
 }
 
-/// `(scroll-down-command &optional ARG)` -> signal `beginning-of-buffer` in batch mode.
+/// `(scroll-down-command &optional ARG)` — delegates to scroll-down.
 pub(crate) fn builtin_scroll_down_command(
-    _eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("scroll-down-command", &args, 1)?;
-    Err(scroll_down_batch_error())
+    builtin_scroll_down(eval, args)
 }
 
-/// `(scroll-up &optional ARG)` -> command alias behavior.
-pub(crate) fn builtin_scroll_up(
-    _eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+/// Compute scroll distance: if ARG is nil, use window height minus
+/// next-screen-context-lines; otherwise use ARG as line count.
+fn scroll_lines(eval: &mut super::eval::Evaluator, arg: Option<&Value>, direction: i64) -> i64 {
+    if let Some(v) = arg {
+        if !v.is_nil() {
+            // Explicit line count.
+            let n = match v {
+                Value::Int(n) => *n,
+                _ => 1,
+            };
+            return n * direction;
+        }
+    }
+    // nil or absent: full window minus context lines.
+    let wh = builtin_window_body_height(eval, vec![])
+        .ok()
+        .and_then(|v| match v {
+            Value::Int(n) => Some(n),
+            _ => None,
+        })
+        .unwrap_or(24);
+    let ctx = eval
+        .obarray
+        .symbol_value("next-screen-context-lines")
+        .and_then(|v| match v {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(2);
+    (wh - ctx).max(1) * direction
+}
+
+/// `(scroll-up &optional ARG)` — scroll text upward (forward in buffer).
+///
+/// Mirror GNU Emacs Fscroll_up (window.c): move point forward by ARG lines
+/// (or a windowful if nil).  Signals end-of-buffer if already at end.
+pub(crate) fn builtin_scroll_up(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_max_args("scroll-up", &args, 1)?;
-    Err(scroll_up_batch_error())
+    let arg = args.first().cloned();
+    let lines = scroll_lines(eval, arg.as_ref(), 1);
+    scroll_by_lines(eval, lines)
 }
 
-/// `(scroll-down &optional ARG)` -> command alias behavior.
+/// `(scroll-down &optional ARG)` — scroll text downward (backward in buffer).
+///
+/// Mirror GNU Emacs Fscroll_down (window.c): move point backward by ARG lines
+/// (or a windowful if nil).  Signals beginning-of-buffer if already at start.
 pub(crate) fn builtin_scroll_down(
-    _eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("scroll-down", &args, 1)?;
-    Err(scroll_down_batch_error())
+    let arg = args.first().cloned();
+    let lines = scroll_lines(eval, arg.as_ref(), -1);
+    scroll_by_lines(eval, lines)
+}
+
+/// Move point by `lines` newlines (positive=forward, negative=backward).
+/// Signals end-of-buffer or beginning-of-buffer on boundary.
+fn scroll_by_lines(eval: &mut super::eval::Evaluator, lines: i64) -> EvalResult {
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
+        return Ok(Value::Nil);
+    };
+    let Some(buf) = eval.buffers.get(current_id) else {
+        return Ok(Value::Nil);
+    };
+    let text = buf.text.to_string();
+    let pt = buf.pt.clamp(buf.begv, buf.zv);
+    let bytes = text.as_bytes();
+    let begv = buf.begv;
+    let zv = buf.zv;
+
+    let mut pos = pt;
+
+    if lines > 0 {
+        if pt >= zv {
+            return Err(scroll_up_batch_error());
+        }
+        for _ in 0..lines {
+            while pos < zv && bytes[pos] != b'\n' {
+                pos += 1;
+            }
+            if pos < zv {
+                pos += 1; // past newline
+            }
+        }
+    } else {
+        if pt <= begv {
+            return Err(scroll_down_batch_error());
+        }
+        let target = (-lines) as usize;
+        // First go to beginning of current line.
+        while pos > begv && bytes[pos - 1] != b'\n' {
+            pos -= 1;
+        }
+        for _ in 0..target {
+            if pos <= begv {
+                break;
+            }
+            pos -= 1; // before newline
+            while pos > begv && bytes[pos - 1] != b'\n' {
+                pos -= 1;
+            }
+        }
+    }
+
+    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
+    Ok(Value::Nil)
 }
 
 /// `(recenter-top-bottom &optional ARG)` — no-op for now.
