@@ -607,9 +607,8 @@ fn read_from_minibuffer_interactive(
             buf.text.insert_str(prompt_byte_len, initial);
         }
         let total_len = buf.text.len();
-        buf.begv = 0;
-        buf.zv = total_len;
-        buf.pt = total_len; // cursor at end of initial input
+        buf.widen();
+        buf.goto_char(total_len); // cursor at end of initial input
     }
 
     // Switch to minibuffer buffer

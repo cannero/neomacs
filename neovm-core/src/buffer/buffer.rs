@@ -458,9 +458,8 @@ impl BufferManager {
 
         indirect.base_buffer = Some(root_id);
         indirect.text = shared_text;
-        indirect.pt = root.pt;
-        indirect.begv = root.begv;
-        indirect.zv = root.zv;
+        indirect.narrow_to_region(root.begv, root.zv);
+        indirect.goto_char(root.pt);
         indirect.multibyte = root.multibyte;
         indirect.modified = root.modified;
         indirect.modified_tick = root.modified_tick;
@@ -930,9 +929,7 @@ impl BufferManager {
         zv: usize,
     ) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.begv = begv;
-        buf.zv = zv;
-        buf.pt = buf.pt.clamp(buf.begv, buf.zv);
+        buf.narrow_to_region(begv, zv);
         Some(())
     }
 
@@ -1181,7 +1178,7 @@ mod tests {
     fn buf_with_text(text: &str) -> Buffer {
         let mut buf = Buffer::new(BufferId(1), "test".into());
         buf.text = BufferText::from_str(text);
-        buf.zv = buf.text.len();
+        buf.widen();
         buf
     }
 
