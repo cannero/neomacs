@@ -566,7 +566,16 @@ fn resolve_buffer_designator_allow_nil_current(
             .current_buffer()
             .map(|buf| Some(buf.id))
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
-        Value::Buffer(id) => Ok(eval.buffers.get(*id).map(|_| *id)),
+        Value::Buffer(id) => {
+            if eval.buffers.get(*id).is_some() {
+                Ok(Some(*id))
+            } else {
+                Err(signal(
+                    "error",
+                    vec![Value::string("Selecting deleted buffer")],
+                ))
+            }
+        }
         Value::Str(name_id) => {
             let name = with_heap(|h| h.get_string(*name_id).to_owned());
             eval.buffers

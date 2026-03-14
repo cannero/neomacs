@@ -1828,6 +1828,23 @@ fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
 }
 
 #[test]
+fn insert_buffer_substring_rejects_deleted_buffer_object() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let dead = create_unique_test_buffer(&mut eval, "*ibs-dead*");
+    let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
+
+    let err = builtin_insert_buffer_substring(&mut eval, vec![dead])
+        .expect_err("insert-buffer-substring should reject deleted buffer objects");
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(sig.data, vec![Value::string("Selecting deleted buffer")]);
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+}
+
+#[test]
 fn kill_all_local_variables_clears_buffer_locals() {
     let mut eval = super::super::eval::Evaluator::new();
     {
@@ -1978,6 +1995,31 @@ fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(sig.data, vec![Value::Int(1), Value::Nil]);
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+}
+
+#[test]
+fn compare_buffer_substrings_rejects_deleted_buffer_object() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let dead = create_unique_test_buffer(&mut eval, "*cbs-dead*");
+    let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
+
+    let live = create_unique_test_buffer(&mut eval, "*cbs-live*");
+    eval.buffers
+        .set_current(expect_buffer_id(&live).expect("buffer id"));
+    builtin_insert(&mut eval, vec![Value::string("abc")]).unwrap();
+
+    let err = builtin_compare_buffer_substrings(
+        &mut eval,
+        vec![dead, Value::Nil, Value::Nil, live, Value::Nil, Value::Nil],
+    )
+    .expect_err("compare-buffer-substrings should reject deleted buffer objects");
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(sig.data, vec![Value::string("Selecting deleted buffer")]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
