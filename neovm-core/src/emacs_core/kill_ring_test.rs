@@ -272,123 +272,94 @@ fn bootstrap_region_copy_cut_ops_match_simple_el() {
     assert_eq!(results[2], r#"OK ("hello world" "hello")"#);
 }
 
-// -- kill-line tests --
+// -- line/word kill tests loaded from GNU simple.el --
 
 #[test]
-fn kill_line_to_end() {
-    let results = eval_all(
-        r#"(insert "hello\nworld")
-           (goto-char 0)
-           (kill-line)
-           (buffer-string)"#,
+fn bootstrap_line_and_word_kill_ops_match_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "hello\nworld")
+               (goto-char (point-min))
+               (kill-line)
+               (list (buffer-string)
+                     (current-kill 0))))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "hello\nworld")
+               (goto-char 6)
+               (kill-line)
+               (list (buffer-string)
+                     (current-kill 0))))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "line1\nline2\nline3")
+               (goto-char (point-min))
+               (kill-line 2)
+               (list (buffer-string)
+                     (current-kill 0))))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "line1\nline2\nline3")
+               (goto-char 8)
+               (kill-whole-line)
+               (list (buffer-string)
+                     (current-kill 0))))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "hello world")
+               (goto-char (point-min))
+               (kill-word 1)
+               (list (buffer-string)
+                     (current-kill 0))))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "hello world")
+               (backward-kill-word 1)
+               (list (buffer-string)
+                     (current-kill 0))))"#,
     );
-    assert_eq!(results[3], "OK \"\nworld\"");
+    assert_eq!(results[0], "OK (\"\nworld\" \"hello\")");
+    assert_eq!(results[1], "OK (\"helloworld\" \"\n\")");
+    assert_eq!(results[2], "OK (\"line3\" \"line1\nline2\n\")");
+    assert_eq!(results[3], "OK (\"line1\nline3\" \"line2\n\")");
+    assert_eq!(results[4], r#"OK (" world" "hello")"#);
+    assert_eq!(results[5], r#"OK ("hello " "world")"#);
 }
 
 #[test]
-fn kill_line_at_newline() {
-    let results = eval_all(
-        r#"(insert "hello\nworld")
-           (goto-char 6)
-           (kill-line)
-           (buffer-string)"#,
-    );
-    // When at the newline, kill-line should kill the newline.
-    assert_eq!(results[3], r#"OK "helloworld""#);
-}
-
-#[test]
-fn kill_line_with_count() {
-    let results = eval_all(
-        r#"(insert "line1\nline2\nline3")
-           (goto-char 0)
-           (kill-line 2)
-           (buffer-string)"#,
-    );
-    assert_eq!(results[3], r#"OK "line3""#);
-}
-
-#[test]
-fn kill_line_rejects_too_many_args() {
-    let results = eval_all(
+fn bootstrap_line_and_word_kill_arity_checks_match_simple_el() {
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer (condition-case err (kill-line nil nil) (error err)))
            (with-temp-buffer (condition-case err (kill-line 1 nil) (error err)))
-           (with-temp-buffer (condition-case err (kill-line 1 2 3) (error err)))"#,
+           (with-temp-buffer (condition-case err (kill-line 1 2 3) (error err)))
+           (with-temp-buffer (condition-case err (kill-whole-line nil nil) (error err)))
+           (with-temp-buffer (condition-case err (kill-whole-line 1 nil) (error err)))
+           (with-temp-buffer (condition-case err (kill-whole-line 1 2 3) (error err)))
+           (with-temp-buffer (condition-case err (kill-word) (error err)))"#,
     );
     assert_eq!(results[0], "OK (wrong-number-of-arguments kill-line 2)");
     assert_eq!(results[1], "OK (wrong-number-of-arguments kill-line 2)");
     assert_eq!(results[2], "OK (wrong-number-of-arguments kill-line 3)");
-}
-
-// -- kill-whole-line tests --
-
-#[test]
-fn kill_whole_line_basic() {
-    let results = eval_all(
-        r#"(insert "line1\nline2\nline3")
-           (goto-char 8)
-           (kill-whole-line)
-           (buffer-string)"#,
-    );
-    // Point is at "line2", should kill "line2\n".
-    assert_eq!(results[3], "OK \"line1\nline3\"");
-}
-
-#[test]
-fn kill_whole_line_rejects_too_many_args() {
-    let results = eval_all(
-        r#"(with-temp-buffer (condition-case err (kill-whole-line nil nil) (error err)))
-           (with-temp-buffer (condition-case err (kill-whole-line 1 nil) (error err)))
-           (with-temp-buffer (condition-case err (kill-whole-line 1 2 3) (error err)))"#,
-    );
     assert_eq!(
-        results[0],
+        results[3],
         "OK (wrong-number-of-arguments kill-whole-line 2)"
     );
     assert_eq!(
-        results[1],
+        results[4],
         "OK (wrong-number-of-arguments kill-whole-line 2)"
     );
     assert_eq!(
-        results[2],
+        results[5],
         "OK (wrong-number-of-arguments kill-whole-line 3)"
     );
-}
-
-// -- kill-word tests --
-
-#[test]
-fn kill_word_basic() {
-    let results = eval_all(
-        r#"(insert "hello world")
-           (goto-char 0)
-           (kill-word 1)
-           (buffer-string)"#,
-    );
-    assert_eq!(results[3], r#"OK " world""#);
-}
-
-#[test]
-fn kill_word_adds_to_ring() {
-    let results = eval_all(
-        r#"(insert "hello world")
-           (goto-char 0)
-           (kill-word 1)
-           (current-kill 0)"#,
-    );
-    assert_eq!(results[3], r#"OK "hello""#);
-}
-
-// -- backward-kill-word tests --
-
-#[test]
-fn backward_kill_word_basic() {
-    let results = eval_all(
-        r#"(insert "hello world")
-           (backward-kill-word 1)
-           (buffer-string)"#,
-    );
-    assert_eq!(results[2], r#"OK "hello ""#);
+    assert_eq!(results[6], "OK (wrong-number-of-arguments kill-word 0)");
 }
 
 // -- yank tests --
@@ -1404,7 +1375,7 @@ fn kill_new_wrong_type() {
 
 #[test]
 fn kill_word_wrong_args() {
-    let result = eval_one("(kill-word)");
+    let result = bootstrap_eval_one("(kill-word)");
     assert!(result.starts_with("ERR"));
 }
 
