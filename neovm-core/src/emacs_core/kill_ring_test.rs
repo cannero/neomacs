@@ -365,36 +365,35 @@ fn bootstrap_line_and_word_kill_arity_checks_match_simple_el() {
 // -- yank tests --
 
 #[test]
-fn yank_basic() {
-    let results = eval_all(
-        r#"(kill-new "inserted")
-           (yank)
-           (buffer-string)"#,
+fn bootstrap_yank_ops_match_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "inserted")
+             (with-temp-buffer
+               (yank)
+               (buffer-string)))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "first")
+             (kill-new "second")
+             (with-temp-buffer
+               (yank 2)
+               (buffer-string)))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (condition-case err
+                 (with-temp-buffer (yank))
+               (error (car err))))"#,
     );
-    assert_eq!(results[2], r#"OK "inserted""#);
+    assert_eq!(results[0], r#"OK "inserted""#);
+    assert_eq!(results[1], r#"OK "first""#);
+    assert_eq!(results[2], "OK error");
 }
 
 #[test]
-fn yank_with_arg() {
-    let results = eval_all(
-        r#"(kill-new "first")
-           (kill-new "second")
-           (yank 2)
-           (buffer-string)"#,
-    );
-    // yank with arg 2 should insert the second-most-recent kill (i.e. "first").
-    assert_eq!(results[3], r#"OK "first""#);
-}
-
-#[test]
-fn yank_empty_ring_errors() {
-    let result = eval_one("(yank)");
-    assert!(result.starts_with("ERR"));
-}
-
-#[test]
-fn yank_and_yank_pop_reject_too_many_args_before_ring_checks() {
-    let results = eval_all(
+fn bootstrap_yank_and_yank_pop_arity_checks_match_simple_el() {
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer (condition-case err (yank nil nil) (error err)))
            (with-temp-buffer (condition-case err (yank 1 2 3) (error err)))
            (with-temp-buffer (condition-case err (yank-pop nil nil) (error err)))
