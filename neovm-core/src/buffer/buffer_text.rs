@@ -12,8 +12,14 @@ use std::rc::Rc;
 
 use super::gap_buffer::GapBuffer;
 
+#[derive(Clone)]
+struct BufferTextStorage {
+    gap: GapBuffer,
+    char_count: usize,
+}
+
 pub struct BufferText {
-    storage: Rc<RefCell<GapBuffer>>,
+    storage: Rc<RefCell<BufferTextStorage>>,
 }
 
 impl Clone for BufferText {
@@ -34,62 +40,79 @@ impl Default for BufferText {
 impl BufferText {
     pub fn new() -> Self {
         Self {
-            storage: Rc::new(RefCell::new(GapBuffer::new())),
+            storage: Rc::new(RefCell::new(BufferTextStorage {
+                gap: GapBuffer::new(),
+                char_count: 0,
+            })),
         }
     }
 
     pub fn from_str(text: &str) -> Self {
         Self {
-            storage: Rc::new(RefCell::new(GapBuffer::from_str(text))),
+            storage: Rc::new(RefCell::new(BufferTextStorage {
+                gap: GapBuffer::from_str(text),
+                char_count: text.chars().count(),
+            })),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.storage.borrow().len()
+        self.storage.borrow().gap.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.storage.borrow().is_empty()
+        self.storage.borrow().gap.is_empty()
     }
 
     pub fn char_count(&self) -> usize {
-        self.storage.borrow().char_count()
+        self.storage.borrow().char_count
     }
 
     pub fn byte_at(&self, pos: usize) -> u8 {
-        self.storage.borrow().byte_at(pos)
+        self.storage.borrow().gap.byte_at(pos)
     }
 
     pub fn char_at(&self, pos: usize) -> Option<char> {
-        self.storage.borrow().char_at(pos)
+        self.storage.borrow().gap.char_at(pos)
     }
 
     pub fn text_range(&self, start: usize, end: usize) -> String {
-        self.storage.borrow().text_range(start, end)
+        self.storage.borrow().gap.text_range(start, end)
     }
 
     pub fn copy_bytes_to(&self, start: usize, end: usize, out: &mut Vec<u8>) {
-        self.storage.borrow().copy_bytes_to(start, end, out);
+        self.storage.borrow().gap.copy_bytes_to(start, end, out);
     }
 
     pub fn to_string(&self) -> String {
-        self.storage.borrow().to_string()
+        self.storage.borrow().gap.to_string()
     }
 
     pub fn insert_str(&mut self, pos: usize, text: &str) {
-        self.storage.borrow_mut().insert_str(pos, text);
+        if text.is_empty() {
+            return;
+        }
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.insert_str(pos, text);
+        storage.char_count += text.chars().count();
     }
 
     pub fn delete_range(&mut self, start: usize, end: usize) {
-        self.storage.borrow_mut().delete_range(start, end);
+        if start >= end {
+            return;
+        }
+        let mut storage = self.storage.borrow_mut();
+        let deleted_chars = storage.gap.byte_to_char(end) - storage.gap.byte_to_char(start);
+        storage.gap.delete_range(start, end);
+        storage.char_count -= deleted_chars;
     }
 
     pub fn byte_to_char(&self, byte_pos: usize) -> usize {
-        self.storage.borrow().byte_to_char(byte_pos)
+        self.storage.borrow().gap.byte_to_char(byte_pos)
     }
 
     pub fn char_to_byte(&self, char_pos: usize) -> usize {
-        self.storage.borrow().char_to_byte(char_pos)
+        self.storage.borrow().gap.char_to_byte(char_pos)
     }
 
     pub fn shared_clone(&self) -> Self {
@@ -103,19 +126,21 @@ impl BufferText {
     }
 
     pub(crate) fn dump_text(&self) -> Vec<u8> {
-        self.storage.borrow().dump_text()
+        self.storage.borrow().gap.dump_text()
     }
 
     pub(crate) fn from_dump(text: Vec<u8>) -> Self {
+        let gap = GapBuffer::from_dump(text);
+        let char_count = gap.char_count();
         Self {
-            storage: Rc::new(RefCell::new(GapBuffer::from_dump(text))),
+            storage: Rc::new(RefCell::new(BufferTextStorage { gap, char_count })),
         }
     }
 }
 
 impl fmt::Display for BufferText {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.storage.borrow().fmt(f)
+        self.storage.borrow().gap.fmt(f)
     }
 }
 
@@ -125,5 +150,41 @@ impl fmt::Debug for BufferText {
             .field("len", &self.len())
             .field("chars", &self.char_count())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BufferText;
+
+    #[test]
+    fn char_count_tracks_multibyte_inserts_and_deletes() {
+        let mut text = BufferText::from_str("ééz");
+        assert_eq!(text.char_count(), 3);
+
+        text.insert_str('é'.len_utf8(), "ß");
+        assert_eq!(text.char_count(), 4);
+
+        text.delete_range(2, 4);
+        assert_eq!(text.char_count(), 3);
+        assert_eq!(text.to_string(), "ééz");
+    }
+
+    #[test]
+    fn shared_clone_observes_cached_char_count_updates() {
+        let mut text = BufferText::from_str("ab");
+        let shared = text.shared_clone();
+        text.insert_str(2, "é");
+        assert_eq!(text.char_count(), 3);
+        assert_eq!(shared.char_count(), 3);
+    }
+
+    #[test]
+    fn deep_clone_keeps_independent_char_count_cache() {
+        let mut text = BufferText::from_str("ab");
+        let cloned = text.clone();
+        text.insert_str(2, "é");
+        assert_eq!(text.char_count(), 3);
+        assert_eq!(cloned.char_count(), 2);
     }
 }
