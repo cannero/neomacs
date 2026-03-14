@@ -2550,7 +2550,7 @@ pub fn search_forward(
     if let Some((rel_start, rel_end)) = found {
         let match_start = start + rel_start;
         let match_end = start + rel_end;
-        buf.goto_char(match_end);
+        buf.goto_byte(match_end);
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
             searched_string: None,
@@ -2595,7 +2595,7 @@ pub fn search_backward(
     if let Some((rel_start, rel_end)) = found {
         let match_start = limit + rel_start;
         let match_end = limit + rel_end;
-        buf.goto_char(match_start);
+        buf.goto_byte(match_start);
         *match_data = Some(MatchData {
             groups: vec![Some((match_start, match_end))],
             searched_string: None,
@@ -2642,7 +2642,7 @@ pub fn re_search_forward(
                 literal_find(&text[start_rel..limit_rel], &literal, case_fold)
             {
                 let full_match = (start + rel_start, start + rel_end);
-                buf.goto_char(full_match.1);
+                buf.goto_byte(full_match.1);
                 *match_data = Some(MatchData {
                     groups: vec![Some(full_match)],
                     searched_string: None,
@@ -2667,7 +2667,7 @@ pub fn re_search_forward(
                 md.searched_string = None;
                 md.searched_buffer = Some(buf.id);
                 let full_match = md.groups[0].unwrap();
-                buf.goto_char(full_match.1);
+                buf.goto_byte(full_match.1);
                 *match_data = Some(md);
                 Ok(Some(full_match.1))
             } else if noerror {
@@ -2688,7 +2688,7 @@ pub fn re_search_forward(
                 md.searched_string = None;
                 md.searched_buffer = Some(buf.id);
                 let full_match = md.groups[0].unwrap();
-                buf.goto_char(full_match.1);
+                buf.goto_byte(full_match.1);
                 *match_data = Some(md);
                 Ok(Some(full_match.1))
             } else if noerror {
@@ -2704,7 +2704,7 @@ pub fn re_search_forward(
                 md.searched_string = None;
                 md.searched_buffer = Some(buf.id);
                 let full_match = md.groups[0].unwrap();
-                buf.goto_char(full_match.1);
+                buf.goto_byte(full_match.1);
                 *match_data = Some(md);
                 Ok(Some(full_match.1))
             } else if noerror {
@@ -2749,7 +2749,7 @@ pub fn re_search_backward(
                 literal_rfind(&text[limit_rel..start_rel], &literal, case_fold)
             {
                 let full_match = (limit + rel_start, limit + rel_end);
-                buf.goto_char(full_match.0);
+                buf.goto_byte(full_match.0);
                 *match_data = Some(MatchData {
                     groups: vec![Some(full_match)],
                     searched_string: None,
@@ -2774,7 +2774,7 @@ pub fn re_search_backward(
                 md.searched_string = None;
                 md.searched_buffer = Some(buf.id);
                 let full_match = md.groups[0].unwrap();
-                buf.goto_char(full_match.0);
+                buf.goto_byte(full_match.0);
                 *match_data = Some(md);
                 Ok(Some(full_match.0))
             } else if noerror {
@@ -2795,7 +2795,7 @@ pub fn re_search_backward(
                 md.searched_string = None;
                 md.searched_buffer = Some(buf.id);
                 let full_match = md.groups[0].unwrap();
-                buf.goto_char(full_match.0);
+                buf.goto_byte(full_match.0);
                 *match_data = Some(md);
                 Ok(Some(full_match.0))
             } else if noerror {
@@ -2811,7 +2811,7 @@ pub fn re_search_backward(
                 md.searched_string = None;
                 md.searched_buffer = Some(buf.id);
                 let full_match = md.groups[0].unwrap();
-                buf.goto_char(full_match.0);
+                buf.goto_byte(full_match.0);
                 *match_data = Some(md);
                 Ok(Some(full_match.0))
             } else if noerror {
@@ -3142,7 +3142,7 @@ pub fn replace_match_buffer(
     let (match_start, match_end, replacement) =
         compute_replacement(newtext, fixedcase, literal, subexp, match_data, &source)?;
 
-    buf.goto_char(match_start);
+    buf.goto_byte(match_start);
     buf.delete_region(match_start, match_end);
     buf.insert(&replacement);
     Ok(())

@@ -135,30 +135,50 @@ impl Buffer {
     // -- Point queries -------------------------------------------------------
 
     /// Current point as a byte position.
-    pub fn point(&self) -> usize {
+    pub fn point_byte(&self) -> usize {
         self.pt
+    }
+
+    /// Legacy point accessor retained while buffer internals are byte-only.
+    pub fn point(&self) -> usize {
+        self.point_byte()
     }
 
     /// Current point converted to a character position.
     pub fn point_char(&self) -> usize {
-        self.text.byte_to_char(self.pt)
+        self.text.byte_to_char(self.point_byte())
     }
 
     /// Beginning of the accessible portion (byte position).
-    pub fn point_min(&self) -> usize {
+    pub fn point_min_byte(&self) -> usize {
         self.begv
     }
 
+    /// Legacy narrowing accessor retained while buffer internals are byte-only.
+    pub fn point_min(&self) -> usize {
+        self.point_min_byte()
+    }
+
     /// End of the accessible portion (byte position).
-    pub fn point_max(&self) -> usize {
+    pub fn point_max_byte(&self) -> usize {
         self.zv
+    }
+
+    /// Legacy narrowing accessor retained while buffer internals are byte-only.
+    pub fn point_max(&self) -> usize {
+        self.point_max_byte()
     }
 
     // -- Point movement ------------------------------------------------------
 
-    /// Set point, clamping to the accessible region `[begv, zv]`.
-    pub fn goto_char(&mut self, pos: usize) {
+    /// Set point in bytes, clamping to the accessible region `[begv, zv]`.
+    pub fn goto_byte(&mut self, pos: usize) {
         self.pt = pos.clamp(self.begv, self.zv);
+    }
+
+    /// Legacy point setter retained while buffer internals are byte-only.
+    pub fn goto_char(&mut self, pos: usize) {
+        self.goto_byte(pos);
     }
 
     // -- Editing -------------------------------------------------------------
@@ -319,8 +339,8 @@ impl Buffer {
 
     // -- Narrowing -----------------------------------------------------------
 
-    /// Restrict the accessible portion to `[start, end)`.
-    pub fn narrow_to_region(&mut self, start: usize, end: usize) {
+    /// Restrict the accessible portion to the byte range `[start, end)`.
+    pub fn narrow_to_byte_region(&mut self, start: usize, end: usize) {
         let total = self.text.len();
         let s = start.min(total);
         let e = end.clamp(s, total);
@@ -330,22 +350,36 @@ impl Buffer {
         self.pt = self.pt.clamp(self.begv, self.zv);
     }
 
+    /// Legacy narrowing API retained while buffer internals are byte-only.
+    pub fn narrow_to_region(&mut self, start: usize, end: usize) {
+        self.narrow_to_byte_region(start, end);
+    }
+
     /// Remove narrowing — make the entire buffer accessible again.
     pub fn widen(&mut self) {
-        self.begv = 0;
-        self.zv = self.text.len();
+        self.narrow_to_byte_region(0, self.text.len());
     }
 
     // -- Mark ----------------------------------------------------------------
 
-    /// Set the mark to `pos`.
-    pub fn set_mark(&mut self, pos: usize) {
+    /// Set the mark to the byte position `pos`.
+    pub fn set_mark_byte(&mut self, pos: usize) {
         self.mark = Some(pos);
     }
 
+    /// Legacy mark setter retained while buffer internals are byte-only.
+    pub fn set_mark(&mut self, pos: usize) {
+        self.set_mark_byte(pos);
+    }
+
     /// Return the mark, if set.
-    pub fn mark(&self) -> Option<usize> {
+    pub fn mark_byte(&self) -> Option<usize> {
         self.mark
+    }
+
+    /// Legacy mark accessor retained while buffer internals are byte-only.
+    pub fn mark(&self) -> Option<usize> {
+        self.mark_byte()
     }
 
     // -- Modified flag -------------------------------------------------------
@@ -458,8 +492,8 @@ impl BufferManager {
 
         indirect.base_buffer = Some(root_id);
         indirect.text = shared_text;
-        indirect.narrow_to_region(root.begv, root.zv);
-        indirect.goto_char(root.pt);
+        indirect.narrow_to_byte_region(root.begv, root.zv);
+        indirect.goto_byte(root.pt);
         indirect.multibyte = root.multibyte;
         indirect.modified = root.modified;
         indirect.modified_tick = root.modified_tick;
@@ -657,8 +691,8 @@ impl BufferManager {
     /// ad hoc `buf.insert` / `buf.delete_region` call site in the tree.
     pub fn goto_buffer_byte(&mut self, id: BufferId, pos: usize) -> Option<usize> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.goto_char(pos);
-        Some(buf.point())
+        buf.goto_byte(pos);
+        Some(buf.point_byte())
     }
 
     pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
@@ -722,7 +756,9 @@ impl BufferManager {
 
     pub fn delete_all_buffer_overlays(&mut self, id: BufferId) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        let ids = buf.overlays.overlays_in(buf.point_min(), buf.point_max());
+        let ids = buf
+            .overlays
+            .overlays_in(buf.point_min_byte(), buf.point_max_byte());
         for ov_id in ids {
             buf.overlays.delete_overlay(ov_id);
         }
@@ -757,7 +793,7 @@ impl BufferManager {
         start: usize,
         end: usize,
     ) -> Option<()> {
-        self.buffers.get_mut(&id)?.narrow_to_region(start, end);
+        self.buffers.get_mut(&id)?.narrow_to_byte_region(start, end);
         Some(())
     }
 
@@ -774,7 +810,7 @@ impl BufferManager {
         {
             let buf = self.buffers.get_mut(&id)?;
             buf.widen();
-            buf.goto_char(0);
+            buf.goto_byte(0);
         }
         if !text.is_empty() {
             self.insert_into_buffer(id, text)?;
@@ -888,7 +924,7 @@ impl BufferManager {
     }
 
     pub fn set_buffer_mark(&mut self, id: BufferId, pos: usize) -> Option<()> {
-        self.buffers.get_mut(&id)?.set_mark(pos);
+        self.buffers.get_mut(&id)?.set_mark_byte(pos);
         Some(())
     }
 
@@ -929,7 +965,7 @@ impl BufferManager {
         zv: usize,
     ) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.narrow_to_region(begv, zv);
+        buf.narrow_to_byte_region(begv, zv);
         Some(())
     }
 
@@ -1308,6 +1344,19 @@ mod tests {
         let mut buf = buf_with_text("hello");
         buf.goto_char(3);
         assert_eq!(buf.point_char(), 3);
+    }
+
+    #[test]
+    fn byte_position_aliases_match_legacy_buffer_apis() {
+        let mut buf = buf_with_text("hello world");
+        buf.narrow_to_byte_region(2, 9);
+        buf.goto_byte(7);
+        buf.set_mark_byte(4);
+
+        assert_eq!(buf.point_byte(), buf.point());
+        assert_eq!(buf.point_min_byte(), buf.point_min());
+        assert_eq!(buf.point_max_byte(), buf.point_max());
+        assert_eq!(buf.mark_byte(), buf.mark());
     }
 
     // -----------------------------------------------------------------------

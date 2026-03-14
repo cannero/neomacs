@@ -608,7 +608,7 @@ fn read_from_minibuffer_interactive(
         }
         let total_len = buf.text.len();
         buf.widen();
-        buf.goto_char(total_len); // cursor at end of initial input
+        buf.goto_byte(total_len); // cursor at end of initial input
     }
 
     // Switch to minibuffer buffer
