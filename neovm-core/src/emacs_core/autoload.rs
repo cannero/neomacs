@@ -511,6 +511,10 @@ pub(crate) fn sf_eval_when_compile(
     eval: &mut super::eval::Evaluator,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
+    // In GNU Emacs, eval-when-compile evaluates BODY during byte-compilation
+    // and replaces the form with the result constant in the .elc file.
+    // When loading .el source, GNU Emacs also evaluates the body (same as
+    // progn). NeoVM does the same.
     eval.sf_progn(tail)
 }
 
