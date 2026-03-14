@@ -372,6 +372,15 @@ impl ProcessManager {
         self.processes.keys().copied().collect()
     }
 
+    /// Return IDs of processes that have a live OS child.
+    pub fn live_process_ids(&self) -> Vec<ProcessId> {
+        self.processes
+            .iter()
+            .filter(|(_, p)| p.child.is_some() && matches!(p.status, ProcessStatus::Run))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
     /// Returns true if this id has been allocated at least once.
     pub fn was_issued_id(&self, id: ProcessId) -> bool {
         id > 0 && id < self.next_id
@@ -4334,7 +4343,129 @@ pub(crate) fn builtin_accept_process_output(
         }
     }
 
-    Ok(Value::Nil)
+    // Parse timeout.
+    let timeout_ms: Option<u64> = {
+        let secs = args.get(1).and_then(|v| match v {
+            Value::Int(n) if !v.is_nil() => Some(*n as f64),
+            Value::Float(f, _) => Some(*f),
+            _ => None,
+        });
+        let ms = args
+            .get(2)
+            .and_then(|v| match v {
+                Value::Int(n) if !v.is_nil() => Some(*n),
+                _ => None,
+            })
+            .unwrap_or(0);
+        match secs {
+            Some(s) => Some((s * 1000.0) as u64 + ms as u64),
+            None if ms > 0 => Some(ms as u64),
+            _ => Some(50), // Default: short poll
+        }
+    };
+
+    // Resolve target process (if specified).
+    let target_id = if let Some(process) = args.first() {
+        if !process.is_nil() {
+            resolve_live_process_designator(eval, process)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Collect process IDs to check.
+    let proc_ids: Vec<ProcessId> = if let Some(id) = target_id {
+        vec![id]
+    } else {
+        eval.processes.live_process_ids()
+    };
+
+    // Poll for output with timeout.
+    let start = std::time::Instant::now();
+    let deadline = timeout_ms.map(|ms| std::time::Duration::from_millis(ms));
+    let mut got_output = false;
+
+    loop {
+        // Check each process for output and exit.
+        for &pid in &proc_ids {
+            // Check if child exited.
+            let exited = eval.processes.check_child_exit(pid);
+
+            // Read available stdout.
+            if let Some(data) = eval.processes.read_child_stdout(pid) {
+                if !data.is_empty() {
+                    got_output = true;
+                    // Call process filter if set.
+                    let filter = eval
+                        .processes
+                        .get(pid)
+                        .map(|p| p.filter)
+                        .unwrap_or(Value::Nil);
+                    if !filter.is_nil()
+                        && !filter.is_symbol_named(DEFAULT_PROCESS_FILTER_SYMBOL)
+                        && filter.is_truthy()
+                    {
+                        let proc_val = Value::Int(pid as i64);
+                        let output_val = Value::string(&data);
+                        eval.apply(filter, vec![proc_val, output_val])?;
+                    } else {
+                        // Default filter: output is accumulated in proc.stdout
+                        // (already done by read_child_stdout).
+                    }
+                }
+            }
+
+            // If process exited, call sentinel.
+            if exited {
+                let sentinel = eval
+                    .processes
+                    .get(pid)
+                    .map(|p| p.sentinel)
+                    .unwrap_or(Value::Nil);
+                let exit_msg = eval
+                    .processes
+                    .get(pid)
+                    .map(|p| match &p.status {
+                        ProcessStatus::Exit(code) => {
+                            if *code == 0 {
+                                "finished\n".to_string()
+                            } else {
+                                format!("exited abnormally with code {}\n", code)
+                            }
+                        }
+                        ProcessStatus::Signal(sig) => format!("killed by signal {}\n", sig),
+                        _ => "finished\n".to_string(),
+                    })
+                    .unwrap_or_else(|| "finished\n".to_string());
+                if !sentinel.is_nil()
+                    && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
+                    && sentinel.is_truthy()
+                {
+                    let proc_val = Value::Int(pid as i64);
+                    let msg_val = Value::string(&exit_msg);
+                    eval.apply(sentinel, vec![proc_val, msg_val])?;
+                }
+            }
+        }
+
+        if got_output {
+            return Ok(Value::True);
+        }
+
+        // Check timeout.
+        if let Some(d) = deadline {
+            if start.elapsed() >= d {
+                return Ok(Value::Nil);
+            }
+        } else {
+            return Ok(Value::Nil);
+        }
+
+        // Brief sleep before next poll.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 }
 
 /// (get-process NAME) -> process-or-nil
