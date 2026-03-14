@@ -42,6 +42,68 @@ pub(crate) fn builtin_get_buffer_create(
     }
 }
 
+/// (make-indirect-buffer BASE-BUFFER NAME &optional CLONE INHIBIT-BUFFER-HOOKS) → buffer
+pub(crate) fn builtin_make_indirect_buffer(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("make-indirect-buffer", &args, 2, 4)?;
+
+    let base_id = match args[0] {
+        Value::Buffer(id) => {
+            if eval.buffers.get(id).is_none() {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Base buffer has been killed")],
+                ));
+            }
+            id
+        }
+        Value::Str(str_id) => {
+            let name = with_heap(|h| h.get_string(str_id).to_owned());
+            eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
+                signal(
+                    "error",
+                    vec![Value::string(format!("No such buffer: `{name}`"))],
+                )
+            })?
+        }
+        other => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), other],
+            ));
+        }
+    };
+
+    let name = expect_string(&args[1])?;
+    if name.is_empty() {
+        return Err(signal(
+            "error",
+            vec![Value::string("Empty string for buffer name is not allowed")],
+        ));
+    }
+    if eval.buffers.find_buffer_by_name(&name).is_some() {
+        return Err(signal(
+            "error",
+            vec![Value::string(format!("Buffer name `{name}` is in use"))],
+        ));
+    }
+
+    let clone = args.get(2).is_some_and(|value| !value.is_nil());
+    let id = eval
+        .buffers
+        .create_indirect_buffer(base_id, &name, clone)
+        .ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string("Failed to create indirect buffer")],
+            )
+        })?;
+
+    Ok(Value::Buffer(id))
+}
+
 /// (get-buffer NAME-OR-BUFFER) → buffer or nil
 pub(crate) fn builtin_get_buffer(
     eval: &mut super::eval::Evaluator,

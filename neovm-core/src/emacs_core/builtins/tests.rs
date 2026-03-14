@@ -1304,6 +1304,72 @@ fn buffer_base_buffer_and_last_name_semantics() {
 }
 
 #[test]
+fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let base = create_unique_test_buffer(&mut eval, "*mib-base*");
+    let Value::Buffer(base_id) = base else {
+        panic!("expected buffer object");
+    };
+
+    let _ = builtin_set_buffer(&mut eval, vec![base]).unwrap();
+    builtin_insert(&mut eval, vec![Value::string("abcd")]).unwrap();
+
+    let indirect =
+        builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*mib-indirect*")])
+            .expect("make-indirect-buffer should create a buffer");
+    let Value::Buffer(indirect_id) = indirect else {
+        panic!("expected buffer object");
+    };
+
+    assert_eq!(
+        builtin_buffer_base_buffer(&mut eval, vec![indirect]).unwrap(),
+        base
+    );
+    assert!(
+        eval.buffers
+            .get(base_id)
+            .unwrap()
+            .text
+            .shares_storage_with(&eval.buffers.get(indirect_id).unwrap().text)
+    );
+
+    let _ = eval.buffers.goto_buffer_byte(base_id, 0);
+    let _ = eval.buffers.insert_into_buffer(base_id, "zz");
+    assert_eq!(
+        eval.buffers.get(indirect_id).unwrap().buffer_string(),
+        "zzabcd"
+    );
+
+    let second =
+        builtin_make_indirect_buffer(&mut eval, vec![indirect, Value::string("*mib-indirect-2*")])
+            .expect("second indirect buffer should be created");
+    assert_eq!(
+        builtin_buffer_base_buffer(&mut eval, vec![second]).unwrap(),
+        base
+    );
+}
+
+#[test]
+fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let base = create_unique_test_buffer(&mut eval, "*mib-errors-base*");
+
+    let duplicate = builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*scratch*")])
+        .expect_err("duplicate indirect name should error");
+    match duplicate {
+        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
+        other => panic!("unexpected flow: {other:?}"),
+    }
+
+    let empty = builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("")])
+        .expect_err("empty indirect name should error");
+    match empty {
+        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
+        other => panic!("unexpected flow: {other:?}"),
+    }
+}
+
+#[test]
 fn buffer_modified_tick_semantics() {
     let mut eval = super::super::eval::Evaluator::new();
 
@@ -4589,13 +4655,14 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin make-finalizer should evaluate");
     assert!(make_finalizer.is_nil());
 
-    let make_indirect = dispatch_builtin_pure(
-        "make-indirect-buffer",
-        vec![Value::symbol("buf"), Value::string("name")],
-    )
-    .expect("builtin make-indirect-buffer should resolve")
-    .expect("builtin make-indirect-buffer should evaluate");
-    assert!(make_indirect.is_nil());
+    assert!(
+        dispatch_builtin_pure(
+            "make-indirect-buffer",
+            vec![Value::symbol("buf"), Value::string("name")],
+        )
+        .is_none(),
+        "make-indirect-buffer should dispatch via eval-aware path"
+    );
 
     let make_interpreted = dispatch_builtin_pure(
         "make-interpreted-closure",

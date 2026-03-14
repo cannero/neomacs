@@ -4512,11 +4512,6 @@ pub(crate) fn builtin_make_finalizer(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_make_indirect_buffer(args: Vec<Value>) -> EvalResult {
-    expect_range_args("make-indirect-buffer", &args, 2, 4)?;
-    Ok(Value::Nil)
-}
-
 pub(crate) fn builtin_make_interpreted_closure(args: Vec<Value>) -> EvalResult {
     expect_range_args("make-interpreted-closure", &args, 3, 5)?;
     make_interpreted_closure_from_parts(&args[0], &args[1], &args[2], args.get(3), args.get(4))

@@ -425,6 +425,59 @@ impl BufferManager {
         id
     }
 
+    /// Allocate a new indirect buffer that shares its root base buffer's text.
+    ///
+    /// This mirrors GNU Emacs's `make-indirect-buffer` C boundary:
+    /// indirect buffers share the root base buffer's text object, and double
+    /// indirection is flattened so every indirect points at the same root.
+    pub fn create_indirect_buffer(
+        &mut self,
+        base_id: BufferId,
+        name: &str,
+        clone: bool,
+    ) -> Option<BufferId> {
+        if name.is_empty() || self.find_buffer_by_name(name).is_some() {
+            return None;
+        }
+
+        let root_id = self.shared_text_root_id(base_id)?;
+        let root = self.buffers.get(&root_id)?.clone();
+        let shared_text = self.buffers.get(&root_id)?.text.shared_clone();
+
+        let id = BufferId(self.next_id);
+        self.next_id += 1;
+
+        let mut indirect = if clone {
+            let mut cloned = root.clone();
+            cloned.id = id;
+            cloned.name = name.to_string();
+            cloned
+        } else {
+            Buffer::new(id, name.to_string())
+        };
+
+        indirect.base_buffer = Some(root_id);
+        indirect.text = shared_text;
+        indirect.pt = root.pt;
+        indirect.begv = root.begv;
+        indirect.zv = root.zv;
+        indirect.multibyte = root.multibyte;
+        indirect.modified = root.modified;
+        indirect.modified_tick = root.modified_tick;
+        indirect.chars_modified_tick = root.chars_modified_tick;
+        indirect.file_name = None;
+        indirect.text_props = root.text_props.clone();
+        if !clone {
+            indirect.overlays = OverlayList::new();
+            indirect.mark = None;
+            indirect.markers.clear();
+            indirect.undo_list = root.undo_list.clone();
+        }
+
+        self.buffers.insert(id, indirect);
+        Some(id)
+    }
+
     /// Immutable access to a buffer by id.
     pub fn get(&self, id: BufferId) -> Option<&Buffer> {
         self.buffers.get(&id)
@@ -494,6 +547,99 @@ impl BufferManager {
         self.buffers.keys().copied().collect()
     }
 
+    fn shared_text_root_id(&self, id: BufferId) -> Option<BufferId> {
+        let buf = self.buffers.get(&id)?;
+        Some(buf.base_buffer.unwrap_or(buf.id))
+    }
+
+    fn buffers_sharing_root_ids(&self, root_id: BufferId) -> Vec<BufferId> {
+        self.buffers
+            .values()
+            .filter_map(|buf| (buf.base_buffer.unwrap_or(buf.id) == root_id).then_some(buf.id))
+            .collect()
+    }
+
+    fn adjust_shared_insert_metadata(buf: &mut Buffer, insert_pos: usize, len: usize) {
+        if len == 0 {
+            return;
+        }
+
+        if buf.pt > insert_pos {
+            buf.pt += len;
+        }
+        if buf.begv > insert_pos {
+            buf.begv += len;
+        }
+        if buf.zv >= insert_pos {
+            buf.zv += len;
+        }
+        if let Some(mark) = buf.mark
+            && mark > insert_pos
+        {
+            buf.mark = Some(mark + len);
+        }
+        for marker in &mut buf.markers {
+            if marker.byte_pos > insert_pos {
+                marker.byte_pos += len;
+            } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
+            {
+                marker.byte_pos += len;
+            }
+        }
+        buf.text_props.adjust_for_insert(insert_pos, len);
+        buf.overlays.adjust_for_insert(insert_pos, len);
+        buf.modified = true;
+        buf.modified_tick += 1;
+        buf.chars_modified_tick += 1;
+    }
+
+    fn adjust_shared_delete_metadata(buf: &mut Buffer, start: usize, end: usize) {
+        if start >= end {
+            return;
+        }
+        let len = end - start;
+
+        if buf.pt > end {
+            buf.pt -= len;
+        } else if buf.pt > start {
+            buf.pt = start;
+        }
+
+        if buf.begv > end {
+            buf.begv -= len;
+        } else if buf.begv > start {
+            buf.begv = start;
+        }
+
+        if buf.zv > end {
+            buf.zv -= len;
+        } else if buf.zv > start {
+            buf.zv = start;
+        }
+
+        if let Some(mark) = buf.mark {
+            if mark > end {
+                buf.mark = Some(mark - len);
+            } else if mark > start {
+                buf.mark = Some(start);
+            }
+        }
+
+        for marker in &mut buf.markers {
+            if marker.byte_pos > end {
+                marker.byte_pos -= len;
+            } else if marker.byte_pos > start {
+                marker.byte_pos = start;
+            }
+        }
+
+        buf.text_props.adjust_for_delete(start, end);
+        buf.overlays.adjust_for_delete(start, end);
+        buf.modified = true;
+        buf.modified_tick += 1;
+        buf.chars_modified_tick += 1;
+    }
+
     /// Centralized structural text mutations.
     ///
     /// Indirect buffers will eventually share a single text object.  When that
@@ -506,18 +652,35 @@ impl BufferManager {
     }
 
     pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
+        let len = text.len();
+        if len == 0 {
+            return Some(());
+        }
+
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let insert_pos = self.buffers.get(&id)?.pt;
+
         self.buffers.get_mut(&id)?.insert(text);
+
+        for sibling_id in shared_ids {
+            if sibling_id == id {
+                continue;
+            }
+            let sibling = self.buffers.get_mut(&sibling_id)?;
+            Self::adjust_shared_insert_metadata(sibling, insert_pos, len);
+        }
         Some(())
     }
 
     pub fn insert_into_buffer_before_markers(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let buf = self.buffers.get_mut(&id)?;
         let byte_len = text.len();
         if byte_len == 0 {
             return Some(());
         }
-        let old_pt = buf.pt;
-        buf.insert(text);
+        let old_pt = self.buffers.get(&id)?.pt;
+        self.insert_into_buffer(id, text)?;
+        let buf = self.buffers.get_mut(&id)?;
         for marker in &mut buf.markers {
             if marker.byte_pos == old_pt {
                 marker.byte_pos += byte_len;
@@ -527,7 +690,21 @@ impl BufferManager {
     }
 
     pub fn delete_buffer_region(&mut self, id: BufferId, start: usize, end: usize) -> Option<()> {
+        if start >= end {
+            return Some(());
+        }
+
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
         self.buffers.get_mut(&id)?.delete_region(start, end);
+
+        for sibling_id in shared_ids {
+            if sibling_id == id {
+                continue;
+            }
+            let sibling = self.buffers.get_mut(&sibling_id)?;
+            Self::adjust_shared_delete_metadata(sibling, start, end);
+        }
         Some(())
     }
 
@@ -578,16 +755,18 @@ impl BufferManager {
     }
 
     pub fn replace_buffer_contents(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let buf = self.buffers.get_mut(&id)?;
-        let len = buf.text.len();
+        let len = self.buffers.get(&id)?.text.len();
         if len > 0 {
-            buf.delete_region(0, len);
+            self.delete_buffer_region(id, 0, len)?;
         }
-        buf.widen();
-        buf.goto_char(0);
-        if !text.is_empty() {
-            buf.insert(text);
+        {
+            let buf = self.buffers.get_mut(&id)?;
+            buf.widen();
             buf.goto_char(0);
+        }
+        if !text.is_empty() {
+            self.insert_into_buffer(id, text)?;
+            self.goto_buffer_byte(id, 0)?;
         }
         Some(())
     }
@@ -945,6 +1124,53 @@ mod tests {
         let c = BufferId(2);
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn create_indirect_buffer_shares_root_text_and_updates_siblings() {
+        let mut mgr = BufferManager::new();
+        let base_id = mgr.current_buffer_id().expect("scratch buffer");
+
+        let _ = mgr.insert_into_buffer(base_id, "abcd");
+        let indirect_id = mgr
+            .create_indirect_buffer(base_id, "*indirect*", false)
+            .expect("indirect buffer");
+
+        let base = mgr.get(base_id).expect("base buffer");
+        let indirect = mgr.get(indirect_id).expect("indirect buffer");
+        assert_eq!(indirect.base_buffer, Some(base_id));
+        assert!(base.text.shares_storage_with(&indirect.text));
+        assert_eq!(indirect.buffer_string(), "abcd");
+
+        let _ = mgr.goto_buffer_byte(base_id, 0);
+        let _ = mgr.insert_into_buffer(base_id, "zz");
+        assert_eq!(mgr.get(base_id).unwrap().buffer_string(), "zzabcd");
+        assert_eq!(mgr.get(indirect_id).unwrap().buffer_string(), "zzabcd");
+
+        let _ = mgr.delete_buffer_region(indirect_id, 2, 4);
+        assert_eq!(mgr.get(base_id).unwrap().buffer_string(), "zzcd");
+        assert_eq!(mgr.get(indirect_id).unwrap().buffer_string(), "zzcd");
+    }
+
+    #[test]
+    fn create_indirect_buffer_flattens_double_indirection() {
+        let mut mgr = BufferManager::new();
+        let base_id = mgr.current_buffer_id().expect("scratch buffer");
+        let first_id = mgr
+            .create_indirect_buffer(base_id, "*indirect-one*", false)
+            .expect("first indirect");
+        let second_id = mgr
+            .create_indirect_buffer(first_id, "*indirect-two*", false)
+            .expect("second indirect");
+
+        assert_eq!(mgr.get(first_id).unwrap().base_buffer, Some(base_id));
+        assert_eq!(mgr.get(second_id).unwrap().base_buffer, Some(base_id));
+        assert!(
+            mgr.get(base_id)
+                .unwrap()
+                .text
+                .shares_storage_with(&mgr.get(second_id).unwrap().text)
+        );
     }
 
     // -----------------------------------------------------------------------
