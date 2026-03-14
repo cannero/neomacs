@@ -240,42 +240,36 @@ fn bootstrap_current_kill_pointer_rules_match_simple_el() {
     assert_eq!(results[2], r#"OK ("c" "a" "c")"#);
 }
 
-// -- kill-region tests --
+// -- region copy/cut tests loaded from GNU simple.el --
 
 #[test]
-fn kill_region_basic() {
-    let results = eval_all(
-        r#"(insert "hello world")
-           (kill-region 1 6)
-           (buffer-string)"#,
+fn bootstrap_region_copy_cut_ops_match_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "hello world")
+               (kill-region 1 6)
+               (list (buffer-string)
+                     (current-kill 0))))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "hello world")
+               (kill-ring-save 1 6)
+               (list (buffer-string)
+                     (current-kill 0))))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (with-temp-buffer
+               (insert "hello world")
+               (copy-region-as-kill 1 6)
+               (list (buffer-string)
+                     (current-kill 0))))"#,
     );
-    assert_eq!(results[2], r#"OK " world""#);
-}
-
-#[test]
-fn kill_region_adds_to_kill_ring() {
-    let results = eval_all(
-        r#"(insert "hello world")
-           (kill-region 1 6)
-           (current-kill 0)"#,
-    );
-    assert_eq!(results[2], r#"OK "hello""#);
-}
-
-// -- kill-ring-save tests --
-
-#[test]
-fn kill_ring_save_basic() {
-    let results = eval_all(
-        r#"(insert "hello world")
-           (kill-ring-save 1 6)
-           (buffer-string)
-           (current-kill 0)"#,
-    );
-    // Buffer content should be unchanged.
-    assert_eq!(results[2], r#"OK "hello world""#);
-    // Kill ring should have the text.
-    assert_eq!(results[3], r#"OK "hello""#);
+    assert_eq!(results[0], r#"OK (" world" "hello")"#);
+    assert_eq!(results[1], r#"OK ("hello world" "hello")"#);
+    assert_eq!(results[2], r#"OK ("hello world" "hello")"#);
 }
 
 // -- kill-line tests --
@@ -1398,20 +1392,6 @@ fn indent_rigidly_argument_contract_subset() {
         r#"OK (wrong-type-argument integer-or-marker-p "x")"#
     );
     assert_eq!(results[6], r#"OK " a""#);
-}
-
-// -- copy-region-as-kill tests --
-
-#[test]
-fn copy_region_as_kill_basic() {
-    let results = eval_all(
-        r#"(insert "hello world")
-           (copy-region-as-kill 1 6)
-           (buffer-string)
-           (current-kill 0)"#,
-    );
-    assert_eq!(results[2], r#"OK "hello world""#);
-    assert_eq!(results[3], r#"OK "hello""#);
 }
 
 // -- wrong args tests --
