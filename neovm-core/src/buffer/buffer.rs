@@ -65,12 +65,18 @@ pub struct Buffer {
     pub text: BufferText,
     /// Point — the current cursor byte position.
     pub pt: usize,
+    /// Point — the current cursor character position.
+    pub pt_char: usize,
     /// Mark — optional byte position for region operations.
     pub mark: Option<usize>,
     /// Beginning of accessible (narrowed) portion (byte pos, inclusive).
     pub begv: usize,
+    /// Beginning of accessible (narrowed) portion (char pos, inclusive).
+    pub begv_char: usize,
     /// End of accessible (narrowed) portion (byte pos, exclusive).
     pub zv: usize,
+    /// End of accessible (narrowed) portion (char pos, exclusive).
+    pub zv_char: usize,
     /// Whether the buffer has been modified since last save.
     pub modified: bool,
     /// Monotonic buffer modification tick.
@@ -114,9 +120,12 @@ impl Buffer {
             base_buffer: None,
             text: BufferText::new(),
             pt: 0,
+            pt_char: 0,
             mark: None,
             begv: 0,
+            begv_char: 0,
             zv: 0,
+            zv_char: 0,
             modified: false,
             modified_tick: 1,
             chars_modified_tick: 1,
@@ -146,12 +155,17 @@ impl Buffer {
 
     /// Current point converted to a character position.
     pub fn point_char(&self) -> usize {
-        self.text.byte_to_char(self.point_byte())
+        self.pt_char
     }
 
     /// Beginning of the accessible portion (byte position).
     pub fn point_min_byte(&self) -> usize {
         self.begv
+    }
+
+    /// Beginning of the accessible portion (character position).
+    pub fn point_min_char(&self) -> usize {
+        self.begv_char
     }
 
     /// Legacy narrowing accessor retained while buffer internals are byte-only.
@@ -164,6 +178,11 @@ impl Buffer {
         self.zv
     }
 
+    /// End of the accessible portion (character position).
+    pub fn point_max_char(&self) -> usize {
+        self.zv_char
+    }
+
     /// Legacy narrowing accessor retained while buffer internals are byte-only.
     pub fn point_max(&self) -> usize {
         self.point_max_byte()
@@ -174,6 +193,13 @@ impl Buffer {
     /// Set point in bytes, clamping to the accessible region `[begv, zv]`.
     pub fn goto_byte(&mut self, pos: usize) {
         self.pt = pos.clamp(self.begv, self.zv);
+        self.pt_char = if self.pt == self.begv {
+            self.begv_char
+        } else if self.pt == self.zv {
+            self.zv_char
+        } else {
+            self.text.byte_to_char(self.pt)
+        };
     }
 
     /// Legacy point setter retained while buffer internals are byte-only.
@@ -184,72 +210,96 @@ impl Buffer {
     fn apply_byte_insert_side_effects(
         &mut self,
         insert_pos: usize,
-        len: usize,
+        insert_char_pos: usize,
+        byte_len: usize,
+        char_len: usize,
         shift_begv: bool,
         advance_point_at_insert: bool,
     ) {
-        if len == 0 {
+        if byte_len == 0 {
             return;
         }
 
         if self.pt > insert_pos || (advance_point_at_insert && self.pt == insert_pos) {
-            self.pt += len;
+            self.pt += byte_len;
+            self.pt_char += char_len;
         }
         if shift_begv && self.begv > insert_pos {
-            self.begv += len;
+            self.begv += byte_len;
+            self.begv_char += char_len;
         }
         if self.zv >= insert_pos {
-            self.zv += len;
+            self.zv += byte_len;
+            self.zv_char += char_len;
         }
         if let Some(mark) = self.mark
             && mark > insert_pos
         {
-            self.mark = Some(mark + len);
+            self.mark = Some(mark + byte_len);
         }
         for marker in &mut self.markers {
             if marker.byte_pos > insert_pos {
-                marker.byte_pos += len;
+                marker.byte_pos += byte_len;
             } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
             {
-                marker.byte_pos += len;
+                marker.byte_pos += byte_len;
             }
         }
-        self.text_props.adjust_for_insert(insert_pos, len);
-        self.overlays.adjust_for_insert(insert_pos, len);
+        debug_assert_eq!(
+            self.text.byte_to_char(insert_pos),
+            insert_char_pos,
+            "insert-side-effect char position drifted from the source edit site"
+        );
+        self.text_props.adjust_for_insert(insert_pos, byte_len);
+        self.overlays.adjust_for_insert(insert_pos, byte_len);
         self.modified = true;
         self.modified_tick += 1;
         self.chars_modified_tick += 1;
     }
 
-    fn apply_byte_delete_side_effects(&mut self, start: usize, end: usize, shift_begv: bool) {
+    fn apply_byte_delete_side_effects(
+        &mut self,
+        start: usize,
+        end: usize,
+        start_char: usize,
+        end_char: usize,
+        shift_begv: bool,
+    ) {
         if start >= end {
             return;
         }
-        let len = end - start;
+        let byte_len = end - start;
+        let char_len = end_char - start_char;
 
         if self.pt > end {
-            self.pt -= len;
+            self.pt -= byte_len;
+            self.pt_char -= char_len;
         } else if self.pt > start {
             self.pt = start;
+            self.pt_char = start_char;
         }
 
         if shift_begv {
             if self.begv > end {
-                self.begv -= len;
+                self.begv -= byte_len;
+                self.begv_char -= char_len;
             } else if self.begv > start {
                 self.begv = start;
+                self.begv_char = start_char;
             }
         }
 
         if self.zv > end {
-            self.zv -= len;
+            self.zv -= byte_len;
+            self.zv_char -= char_len;
         } else if self.zv > start {
             self.zv = start;
+            self.zv_char = start_char;
         }
 
         if let Some(mark) = self.mark {
             if mark > end {
-                self.mark = Some(mark - len);
+                self.mark = Some(mark - byte_len);
             } else if mark > start {
                 self.mark = Some(start);
             }
@@ -257,7 +307,7 @@ impl Buffer {
 
         for marker in &mut self.markers {
             if marker.byte_pos > end {
-                marker.byte_pos -= len;
+                marker.byte_pos -= byte_len;
             } else if marker.byte_pos > start {
                 marker.byte_pos = start;
             }
@@ -277,17 +327,26 @@ impl Buffer {
     /// Markers at the insertion site move according to their `InsertionType`.
     pub fn insert(&mut self, text: &str) {
         let insert_pos = self.pt;
-        let len = text.len();
-        if len == 0 {
+        let insert_char_pos = self.pt_char;
+        let byte_len = text.len();
+        if byte_len == 0 {
             return;
         }
+        let char_len = text.chars().count();
 
         // Record undo before modifying.
         self.undo_list.prepare_change(insert_pos, self.pt);
-        self.undo_list.record_insert(insert_pos, len);
+        self.undo_list.record_insert(insert_pos, byte_len);
 
         self.text.insert_str(insert_pos, text);
-        self.apply_byte_insert_side_effects(insert_pos, len, false, true);
+        self.apply_byte_insert_side_effects(
+            insert_pos,
+            insert_char_pos,
+            byte_len,
+            char_len,
+            false,
+            true,
+        );
     }
 
     /// Delete the byte range `[start, end)`.
@@ -297,13 +356,15 @@ impl Buffer {
         if start >= end {
             return;
         }
+        let start_char = self.text.byte_to_char(start);
+        let end_char = self.text.byte_to_char(end);
         // Record undo: save the deleted text for restoration.
         let deleted_text = self.text.text_range(start, end);
         self.undo_list.prepare_change(start, self.pt);
         self.undo_list.record_delete(start, &deleted_text);
 
         self.text.delete_range(start, end);
-        self.apply_byte_delete_side_effects(start, end, false);
+        self.apply_byte_delete_side_effects(start, end, start_char, end_char, false);
     }
 
     // -- Text queries --------------------------------------------------------
@@ -359,10 +420,17 @@ impl Buffer {
         let total = self.text.len();
         let s = start.min(total);
         let e = end.clamp(s, total);
+        let total_chars = self.text.char_count();
         self.begv = s;
+        self.begv_char = self.text.byte_to_char(s);
         self.zv = e;
+        self.zv_char = if e == total {
+            total_chars
+        } else {
+            self.text.byte_to_char(e)
+        };
         // Clamp point into the new accessible region.
-        self.pt = self.pt.clamp(self.begv, self.zv);
+        self.goto_byte(self.pt);
     }
 
     /// Legacy narrowing API retained while buffer internals are byte-only.
@@ -607,12 +675,31 @@ impl BufferManager {
             .collect()
     }
 
-    fn adjust_shared_insert_metadata(buf: &mut Buffer, insert_pos: usize, len: usize) {
-        buf.apply_byte_insert_side_effects(insert_pos, len, true, false);
+    fn adjust_shared_insert_metadata(
+        buf: &mut Buffer,
+        insert_pos: usize,
+        insert_char_pos: usize,
+        byte_len: usize,
+        char_len: usize,
+    ) {
+        buf.apply_byte_insert_side_effects(
+            insert_pos,
+            insert_char_pos,
+            byte_len,
+            char_len,
+            true,
+            false,
+        );
     }
 
-    fn adjust_shared_delete_metadata(buf: &mut Buffer, start: usize, end: usize) {
-        buf.apply_byte_delete_side_effects(start, end, true);
+    fn adjust_shared_delete_metadata(
+        buf: &mut Buffer,
+        start: usize,
+        end: usize,
+        start_char: usize,
+        end_char: usize,
+    ) {
+        buf.apply_byte_delete_side_effects(start, end, start_char, end_char, true);
     }
 
     fn sync_shared_undo_lists(&mut self, root_id: BufferId, source_id: BufferId) -> Option<()> {
@@ -638,14 +725,17 @@ impl BufferManager {
     }
 
     pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
-        let len = text.len();
-        if len == 0 {
+        let byte_len = text.len();
+        if byte_len == 0 {
             return Some(());
         }
+        let char_len = text.chars().count();
 
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
-        let insert_pos = self.buffers.get(&id)?.pt;
+        let source = self.buffers.get(&id)?;
+        let insert_pos = source.pt;
+        let insert_char_pos = source.pt_char;
 
         self.buffers.get_mut(&id)?.insert(text);
 
@@ -654,7 +744,13 @@ impl BufferManager {
                 continue;
             }
             let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_insert_metadata(sibling, insert_pos, len);
+            Self::adjust_shared_insert_metadata(
+                sibling,
+                insert_pos,
+                insert_char_pos,
+                byte_len,
+                char_len,
+            );
         }
         self.sync_shared_undo_lists(root_id, id)?;
         Some(())
@@ -683,6 +779,9 @@ impl BufferManager {
 
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let source = self.buffers.get(&id)?;
+        let start_char = source.text.byte_to_char(start);
+        let end_char = source.text.byte_to_char(end);
         self.buffers.get_mut(&id)?.delete_region(start, end);
 
         for sibling_id in shared_ids {
@@ -690,7 +789,7 @@ impl BufferManager {
                 continue;
             }
             let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_delete_metadata(sibling, start, end);
+            Self::adjust_shared_delete_metadata(sibling, start, end, start_char, end_char);
         }
         self.sync_shared_undo_lists(root_id, id)?;
         Some(())
@@ -1329,6 +1428,30 @@ mod tests {
         assert_eq!(buf.point_min_byte(), buf.point_min());
         assert_eq!(buf.point_max_byte(), buf.point_max());
         assert_eq!(buf.mark_byte(), buf.mark());
+    }
+
+    #[test]
+    fn cached_char_positions_track_multibyte_edits_and_narrowing() {
+        let mut buf = buf_with_text("ééz");
+        assert_eq!(buf.point_max_char(), 3);
+
+        buf.goto_byte('é'.len_utf8());
+        assert_eq!(buf.point_char(), 1);
+
+        buf.insert("ß");
+        assert_eq!(buf.point_byte(), 4);
+        assert_eq!(buf.point_char(), 2);
+        assert_eq!(buf.point_max_char(), 4);
+
+        buf.narrow_to_byte_region('é'.len_utf8(), buf.point_max_byte());
+        assert_eq!(buf.point_min_char(), 1);
+        assert_eq!(buf.point_max_char(), 4);
+
+        buf.delete_region(2, 4);
+        assert_eq!(buf.point_byte(), 2);
+        assert_eq!(buf.point_char(), 1);
+        assert_eq!(buf.point_max_char(), 3);
+        assert_eq!(buf.buffer_string(), "éz");
     }
 
     // -----------------------------------------------------------------------

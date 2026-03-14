@@ -453,9 +453,15 @@ pub struct DumpBuffer {
     pub base_buffer: Option<DumpBufferId>,
     pub text: DumpGapBuffer,
     pub pt: usize,
+    #[serde(default)]
+    pub pt_char: Option<usize>,
     pub mark: Option<usize>,
     pub begv: usize,
+    #[serde(default)]
+    pub begv_char: Option<usize>,
     pub zv: usize,
+    #[serde(default)]
+    pub zv_char: Option<usize>,
     pub modified: bool,
     pub modified_tick: i64,
     pub chars_modified_tick: i64,

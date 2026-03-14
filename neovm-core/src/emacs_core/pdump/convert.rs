@@ -541,9 +541,12 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
             text: buf.text.dump_text(),
         },
         pt: buf.pt,
+        pt_char: Some(buf.pt_char),
         mark: buf.mark,
         begv: buf.begv,
+        begv_char: Some(buf.begv_char),
         zv: buf.zv,
+        zv_char: Some(buf.zv_char),
         modified: buf.modified,
         modified_tick: buf.modified_tick,
         chars_modified_tick: buf.chars_modified_tick,
@@ -1679,15 +1682,38 @@ fn load_undo_record(r: &DumpUndoRecord) -> UndoRecord {
 }
 
 fn load_buffer(db: &DumpBuffer) -> Buffer {
+    let text = BufferText::from_dump(db.text.text.clone());
+    let total_chars = text.char_count();
+    let begv_char = db.begv_char.unwrap_or_else(|| text.byte_to_char(db.begv));
+    let zv_char = db.zv_char.unwrap_or_else(|| {
+        if db.zv == text.len() {
+            total_chars
+        } else {
+            text.byte_to_char(db.zv)
+        }
+    });
+    let pt_char = db.pt_char.unwrap_or_else(|| {
+        if db.pt == db.begv {
+            begv_char
+        } else if db.pt == db.zv {
+            zv_char
+        } else {
+            text.byte_to_char(db.pt)
+        }
+    });
+
     Buffer {
         id: BufferId(db.id.0),
         name: db.name.clone(),
         base_buffer: db.base_buffer.map(|id| BufferId(id.0)),
-        text: BufferText::from_dump(db.text.text.clone()),
+        text,
         pt: db.pt,
+        pt_char,
         mark: db.mark,
         begv: db.begv,
+        begv_char,
         zv: db.zv,
+        zv_char,
         modified: db.modified,
         modified_tick: db.modified_tick,
         chars_modified_tick: db.chars_modified_tick,

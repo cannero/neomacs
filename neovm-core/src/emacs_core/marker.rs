@@ -684,7 +684,7 @@ pub(crate) fn builtin_point_min_marker(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let pos = buf.text.byte_to_char(buf.point_min()) as i64 + 1; // 1-based
+    let pos = buf.point_min_char() as i64 + 1; // 1-based
     let name = buf.name.clone();
     let marker = make_marker_value(Some(&name), Some(pos), false);
     register_marker_in_buffer(eval, &marker, &Some(name), Some(pos));
@@ -701,7 +701,7 @@ pub(crate) fn builtin_point_max_marker(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let pos = buf.text.byte_to_char(buf.point_max()) as i64 + 1; // 1-based
+    let pos = buf.point_max_char() as i64 + 1; // 1-based
     let name = buf.name.clone();
     let marker = make_marker_value(Some(&name), Some(pos), false);
     register_marker_in_buffer(eval, &marker, &Some(name), Some(pos));

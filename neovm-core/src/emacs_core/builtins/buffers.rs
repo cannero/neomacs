@@ -1595,9 +1595,7 @@ pub(crate) fn builtin_point_min(eval: &mut super::eval::Evaluator, args: Vec<Val
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::Int(
-        buf.text.byte_to_char(buf.point_min()) as i64 + 1,
-    ))
+    Ok(Value::Int(buf.point_min_char() as i64 + 1))
 }
 
 /// (point-max) → integer
@@ -1607,9 +1605,7 @@ pub(crate) fn builtin_point_max(eval: &mut super::eval::Evaluator, args: Vec<Val
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::Int(
-        buf.text.byte_to_char(buf.point_max()) as i64 + 1,
-    ))
+    Ok(Value::Int(buf.point_max_char() as i64 + 1))
 }
 
 /// (goto-char POS) → POS

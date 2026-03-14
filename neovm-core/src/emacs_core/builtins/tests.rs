@@ -5712,8 +5712,8 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
     assert_eq!(narrowed, Value::Nil);
 
     let buf = eval.buffers.get(buf_id).expect("buffer should stay live");
-    assert_eq!(buf.text.byte_to_char(buf.point_min()) as i64 + 1, 2);
-    assert_eq!(buf.text.byte_to_char(buf.point_max()) as i64 + 1, 5);
+    assert_eq!(buf.point_min_char() as i64 + 1, 2);
+    assert_eq!(buf.point_max_char() as i64 + 1, 5);
 }
 
 #[test]
