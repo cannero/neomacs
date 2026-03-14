@@ -351,6 +351,8 @@ pub enum DumpInsertionType {
 pub struct DumpMarkerEntry {
     pub id: u64,
     pub byte_pos: usize,
+    #[serde(default)]
+    pub char_pos: Option<usize>,
     pub insertion_type: DumpInsertionType,
 }
 

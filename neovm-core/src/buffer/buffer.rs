@@ -45,6 +45,7 @@ pub enum InsertionType {
 pub struct MarkerEntry {
     pub id: u64,
     pub byte_pos: usize,
+    pub char_pos: usize,
     pub insertion_type: InsertionType,
 }
 
@@ -240,9 +241,11 @@ impl Buffer {
         for marker in &mut self.markers {
             if marker.byte_pos > insert_pos {
                 marker.byte_pos += byte_len;
+                marker.char_pos += char_len;
             } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
             {
                 marker.byte_pos += byte_len;
+                marker.char_pos += char_len;
             }
         }
         debug_assert_eq!(
@@ -308,8 +311,10 @@ impl Buffer {
         for marker in &mut self.markers {
             if marker.byte_pos > end {
                 marker.byte_pos -= byte_len;
+                marker.char_pos -= char_len;
             } else if marker.byte_pos > start {
                 marker.byte_pos = start;
+                marker.char_pos = start_char;
             }
         }
 
@@ -767,6 +772,7 @@ impl BufferManager {
         for marker in &mut buf.markers {
             if marker.byte_pos == old_pt {
                 marker.byte_pos += byte_len;
+                marker.char_pos += text.chars().count();
             }
         }
         Some(())
@@ -1167,10 +1173,18 @@ impl BufferManager {
     ) -> Option<()> {
         let buf = self.buffers.get_mut(&buffer_id)?;
         let clamped = pos.min(buf.text.len());
+        let char_pos = if clamped == buf.begv {
+            buf.begv_char
+        } else if clamped == buf.zv {
+            buf.zv_char
+        } else {
+            buf.text.byte_to_char(clamped)
+        };
         buf.markers.retain(|marker| marker.id != marker_id);
         buf.markers.push(MarkerEntry {
             id: marker_id,
             byte_pos: clamped,
+            char_pos,
             insertion_type,
         });
         Some(())
@@ -1183,6 +1197,16 @@ impl BufferManager {
                 .iter()
                 .find(|m| m.id == marker_id)
                 .map(|m| m.byte_pos)
+        })
+    }
+
+    /// Query the current character position of a marker.
+    pub fn marker_char_position(&self, buffer_id: BufferId, marker_id: u64) -> Option<usize> {
+        self.buffers.get(&buffer_id).and_then(|buf| {
+            buf.markers
+                .iter()
+                .find(|m| m.id == marker_id)
+                .map(|m| m.char_pos)
         })
     }
 
@@ -1635,12 +1659,14 @@ mod tests {
         buf.markers.push(MarkerEntry {
             id: 1,
             byte_pos: 1,
+            char_pos: 1,
             insertion_type: InsertionType::After,
         });
         buf.goto_char(1);
         buf.insert("XY");
         // Marker was at 1 with After => advances to 3.
         assert_eq!(buf.markers[0].byte_pos, 3);
+        assert_eq!(buf.markers[0].char_pos, 3);
     }
 
     #[test]
@@ -1649,12 +1675,14 @@ mod tests {
         buf.markers.push(MarkerEntry {
             id: 1,
             byte_pos: 1,
+            char_pos: 1,
             insertion_type: InsertionType::Before,
         });
         buf.goto_char(1);
         buf.insert("XY");
         // Marker was at 1 with Before => stays at 1.
         assert_eq!(buf.markers[0].byte_pos, 1);
+        assert_eq!(buf.markers[0].char_pos, 1);
     }
 
     #[test]
@@ -1663,11 +1691,13 @@ mod tests {
         buf.markers.push(MarkerEntry {
             id: 1,
             byte_pos: 4,
+            char_pos: 4,
             insertion_type: InsertionType::After,
         });
         buf.delete_region(1, 3);
         // Marker was at 4 (past deleted range [1,3)), shifts by 2 => 2.
         assert_eq!(buf.markers[0].byte_pos, 2);
+        assert_eq!(buf.markers[0].char_pos, 2);
     }
 
     #[test]
@@ -1676,11 +1706,32 @@ mod tests {
         buf.markers.push(MarkerEntry {
             id: 1,
             byte_pos: 2,
+            char_pos: 2,
             insertion_type: InsertionType::After,
         });
         buf.delete_region(1, 5);
         // Marker at 2 inside [1,5) => collapses to 1.
         assert_eq!(buf.markers[0].byte_pos, 1);
+        assert_eq!(buf.markers[0].char_pos, 1);
+    }
+
+    #[test]
+    fn marker_char_pos_tracks_multibyte_edits() {
+        let mut buf = buf_with_text("ééz");
+        buf.markers.push(MarkerEntry {
+            id: 1,
+            byte_pos: 'é'.len_utf8(),
+            char_pos: 1,
+            insertion_type: InsertionType::After,
+        });
+        buf.goto_byte('é'.len_utf8());
+        buf.insert("ß");
+        assert_eq!(buf.markers[0].byte_pos, 4);
+        assert_eq!(buf.markers[0].char_pos, 2);
+
+        buf.delete_region(2, 4);
+        assert_eq!(buf.markers[0].byte_pos, 2);
+        assert_eq!(buf.markers[0].char_pos, 1);
     }
 
     // -----------------------------------------------------------------------
@@ -1852,6 +1903,7 @@ mod tests {
 
         let mid = mgr.create_marker(id, 3, InsertionType::After);
         assert_eq!(mgr.marker_position(id, mid), Some(3));
+        assert_eq!(mgr.marker_char_position(id, mid), Some(3));
     }
 
     #[test]
@@ -1861,6 +1913,7 @@ mod tests {
         // Buffer is empty (len = 0), marker at 100 should be clamped.
         let mid = mgr.create_marker(id, 100, InsertionType::Before);
         assert_eq!(mgr.marker_position(id, mid), Some(0));
+        assert_eq!(mgr.marker_char_position(id, mid), Some(0));
     }
 
     #[test]

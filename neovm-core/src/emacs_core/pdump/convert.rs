@@ -401,6 +401,7 @@ fn dump_marker(m: &MarkerEntry) -> DumpMarkerEntry {
     DumpMarkerEntry {
         id: m.id,
         byte_pos: m.byte_pos,
+        char_pos: Some(m.char_pos),
         insertion_type: dump_insertion_type(&m.insertion_type),
     }
 }
@@ -1590,10 +1591,11 @@ fn load_insertion_type(it: &DumpInsertionType) -> InsertionType {
     }
 }
 
-fn load_marker(m: &DumpMarkerEntry) -> MarkerEntry {
+fn load_marker(m: &DumpMarkerEntry, text: &BufferText) -> MarkerEntry {
     MarkerEntry {
         id: m.id,
         byte_pos: m.byte_pos,
+        char_pos: m.char_pos.unwrap_or_else(|| text.byte_to_char(m.byte_pos)),
         insertion_type: load_insertion_type(&m.insertion_type),
     }
 }
@@ -1701,6 +1703,11 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             text.byte_to_char(db.pt)
         }
     });
+    let markers = db
+        .markers
+        .iter()
+        .map(|marker| load_marker(marker, &text))
+        .collect();
 
     Buffer {
         id: BufferId(db.id.0),
@@ -1720,7 +1727,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         read_only: db.read_only,
         multibyte: db.multibyte,
         file_name: db.file_name.clone(),
-        markers: db.markers.iter().map(load_marker).collect(),
+        markers,
         properties: db
             .properties
             .iter()

@@ -269,7 +269,7 @@ pub(crate) fn marker_position_as_int_with_buffers(
             && let Some(buf) = buffers.get(buf_id)
             && let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid)
         {
-            return Ok(buf.text.byte_to_char(marker_entry.byte_pos) as i64 + 1);
+            return Ok(marker_entry.char_pos as i64 + 1);
         }
     }
 
@@ -353,7 +353,7 @@ pub(crate) fn builtin_marker_position_eval(
             if let Some(buf_id) = eval.buffers.find_buffer_by_name(bname) {
                 if let Some(buf) = eval.buffers.get(buf_id) {
                     if let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid) {
-                        let char_pos = buf.text.byte_to_char(marker_entry.byte_pos) as i64 + 1;
+                        let char_pos = marker_entry.char_pos as i64 + 1;
                         return Ok(Value::Int(char_pos));
                     }
                 }
