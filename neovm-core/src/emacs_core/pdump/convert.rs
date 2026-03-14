@@ -21,7 +21,6 @@ use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::interactive::{InteractiveRegistry, InteractiveSpec};
 use crate::emacs_core::intern::{self, StringInterner, SymId};
-use crate::emacs_core::kill_ring::KillRing;
 use crate::emacs_core::kmacro::KmacroManager;
 use crate::emacs_core::mode::{
     self, CustomGroup as ModeCustomGroup, CustomType as ModeCustomType,
@@ -975,14 +974,6 @@ pub(crate) fn dump_category_manager(
     }
 }
 
-pub(crate) fn dump_kill_ring(kr: &KillRing) -> DumpKillRing {
-    DumpKillRing {
-        entries: kr.dump_entries().to_vec(),
-        max_size: kr.dump_max_size(),
-        yank_pointer: kr.dump_yank_pointer(),
-    }
-}
-
 pub(crate) fn dump_rectangle(r: &RectangleState) -> DumpRectangleState {
     DumpRectangleState {
         killed: r.killed.clone(),
@@ -1185,7 +1176,6 @@ pub(crate) fn dump_evaluator(eval: &Evaluator) -> DumpEvaluatorState {
         category_manager: dump_category_manager(&eval.category_manager),
         abbrevs: dump_abbrev_manager(&eval.abbrevs),
         interactive: dump_interactive_registry(&eval.interactive),
-        kill_ring: dump_kill_ring(&eval.kill_ring),
         rectangle: dump_rectangle(&eval.rectangle),
         standard_syntax_table: dump_value(&eval.standard_syntax_table),
         current_local_map: dump_value(&eval.current_local_map),
@@ -2169,10 +2159,6 @@ pub(crate) fn load_category_manager(
             .collect(),
         current_table: dcm.current_table.clone(),
     }
-}
-
-pub(crate) fn load_kill_ring(dkr: &DumpKillRing) -> KillRing {
-    KillRing::from_dump(dkr.entries.clone(), dkr.max_size, dkr.yank_pointer)
 }
 
 pub(crate) fn load_rectangle(dr: &DumpRectangleState) -> RectangleState {

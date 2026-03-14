@@ -223,7 +223,6 @@ fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpErr
         load_category_manager(&state.category_manager),
         load_abbrev_manager(&state.abbrevs),
         load_interactive_registry(&state.interactive),
-        load_kill_ring(&state.kill_ring),
         load_rectangle(&state.rectangle),
         load_value(&state.standard_syntax_table),
         load_value(&state.current_local_map),

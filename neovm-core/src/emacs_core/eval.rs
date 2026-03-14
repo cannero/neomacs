@@ -22,7 +22,6 @@ use super::intern::{
     StringInterner, SymId, intern, lookup_interned, resolve_sym, set_current_interner,
 };
 use super::keymap::{list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap};
-use super::kill_ring::KillRing;
 use super::kmacro::KmacroManager;
 use super::mode::ModeRegistry;
 use super::process::ProcessManager;
@@ -328,8 +327,6 @@ pub struct Evaluator {
     pub(crate) autoloads: AutoloadManager,
     /// Custom variable manager — defcustom/defgroup system.
     pub(crate) custom: CustomManager,
-    /// Kill ring — clipboard/kill ring for text editing.
-    pub(crate) kill_ring: KillRing,
     /// Rectangle state — stores the last killed rectangle for yank-rectangle.
     pub(crate) rectangle: RectangleState,
     /// Interactive command registry — tracks interactive commands.
@@ -1908,7 +1905,6 @@ impl Evaluator {
             abbrevs: AbbrevManager::new(),
             autoloads: AutoloadManager::new(),
             custom,
-            kill_ring: KillRing::new(),
             rectangle: RectangleState::new(),
             interactive: InteractiveRegistry::new(),
             recent_input_events: Vec::new(),
@@ -1979,7 +1975,6 @@ impl Evaluator {
         category_manager: CategoryManager,
         abbrevs: AbbrevManager,
         interactive: InteractiveRegistry,
-        kill_ring: KillRing,
         rectangle: RectangleState,
         standard_syntax_table: Value,
         current_local_map: Value,
@@ -2009,7 +2004,6 @@ impl Evaluator {
             abbrevs,
             autoloads,
             custom,
-            kill_ring,
             rectangle,
             interactive,
             recent_input_events: Vec::new(),
@@ -3020,16 +3014,6 @@ impl Evaluator {
     /// Public mutable access to the frame manager.
     pub fn frame_manager_mut(&mut self) -> &mut FrameManager {
         &mut self.frames
-    }
-
-    /// Public read access to the kill ring.
-    pub fn kill_ring(&self) -> &KillRing {
-        &self.kill_ring
-    }
-
-    /// Public mutable access to the kill ring.
-    pub fn kill_ring_mut(&mut self) -> &mut KillRing {
-        &mut self.kill_ring
     }
 
     /// Public read access to the face table.

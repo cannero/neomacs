@@ -804,14 +804,6 @@ pub struct DumpCategoryManager {
     pub current_table: String,
 }
 
-// Kill ring
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpKillRing {
-    pub entries: Vec<String>,
-    pub max_size: usize,
-    pub yank_pointer: usize,
-}
-
 // Rectangle
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpRectangleState {
@@ -891,7 +883,6 @@ pub struct DumpEvaluatorState {
     pub category_manager: DumpCategoryManager,
     pub abbrevs: DumpAbbrevManager,
     pub interactive: DumpInteractiveRegistry,
-    pub kill_ring: DumpKillRing,
     pub rectangle: DumpRectangleState,
     pub standard_syntax_table: DumpValue,
     pub current_local_map: DumpValue,

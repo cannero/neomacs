@@ -62,7 +62,8 @@ pub mod json;
 pub mod kbd;
 pub mod keyboard;
 pub mod keymap;
-pub mod kill_ring;
+#[cfg(test)]
+mod kill_ring_test;
 pub mod kmacro;
 pub mod load;
 pub mod lread;

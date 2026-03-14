@@ -211,6 +211,113 @@ fn padding_to_column(mut column: usize, target: usize, tab_width: usize) -> Stri
     out
 }
 
+#[inline]
+fn is_horizontal_space(ch: char) -> bool {
+    ch == ' ' || ch == '\t'
+}
+
+fn delete_horizontal_space_at_point(
+    eval: &mut super::eval::Evaluator,
+    backward_only: bool,
+) -> Result<(), Flow> {
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+
+    let pmin = buf.point_min();
+    let pmax = buf.point_max();
+    let pt = buf.point();
+
+    let mut left = pt;
+    while left > pmin {
+        let Some(ch) = buf.char_before(left) else {
+            break;
+        };
+        if !is_horizontal_space(ch) {
+            break;
+        }
+        left -= ch.len_utf8();
+    }
+
+    let mut right = pt;
+    if !backward_only {
+        while right < pmax {
+            let Some(ch) = buf.char_after(right) else {
+                break;
+            };
+            if !is_horizontal_space(ch) {
+                break;
+            }
+            right += ch.len_utf8();
+        }
+    }
+
+    if left == right {
+        return Ok(());
+    }
+
+    if buffer_read_only_active(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let _ = eval.buffers.delete_buffer_region(current_id, left, right);
+    Ok(())
+}
+
+fn newline_and_copy_previous_indentation(eval: &mut super::eval::Evaluator) -> EvalResult {
+    delete_horizontal_space_at_point(eval, false)?;
+
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
+        if buffer_read_only_active(eval, buf) {
+            Some(buf.name.clone())
+        } else {
+            None
+        }
+    });
+    if let Some(name) = read_only_buffer_name {
+        return Err(signal("buffer-read-only", vec![Value::string(name)]));
+    }
+    let _ = eval.buffers.insert_into_buffer(current_id, "\n");
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+
+    let pt = buf.point();
+    let pmin = buf.point_min();
+    let text_before = buf.buffer_substring(pmin, pt);
+    let prev_nl = if text_before.len() > 1 {
+        text_before[..text_before.len() - 1].rfind('\n')
+    } else {
+        None
+    };
+    let prev_line_start = prev_nl.map(|pos| pos + 1).unwrap_or(0);
+    let prev_line = &text_before[prev_line_start..text_before.len().saturating_sub(1)];
+    let indent: String = prev_line
+        .chars()
+        .take_while(|ch| matches!(ch, ' ' | '\t'))
+        .collect();
+
+    if !indent.is_empty() {
+        let _ = eval.buffers.insert_into_buffer(current_id, &indent);
+    }
+
+    Ok(Value::Nil)
+}
+
 // ---------------------------------------------------------------------------
 // Eval-dependent builtins
 // ---------------------------------------------------------------------------
@@ -523,7 +630,7 @@ pub(crate) fn builtin_reindent_then_newline_and_indent(
 ) -> EvalResult {
     expect_args("reindent-then-newline-and-indent", &args, 0)?;
     builtin_indent_according_to_mode(eval, vec![])?;
-    super::kill_ring::builtin_newline_and_indent(eval, vec![])?;
+    newline_and_copy_previous_indentation(eval)?;
     Ok(Value::Nil)
 }
 
@@ -548,7 +655,7 @@ pub(crate) fn builtin_indent_for_tab_command(
     }
 
     // When point is in horizontal whitespace, Emacs collapses it before tab insert.
-    super::kill_ring::builtin_delete_horizontal_space(eval, vec![])?;
+    delete_horizontal_space_at_point(eval, false)?;
 
     let current_id = eval
         .buffers
