@@ -2298,13 +2298,10 @@ fn compile_only_bootstrap_function_names(
     project_root: &Path,
 ) -> std::collections::BTreeSet<String> {
     let mut names = std::collections::BTreeSet::new();
-    // gv.el is NOT compile-only — keep its functions at runtime
-    // for setf expansion and generalized variable access.
-    for relative in [
-        "lisp/emacs-lisp/cl-extra.el",
-        "lisp/emacs-lisp/cl-macs.el",
-        "lisp/emacs-lisp/cl-seq.el",
-    ] {
+    // Keep all functions at runtime — GNU Emacs doesn't strip them.
+    // They're available via autoload or pre-loaded during startup.
+    let compile_only_files: [&str; 0] = [];
+    for relative in compile_only_files {
         let path = project_root.join(relative);
         let Ok(source) = fs::read_to_string(&path) else {
             tracing::warn!("bootstrap cleanup: failed reading {}", path.display());
@@ -2505,9 +2502,11 @@ fn normalize_bootstrap_runtime_surface(
     eval: &mut super::eval::Evaluator,
     project_root: &Path,
 ) -> Result<(), EvalError> {
-    // gv is NOT compile-only — GNU Emacs keeps gv functions available at
-    // runtime for setf expansion and generalized variable access.
-    let compile_only_features = ["cl-lib", "cl-macs", "cl-extra", "cl-seq"];
+    // GNU Emacs keeps cl-lib/cl-macs/cl-extra/cl-seq/gv functions
+    // available at runtime (loaded during startup, autoloaded on demand).
+    // Don't strip any features — stripping breaks runtime code that calls
+    // these functions (e.g., cl-replace, cl-subseq, gv-define-setter).
+    let compile_only_features: [&str; 0] = [];
     let runtime_autoload_files: [&str; 0] = [];
     let (restore_autoload_args, restore_property_forms) =
         runtime_loaddefs_restore_state(project_root, &runtime_autoload_files)?;
