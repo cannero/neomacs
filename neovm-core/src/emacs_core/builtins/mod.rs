@@ -923,12 +923,15 @@ pub(crate) fn dispatch_builtin(
         "intern-soft" => return Some(builtin_intern_soft(eval, args)),
         // Hooks
         "run-hooks" => {
-            let hook_names: Vec<String> = args.iter().filter_map(|a| a.as_symbol_name().map(|s| s.to_string())).collect();
+            let hook_names: Vec<String> = args
+                .iter()
+                .filter_map(|a| a.as_symbol_name().map(|s| s.to_string()))
+                .collect();
             // Only log important hooks at info; the rest at debug to avoid
             // flooding the log with custom-define-hook during bootstrap.
-            let dominated_by_noise = hook_names.iter().all(|h| {
-                h == "custom-define-hook" || h == "change-major-mode-hook"
-            });
+            let dominated_by_noise = hook_names
+                .iter()
+                .all(|h| h == "custom-define-hook" || h == "change-major-mode-hook");
             if dominated_by_noise {
                 tracing::debug!(hooks = ?hook_names, "run-hooks");
             } else {
@@ -1789,6 +1792,7 @@ pub(crate) fn dispatch_builtin(
         "scroll-left" => return Some(super::window_cmds::builtin_scroll_left(eval, args)),
         "scroll-right" => return Some(super::window_cmds::builtin_scroll_right(eval, args)),
         "recenter" => return Some(super::window_cmds::builtin_recenter(eval, args)),
+        "vertical-motion" => return Some(builtin_vertical_motion(eval, args)),
         "other-window-for-scrolling" => {
             return Some(super::window_cmds::builtin_other_window_for_scrolling(
                 eval, args,
@@ -2118,10 +2122,17 @@ pub(crate) fn dispatch_builtin(
         "format" => return Some(builtin_format_eval(eval, args)),
         "format-message" => return Some(builtin_format_message_eval(eval, args)),
         "message" => {
-            let msg_preview: String = args.first().map(|a| {
-                let s = format!("{}", a);
-                if s.len() > 120 { format!("{}...", &s[..120]) } else { s }
-            }).unwrap_or_default();
+            let msg_preview: String = args
+                .first()
+                .map(|a| {
+                    let s = format!("{}", a);
+                    if s.len() > 120 {
+                        format!("{}...", &s[..120])
+                    } else {
+                        s
+                    }
+                })
+                .unwrap_or_default();
             tracing::info!(msg = %msg_preview, "message");
             return Some(builtin_message_eval(eval, args));
         }
@@ -3178,7 +3189,6 @@ pub(crate) fn dispatch_builtin(
         "unix-sync" => builtin_unix_sync(args),
         "value<" => builtin_value_lt(args),
         "variable-binding-locus" => builtin_variable_binding_locus(args),
-        "vertical-motion" => builtin_vertical_motion(args),
         "x-begin-drag" => builtin_x_begin_drag(args),
         "x-create-frame" => builtin_x_create_frame(args),
         "x-double-buffered-p" => builtin_x_double_buffered_p(args),
@@ -4004,7 +4014,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "unix-sync" => builtin_unix_sync(args),
         "value<" => builtin_value_lt(args),
         "variable-binding-locus" => builtin_variable_binding_locus(args),
-        "vertical-motion" => builtin_vertical_motion(args),
         "x-begin-drag" => builtin_x_begin_drag(args),
         "x-create-frame" => builtin_x_create_frame(args),
         "x-double-buffered-p" => builtin_x_double_buffered_p(args),

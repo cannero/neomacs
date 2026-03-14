@@ -2305,7 +2305,18 @@ pub(crate) fn builtin_suspend_emacs(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_vertical_motion(args: Vec<Value>) -> EvalResult {
+/// `(vertical-motion LINES &optional WINDOW CUR-COL)` -> integer
+///
+/// Move point to the start of the screen line LINES lines down (or up if
+/// negative).  Returns the number of lines actually moved.
+///
+/// In GNU Emacs this uses the full display engine to handle word-wrap,
+/// display properties, etc.  Here we approximate with newline counting,
+/// which is correct for non-wrapped lines.
+pub(crate) fn builtin_vertical_motion(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("vertical-motion", &args, 1, 3)?;
     // First arg can be LINES (integer) or (COLS . LINES) cons pair.
     let lines = match args[0] {
@@ -2329,17 +2340,82 @@ pub(crate) fn builtin_vertical_motion(args: Vec<Value>) -> EvalResult {
             ));
         }
     };
-    if args.len() == 1 {
-        return Ok(Value::Int(lines));
+    // Validate optional WINDOW arg.
+    if let Some(window) = args.get(1) {
+        if !window.is_nil() && !matches!(window, Value::Window(_)) {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("window-live-p"), *window],
+            ));
+        }
     }
-    let window = &args[1];
-    if !window.is_nil() && !matches!(window, Value::Window(_)) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("window-live-p"), *window],
-        ));
+
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
+        return Ok(Value::Int(0));
+    };
+    let Some(buf) = eval.buffers.get(current_id) else {
+        return Ok(Value::Int(0));
+    };
+    let text = buf.text.to_string();
+    let pt = buf.pt.clamp(buf.begv, buf.zv);
+    let bytes = text.as_bytes();
+    let begv = buf.begv;
+    let zv = buf.zv;
+
+    if lines == 0 {
+        // Move to beginning of current screen line (= beginning of line).
+        let mut bol = pt;
+        while bol > begv && bytes[bol - 1] != b'\n' {
+            bol -= 1;
+        }
+        let _ = eval.buffers.goto_buffer_byte(current_id, bol);
+        return Ok(Value::Int(0));
     }
-    Ok(Value::Int(lines))
+
+    let mut pos = pt;
+    let mut moved: i64 = 0;
+
+    if lines > 0 {
+        // Move forward: first go to beginning of current line, then
+        // scan forward LINES newlines, settling at beginning of target line.
+        // GNU vertical-motion lands at beginning of the target line.
+        for _ in 0..lines {
+            // Find next newline from pos.
+            let mut nl = pos;
+            while nl < zv && bytes[nl] != b'\n' {
+                nl += 1;
+            }
+            if nl >= zv {
+                // Hit end of accessible region.
+                break;
+            }
+            pos = nl + 1; // Past the newline.
+            moved += 1;
+        }
+    } else {
+        // Move backward: go to beginning of current line first.
+        while pos > begv && bytes[pos - 1] != b'\n' {
+            pos -= 1;
+        }
+        // Now pos is at beginning of current line.
+        // Move up |lines| lines.
+        let target = (-lines) as usize;
+        for _ in 0..target {
+            if pos <= begv {
+                break;
+            }
+            // Move before the newline ending the previous line.
+            pos -= 1;
+            // Find beginning of that line.
+            while pos > begv && bytes[pos - 1] != b'\n' {
+                pos -= 1;
+            }
+            moved -= 1;
+        }
+    }
+
+    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
+    Ok(Value::Int(moved))
 }
 
 pub(crate) fn builtin_rename_buffer(
