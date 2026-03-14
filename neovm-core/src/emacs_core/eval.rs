@@ -2729,7 +2729,7 @@ impl Evaluator {
     ///
     /// Mirrors GNU Emacs `timer_check()` (keyboard.c:4644).
     /// Collects expired timers and invokes each callback via the evaluator.
-    fn fire_pending_timers(&mut self) {
+    pub(crate) fn fire_pending_timers(&mut self) {
         let now = std::time::Instant::now();
         let fired = self.timers.fire_pending_timers(now);
         for (callback, args) in fired {
@@ -2748,7 +2748,7 @@ impl Evaluator {
     /// This mirrors GNU Emacs's process output polling that happens during
     /// `read_char()` while waiting for input. Process filters are invoked
     /// when stdout data is available; sentinels are invoked when a process exits.
-    fn poll_process_output(&mut self) {
+    pub(crate) fn poll_process_output(&mut self) {
         let proc_ids = self.processes.live_process_ids();
         if proc_ids.is_empty() {
             return;

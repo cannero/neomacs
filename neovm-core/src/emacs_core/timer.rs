@@ -586,7 +586,16 @@ pub(crate) fn builtin_sleep_for(args: Vec<Value>) -> EvalResult {
 
     let total_secs = secs + millis / 1000.0;
     if total_secs > 0.0 {
-        std::thread::sleep(Duration::from_secs_f64(total_secs));
+        // Sleep in short intervals, polling process output between sleeps.
+        let deadline = std::time::Instant::now() + Duration::from_secs_f64(total_secs);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let sleep_chunk = remaining.min(Duration::from_millis(100));
+            std::thread::sleep(sleep_chunk);
+        }
     }
 
     Ok(Value::Nil)
@@ -617,32 +626,49 @@ pub(crate) fn builtin_sit_for(eval: &mut super::eval::Evaluator, args: Vec<Value
         return Ok(Value::True);
     }
 
-    // Interactive mode: wait with recv_timeout, return nil if input arrives
-    if let Some(ref rx) = eval.input_rx {
-        let timeout = Duration::from_secs_f64(secs);
-        match rx.recv_timeout(timeout) {
-            Ok(event) => {
-                // Input arrived — push key events back as unread, return nil
-                use super::keymap::key_event_to_emacs_event;
-                use crate::keyboard::InputEvent;
-                if let InputEvent::KeyPress(key) = event {
-                    let keymap_key: super::keymap::KeyEvent = key.into();
-                    let emacs_event = key_event_to_emacs_event(&keymap_key);
-                    // Push to unread-command-events so read_char picks it up
-                    eval.push_unread_command_event(emacs_event);
+    // Interactive mode: wait with recv_timeout, polling processes and timers.
+    if let Some(rx) = eval.input_rx.clone() {
+        let deadline = std::time::Instant::now() + Duration::from_secs_f64(secs);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Ok(Value::True); // Full time elapsed
+            }
+            // Use short poll interval when live processes exist.
+            let chunk = remaining.min(Duration::from_millis(100));
+            match rx.recv_timeout(chunk) {
+                Ok(event) => {
+                    // Input arrived — push key events back as unread, return nil
+                    use super::keymap::key_event_to_emacs_event;
+                    use crate::keyboard::InputEvent;
+                    if let InputEvent::KeyPress(key) = event {
+                        let keymap_key: super::keymap::KeyEvent = key.into();
+                        let emacs_event = key_event_to_emacs_event(&keymap_key);
+                        eval.push_unread_command_event(emacs_event);
+                    }
+                    return Ok(Value::Nil); // Interrupted by input
                 }
-                Ok(Value::Nil) // Interrupted by input
-            }
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                Ok(Value::True) // Full time elapsed
-            }
-            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                Ok(Value::True) // Channel closed
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    // Poll process output and fire timers during the wait.
+                    eval.fire_pending_timers();
+                    eval.poll_process_output();
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    return Ok(Value::True);
+                }
             }
         }
     } else {
-        // Batch mode: just sleep
-        std::thread::sleep(Duration::from_secs_f64(secs));
+        // Batch mode: sleep in chunks, polling processes.
+        let deadline = std::time::Instant::now() + Duration::from_secs_f64(secs);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let chunk = remaining.min(Duration::from_millis(100));
+            std::thread::sleep(chunk);
+        }
         Ok(Value::True)
     }
 }
