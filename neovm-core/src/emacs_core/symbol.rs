@@ -398,6 +398,15 @@ impl Obarray {
             || self.symbols.get(&id).is_some_and(|s| s.constant)
     }
 
+    /// Mark a symbol as a hard constant (like SYMBOL_NOWRITE in GNU Emacs).
+    pub fn set_constant(&mut self, name: &str) {
+        let id = intern(name);
+        self.ensure_global_member_if_canonical(id);
+        if let Some(sym) = self.symbols.get_mut(&id) {
+            sym.constant = true;
+        }
+    }
+
     /// Follow function indirection (defalias chains).
     /// Returns the final function value, following symbol aliases.
     pub fn indirect_function(&self, name: &str) -> Option<Value> {

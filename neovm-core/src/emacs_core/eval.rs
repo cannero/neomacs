@@ -555,8 +555,11 @@ impl Evaluator {
 
         // Set up standard global variables
         // Match GNU Emacs: MOST_POSITIVE_FIXNUM = EMACS_INT_MAX >> INTTYPEBITS (>> 2)
+        // These are SYMBOL_NOWRITE constants in GNU Emacs (cannot be setq'd).
         obarray.set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
+        obarray.set_constant("most-positive-fixnum");
         obarray.set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
+        obarray.set_constant("most-negative-fixnum");
         // Mathematical constants (defconst in float-sup.el)
         obarray.set_symbol_value(
             "float-e",
