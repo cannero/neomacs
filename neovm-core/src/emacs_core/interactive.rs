@@ -1256,8 +1256,6 @@ fn default_command_execute_args(eval: &Evaluator, name: &str) -> Result<Vec<Valu
         | "transpose-words"
         | "forward-char"
         | "backward-char"
-        | "next-line"
-        | "previous-line"
         | "beginning-of-line"
         | "end-of-line"
         | "move-beginning-of-line"
@@ -1274,10 +1272,21 @@ fn default_command_execute_args(eval: &Evaluator, name: &str) -> Result<Vec<Valu
         | "scroll-down-command"
         | "recenter-top-bottom"
         | "other-window" => Ok(vec![Value::Int(1)]),
+        // next-line/previous-line: (interactive "^p\np") — two args
+        "next-line" | "previous-line" => Ok(vec![Value::Int(1), Value::Int(1)]),
         "kill-region" => interactive_region_args(eval, "user-error"),
         "kill-ring-save" => interactive_region_args(eval, "error"),
         "copy-region-as-kill" => interactive_region_args(eval, "error"),
         "set-mark-command" => Ok(vec![Value::Nil]),
+        "split-window-below" | "split-window-right" => {
+            // (interactive `(,(when current-prefix-arg ...) ,(selected-window)))
+            let win = eval
+                .frames
+                .selected_frame()
+                .map(|f| Value::Window(f.selected_window.0))
+                .unwrap_or(Value::Nil);
+            Ok(vec![Value::Nil, win])
+        }
         "capitalize-region" => interactive_region_args(eval, "error"),
         "upcase-initials-region" => interactive_region_args(eval, "error"),
         "upcase-region" | "downcase-region" => Err(signal(
@@ -1304,8 +1313,6 @@ fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<V
         | "transpose-words"
         | "forward-char"
         | "backward-char"
-        | "next-line"
-        | "previous-line"
         | "beginning-of-line"
         | "end-of-line"
         | "move-beginning-of-line"
@@ -1313,6 +1320,14 @@ fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<V
             eval,
             CommandInvocationKind::CallInteractively,
         )]),
+        // next-line/previous-line: (interactive "^p\np") — two args
+        "next-line" | "previous-line" => {
+            let arg = interactive_prefix_numeric_arg(
+                eval,
+                CommandInvocationKind::CallInteractively,
+            );
+            Ok(vec![arg, arg])
+        }
         "set-mark-command" => Ok(vec![
             dynamic_or_global_symbol_value(eval, "current-prefix-arg").unwrap_or(Value::Nil),
         ]),
@@ -1832,20 +1847,46 @@ fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
 
 /// Look up a key sequence in a keymap Value, returning the binding if found.
 fn key_binding_lookup_in_keymap(
-    _eval: &Evaluator,
+    eval: &Evaluator,
     keymap: &Value,
     events: &[Value],
 ) -> Option<Value> {
     if !is_list_keymap(keymap) {
         return None;
     }
-    if events.len() == 1 {
-        let result = list_keymap_lookup_one(keymap, &events[0]);
-        if result.is_nil() { None } else { Some(result) }
-    } else {
-        let result = list_keymap_lookup_seq(keymap, events);
-        if result.is_nil() { None } else { Some(result) }
+    if events.is_empty() {
+        return None;
     }
+    // Walk events one at a time, resolving prefix symbols through the
+    // obarray so that e.g. the `Control-X-prefix` symbol is followed
+    // into `ctl-x-map`.
+    let mut current_map = *keymap;
+    for (i, event) in events.iter().enumerate() {
+        let binding = list_keymap_lookup_one(&current_map, event);
+        if binding.is_nil() {
+            return None;
+        }
+        if i == events.len() - 1 {
+            // Final event — return the binding (command/lambda/etc.)
+            return Some(binding);
+        }
+        // Intermediate event — must resolve to a prefix keymap.
+        if is_list_keymap(&binding) {
+            current_map = binding;
+        } else if let Some(sym_name) = binding.as_symbol_name() {
+            // Resolve symbol function cell to a keymap
+            if let Some(func) = eval.obarray.symbol_function(sym_name).copied() {
+                if is_list_keymap(&func) {
+                    current_map = func;
+                    continue;
+                }
+            }
+            return None; // Symbol doesn't resolve to a keymap
+        } else {
+            return None; // Non-keymap, non-symbol binding in prefix position
+        }
+    }
+    None
 }
 
 /// Get the global keymap Value from obarray (without creating one).
