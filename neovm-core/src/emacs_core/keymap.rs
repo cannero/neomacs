@@ -607,6 +607,11 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
 }
 
 /// Convert a `KeyEvent` to an Emacs event value (integer with modifier bits, or symbol).
+///
+/// For Ctrl + ASCII letter, produce the control character code (1-26)
+/// instead of using the CTRL modifier bit.  This matches GNU Emacs
+/// `MAKE_CTRL_CHAR` normalization: C-a=1, C-b=2, ..., C-z=26,
+/// C-@=0, C-[=27, C-\=28, C-]=29, C-^=30, C-_=31.
 pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
     match event {
         KeyEvent::Char {
@@ -616,9 +621,41 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             shift,
             super_,
         } => {
-            let mut bits = *code as i64;
+            let mut bits: i64;
             if *ctrl {
-                bits |= KEY_CHAR_CTRL;
+                let c = *code as u32;
+                // GNU Emacs MAKE_CTRL_CHAR normalization: for characters
+                // that have a natural control character, fold into 0-31
+                // without the CTRL modifier bit.
+                let ctrl_char = match c {
+                    // a-z → 1-26
+                    0x61..=0x7A => Some(c - 0x60),
+                    // A-Z → 1-26  (same as lowercase)
+                    0x41..=0x5A => Some(c - 0x40),
+                    // @ → 0 (NUL)
+                    0x40 => Some(0),
+                    // [ → 27 (ESC)
+                    0x5B => Some(27),
+                    // \ → 28
+                    0x5C => Some(28),
+                    // ] → 29
+                    0x5D => Some(29),
+                    // ^ → 30
+                    0x5E => Some(30),
+                    // _ → 31
+                    0x5F => Some(31),
+                    // Space/? → 0 (NUL) — Emacs convention
+                    0x20 => Some(0),
+                    _ => None,
+                };
+                if let Some(cc) = ctrl_char {
+                    bits = cc as i64;
+                } else {
+                    bits = *code as i64;
+                    bits |= KEY_CHAR_CTRL;
+                }
+            } else {
+                bits = *code as i64;
             }
             if *meta {
                 bits |= KEY_CHAR_META;
@@ -657,18 +694,50 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
 }
 
 /// Convert an Emacs event value to a `KeyEvent`.
+///
+/// Recognizes control characters (0-31) and decomposes them into
+/// the corresponding letter with ctrl=true.
 pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
     match event {
         Value::Int(code) => {
             let base = *code & KEY_CHAR_CODE_MASK;
-            let ch = char::from_u32(base as u32)?;
-            Some(KeyEvent::Char {
-                code: ch,
-                ctrl: (*code & KEY_CHAR_CTRL) != 0,
-                meta: (*code & KEY_CHAR_META) != 0,
-                shift: (*code & KEY_CHAR_SHIFT) != 0,
-                super_: (*code & KEY_CHAR_SUPER) != 0,
-            })
+            let has_ctrl_bit = (*code & KEY_CHAR_CTRL) != 0;
+            let meta = (*code & KEY_CHAR_META) != 0;
+            let shift = (*code & KEY_CHAR_SHIFT) != 0;
+            let super_ = (*code & KEY_CHAR_SUPER) != 0;
+
+            // Decompose control characters (0-31) back to letter + ctrl
+            if !has_ctrl_bit && (0..=31).contains(&base) {
+                let (ch, ctrl) = match base {
+                    0 => ('@', true),       // NUL → C-@
+                    1..=26 => {             // 1-26 → C-a through C-z
+                        let c = char::from_u32((base + 0x60) as u32)?;
+                        (c, true)
+                    }
+                    27 => ('[', true),      // ESC → C-[
+                    28 => ('\\', true),     // C-\
+                    29 => (']', true),      // C-]
+                    30 => ('^', true),      // C-^
+                    31 => ('_', true),      // C-_
+                    _ => unreachable!(),
+                };
+                Some(KeyEvent::Char {
+                    code: ch,
+                    ctrl,
+                    meta,
+                    shift,
+                    super_,
+                })
+            } else {
+                let ch = char::from_u32(base as u32)?;
+                Some(KeyEvent::Char {
+                    code: ch,
+                    ctrl: has_ctrl_bit,
+                    meta,
+                    shift,
+                    super_,
+                })
+            }
         }
         Value::Char(c) => Some(KeyEvent::Char {
             code: *c,
