@@ -2531,6 +2531,9 @@ impl Evaluator {
         // 4. Fire any already-expired timers before blocking
         self.fire_pending_timers();
 
+        // 4b. Poll process output before blocking (like GNU Emacs)
+        self.poll_process_output();
+
         // 5. Block on input (with timer-aware timeout)
         tracing::debug!(
             "read_char: blocking on input (input_rx={})...",
@@ -2545,13 +2548,21 @@ impl Evaluator {
                 }
             };
 
-            // Use recv_timeout if timers are pending, otherwise block indefinitely
-            let event = if let Some(timeout) = self.timers.next_fire_time() {
+            // Use recv_timeout if timers are pending or live processes exist,
+            // otherwise block indefinitely.
+            let has_live_procs = !self.processes.live_process_ids().is_empty();
+            let timeout = self.timers.next_fire_time().or_else(|| {
+                // If live processes exist, use a short poll interval
+                has_live_procs.then_some(std::time::Duration::from_millis(100))
+            });
+
+            let event = if let Some(timeout) = timeout {
                 match rx.recv_timeout(timeout) {
                     Ok(event) => event,
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                        // Timer fired — run pending timers and loop back
+                        // Timer fired or process poll interval — run pending work and loop back
                         self.fire_pending_timers();
+                        self.poll_process_output();
                         continue;
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
@@ -2571,6 +2582,8 @@ impl Evaluator {
 
             // Fire any timers that expired during the wait
             self.fire_pending_timers();
+            // Poll process output
+            self.poll_process_output();
 
             // Handle the event directly
             match event {
@@ -2726,6 +2739,80 @@ impl Evaluator {
                 .unwrap_or(Ok(Value::Nil))
             {
                 tracing::warn!("Timer callback error: {:?}", e);
+            }
+        }
+    }
+
+    /// Poll all live child processes for output and call their filters/sentinels.
+    ///
+    /// This mirrors GNU Emacs's process output polling that happens during
+    /// `read_char()` while waiting for input. Process filters are invoked
+    /// when stdout data is available; sentinels are invoked when a process exits.
+    fn poll_process_output(&mut self) {
+        let proc_ids = self.processes.live_process_ids();
+        if proc_ids.is_empty() {
+            return;
+        }
+
+        for pid in proc_ids {
+            // Check if child exited.
+            let exited = self.processes.check_child_exit(pid);
+
+            // Read available stdout.
+            if let Some(data) = self.processes.read_child_stdout(pid) {
+                if !data.is_empty() {
+                    let filter = self
+                        .processes
+                        .get(pid)
+                        .map(|p| p.filter)
+                        .unwrap_or(Value::Nil);
+                    if !filter.is_nil()
+                        && !filter.is_symbol_named("internal-default-process-filter")
+                        && filter.is_truthy()
+                    {
+                        let proc_val = Value::Int(pid as i64);
+                        let output_val = Value::string(&data);
+                        if let Err(e) = self.apply(filter, vec![proc_val, output_val]) {
+                            tracing::warn!("Process filter error for pid {}: {:?}", pid, e);
+                        }
+                    }
+                }
+            }
+
+            // If process exited, call sentinel.
+            if exited {
+                let sentinel = self
+                    .processes
+                    .get(pid)
+                    .map(|p| p.sentinel)
+                    .unwrap_or(Value::Nil);
+                let exit_msg = self
+                    .processes
+                    .get(pid)
+                    .map(|p| match &p.status {
+                        super::process::ProcessStatus::Exit(code) => {
+                            if *code == 0 {
+                                "finished\n".to_string()
+                            } else {
+                                format!("exited abnormally with code {}\n", code)
+                            }
+                        }
+                        super::process::ProcessStatus::Signal(sig) => {
+                            format!("killed by signal {}\n", sig)
+                        }
+                        _ => "finished\n".to_string(),
+                    })
+                    .unwrap_or_else(|| "finished\n".to_string());
+                if !sentinel.is_nil()
+                    && !sentinel.is_symbol_named("internal-default-process-sentinel")
+                    && sentinel.is_truthy()
+                {
+                    let proc_val = Value::Int(pid as i64);
+                    let msg_val = Value::string(&exit_msg);
+                    if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
+                        tracing::warn!("Process sentinel error for pid {}: {:?}", pid, e);
+                    }
+                }
             }
         }
     }
