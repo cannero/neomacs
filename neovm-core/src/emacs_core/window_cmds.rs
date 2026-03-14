@@ -3945,6 +3945,7 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("window-safe-min-height", Value::Int(1));
     obarray.set_symbol_value("window-safe-min-width", Value::Int(2));
     obarray.set_symbol_value("scroll-preserve-screen-position", Value::Nil);
+    obarray.set_symbol_value("window-point-insertion-type", Value::Nil);
     obarray.set_symbol_value("next-screen-context-lines", Value::Int(2));
     obarray.set_symbol_value("fast-but-imprecise-scrolling", Value::Nil);
     obarray.set_symbol_value("scroll-error-top-bottom", Value::Nil);

@@ -2414,7 +2414,7 @@ fn display_buffer_returns_window() {
 
 #[test]
 fn pop_to_buffer_returns_buffer() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(get-buffer-create \"pop-buf\")
          (bufferp (pop-to-buffer \"pop-buf\"))",
     );
@@ -2423,18 +2423,11 @@ fn pop_to_buffer_returns_buffer() {
 
 #[test]
 fn switch_display_pop_bootstrap_initial_frame() {
-    let mut ev = Evaluator::new();
-    let forms = parse_forms(
+    let out = bootstrap_eval_with_frame(
         "(save-current-buffer (bufferp (switch-to-buffer \"*scratch*\")))
          (save-current-buffer (windowp (display-buffer \"*scratch*\")))
          (save-current-buffer (bufferp (pop-to-buffer \"*scratch*\")))",
-    )
-    .expect("parse");
-    let out = ev
-        .eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect::<Vec<_>>();
+    );
     assert_eq!(out[0], "OK t");
     assert_eq!(out[1], "OK t");
     assert_eq!(out[2], "OK t");
@@ -2470,7 +2463,7 @@ fn switch_display_pop_reject_non_buffer_designators() {
 
 #[test]
 fn switch_and_pop_create_missing_named_buffers() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(save-current-buffer (bufferp (switch-to-buffer \"sw-auto-create\")))
          (buffer-live-p (get-buffer \"sw-auto-create\"))
          (kill-buffer \"sw-auto-create\")
