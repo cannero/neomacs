@@ -514,11 +514,11 @@ impl Default for KillRing {
 }
 
 impl KillRing {
-    /// Create a new empty kill ring with the default max size of 60.
+    /// Create a new empty kill ring with the GNU Emacs default max size of 120.
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
-            max_size: 60,
+            max_size: 120,
             yank_pointer: 0,
             last_was_yank: false,
             last_yank_region: None,

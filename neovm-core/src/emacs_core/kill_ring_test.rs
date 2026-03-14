@@ -89,10 +89,10 @@ fn kill_ring_prepend() {
 #[test]
 fn kill_ring_max_size() {
     let mut kr = super::KillRing::new();
-    for i in 0..100 {
+    for i in 0..200 {
         kr.push(format!("item-{}", i));
     }
-    assert_eq!(kr.len(), 60); // Default max is 60.
+    assert_eq!(kr.len(), 120); // GNU Emacs default kill-ring-max is 120.
 }
 
 #[test]
