@@ -1,3 +1,4 @@
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
 fn eval_one(src: &str) -> String {
@@ -9,6 +10,20 @@ fn eval_one(src: &str) -> String {
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Evaluator::new();
+    let forms = parse_forms(src).expect("parse");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
+
+fn bootstrap_eval_one(src: &str) -> String {
+    bootstrap_eval_all(src).into_iter().next().expect("result")
+}
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -111,7 +126,30 @@ fn kill_ring_to_lisp_list() {
     assert!(list.is_list());
 }
 
-// -- kill-new builtin tests --
+// -- kill/yank tests loaded from GNU simple.el --
+
+#[test]
+fn bootstrap_kill_ring_commands_are_not_rust_subrs() {
+    let result = bootstrap_eval_one(
+        r#"(list kill-ring-max
+                 (subrp (symbol-function 'kill-new))
+                 (subrp (symbol-function 'kill-append))
+                 (subrp (symbol-function 'current-kill))
+                 (subrp (symbol-function 'kill-region))
+                 (subrp (symbol-function 'kill-ring-save))
+                 (subrp (symbol-function 'copy-region-as-kill))
+                 (subrp (symbol-function 'kill-line))
+                 (subrp (symbol-function 'kill-whole-line))
+                 (subrp (symbol-function 'kill-word))
+                 (subrp (symbol-function 'backward-kill-word))
+                 (subrp (symbol-function 'yank))
+                 (subrp (symbol-function 'yank-pop)))"#,
+    );
+    assert_eq!(
+        result,
+        "OK (120 nil nil nil nil nil nil nil nil nil nil nil nil)"
+    );
+}
 
 #[test]
 fn kill_new_basic() {
