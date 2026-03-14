@@ -586,16 +586,8 @@ pub(crate) fn builtin_sleep_for(args: Vec<Value>) -> EvalResult {
 
     let total_secs = secs + millis / 1000.0;
     if total_secs > 0.0 {
-        // Sleep in short intervals, polling process output between sleeps.
-        let deadline = std::time::Instant::now() + Duration::from_secs_f64(total_secs);
-        loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            let sleep_chunk = remaining.min(Duration::from_millis(100));
-            std::thread::sleep(sleep_chunk);
-        }
+        // GNU Emacs sleep-for is non-interruptible — just sleep.
+        std::thread::sleep(Duration::from_secs_f64(total_secs));
     }
 
     Ok(Value::Nil)
@@ -659,15 +651,19 @@ pub(crate) fn builtin_sit_for(eval: &mut super::eval::Evaluator, args: Vec<Value
             }
         }
     } else {
-        // Batch mode: sleep in chunks, polling processes.
+        // Batch mode: wait using poller for process output.
         let deadline = std::time::Instant::now() + Duration::from_secs_f64(secs);
         loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
+            let now = std::time::Instant::now();
+            if now >= deadline {
                 break;
             }
+            let remaining = deadline - now;
             let chunk = remaining.min(Duration::from_millis(100));
-            std::thread::sleep(chunk);
+            // Use poller for efficient waiting if processes are live.
+            eval.processes.wait_for_output(chunk);
+            eval.poll_process_output();
+            eval.fire_pending_timers();
         }
         Ok(Value::True)
     }
