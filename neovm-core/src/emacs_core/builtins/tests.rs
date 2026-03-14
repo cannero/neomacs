@@ -42,6 +42,21 @@ fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Evaluator,
     eval.obarray_mut().set_symbol_function(callback, lambda);
 }
 
+fn install_noarg_hook_probe(
+    eval: &mut crate::emacs_core::eval::Evaluator,
+    callback: &str,
+    body: Vec<Expr>,
+) {
+    let lambda = Value::make_lambda(LambdaData {
+        params: LambdaParams::simple(vec![]),
+        body: body.into(),
+        env: None,
+        docstring: None,
+        doc_form: None,
+    });
+    eval.obarray_mut().set_symbol_function(callback, lambda);
+}
+
 fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Evaluator, name: &str) -> Value {
     let unique_name = eval.buffers.generate_new_buffer_name(name);
     Value::Buffer(eval.buffers.create_buffer(&unique_name))
@@ -1367,6 +1382,151 @@ fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
         other => panic!("unexpected flow: {other:?}"),
     }
+}
+
+#[test]
+fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let base = create_unique_test_buffer(&mut eval, "*mib-clone-base*");
+    let Value::Buffer(base_id) = base else {
+        panic!("expected buffer object");
+    };
+
+    let _ = builtin_set_buffer(&mut eval, vec![base]).unwrap();
+    let _ =
+        eval.buffers
+            .set_buffer_local_property(base_id, "major-mode", Value::symbol("neo-mode"));
+    let _ = eval
+        .buffers
+        .set_buffer_local_property(base_id, "mode-name", Value::string("Neo"));
+
+    install_noarg_hook_probe(
+        &mut eval,
+        "mib-clone-hook",
+        vec![Expr::List(vec![
+            Expr::Symbol(intern("setq")),
+            Expr::Symbol(intern("mib-last-clone-buffer")),
+            Expr::List(vec![Expr::Symbol(intern("buffer-name"))]),
+        ])],
+    );
+    install_noarg_hook_probe(
+        &mut eval,
+        "mib-buffer-list-hook",
+        vec![Expr::List(vec![
+            Expr::Symbol(intern("setq")),
+            Expr::Symbol(intern("mib-buffer-list-ran")),
+            Expr::Symbol(intern("t")),
+        ])],
+    );
+    eval.obarray_mut().set_symbol_value(
+        "clone-indirect-buffer-hook",
+        Value::list(vec![Value::symbol("mib-clone-hook")]),
+    );
+    eval.obarray_mut().set_symbol_value(
+        "buffer-list-update-hook",
+        Value::list(vec![Value::symbol("mib-buffer-list-hook")]),
+    );
+    eval.obarray_mut()
+        .set_symbol_value("mib-last-clone-buffer", Value::Nil);
+    eval.obarray_mut()
+        .set_symbol_value("mib-buffer-list-ran", Value::Nil);
+
+    let cloned = builtin_make_indirect_buffer(
+        &mut eval,
+        vec![base, Value::string("*mib-clone*"), Value::True],
+    )
+    .expect("clone indirect buffer");
+    let Value::Buffer(cloned_id) = cloned else {
+        panic!("expected buffer object");
+    };
+
+    assert_eq!(
+        eval.buffers
+            .get(cloned_id)
+            .and_then(|buf| buf.get_buffer_local("major-mode"))
+            .copied(),
+        Some(Value::symbol("neo-mode"))
+    );
+    assert_eq!(
+        eval.buffers.current_buffer_id(),
+        Some(base_id),
+        "make-indirect-buffer should restore the previous current buffer"
+    );
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("mib-last-clone-buffer")
+            .and_then(Value::as_str),
+        Some("*mib-clone*")
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("mib-buffer-list-ran"),
+        Some(&Value::True)
+    );
+
+    eval.obarray_mut()
+        .set_symbol_value("mib-last-clone-buffer", Value::Nil);
+    eval.obarray_mut()
+        .set_symbol_value("mib-buffer-list-ran", Value::Nil);
+
+    let _ = builtin_make_indirect_buffer(
+        &mut eval,
+        vec![
+            base,
+            Value::string("*mib-clone-inhibit*"),
+            Value::True,
+            Value::True,
+        ],
+    )
+    .expect("clone indirect buffer with inhibited buffer hooks");
+
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("mib-last-clone-buffer")
+            .and_then(Value::as_str),
+        Some("*mib-clone-inhibit*"),
+        "clone-indirect-buffer-hook should still run"
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("mib-buffer-list-ran"),
+        Some(&Value::Nil),
+        "buffer-list-update-hook should be inhibited"
+    );
+}
+
+#[test]
+fn make_indirect_buffer_clone_nil_resets_buffer_state() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let base = create_unique_test_buffer(&mut eval, "*mib-clone-nil-base*");
+    let Value::Buffer(base_id) = base else {
+        panic!("expected buffer object");
+    };
+
+    let _ = builtin_set_buffer(&mut eval, vec![base]).unwrap();
+    let _ =
+        eval.buffers
+            .set_buffer_local_property(base_id, "major-mode", Value::symbol("neo-mode"));
+    let _ = eval
+        .buffers
+        .set_buffer_local_property(base_id, "mode-name", Value::string("Neo"));
+
+    let indirect =
+        builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*mib-default*")])
+            .expect("indirect buffer without clone");
+    let Value::Buffer(indirect_id) = indirect else {
+        panic!("expected buffer object");
+    };
+
+    let indirect_buf = eval.buffers.get(indirect_id).expect("indirect buffer");
+    assert_eq!(
+        indirect_buf.get_buffer_local("major-mode").copied(),
+        Some(Value::symbol("fundamental-mode"))
+    );
+    assert_eq!(
+        indirect_buf
+            .get_buffer_local("mode-name")
+            .and_then(Value::as_str),
+        Some("Fundamental")
+    );
 }
 
 #[test]

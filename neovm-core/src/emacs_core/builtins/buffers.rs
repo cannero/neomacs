@@ -91,6 +91,7 @@ pub(crate) fn builtin_make_indirect_buffer(
     }
 
     let clone = args.get(2).is_some_and(|value| !value.is_nil());
+    let inhibit_buffer_hooks = args.get(3).is_some_and(|value| !value.is_nil());
     let id = eval
         .buffers
         .create_indirect_buffer(base_id, &name, clone)
@@ -100,6 +101,20 @@ pub(crate) fn builtin_make_indirect_buffer(
                 vec![Value::string("Failed to create indirect buffer")],
             )
         })?;
+
+    let saved_current = eval.buffers.current_buffer_id();
+    if clone {
+        eval.buffers.set_current(id);
+        let clone_result =
+            builtin_run_hooks(eval, vec![Value::symbol("clone-indirect-buffer-hook")]);
+        if let Some(saved_id) = saved_current {
+            eval.buffers.set_current(saved_id);
+        }
+        clone_result?;
+    }
+    if !inhibit_buffer_hooks {
+        builtin_run_hooks(eval, vec![Value::symbol("buffer-list-update-hook")])?;
+    }
 
     Ok(Value::Buffer(id))
 }
