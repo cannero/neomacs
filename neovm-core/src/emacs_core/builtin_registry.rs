@@ -519,7 +519,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "image-transforms-p",
     "imagep",
     "init-image-library",
-    "indent-according-to-mode",
     "indent-for-tab-command",
     "indent-region",
     "indent-to",

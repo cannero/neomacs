@@ -39,6 +39,37 @@ fn gnu_simple_indent_eval() -> Evaluator {
     ev
 }
 
+fn gnu_indent_el_eval() -> Evaluator {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let indent_path = project_root.join("lisp/indent.el");
+    let indent_source = fs::read_to_string(&indent_path).expect("read GNU indent.el");
+    let syntax_path = project_root.join("lisp/emacs-lisp/syntax.el");
+    let syntax_source = fs::read_to_string(&syntax_path).expect("read GNU syntax.el");
+
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    eval_first_form_after_marker(
+        &mut ev,
+        &syntax_source,
+        "(defvar syntax-propertize-function nil",
+    );
+    eval_first_form_after_marker(&mut ev, &syntax_source, "(defun syntax-propertize (pos)");
+    eval_first_form_after_marker(&mut ev, &indent_source, "(defvar indent-line-function ");
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defvar indent-line-ignored-functions ",
+    );
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defun indent-according-to-mode (&optional inhibit-widen)",
+    );
+    eval_first_form_after_marker(&mut ev, &indent_source, "(defun indent-line-to (column)");
+    ev
+}
+
 fn eval_all(ev: &mut Evaluator, src: &str) -> Vec<String> {
     let forms = super::super::parser::parse_forms(src).expect("parse forms");
     ev.eval_forms(&forms)
@@ -289,8 +320,8 @@ fn eval_indent_region_column_subset() {
 }
 
 #[test]
-fn eval_indent_mode_subset() {
-    let mut ev = super::super::eval::Evaluator::new();
+fn gnu_indent_according_to_mode_matches_indent_el() {
+    let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"
         (with-temp-buffer
@@ -307,15 +338,35 @@ fn eval_indent_mode_subset() {
     )
     .expect("parse forms");
 
-    let first = ev.eval(&forms[0]).expect("eval indent-according-to-mode");
+    let first = match ev.eval(&forms[0]) {
+        Ok(value) => value,
+        Err(Flow::Signal(sig)) => panic!(
+            "eval indent-according-to-mode: {} {:?}",
+            sig.symbol_name(),
+            sig.data
+                .iter()
+                .map(|value| value.as_symbol_name().unwrap_or("<non-symbol>"))
+                .collect::<Vec<_>>()
+        ),
+        Err(err) => panic!("eval indent-according-to-mode: {err:?}"),
+    };
     assert_eq!(
         list_to_vec(&first).expect("first byte list"),
         vec![Value::Int(97)]
     );
 
-    let second = ev
-        .eval(&forms[1])
-        .expect("eval indent-according-to-mode point");
+    let second = match ev.eval(&forms[1]) {
+        Ok(value) => value,
+        Err(Flow::Signal(sig)) => panic!(
+            "eval indent-according-to-mode point: {} {:?}",
+            sig.symbol_name(),
+            sig.data
+                .iter()
+                .map(|value| value.as_symbol_name().unwrap_or("<non-symbol>"))
+                .collect::<Vec<_>>()
+        ),
+        Err(err) => panic!("eval indent-according-to-mode point: {err:?}"),
+    };
     assert_eq!(second, Value::Int(2));
 }
 
@@ -416,6 +467,13 @@ fn reindent_then_newline_and_indent_normalizes_split_whitespace() {
 fn reindent_then_newline_and_indent_is_not_dispatch_builtin() {
     assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
         "reindent-then-newline-and-indent"
+    ));
+}
+
+#[test]
+fn indent_according_to_mode_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "indent-according-to-mode"
     ));
 }
 

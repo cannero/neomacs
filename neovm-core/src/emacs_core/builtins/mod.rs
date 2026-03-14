@@ -2407,9 +2407,6 @@ pub(crate) fn dispatch_builtin(
         "indent-for-tab-command" => {
             return Some(super::indent::builtin_indent_for_tab_command(eval, args));
         }
-        "indent-according-to-mode" => {
-            return Some(super::indent::builtin_indent_according_to_mode(eval, args));
-        }
         // Case/char (evaluator-dependent)
         "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {

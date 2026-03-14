@@ -3,8 +3,7 @@
 //! Implements stub versions of Emacs indentation primitives:
 //! - `current-indentation`, `indent-to`, `current-column`, `move-to-column`
 //! - `indent-region`, `indent-line-to`, `indent-rigidly`, `newline-and-indent`,
-//!   `indent-for-tab-command`,
-//!   `indent-according-to-mode`, `tab-to-tab-stop`, `delete-indentation`
+//!   `indent-for-tab-command`, `tab-to-tab-stop`, `delete-indentation`
 //!
 //! Variables: `tab-width`, `indent-tabs-mode`, `standard-indent`, `tab-stop-list`
 
@@ -601,59 +600,6 @@ pub(crate) fn builtin_indent_for_tab_command(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = eval.buffers.insert_into_buffer(current_id, "\t");
-    Ok(Value::Nil)
-}
-
-/// (indent-according-to-mode) -> nil
-///
-/// Indent line in proper way for current major mode.
-/// Stub: does nothing, returns nil.
-pub(crate) fn builtin_indent_according_to_mode(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("indent-according-to-mode", &args, 1)?;
-
-    let Some(buf) = eval.buffers.current_buffer() else {
-        return Ok(Value::Nil);
-    };
-    let text = buf.text.to_string();
-    let pt = buf.pt.clamp(buf.begv, buf.zv);
-    let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, pt);
-    let line = &text[bol..eol];
-    let indent_len = line
-        .chars()
-        .take_while(|ch| *ch == ' ' || *ch == '\t')
-        .map(char::len_utf8)
-        .sum::<usize>();
-    if indent_len == 0 {
-        return Ok(Value::Nil);
-    }
-
-    if buffer_read_only_active(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    let indent_end = bol + indent_len;
-    let new_pt = if pt <= bol {
-        pt
-    } else if pt <= indent_end {
-        bol
-    } else {
-        pt - indent_len
-    };
-
-    let Some(current_id) = eval.buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
-    };
-    let _ = eval
-        .buffers
-        .delete_buffer_region(current_id, bol, indent_end);
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_pt);
-
     Ok(Value::Nil)
 }
 
