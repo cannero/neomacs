@@ -410,20 +410,91 @@ pub(crate) fn builtin_pos_visible_in_window_p(args: Vec<Value>) -> EvalResult {
 
 /// `(pos-visible-in-window-p &optional POS WINDOW PARTIALLY)` evaluator-backed variant.
 ///
-/// Batch mode reports no visibility (`nil`), but validates WINDOW designators.
+/// Mirror GNU Emacs: return t if POS is visible in WINDOW, nil otherwise.
+/// Checks if position is between window-start and an estimated window-end.
 pub(crate) fn builtin_pos_visible_in_window_p_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args_range("pos-visible-in-window-p", &args, 0, 3)?;
     validate_optional_window_designator(eval, args.get(1), "window-live-p")?;
-    // POS can be nil (point), t (end of buffer), or an integer/marker.
-    if let Some(pos) = args.first() {
-        if !pos.is_nil() && !matches!(pos, Value::True) && !pos.is_symbol_named("t") {
-            expect_integer_or_marker(pos)?;
+
+    // Extract buffer data up-front so we can release the immutable borrow on
+    // `eval` before calling window helpers that need `&mut eval`.
+    let (check_pos, text_bytes, zv) = {
+        let Some(buf) = eval.buffers.current_buffer() else {
+            return Ok(Value::Nil);
+        };
+        let check_pos = match args.first() {
+            Some(Value::True) | Some(Value::Symbol(_))
+                if args
+                    .first()
+                    .is_some_and(|v| matches!(v, Value::True) || v.is_symbol_named("t")) =>
+            {
+                buf.zv
+            }
+            Some(v) if !v.is_nil() => {
+                expect_integer_or_marker(v)?;
+                let n = v.as_int().unwrap_or(0);
+                buf.text
+                    .char_to_byte(((n - 1).max(0) as usize).min(buf.text.byte_to_char(buf.zv)))
+            }
+            _ => buf.pt,
+        };
+        let text_bytes = buf.text.to_string().into_bytes();
+        (check_pos, text_bytes, buf.zv)
+    };
+
+    // Get window-start (char position → byte offset).
+    let ws = super::window_cmds::builtin_window_start(eval, vec![])
+        .ok()
+        .and_then(|v| match v {
+            Value::Int(n) => Some(n),
+            _ => None,
+        })
+        .unwrap_or(1);
+    // Convert char position to byte offset using the extracted text.
+    let mut ws_byte = 0usize;
+    let mut chars_seen = 0i64;
+    for (i, &b) in text_bytes.iter().enumerate() {
+        if chars_seen >= (ws - 1).max(0) {
+            ws_byte = i;
+            break;
+        }
+        // Count only leading bytes of UTF-8 sequences as char starts.
+        if (b & 0xC0) != 0x80 {
+            chars_seen += 1;
         }
     }
-    Ok(Value::Nil)
+    if chars_seen < (ws - 1).max(0) {
+        ws_byte = text_bytes.len();
+    }
+
+    // Get window height to estimate window-end.
+    let wh = super::window_cmds::builtin_window_body_height(eval, vec![])
+        .ok()
+        .and_then(|v| match v {
+            Value::Int(n) => Some(n),
+            _ => None,
+        })
+        .unwrap_or(24);
+
+    // Estimate window-end: scan wh lines from window-start.
+    let mut we_byte = ws_byte;
+    for _ in 0..wh {
+        while we_byte < zv && we_byte < text_bytes.len() && text_bytes[we_byte] != b'\n' {
+            we_byte += 1;
+        }
+        if we_byte < zv && we_byte < text_bytes.len() {
+            we_byte += 1;
+        }
+    }
+
+    if check_pos >= ws_byte && check_pos <= we_byte {
+        Ok(Value::True)
+    } else {
+        Ok(Value::Nil)
+    }
 }
 
 /// (move-point-visually DIRECTION) -> boolean
