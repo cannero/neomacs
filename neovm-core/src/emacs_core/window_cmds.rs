@@ -3959,6 +3959,61 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("auto-window-vscroll", Value::True);
 }
 
+/// `(window-combination-limit WINDOW)` -> nil or t.
+///
+/// Mirrors GNU Emacs: returns the combination limit of an internal window.
+/// Signals an error if WINDOW is a leaf window.
+pub(crate) fn builtin_window_combination_limit(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("window-combination-limit", &args, 1)?;
+    let _ = ensure_selected_frame_id(eval);
+    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
+    let w = get_window(&eval.frames, fid, wid)?;
+    match w.combination_limit() {
+        Some(true) => Ok(Value::True),
+        Some(false) => Ok(Value::Nil),
+        None => Err(signal(
+            "error",
+            vec![Value::string(
+                "Combination limit is meaningful for internal windows only",
+            )],
+        )),
+    }
+}
+
+/// `(set-window-combination-limit WINDOW LIMIT)` -> LIMIT.
+///
+/// Set the combination limit of an internal window.
+/// Signals an error if WINDOW is a leaf window.
+pub(crate) fn builtin_set_window_combination_limit(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-window-combination-limit", &args, 2)?;
+    let _ = ensure_selected_frame_id(eval);
+    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
+    let limit = args[1].is_truthy();
+    let frame = eval
+        .frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    let w = frame
+        .find_window_mut(wid)
+        .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
+    if w.is_leaf() {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Combination limit is meaningful for internal windows only",
+            )],
+        ));
+    }
+    w.set_combination_limit(limit);
+    Ok(args[1])
+}
+
 /// `(window-resize-apply &optional FRAME HORIZONTAL)` -> t or nil.
 ///
 /// Apply requested pixel size values for the window-tree of FRAME.

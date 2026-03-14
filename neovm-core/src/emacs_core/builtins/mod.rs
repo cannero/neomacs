@@ -1792,6 +1792,16 @@ pub(crate) fn dispatch_builtin(
         "scroll-down" => return Some(super::window_cmds::builtin_scroll_down(eval, args)),
         "scroll-left" => return Some(super::window_cmds::builtin_scroll_left(eval, args)),
         "scroll-right" => return Some(super::window_cmds::builtin_scroll_right(eval, args)),
+        "window-combination-limit" => {
+            return Some(super::window_cmds::builtin_window_combination_limit(
+                eval, args,
+            ));
+        }
+        "set-window-combination-limit" => {
+            return Some(super::window_cmds::builtin_set_window_combination_limit(
+                eval, args,
+            ));
+        }
         "window-resize-apply" => {
             return Some(super::window_cmds::builtin_window_resize_apply(eval, args));
         }

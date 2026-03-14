@@ -115,6 +115,9 @@ pub enum Window {
         direction: SplitDirection,
         children: Vec<Window>,
         bounds: Rect,
+        /// Combination limit — prevents recombination when non-nil.
+        /// Mirrors GNU Emacs `w->combination_limit`.
+        combination_limit: bool,
     },
 }
 
@@ -163,6 +166,26 @@ impl Window {
     /// Whether this is a leaf window.
     pub fn is_leaf(&self) -> bool {
         matches!(self, Window::Leaf { .. })
+    }
+
+    /// Get the combination limit for an internal window.
+    pub fn combination_limit(&self) -> Option<bool> {
+        match self {
+            Window::Internal {
+                combination_limit, ..
+            } => Some(*combination_limit),
+            Window::Leaf { .. } => None,
+        }
+    }
+
+    /// Set the combination limit for an internal window.
+    pub fn set_combination_limit(&mut self, limit: bool) {
+        if let Window::Internal {
+            combination_limit, ..
+        } = self
+        {
+            *combination_limit = limit;
+        }
     }
 
     /// Buffer displayed in this window (leaf only).
@@ -934,6 +957,7 @@ fn split_window_in_tree(
                 direction,
                 children: vec![old_leaf, new_leaf],
                 bounds: old_bounds,
+                combination_limit: false,
             };
 
             return Some(());
