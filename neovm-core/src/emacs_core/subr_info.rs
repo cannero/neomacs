@@ -1478,7 +1478,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "frame-list"
         | "visible-frame-list"
         | "x-uses-old-gtk-dialog"
-        | "x-win-suspend-error"
         | "selected-window"
         | "active-minibuffer-window"
         | "minibuffer-selected-window" => arity_cons(0, Some(0)),

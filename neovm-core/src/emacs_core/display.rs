@@ -1328,12 +1328,6 @@ pub(crate) fn builtin_x_preedit_text(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// (x-win-suspend-error) -> nil in batch/no-X context.
-pub(crate) fn builtin_x_win_suspend_error(args: Vec<Value>) -> EvalResult {
-    expect_args("x-win-suspend-error", &args, 0)?;
-    Ok(Value::Nil)
-}
-
 /// (x-device-class DISPLAY) -> nil/error in batch/no-X context.
 pub(crate) fn builtin_x_device_class(args: Vec<Value>) -> EvalResult {
     expect_args("x-device-class", &args, 1)?;

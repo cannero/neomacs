@@ -1955,9 +1955,6 @@ fn x_clipboard_input_context_batch_semantics() {
     assert_wrong_number(builtin_x_preedit_text(vec![]));
     assert_wrong_number(builtin_x_preedit_text(vec![Value::Nil, Value::Nil]));
 
-    assert!(builtin_x_win_suspend_error(vec![]).unwrap().is_nil());
-    assert_wrong_number(builtin_x_win_suspend_error(vec![Value::Nil]));
-
     assert!(builtin_x_device_class(vec![Value::Nil]).unwrap().is_nil());
     assert_wrong_type(builtin_x_device_class(vec![term]), "char-or-string-p", term);
     assert_wrong_type(
@@ -2019,6 +2016,13 @@ fn x_clipboard_input_context_batch_semantics() {
         "Window system frame should be used",
     );
     assert_wrong_number(builtin_x_wm_set_size_hint(vec![Value::Nil, Value::Nil]));
+}
+
+#[test]
+fn x_win_suspend_error_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "x-win-suspend-error"
+    ));
 }
 
 #[test]

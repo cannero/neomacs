@@ -2769,7 +2769,6 @@ pub(crate) fn dispatch_builtin(
             super::display::builtin_x_display_set_last_user_time(args)
         }
         "x-display-visual-class" => super::display::builtin_x_display_visual_class(args),
-        "x-win-suspend-error" => super::display::builtin_x_win_suspend_error(args),
         "x-wm-set-size-hint" => super::display::builtin_x_wm_set_size_hint(args),
 
         // Image (pure)

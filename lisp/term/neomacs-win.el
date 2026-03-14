@@ -48,6 +48,8 @@
   (if (memq 'neomacs (mapcar 'window-system (frame-list)))
       (error "Cannot suspend Emacs while a Neomacs GUI frame exists")))
 
+(defalias 'x-win-suspend-error #'neomacs-suspend-error)
+
 (defvar neomacs-initialized nil
   "Non-nil if Neomacs windowing has been initialized.")
 

@@ -1383,7 +1383,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "x-synchronize",
     "x-translate-coordinates",
     "x-uses-old-gtk-dialog",
-    "x-win-suspend-error",
     "x-window-property",
     "x-window-property-attributes",
     "x-wm-set-size-hint",

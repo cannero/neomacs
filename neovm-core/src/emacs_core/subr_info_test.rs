@@ -264,7 +264,6 @@ fn subr_arity_display_terminal_primitives_match_oracle() {
     assert_subr_arity("x-synchronize", 1, Some(2));
     assert_subr_arity("x-translate-coordinates", 1, Some(6));
     assert_subr_arity("x-uses-old-gtk-dialog", 0, Some(0));
-    assert_subr_arity("x-win-suspend-error", 0, Some(0));
     assert_subr_arity("x-window-property", 1, Some(6));
     assert_subr_arity("x-window-property-attributes", 1, Some(3));
     assert_subr_arity("x-wm-set-size-hint", 0, Some(1));
