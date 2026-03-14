@@ -640,6 +640,17 @@ impl BufferManager {
         buf.chars_modified_tick += 1;
     }
 
+    fn sync_shared_undo_lists(&mut self, root_id: BufferId, source_id: BufferId) -> Option<()> {
+        let source_undo = self.buffers.get(&source_id)?.undo_list.clone();
+        for shared_id in self.buffers_sharing_root_ids(root_id) {
+            if shared_id == source_id {
+                continue;
+            }
+            self.buffers.get_mut(&shared_id)?.undo_list = source_undo.clone();
+        }
+        Some(())
+    }
+
     /// Centralized structural text mutations.
     ///
     /// Indirect buffers will eventually share a single text object.  When that
@@ -670,6 +681,7 @@ impl BufferManager {
             let sibling = self.buffers.get_mut(&sibling_id)?;
             Self::adjust_shared_insert_metadata(sibling, insert_pos, len);
         }
+        self.sync_shared_undo_lists(root_id, id)?;
         Some(())
     }
 
@@ -705,6 +717,7 @@ impl BufferManager {
             let sibling = self.buffers.get_mut(&sibling_id)?;
             Self::adjust_shared_delete_metadata(sibling, start, end);
         }
+        self.sync_shared_undo_lists(root_id, id)?;
         Some(())
     }
 
@@ -904,7 +917,9 @@ impl BufferManager {
     }
 
     pub fn add_undo_boundary(&mut self, id: BufferId) -> Option<()> {
+        let root_id = self.shared_text_root_id(id)?;
         self.buffers.get_mut(&id)?.undo_list.boundary();
+        self.sync_shared_undo_lists(root_id, id)?;
         Some(())
     }
 
@@ -922,73 +937,95 @@ impl BufferManager {
     }
 
     pub fn configure_buffer_undo_list(&mut self, id: BufferId, value: Value) -> Option<()> {
-        let buf = self.buffers.get_mut(&id)?;
-        match value {
-            Value::True => {
-                buf.undo_list.set_enabled(false);
-                buf.set_buffer_local("buffer-undo-list", Value::True);
-            }
-            Value::Nil => {
-                buf.undo_list.set_enabled(true);
-                buf.undo_list.clear();
-                buf.set_buffer_local("buffer-undo-list", Value::Nil);
-            }
-            other => {
-                buf.undo_list.set_enabled(true);
-                buf.set_buffer_local("buffer-undo-list", other);
+        let root_id = self.shared_text_root_id(id)?;
+        {
+            let buf = self.buffers.get_mut(&id)?;
+            match value {
+                Value::True => {
+                    buf.undo_list.set_enabled(false);
+                    buf.set_buffer_local("buffer-undo-list", Value::True);
+                }
+                Value::Nil => {
+                    buf.undo_list.set_enabled(true);
+                    buf.undo_list.clear();
+                    buf.set_buffer_local("buffer-undo-list", Value::Nil);
+                }
+                other => {
+                    buf.undo_list.set_enabled(true);
+                    buf.set_buffer_local("buffer-undo-list", other);
+                }
             }
         }
+        self.sync_shared_undo_lists(root_id, id)?;
         Some(())
     }
 
     pub fn undo_buffer(&mut self, id: BufferId, mut count: i64) -> Option<UndoExecutionResult> {
-        let buffer = self.buffers.get_mut(&id)?;
+        let (had_any_records, had_boundary, previous_undoing, groups) = {
+            let buffer = self.buffers.get_mut(&id)?;
 
-        let had_any_records = !buffer.undo_list.is_empty();
-        let had_boundary = buffer.undo_list.contains_boundary();
-        let had_trailing_boundary = buffer.undo_list.has_trailing_boundary();
+            let had_any_records = !buffer.undo_list.is_empty();
+            let had_boundary = buffer.undo_list.contains_boundary();
+            let had_trailing_boundary = buffer.undo_list.has_trailing_boundary();
 
-        if count <= 0 && had_boundary {
-            return Some(UndoExecutionResult {
-                had_any_records,
-                had_boundary,
-                applied_any: false,
-                skipped_apply: true,
-            });
-        }
-        if count <= 0 {
-            count = 1;
-        }
+            if count <= 0 && had_boundary {
+                return Some(UndoExecutionResult {
+                    had_any_records,
+                    had_boundary,
+                    applied_any: false,
+                    skipped_apply: true,
+                });
+            }
+            if count <= 0 {
+                count = 1;
+            }
 
-        let previous_undoing = buffer.undo_list.undoing;
-        buffer.undo_list.undoing = true;
-        let mut applied_any = false;
-        let groups_to_undo = if had_trailing_boundary {
-            count as usize
-        } else {
-            (count as usize).saturating_add(1)
+            let previous_undoing = buffer.undo_list.undoing;
+            buffer.undo_list.undoing = true;
+            let groups_to_undo = if had_trailing_boundary {
+                count as usize
+            } else {
+                (count as usize).saturating_add(1)
+            };
+
+            let mut groups = Vec::new();
+            for _ in 0..groups_to_undo {
+                let group = buffer.undo_list.pop_undo_group();
+                if group.is_empty() {
+                    break;
+                }
+                groups.push(group);
+            }
+
+            (had_any_records, had_boundary, previous_undoing, groups)
         };
 
-        for _ in 0..groups_to_undo {
-            let group = buffer.undo_list.pop_undo_group();
-            if group.is_empty() {
-                break;
-            }
+        let mut applied_any = false;
+        for group in groups {
             applied_any = true;
-
             for record in group {
                 match record {
                     UndoRecord::Insert { pos, len } => {
-                        let end = pos.saturating_add(len).min(buffer.text.len());
-                        buffer.delete_region(pos.min(end), end);
+                        let end = self
+                            .buffers
+                            .get(&id)
+                            .map(|buffer| pos.saturating_add(len).min(buffer.text.len()))?;
+                        self.delete_buffer_region(id, pos.min(end), end)?;
                     }
                     UndoRecord::Delete { pos, text } => {
-                        let clamped = pos.min(buffer.text.len());
-                        buffer.goto_char(clamped);
-                        buffer.insert(&text);
+                        let clamped = self
+                            .buffers
+                            .get(&id)
+                            .map(|buffer| pos.min(buffer.text.len()))?;
+                        self.goto_buffer_byte(id, clamped)?;
+                        self.insert_into_buffer(id, &text)?;
                     }
                     UndoRecord::CursorMove { pos } => {
-                        buffer.goto_char(pos.min(buffer.text.len()));
+                        let clamped = self
+                            .buffers
+                            .get(&id)
+                            .map(|buffer| pos.min(buffer.text.len()))?;
+                        self.goto_buffer_byte(id, clamped)?;
                     }
                     UndoRecord::PropertyChange { .. }
                     | UndoRecord::FirstChange { .. }
@@ -997,7 +1034,9 @@ impl BufferManager {
             }
         }
 
-        buffer.undo_list.undoing = previous_undoing;
+        self.buffers.get_mut(&id)?.undo_list.undoing = previous_undoing;
+        let root_id = self.shared_text_root_id(id)?;
+        self.sync_shared_undo_lists(root_id, id)?;
         Some(UndoExecutionResult {
             had_any_records,
             had_boundary,
@@ -1219,6 +1258,30 @@ mod tests {
                 .text
                 .shares_storage_with(&mgr.get(second_id).unwrap().text)
         );
+    }
+
+    #[test]
+    fn indirect_buffers_keep_undo_state_in_sync() {
+        let mut mgr = BufferManager::new();
+        let base_id = mgr.current_buffer_id().expect("scratch buffer");
+        let indirect_id = mgr
+            .create_indirect_buffer(base_id, "*indirect-undo*", false)
+            .expect("indirect buffer");
+
+        let _ = mgr.insert_into_buffer(base_id, "abc");
+        assert!(
+            !matches!(
+                mgr.get(indirect_id)
+                    .and_then(|buf| buf.buffer_local_value("buffer-undo-list")),
+                Some(Value::Nil) | None
+            ),
+            "indirect buffer should observe the base buffer's undo history"
+        );
+
+        let result = mgr.undo_buffer(indirect_id, 1).expect("undo result");
+        assert!(result.applied_any);
+        assert_eq!(mgr.get(base_id).unwrap().buffer_string(), "");
+        assert_eq!(mgr.get(indirect_id).unwrap().buffer_string(), "");
     }
 
     // -----------------------------------------------------------------------
