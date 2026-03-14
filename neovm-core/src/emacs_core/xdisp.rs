@@ -405,8 +405,9 @@ pub(crate) fn builtin_pos_visible_in_window_p(args: Vec<Value>) -> EvalResult {
             ));
         }
     }
+    // POS can be nil (point), t (end of buffer), or an integer/marker.
     if let Some(pos) = args.first() {
-        if !pos.is_nil() {
+        if !pos.is_nil() && !matches!(pos, Value::True) && !pos.is_symbol_named("t") {
             expect_integer_or_marker(pos)?;
         }
     }
@@ -422,8 +423,9 @@ pub(crate) fn builtin_pos_visible_in_window_p_eval(
 ) -> EvalResult {
     expect_args_range("pos-visible-in-window-p", &args, 0, 3)?;
     validate_optional_window_designator(eval, args.get(1), "window-live-p")?;
+    // POS can be nil (point), t (end of buffer), or an integer/marker.
     if let Some(pos) = args.first() {
-        if !pos.is_nil() {
+        if !pos.is_nil() && !matches!(pos, Value::True) && !pos.is_symbol_named("t") {
             expect_integer_or_marker(pos)?;
         }
     }
