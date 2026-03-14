@@ -151,8 +151,8 @@ pub(crate) fn builtin_eval_region(
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-        let point_char_pos = buffer.text.byte_to_char(buffer.point()) as i64 + 1;
-        let max_char_pos = buffer.text.byte_to_char(buffer.point_max()) as i64 + 1;
+        let point_char_pos = buffer.point_char() as i64 + 1;
+        let max_char_pos = buffer.point_max_char() as i64 + 1;
 
         let raw_start = if args[0].is_nil() {
             point_char_pos

@@ -306,7 +306,7 @@ fn marker_insertion_type_value(v: &Value) -> Value {
 }
 
 fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
-    let char_count = buf.text.byte_to_char(buf.text.len());
+    let char_count = buf.text.char_count();
     let clamped = (lisp_pos.max(1) as usize).min(char_count + 1);
     let char0 = clamped - 1;
     let byte = buf.text.char_to_byte(char0);
@@ -474,7 +474,7 @@ pub(crate) fn builtin_copy_marker_eval(
                             buf.markers
                                 .iter()
                                 .find(|m| m.id == mid)
-                                .map(|m| buf.text.byte_to_char(m.byte_pos) as i64 + 1)
+                                .map(|m| m.char_pos as i64 + 1)
                         } else {
                             None
                         }

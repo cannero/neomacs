@@ -1278,7 +1278,7 @@ pub(crate) fn builtin_compute_motion(
     let zv = buf.zv;
 
     // Convert 1-based char positions to byte offsets.
-    let max_chars = buf.text.byte_to_char(buf.text.len());
+    let max_chars = buf.text.char_count();
     let from_byte = buf
         .text
         .char_to_byte(((from - 1).max(0) as usize).min(max_chars));

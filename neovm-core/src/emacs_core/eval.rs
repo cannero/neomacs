@@ -2679,7 +2679,7 @@ impl Evaluator {
         let pos = eval
             .buffers
             .current_buffer()
-            .map(|buf| Value::Int(buf.text.byte_to_char(buf.point()) as i64 + 1))
+            .map(|buf| Value::Int(buf.point_char() as i64 + 1))
             .unwrap_or(Value::Int(1));
         let xy = Value::cons(Value::Int(x as i64), Value::Int(y as i64));
         Value::list(vec![Value::list(vec![window_val, pos, xy, Value::Int(0)])])
