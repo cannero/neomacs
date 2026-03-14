@@ -100,13 +100,26 @@ pub struct Process {
 }
 
 /// Manages the set of live processes.
-#[derive(Debug)]
+///
+/// Uses `polling::Poller` for efficient I/O multiplexing (epoll on Linux,
+/// kqueue on macOS, wepoll on Windows) instead of sleep-based polling.
 pub struct ProcessManager {
     processes: HashMap<ProcessId, Process>,
     deleted_processes: HashMap<ProcessId, Process>,
     next_id: ProcessId,
     /// Environment variable overrides (for `setenv`/`getenv`).
     env_overrides: HashMap<String, Option<String>>,
+    /// I/O multiplexer for child process stdout/stderr pipes.
+    poller: Option<polling::Poller>,
+}
+
+impl std::fmt::Debug for ProcessManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProcessManager")
+            .field("processes", &self.processes)
+            .field("next_id", &self.next_id)
+            .finish()
+    }
 }
 
 impl Default for ProcessManager {
@@ -122,6 +135,7 @@ impl ProcessManager {
             deleted_processes: HashMap::new(),
             next_id: 1,
             env_overrides: HashMap::new(),
+            poller: polling::Poller::new().ok(),
         }
     }
 
@@ -231,7 +245,31 @@ impl ProcessManager {
 
         match cmd.spawn() {
             Ok(mut child) => {
-                proc.child_stdout = child.stdout.take();
+                let stdout = child.stdout.take();
+
+                // Register stdout with the poller for efficient I/O notification.
+                #[cfg(unix)]
+                if let (Some(poller), Some(stdout)) = (&self.poller, &stdout) {
+                    use std::os::unix::io::AsRawFd;
+                    let fd = stdout.as_raw_fd();
+                    // Set non-blocking before registering.
+                    unsafe {
+                        let flags = libc::fcntl(fd, libc::F_GETFL);
+                        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+                    }
+                    // Use process id as the event key so we know which process is ready.
+                    // Safety: fd is valid and owned by child_stdout which we keep alive.
+                    unsafe {
+                        let borrowed = std::os::unix::io::BorrowedFd::borrow_raw(fd);
+                        let _ = poller.add_with_mode(
+                            &borrowed,
+                            polling::Event::readable(id as usize),
+                            polling::PollMode::Level,
+                        );
+                    }
+                }
+
+                proc.child_stdout = stdout;
                 proc.child_stderr = child.stderr.take();
                 proc.child = Some(child);
                 proc.status = ProcessStatus::Run;
@@ -296,6 +334,31 @@ impl ProcessManager {
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Some(String::new()),
             Err(_) => None,
+        }
+    }
+
+    /// Wait for any child process to have output ready, with timeout.
+    ///
+    /// Uses `polling::Poller` (epoll/kqueue/wepoll) for efficient blocking
+    /// instead of sleep-based polling. Returns the set of process IDs that
+    /// have data ready to read.
+    ///
+    /// Falls back to a brief sleep if the poller is unavailable.
+    pub fn wait_for_output(&self, timeout: std::time::Duration) -> Vec<ProcessId> {
+        if let Some(ref poller) = self.poller {
+            let mut events = polling::Events::new();
+            match poller.wait(&mut events, Some(timeout)) {
+                Ok(_) => events.iter().map(|e| e.key as ProcessId).collect(),
+                Err(_) => {
+                    // Fallback: brief sleep
+                    std::thread::sleep(timeout.min(std::time::Duration::from_millis(10)));
+                    self.live_process_ids()
+                }
+            }
+        } else {
+            // No poller available — sleep fallback
+            std::thread::sleep(timeout.min(std::time::Duration::from_millis(10)));
+            self.live_process_ids()
         }
     }
 
@@ -4494,8 +4557,13 @@ pub(crate) fn builtin_accept_process_output(
             return Ok(Value::Nil);
         }
 
-        // Brief sleep before next poll.
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Wait for output using efficient I/O multiplexing (epoll/kqueue/wepoll).
+        let elapsed = start.elapsed();
+        let remaining = deadline
+            .and_then(|d| d.checked_sub(elapsed))
+            .unwrap_or(std::time::Duration::from_millis(50));
+        let wait_time = remaining.min(std::time::Duration::from_millis(50));
+        let _ = eval.processes.wait_for_output(wait_time);
     }
 }
 
