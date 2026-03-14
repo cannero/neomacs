@@ -1808,6 +1808,26 @@ fn insert_buffer_substring_defaults_to_source_accessible_region() {
 }
 
 #[test]
+fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let source_id = eval.buffers.create_buffer("*ibs-source-range*");
+    eval.buffers.set_current(source_id);
+    builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
+    let _ = eval.buffers.narrow_buffer_to_region(source_id, 1, 4);
+
+    let err =
+        builtin_insert_buffer_substring(&mut eval, vec![Value::Buffer(source_id), Value::Int(1)])
+            .expect_err("insert-buffer-substring should reject out-of-range narrowed START");
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "args-out-of-range");
+            assert_eq!(sig.data, vec![Value::Int(1), Value::Int(5)]);
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+}
+
+#[test]
 fn kill_all_local_variables_clears_buffer_locals() {
     let mut eval = super::super::eval::Evaluator::new();
     {
@@ -1927,6 +1947,40 @@ fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
         .unwrap(),
         Value::Int(0)
     );
+}
+
+#[test]
+fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let left_id = eval.buffers.create_buffer("*cbs-left-range*");
+    eval.buffers.set_current(left_id);
+    builtin_insert(&mut eval, vec![Value::string("xaBCy")]).unwrap();
+    let _ = eval.buffers.narrow_buffer_to_region(left_id, 1, 4);
+
+    let right_id = eval.buffers.create_buffer("*cbs-right-range*");
+    eval.buffers.set_current(right_id);
+    builtin_insert(&mut eval, vec![Value::string("zaBCw")]).unwrap();
+    let _ = eval.buffers.narrow_buffer_to_region(right_id, 1, 4);
+
+    let err = builtin_compare_buffer_substrings(
+        &mut eval,
+        vec![
+            Value::Buffer(left_id),
+            Value::Int(1),
+            Value::Nil,
+            Value::Buffer(right_id),
+            Value::Nil,
+            Value::Nil,
+        ],
+    )
+    .expect_err("compare-buffer-substrings should reject out-of-range narrowed START");
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "args-out-of-range");
+            assert_eq!(sig.data, vec![Value::Int(1), Value::Nil]);
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
 }
 
 #[test]

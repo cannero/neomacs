@@ -612,6 +612,37 @@ fn buffer_slice_for_char_region(
     buf.buffer_substring(from_byte, to_byte)
 }
 
+fn checked_buffer_slice_for_char_region(
+    eval: &super::eval::Evaluator,
+    buffer_id: Option<BufferId>,
+    start: i64,
+    end: i64,
+    start_arg: Value,
+    end_arg: Value,
+) -> Result<String, Flow> {
+    let Some(buffer_id) = buffer_id else {
+        return Ok(String::new());
+    };
+    let Some(buf) = eval.buffers.get(buffer_id) else {
+        return Ok(String::new());
+    };
+
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+    if start < point_min || start > point_max || end < point_min || end > point_max {
+        return Err(signal("args-out-of-range", vec![start_arg, end_arg]));
+    }
+
+    let (from, to) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    let from_byte = buf.lisp_pos_to_accessible_byte(from);
+    let to_byte = buf.lisp_pos_to_accessible_byte(to);
+    Ok(buf.buffer_substring(from_byte, to_byte))
+}
+
 fn compare_buffer_substring_strings(left: &str, right: &str) -> i64 {
     let mut pos = 1i64;
     let mut left_iter = left.chars();
@@ -877,7 +908,14 @@ pub(crate) fn builtin_insert_buffer_substring(
         default_end
     };
 
-    let text = buffer_slice_for_char_region(eval, buffer_id, start, end);
+    let text = checked_buffer_slice_for_char_region(
+        eval,
+        buffer_id,
+        start,
+        end,
+        Value::Int(start),
+        Value::Int(end),
+    )?;
     builtin_insert(eval, vec![Value::string(text)])
 }
 
@@ -1234,8 +1272,22 @@ pub(crate) fn builtin_compare_buffer_substrings(
         expect_integer_or_marker(&args[5])?
     };
 
-    let left = buffer_slice_for_char_region(eval, left_buffer, left_start, left_end);
-    let right = buffer_slice_for_char_region(eval, right_buffer, right_start, right_end);
+    let left = checked_buffer_slice_for_char_region(
+        eval,
+        left_buffer,
+        left_start,
+        left_end,
+        args[1],
+        args[2],
+    )?;
+    let right = checked_buffer_slice_for_char_region(
+        eval,
+        right_buffer,
+        right_start,
+        right_end,
+        args[4],
+        args[5],
+    )?;
     Ok(Value::Int(compare_buffer_substring_strings(&left, &right)))
 }
 
