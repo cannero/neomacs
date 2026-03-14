@@ -868,7 +868,7 @@ fn make_test_buffer(text: &str) -> Buffer {
     let mut buf = Buffer::new(BufferId(1), "test".to_string());
     buf.insert(text);
     // Reset point to beginning
-    buf.pt = 0;
+    buf.goto_byte(0);
     // zv was updated by insert
     buf
 }
@@ -945,7 +945,7 @@ fn search_forward_with_bound() {
 #[test]
 fn search_forward_from_middle() {
     let mut buf = make_test_buffer("aaa bbb aaa");
-    buf.pt = 4; // after "aaa "
+    buf.goto_byte(4); // after "aaa "
     let mut md = None;
     let result = search_forward(&mut buf, "aaa", None, false, false, &mut md);
     assert!(result.is_ok());
@@ -959,7 +959,7 @@ fn search_forward_from_middle() {
 #[test]
 fn search_backward_basic() {
     let mut buf = make_test_buffer("hello world");
-    buf.pt = 11; // end of buffer
+    buf.goto_byte(11); // end of buffer
     let mut md = None;
     let result = search_backward(&mut buf, "hello", None, false, false, &mut md);
     assert!(result.is_ok());
@@ -970,7 +970,7 @@ fn search_backward_basic() {
 #[test]
 fn search_backward_not_found() {
     let mut buf = make_test_buffer("hello world");
-    buf.pt = 11;
+    buf.goto_byte(11);
     let mut md = None;
     let result = search_backward(&mut buf, "xyz", None, true, false, &mut md);
     assert!(result.is_ok());
@@ -980,7 +980,7 @@ fn search_backward_not_found() {
 #[test]
 fn search_backward_finds_last_occurrence() {
     let mut buf = make_test_buffer("aaa bbb aaa");
-    buf.pt = 11; // end
+    buf.goto_byte(11); // end
     let mut md = None;
     let result = search_backward(&mut buf, "aaa", None, false, false, &mut md);
     assert!(result.is_ok());
@@ -992,7 +992,7 @@ fn search_backward_finds_last_occurrence() {
 #[test]
 fn search_backward_case_fold_true_unicode_literal() {
     let mut buf = make_test_buffer("Ää");
-    buf.pt = "Ää".len();
+    buf.goto_byte("Ää".len());
     let mut md = None;
     let result = search_backward(&mut buf, "ä", None, false, true, &mut md);
     assert!(result.is_ok());
@@ -1079,7 +1079,7 @@ fn re_search_forward_multiline_anchor_respects_real_line_start() {
 #[test]
 fn re_search_backward_basic() {
     let mut buf = make_test_buffer("abc 123 def 456");
-    buf.pt = 15; // end
+    buf.goto_byte(15); // end
     let mut md = None;
     let result = re_search_backward(&mut buf, "[0-9]+", None, false, false, &mut md);
     assert!(result.is_ok());
@@ -1095,7 +1095,7 @@ fn re_search_backward_basic() {
 #[test]
 fn looking_at_matches() {
     let mut buf = make_test_buffer("hello world");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let mut md = None;
     let result = looking_at(&buf, "hello", true, &mut md);
     assert!(result.is_ok());
@@ -1106,7 +1106,7 @@ fn looking_at_matches() {
 #[test]
 fn looking_at_no_match() {
     let mut buf = make_test_buffer("hello world");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let mut md = None;
     let result = looking_at(&buf, "world", true, &mut md);
     assert!(result.is_ok());
@@ -1116,7 +1116,7 @@ fn looking_at_no_match() {
 #[test]
 fn looking_at_from_middle() {
     let mut buf = make_test_buffer("hello world");
-    buf.pt = 6; // "world"
+    buf.goto_byte(6); // "world"
     let mut md = None;
     let result = looking_at(&buf, "world", true, &mut md);
     assert!(result.is_ok());
@@ -1126,7 +1126,7 @@ fn looking_at_from_middle() {
 #[test]
 fn looking_at_defaults_to_case_fold() {
     let mut buf = make_test_buffer("A");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let mut md = None;
     let result = looking_at(&buf, "a", true, &mut md);
     assert!(result.is_ok());
@@ -1136,7 +1136,7 @@ fn looking_at_defaults_to_case_fold() {
 #[test]
 fn looking_at_respects_case_fold_false() {
     let mut buf = make_test_buffer("A");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let mut md = None;
     let result = looking_at(&buf, "a", false, &mut md);
     assert!(result.is_ok());
@@ -1146,7 +1146,7 @@ fn looking_at_respects_case_fold_false() {
 #[test]
 fn looking_at_with_groups() {
     let mut buf = make_test_buffer("foo123bar");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let mut md = None;
     // Emacs: \(\w+\)\([0-9]+\)
     let result = looking_at(&buf, "\\(\\w+\\)\\([0-9]+\\)", true, &mut md);
@@ -1195,7 +1195,7 @@ fn replace_match_literal() {
 #[test]
 fn replace_match_with_backref() {
     let mut buf = make_test_buffer("hello world");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let mut md = None;
     // Match "hello" with a group
     let _ = re_search_forward(&mut buf, "\\(hello\\)", None, false, false, &mut md);

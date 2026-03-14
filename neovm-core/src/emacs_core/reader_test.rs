@@ -2012,7 +2012,7 @@ fn read_buffer_hash_table_literal_returns_hash_table() {
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
         buf.insert("#s(hash-table size 3 test equal data (\"a\" 1 \"b\" 2))");
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
     let value = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]).expect("read from buffer");
     let Value::HashTable(table_ref) = value else {
@@ -2040,7 +2040,7 @@ fn read_from_buffer_advances_point_across_multiple_forms() {
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
         buf.insert(source);
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
 
     let first = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]).expect("first form");
@@ -2076,7 +2076,7 @@ fn read_from_buffer_preserves_string_literals_during_eval() {
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
         buf.insert(r#"(progn (setq reader-string nil) (setq reader-string "abc") reader-string)"#);
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
 
     let form = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]).expect("read form");
@@ -2091,7 +2091,7 @@ fn read_from_buffer_incomplete_list_signals_end_of_file_like_gnu_emacs() {
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
         buf.insert("(progn (list 1 2)");
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
 
     let result = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]);
@@ -2105,7 +2105,7 @@ fn read_from_buffer_invalid_read_syntax_reports_line_and_column_like_gnu_emacs()
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
         buf.insert("?child");
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
 
     let result = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]);
@@ -2128,7 +2128,7 @@ fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_g
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
         buf.insert(")");
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
 
     let result = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]);
@@ -2151,7 +2151,7 @@ fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_g
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
         buf.insert("#t");
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
 
     let result = builtin_read(&mut ev, vec![Value::Buffer(buf_id)]);

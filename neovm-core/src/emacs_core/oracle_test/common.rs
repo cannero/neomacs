@@ -425,7 +425,7 @@ fn run_neovm_eval_in_temp_buffer(
             return Err("failed to create temp buffer".to_string());
         };
         buf.insert(form);
-        buf.pt = 0;
+        buf.goto_byte(0);
     }
 
     let mut result = Ok(Value::Nil);

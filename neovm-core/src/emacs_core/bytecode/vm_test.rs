@@ -421,9 +421,8 @@ fn vm_unbind_restores_saved_restriction() {
             {
                 let buffer = buffers.get_mut(buffer_id).expect("buffer");
                 buffer.insert("abcdef");
-                buffer.begv = 1;
-                buffer.zv = 5;
-                buffer.pt = 3;
+                buffer.narrow_to_byte_region(1, 5);
+                buffer.goto_byte(3);
             }
             let buffer = buffers.get(buffer_id).expect("buffer");
             (buffer_id, buffer.begv, buffer.zv)

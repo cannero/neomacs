@@ -1305,7 +1305,7 @@ mod tests {
 
         // Before start — clamped to begv.
         buf.goto_char(0);
-        buf.begv = 2;
+        buf.narrow_to_byte_region(2, buf.point_max_byte());
         buf.goto_char(0);
         assert_eq!(buf.point(), 2);
     }
@@ -1725,7 +1725,7 @@ mod tests {
         let id = mgr.create_buffer("m");
         // Insert some text so there is room for a marker.
         mgr.get_mut(id).unwrap().text = BufferText::from_str("abcdef");
-        mgr.get_mut(id).unwrap().zv = 6;
+        mgr.get_mut(id).unwrap().widen();
 
         let mid = mgr.create_marker(id, 3, InsertionType::After);
         assert_eq!(mgr.marker_position(id, mid), Some(3));

@@ -7,8 +7,8 @@ use crate::emacs_core::value::read_cons;
 fn buf_with_text(text: &str) -> Buffer {
     let mut buf = Buffer::new(BufferId(99), "test-syntax".into());
     buf.text = BufferText::from_str(text);
-    buf.zv = buf.text.len();
-    buf.pt = 0;
+    buf.widen();
+    buf.goto_byte(0);
     buf
 }
 
@@ -255,7 +255,7 @@ fn non_ascii_defaults_to_word() {
 #[test]
 fn forward_word_basic() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
     let pos = forward_word(&buf, &table, 1);
     // "hello" ends at byte 5.
@@ -265,7 +265,7 @@ fn forward_word_basic() {
 #[test]
 fn forward_word_two() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
     let pos = forward_word(&buf, &table, 2);
     // Past "hello world" = byte 11.
@@ -275,7 +275,7 @@ fn forward_word_two() {
 #[test]
 fn forward_word_from_middle() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 3; // inside "hello"
+    buf.goto_byte(3); // inside "hello"
     let table = SyntaxTable::new_standard();
     let pos = forward_word(&buf, &table, 1);
     assert_eq!(pos, 5); // end of "hello"
@@ -284,7 +284,7 @@ fn forward_word_from_middle() {
 #[test]
 fn backward_word_basic() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 11; // end of text
+    buf.goto_byte(11); // end of text
     let table = SyntaxTable::new_standard();
     let pos = backward_word(&buf, &table, 1);
     assert_eq!(pos, 6); // start of "world"
@@ -293,7 +293,7 @@ fn backward_word_basic() {
 #[test]
 fn backward_word_two() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 11;
+    buf.goto_byte(11);
     let table = SyntaxTable::new_standard();
     let pos = backward_word(&buf, &table, 2);
     assert_eq!(pos, 0); // start of "hello"
@@ -302,7 +302,7 @@ fn backward_word_two() {
 #[test]
 fn forward_word_negative_goes_backward() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 11;
+    buf.goto_byte(11);
     let table = SyntaxTable::new_standard();
     let pos = forward_word(&buf, &table, -1);
     assert_eq!(pos, 6);
@@ -315,7 +315,7 @@ fn forward_word_negative_goes_backward() {
 #[test]
 fn skip_syntax_forward_word() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
     let pos = skip_syntax_forward(&buf, &table, "w", None);
     assert_eq!(pos, 5); // end of "hello"
@@ -324,7 +324,7 @@ fn skip_syntax_forward_word() {
 #[test]
 fn skip_syntax_forward_whitespace_and_word() {
     let mut buf = buf_with_text("  hello");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
     let pos = skip_syntax_forward(&buf, &table, " w", None);
     assert_eq!(pos, 7); // end of "  hello"
@@ -333,7 +333,7 @@ fn skip_syntax_forward_whitespace_and_word() {
 #[test]
 fn skip_syntax_backward_word() {
     let mut buf = buf_with_text("hello world");
-    buf.pt = 11;
+    buf.goto_byte(11);
     let table = SyntaxTable::new_standard();
     let pos = skip_syntax_backward(&buf, &table, "w", None);
     assert_eq!(pos, 6); // start of "world"
@@ -342,7 +342,7 @@ fn skip_syntax_backward_word() {
 #[test]
 fn skip_syntax_forward_with_limit() {
     let mut buf = buf_with_text("helloworld");
-    buf.pt = 0;
+    buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
     let pos = skip_syntax_forward(&buf, &table, "w", Some(3));
     assert_eq!(pos, 3);
