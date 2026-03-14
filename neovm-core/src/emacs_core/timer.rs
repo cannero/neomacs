@@ -6,7 +6,6 @@
 //! - `cancel-timer` — deactivate a timer
 //! - `timerp` — type predicate
 //! - `timer-activate` — reactivate a timer
-//! - `sit-for` — sleep/yield
 
 use std::time::{Duration, Instant};
 
@@ -591,82 +590,6 @@ pub(crate) fn builtin_sleep_for(args: Vec<Value>) -> EvalResult {
     }
 
     Ok(Value::Nil)
-}
-
-/// (sit-for SECONDS &optional NODISP) -> t or nil
-///
-/// Wait for SECONDS, performing redisplay unless NODISP is non-nil.
-/// Returns t if the full time elapsed, nil if interrupted by input.
-/// In interactive mode, uses recv_timeout on the input channel.
-pub(crate) fn builtin_sit_for(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_min_args("sit-for", &args, 1)?;
-    if args.len() > 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("sit-for"), Value::Int(args.len() as i64)],
-        ));
-    }
-    let secs = expect_number(&args[0])?;
-    let nodisp = args.get(1).is_some_and(|v| v.is_truthy());
-
-    // Trigger redisplay before waiting (unless NODISP)
-    if !nodisp {
-        eval.redisplay();
-    }
-
-    if secs <= 0.0 {
-        return Ok(Value::True);
-    }
-
-    // Interactive mode: wait with recv_timeout, polling processes and timers.
-    if let Some(rx) = eval.input_rx.clone() {
-        let deadline = std::time::Instant::now() + Duration::from_secs_f64(secs);
-        loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return Ok(Value::True); // Full time elapsed
-            }
-            // Use short poll interval when live processes exist.
-            let chunk = remaining.min(Duration::from_millis(100));
-            match rx.recv_timeout(chunk) {
-                Ok(event) => {
-                    // Input arrived — push key events back as unread, return nil
-                    use super::keymap::key_event_to_emacs_event;
-                    use crate::keyboard::InputEvent;
-                    if let InputEvent::KeyPress(key) = event {
-                        let keymap_key: super::keymap::KeyEvent = key.into();
-                        let emacs_event = key_event_to_emacs_event(&keymap_key);
-                        eval.push_unread_command_event(emacs_event);
-                    }
-                    return Ok(Value::Nil); // Interrupted by input
-                }
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                    // Poll process output and fire timers during the wait.
-                    eval.fire_pending_timers();
-                    eval.poll_process_output();
-                }
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                    return Ok(Value::True);
-                }
-            }
-        }
-    } else {
-        // Batch mode: wait using poller for process output.
-        let deadline = std::time::Instant::now() + Duration::from_secs_f64(secs);
-        loop {
-            let now = std::time::Instant::now();
-            if now >= deadline {
-                break;
-            }
-            let remaining = deadline - now;
-            let chunk = remaining.min(Duration::from_millis(100));
-            // Use poller for efficient waiting if processes are live.
-            eval.processes.wait_for_output(chunk);
-            eval.poll_process_output();
-            eval.fire_pending_timers();
-        }
-        Ok(Value::True)
-    }
 }
 
 // ===========================================================================

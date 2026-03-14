@@ -1,6 +1,38 @@
 use super::super::value::next_float_id;
 use super::*;
+use crate::emacs_core::eval::Evaluator;
+use std::fs;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing GNU subr.el marker: {marker}"));
+    let forms = super::super::parser::parse_forms(&source[start..])
+        .unwrap_or_else(|err| panic!("parse GNU subr.el from {marker} failed: {:?}", err));
+    let form = forms
+        .first()
+        .unwrap_or_else(|| panic!("no GNU subr.el form found after marker: {marker}"));
+    eval.eval_expr(form)
+        .unwrap_or_else(|err| panic!("evaluate GNU subr.el form {marker} failed: {:?}", err));
+}
+
+fn gnu_subr_sit_for_eval() -> Evaluator {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let subr_path = project_root.join("lisp/subr.el");
+    let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
+
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    eval_first_form_after_marker(
+        &mut ev,
+        &subr_source,
+        "(defun sit-for (seconds &optional nodisp)",
+    );
+    ev
+}
 
 #[test]
 fn timer_creation_and_list() {
@@ -223,24 +255,29 @@ fn test_builtin_timerp() {
 }
 
 #[test]
-fn test_builtin_sit_for() {
-    use super::super::eval::Evaluator;
+fn gnu_sit_for_matches_subr_el() {
+    let mut ev = gnu_subr_sit_for_eval();
+    let forms = super::super::parser::parse_forms(
+        r#"
+        (let ((noninteractive t))
+          (sit-for 0.0))
+        (let ((noninteractive t))
+          (sit-for 0.01 t))
+        "#,
+    )
+    .expect("parse sit-for forms");
 
-    let mut eval = Evaluator::new();
+    let first = ev.eval(&forms[0]).expect("eval sit-for");
+    assert!(first.is_truthy());
 
-    let result = builtin_sit_for(&mut eval, vec![Value::Float(0.1, next_float_id())]);
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_truthy());
+    let second = ev.eval(&forms[1]).expect("eval sit-for nodisp");
+    assert!(second.is_truthy());
+}
 
-    // Wrong type
-    let result = builtin_sit_for(&mut eval, vec![Value::string("bad")]);
-    assert!(result.is_err());
-
-    // Wrong arity
-    let result = builtin_sit_for(&mut eval, vec![Value::Int(0), Value::Nil, Value::Nil]);
-    assert!(matches!(
-        result,
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
+#[test]
+fn sit_for_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "sit-for"
     ));
 }
 

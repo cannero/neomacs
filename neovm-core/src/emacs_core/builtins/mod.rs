@@ -1388,10 +1388,6 @@ pub(crate) fn dispatch_builtin(
         "process-buffer" => return Some(super::process::builtin_process_buffer(eval, args)),
         // Timer operations (evaluator-dependent)
         "sleep-for" => return Some(super::timer::builtin_sleep_for(args)),
-        "sit-for" => {
-            tracing::info!("dispatch_builtin: sit-for called with {:?}", args);
-            return Some(super::timer::builtin_sit_for(eval, args));
-        }
         // Variable watchers
         "add-variable-watcher" => {
             return Some(super::advice::builtin_add_variable_watcher(eval, args));
