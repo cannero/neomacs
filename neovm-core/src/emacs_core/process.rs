@@ -437,8 +437,8 @@ fn checked_region_bytes(
     start: i64,
     end: i64,
 ) -> Result<(usize, usize), Flow> {
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",

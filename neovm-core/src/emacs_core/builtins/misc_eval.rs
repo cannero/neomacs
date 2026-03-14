@@ -61,9 +61,7 @@ pub(crate) fn builtin_next_char_property_change(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::Int(
-        buf.text.byte_to_char(buf.point_max()) as i64 + 1,
-    ))
+    Ok(Value::Int(buf.point_max_char() as i64 + 1))
 }
 
 pub(crate) fn builtin_pos_bol(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
@@ -223,9 +221,7 @@ pub(crate) fn builtin_previous_char_property_change(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::Int(
-        buf.text.byte_to_char(buf.point_min()) as i64 + 1,
-    ))
+    Ok(Value::Int(buf.point_min_char() as i64 + 1))
 }
 
 pub(crate) fn builtin_next_single_char_property_change(
@@ -257,14 +253,14 @@ pub(crate) fn builtin_next_single_char_property_change(
                 .buffers
                 .get(*id)
                 .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-            buf.text.byte_to_char(buf.point_max()) as i64 + 1
+            buf.point_max_char() as i64 + 1
         }
         _ => {
             let buf = eval
                 .buffers
                 .current_buffer()
                 .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-            buf.text.byte_to_char(buf.point_max()) as i64 + 1
+            buf.point_max_char() as i64 + 1
         }
     };
     Ok(Value::Int(upper))
@@ -297,14 +293,14 @@ pub(crate) fn builtin_previous_single_char_property_change(
                 .buffers
                 .get(*id)
                 .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-            buf.text.byte_to_char(buf.point_min()) as i64 + 1
+            buf.point_min_char() as i64 + 1
         }
         _ => {
             let buf = eval
                 .buffers
                 .current_buffer()
                 .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-            buf.text.byte_to_char(buf.point_min()) as i64 + 1
+            buf.point_min_char() as i64 + 1
         }
     };
     Ok(Value::Int(lower))
@@ -545,7 +541,7 @@ pub(crate) fn builtin_barf_if_buffer_read_only(
     let Some(buf) = eval.buffers.current_buffer() else {
         return Ok(Value::Nil);
     };
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
     let read_only = buffer_read_only_active(eval, buf);
     let buffer_name = buf.name.clone();
     if !read_only {

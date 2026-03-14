@@ -653,8 +653,8 @@ impl KillRing {
 /// Resolve (beg, end) byte positions from Emacs-style 1-based character
 /// positions, ensuring beg <= end and both are within the accessible region.
 fn resolve_region(buf: &Buffer, beg: i64, end: i64) -> (usize, usize) {
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
 
     let mut a = beg.clamp(point_min, point_max);
     let mut b = end.clamp(point_min, point_max);

@@ -808,8 +808,8 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_eval(
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     let mut clamped_start = start.clamp(point_min, point_max);
     let mut clamped_end = end.clamp(point_min, point_max);
     if clamped_start > clamped_end {

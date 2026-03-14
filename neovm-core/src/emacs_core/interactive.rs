@@ -1774,8 +1774,8 @@ fn interactive_validate_integer_position_arg(
     let Some(buf) = eval.buffers.current_buffer() else {
         return Ok(());
     };
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     if *pos < point_min || *pos > point_max {
         return Err(signal(
             "args-out-of-range",

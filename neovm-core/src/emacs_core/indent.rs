@@ -371,8 +371,8 @@ pub(crate) fn builtin_indent_region(
         ));
     }
 
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     let a = start.clamp(point_min, point_max);
     let b = end.clamp(point_min, point_max);
     if a >= b {

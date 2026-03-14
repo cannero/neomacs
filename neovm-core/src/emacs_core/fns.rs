@@ -288,8 +288,8 @@ fn normalize_current_buffer_region_bounds(
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
 
-    let point_min_char = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max_char = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min_char = buf.point_min_char() as i64 + 1;
+    let point_max_char = buf.point_max_char() as i64 + 1;
     let start_raw = require_int_or_marker(start_arg)?;
     let end_raw = require_int_or_marker(end_arg)?;
     if start_raw < point_min_char
@@ -628,8 +628,8 @@ fn hash_slice_for_buffer(
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
 
     let text = buf.buffer_string();
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
 
     let start_arg = start_raw.cloned().unwrap_or(Value::Nil);
     let end_arg = end_raw.cloned().unwrap_or(Value::Nil);

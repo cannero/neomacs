@@ -522,8 +522,8 @@ pub(crate) fn builtin_buffer_substring(
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
@@ -1475,8 +1475,8 @@ fn resolve_field_position(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     let pos = match position_value {
         None | Some(Value::Nil) => buf.text.byte_to_char(buf.pt) as i64 + 1,
         Some(value) => expect_integer_or_marker(value)?,
@@ -1822,8 +1822,8 @@ pub(crate) fn builtin_delete_region(
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
@@ -1858,8 +1858,8 @@ pub(crate) fn builtin_delete_and_extract_region(
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         (
-            buf.text.byte_to_char(buf.point_min()) as i64 + 1,
-            buf.text.byte_to_char(buf.point_max()) as i64 + 1,
+            buf.point_min_char() as i64 + 1,
+            buf.point_max_char() as i64 + 1,
             Value::Buffer(buf.id),
         )
     };
@@ -2055,8 +2055,8 @@ pub(crate) fn builtin_narrow_to_region(
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
@@ -2428,8 +2428,8 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Evaluator, args: Vec<Valu
         buf.point()
     } else {
         let pos = expect_integer_or_marker(&args[0])?;
-        let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-        let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+        let point_min = buf.point_min_char() as i64 + 1;
+        let point_max = buf.point_max_char() as i64 + 1;
         if pos < point_min || pos >= point_max {
             return Err(signal(
                 "args-out-of-range",

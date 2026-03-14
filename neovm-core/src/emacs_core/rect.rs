@@ -260,8 +260,8 @@ fn clamped_rect_inputs(
     usize,
 )> {
     let buf = eval.buffers.current_buffer()?;
-    let point_min_char = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
-    let point_max_char = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
+    let point_min_char = buf.point_min_char() as i64 + 1;
+    let point_max_char = buf.point_max_char() as i64 + 1;
     let clamped_start = start.clamp(point_min_char, point_max_char);
     let clamped_end = end.clamp(point_min_char, point_max_char);
     let pmin = buf.point_min();
