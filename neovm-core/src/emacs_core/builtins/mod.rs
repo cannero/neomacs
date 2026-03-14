@@ -2074,9 +2074,6 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
-        "x-clipboard-yank" => {
-            return Some(super::display::builtin_x_clipboard_yank_eval(eval, args));
-        }
         "x-close-connection" => {
             return Some(super::display::builtin_x_close_connection_eval(eval, args));
         }
@@ -2681,7 +2678,6 @@ pub(crate) fn dispatch_builtin(
         "x-backspace-delete-keys-p" => super::display::builtin_x_backspace_delete_keys_p(args),
         "x-change-window-property" => super::display::builtin_x_change_window_property(args),
         "x-clear-preedit-text" => super::display::builtin_x_clear_preedit_text(args),
-        "x-clipboard-yank" => super::display::builtin_x_clipboard_yank(args),
         "x-focus-frame" => super::display::builtin_x_focus_frame(args),
         "x-get-input-coding-system" => super::display::builtin_x_get_input_coding_system(args),
         "x-get-local-selection" => super::display::builtin_x_get_local_selection(args),

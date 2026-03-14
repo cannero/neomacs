@@ -2026,6 +2026,13 @@ fn x_win_suspend_error_is_not_dispatch_builtin() {
 }
 
 #[test]
+fn x_clipboard_yank_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "x-clipboard-yank"
+    ));
+}
+
+#[test]
 fn x_selection_property_tip_batch_semantics() {
     let assert_wrong_type = |result: EvalResult, pred: &str, arg: Value| match result {
         Err(Flow::Signal(sig)) => {
@@ -2101,9 +2108,6 @@ fn x_selection_property_tip_batch_semantics() {
         Value::Nil,
         Value::Nil,
     ]));
-
-    assert_error(builtin_x_clipboard_yank(vec![]), "Kill ring is empty");
-    assert_wrong_number(builtin_x_clipboard_yank(vec![Value::Nil]));
 
     assert!(
         builtin_x_disown_selection_internal(vec![Value::Nil])
@@ -2511,61 +2515,6 @@ fn eval_x_display_queries_accept_live_frame_designator() {
     let height = builtin_x_display_pixel_height_eval(&mut eval, vec![Value::Int(frame_id)]);
     assert!(width.is_err());
     assert!(height.is_err());
-}
-
-#[test]
-fn eval_x_clipboard_yank_respects_kill_ring_binding() {
-    let mut eval = crate::emacs_core::Evaluator::new();
-
-    match builtin_x_clipboard_yank_eval(&mut eval, vec![]) {
-        Err(Flow::Signal(sig)) => {
-            assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(sig.data, vec![Value::string("Kill ring is empty")]);
-        }
-        other => panic!("expected error signal, got {other:?}"),
-    }
-
-    eval.assign("kill-ring", Value::list(vec![Value::string("abc")]));
-    assert!(
-        builtin_x_clipboard_yank_eval(&mut eval, vec![])
-            .unwrap()
-            .is_nil()
-    );
-
-    eval.assign("kill-ring", Value::list(vec![Value::Int(1)]));
-    match builtin_x_clipboard_yank_eval(&mut eval, vec![]) {
-        Err(Flow::Signal(sig)) => {
-            assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(
-                sig.data,
-                vec![Value::symbol("buffer-or-string-p"), Value::Int(1)]
-            );
-        }
-        other => panic!("expected wrong-type-argument signal, got {other:?}"),
-    }
-
-    eval.assign("kill-ring", Value::Int(1));
-    match builtin_x_clipboard_yank_eval(&mut eval, vec![]) {
-        Err(Flow::Signal(sig)) => {
-            assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("sequencep"), Value::Int(1)]);
-        }
-        other => panic!("expected wrong-type-argument signal, got {other:?}"),
-    }
-
-    eval.assign("kill-ring", Value::string("abc"));
-    match builtin_x_clipboard_yank_eval(&mut eval, vec![]) {
-        Err(Flow::Signal(sig)) => {
-            assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::string("abc")]);
-        }
-        other => panic!("expected wrong-type-argument signal, got {other:?}"),
-    }
-
-    match builtin_x_clipboard_yank_eval(&mut eval, vec![Value::Nil]) {
-        Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
-        other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
-    }
 }
 
 #[test]

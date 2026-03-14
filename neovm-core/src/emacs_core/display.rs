@@ -1433,50 +1433,6 @@ pub(crate) fn builtin_x_apply_session_resources_eval(
     Err(window_system_not_initialized_error())
 }
 
-/// (x-clipboard-yank) -> error in batch/no-X context.
-pub(crate) fn builtin_x_clipboard_yank(args: Vec<Value>) -> EvalResult {
-    expect_args("x-clipboard-yank", &args, 0)?;
-    Err(signal("error", vec![Value::string("Kill ring is empty")]))
-}
-
-/// Evaluator-aware variant of `x-clipboard-yank`.
-///
-/// In batch/no-X context this mirrors Oracle behavior:
-/// - empty kill-ring -> `(error "Kill ring is empty")`
-/// - non-empty list with string/buffer head -> `nil`
-/// - non-list kill-ring payload contracts -> `wrong-type-argument` shape
-pub(crate) fn builtin_x_clipboard_yank_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("x-clipboard-yank", &args, 0)?;
-    let kill_ring = dynamic_or_global_symbol_value(eval, "kill-ring").unwrap_or(Value::Nil);
-    match kill_ring {
-        Value::Nil => Err(signal("error", vec![Value::string("Kill ring is empty")])),
-        Value::Cons(cell) => {
-            let head = {
-                let pair = read_cons(cell);
-                pair.car
-            };
-            match head {
-                Value::Str(_) | Value::Buffer(_) => Ok(Value::Nil),
-                other => Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("buffer-or-string-p"), other],
-                )),
-            }
-        }
-        Value::Str(_) | Value::Vector(_) => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("listp"), kill_ring],
-        )),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("sequencep"), other],
-        )),
-    }
-}
-
 /// (x-list-fonts PATTERN &optional FACE FRAME MAXIMUM WIDTH) -> error in batch/no-X context.
 pub(crate) fn builtin_x_list_fonts(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-list-fonts", &args, 1, 5)?;

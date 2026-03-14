@@ -1323,7 +1323,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "x-change-window-property",
     "x-clear-preedit-text",
     "x-close-connection",
-    "x-clipboard-yank",
     "x-create-frame",
     "x-delete-window-property",
     "x-device-class",

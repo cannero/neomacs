@@ -487,7 +487,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "top-level",
         "unix-sync",
         "write-region",
-        "x-clipboard-yank",
         "x-menu-bar-open-internal",
         "x-preedit-text",
         "yank-rectangle",

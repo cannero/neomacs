@@ -208,7 +208,6 @@ fn subr_arity_display_terminal_primitives_match_oracle() {
     assert_subr_arity("x-backspace-delete-keys-p", 0, Some(1));
     assert_subr_arity("x-change-window-property", 2, Some(7));
     assert_subr_arity("x-clear-preedit-text", 0, Some(0));
-    assert_subr_arity("x-clipboard-yank", 0, Some(0));
     assert_subr_arity("x-delete-window-property", 1, Some(3));
     assert_subr_arity("x-device-class", 1, Some(1));
     assert_subr_arity("x-disown-selection-internal", 1, Some(3));

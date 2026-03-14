@@ -250,6 +250,19 @@ Used as `interprogram-paste-function'."
         (setq neomacs--last-clipboard-text text)
         text))))
 
+(defun x-clipboard-yank ()
+  "Insert the clipboard contents, or the last stretch of killed text."
+  (declare (obsolete clipboard-yank "25.1"))
+  (interactive "*")
+  (let ((clipboard-text (gui--selection-value-internal 'CLIPBOARD))
+        (select-enable-clipboard t))
+    (when (and clipboard-text (> (length clipboard-text) 0))
+      ;; Avoid asserting ownership of CLIPBOARD, which will cause
+      ;; `gui-selection-value' to return nil in the future.
+      (let ((select-enable-clipboard nil))
+        (kill-new clipboard-text)))
+    (yank)))
+
 ;; Selection protocol (CLIPBOARD + PRIMARY)
 (cl-defmethod gui-backend-set-selection (selection value
                                          &context (window-system neomacs))

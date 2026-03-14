@@ -1268,7 +1268,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "minibuffer-contents"
         | "minibuffer-contents-no-properties" => arity_cons(0, Some(0)),
         "regexp-quote" => arity_cons(1, Some(1)),
-        "x-apply-session-resources" | "x-clipboard-yank" => arity_cons(0, Some(0)),
+        "x-apply-session-resources" => arity_cons(0, Some(0)),
         "open-termscript"
         | "x-close-connection"
         | "x-device-class"
