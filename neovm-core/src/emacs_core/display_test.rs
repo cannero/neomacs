@@ -1910,51 +1910,6 @@ fn x_clipboard_input_context_batch_semantics() {
     assert_wrong_number(builtin_x_setup_function_keys(vec![]));
     assert_wrong_number(builtin_x_setup_function_keys(vec![Value::Nil, Value::Nil]));
 
-    assert_eq!(
-        builtin_x_clear_preedit_text(vec![]).unwrap(),
-        Value::list(vec![Value::symbol("tooltip-hide")])
-    );
-    assert_wrong_number(builtin_x_clear_preedit_text(vec![Value::Nil]));
-
-    assert!(builtin_x_preedit_text(vec![Value::Nil]).unwrap().is_nil());
-    assert_wrong_type(builtin_x_preedit_text(vec![term]), "listp", term);
-    assert_wrong_type(
-        builtin_x_preedit_text(vec![Value::Int(1)]),
-        "listp",
-        Value::Int(1),
-    );
-    assert_wrong_type(
-        builtin_x_preedit_text(vec![Value::string("x")]),
-        "listp",
-        Value::string("x"),
-    );
-    assert_wrong_type(builtin_x_preedit_text(vec![frame]), "listp", frame);
-    assert_wrong_type(
-        builtin_x_preedit_text(vec![Value::list(vec![Value::Int(1), Value::Int(2)])]),
-        "stringp",
-        Value::Int(2),
-    );
-    assert!(
-        builtin_x_preedit_text(vec![Value::list(vec![Value::Nil, Value::Nil])])
-            .unwrap()
-            .is_nil()
-    );
-    assert!(
-        builtin_x_preedit_text(vec![Value::list(vec![Value::list(vec![
-            Value::Int(1),
-            Value::Int(2),
-        ])])])
-        .unwrap()
-        .is_nil()
-    );
-    assert_wrong_type(
-        builtin_x_preedit_text(vec![Value::cons(Value::Int(1), Value::Int(2))]),
-        "listp",
-        Value::Int(2),
-    );
-    assert_wrong_number(builtin_x_preedit_text(vec![]));
-    assert_wrong_number(builtin_x_preedit_text(vec![Value::Nil, Value::Nil]));
-
     assert!(builtin_x_device_class(vec![Value::Nil]).unwrap().is_nil());
     assert_wrong_type(builtin_x_device_class(vec![term]), "char-or-string-p", term);
     assert_wrong_type(
@@ -2029,6 +1984,20 @@ fn x_win_suspend_error_is_not_dispatch_builtin() {
 fn x_clipboard_yank_is_not_dispatch_builtin() {
     assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
         "x-clipboard-yank"
+    ));
+}
+
+#[test]
+fn x_clear_preedit_text_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "x-clear-preedit-text"
+    ));
+}
+
+#[test]
+fn x_preedit_text_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "x-preedit-text"
     ));
 }
 

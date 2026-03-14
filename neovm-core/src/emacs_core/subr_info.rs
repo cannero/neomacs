@@ -1275,7 +1275,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "x-get-input-coding-system"
         | "x-internal-focus-input-context"
         | "x-parse-geometry"
-        | "x-preedit-text"
         | "x-setup-function-keys" => arity_cons(1, Some(1)),
         "x-get-local-selection" => arity_cons(0, Some(2)),
         "send-string-to-terminal"
@@ -1470,7 +1469,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "window-use-time"
         | "window-top-line" => arity_cons(0, Some(1)),
         "terminal-list"
-        | "x-clear-preedit-text"
         | "x-display-list"
         | "x-hide-tip"
         | "x-mouse-absolute-pixel-position"

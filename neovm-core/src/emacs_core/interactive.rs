@@ -560,7 +560,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "word-search-forward"
             | "write-region"
             | "x-menu-bar-open-internal"
-            | "x-preedit-text"
             | "yank-rectangle"
     )
 }

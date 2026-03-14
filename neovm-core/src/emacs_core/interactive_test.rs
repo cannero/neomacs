@@ -488,7 +488,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "unix-sync",
         "write-region",
         "x-menu-bar-open-internal",
-        "x-preedit-text",
         "yank-rectangle",
     ] {
         let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])

@@ -305,6 +305,41 @@ SELECTION is a symbol like `CLIPBOARD' or `PRIMARY'."
       (let ((text (neomacs-primary-selection-get)))
         (and text (not (string-empty-p text))))))))
 
+(defcustom x-display-cursor-at-start-of-preedit-string nil
+  "If non-nil, display the cursor at the start of any pre-edit text."
+  :version "29.1"
+  :type 'boolean
+  :group 'neomacs)
+
+(defvar x-preedit-overlay nil
+  "The overlay currently used to display preedit text from a compose sequence.")
+
+(defun x-clear-preedit-text ()
+  "Clear the pre-edit overlay and remove itself from `pre-command-hook'."
+  (when x-preedit-overlay
+    (delete-overlay x-preedit-overlay)
+    (setq x-preedit-overlay nil))
+  (remove-hook 'pre-command-hook #'x-clear-preedit-text))
+
+(defun x-preedit-text (event)
+  "Display preedit text from a compose sequence in EVENT."
+  (interactive "e")
+  (when x-preedit-overlay
+    (delete-overlay x-preedit-overlay)
+    (setq x-preedit-overlay nil)
+    (remove-hook 'pre-command-hook #'x-clear-preedit-text))
+  (when (nth 1 event)
+    (let ((string (propertize (nth 1 event) 'face '(:underline t))))
+      (setq x-preedit-overlay (make-overlay (point) (point)))
+      (add-hook 'pre-command-hook #'x-clear-preedit-text)
+      (overlay-put x-preedit-overlay 'window (selected-window))
+      (overlay-put x-preedit-overlay 'before-string
+                   (if x-display-cursor-at-start-of-preedit-string
+                       (propertize string 'cursor t)
+                     string)))))
+
+(define-key special-event-map [preedit-text] #'x-preedit-text)
+
 ;; Drag-and-drop file handling
 (require 'dnd)
 

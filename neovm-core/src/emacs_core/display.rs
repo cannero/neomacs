@@ -1280,54 +1280,6 @@ pub(crate) fn builtin_x_setup_function_keys(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// (x-clear-preedit-text) -> 'tooltip-hide in batch/no-X context.
-pub(crate) fn builtin_x_clear_preedit_text(args: Vec<Value>) -> EvalResult {
-    expect_args("x-clear-preedit-text", &args, 0)?;
-    Ok(Value::list(vec![Value::symbol("tooltip-hide")]))
-}
-
-/// (x-preedit-text ARG) -> nil/error in batch/no-X context.
-pub(crate) fn builtin_x_preedit_text(args: Vec<Value>) -> EvalResult {
-    expect_args("x-preedit-text", &args, 1)?;
-    let arg = &args[0];
-    if arg.is_nil() {
-        return Ok(Value::Nil);
-    }
-
-    let rest = match arg {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            pair.cdr
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), *other],
-            ));
-        }
-    };
-
-    if !rest.is_list() {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("listp"), rest],
-        ));
-    }
-
-    if let Value::Cons(cell) = rest {
-        let pair = read_cons(cell);
-        let second = pair.car;
-        if !second.is_nil() && !second.is_string() && !second.is_list() {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), second],
-            ));
-        }
-    }
-
-    Ok(Value::Nil)
-}
-
 /// (x-device-class DISPLAY) -> nil/error in batch/no-X context.
 pub(crate) fn builtin_x_device_class(args: Vec<Value>) -> EvalResult {
     expect_args("x-device-class", &args, 1)?;

@@ -207,7 +207,6 @@ fn subr_arity_display_terminal_primitives_match_oracle() {
     assert_subr_arity("x-apply-session-resources", 0, Some(0));
     assert_subr_arity("x-backspace-delete-keys-p", 0, Some(1));
     assert_subr_arity("x-change-window-property", 2, Some(7));
-    assert_subr_arity("x-clear-preedit-text", 0, Some(0));
     assert_subr_arity("x-delete-window-property", 1, Some(3));
     assert_subr_arity("x-device-class", 1, Some(1));
     assert_subr_arity("x-disown-selection-internal", 1, Some(3));
@@ -232,7 +231,6 @@ fn subr_arity_display_terminal_primitives_match_oracle() {
     assert_subr_arity("x-open-connection", 1, Some(3));
     assert_subr_arity("x-own-selection-internal", 2, Some(3));
     assert_subr_arity("x-parse-geometry", 1, Some(1));
-    assert_subr_arity("x-preedit-text", 1, Some(1));
     assert_subr_arity("x-popup-dialog", 2, Some(3));
     assert_subr_arity("x-popup-menu", 2, Some(2));
     assert_subr_arity("x-register-dnd-atom", 1, Some(2));

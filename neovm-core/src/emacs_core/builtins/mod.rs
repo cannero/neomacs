@@ -2677,7 +2677,6 @@ pub(crate) fn dispatch_builtin(
         "x-export-frames" => super::display::builtin_x_export_frames(args),
         "x-backspace-delete-keys-p" => super::display::builtin_x_backspace_delete_keys_p(args),
         "x-change-window-property" => super::display::builtin_x_change_window_property(args),
-        "x-clear-preedit-text" => super::display::builtin_x_clear_preedit_text(args),
         "x-focus-frame" => super::display::builtin_x_focus_frame(args),
         "x-get-input-coding-system" => super::display::builtin_x_get_input_coding_system(args),
         "x-get-local-selection" => super::display::builtin_x_get_local_selection(args),
@@ -2710,7 +2709,6 @@ pub(crate) fn dispatch_builtin(
         "x-internal-focus-input-context" => {
             super::display::builtin_x_internal_focus_input_context(args)
         }
-        "x-preedit-text" => super::display::builtin_x_preedit_text(args),
         "x-send-client-message" => super::display::builtin_x_send_client_message(args),
         "x-show-tip" => super::display::builtin_x_show_tip(args),
         "x-set-mouse-absolute-pixel-position" => {
