@@ -2605,13 +2605,7 @@ pub(crate) fn builtin_syntax_ppss_flush_cache(
 }
 
 fn lisp_pos_to_byte(buf: &Buffer, raw: i64) -> usize {
-    let point_min = buf.point_min();
-    let accessible_char_start = buf.text.byte_to_char(point_min);
-    let accessible_char_end = buf.point_max_char();
-    let accessible_len = accessible_char_end - accessible_char_start;
-    let char_index = raw.max(1) as usize - 1;
-    let clamped_char = accessible_char_start + char_index.min(accessible_len);
-    buf.text.char_to_byte(clamped_char)
+    buf.lisp_pos_to_accessible_byte(raw)
 }
 
 /// `(skip-syntax-forward SYNTAX &optional LIMIT)` — skip forward over chars
