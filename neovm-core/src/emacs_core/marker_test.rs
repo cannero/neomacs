@@ -82,6 +82,23 @@ fn builtin_copy_marker_from_integer() {
 }
 
 #[test]
+fn builtin_move_marker_matches_set_marker_behavior() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let marker = builtin_make_marker(vec![]).expect("make marker");
+    let moved = builtin_move_marker(
+        &mut eval,
+        vec![marker, Value::Int(3), Value::string("*scratch*")],
+    )
+    .expect("move marker");
+    assert!(is_marker(&moved));
+    assert_eq!(builtin_marker_position(vec![moved]).unwrap(), Value::Int(3));
+    assert_eq!(
+        builtin_marker_buffer(vec![moved]).unwrap().as_str(),
+        Some("*scratch*")
+    );
+}
+
+#[test]
 fn builtin_make_marker_returns_empty() {
     let m = builtin_make_marker(vec![]).unwrap();
     assert!(is_marker(&m));

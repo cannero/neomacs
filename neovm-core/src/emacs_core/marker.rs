@@ -13,7 +13,7 @@
 //!   `copy-marker`, `make-marker`
 //!
 //! Eval-dependent builtins:
-//!   `set-marker`, `point-marker`, `point-min-marker`,
+//!   `set-marker`, `move-marker`, `point-marker`, `point-min-marker`,
 //!   `point-max-marker`, `mark-marker`
 
 use super::error::{EvalResult, Flow, signal};
@@ -604,6 +604,18 @@ pub(crate) fn builtin_set_marker(
     }
 
     Ok(args[0])
+}
+
+/// (move-marker MARKER POSITION &optional BUFFER) -> MARKER
+///
+/// GNU Emacs exposes `move-marker` as the marker-moving primitive used by
+/// Lisp code such as `indent.el`. Its observable behavior matches
+/// `set-marker`, so reuse that implementation.
+pub(crate) fn builtin_move_marker(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_set_marker(eval, args)
 }
 
 /// Register a Lisp marker in the target buffer's marker list so that

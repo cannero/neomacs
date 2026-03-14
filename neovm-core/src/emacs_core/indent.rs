@@ -2,7 +2,7 @@
 //!
 //! Implements stub versions of Emacs indentation primitives:
 //! - `current-indentation`, `indent-to`, `current-column`, `move-to-column`
-//! - `indent-region`, `indent-line-to`, `indent-rigidly`, `newline-and-indent`,
+//! - `indent-line-to`, `indent-rigidly`, `newline-and-indent`,
 //!   `indent-for-tab-command`, `tab-to-tab-stop`, `delete-indentation`
 //!
 //! Variables: `tab-width`, `indent-tabs-mode`, `standard-indent`, `tab-stop-list`
@@ -411,85 +411,6 @@ pub(crate) fn builtin_move_to_column_eval(
     }
 
     Ok(Value::Int(reached as i64))
-}
-
-/// (indent-region START END &optional COLUMN) -> nil
-///
-/// Indent each nonblank line in the region.
-/// Stub: does nothing, returns nil.
-pub(crate) fn builtin_indent_region(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("indent-region", &args, 2)?;
-    expect_max_args("indent-region", &args, 3)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
-    let target_column = match args.get(2) {
-        Some(Value::Int(n)) => Some((*n).max(0) as usize),
-        Some(Value::Char(c)) => Some((*c as i64).max(0) as usize),
-        _ => None,
-    };
-
-    let Some(buf) = eval.buffers.current_buffer() else {
-        return Ok(Value::True);
-    };
-    if buffer_read_only_active(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    let point_min = buf.point_min_char() as i64 + 1;
-    let point_max = buf.point_max_char() as i64 + 1;
-    let a = start.clamp(point_min, point_max);
-    let b = end.clamp(point_min, point_max);
-    if a >= b {
-        return Ok(Value::True);
-    }
-    let region_start = buf.text.char_to_byte((a - 1).max(0) as usize);
-    let region_end = buf.text.char_to_byte((b - 1).max(0) as usize);
-
-    let text = buf.text.to_string();
-    let region = &text[region_start..region_end];
-
-    let mut rewritten = String::with_capacity(
-        region
-            .len()
-            .saturating_add(target_column.unwrap_or(0).saturating_mul(4)),
-    );
-    for segment in region.split_inclusive('\n') {
-        let (line, has_newline) = match segment.strip_suffix('\n') {
-            Some(prefix) => (prefix, true),
-            None => (segment, false),
-        };
-
-        if line.chars().all(|ch| ch == ' ' || ch == '\t') {
-            rewritten.push_str(line);
-        } else {
-            let trimmed = line.trim_start_matches([' ', '\t']);
-            if let Some(column) = target_column {
-                rewritten.push_str(&" ".repeat(column));
-            }
-            rewritten.push_str(trimmed);
-        }
-
-        if has_newline {
-            rewritten.push('\n');
-        }
-    }
-
-    let Some(current_id) = eval.buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
-    };
-    let _ = eval
-        .buffers
-        .delete_buffer_region(current_id, region_start, region_end);
-    let _ = eval.buffers.goto_buffer_byte(current_id, region_start);
-    let _ = eval.buffers.insert_into_buffer(current_id, &rewritten);
-
-    Ok(Value::True)
 }
 
 /// (indent-to COLUMN &optional MINIMUM) -> COLUMN

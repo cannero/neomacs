@@ -454,6 +454,7 @@ fn subr_arity_mark_marker_primitives_match_oracle() {
     assert_subr_arity("marker-position", 1, Some(1));
     assert_subr_arity("markerp", 1, Some(1));
     assert_subr_arity("set-marker", 2, Some(3));
+    assert_subr_arity("move-marker", 2, Some(3));
     assert_subr_arity("set-marker-insertion-type", 2, Some(2));
 }
 

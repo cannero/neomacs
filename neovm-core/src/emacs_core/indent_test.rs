@@ -49,6 +49,16 @@ fn gnu_indent_el_eval() -> Evaluator {
 
     let mut ev = Evaluator::new();
     ev.set_lexical_binding(true);
+    let progress_stub_forms = super::super::parser::parse_forms(
+        r#"
+        (setq fill-prefix nil)
+        (fset 'make-progress-reporter (lambda (&rest _args) nil))
+        (fset 'progress-reporter-update (lambda (&rest _args) nil))
+        (fset 'progress-reporter-done (lambda (&rest _args) nil))
+        "#,
+    )
+    .expect("parse progress reporter stubs");
+    ev.eval_forms(&progress_stub_forms);
     eval_first_form_after_marker(
         &mut ev,
         &syntax_source,
@@ -67,6 +77,21 @@ fn gnu_indent_el_eval() -> Evaluator {
         "(defun indent-according-to-mode (&optional inhibit-widen)",
     );
     eval_first_form_after_marker(&mut ev, &indent_source, "(defun indent-line-to (column)");
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defun indent-region-line-by-line (start end)",
+    );
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defvar indent-region-function #'indent-region-line-by-line",
+    );
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defun indent-region (start end &optional column)",
+    );
     ev
 }
 
@@ -257,8 +282,15 @@ fn back_to_indentation_is_not_dispatch_builtin() {
 }
 
 #[test]
-fn eval_indent_region_column_subset() {
-    let mut ev = super::super::eval::Evaluator::new();
+fn indent_region_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "indent-region"
+    ));
+}
+
+#[test]
+fn gnu_indent_region_matches_indent_el() {
+    let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"
         (with-temp-buffer
@@ -278,7 +310,7 @@ fn eval_indent_region_column_subset() {
           (indent-region (point-min) (point-max) "x"))
         "#,
     )
-    .expect("parse forms");
+    .expect("parse indent-region forms");
 
     let first = ev.eval(&forms[0]).expect("eval indent-region column");
     assert_eq!(
@@ -302,7 +334,7 @@ fn eval_indent_region_column_subset() {
     let second = ev.eval(&forms[1]).expect("eval indent-region nil column");
     assert_eq!(
         list_to_vec(&second).expect("second byte list"),
-        vec![Value::Int(97), Value::Int(10), Value::Int(98),]
+        vec![Value::Int(97), Value::Int(10), Value::Int(98)]
     );
 
     let third = ev
@@ -310,7 +342,7 @@ fn eval_indent_region_column_subset() {
         .expect("eval indent-region swapped bounds");
     assert_eq!(
         list_to_vec(&third).expect("third byte list"),
-        vec![Value::Int(97), Value::Int(10), Value::Int(98),]
+        vec![Value::Int(97), Value::Int(10), Value::Int(98)]
     );
 
     let fourth = ev

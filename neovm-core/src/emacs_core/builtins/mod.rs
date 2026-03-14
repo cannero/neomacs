@@ -2263,6 +2263,7 @@ pub(crate) fn dispatch_builtin(
 
         // Marker (evaluator-dependent)
         "set-marker" => return Some(super::marker::builtin_set_marker(eval, args)),
+        "move-marker" => return Some(super::marker::builtin_move_marker(eval, args)),
         "marker-position" => return Some(super::marker::builtin_marker_position_eval(eval, args)),
         "copy-marker" => return Some(super::marker::builtin_copy_marker_eval(eval, args)),
         "point-marker" => return Some(super::marker::builtin_point_marker(eval, args)),
@@ -2396,7 +2397,6 @@ pub(crate) fn dispatch_builtin(
         }
         "current-column" => return Some(super::indent::builtin_current_column_eval(eval, args)),
         "move-to-column" => return Some(super::indent::builtin_move_to_column_eval(eval, args)),
-        "indent-region" => return Some(super::indent::builtin_indent_region(eval, args)),
         "indent-for-tab-command" => {
             return Some(super::indent::builtin_indent_for_tab_command(eval, args));
         }

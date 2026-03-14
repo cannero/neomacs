@@ -466,7 +466,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "goto-char"
             | "how-many"
             | "increment-register"
-            | "indent-region"
             | "indent-rigidly"
             | "indent-to"
             | "insert-kbd-macro"

@@ -458,7 +458,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "forward-sexp",
         "gui-set-selection",
         "goto-char",
-        "indent-region",
         "isearch-forward",
         "iconify-frame",
         "kill-emacs",

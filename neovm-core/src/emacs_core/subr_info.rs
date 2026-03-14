@@ -468,7 +468,7 @@ fn subr_arity_value(name: &str) -> Value {
         "fset" | "set" | "get" | "set-marker-insertion-type" => arity_cons(2, Some(2)),
         "defalias" => arity_cons(2, Some(3)),
         "put" => arity_cons(3, Some(3)),
-        "set-marker" => arity_cons(2, Some(3)),
+        "set-marker" | "move-marker" => arity_cons(2, Some(3)),
         "increment-register" | "register-ccl-program" | "register-code-conversion-map" => {
             arity_cons(2, Some(2))
         }
@@ -875,7 +875,6 @@ fn subr_arity_value(name: &str) -> Value {
         "format-time-string" => arity_cons(1, Some(3)),
         "format-mode-line" => arity_cons(1, Some(4)),
         "indent-to" | "move-to-column" => arity_cons(1, Some(2)),
-        "indent-region" => arity_cons(2, Some(3)),
         "indent-for-tab-command" => arity_cons(0, Some(1)),
         "backtrace--frames-from-thread" => arity_cons(1, Some(1)),
         "backtrace--locals" => arity_cons(1, Some(2)),
