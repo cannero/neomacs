@@ -709,16 +709,17 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
             // Decompose control characters (0-31) back to letter + ctrl
             if !has_ctrl_bit && (0..=31).contains(&base) {
                 let (ch, ctrl) = match base {
-                    0 => ('@', true),       // NUL → C-@
-                    1..=26 => {             // 1-26 → C-a through C-z
+                    0 => ('@', true), // NUL → C-@
+                    1..=26 => {
+                        // 1-26 → C-a through C-z
                         let c = char::from_u32((base + 0x60) as u32)?;
                         (c, true)
                     }
-                    27 => ('[', true),      // ESC → C-[
-                    28 => ('\\', true),     // C-\
-                    29 => (']', true),      // C-]
-                    30 => ('^', true),      // C-^
-                    31 => ('_', true),      // C-_
+                    27 => ('[', true),  // ESC → C-[
+                    28 => ('\\', true), // C-\
+                    29 => (']', true),  // C-]
+                    30 => ('^', true),  // C-^
+                    31 => ('_', true),  // C-_
                     _ => unreachable!(),
                 };
                 Some(KeyEvent::Char {

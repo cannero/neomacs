@@ -1359,10 +1359,8 @@ fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<V
         )]),
         // next-line/previous-line: (interactive "^p\np") — two args
         "next-line" | "previous-line" => {
-            let arg = interactive_prefix_numeric_arg(
-                eval,
-                CommandInvocationKind::CallInteractively,
-            );
+            let arg =
+                interactive_prefix_numeric_arg(eval, CommandInvocationKind::CallInteractively);
             Ok(vec![arg, arg])
         }
         "set-mark-command" => Ok(vec![

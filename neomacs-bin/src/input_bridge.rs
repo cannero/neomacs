@@ -41,7 +41,9 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             }
             tracing::debug!(
                 "input_bridge: key keysym=0x{:04x} mods=0x{:x} pressed={}",
-                keysym, modifiers, pressed
+                keysym,
+                modifiers,
+                pressed
             );
             let key_event = keyboard::keysym_to_key_event(keysym, modifiers)?;
             tracing::debug!("input_bridge: converted to {:?}", key_event);

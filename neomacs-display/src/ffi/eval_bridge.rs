@@ -3,7 +3,7 @@
 //! Provides C-callable functions to initialize, query, and evaluate Elisp
 //! via the Rust Evaluator singleton.
 
-use std::ffi::{c_char, c_int, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_int};
 
 /// Global Evaluator instance (lazily initialized via `neomacs_rust_eval_init`).
 static mut RUST_EVALUATOR: Option<neovm_core::emacs_core::Evaluator> = None;

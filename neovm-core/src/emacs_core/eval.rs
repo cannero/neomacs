@@ -2353,8 +2353,13 @@ impl Evaluator {
                     Flow::Signal(sig) => {
                         // Log error but continue the loop
                         // (mirrors cmd_error in keyboard.c)
-                        let data_strs: Vec<String> = sig.data.iter().map(|v| format!("{}", v)).collect();
-                        tracing::warn!("Command error: ({} [{}])", sig.symbol_name(), data_strs.join(", "));
+                        let data_strs: Vec<String> =
+                            sig.data.iter().map(|v| format!("{}", v)).collect();
+                        tracing::warn!(
+                            "Command error: ({} [{}])",
+                            sig.symbol_name(),
+                            data_strs.join(", ")
+                        );
                     }
                 }
             }
@@ -2520,7 +2525,10 @@ impl Evaluator {
         self.fire_pending_timers();
 
         // 5. Block on input (with timer-aware timeout)
-        tracing::debug!("read_char: blocking on input (input_rx={})...", self.input_rx.is_some());
+        tracing::debug!(
+            "read_char: blocking on input (input_rx={})...",
+            self.input_rx.is_some()
+        );
         loop {
             let rx = match self.input_rx {
                 Some(ref rx) => rx.clone(),

@@ -152,9 +152,7 @@ fn format_mode_line_recursive(
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
                 // Skip well-known problematic symbols
-                if name == "mode-line-front-space"
-                    || name == "mode-line-end-spaces"
-                {
+                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
                     result.push(' ');
                     return;
                 }
@@ -222,11 +220,7 @@ fn format_mode_line_recursive(
 }
 
 /// Expand %-constructs in a mode-line format string.
-fn expand_mode_line_percent(
-    eval: &super::eval::Evaluator,
-    fmt_str: &str,
-    result: &mut String,
-) {
+fn expand_mode_line_percent(eval: &super::eval::Evaluator, fmt_str: &str, result: &mut String) {
     let buf = eval.buffer_manager().current_buffer();
     let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
     let file_name = buf.and_then(|b| b.file_name.as_deref()).unwrap_or("");
@@ -282,7 +276,7 @@ fn expand_mode_line_percent(
                     }
                 }
                 Some('z') => result.push_str("U"), // Coding system mnemonic (simplified)
-                Some('@') => result.push('-'),    // Default input method indicator
+                Some('@') => result.push('-'),     // Default input method indicator
                 Some('Z') => result.push_str("U"), // Like %z but includes eol type
                 Some('[') | Some(']') => {}        // Recursive edit depth brackets
                 Some('e') => {}                    // Error message area
