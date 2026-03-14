@@ -1900,6 +1900,36 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
 }
 
 #[test]
+fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let left_id = eval.buffers.create_buffer("*cbs-left*");
+    eval.buffers.set_current(left_id);
+    builtin_insert(&mut eval, vec![Value::string("xaBCy")]).unwrap();
+    let _ = eval.buffers.narrow_buffer_to_region(left_id, 1, 4);
+
+    let right_id = eval.buffers.create_buffer("*cbs-right*");
+    eval.buffers.set_current(right_id);
+    builtin_insert(&mut eval, vec![Value::string("zaBCw")]).unwrap();
+    let _ = eval.buffers.narrow_buffer_to_region(right_id, 1, 4);
+
+    assert_eq!(
+        builtin_compare_buffer_substrings(
+            &mut eval,
+            vec![
+                Value::Buffer(left_id),
+                Value::Nil,
+                Value::Nil,
+                Value::Buffer(right_id),
+                Value::Nil,
+                Value::Nil,
+            ],
+        )
+        .unwrap(),
+        Value::Int(0)
+    );
+}
+
+#[test]
 fn replace_region_contents_replaces_from_string_and_buffer_sources() {
     let mut eval = super::super::eval::Evaluator::new();
     builtin_insert(&mut eval, vec![Value::string("abXXef")]).unwrap();

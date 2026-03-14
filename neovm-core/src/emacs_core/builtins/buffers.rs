@@ -1187,11 +1187,52 @@ pub(crate) fn builtin_compare_buffer_substrings(
     expect_args("compare-buffer-substrings", &args, 6)?;
 
     let left_buffer = resolve_buffer_designator_allow_nil_current(eval, &args[0])?;
-    let left_start = expect_integer_or_marker(&args[1])?;
-    let left_end = expect_integer_or_marker(&args[2])?;
     let right_buffer = resolve_buffer_designator_allow_nil_current(eval, &args[3])?;
-    let right_start = expect_integer_or_marker(&args[4])?;
-    let right_end = expect_integer_or_marker(&args[5])?;
+
+    let left_start = if args[1].is_nil() {
+        left_buffer
+            .and_then(|id| {
+                eval.buffers
+                    .get(id)
+                    .map(|buf| buf.point_min_char() as i64 + 1)
+            })
+            .unwrap_or(1)
+    } else {
+        expect_integer_or_marker(&args[1])?
+    };
+    let left_end = if args[2].is_nil() {
+        left_buffer
+            .and_then(|id| {
+                eval.buffers
+                    .get(id)
+                    .map(|buf| buf.point_max_char() as i64 + 1)
+            })
+            .unwrap_or(1)
+    } else {
+        expect_integer_or_marker(&args[2])?
+    };
+    let right_start = if args[4].is_nil() {
+        right_buffer
+            .and_then(|id| {
+                eval.buffers
+                    .get(id)
+                    .map(|buf| buf.point_min_char() as i64 + 1)
+            })
+            .unwrap_or(1)
+    } else {
+        expect_integer_or_marker(&args[4])?
+    };
+    let right_end = if args[5].is_nil() {
+        right_buffer
+            .and_then(|id| {
+                eval.buffers
+                    .get(id)
+                    .map(|buf| buf.point_max_char() as i64 + 1)
+            })
+            .unwrap_or(1)
+    } else {
+        expect_integer_or_marker(&args[5])?
+    };
 
     let left = buffer_slice_for_char_region(eval, left_buffer, left_start, left_end);
     let right = buffer_slice_for_char_region(eval, right_buffer, right_start, right_end);
