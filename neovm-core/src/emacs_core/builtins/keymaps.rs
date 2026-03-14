@@ -6,7 +6,7 @@ use crate::emacs_core::symbol::Obarray;
 // ===========================================================================
 use super::keymap::{
     KeyEvent, is_list_keymap, key_event_to_emacs_event, list_keymap_accessible, list_keymap_copy,
-    list_keymap_define_seq, list_keymap_lookup_seq, list_keymap_parent, list_keymap_set_parent,
+    list_keymap_define_seq, list_keymap_lookup_one, list_keymap_parent, list_keymap_set_parent,
     make_list_keymap, make_sparse_list_keymap,
 };
 
@@ -260,7 +260,43 @@ pub(crate) fn builtin_lookup_key_in_obarray(obarray: &Obarray, args: &[Value]) -
         return Ok(keymap);
     }
 
-    Ok(list_keymap_lookup_seq(&keymap, &events))
+    Ok(lookup_key_in_obarray(obarray, &keymap, &events))
+}
+
+fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value]) -> Value {
+    if events.is_empty() {
+        return *keymap;
+    }
+
+    let mut current_map = *keymap;
+    for (i, event) in events.iter().enumerate() {
+        let binding = list_keymap_lookup_one(&current_map, event);
+        if binding.is_nil() {
+            return if i == 0 {
+                Value::Nil
+            } else {
+                Value::Int(i as i64)
+            };
+        }
+        if i == events.len() - 1 {
+            return binding;
+        }
+        if is_list_keymap(&binding) {
+            current_map = binding;
+            continue;
+        }
+        if let Some(sym_name) = binding.as_symbol_name() {
+            if let Some(func) = obarray.symbol_function(sym_name).copied() {
+                if is_list_keymap(&func) {
+                    current_map = func;
+                    continue;
+                }
+            }
+        }
+        return Value::Int((i + 1) as i64);
+    }
+
+    Value::Nil
 }
 
 /// (global-set-key KEY COMMAND)

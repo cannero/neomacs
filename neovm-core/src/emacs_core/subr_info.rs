@@ -1074,7 +1074,7 @@ fn subr_arity_value(name: &str) -> Value {
         "json-insert" | "json-parse-string" | "json-serialize" => arity_cons(1, None),
         "keymap-parent" | "keymapp" => arity_cons(1, Some(1)),
         "accessible-keymaps" => arity_cons(1, Some(2)),
-        "global-key-binding" | "key-description" => arity_cons(1, Some(2)),
+        "key-description" => arity_cons(1, Some(2)),
         "lookup-key" => arity_cons(2, Some(3)),
         "set-keymap-parent" => arity_cons(2, Some(2)),
         "key-binding" => arity_cons(1, Some(4)),

@@ -516,9 +516,8 @@ impl Evaluator {
         let read_key_empty_map = make_sparse_list_keymap();
         let read_key_full_map = make_list_keymap();
         // Standard keymaps required by loadup.el files (normally created by C code)
-        let global_map = make_list_keymap();
-        let esc_map = make_sparse_list_keymap();
-        let ctl_x_map = make_sparse_list_keymap();
+        // `global-map`, `esc-map`, and `ctl-x-map` are defined in GNU subr.el,
+        // so keep them unbound here and let the Lisp `defvar` initializers run.
         let special_event_map = make_sparse_list_keymap();
         let help_map = make_sparse_list_keymap();
         let mode_line_window_dedicated_keymap = make_sparse_list_keymap();
@@ -1181,9 +1180,6 @@ impl Evaluator {
         // ---- C-level bootstrap variables required by loadup.el files ----
 
         // Standard keymaps (C creates these in keyboard.c:init_kboard)
-        obarray.set_symbol_value("global-map", global_map);
-        obarray.set_symbol_value("esc-map", esc_map);
-        obarray.set_symbol_value("ctl-x-map", ctl_x_map);
         obarray.set_symbol_value("special-event-map", special_event_map);
         obarray.set_symbol_value("help-map", help_map);
         obarray.set_symbol_value(

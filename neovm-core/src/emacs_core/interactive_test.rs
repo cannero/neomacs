@@ -1,6 +1,8 @@
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
+use std::fs;
+use std::path::PathBuf;
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Evaluator::new();
@@ -26,6 +28,46 @@ fn eval_all_with(ev: &mut Evaluator, src: &str) -> Vec<String> {
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    eval_all_with(&mut ev, src)
+}
+
+fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing GNU subr.el marker: {marker}"));
+    let forms = parse_forms(&source[start..])
+        .unwrap_or_else(|err| panic!("parse GNU subr.el from {marker} failed: {:?}", err));
+    let form = forms
+        .first()
+        .unwrap_or_else(|| panic!("no GNU subr.el form found after marker: {marker}"));
+    eval.eval_expr(form)
+        .unwrap_or_else(|err| panic!("evaluate GNU subr.el form {marker} failed: {:?}", err));
+}
+
+fn gnu_subr_keymap_eval_all(src: &str) -> Vec<String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let subr_path = project_root.join("lisp/subr.el");
+    let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
+
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    for marker in [
+        "(defun global-key-binding",
+        "(defvar esc-map",
+        "(fset 'ESC-prefix esc-map)",
+        "(defvar ctl-x-4-map",
+        "(defalias 'ctl-x-4-prefix ctl-x-4-map)",
+        "(defvar ctl-x-5-map",
+        "(defalias 'ctl-x-5-prefix ctl-x-5-map)",
+        "(defvar tab-prefix-map",
+        "(defvar ctl-x-map",
+        "(fset 'Control-X-prefix ctl-x-map)",
+        "(defvar global-map",
+        "(use-global-map global-map)",
+    ] {
+        eval_first_form_after_marker(&mut ev, &subr_source, marker);
+    }
     eval_all_with(&mut ev, src)
 }
 
@@ -956,57 +998,30 @@ fn key_binding_non_integer_position_is_accepted_and_ignored() {
 }
 
 #[test]
-fn global_key_binding_returns_binding() {
-    let mut ev = Evaluator::new();
-    let km = make_list_keymap();
-    ev.obarray.set_symbol_value("global-map", km);
-    let events = crate::emacs_core::keymap::parse_key_description("M-x").unwrap();
-    let emacs_event = key_event_to_emacs_event(&events[0]);
-    crate::emacs_core::keymap::list_keymap_define(
-        km,
-        emacs_event,
-        Value::symbol("execute-extended-command"),
+fn global_key_binding_bootstrap_matches_subr_el() {
+    assert_eq!(
+        gnu_subr_keymap_eval_all(
+            r#"(list (subrp (symbol-function 'global-key-binding))
+                     (keymapp (global-key-binding ""))
+                     (global-key-binding "\ex")
+                     (global-key-binding "a")
+                     (global-key-binding "ab"))"#
+        ),
+        vec!["OK (nil t execute-extended-command self-insert-command 1)".to_string()]
     );
-
-    // Use vector with the meta-x event value for lookup (strings use raw chars)
-    let result =
-        builtin_global_key_binding(&mut ev, vec![Value::vector(vec![emacs_event])]).unwrap();
-    assert_eq!(result.as_symbol_name(), Some("execute-extended-command"));
 }
 
 #[test]
-fn global_key_binding_default_plain_char_self_insert() {
-    let mut ev = Evaluator::new();
-    let result = builtin_global_key_binding(&mut ev, vec![Value::string("a")]).unwrap();
-    assert_eq!(result.as_symbol_name(), Some("self-insert-command"));
-}
-
-#[test]
-fn global_key_binding_default_multichar_string_returns_prefix_len() {
-    let mut ev = Evaluator::new();
-    let result = builtin_global_key_binding(&mut ev, vec![Value::string("ab")]).unwrap();
-    assert_eq!(result, Value::Int(1));
-}
-
-#[test]
-fn global_key_binding_ctrl_z_unbound() {
-    let mut ev = Evaluator::new();
-    // ctrl-z = 0x1a, single char, no binding in default global map
-    let result = builtin_global_key_binding(&mut ev, vec![Value::string("\x1a")]).unwrap();
-    assert!(result.is_nil());
-}
-
-#[test]
-fn global_key_binding_empty_bootstraps_keymap() {
-    assert_eq!(eval_one(r#"(keymapp (global-key-binding ""))"#), "OK t");
-}
-
-#[test]
-fn global_key_binding_too_many_args_errors() {
-    let mut ev = Evaluator::new();
-    let result =
-        builtin_global_key_binding(&mut ev, vec![Value::string("\x03"), Value::Nil, Value::Nil]);
-    assert!(result.is_err());
+fn global_key_binding_bootstrap_wrong_arity_matches_lisp() {
+    assert_eq!(
+        gnu_subr_keymap_eval_all(
+            r#"(let ((err (condition-case e
+                             (global-key-binding "\x03" nil nil)
+                           (error e))))
+                 (car err))"#
+        ),
+        vec!["OK wrong-number-of-arguments".to_string()]
+    );
 }
 
 #[test]

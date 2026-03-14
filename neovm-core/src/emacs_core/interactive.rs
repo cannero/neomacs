@@ -6,7 +6,7 @@
 //! - Built-in functions: `call-interactively`, `interactive-p`,
 //!   `called-interactively-p`, `commandp`, `command-execute`,
 //!   `execute-extended-command`, `key-binding`, `local-key-binding`,
-//!   `global-key-binding`, `minor-mode-key-binding`, `where-is-internal`,
+//!   `minor-mode-key-binding`, `where-is-internal`,
 //!   `substitute-command-keys`, `describe-key-briefly`, `this-command-keys`,
 //!   `this-command-keys-vector`, `thing-at-point`, `bounds-of-thing-at-point`,
 //!   `symbol-at-point`.
@@ -1809,54 +1809,6 @@ pub(crate) fn builtin_local_key_binding(eval: &mut Evaluator, args: Vec<Value>) 
         &eval.current_local_map,
         &emacs_events,
     ))
-}
-
-/// `(global-key-binding KEY &optional ACCEPT-DEFAULTS)`
-pub(crate) fn builtin_global_key_binding(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_min_args("global-key-binding", &args, 1)?;
-    expect_max_args("global-key-binding", &args, 2)?;
-
-    let events = match super::kbd::key_events_from_designator(&args[0]) {
-        Ok(events) => events,
-        Err(super::kbd::KeyDesignatorError::WrongType(other)) => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("arrayp"), other],
-            ));
-        }
-        Err(super::kbd::KeyDesignatorError::Parse(_)) => {
-            return Ok(Value::Nil);
-        }
-    };
-    if events.is_empty() {
-        return Ok(ensure_global_keymap(eval));
-    }
-    let global = get_global_keymap(eval);
-    if !global.is_nil() {
-        let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
-        let result = lookup_keymap_with_partial(&global, &emacs_events);
-        // A real binding was found (symbol, keymap, etc.) — return it.
-        // Int means partial match (prefix length), Nil means not found;
-        // both fall through to the self-insert-command fallback.
-        if !result.is_nil() && !matches!(result, Value::Int(_)) {
-            return Ok(result);
-        }
-    }
-    if let Some(raw) = args[0].as_str() {
-        if let Some(first) = raw.chars().next() {
-            if !first.is_control() && first != '\u{7f}' {
-                if raw.chars().nth(1).is_none() {
-                    return Ok(Value::symbol("self-insert-command"));
-                }
-                return Ok(Value::Int(1));
-            }
-        }
-    }
-    if events.len() == 1 && is_plain_printable_char_event(&events[0]) {
-        return Ok(Value::symbol("self-insert-command"));
-    }
-
-    Ok(Value::Nil)
 }
 
 fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
