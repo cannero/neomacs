@@ -1793,96 +1793,6 @@ fn x_clipboard_input_context_batch_semantics() {
     );
     assert_wrong_number(builtin_x_get_modifier_masks(vec![Value::Nil, Value::Nil]));
 
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Nil]),
-        "char-or-string-p",
-        Value::Nil,
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![term]),
-        "char-or-string-p",
-        term,
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(1)]),
-        "stringp",
-        Value::Int(1),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(-1)]),
-        "char-or-string-p",
-        Value::Int(-1),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(65)]),
-        "stringp",
-        Value::Int(97),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(90)]),
-        "stringp",
-        Value::Int(122),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(304)]),
-        "stringp",
-        Value::Int(304),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(7305)]),
-        "stringp",
-        Value::Int(7305),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(8490)]),
-        "stringp",
-        Value::Int(8490),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(42955)]),
-        "stringp",
-        Value::Int(42955),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(68944)]),
-        "stringp",
-        Value::Int(68944),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(93856)]),
-        "stringp",
-        Value::Int(93856),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Int(66560)]),
-        "stringp",
-        Value::Int(66600),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Char('A')]),
-        "stringp",
-        Value::Int(97),
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![Value::Char('Z')]),
-        "stringp",
-        Value::Int(122),
-    );
-    assert!(
-        builtin_x_get_input_coding_system(vec![Value::string("x")])
-            .unwrap()
-            .is_nil()
-    );
-    assert_wrong_type(
-        builtin_x_get_input_coding_system(vec![frame]),
-        "char-or-string-p",
-        frame,
-    );
-    assert_wrong_number(builtin_x_get_input_coding_system(vec![
-        Value::Nil,
-        Value::Nil,
-    ]));
-
     assert!(builtin_x_hide_tip(vec![]).unwrap().is_nil());
     assert_wrong_number(builtin_x_hide_tip(vec![Value::Nil]));
 
@@ -1909,26 +1819,6 @@ fn x_clipboard_input_context_batch_semantics() {
     assert!(builtin_x_setup_function_keys(vec![frame]).unwrap().is_nil());
     assert_wrong_number(builtin_x_setup_function_keys(vec![]));
     assert_wrong_number(builtin_x_setup_function_keys(vec![Value::Nil, Value::Nil]));
-
-    assert!(builtin_x_device_class(vec![Value::Nil]).unwrap().is_nil());
-    assert_wrong_type(builtin_x_device_class(vec![term]), "char-or-string-p", term);
-    assert_wrong_type(
-        builtin_x_device_class(vec![Value::Int(1)]),
-        "stringp",
-        Value::Int(1),
-    );
-    assert!(
-        builtin_x_device_class(vec![Value::string("x")])
-            .unwrap()
-            .is_nil()
-    );
-    assert_wrong_type(
-        builtin_x_device_class(vec![frame]),
-        "char-or-string-p",
-        frame,
-    );
-    assert_wrong_number(builtin_x_device_class(vec![]));
-    assert_wrong_number(builtin_x_device_class(vec![Value::Nil, Value::Nil]));
 
     for arg in [Value::Nil, term, Value::Int(1), Value::string("x"), frame] {
         assert!(
@@ -1998,6 +1888,20 @@ fn x_clear_preedit_text_is_not_dispatch_builtin() {
 fn x_preedit_text_is_not_dispatch_builtin() {
     assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
         "x-preedit-text"
+    ));
+}
+
+#[test]
+fn x_device_class_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "x-device-class"
+    ));
+}
+
+#[test]
+fn x_get_input_coding_system_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "x-get-input-coding-system"
     ));
 }
 

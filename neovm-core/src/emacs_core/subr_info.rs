@@ -1271,8 +1271,6 @@ fn subr_arity_value(name: &str) -> Value {
         "x-apply-session-resources" => arity_cons(0, Some(0)),
         "open-termscript"
         | "x-close-connection"
-        | "x-device-class"
-        | "x-get-input-coding-system"
         | "x-internal-focus-input-context"
         | "x-parse-geometry"
         | "x-setup-function-keys" => arity_cons(1, Some(1)),

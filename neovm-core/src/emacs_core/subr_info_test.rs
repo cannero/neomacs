@@ -208,7 +208,6 @@ fn subr_arity_display_terminal_primitives_match_oracle() {
     assert_subr_arity("x-backspace-delete-keys-p", 0, Some(1));
     assert_subr_arity("x-change-window-property", 2, Some(7));
     assert_subr_arity("x-delete-window-property", 1, Some(3));
-    assert_subr_arity("x-device-class", 1, Some(1));
     assert_subr_arity("x-disown-selection-internal", 1, Some(3));
     assert_subr_arity("x-export-frames", 0, Some(2));
     assert_subr_arity("x-display-list", 0, Some(0));
@@ -219,7 +218,6 @@ fn subr_arity_display_terminal_primitives_match_oracle() {
     assert_subr_arity("x-frame-list-z-order", 0, Some(1));
     assert_subr_arity("x-frame-restack", 2, Some(3));
     assert_subr_arity("x-get-atom-name", 1, Some(2));
-    assert_subr_arity("x-get-input-coding-system", 1, Some(1));
     assert_subr_arity("x-get-local-selection", 0, Some(2));
     assert_subr_arity("x-get-modifier-masks", 0, Some(1));
     assert_subr_arity("x-get-selection-internal", 2, Some(4));

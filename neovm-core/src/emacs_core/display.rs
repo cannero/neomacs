@@ -113,35 +113,6 @@ fn frame_window_system_symbol(
         .and_then(|frame| frame.parameters.get("window-system").copied()))
 }
 
-fn preserve_emacs_downcase_payload(code: i64) -> bool {
-    matches!(
-        code,
-        304
-            | 7305
-            | 8490
-            | 42955
-            | 42956
-            | 42958
-            | 42962
-            | 42964
-            | 42970
-            | 42972
-            | 68944..=68965
-            | 93856..=93880
-    )
-}
-
-fn downcase_char_code(code: i64) -> i64 {
-    if preserve_emacs_downcase_payload(code) {
-        return code;
-    }
-    if let Some(c) = u32::try_from(code).ok().and_then(char::from_u32) {
-        c.to_lowercase().next().unwrap_or(c) as i64
-    } else {
-        code
-    }
-}
-
 fn invalid_get_device_terminal_error(value: &Value) -> Flow {
     signal(
         "error",
@@ -1211,41 +1182,6 @@ pub(crate) fn builtin_x_get_modifier_masks(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// (x-get-input-coding-system NAME) -> nil/error in batch/no-X context.
-pub(crate) fn builtin_x_get_input_coding_system(args: Vec<Value>) -> EvalResult {
-    expect_args("x-get-input-coding-system", &args, 1)?;
-    match &args[0] {
-        Value::Str(_) => Ok(Value::Nil),
-        Value::Int(code) => {
-            if *code < 0 {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), Value::Int(*code)],
-                ))
-            } else {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![
-                        Value::symbol("stringp"),
-                        Value::Int(downcase_char_code(*code)),
-                    ],
-                ))
-            }
-        }
-        Value::Char(code) => Err(signal(
-            "wrong-type-argument",
-            vec![
-                Value::symbol("stringp"),
-                Value::Int(downcase_char_code(*code as i64)),
-            ],
-        )),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("char-or-string-p"), *other],
-        )),
-    }
-}
-
 /// (x-hide-tip) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_hide_tip(args: Vec<Value>) -> EvalResult {
     expect_args("x-hide-tip", &args, 0)?;
@@ -1276,22 +1212,6 @@ pub(crate) fn builtin_x_setup_function_keys(args: Vec<Value>) -> EvalResult {
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *other],
-        )),
-    }
-}
-
-/// (x-device-class DISPLAY) -> nil/error in batch/no-X context.
-pub(crate) fn builtin_x_device_class(args: Vec<Value>) -> EvalResult {
-    expect_args("x-device-class", &args, 1)?;
-    match &args[0] {
-        Value::Nil | Value::Str(_) => Ok(Value::Nil),
-        Value::Int(_) => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("stringp"), args[0]],
-        )),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("char-or-string-p"), *other],
         )),
     }
 }
