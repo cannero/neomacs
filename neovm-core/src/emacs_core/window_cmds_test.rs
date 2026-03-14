@@ -2435,7 +2435,7 @@ fn switch_display_pop_bootstrap_initial_frame() {
 
 #[test]
 fn switch_display_pop_enforce_max_arity() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(condition-case err (switch-to-buffer \"*scratch*\" nil nil nil) (error (car err)))
          (condition-case err (display-buffer \"*scratch*\" nil nil nil) (error (car err)))
          (condition-case err (pop-to-buffer \"*scratch*\" nil nil nil) (error (car err)))
@@ -2449,7 +2449,7 @@ fn switch_display_pop_enforce_max_arity() {
 
 #[test]
 fn switch_display_pop_reject_non_buffer_designators() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(condition-case err (switch-to-buffer 1) (error (list (car err) (nth 1 err) (nth 2 err))))
          (condition-case err (display-buffer 1) (error (list (car err) (nth 1 err) (nth 2 err))))
          (condition-case err (pop-to-buffer 1) (error (list (car err) (nth 1 err) (nth 2 err))))
