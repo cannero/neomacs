@@ -2298,11 +2298,12 @@ fn compile_only_bootstrap_function_names(
     project_root: &Path,
 ) -> std::collections::BTreeSet<String> {
     let mut names = std::collections::BTreeSet::new();
+    // gv.el is NOT compile-only — keep its functions at runtime
+    // for setf expansion and generalized variable access.
     for relative in [
         "lisp/emacs-lisp/cl-extra.el",
         "lisp/emacs-lisp/cl-macs.el",
         "lisp/emacs-lisp/cl-seq.el",
-        "lisp/emacs-lisp/gv.el",
     ] {
         let path = project_root.join(relative);
         let Ok(source) = fs::read_to_string(&path) else {
@@ -2504,8 +2505,10 @@ fn normalize_bootstrap_runtime_surface(
     eval: &mut super::eval::Evaluator,
     project_root: &Path,
 ) -> Result<(), EvalError> {
-    let compile_only_features = ["cl-lib", "cl-macs", "cl-extra", "cl-seq", "gv"];
-    let runtime_autoload_files = ["gv"];
+    // gv is NOT compile-only — GNU Emacs keeps gv functions available at
+    // runtime for setf expansion and generalized variable access.
+    let compile_only_features = ["cl-lib", "cl-macs", "cl-extra", "cl-seq"];
+    let runtime_autoload_files: [&str; 0] = [];
     let (restore_autoload_args, restore_property_forms) =
         runtime_loaddefs_restore_state(project_root, &runtime_autoload_files)?;
     let mut compile_only_names = compile_only_bootstrap_function_names(project_root);
