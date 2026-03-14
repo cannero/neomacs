@@ -3488,23 +3488,37 @@ pub(crate) fn builtin_visible_frame_list(
 }
 
 /// `(frame-char-height &optional FRAME)` -> integer.
+///
+/// GNU Emacs returns the default character height in pixels for FRAME.
 pub(crate) fn builtin_frame_char_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("frame-char-height", &args, 1)?;
-    let _ = resolve_frame_id(eval, args.first(), "framep")?;
-    Ok(Value::Int(1))
+    let fid = resolve_frame_id(eval, args.first(), "framep")?;
+    let ch = eval
+        .frames
+        .get(fid)
+        .map(|f| f.char_height as i64)
+        .unwrap_or(16);
+    Ok(Value::Int(ch))
 }
 
 /// `(frame-char-width &optional FRAME)` -> integer.
+///
+/// GNU Emacs returns the default character width in pixels for FRAME.
 pub(crate) fn builtin_frame_char_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("frame-char-width", &args, 1)?;
-    let _ = resolve_frame_id(eval, args.first(), "framep")?;
-    Ok(Value::Int(1))
+    let fid = resolve_frame_id(eval, args.first(), "framep")?;
+    let cw = eval
+        .frames
+        .get(fid)
+        .map(|f| f.char_width as i64)
+        .unwrap_or(8);
+    Ok(Value::Int(cw))
 }
 
 /// `(frame-native-height &optional FRAME)` -> integer.
@@ -3564,19 +3578,35 @@ pub(crate) fn builtin_frame_text_lines(
 }
 
 /// `(frame-text-width &optional FRAME)` -> integer.
+///
+/// GNU Emacs returns the text area width in pixels.
 pub(crate) fn builtin_frame_text_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_frame_text_cols(eval, args)
+    expect_max_args("frame-text-width", &args, 1)?;
+    let fid = resolve_frame_id(eval, args.first(), "framep")?;
+    let frame = eval
+        .frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    Ok(Value::Int(frame.width as i64))
 }
 
 /// `(frame-text-height &optional FRAME)` -> integer.
+///
+/// GNU Emacs returns the text area height in pixels.
 pub(crate) fn builtin_frame_text_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_frame_text_lines(eval, args)
+    expect_max_args("frame-text-height", &args, 1)?;
+    let fid = resolve_frame_id(eval, args.first(), "framep")?;
+    let frame = eval
+        .frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    Ok(Value::Int(frame.height as i64))
 }
 
 /// `(frame-total-cols &optional FRAME)` -> integer.
