@@ -2245,6 +2245,32 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
 }
 
 #[test]
+fn bootstrap_load_sequence_includes_neomacs_term_layer_after_tool_bar() {
+    let tool_bar_idx = BOOTSTRAP_LOAD_SEQUENCE
+        .iter()
+        .position(|name| *name == "tool-bar")
+        .expect("tool-bar bootstrap entry");
+    let neomacs_idx = BOOTSTRAP_LOAD_SEQUENCE
+        .iter()
+        .position(|name| *name == "!load-neomacs-win")
+        .expect("neomacs bootstrap sentinel");
+    assert_eq!(
+        neomacs_idx,
+        tool_bar_idx + 1,
+        "neomacs term layer should load immediately after tool-bar like loadup.el"
+    );
+}
+
+#[test]
+fn evaluator_bootstrap_binds_default_frame_scroll_bars_like_gnu_frame_c() {
+    let eval = Evaluator::new();
+    assert_eq!(
+        eval.obarray.symbol_value("default-frame-scroll-bars"),
+        Some(&Value::symbol("right"))
+    );
+}
+
+#[test]
 fn auth_source_backend_exposes_type_slot() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(

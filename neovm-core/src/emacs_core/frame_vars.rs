@@ -3,6 +3,9 @@ use crate::emacs_core::value::Value;
 
 pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray) {
     obarray.set_symbol_value("default-frame-alist", Value::Nil);
+    // GNU frame.c exposes this as a built-in variable. GUI builds default to a
+    // concrete side instead of leaving scroll-bar.el to trip over an unbound var.
+    obarray.set_symbol_value("default-frame-scroll-bars", Value::symbol("right"));
     obarray.set_symbol_value("initial-frame-alist", Value::Nil);
     obarray.set_symbol_value("initial-window-system", Value::Nil);
     obarray.set_symbol_value("window-system", Value::Nil);

@@ -2023,10 +2023,10 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly. V9 invalidates earlier caches because load-path suffix
-// resolution now matches GNU Emacs `load`: `.elc` is preferred over `.el`
-// unless `load-prefer-newer` asks for the newest candidate.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 9;
+// represent correctly. V10 invalidates earlier caches because the `neomacs`
+// feature now mirrors loadup.el by loading `term/common-win` and
+// `term/neomacs-win` into the dumped bootstrap image.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 10;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",
@@ -2767,6 +2767,7 @@ pub(crate) const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
     "international/fontset",
     "dnd",
     "tool-bar",
+    "!load-neomacs-win",
     "progmodes/elisp-mode",
     "emacs-lisp/float-sup",
     "vc/vc-hooks",
@@ -2960,6 +2961,46 @@ pub fn create_bootstrap_evaluator_with_features(
                     Err(e) => {
                         let msg = format!("{e:?}");
                         tracing::warn!("  WARN: (require 'gv) failed: {msg}");
+                    }
+                }
+                continue;
+            }
+            if *name == "!load-neomacs-win" {
+                if eval.feature_present("neomacs") {
+                    for neomacs_file in ["term/common-win", "term/neomacs-win"] {
+                        tracing::info!("LOADING: {neomacs_file} ...");
+                        let start = std::time::Instant::now();
+                        match find_file_in_load_path(neomacs_file, &load_path) {
+                            Some(path) => match load_file(&mut eval, &path) {
+                                Ok(_) => {
+                                    tracing::info!("  OK: {neomacs_file} ({:.2?})", start.elapsed())
+                                }
+                                Err(e) => {
+                                    let msg = match &e {
+                                        EvalError::Signal { symbol, data } => {
+                                            let sym = super::intern::resolve_sym(*symbol);
+                                            let data_strs: Vec<String> =
+                                                data.iter().map(|v| format!("{v}")).collect();
+                                            format!("({sym} {})", data_strs.join(" "))
+                                        }
+                                        EvalError::UncaughtThrow { tag, value } => {
+                                            format!("(throw {tag} {value})")
+                                        }
+                                    };
+                                    tracing::error!("FAIL: {neomacs_file} => {msg}");
+                                    return Err(e);
+                                }
+                            },
+                            None => {
+                                tracing::error!("SKIP: {neomacs_file} (not found in load-path)");
+                                return Err(EvalError::Signal {
+                                    symbol: intern("error"),
+                                    data: vec![Value::string(format!(
+                                        "loadup bootstrap: file not found: {neomacs_file}"
+                                    ))],
+                                });
+                            }
+                        }
                     }
                 }
                 continue;
