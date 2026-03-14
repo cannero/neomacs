@@ -479,7 +479,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "get-unused-iso-final-char",
     "getenv-internal",
     "goto-char",
-    "goto-line",
     "group-gid",
     "group-name",
     "group-real-gid",

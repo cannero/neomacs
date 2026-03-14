@@ -465,7 +465,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "global-set-key"
             | "gui-set-selection"
             | "goto-char"
-            | "goto-line"
             | "how-many"
             | "increment-register"
             | "indent-according-to-mode"

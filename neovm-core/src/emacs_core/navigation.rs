@@ -419,27 +419,6 @@ pub(crate) fn builtin_end_of_line(
     Ok(Value::Nil)
 }
 
-/// (goto-line LINE)
-pub(crate) fn builtin_goto_line(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_args("goto-line", &args, 1)?;
-    let line = expect_int(&args[0])?;
-    if line < 1 {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::string("Line number must be >= 1"), Value::Int(line)],
-        ));
-    }
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
-    let text = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        buffer_text(buf)
-    };
-    // Go to line 1 (beginning of buffer), then move forward (line-1) lines.
-    let (new_pos, _) = move_by_lines(&text, 0, line - 1);
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::Nil)
-}
-
 // ===========================================================================
 // Character movement
 // ===========================================================================

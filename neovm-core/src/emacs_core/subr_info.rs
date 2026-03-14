@@ -1140,7 +1140,7 @@ fn subr_arity_value(name: &str) -> Value {
         "next-window" | "previous-window" | "pos-visible-in-window-p" => arity_cons(0, Some(3)),
         "other-window-for-scrolling" => arity_cons(0, Some(0)),
         "coordinates-in-window-p" => arity_cons(2, Some(2)),
-        "goto-line" | "move-to-window-line" | "move-point-visually" => arity_cons(1, Some(1)),
+        "move-to-window-line" | "move-point-visually" => arity_cons(1, Some(1)),
         "modify-frame-parameters" => arity_cons(2, Some(2)),
         "make-frame-visible" | "iconify-frame" => arity_cons(0, Some(1)),
         "get-unused-category" => arity_cons(0, Some(1)),

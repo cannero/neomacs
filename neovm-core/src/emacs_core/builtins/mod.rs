@@ -1545,7 +1545,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::navigation::builtin_beginning_of_line(eval, args));
         }
         "end-of-line" => return Some(super::navigation::builtin_end_of_line(eval, args)),
-        "goto-line" => return Some(super::navigation::builtin_goto_line(eval, args)),
         "forward-char" => return Some(super::navigation::builtin_forward_char(eval, args)),
         "backward-char" => return Some(super::navigation::builtin_backward_char(eval, args)),
         "skip-chars-forward" => {

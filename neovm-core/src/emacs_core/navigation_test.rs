@@ -52,14 +52,21 @@ fn gnu_simple_line_eval() -> Evaluator {
             "(progn",
         )
         .replace("(called-interactively-p 'interactive)", "nil");
-    let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
+    let subr_source = fs::read_to_string(&subr_path)
+        .expect("read GNU subr.el")
+        .replace(
+            "(defsubst buffer-narrowed-p ()",
+            "(defun buffer-narrowed-p ()",
+        );
 
     let mut ev = Evaluator::new();
     ev.set_lexical_binding(true);
     eval_first_form_after_marker(&mut ev, &subr_source, "(defun zerop (number)");
+    eval_first_form_after_marker(&mut ev, &subr_source, "(defun buffer-narrowed-p ()");
     for marker in [
         "(defun beginning-of-buffer (&optional arg)",
         "(defun end-of-buffer (&optional arg)",
+        "(defun goto-line (line &optional buffer relative interactive)",
         "(defun next-line (&optional arg try-vscroll)",
         "(defun previous-line (&optional arg try-vscroll)",
         "(defun line-move (arg &optional noerror _to-end try-vscroll)",
@@ -75,6 +82,8 @@ fn gnu_simple_line_eval() -> Evaluator {
                track-eol nil
                goal-column nil
                temporary-goal-column 0
+               selective-display nil
+               widen-automatically nil
                line-move-ignore-invisible t
                line-move-visual t)",
     );
@@ -420,11 +429,41 @@ fn bootstrap_beginning_and_end_of_buffer_match_simple_el() {
 }
 
 #[test]
-fn test_goto_line() {
-    let mut ev = eval_with_text("aaa\nbbb\nccc");
-    eval_str(&mut ev, "(goto-line 3)");
-    let pos = eval_int(&mut ev, "(point)");
-    assert_eq!(pos, 9); // beginning of third line
+fn bootstrap_goto_line_matches_simple_el() {
+    let mut ev = gnu_simple_line_eval();
+
+    let ownership = eval_str(&mut ev, "(subrp (symbol-function 'goto-line))");
+    assert_eq!(ownership, Value::Nil);
+
+    let default_pos = eval_int(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"aaa\nbbb\nccc\")
+           (goto-line 3)
+           (point))",
+    );
+    assert_eq!(default_pos, 9);
+
+    let relative_pos = eval_int(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"a\nb\nc\nd\")
+           (narrow-to-region 3 7)
+           (goto-line 2 nil t nil)
+           (point))",
+    );
+    assert_eq!(relative_pos, 5);
+
+    let arity_err = eval_str(
+        &mut ev,
+        "(condition-case err (goto-line 1 nil nil nil nil) (error (car err)))",
+    );
+    assert_eq!(
+        arity_err.as_symbol_name(),
+        Some("wrong-number-of-arguments")
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -725,15 +764,6 @@ fn test_skip_chars_forward_with_limit() {
     let mut ev = eval_with_text("aaaaaaa");
     let moved = eval_int(&mut ev, "(skip-chars-forward \"a\" 4)");
     assert_eq!(moved, 3); // limited to position 4 (1-based = 3 chars from pos 1)
-}
-
-#[test]
-fn test_goto_line_first() {
-    let mut ev = eval_with_text("abc\ndef\nghi");
-    eval_str(&mut ev, "(goto-char 7)"); // somewhere in the middle
-    eval_str(&mut ev, "(goto-line 1)");
-    let pos = eval_int(&mut ev, "(point)");
-    assert_eq!(pos, 1);
 }
 
 #[test]
