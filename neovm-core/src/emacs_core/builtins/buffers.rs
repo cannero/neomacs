@@ -1620,9 +1620,7 @@ pub(crate) fn builtin_goto_char(eval: &mut super::eval::Evaluator, args: Vec<Val
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    // Convert 1-based char pos to 0-based byte pos
-    let char_pos = if pos > 0 { pos as usize - 1 } else { 0 };
-    let byte_pos = buf.text.char_to_byte(char_pos.min(buf.text.char_count()));
+    let byte_pos = buf.lisp_pos_to_byte(pos);
     let _ = eval.buffers.goto_buffer_byte(current_id, byte_pos);
     Ok(args[0])
 }
