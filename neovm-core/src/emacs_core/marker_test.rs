@@ -154,3 +154,17 @@ fn point_min_and_max_markers_follow_narrowing() {
         Ok(Value::Int(4))
     ));
 }
+
+#[test]
+fn mark_marker_follows_cached_mark_char_position() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buf_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let _ = eval.buffers.insert_into_buffer(buf_id, "ééz");
+    let _ = eval.buffers.set_buffer_mark(buf_id, 'é'.len_utf8());
+
+    let marker = builtin_mark_marker(&mut eval, vec![]).expect("mark-marker");
+    assert!(matches!(
+        builtin_marker_position(vec![marker]),
+        Ok(Value::Int(2))
+    ));
+}

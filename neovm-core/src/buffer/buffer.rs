@@ -70,6 +70,8 @@ pub struct Buffer {
     pub pt_char: usize,
     /// Mark — optional byte position for region operations.
     pub mark: Option<usize>,
+    /// Mark — optional character position for region operations.
+    pub mark_char: Option<usize>,
     /// Beginning of accessible (narrowed) portion (byte pos, inclusive).
     pub begv: usize,
     /// Beginning of accessible (narrowed) portion (char pos, inclusive).
@@ -123,6 +125,7 @@ impl Buffer {
             pt: 0,
             pt_char: 0,
             mark: None,
+            mark_char: None,
             begv: 0,
             begv_char: 0,
             zv: 0,
@@ -237,6 +240,7 @@ impl Buffer {
             && mark > insert_pos
         {
             self.mark = Some(mark + byte_len);
+            self.mark_char = self.mark_char.map(|mark_char| mark_char + char_len);
         }
         for marker in &mut self.markers {
             if marker.byte_pos > insert_pos {
@@ -303,8 +307,10 @@ impl Buffer {
         if let Some(mark) = self.mark {
             if mark > end {
                 self.mark = Some(mark - byte_len);
+                self.mark_char = self.mark_char.map(|mark_char| mark_char - char_len);
             } else if mark > start {
                 self.mark = Some(start);
+                self.mark_char = Some(start_char);
             }
         }
 
@@ -452,7 +458,16 @@ impl Buffer {
 
     /// Set the mark to the byte position `pos`.
     pub fn set_mark_byte(&mut self, pos: usize) {
-        self.mark = Some(pos);
+        let clamped = pos.clamp(self.begv, self.zv);
+        let char_pos = if clamped == self.begv {
+            self.begv_char
+        } else if clamped == self.zv {
+            self.zv_char
+        } else {
+            self.text.byte_to_char(clamped)
+        };
+        self.mark = Some(clamped);
+        self.mark_char = Some(char_pos);
     }
 
     /// Legacy mark setter retained while buffer internals are byte-only.
@@ -463,6 +478,11 @@ impl Buffer {
     /// Return the mark, if set.
     pub fn mark_byte(&self) -> Option<usize> {
         self.mark
+    }
+
+    /// Return the mark character position, if set.
+    pub fn mark_char(&self) -> Option<usize> {
+        self.mark_char
     }
 
     /// Legacy mark accessor retained while buffer internals are byte-only.
@@ -976,7 +996,9 @@ impl BufferManager {
     }
 
     pub fn clear_buffer_mark(&mut self, id: BufferId) -> Option<()> {
-        self.buffers.get_mut(&id)?.mark = None;
+        let buf = self.buffers.get_mut(&id)?;
+        buf.mark = None;
+        buf.mark_char = None;
         Some(())
     }
 
@@ -1510,6 +1532,7 @@ mod tests {
         buf.insert("X");
         // Mark was at 1, insert at 0 pushes it to 2.
         assert_eq!(buf.mark(), Some(2));
+        assert_eq!(buf.mark_char(), Some(2));
     }
 
     #[test]
@@ -1550,6 +1573,21 @@ mod tests {
         buf.delete_region(1, 3);
         // mark was at 4, past deleted range end (3), so shifts by 2
         assert_eq!(buf.mark(), Some(2));
+        assert_eq!(buf.mark_char(), Some(2));
+    }
+
+    #[test]
+    fn mark_char_tracks_multibyte_edits() {
+        let mut buf = buf_with_text("ééz");
+        buf.set_mark_byte('é'.len_utf8());
+        buf.goto_byte('é'.len_utf8());
+        buf.insert("ß");
+        assert_eq!(buf.mark(), Some(2));
+        assert_eq!(buf.mark_char(), Some(1));
+
+        buf.delete_region(0, 2);
+        assert_eq!(buf.mark(), Some(0));
+        assert_eq!(buf.mark_char(), Some(0));
     }
 
     #[test]

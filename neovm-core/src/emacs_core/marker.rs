@@ -252,8 +252,8 @@ pub(crate) fn marker_position_as_int_with_buffers(
             && let Some(buf_id) = buffers.find_buffer_by_name(bname)
             && let Some(buf) = buffers.get(buf_id)
         {
-            return match buf.mark() {
-                Some(byte_pos) => Ok(buf.text.byte_to_char(byte_pos) as i64 + 1),
+            return match buf.mark_char() {
+                Some(char_pos) => Ok(char_pos as i64 + 1),
                 None => Err(signal(
                     "error",
                     vec![Value::string("Marker does not point anywhere")],
@@ -457,7 +457,7 @@ pub(crate) fn builtin_copy_marker_eval(
                 if let Some(ref bname) = buffer_name {
                     if let Some(buf_id) = eval.buffers.find_buffer_by_name(bname) {
                         if let Some(buf) = eval.buffers.get(buf_id) {
-                            buf.mark().map(|m| buf.text.byte_to_char(m) as i64 + 1)
+                            buf.mark_char().map(|m| m as i64 + 1)
                         } else {
                             None
                         }
@@ -719,9 +719,9 @@ pub(crate) fn builtin_mark_marker(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let name = buf.name.clone();
-    match buf.mark() {
-        Some(byte_pos) => {
-            let pos = buf.text.byte_to_char(byte_pos) as i64 + 1; // 1-based
+    match buf.mark_char() {
+        Some(char_pos) => {
+            let pos = char_pos as i64 + 1; // 1-based
             Ok(make_marker_value_with_id(
                 Some(&name),
                 Some(pos),

@@ -458,6 +458,8 @@ pub struct DumpBuffer {
     #[serde(default)]
     pub pt_char: Option<usize>,
     pub mark: Option<usize>,
+    #[serde(default)]
+    pub mark_char: Option<usize>,
     pub begv: usize,
     #[serde(default)]
     pub begv_char: Option<usize>,

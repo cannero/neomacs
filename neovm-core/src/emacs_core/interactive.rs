@@ -849,7 +849,7 @@ fn interactive_point_arg(eval: &Evaluator) -> Result<Value, Flow> {
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_char = buf.text.byte_to_char(buf.point()) as i64 + 1;
+    let point_char = buf.point_char() as i64 + 1;
     Ok(Value::Int(point_char))
 }
 
@@ -858,10 +858,9 @@ fn interactive_mark_arg(eval: &Evaluator) -> Result<Value, Flow> {
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let mark = buf
-        .mark()
+    buf.mark()
         .ok_or_else(|| signal("error", vec![Value::string("The mark is not set now")]))?;
-    let mark_char = buf.text.byte_to_char(mark) as i64 + 1;
+    let mark_char = buf.mark_char().expect("mark byte/char stay in sync") as i64 + 1;
     Ok(Value::Int(mark_char))
 }
 

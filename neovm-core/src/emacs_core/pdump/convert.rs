@@ -544,6 +544,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         pt: buf.pt,
         pt_char: Some(buf.pt_char),
         mark: buf.mark,
+        mark_char: buf.mark_char,
         begv: buf.begv,
         begv_char: Some(buf.begv_char),
         zv: buf.zv,
@@ -1703,6 +1704,18 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             text.byte_to_char(db.pt)
         }
     });
+    let mark_char = match db.mark {
+        Some(mark) => Some(db.mark_char.unwrap_or_else(|| {
+            if mark == db.begv {
+                begv_char
+            } else if mark == db.zv {
+                zv_char
+            } else {
+                text.byte_to_char(mark)
+            }
+        })),
+        None => None,
+    };
     let markers = db
         .markers
         .iter()
@@ -1717,6 +1730,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         pt: db.pt,
         pt_char,
         mark: db.mark,
+        mark_char,
         begv: db.begv,
         begv_char,
         zv: db.zv,
