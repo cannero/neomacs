@@ -2904,7 +2904,10 @@ pub(crate) fn builtin_indent_line_to(
 }
 
 /// `(indent-to COLUMN &optional MINIMUM)` — indent from point to COLUMN.
-/// Insert at least MINIMUM spaces (default 0).
+///
+/// Mirror GNU Emacs Findent_to (indent.c): insert tabs and/or spaces from
+/// point until reaching COLUMN.  Uses tabs when indent-tabs-mode is non-nil.
+/// Optional MINIMUM says always insert at least that many spaces.
 pub(crate) fn builtin_indent_to(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_min_args("indent-to", &args, 1)?;
     let column = expect_fixnump(&args[0])?.max(0) as usize;
@@ -2922,37 +2925,79 @@ pub(crate) fn builtin_indent_to(eval: &mut super::eval::Evaluator, args: Vec<Val
     let pt = buf.point();
     let pmin = buf.point_min();
 
-    // Compute current column (simple: count chars from line start).
+    // Compute current display column (handles tabs and wide chars).
     let text_before = buf.buffer_substring(pmin, pt);
-    let cur_col = if let Some(nl_pos) = text_before.rfind('\n') {
-        text_before.len() - nl_pos - 1
-    } else {
-        text_before.len()
-    };
+    let line_start = text_before.rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let line_prefix = &text_before[line_start..];
 
-    let spaces_needed = if column > cur_col {
-        (column - cur_col).max(minimum)
-    } else {
-        minimum
-    };
+    let tab_width = eval
+        .obarray
+        .symbol_value("tab-width")
+        .and_then(|v| match v {
+            Value::Int(n) if *n > 0 => Some(*n as usize),
+            _ => None,
+        })
+        .unwrap_or(8);
 
-    if spaces_needed > 0 && region_case_read_only(eval, buf) {
+    let mut fromcol = 0usize;
+    for ch in line_prefix.chars() {
+        if ch == '\t' {
+            let tw = tab_width.max(1);
+            fromcol += tw - (fromcol % tw);
+        } else {
+            fromcol += crate::encoding::char_width(ch);
+        }
+    }
+
+    // GNU: mincol = max(column, fromcol + minimum)
+    let mincol = column.max(fromcol + minimum);
+
+    if fromcol >= mincol {
+        return Ok(Value::Int(mincol as i64));
+    }
+
+    if region_case_read_only(eval, buf) {
         return Err(signal(
             "buffer-read-only",
             vec![Value::string(buf.name.clone())],
         ));
     }
 
-    if spaces_needed > 0 {
-        let spaces: String = " ".repeat(spaces_needed);
-        let buf = eval
-            .buffers
-            .current_buffer_mut()
-            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        buf.insert(&spaces);
+    // Build indentation string using tabs and spaces per GNU algorithm.
+    let use_tabs = eval
+        .obarray
+        .symbol_value("indent-tabs-mode")
+        .is_some_and(|v| v.is_truthy());
+
+    let mut indent = String::new();
+    let mut col = fromcol;
+
+    if use_tabs {
+        let tw = tab_width.max(1);
+        // Insert tabs to get as close as possible.
+        while col < mincol {
+            let next_tab = col + (tw - (col % tw));
+            if next_tab <= mincol {
+                indent.push('\t');
+                col = next_tab;
+            } else {
+                break;
+            }
+        }
+    }
+    // Fill remainder with spaces.
+    while col < mincol {
+        indent.push(' ');
+        col += 1;
     }
 
-    Ok(Value::Int((cur_col + spaces_needed) as i64))
+    let buf = eval
+        .buffers
+        .current_buffer_mut()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    buf.insert(&indent);
+
+    Ok(Value::Int(mincol as i64))
 }
 
 /// `(newline &optional ARG INTERACTIVE)` — insert one or more newlines.
