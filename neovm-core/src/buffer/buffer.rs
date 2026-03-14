@@ -181,6 +181,95 @@ impl Buffer {
         self.goto_byte(pos);
     }
 
+    fn apply_byte_insert_side_effects(
+        &mut self,
+        insert_pos: usize,
+        len: usize,
+        shift_begv: bool,
+        advance_point_at_insert: bool,
+    ) {
+        if len == 0 {
+            return;
+        }
+
+        if self.pt > insert_pos || (advance_point_at_insert && self.pt == insert_pos) {
+            self.pt += len;
+        }
+        if shift_begv && self.begv > insert_pos {
+            self.begv += len;
+        }
+        if self.zv >= insert_pos {
+            self.zv += len;
+        }
+        if let Some(mark) = self.mark
+            && mark > insert_pos
+        {
+            self.mark = Some(mark + len);
+        }
+        for marker in &mut self.markers {
+            if marker.byte_pos > insert_pos {
+                marker.byte_pos += len;
+            } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
+            {
+                marker.byte_pos += len;
+            }
+        }
+        self.text_props.adjust_for_insert(insert_pos, len);
+        self.overlays.adjust_for_insert(insert_pos, len);
+        self.modified = true;
+        self.modified_tick += 1;
+        self.chars_modified_tick += 1;
+    }
+
+    fn apply_byte_delete_side_effects(&mut self, start: usize, end: usize, shift_begv: bool) {
+        if start >= end {
+            return;
+        }
+        let len = end - start;
+
+        if self.pt > end {
+            self.pt -= len;
+        } else if self.pt > start {
+            self.pt = start;
+        }
+
+        if shift_begv {
+            if self.begv > end {
+                self.begv -= len;
+            } else if self.begv > start {
+                self.begv = start;
+            }
+        }
+
+        if self.zv > end {
+            self.zv -= len;
+        } else if self.zv > start {
+            self.zv = start;
+        }
+
+        if let Some(mark) = self.mark {
+            if mark > end {
+                self.mark = Some(mark - len);
+            } else if mark > start {
+                self.mark = Some(start);
+            }
+        }
+
+        for marker in &mut self.markers {
+            if marker.byte_pos > end {
+                marker.byte_pos -= len;
+            } else if marker.byte_pos > start {
+                marker.byte_pos = start;
+            }
+        }
+
+        self.text_props.adjust_for_delete(start, end);
+        self.overlays.adjust_for_delete(start, end);
+        self.modified = true;
+        self.modified_tick += 1;
+        self.chars_modified_tick += 1;
+    }
+
     // -- Editing -------------------------------------------------------------
 
     /// Insert `text` at point, advancing point past the inserted text.
@@ -198,40 +287,7 @@ impl Buffer {
         self.undo_list.record_insert(insert_pos, len);
 
         self.text.insert_str(insert_pos, text);
-
-        // Advance point past inserted text.
-        self.pt += len;
-
-        // Adjust zv (end of accessible region grows with buffer).
-        self.zv += len;
-
-        // Adjust mark.
-        if let Some(m) = self.mark {
-            if m > insert_pos {
-                self.mark = Some(m + len);
-            }
-        }
-
-        // Adjust markers.
-        for marker in &mut self.markers {
-            if marker.byte_pos > insert_pos {
-                marker.byte_pos += len;
-            } else if marker.byte_pos == insert_pos {
-                // Insertion at exact marker position: behaviour depends on type.
-                if marker.insertion_type == InsertionType::After {
-                    marker.byte_pos += len;
-                }
-                // InsertionType::Before => marker stays put.
-            }
-        }
-
-        // Adjust text properties and overlays.
-        self.text_props.adjust_for_insert(insert_pos, len);
-        self.overlays.adjust_for_insert(insert_pos, len);
-
-        self.modified = true;
-        self.modified_tick += 1;
-        self.chars_modified_tick += 1;
+        self.apply_byte_insert_side_effects(insert_pos, len, false, true);
     }
 
     /// Delete the byte range `[start, end)`.
@@ -241,54 +297,13 @@ impl Buffer {
         if start >= end {
             return;
         }
-        let len = end - start;
-
         // Record undo: save the deleted text for restoration.
         let deleted_text = self.text.text_range(start, end);
         self.undo_list.prepare_change(start, self.pt);
         self.undo_list.record_delete(start, &deleted_text);
 
         self.text.delete_range(start, end);
-
-        // Adjust point.
-        if self.pt > end {
-            self.pt -= len;
-        } else if self.pt > start {
-            self.pt = start;
-        }
-
-        // Adjust mark.
-        if let Some(m) = self.mark {
-            if m > end {
-                self.mark = Some(m - len);
-            } else if m > start {
-                self.mark = Some(start);
-            }
-        }
-
-        // Adjust markers.
-        for marker in &mut self.markers {
-            if marker.byte_pos > end {
-                marker.byte_pos -= len;
-            } else if marker.byte_pos > start {
-                marker.byte_pos = start;
-            }
-        }
-
-        // Adjust zv.
-        if self.zv > end {
-            self.zv -= len;
-        } else if self.zv > start {
-            self.zv = start;
-        }
-
-        // Adjust text properties and overlays.
-        self.text_props.adjust_for_delete(start, end);
-        self.overlays.adjust_for_delete(start, end);
-
-        self.modified = true;
-        self.modified_tick += 1;
-        self.chars_modified_tick += 1;
+        self.apply_byte_delete_side_effects(start, end, false);
     }
 
     // -- Text queries --------------------------------------------------------
@@ -593,84 +608,11 @@ impl BufferManager {
     }
 
     fn adjust_shared_insert_metadata(buf: &mut Buffer, insert_pos: usize, len: usize) {
-        if len == 0 {
-            return;
-        }
-
-        if buf.pt > insert_pos {
-            buf.pt += len;
-        }
-        if buf.begv > insert_pos {
-            buf.begv += len;
-        }
-        if buf.zv >= insert_pos {
-            buf.zv += len;
-        }
-        if let Some(mark) = buf.mark
-            && mark > insert_pos
-        {
-            buf.mark = Some(mark + len);
-        }
-        for marker in &mut buf.markers {
-            if marker.byte_pos > insert_pos {
-                marker.byte_pos += len;
-            } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
-            {
-                marker.byte_pos += len;
-            }
-        }
-        buf.text_props.adjust_for_insert(insert_pos, len);
-        buf.overlays.adjust_for_insert(insert_pos, len);
-        buf.modified = true;
-        buf.modified_tick += 1;
-        buf.chars_modified_tick += 1;
+        buf.apply_byte_insert_side_effects(insert_pos, len, true, false);
     }
 
     fn adjust_shared_delete_metadata(buf: &mut Buffer, start: usize, end: usize) {
-        if start >= end {
-            return;
-        }
-        let len = end - start;
-
-        if buf.pt > end {
-            buf.pt -= len;
-        } else if buf.pt > start {
-            buf.pt = start;
-        }
-
-        if buf.begv > end {
-            buf.begv -= len;
-        } else if buf.begv > start {
-            buf.begv = start;
-        }
-
-        if buf.zv > end {
-            buf.zv -= len;
-        } else if buf.zv > start {
-            buf.zv = start;
-        }
-
-        if let Some(mark) = buf.mark {
-            if mark > end {
-                buf.mark = Some(mark - len);
-            } else if mark > start {
-                buf.mark = Some(start);
-            }
-        }
-
-        for marker in &mut buf.markers {
-            if marker.byte_pos > end {
-                marker.byte_pos -= len;
-            } else if marker.byte_pos > start {
-                marker.byte_pos = start;
-            }
-        }
-
-        buf.text_props.adjust_for_delete(start, end);
-        buf.overlays.adjust_for_delete(start, end);
-        buf.modified = true;
-        buf.modified_tick += 1;
-        buf.chars_modified_tick += 1;
+        buf.apply_byte_delete_side_effects(start, end, true);
     }
 
     fn sync_shared_undo_lists(&mut self, root_id: BufferId, source_id: BufferId) -> Option<()> {
@@ -1315,6 +1257,36 @@ mod tests {
         assert!(result.applied_any);
         assert_eq!(mgr.get(base_id).unwrap().buffer_string(), "");
         assert_eq!(mgr.get(indirect_id).unwrap().buffer_string(), "");
+    }
+
+    #[test]
+    fn indirect_buffers_preserve_narrowing_across_shared_edits() {
+        let mut mgr = BufferManager::new();
+        let base_id = mgr.current_buffer_id().expect("scratch buffer");
+        let _ = mgr.insert_into_buffer(base_id, "abcdef");
+        let indirect_id = mgr
+            .create_indirect_buffer(base_id, "*indirect-narrow*", false)
+            .expect("indirect buffer");
+
+        let _ = mgr.narrow_buffer_to_region(indirect_id, 2, 6);
+        let _ = mgr.goto_buffer_byte(indirect_id, 4);
+
+        let _ = mgr.goto_buffer_byte(base_id, 0);
+        let _ = mgr.insert_into_buffer(base_id, "zz");
+
+        let indirect = mgr.get(indirect_id).expect("indirect buffer");
+        assert_eq!(indirect.point_min(), 4);
+        assert_eq!(indirect.point_max(), 8);
+        assert_eq!(indirect.point(), 6);
+        assert_eq!(indirect.buffer_string(), "cdef");
+
+        let _ = mgr.delete_buffer_region(base_id, 0, 2);
+
+        let indirect = mgr.get(indirect_id).expect("indirect buffer");
+        assert_eq!(indirect.point_min(), 2);
+        assert_eq!(indirect.point_max(), 6);
+        assert_eq!(indirect.point(), 4);
+        assert_eq!(indirect.buffer_string(), "cdef");
     }
 
     // -----------------------------------------------------------------------
