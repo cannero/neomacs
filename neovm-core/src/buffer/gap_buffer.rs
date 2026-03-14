@@ -458,7 +458,7 @@ impl GapBuffer {
 
         // Clamp to end of buffer instead of panicking — this can happen
         // when window_start / point are stale after buffer modification.
-        tracing::warn!(
+        tracing::debug!(
             "char_to_byte: char_pos ({char_pos}) exceeds char_count ({}), clamping",
             self.char_count()
         );

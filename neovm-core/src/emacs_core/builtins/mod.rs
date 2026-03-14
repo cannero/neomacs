@@ -924,9 +924,20 @@ pub(crate) fn dispatch_builtin(
         // Hooks
         "run-hooks" => {
             let hook_names: Vec<String> = args.iter().filter_map(|a| a.as_symbol_name().map(|s| s.to_string())).collect();
-            tracing::info!(hooks = ?hook_names, "run-hooks called");
+            // Only log important hooks at info; the rest at debug to avoid
+            // flooding the log with custom-define-hook during bootstrap.
+            let dominated_by_noise = hook_names.iter().all(|h| {
+                h == "custom-define-hook" || h == "change-major-mode-hook"
+            });
+            if dominated_by_noise {
+                tracing::debug!(hooks = ?hook_names, "run-hooks");
+            } else {
+                tracing::info!(hooks = ?hook_names, "run-hooks called");
+            }
             let result = builtin_run_hooks(eval, args);
-            tracing::info!(hooks = ?hook_names, "run-hooks returned");
+            if !dominated_by_noise {
+                tracing::info!(hooks = ?hook_names, "run-hooks returned");
+            }
             if hook_names.iter().any(|h| h == "window-setup-hook") {
                 tracing::info!("Enabling post-startup builtin tracing");
                 TRACE_ALL_BUILTINS.store(true, Ordering::Relaxed);
@@ -1837,7 +1848,7 @@ pub(crate) fn dispatch_builtin(
         }
         "frame-position" => return Some(super::window_cmds::builtin_frame_position(eval, args)),
         "frame-parameter" => {
-            tracing::info!(param = ?args.get(1).map(|v| format!("{}", v)), "frame-parameter called");
+            tracing::debug!(param = ?args.get(1).map(|v| format!("{}", v)), "frame-parameter called");
             return Some(super::window_cmds::builtin_frame_parameter(eval, args));
         }
         "frame-parameters" => {
