@@ -2353,7 +2353,8 @@ impl Evaluator {
                     Flow::Signal(sig) => {
                         // Log error but continue the loop
                         // (mirrors cmd_error in keyboard.c)
-                        tracing::warn!("Command error: ({} {:?})", sig.symbol_name(), sig.data);
+                        let data_strs: Vec<String> = sig.data.iter().map(|v| format!("{}", v)).collect();
+                        tracing::warn!("Command error: ({} [{}])", sig.symbol_name(), data_strs.join(", "));
                     }
                 }
             }
