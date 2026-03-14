@@ -917,7 +917,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "redraw-frame",
     "resize-mini-window-internal",
     "restore-buffer-modified-p",
-    "reindent-then-newline-and-indent",
     "resume-tty",
     "reverse",
     "run-hook-with-args-until-failure",

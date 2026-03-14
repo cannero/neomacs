@@ -5288,6 +5288,18 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
 }
 
 #[test]
+fn delete_region_normalizes_reversed_bounds() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
+
+    builtin_delete_region(&mut eval, vec![Value::Int(3), Value::Int(2)])
+        .expect("delete-region should accept reversed bounds");
+
+    let text = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should succeed");
+    assert_eq!(text.as_str(), Some("ac"));
+}
+
+#[test]
 fn string_match_start_handles_nil_and_negative_offsets() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
     let with_nil = builtin_string_match_eval(

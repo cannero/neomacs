@@ -3,7 +3,7 @@
 //! Implements stub versions of Emacs indentation primitives:
 //! - `current-indentation`, `indent-to`, `current-column`, `move-to-column`
 //! - `indent-region`, `indent-line-to`, `indent-rigidly`, `newline-and-indent`,
-//!   `reindent-then-newline-and-indent`, `indent-for-tab-command`,
+//!   `indent-for-tab-command`,
 //!   `indent-according-to-mode`, `tab-to-tab-stop`, `back-to-indentation`,
 //!   `delete-indentation`
 //!
@@ -270,52 +270,6 @@ fn delete_horizontal_space_at_point(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = eval.buffers.delete_buffer_region(current_id, left, right);
     Ok(())
-}
-
-fn newline_and_copy_previous_indentation(eval: &mut super::eval::Evaluator) -> EvalResult {
-    delete_horizontal_space_at_point(eval, false)?;
-
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
-    }
-    let _ = eval.buffers.insert_into_buffer(current_id, "\n");
-
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-
-    let pt = buf.point();
-    let pmin = buf.point_min();
-    let text_before = buf.buffer_substring(pmin, pt);
-    let prev_nl = if text_before.len() > 1 {
-        text_before[..text_before.len() - 1].rfind('\n')
-    } else {
-        None
-    };
-    let prev_line_start = prev_nl.map(|pos| pos + 1).unwrap_or(0);
-    let prev_line = &text_before[prev_line_start..text_before.len().saturating_sub(1)];
-    let indent: String = prev_line
-        .chars()
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .collect();
-
-    if !indent.is_empty() {
-        let _ = eval.buffers.insert_into_buffer(current_id, &indent);
-    }
-
-    Ok(Value::Nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -618,20 +572,6 @@ pub(crate) fn builtin_indent_to_eval(
     let _ = eval.buffers.insert_into_buffer(current_id, &indent);
 
     Ok(Value::Int(mincol as i64))
-}
-
-/// (reindent-then-newline-and-indent) -> nil
-///
-/// Reindent current line, insert newline, then indent the new line.
-/// Stub: does nothing, returns nil.
-pub(crate) fn builtin_reindent_then_newline_and_indent(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("reindent-then-newline-and-indent", &args, 0)?;
-    builtin_indent_according_to_mode(eval, vec![])?;
-    newline_and_copy_previous_indentation(eval)?;
-    Ok(Value::Nil)
 }
 
 /// (indent-for-tab-command &optional ARG) -> nil

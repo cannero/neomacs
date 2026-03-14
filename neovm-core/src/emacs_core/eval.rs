@@ -1867,7 +1867,19 @@ impl Evaluator {
             "standard-output",
             "case-fold-search",
             "buffer-read-only",
+            "current-prefix-arg",
+            "prefix-arg",
+            "last-prefix-arg",
+            "last-command-event",
+            "last-input-event",
+            "last-command",
+            "real-last-command",
+            "this-command",
+            "real-this-command",
+            "this-command-keys-shift-translated",
             "unread-command-events",
+            "unread-input-method-events",
+            "unread-post-input-method-events",
         ] {
             obarray.make_special(name);
         }
@@ -1879,6 +1891,7 @@ impl Evaluator {
         super::indent::init_indent_vars(&mut obarray);
 
         let mut custom = CustomManager::new();
+        super::syntax::init_syntax_vars(&mut obarray, &mut custom);
         custom.make_variable_buffer_local("buffer-read-only");
         custom.make_variable_buffer_local("major-mode");
         custom.make_variable_buffer_local("mode-name");

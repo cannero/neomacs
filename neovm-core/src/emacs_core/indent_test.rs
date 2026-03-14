@@ -1,4 +1,15 @@
 use super::*;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let forms = super::super::parser::parse_forms(src).expect("parse forms");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(super::super::format_eval_result)
+        .collect()
+}
 
 #[test]
 fn current_indentation_returns_zero() {
@@ -256,16 +267,6 @@ fn eval_indent_mode_subset() {
           (goto-char (point-max))
           (indent-according-to-mode)
           (point))
-        (with-temp-buffer
-          (insert (string 32 32 97))
-          (goto-char (point-max))
-          (reindent-then-newline-and-indent)
-          (append (buffer-string) nil))
-        (with-temp-buffer
-          (insert (string 32 32 97))
-          (goto-char (point-max))
-          (reindent-then-newline-and-indent)
-          (point))
         "#,
     )
     .expect("parse forms");
@@ -280,36 +281,106 @@ fn eval_indent_mode_subset() {
         .eval(&forms[1])
         .expect("eval indent-according-to-mode point");
     assert_eq!(second, Value::Int(2));
+}
 
-    let third = ev
-        .eval(&forms[2])
-        .expect("eval reindent-then-newline-and-indent");
-    assert_eq!(
-        list_to_vec(&third).expect("third byte list"),
-        vec![Value::Int(97), Value::Int(10)]
+#[test]
+fn bootstrap_self_insert_command_uses_last_command_event() {
+    let results = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (let ((last-command-event 10))
+               (list (self-insert-command 1)
+                     (point)
+                     (append (buffer-string) nil))))"#,
     );
+    assert_eq!(results[0], "OK (nil 2 (10))");
+}
 
-    let fourth = ev
-        .eval(&forms[3])
-        .expect("eval reindent-then-newline-and-indent point");
-    assert_eq!(fourth, Value::Int(3));
+#[test]
+fn bootstrap_newline_inserts_lf_in_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "ab")
+             (goto-char 2)
+             (list (newline)
+                   (point)
+                   (append (buffer-string) nil)))"#,
+    );
+    assert_eq!(results[0], "OK (nil 3 (97 10 98))");
+}
+
+#[test]
+fn bootstrap_newline_marker_round_trip_in_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "ab")
+             (goto-char 2)
+             (let ((pos (point-marker)))
+               (newline)
+               (goto-char pos)
+               (list (point)
+                     (marker-position pos)
+                     (append (buffer-string) nil))))"#,
+    );
+    assert_eq!(results[0], "OK (2 2 (97 10 98))");
+}
+
+#[test]
+fn bootstrap_newline_copy_marker_sequence_matches_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "a b")
+             (goto-char 3)
+             (let ((pos (point-marker)))
+               (newline)
+               (save-excursion
+                 (goto-char pos)
+                 (setq pos (copy-marker pos t))
+                 (list (point)
+                       (marker-position pos)
+                       (marker-insertion-type pos)
+                       (append (buffer-string) nil)))))"#,
+    );
+    assert_eq!(results[0], "OK (3 3 t (97 32 10 98))");
+}
+
+#[test]
+fn bootstrap_reindent_delete_horizontal_space_step_matches_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "a b")
+             (goto-char 3)
+             (let ((pos (point-marker)))
+               (newline)
+               (save-excursion
+                 (goto-char pos)
+                 (setq pos (copy-marker pos t))
+                 (indent-according-to-mode)
+                 (goto-char pos)
+                 (delete-horizontal-space t))
+               (list (point)
+                     (append (buffer-string) nil))))"#,
+    );
+    assert_eq!(results[0], "OK (3 (97 10 98))");
 }
 
 #[test]
 fn reindent_then_newline_and_indent_normalizes_split_whitespace() {
-    let mut ev = super::super::eval::Evaluator::new();
-    let forms = super::super::parser::parse_forms(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "a b")
              (goto-char 3)
              (list (reindent-then-newline-and-indent)
                    (point)
                    (append (buffer-string) nil)))"#,
-    )
-    .expect("parse forms");
-    let value = ev.eval(&forms[0]).expect("eval");
-    let printed = super::super::print::print_value(&value);
-    assert_eq!(printed, "(nil 3 (97 10 98))");
+    );
+    assert_eq!(results[0], "OK (nil 3 (97 10 98))");
+}
+
+#[test]
+fn reindent_then_newline_and_indent_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "reindent-then-newline-and-indent"
+    ));
 }
 
 #[test]

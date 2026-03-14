@@ -527,7 +527,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "search-backward-regexp"
             | "search-forward-regexp"
             | "recursive-edit"
-            | "reindent-then-newline-and-indent"
             | "remove-hook"
             | "rename-buffer"
             | "rename-file"

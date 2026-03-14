@@ -47,6 +47,42 @@ pub fn collect_syntax_gc_roots(roots: &mut Vec<Value>) {
 
 const SYNTAX_TABLE_OBJECT_PROPERTY: &str = "syntax-table-object";
 
+/// Pre-populate GNU Emacs syntax variables that are defined from C.
+pub fn init_syntax_vars(
+    obarray: &mut super::symbol::Obarray,
+    custom: &mut super::custom::CustomManager,
+) {
+    obarray.set_symbol_value("parse-sexp-ignore-comments", Value::Nil);
+    obarray.set_symbol_value("parse-sexp-lookup-properties", Value::Nil);
+    obarray.set_symbol_value("syntax-propertize--done", Value::Int(-1));
+    obarray.set_symbol_value("words-include-escapes", Value::Nil);
+    obarray.set_symbol_value("multibyte-syntax-as-symbol", Value::Nil);
+    obarray.set_symbol_value("open-paren-in-column-0-is-defun-start", Value::True);
+    obarray.set_symbol_value(
+        "find-word-boundary-function-table",
+        super::chartable::make_char_table_value(Value::Nil, Value::Nil),
+    );
+    obarray.set_symbol_value("comment-end-can-be-escaped", Value::Nil);
+    obarray.set_symbol_value("forward-comment-function", Value::Nil);
+
+    for name in &[
+        "parse-sexp-ignore-comments",
+        "parse-sexp-lookup-properties",
+        "syntax-propertize--done",
+        "words-include-escapes",
+        "multibyte-syntax-as-symbol",
+        "open-paren-in-column-0-is-defun-start",
+        "find-word-boundary-function-table",
+        "comment-end-can-be-escaped",
+        "forward-comment-function",
+    ] {
+        obarray.make_special(name);
+    }
+
+    custom.make_variable_buffer_local("syntax-propertize--done");
+    custom.make_variable_buffer_local("comment-end-can-be-escaped");
+}
+
 // ===========================================================================
 // Syntax classes
 // ===========================================================================

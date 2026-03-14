@@ -2411,11 +2411,6 @@ pub(crate) fn dispatch_builtin(
         "current-column" => return Some(super::indent::builtin_current_column_eval(eval, args)),
         "move-to-column" => return Some(super::indent::builtin_move_to_column_eval(eval, args)),
         "indent-region" => return Some(super::indent::builtin_indent_region(eval, args)),
-        "reindent-then-newline-and-indent" => {
-            return Some(super::indent::builtin_reindent_then_newline_and_indent(
-                eval, args,
-            ));
-        }
         "indent-for-tab-command" => {
             return Some(super::indent::builtin_indent_for_tab_command(eval, args));
         }

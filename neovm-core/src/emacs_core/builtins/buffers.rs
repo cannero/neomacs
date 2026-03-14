@@ -1933,11 +1933,11 @@ pub(crate) fn builtin_delete_region(
             vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
         ));
     }
-    let start = start as usize;
-    let end = end as usize;
+    let lo = start.min(end) as usize;
+    let hi = start.max(end) as usize;
     // Convert 1-based to 0-based char positions, then to byte positions
-    let s = if start > 0 { start - 1 } else { 0 };
-    let e = if end > 0 { end - 1 } else { 0 };
+    let s = if lo > 0 { lo - 1 } else { 0 };
+    let e = if hi > 0 { hi - 1 } else { 0 };
     let byte_start = buf.text.char_to_byte(s);
     let byte_end = buf.text.char_to_byte(e);
     let _ = eval
