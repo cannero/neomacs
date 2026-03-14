@@ -138,7 +138,9 @@ fn point_min_and_max_markers_follow_narrowing() {
     let mut eval = super::super::eval::Evaluator::new();
     let buf_id = eval.buffers.current_buffer_id().expect("current buffer");
     let _ = eval.buffers.insert_into_buffer(buf_id, "ééz");
-    let _ = eval.buffers.narrow_buffer_to_region(buf_id, 'é'.len_utf8(), "ééz".len());
+    let _ = eval
+        .buffers
+        .narrow_buffer_to_region(buf_id, 'é'.len_utf8(), "ééz".len());
 
     let min_marker = builtin_point_min_marker(&mut eval, vec![]).expect("point-min-marker");
     let max_marker = builtin_point_max_marker(&mut eval, vec![]).expect("point-max-marker");
