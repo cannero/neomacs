@@ -353,8 +353,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "backward-char"
             | "delete-char"
             | "insert-char"
-            | "next-line"
-            | "previous-line"
             | "kill-line"
             | "kill-word"
             | "backward-kill-word"
@@ -1307,8 +1305,6 @@ fn default_command_execute_args(eval: &Evaluator, name: &str) -> Result<Vec<Valu
         | "scroll-down-command"
         | "recenter-top-bottom"
         | "other-window" => Ok(vec![Value::Int(1)]),
-        // next-line/previous-line: (interactive "^p\np") — two args
-        "next-line" | "previous-line" => Ok(vec![Value::Int(1), Value::Int(1)]),
         "kill-region" => interactive_region_args(eval, "user-error"),
         "kill-ring-save" => interactive_region_args(eval, "error"),
         "copy-region-as-kill" => interactive_region_args(eval, "error"),
@@ -1355,12 +1351,6 @@ fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<V
             eval,
             CommandInvocationKind::CallInteractively,
         )]),
-        // next-line/previous-line: (interactive "^p\np") — two args
-        "next-line" | "previous-line" => {
-            let arg =
-                interactive_prefix_numeric_arg(eval, CommandInvocationKind::CallInteractively);
-            Ok(vec![arg, arg])
-        }
         "set-mark-command" => Ok(vec![
             dynamic_or_global_symbol_value(eval, "current-prefix-arg").unwrap_or(Value::Nil),
         ]),

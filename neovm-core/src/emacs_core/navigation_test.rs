@@ -1,6 +1,8 @@
 use super::super::eval::Evaluator;
 use super::super::value::Value;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use std::fs;
+use std::path::PathBuf;
 
 /// Helper: create an evaluator, insert text, and position point.
 fn eval_with_text(text: &str) -> Evaluator {
@@ -22,6 +24,58 @@ fn bootstrap_eval_with_text(text: &str) -> Evaluator {
         buf.insert(text);
         buf.goto_char(0);
     }
+    ev
+}
+
+fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing GNU simple.el marker: {marker}"));
+    let forms = super::super::parser::parse_forms(&source[start..])
+        .unwrap_or_else(|err| panic!("parse GNU simple.el from {marker} failed: {:?}", err));
+    let form = forms
+        .first()
+        .unwrap_or_else(|| panic!("no GNU simple.el form found after marker: {marker}"));
+    eval.eval_expr(form)
+        .unwrap_or_else(|err| panic!("evaluate GNU simple.el form {marker} failed: {:?}", err));
+}
+
+fn gnu_simple_line_eval() -> Evaluator {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let subr_path = project_root.join("lisp/subr.el");
+    let simple_source = fs::read_to_string(&simple_path)
+        .expect("read GNU simple.el")
+        .replace(
+            "(with-suppressed-warnings ((obsolete inhibit-point-motion-hooks))",
+            "(progn",
+        )
+        .replace("(called-interactively-p 'interactive)", "nil");
+    let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
+
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    eval_first_form_after_marker(&mut ev, &subr_source, "(defun zerop (number)");
+    for marker in [
+        "(defun next-line (&optional arg try-vscroll)",
+        "(defun previous-line (&optional arg try-vscroll)",
+        "(defun line-move (arg &optional noerror _to-end try-vscroll)",
+        "(defun line-move-1 (arg &optional noerror _to-end)",
+        "(defun line-move-finish (column opoint forward &optional not-ipmh)",
+        "(defun line-move-to-column (col)",
+    ] {
+        eval_first_form_after_marker(&mut ev, &simple_source, marker);
+    }
+    eval_str(
+        &mut ev,
+        "(setq next-line-add-newlines nil
+               track-eol nil
+               goal-column nil
+               temporary-goal-column 0
+               line-move-ignore-invisible t
+               line-move-visual t)",
+    );
     ev
 }
 
@@ -213,51 +267,72 @@ fn test_forward_line_negative_from_middle_of_line() {
 }
 
 #[test]
-fn test_next_line_moves_to_next_line() {
-    let mut ev = eval_with_text("abc\ndef");
-    eval_str(&mut ev, "(next-line)");
-    let pos = eval_int(&mut ev, "(point)");
-    assert_eq!(pos, 5);
-}
-
-#[test]
-fn test_next_line_signals_end_of_buffer() {
-    let mut ev = eval_with_text("abc");
-    let val = eval_str(
+fn bootstrap_next_and_previous_line_match_simple_el() {
+    let mut ev = gnu_simple_line_eval();
+    let ownership = eval_str(
         &mut ev,
-        "(condition-case err (next-line) (error (car err)))",
+        "(list (subrp (symbol-function 'next-line))
+               (subrp (symbol-function 'previous-line)))",
     );
-    assert_eq!(val.as_symbol_name(), Some("end-of-buffer"));
-}
+    assert_eq!(ownership, Value::list(vec![Value::Nil, Value::Nil]));
 
-#[test]
-fn test_previous_line_moves_to_previous_line() {
-    let mut ev = eval_with_text("abc\ndef");
-    eval_str(&mut ev, "(goto-char 5)");
-    eval_str(&mut ev, "(previous-line)");
-    let pos = eval_int(&mut ev, "(point)");
-    assert_eq!(pos, 1);
-}
-
-#[test]
-fn test_previous_line_signals_beginning_of_buffer() {
-    let mut ev = eval_with_text("abc");
-    let val = eval_str(
+    let next_line_pos = eval_int(
         &mut ev,
-        "(condition-case err (previous-line) (error (car err)))",
+        "(progn
+           (erase-buffer)
+           (insert \"abc\ndef\")
+           (goto-char 1)
+           (next-line)
+           (point))",
     );
-    assert_eq!(val.as_symbol_name(), Some("beginning-of-buffer"));
-}
+    assert_eq!(next_line_pos, 5);
 
-#[test]
-fn test_previous_line_signals_beginning_of_buffer_from_middle_of_line() {
-    let mut ev = eval_with_text("abc");
-    eval_str(&mut ev, "(goto-char 2)");
-    let val = eval_str(
+    let next_line_err = eval_str(
         &mut ev,
-        "(condition-case err (previous-line) (error (car err)))",
+        "(progn
+           (erase-buffer)
+           (insert \"abc\")
+           (goto-char 1)
+           (condition-case err (next-line) (error (car err))))",
     );
-    assert_eq!(val.as_symbol_name(), Some("beginning-of-buffer"));
+    assert_eq!(next_line_err.as_symbol_name(), Some("end-of-buffer"));
+
+    let previous_line_pos = eval_int(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"abc\ndef\")
+           (goto-char 5)
+           (previous-line)
+           (point))",
+    );
+    assert_eq!(previous_line_pos, 1);
+
+    let previous_line_err = eval_str(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"abc\")
+           (goto-char 1)
+           (condition-case err (previous-line) (error (car err))))",
+    );
+    assert_eq!(
+        previous_line_err.as_symbol_name(),
+        Some("beginning-of-buffer")
+    );
+
+    let previous_line_mid_err = eval_str(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"abc\")
+           (goto-char 2)
+           (condition-case err (previous-line) (error (car err))))",
+    );
+    assert_eq!(
+        previous_line_mid_err.as_symbol_name(),
+        Some("beginning-of-buffer")
+    );
 }
 
 #[test]

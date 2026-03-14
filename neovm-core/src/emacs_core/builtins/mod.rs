@@ -1541,8 +1541,6 @@ pub(crate) fn dispatch_builtin(
             return Some(super::navigation::builtin_line_number_at_pos(eval, args));
         }
         "forward-line" => return Some(super::navigation::builtin_forward_line(eval, args)),
-        "next-line" => return Some(super::navigation::builtin_next_line(eval, args)),
-        "previous-line" => return Some(super::navigation::builtin_previous_line(eval, args)),
         "beginning-of-buffer" => {
             return Some(super::navigation::builtin_beginning_of_buffer(eval, args));
         }
