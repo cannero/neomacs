@@ -9,8 +9,9 @@ use std::collections::HashMap;
 #[cfg(not(target_os = "windows"))]
 use std::ffi::CStr;
 use std::fs::OpenOptions;
+use std::io::Read as IoRead;
 use std::net::IpAddr;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::error::{EvalResult, Flow, signal};
@@ -46,7 +47,7 @@ pub enum ProcessKind {
 }
 
 /// A tracked process record.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Process {
     pub id: ProcessId,
     pub name: String,
@@ -89,10 +90,17 @@ pub struct Process {
     pub tty_stdout: bool,
     /// Whether stderr is tty-backed for this process.
     pub tty_stderr: bool,
+    /// The actual OS child process, if spawned.
+    #[allow(dead_code)]
+    pub child: Option<Child>,
+    /// OS-level stdout pipe for non-blocking reads.
+    pub child_stdout: Option<std::process::ChildStdout>,
+    /// OS-level stderr pipe for non-blocking reads.
+    pub child_stderr: Option<std::process::ChildStderr>,
 }
 
 /// Manages the set of live processes.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ProcessManager {
     processes: HashMap<ProcessId, Process>,
     deleted_processes: HashMap<ProcessId, Process>,
@@ -173,14 +181,131 @@ impl ProcessManager {
             tty_stdin,
             tty_stdout,
             tty_stderr,
+            child: None,
+            child_stdout: None,
+            child_stderr: None,
         };
         self.processes.insert(id, proc);
         id
     }
 
+    /// Spawn an OS child process for a tracked process record.
+    /// Sets up piped stdin/stdout/stderr.
+    pub fn spawn_child(&mut self, id: ProcessId) -> Result<(), String> {
+        let proc = self
+            .processes
+            .get_mut(&id)
+            .ok_or_else(|| "Process not found".to_string())?;
+
+        if proc.child.is_some() {
+            return Ok(()); // Already spawned
+        }
+
+        // Don't spawn non-real processes
+        if proc.kind != ProcessKind::Real {
+            return Ok(());
+        }
+
+        let program = &proc.command;
+        if program == "nil" || program.is_empty() {
+            return Ok(()); // No program to run
+        }
+
+        let mut cmd = Command::new(program);
+        cmd.args(&proc.args);
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        // Apply environment overrides
+        for (key, val) in &self.env_overrides {
+            match val {
+                Some(v) => {
+                    cmd.env(key, v);
+                }
+                None => {
+                    cmd.env_remove(key);
+                }
+            }
+        }
+
+        match cmd.spawn() {
+            Ok(mut child) => {
+                proc.child_stdout = child.stdout.take();
+                proc.child_stderr = child.stderr.take();
+                proc.child = Some(child);
+                proc.status = ProcessStatus::Run;
+                Ok(())
+            }
+            Err(e) => {
+                proc.status = ProcessStatus::Exit(1);
+                Err(format!("Failed to start process: {}", e))
+            }
+        }
+    }
+
+    /// Check if a child process has exited and update its status.
+    /// Returns true if the process exited (status changed).
+    pub fn check_child_exit(&mut self, id: ProcessId) -> bool {
+        let proc = match self.processes.get_mut(&id) {
+            Some(p) => p,
+            None => return false,
+        };
+        let child = match proc.child.as_mut() {
+            Some(c) => c,
+            None => return false,
+        };
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                proc.status = ProcessStatus::Exit(status.code().unwrap_or(1));
+                true
+            }
+            Ok(None) => false, // Still running
+            Err(_) => {
+                proc.status = ProcessStatus::Exit(1);
+                true
+            }
+        }
+    }
+
+    /// Read available output from a child process's stdout.
+    /// Returns the data read (may be empty if nothing available).
+    pub fn read_child_stdout(&mut self, id: ProcessId) -> Option<String> {
+        let proc = self.processes.get_mut(&id)?;
+        let stdout = proc.child_stdout.as_mut()?;
+
+        // Use non-blocking read via set_nonblocking on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = stdout.as_raw_fd();
+            // Set non-blocking
+            unsafe {
+                let flags = libc::fcntl(fd, libc::F_GETFL);
+                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            }
+        }
+
+        let mut buf = vec![0u8; 4096];
+        match stdout.read(&mut buf) {
+            Ok(0) => None, // EOF
+            Ok(n) => {
+                let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                proc.stdout.push_str(&s);
+                Some(s)
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Some(String::new()),
+            Err(_) => None,
+        }
+    }
+
     /// Kill (remove) a process by id.  Returns true if found.
     pub fn kill_process(&mut self, id: ProcessId) -> bool {
         if let Some(proc) = self.processes.get_mut(&id) {
+            // Kill the actual OS child if it exists.
+            if let Some(child) = proc.child.as_mut() {
+                let _ = child.kill();
+            }
             proc.status = ProcessStatus::Signal(9);
             true
         } else {
@@ -191,6 +316,10 @@ impl ProcessManager {
     /// Delete a process entirely.
     pub fn delete_process(&mut self, id: ProcessId) -> bool {
         if let Some(mut proc) = self.processes.remove(&id) {
+            // Kill the actual OS child if it exists.
+            if let Some(child) = proc.child.as_mut() {
+                let _ = child.kill();
+            }
             proc.status = ProcessStatus::Signal(9);
             self.deleted_processes.insert(id, proc);
             true
@@ -268,6 +397,14 @@ impl ProcessManager {
     pub fn send_input(&mut self, id: ProcessId, input: &str) -> bool {
         if let Some(proc) = self.processes.get_mut(&id) {
             proc.stdin_queue.push_str(input);
+            // Write to actual child stdin if available.
+            if let Some(ref mut child) = proc.child {
+                if let Some(ref mut stdin) = child.stdin {
+                    use std::io::Write;
+                    let _ = stdin.write_all(input.as_bytes());
+                    let _ = stdin.flush();
+                }
+            }
             true
         } else {
             false
@@ -2861,6 +2998,21 @@ pub(crate) fn builtin_start_process(
     let id = eval
         .processes
         .create_process(name, buffer, program, proc_args);
+
+    // Actually spawn the OS process.
+    if let Err(e) = eval.processes.spawn_child(id) {
+        // Process creation failed — mark as exited but still return the id
+        // (GNU Emacs signals file-error for missing programs)
+        return Err(signal(
+            "file-error",
+            vec![
+                Value::string("Searching for program"),
+                Value::string(e),
+                args[2],
+            ],
+        ));
+    }
+
     Ok(Value::Int(id as i64))
 }
 
@@ -2879,6 +3031,15 @@ pub(crate) fn builtin_start_process_shell_command(
         "sh".to_string(),
         vec!["-c".to_string(), command],
     );
+
+    // Actually spawn the OS process.
+    if let Err(e) = eval.processes.spawn_child(id) {
+        return Err(signal(
+            "file-error",
+            vec![Value::string("Searching for program"), Value::string(e)],
+        ));
+    }
+
     Ok(Value::Int(id as i64))
 }
 
@@ -3591,6 +3752,8 @@ pub(crate) fn builtin_process_status(
     let Some(id) = resolve_process_for_status(eval, &args[0])? else {
         return Ok(Value::Nil);
     };
+    // Check if child process has exited since last check.
+    eval.processes.check_child_exit(id);
     match eval.processes.get_any(id) {
         Some(proc) => match proc.status {
             ProcessStatus::Run => match proc.kind {
