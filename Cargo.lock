@@ -2173,6 +2173,7 @@ dependencies = [
  "libloading",
  "neovm-host-abi",
  "network-interface",
+ "polling",
  "proptest",
  "regex",
  "serde",
