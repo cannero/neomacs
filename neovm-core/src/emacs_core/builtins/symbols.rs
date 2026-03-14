@@ -1574,11 +1574,10 @@ fn macroexpand_known_fallback_macro(
                     });
                 }
 
-                if let Some(pattern) = unknown_pattern {
-                    return Err(signal(
-                        "error",
-                        vec![Value::string(format!("Unknown x pattern: {pattern}"))],
-                    ));
+                if unknown_pattern.is_some() {
+                    // Pattern too complex for the Rust fast-path (e.g., `,(pred symbolp)`).
+                    // Fall through to the Elisp pcase.el macro which handles all patterns.
+                    return Ok(None);
                 }
 
                 let mut expanded = collapse_macroexpand_body_forms(&args[1..]);
