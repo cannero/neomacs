@@ -787,10 +787,14 @@ impl BufferManager {
         name: &str,
         value: Value,
     ) -> Option<()> {
-        self.buffers
-            .get_mut(&id)?
-            .text_props
-            .put_property(start, end, name, value);
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        for shared_id in shared_ids {
+            self.buffers
+                .get_mut(&shared_id)?
+                .text_props
+                .put_property(start, end, name, value);
+        }
         Some(())
     }
 
@@ -800,10 +804,54 @@ impl BufferManager {
         table: &TextPropertyTable,
         byte_offset: usize,
     ) -> Option<()> {
-        self.buffers
-            .get_mut(&id)?
-            .text_props
-            .append_shifted(table, byte_offset);
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        for shared_id in shared_ids {
+            self.buffers
+                .get_mut(&shared_id)?
+                .text_props
+                .append_shifted(table, byte_offset);
+        }
+        Some(())
+    }
+
+    pub fn remove_buffer_text_property(
+        &mut self,
+        id: BufferId,
+        start: usize,
+        end: usize,
+        name: &str,
+    ) -> Option<bool> {
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let mut removed_any = false;
+        for shared_id in shared_ids {
+            if self
+                .buffers
+                .get_mut(&shared_id)?
+                .text_props
+                .remove_property(start, end, name)
+            {
+                removed_any = true;
+            }
+        }
+        Some(removed_any)
+    }
+
+    pub fn clear_buffer_text_properties(
+        &mut self,
+        id: BufferId,
+        start: usize,
+        end: usize,
+    ) -> Option<()> {
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        for shared_id in shared_ids {
+            self.buffers
+                .get_mut(&shared_id)?
+                .text_props
+                .remove_all_properties(start, end);
+        }
         Some(())
     }
 

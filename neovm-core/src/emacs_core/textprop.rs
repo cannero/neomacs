@@ -215,12 +215,14 @@ pub(crate) fn builtin_put_text_property(
     let buf_id = resolve_buffer_id(eval, args.get(4))?;
     let buf = eval
         .buffers
-        .get_mut(buf_id)
+        .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    buf.text_props.put_property(byte_beg, byte_end, &prop, val);
+    let _ = eval
+        .buffers
+        .put_buffer_text_property(buf_id, byte_beg, byte_end, &prop, val);
     Ok(Value::Nil)
 }
 
@@ -300,13 +302,15 @@ pub(crate) fn builtin_add_text_properties(
     let buf_id = resolve_buffer_id(eval, args.get(3))?;
     let buf = eval
         .buffers
-        .get_mut(buf_id)
+        .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
     for (name, val) in pairs {
-        buf.text_props.put_property(byte_beg, byte_end, &name, val);
+        let _ = eval
+            .buffers
+            .put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
     }
     Ok(Value::True)
 }
@@ -374,14 +378,15 @@ pub(crate) fn builtin_add_face_text_property(
 
     let buf = eval
         .buffers
-        .get_mut(buf_id)
+        .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
     let existing = buf.text_props.get_property(byte_beg, "face").cloned();
     let merged = merge_face_property(existing, new_face, append);
-    buf.text_props
-        .put_property(byte_beg, byte_end, "face", merged);
+    let _ = eval
+        .buffers
+        .put_buffer_text_property(buf_id, byte_beg, byte_end, "face", merged);
     Ok(Value::Nil)
 }
 
@@ -414,14 +419,18 @@ pub(crate) fn builtin_remove_text_properties(
     let buf_id = resolve_buffer_id(eval, args.get(3))?;
     let buf = eval
         .buffers
-        .get_mut(buf_id)
+        .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
     let mut any_removed = false;
     for (name, _val) in pairs {
-        if buf.text_props.remove_property(byte_beg, byte_end, &name) {
+        if eval
+            .buffers
+            .remove_buffer_text_property(buf_id, byte_beg, byte_end, &name)
+            .unwrap_or(false)
+        {
             any_removed = true;
         }
     }
@@ -460,14 +469,18 @@ pub(crate) fn builtin_set_text_properties(
     let buf_id = resolve_buffer_id(eval, args.get(3))?;
     let buf = eval
         .buffers
-        .get_mut(buf_id)
+        .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    buf.text_props.remove_all_properties(byte_beg, byte_end);
+    let _ = eval
+        .buffers
+        .clear_buffer_text_properties(buf_id, byte_beg, byte_end);
     for (name, val) in pairs {
-        buf.text_props.put_property(byte_beg, byte_end, &name, val);
+        let _ = eval
+            .buffers
+            .put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
     }
     Ok(Value::True)
 }
@@ -502,19 +515,22 @@ pub(crate) fn builtin_remove_list_of_text_properties(
     }
 
     let buf_id = resolve_buffer_id(eval, args.get(3))?;
-    let buf = eval
-        .buffers
-        .get_mut(buf_id)
-        .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-
-    let byte_beg = elisp_pos_to_byte(buf, beg);
-    let byte_end = elisp_pos_to_byte(buf, end);
+    let (byte_beg, byte_end) = {
+        let buf = eval
+            .buffers
+            .get(buf_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+        (elisp_pos_to_byte(buf, beg), elisp_pos_to_byte(buf, end))
+    };
 
     let mut changed = false;
     for name_val in names {
         let name = expect_symbol_name(&name_val)?;
         let mut cursor = byte_beg;
         while cursor < byte_end {
+            let Some(buf) = eval.buffers.get(buf_id) else {
+                break;
+            };
             if buf.text_props.get_property(cursor, &name).is_some() {
                 changed = true;
                 break;
@@ -524,7 +540,9 @@ pub(crate) fn builtin_remove_list_of_text_properties(
                 _ => break,
             }
         }
-        buf.text_props.remove_property(byte_beg, byte_end, &name);
+        let _ = eval
+            .buffers
+            .remove_buffer_text_property(buf_id, byte_beg, byte_end, &name);
     }
     Ok(if changed { Value::True } else { Value::Nil })
 }

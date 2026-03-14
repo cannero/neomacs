@@ -1,5 +1,6 @@
 use super::super::eval::Evaluator;
 use super::*;
+use crate::emacs_core::builtins::{builtin_current_buffer, builtin_make_indirect_buffer};
 
 /// Helper: create an evaluator with a buffer containing the given text.
 fn eval_with_text(text: &str) -> Evaluator {
@@ -61,6 +62,50 @@ fn put_text_property_outside_range() {
     // Position 4 is outside the propertized range.
     let result = builtin_get_text_property(&mut eval, vec![Value::Int(4), Value::symbol("face")]);
     assert!(matches!(result, Ok(Value::Nil)));
+}
+
+#[test]
+fn indirect_buffers_share_text_property_updates() {
+    let mut eval = eval_with_text("hello");
+    let base = builtin_current_buffer(&mut eval, vec![]).unwrap();
+    let indirect =
+        builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*tp-indirect*")])
+            .unwrap();
+
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(6),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+            base,
+        ],
+    )
+    .unwrap();
+
+    let via_indirect = builtin_get_text_property(
+        &mut eval,
+        vec![Value::Int(3), Value::symbol("face"), indirect],
+    )
+    .unwrap();
+    assert!(matches!(via_indirect, Value::Symbol(id) if resolve_sym(id) == "bold"));
+
+    builtin_remove_text_properties(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(6),
+            Value::list(vec![Value::symbol("face"), Value::Nil]),
+            indirect,
+        ],
+    )
+    .unwrap();
+
+    let via_base =
+        builtin_get_text_property(&mut eval, vec![Value::Int(3), Value::symbol("face"), base])
+            .unwrap();
+    assert!(via_base.is_nil());
 }
 
 // -----------------------------------------------------------------------
