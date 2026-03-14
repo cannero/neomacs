@@ -152,95 +152,92 @@ fn bootstrap_kill_ring_commands_are_not_rust_subrs() {
 }
 
 #[test]
-fn kill_new_basic() {
-    let results = eval_all(r#"(kill-new "hello") (current-kill 0)"#);
-    assert_eq!(results[0], "OK nil");
-    assert_eq!(results[1], r#"OK "hello""#);
-}
-
-#[test]
-fn kill_new_replace() {
-    let results = eval_all(r#"(kill-new "first") (kill-new "second" t) (current-kill 0)"#);
-    assert_eq!(results[2], r#"OK "second""#);
-}
-
-#[test]
-fn kill_append_basic() {
-    let results = eval_all(r#"(kill-new "hello") (kill-append " world" nil) (current-kill 0)"#);
+fn bootstrap_kill_ring_entry_ops_match_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "hello")
+             (current-kill 0))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "first")
+             (kill-new "second" t)
+             (current-kill 0))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "hello")
+             (kill-append " world" nil)
+             (current-kill 0))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "world")
+             (kill-append "hello " t)
+             (current-kill 0))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "a")
+             (kill-new "b")
+             (kill-new "c")
+             (list (current-kill 0)
+                   (current-kill 1)
+                   (current-kill 1)))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "a")
+             (kill-new "b")
+             (list (current-kill 0 t)
+                   (current-kill 1 t)
+                   (current-kill -1 t)
+                   (current-kill 0 t)))
+           (progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (kill-new "x")
+             (kill-new "")
+             (current-kill 0 t))"#,
+    );
+    assert_eq!(results[0], r#"OK "hello""#);
+    assert_eq!(results[1], r#"OK "second""#);
     assert_eq!(results[2], r#"OK "hello world""#);
+    assert_eq!(results[3], r#"OK "hello world""#);
+    assert_eq!(results[4], r#"OK ("c" "b" "a")"#);
+    assert_eq!(results[5], r#"OK ("b" "a" "a" "b")"#);
+    assert_eq!(results[6], r#"OK """#);
 }
 
 #[test]
-fn kill_append_before() {
-    let results = eval_all(r#"(kill-new "world") (kill-append "hello " t) (current-kill 0)"#);
-    assert_eq!(results[2], r#"OK "hello world""#);
-}
-
-#[test]
-fn current_kill_rotate() {
-    let results = eval_all(
-        r#"(kill-new "a") (kill-new "b") (kill-new "c")
-           (current-kill 0)
-           (current-kill 1)
-           (current-kill 1)"#,
+fn bootstrap_current_kill_pointer_rules_match_simple_el() {
+    let results = bootstrap_eval_all(
+        r#"(progn
+             (setq kill-ring nil kill-ring-yank-pointer nil)
+             (condition-case err
+                 (current-kill 0)
+               (error (car err))))
+           (progn
+             (setq kill-ring (list "a" "b" "c"))
+             (setq kill-ring-yank-pointer '("b" . "c"))
+             (list
+              (condition-case err (current-kill 0 t) (error (car err)))
+              (condition-case err (current-kill 0 nil) (error (car err)))))
+           (progn
+             (setq kill-ring (list "a" "b" "c"))
+             (setq kill-ring-yank-pointer '(1))
+             (list
+              (current-kill 0 t)
+              (progn
+                (setq kill-ring (list "a" "b" "c"))
+                (setq kill-ring-yank-pointer '(1 2 3))
+                (current-kill 0 t))
+              (progn
+                (setq kill-ring (list "a" "b" "c"))
+                (setq kill-ring-yank-pointer '(1 2 3 4))
+                (current-kill 0 t))))"#,
     );
-    assert_eq!(results[3], r#"OK "c""#);
-    assert_eq!(results[4], r#"OK "b""#);
-    assert_eq!(results[5], r#"OK "a""#);
-}
-
-#[test]
-fn current_kill_do_not_move_uses_offset() {
-    let results = eval_all(
-        r#"(kill-new "a") (kill-new "b")
-           (list (current-kill 0 t)
-                 (current-kill 1 t)
-                 (current-kill -1 t)
-                 (current-kill 0 t))"#,
+    assert_eq!(results[0], "OK error");
+    assert_eq!(
+        results[1],
+        r#"OK (wrong-type-argument wrong-type-argument)"#
     );
-    assert_eq!(results[2], r#"OK ("b" "a" "a" "b")"#);
-}
-
-#[test]
-fn kill_new_allows_empty_entry() {
-    let results = eval_all(r#"(kill-new "x") (kill-new "") (current-kill 0 t)"#);
-    assert_eq!(results[2], r#"OK """#);
-}
-
-#[test]
-fn current_kill_empty_ring_errors() {
-    let result = eval_one("(current-kill 0)");
-    assert!(result.starts_with("ERR"));
-}
-
-#[test]
-fn current_kill_improper_pointer_errors() {
-    let results = eval_all(
-        r#"(setq kill-ring (list "a" "b" "c"))
-           (setq kill-ring-yank-pointer '("b" . "c"))
-           (condition-case err (current-kill 0 t) (error (car err)))
-           (condition-case err (current-kill 0 nil) (error (car err)))"#,
-    );
-    assert_eq!(results[2], "OK wrong-type-argument");
-    assert_eq!(results[3], "OK wrong-type-argument");
-}
-
-#[test]
-fn current_kill_non_string_pointer_cycles_by_length() {
-    let results = eval_all(
-        r#"(setq kill-ring (list "a" "b" "c"))
-           (setq kill-ring-yank-pointer '(1))
-           (current-kill 0 t)
-           (setq kill-ring (list "a" "b" "c"))
-           (setq kill-ring-yank-pointer '(1 2 3))
-           (current-kill 0 t)
-           (setq kill-ring (list "a" "b" "c"))
-           (setq kill-ring-yank-pointer '(1 2 3 4))
-           (current-kill 0 t)"#,
-    );
-    assert_eq!(results[2], r#"OK "c""#);
-    assert_eq!(results[5], r#"OK "a""#);
-    assert_eq!(results[8], r#"OK "c""#);
+    assert_eq!(results[2], r#"OK ("c" "a" "c")"#);
 }
 
 // -- kill-region tests --
