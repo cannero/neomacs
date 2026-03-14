@@ -2488,23 +2488,12 @@ fn switch_and_pop_create_missing_named_buffers() {
 
 #[test]
 fn display_buffer_missing_or_dead_signals_invalid_buffer() {
-    let mut ev = Evaluator::new();
-    let buf = ev.buffers.create_buffer("*scratch*");
-    ev.frames.create_frame("F1", 800, 600, buf);
-    let dead = Value::Buffer(ev.buffers.create_buffer("db-dead"));
-    ev.set_variable("vm-db-dead", dead);
-    let forms = parse_forms(
+    let results = bootstrap_eval_with_frame(
         "(condition-case err (display-buffer \"db-missing\") (error err))
-         (progn
-           (kill-buffer vm-db-dead)
-           (condition-case err (display-buffer vm-db-dead) (error err)))",
-    )
-    .expect("parse");
-    let results = ev
-        .eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect::<Vec<_>>();
+         (let ((b (get-buffer-create \"db-dead\")))
+           (kill-buffer b)
+           (condition-case err (display-buffer b) (error err)))",
+    );
     assert_eq!(results[0], "OK (error \"Invalid buffer\")");
     assert_eq!(results[1], "OK (error \"Invalid buffer\")");
 }
