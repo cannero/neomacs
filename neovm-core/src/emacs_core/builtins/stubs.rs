@@ -272,6 +272,31 @@ pub(super) fn reset_stubs_thread_locals() {
     INOTIFY_ACTIVE_WATCHES.with(|slot| slot.borrow_mut().clear());
 }
 
+/// Return a snapshot of the `new_pixel` map for `window-resize-apply`.
+pub(crate) fn snapshot_window_new_pixel() -> HashMap<u64, i64> {
+    WINDOW_NEW_PIXEL.with(|slot| slot.borrow().clone())
+}
+
+/// Return a snapshot of the `new_total` map for `window-resize-apply-total`.
+pub(crate) fn snapshot_window_new_total() -> HashMap<u64, i64> {
+    WINDOW_NEW_TOTAL.with(|slot| slot.borrow().clone())
+}
+
+/// Return a snapshot of the `new_normal` map for `window-resize-apply`.
+/// Returns only numeric (f64) entries since that's what the resize logic needs.
+pub(crate) fn snapshot_window_new_normal() -> HashMap<u64, f64> {
+    WINDOW_NEW_NORMAL.with(|slot| {
+        slot.borrow()
+            .iter()
+            .filter_map(|(&id, v)| match v {
+                Value::Float(f, _) => Some((id, *f)),
+                Value::Int(i) => Some((id, *i as f64)),
+                _ => None,
+            })
+            .collect()
+    })
+}
+
 thread_local! {
     static SQLITE_NEXT_HANDLE_ID: RefCell<i64> = RefCell::new(0);
     static SQLITE_OPEN_HANDLES: RefCell<Vec<i64>> = RefCell::new(Vec::new());

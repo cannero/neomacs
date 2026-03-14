@@ -3959,6 +3959,119 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("auto-window-vscroll", Value::True);
 }
 
+/// `(window-resize-apply &optional FRAME HORIZONTAL)` -> t or nil.
+///
+/// Apply requested pixel size values for the window-tree of FRAME.
+/// Mirrors GNU Emacs `Fwindow_resize_apply` in window.c.
+pub(crate) fn builtin_window_resize_apply(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("window-resize-apply", &args, 2)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let horflag = args.get(1).is_some_and(Value::is_truthy);
+
+    let new_pixel_map = super::builtins::snapshot_window_new_pixel();
+    let new_normal_map = super::builtins::snapshot_window_new_normal();
+
+    let frame = eval
+        .frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+
+    let cw = frame.char_width;
+    let ch = frame.char_height;
+
+    // Validate: root's new_pixel must match the frame dimension.
+    if !crate::window::window_resize_check(&frame.root_window, horflag, &new_pixel_map) {
+        return Ok(Value::Nil);
+    }
+
+    // Check root's new_pixel matches frame size.
+    let root_id = frame.root_window.id().0;
+    let root_new = new_pixel_map.get(&root_id).copied().unwrap_or_else(|| {
+        let b = frame.root_window.bounds();
+        if horflag {
+            b.width as i64
+        } else {
+            b.height as i64
+        }
+    });
+    let frame_dim = if horflag {
+        frame.root_window.bounds().width as i64
+    } else {
+        frame.root_window.bounds().height as i64
+    };
+    if root_new != frame_dim {
+        return Ok(Value::Nil);
+    }
+
+    // Apply.
+    crate::window::window_resize_apply(
+        &mut frame.root_window,
+        horflag,
+        &new_pixel_map,
+        &new_normal_map,
+        cw,
+        ch,
+    );
+
+    Ok(Value::True)
+}
+
+/// `(window-resize-apply-total &optional FRAME HORIZONTAL)` -> t.
+///
+/// Apply requested total (character-cell) size values for the window-tree of FRAME.
+/// Mirrors GNU Emacs `Fwindow_resize_apply_total` in window.c.
+pub(crate) fn builtin_window_resize_apply_total(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("window-resize-apply-total", &args, 2)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let horflag = args.get(1).is_some_and(Value::is_truthy);
+
+    let new_total_map = super::builtins::snapshot_window_new_total();
+
+    let frame = eval
+        .frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+
+    let cw = frame.char_width;
+    let ch = frame.char_height;
+
+    crate::window::window_resize_apply_total(
+        &mut frame.root_window,
+        horflag,
+        &new_total_map,
+        cw,
+        ch,
+    );
+
+    // Handle minibuffer window.
+    if !horflag {
+        if let Some(mb_wid) = frame.minibuffer_window {
+            if let Some(mb) = frame.minibuffer_leaf.as_mut() {
+                if let Some(&new_total) = new_total_map.get(&mb_wid.0) {
+                    let root_bounds = *frame.root_window.bounds();
+                    let mb_top = root_bounds.y + root_bounds.height;
+                    let mb_bounds = *mb.bounds();
+                    let new_h = new_total.max(0) as f32 * ch;
+                    mb.set_bounds(crate::window::Rect::new(
+                        mb_bounds.x,
+                        mb_top,
+                        mb_bounds.width,
+                        new_h,
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(Value::True)
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

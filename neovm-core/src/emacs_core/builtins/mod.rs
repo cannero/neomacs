@@ -1792,6 +1792,14 @@ pub(crate) fn dispatch_builtin(
         "scroll-down" => return Some(super::window_cmds::builtin_scroll_down(eval, args)),
         "scroll-left" => return Some(super::window_cmds::builtin_scroll_left(eval, args)),
         "scroll-right" => return Some(super::window_cmds::builtin_scroll_right(eval, args)),
+        "window-resize-apply" => {
+            return Some(super::window_cmds::builtin_window_resize_apply(eval, args));
+        }
+        "window-resize-apply-total" => {
+            return Some(super::window_cmds::builtin_window_resize_apply_total(
+                eval, args,
+            ));
+        }
         "recenter" => return Some(super::window_cmds::builtin_recenter(eval, args)),
         "vertical-motion" => return Some(builtin_vertical_motion(eval, args)),
         "compute-motion" => {

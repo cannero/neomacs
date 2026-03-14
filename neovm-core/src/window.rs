@@ -1084,6 +1084,201 @@ pub fn window_prev_sibling_id(frame: &Frame, window_id: WindowId) -> Option<Wind
     find_sibling_in_tree(&frame.root_window, window_id, false)
 }
 
+/// Apply pixel-based resize values to a window tree.
+///
+/// Mirrors GNU Emacs `window_resize_apply()` in window.c:
+/// - Reads `new_pixel` for each window from the provided map
+/// - Sets window bounds accordingly
+/// - Recursively processes children, tracking edge positions
+/// - For vertical combinations: accumulates vertical edge
+/// - For horizontal combinations: accumulates horizontal edge
+///
+/// `horflag`: true = applying horizontal sizes, false = applying vertical sizes.
+pub fn window_resize_apply(
+    window: &mut Window,
+    horflag: bool,
+    new_pixel_map: &HashMap<u64, i64>,
+    new_normal_map: &HashMap<u64, f64>,
+    char_width: f32,
+    char_height: f32,
+) {
+    let wid = window.id().0;
+    let new_px = new_pixel_map.get(&wid).copied();
+
+    // Apply new_pixel to this window's bounds.
+    let bounds = *window.bounds();
+    if let Some(px) = new_px {
+        let px = px.max(0) as f32;
+        if horflag {
+            window.set_bounds(Rect::new(bounds.x, bounds.y, px, bounds.height));
+        } else {
+            window.set_bounds(Rect::new(bounds.x, bounds.y, bounds.width, px));
+        }
+    }
+
+    // Get updated bounds after applying new_pixel.
+    let bounds = *window.bounds();
+    let edge = if horflag { bounds.x } else { bounds.y };
+
+    if let Window::Internal {
+        direction,
+        children,
+        ..
+    } = window
+    {
+        let mut edge = edge;
+        let dir = *direction;
+        for child in children.iter_mut() {
+            // Position child at current edge.
+            let cb = *child.bounds();
+            if horflag {
+                child.set_bounds(Rect::new(edge, cb.y, cb.width, cb.height));
+            } else {
+                child.set_bounds(Rect::new(cb.x, edge, cb.width, cb.height));
+            }
+
+            // Recurse.
+            window_resize_apply(
+                child,
+                horflag,
+                new_pixel_map,
+                new_normal_map,
+                char_width,
+                char_height,
+            );
+
+            // Accumulate edge in the combination direction.
+            let child_bounds = *child.bounds();
+            match (dir, horflag) {
+                (SplitDirection::Horizontal, true) => edge += child_bounds.width,
+                (SplitDirection::Vertical, false) => edge += child_bounds.height,
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Check that a resize is valid: the sum of children's new_pixel values
+/// must equal the parent's new_pixel value in the combination direction.
+pub fn window_resize_check(
+    window: &Window,
+    horflag: bool,
+    new_pixel_map: &HashMap<u64, i64>,
+) -> bool {
+    let wid = window.id().0;
+    let my_new = new_pixel_map.get(&wid).copied().unwrap_or_else(|| {
+        let b = window.bounds();
+        if horflag {
+            b.width as i64
+        } else {
+            b.height as i64
+        }
+    });
+
+    match window {
+        Window::Leaf { .. } => true,
+        Window::Internal {
+            direction,
+            children,
+            ..
+        } => {
+            // In the combination direction, sum of children must equal parent.
+            let combines = (*direction == SplitDirection::Horizontal) == horflag;
+            if combines {
+                let child_sum: i64 = children
+                    .iter()
+                    .map(|c| {
+                        let cid = c.id().0;
+                        new_pixel_map.get(&cid).copied().unwrap_or_else(|| {
+                            let b = c.bounds();
+                            if horflag {
+                                b.width as i64
+                            } else {
+                                b.height as i64
+                            }
+                        })
+                    })
+                    .sum();
+                if child_sum != my_new {
+                    return false;
+                }
+            }
+            // All children must also pass the check.
+            children
+                .iter()
+                .all(|c| window_resize_check(c, horflag, new_pixel_map))
+        }
+    }
+}
+
+/// Apply character-cell-based resize values to a window tree.
+///
+/// Mirrors GNU Emacs `window_resize_apply_total()` in window.c:
+/// - Reads `new_total` for each window from the provided map
+/// - Sets character-cell sizes and positions accordingly
+/// - This does NOT modify pixel bounds — it only updates the character-cell
+///   grid positions used by Emacs internals.
+///
+/// Since neomacs uses pixel bounds as the source of truth, this function
+/// converts new_total back to pixels using char_width/char_height and
+/// applies the result to window bounds.
+pub fn window_resize_apply_total(
+    window: &mut Window,
+    horflag: bool,
+    new_total_map: &HashMap<u64, i64>,
+    char_width: f32,
+    char_height: f32,
+) {
+    let wid = window.id().0;
+    let new_total = new_total_map.get(&wid).copied();
+
+    // Apply new_total converted to pixels.
+    let bounds = *window.bounds();
+    if let Some(total) = new_total {
+        let total = total.max(0) as f32;
+        if horflag {
+            let px = total * char_width;
+            window.set_bounds(Rect::new(bounds.x, bounds.y, px, bounds.height));
+        } else {
+            let px = total * char_height;
+            window.set_bounds(Rect::new(bounds.x, bounds.y, bounds.width, px));
+        }
+    }
+
+    let bounds = *window.bounds();
+    let edge = if horflag { bounds.x } else { bounds.y };
+
+    if let Window::Internal {
+        direction,
+        children,
+        ..
+    } = window
+    {
+        let mut edge = edge;
+        let dir = *direction;
+        for child in children.iter_mut() {
+            // Position child at current edge.
+            let cb = *child.bounds();
+            if horflag {
+                child.set_bounds(Rect::new(edge, cb.y, cb.width, cb.height));
+            } else {
+                child.set_bounds(Rect::new(cb.x, edge, cb.width, cb.height));
+            }
+
+            // Recurse.
+            window_resize_apply_total(child, horflag, new_total_map, char_width, char_height);
+
+            // Accumulate edge.
+            let child_bounds = *child.bounds();
+            match (dir, horflag) {
+                (SplitDirection::Horizontal, true) => edge += child_bounds.width,
+                (SplitDirection::Vertical, false) => edge += child_bounds.height,
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Redistribute bounds equally among children.
 fn redistribute_bounds(children: &mut [Window], parent: Rect) {
     if children.is_empty() {
