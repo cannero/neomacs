@@ -921,7 +921,7 @@ fn delete_window_after_split() {
 
 #[test]
 fn delete_window_updates_current_buffer_to_selected_window_buffer() {
-    let result = eval_one_with_frame(
+    let result = bootstrap_eval_one_with_frame(
         "(save-current-buffer
            (let* ((b1 (get-buffer-create \"dw-curbuf-a\"))
                   (b2 (get-buffer-create \"dw-curbuf-b\")))
@@ -937,27 +937,20 @@ fn delete_window_updates_current_buffer_to_selected_window_buffer() {
 
 #[test]
 fn delete_sole_window_errors() {
-    let r = eval_one_with_frame("(delete-window)");
+    let r = bootstrap_eval_one_with_frame("(delete-window)");
     assert!(r.contains("ERR"), "deleting sole window should error: {r}");
 }
 
 #[test]
 fn delete_window_and_delete_other_windows_enforce_max_arity() {
-    let mut ev = Evaluator::new();
-    let forms = parse_forms(
+    let out = bootstrap_eval_with_frame(
         "(condition-case err (delete-window nil nil) (error (car err)))
          (condition-case err (delete-other-windows nil nil nil) (error (car err)))
          (condition-case err
              (let ((w2 (split-window-internal (selected-window) nil nil nil)))
                (delete-other-windows w2 nil))
            (error err))",
-    )
-    .expect("parse");
-    let out = ev
-        .eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect::<Vec<_>>();
+    );
     assert_eq!(out[0], "OK wrong-number-of-arguments");
     assert_eq!(out[1], "OK wrong-number-of-arguments");
     assert_eq!(out[2], "OK nil");
@@ -976,7 +969,7 @@ fn delete_other_windows_keeps_one() {
 
 #[test]
 fn delete_other_windows_updates_current_buffer_when_kept_window_differs() {
-    let result = eval_one_with_frame(
+    let result = bootstrap_eval_one_with_frame(
         "(save-current-buffer
            (let* ((b1 (get-buffer-create \"dow-curbuf-a\"))
                   (b2 (get-buffer-create \"dow-curbuf-b\")))
