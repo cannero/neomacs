@@ -29,7 +29,33 @@ fn bootstrap_eval_with_frame(src: &str) -> Vec<String> {
         .collect()
 }
 
+fn bootstrap_eval_one_with_frame(src: &str) -> String {
+    bootstrap_eval_with_frame(src)
+        .into_iter()
+        .next()
+        .expect("result")
+}
+
 // -- Window queries --
+
+#[test]
+fn bootstrap_window_command_boundary_matches_gnu_emacs() {
+    let result = bootstrap_eval_one_with_frame(
+        r#"(list (subrp (symbol-function 'select-window))
+                 (subrp (symbol-function 'split-window-internal))
+                 (subrp (symbol-function 'delete-window-internal))
+                 (subrp (symbol-function 'delete-other-windows-internal))
+                 (subrp (symbol-function 'other-window-for-scrolling))
+                 (subrp (symbol-function 'display-buffer))
+                 (subrp (symbol-function 'other-window))
+                 (subrp (symbol-function 'delete-window))
+                 (subrp (symbol-function 'delete-other-windows))
+                 (subrp (symbol-function 'split-window))
+                 (subrp (symbol-function 'split-window-below))
+                 (subrp (symbol-function 'split-window-right)))"#,
+    );
+    assert_eq!(result, "OK (t t t t t nil nil nil nil nil nil nil)");
+}
 
 #[test]
 fn selected_window_returns_window_handle() {
