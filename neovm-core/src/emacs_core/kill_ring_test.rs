@@ -947,8 +947,8 @@ fn indent_to_basic() {
            (indent-to 8)
            (buffer-string)"#,
     );
-    // "hi" is at col 0-1, we want to indent to col 8, so 6 spaces after "hi".
-    assert_eq!(results[2], r#"OK "hi      ""#);
+    // GNU Emacs uses a tab here because indent-tabs-mode defaults to non-nil.
+    assert_eq!(results[2], "OK \"hi\t\"");
 }
 
 #[test]

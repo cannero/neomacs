@@ -370,6 +370,53 @@ fn indent_for_tab_command_inserts_tab() {
 }
 
 #[test]
+fn eval_indent_to_inserts_padding_and_returns_column() {
+    let mut ev = super::super::eval::Evaluator::new();
+    let forms = super::super::parser::parse_forms(
+        r#"(with-temp-buffer
+             (insert "abcdef")
+             (goto-char (point-max))
+             (list (current-column)
+                   (indent-to 2)
+                   (current-column)))
+           (with-temp-buffer
+             (list (current-column)
+                   (indent-to 2 5)
+                   (current-column)))"#,
+    )
+    .expect("parse forms");
+
+    let first = ev.eval(&forms[0]).expect("first indent-to");
+    assert_eq!(super::super::print::print_value(&first), "(6 6 6)");
+
+    let second = ev.eval(&forms[1]).expect("second indent-to");
+    assert_eq!(super::super::print::print_value(&second), "(0 5 5)");
+}
+
+#[test]
+fn eval_indent_to_rejects_non_fixnump_minimum() {
+    let mut ev = super::super::eval::Evaluator::new();
+    let forms = super::super::parser::parse_forms(
+        r#"(with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
+           (with-temp-buffer (condition-case err (indent-to 4 "x") (error err)))
+           (with-temp-buffer (condition-case err (indent-to 4 t) (error err)))
+           (with-temp-buffer (condition-case err (indent-to "x") (error err)))"#,
+    )
+    .expect("parse forms");
+
+    let results = ev.eval_forms(&forms);
+    let printed: Vec<String> = results
+        .iter()
+        .map(super::super::format_eval_result)
+        .collect();
+
+    assert_eq!(printed[0], "OK 4");
+    assert_eq!(printed[1], r#"OK (wrong-type-argument fixnump "x")"#);
+    assert_eq!(printed[2], "OK (wrong-type-argument fixnump t)");
+    assert_eq!(printed[3], r#"OK (wrong-type-argument fixnump "x")"#);
+}
+
+#[test]
 fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
     let mut ev = super::super::eval::Evaluator::new();
     let forms = super::super::parser::parse_forms(

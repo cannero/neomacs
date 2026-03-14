@@ -1596,7 +1596,7 @@ pub(crate) fn dispatch_builtin(
         "downcase-word" => return Some(super::casefiddle::builtin_downcase_word(eval, args)),
         "upcase-word" => return Some(super::casefiddle::builtin_upcase_word(eval, args)),
         "capitalize-word" => return Some(super::casefiddle::builtin_capitalize_word(eval, args)),
-        "indent-to" => return Some(super::kill_ring::builtin_indent_to(eval, args)),
+        "indent-to" => return Some(super::indent::builtin_indent_to_eval(eval, args)),
 
         // Rectangle operations (evaluator-dependent — buffer access)
         // Window/frame operations (evaluator-dependent)

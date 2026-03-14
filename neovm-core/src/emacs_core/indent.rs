@@ -62,6 +62,17 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
     }
 }
 
+fn expect_fixnump(val: &Value) -> Result<i64, Flow> {
+    match val {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("fixnump"), *other],
+        )),
+    }
+}
+
 fn expect_wholenump(val: &Value) -> Result<usize, Flow> {
     match val {
         Value::Int(n) if *n >= 0 => Ok(*n as usize),
@@ -95,7 +106,7 @@ pub(crate) fn builtin_current_indentation(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_indent_to(args: Vec<Value>) -> EvalResult {
     expect_min_args("indent-to", &args, 1)?;
     expect_max_args("indent-to", &args, 2)?;
-    let column = expect_int(&args[0])?;
+    let column = expect_fixnump(&args[0])?;
     // Optional MINIMUM argument is accepted but ignored in this stub.
     Ok(Value::Int(column))
 }
@@ -420,6 +431,86 @@ pub(crate) fn builtin_indent_region(
     let _ = eval.buffers.insert_into_buffer(current_id, &rewritten);
 
     Ok(Value::True)
+}
+
+/// (indent-to COLUMN &optional MINIMUM) -> COLUMN
+///
+/// GNU Emacs `Findent_to` primitive from `src/indent.c`.
+pub(crate) fn builtin_indent_to_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("indent-to", &args, 1)?;
+    expect_max_args("indent-to", &args, 2)?;
+    let column = expect_fixnump(&args[0])?.max(0) as usize;
+    let minimum = if args.len() > 1 && !args[1].is_nil() {
+        expect_fixnump(&args[1])?.max(0) as usize
+    } else {
+        0
+    };
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+
+    let pt = buf.point();
+    let pmin = buf.point_min();
+    let text_before = buf.buffer_substring(pmin, pt);
+    let line_start = text_before.rfind('\n').map(|pos| pos + 1).unwrap_or(0);
+    let line_prefix = &text_before[line_start..];
+    let tab_width = tab_width(eval);
+
+    let mut fromcol = 0usize;
+    for ch in line_prefix.chars() {
+        fromcol = next_column(fromcol, ch, tab_width);
+    }
+
+    let mincol = column.max(fromcol + minimum);
+    if fromcol >= mincol {
+        return Ok(Value::Int(mincol as i64));
+    }
+
+    if buffer_read_only_active(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    let use_tabs = eval
+        .obarray
+        .symbol_value("indent-tabs-mode")
+        .is_some_and(|value| value.is_truthy());
+
+    let mut indent = String::new();
+    let mut col = fromcol;
+
+    if use_tabs {
+        let tab = tab_width.max(1);
+        while col < mincol {
+            let next_tab = col + (tab - (col % tab));
+            if next_tab <= mincol {
+                indent.push('\t');
+                col = next_tab;
+            } else {
+                break;
+            }
+        }
+    }
+
+    while col < mincol {
+        indent.push(' ');
+        col += 1;
+    }
+
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let _ = eval.buffers.insert_into_buffer(current_id, &indent);
+
+    Ok(Value::Int(mincol as i64))
 }
 
 /// (reindent-then-newline-and-indent) -> nil
