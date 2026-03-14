@@ -47,6 +47,8 @@ fn bootstrap_window_command_boundary_matches_gnu_emacs() {
                  (subrp (symbol-function 'delete-other-windows-internal))
                  (subrp (symbol-function 'other-window-for-scrolling))
                  (subrp (symbol-function 'display-buffer))
+                 (subrp (symbol-function 'switch-to-buffer))
+                 (subrp (symbol-function 'pop-to-buffer))
                  (subrp (symbol-function 'other-window))
                  (subrp (symbol-function 'delete-window))
                  (subrp (symbol-function 'delete-other-windows))
@@ -54,7 +56,7 @@ fn bootstrap_window_command_boundary_matches_gnu_emacs() {
                  (subrp (symbol-function 'split-window-below))
                  (subrp (symbol-function 'split-window-right)))"#,
     );
-    assert_eq!(result, "OK (t t t t t nil nil nil nil nil nil nil)");
+    assert_eq!(result, "OK (t t t t t nil nil nil nil nil nil nil nil nil)");
 }
 
 #[test]
