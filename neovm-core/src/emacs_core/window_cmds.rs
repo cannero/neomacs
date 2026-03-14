@@ -3136,21 +3136,87 @@ fn scroll_by_lines(eval: &mut super::eval::Evaluator, lines: i64) -> EvalResult 
     Ok(Value::Nil)
 }
 
-/// `(recenter-top-bottom &optional ARG)` — no-op for now.
+/// `(recenter-top-bottom &optional ARG)` — delegates to recenter.
 pub(crate) fn builtin_recenter_top_bottom(
-    _eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("recenter-top-bottom", &args, 1)?;
-    Ok(Value::Nil)
+    builtin_recenter(eval, args)
 }
 
-/// `(recenter &optional ARG REDISPLAY)` — no-op for now.
+/// `(recenter &optional ARG REDISPLAY)` — center point in window.
 ///
-/// GNU Emacs recenters point in the selected window.  We don't have
-/// per-window scroll state yet, so just return nil.
-pub(crate) fn builtin_recenter(_eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+/// Mirror GNU Emacs Frecenter (window.c): adjust window-start so that
+/// point appears at the center of the window, or at line ARG from the
+/// top (or bottom if ARG is negative).
+pub(crate) fn builtin_recenter(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_max_args("recenter", &args, 2)?;
+
+    let wh = builtin_window_body_height(eval, vec![])
+        .ok()
+        .and_then(|v| match v {
+            Value::Int(n) => Some(n),
+            _ => None,
+        })
+        .unwrap_or(24);
+
+    // Determine target line from top of window where point should appear.
+    let target_line = match args.first() {
+        Some(Value::Int(n)) => {
+            if *n >= 0 {
+                *n
+            } else {
+                // Negative: count from bottom.
+                (wh + *n).max(0)
+            }
+        }
+        Some(v) if !v.is_nil() => wh / 2, // non-integer truthy = center
+        _ => wh / 2,                      // nil or absent = center
+    };
+
+    // Compute new window-start by moving backward target_line lines from point.
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
+        return Ok(Value::Nil);
+    };
+    let Some(buf) = eval.buffers.get(current_id) else {
+        return Ok(Value::Nil);
+    };
+    let text = buf.text.to_string();
+    let pt = buf.pt.clamp(buf.begv, buf.zv);
+    let bytes = text.as_bytes();
+    let begv = buf.begv;
+
+    // Go to beginning of current line.
+    let mut pos = pt;
+    while pos > begv && bytes[pos - 1] != b'\n' {
+        pos -= 1;
+    }
+    // Move backward target_line lines.
+    for _ in 0..target_line {
+        if pos <= begv {
+            break;
+        }
+        pos -= 1;
+        while pos > begv && bytes[pos - 1] != b'\n' {
+            pos -= 1;
+        }
+    }
+
+    // Set window-start.
+    let _ = ensure_selected_frame_id(eval);
+    if let Ok((fid, wid)) = resolve_window_id(eval, None) {
+        if let Some(clamped) = clamped_window_position(eval, fid, wid, pos as i64) {
+            if let Some(Window::Leaf { window_start, .. }) = eval
+                .frames
+                .get_mut(fid)
+                .and_then(|frame| frame.find_window_mut(wid))
+            {
+                *window_start = clamped;
+            }
+        }
+    }
+
     Ok(Value::Nil)
 }
 
