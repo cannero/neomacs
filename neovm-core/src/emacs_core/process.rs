@@ -3484,12 +3484,30 @@ pub(crate) fn builtin_signal_process(
     match resolve_signal_process_target(eval, args.first())? {
         SignalProcessTarget::Process(id) => {
             if let Some(proc) = eval.processes.get_mut(id) {
+                // Send actual OS signal to child process.
+                #[cfg(unix)]
+                if let Some(ref child) = proc.child {
+                    let pid = child.id() as i32;
+                    unsafe {
+                        libc::kill(pid, signal_num);
+                    }
+                }
                 proc.status = ProcessStatus::Signal(signal_num);
             }
             Ok(Value::Int(0))
         }
         SignalProcessTarget::MissingNamedProcess => Ok(Value::Nil),
-        SignalProcessTarget::Pid(pid) => Ok(Value::Int(if pid_exists(pid) { 0 } else { -1 })),
+        SignalProcessTarget::Pid(pid) => {
+            #[cfg(unix)]
+            {
+                let result = unsafe { libc::kill(pid as i32, signal_num) };
+                Ok(Value::Int(result as i64))
+            }
+            #[cfg(not(unix))]
+            {
+                Ok(Value::Int(if pid_exists(pid) { 0 } else { -1 }))
+            }
+        }
     }
 }
 
@@ -4252,11 +4270,24 @@ pub(crate) fn builtin_process_send_eof(
                     return Err(signal_process_not_running(eval, *n as ProcessId));
                 }
             }
-            let _id = resolve_process_or_missing_error(eval, process)?;
+            let id = resolve_process_or_missing_error(eval, process)?;
+            // Close stdin to send EOF to the child process.
+            if let Some(proc) = eval.processes.get_mut(id) {
+                if let Some(ref mut child) = proc.child {
+                    // Drop stdin to close the pipe, sending EOF.
+                    drop(child.stdin.take());
+                }
+            }
             return Ok(*process);
         }
     }
-    let _id = resolve_optional_process_or_current_buffer(eval, args.first())?;
+    let id = resolve_optional_process_or_current_buffer(eval, args.first())?;
+    // Close stdin to send EOF.
+    if let Some(proc) = eval.processes.get_mut(id) {
+        if let Some(ref mut child) = proc.child {
+            drop(child.stdin.take());
+        }
+    }
     Ok(Value::Nil)
 }
 
