@@ -240,6 +240,7 @@ pub(crate) fn dump_bytecode(bc: &ByteCodeFunction) -> DumpByteCodeFunction {
         }),
         docstring: bc.docstring.clone(),
         doc_form: dump_opt_value(&bc.doc_form),
+        interactive: dump_opt_value(&bc.interactive),
     }
 }
 
@@ -1392,6 +1393,7 @@ pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> ByteCodeFunction {
         }),
         docstring: bc.docstring.clone(),
         doc_form: load_opt_value(&bc.doc_form),
+        interactive: load_opt_value(&bc.interactive),
     }
 }
 

@@ -5183,6 +5183,7 @@ impl Evaluator {
             gnu_byte_offset_map: Some(gnu_byte_offset_map),
             docstring: None,
             doc_form: None,
+            interactive: None,
         };
 
         // Execute via VM

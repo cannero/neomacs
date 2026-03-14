@@ -28,6 +28,9 @@ pub struct ByteCodeFunction {
     pub docstring: Option<String>,
     /// Optional documentation form (e.g., oclosure type symbol in slot 4).
     pub doc_form: Option<Value>,
+    /// Interactive spec from GNU closure slot 5 (CLOSURE_INTERACTIVE).
+    /// Can be a string code, a form to evaluate, or a vector [spec, modes].
+    pub interactive: Option<Value>,
 }
 
 impl ByteCodeFunction {
@@ -42,6 +45,7 @@ impl ByteCodeFunction {
             gnu_byte_offset_map: None,
             docstring: None,
             doc_form: None,
+            interactive: None,
         }
     }
 

@@ -635,6 +635,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         gnu_byte_offset_map: Some(std::collections::HashMap::from([(8usize, 5usize)])),
         docstring: None,
         doc_form: None,
+        interactive: None,
     };
 
     let mut obarray = Obarray::new();
@@ -786,6 +787,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         gnu_byte_offset_map: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     };
 
     let mut obarray = Obarray::new();
@@ -1243,6 +1245,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         gnu_byte_offset_map: None,
         docstring: None,
         doc_form: None,
+        interactive: None,
     };
 
     let mut obarray = Obarray::new();

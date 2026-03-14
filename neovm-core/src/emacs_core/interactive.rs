@@ -1223,6 +1223,38 @@ fn resolve_interactive_invocation_args(
         }
     }
 
+    // For bytecoded functions: extract interactive spec from closure slot 5
+    // (mirrors GNU Emacs CLOSURE_INTERACTIVE handling in callint.c)
+    if let Some(bc) = func.get_bytecode_data() {
+        if let Some(spec) = &bc.interactive {
+            // If it's a vector [spec, modes], extract just the spec
+            let spec_val = if let Value::Vector(vid) = spec {
+                super::value::with_heap(|h| {
+                    if h.vector_len(*vid) > 0 {
+                        h.vector_ref(*vid, 0)
+                    } else {
+                        *spec
+                    }
+                })
+            } else {
+                *spec
+            };
+            if let Some(s) = spec_val.as_str() {
+                // String interactive spec — parse as code letters
+                if let Some(args) = interactive_args_from_string_code(eval, s, kind, context)? {
+                    return Ok(args);
+                }
+            } else if spec_val.is_nil() {
+                // (interactive) with no args
+                return Ok(Vec::new());
+            } else {
+                // Non-string spec — evaluate as a form (like GNU Feval(specs, env))
+                let value = eval.eval_value(&spec_val)?;
+                return Ok(interactive_form_value_to_args(value)?);
+            }
+        }
+    }
+
     match kind {
         CommandInvocationKind::CallInteractively => {
             default_call_interactively_args(eval, resolved_name)

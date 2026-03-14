@@ -98,6 +98,8 @@ pub struct DumpByteCodeFunction {
     pub gnu_byte_offset_map: Option<Vec<(u32, u32)>>,
     pub docstring: Option<String>,
     pub doc_form: Option<DumpValue>,
+    #[serde(default)]
+    pub interactive: Option<DumpValue>,
 }
 
 // ---------------------------------------------------------------------------

@@ -3521,6 +3521,25 @@ pub(crate) fn builtin_interactive_form_eval(
             let body = with_heap(|h| h.get_lambda(*id).body.clone());
             Ok(interactive_form_from_expr_body(&body))
         }
+        Value::ByteCode(id) => {
+            // GNU closure slot 5 (CLOSURE_INTERACTIVE)
+            let spec = with_heap(|h| h.get_bytecode(*id).interactive);
+            Ok(spec.map(|s| {
+                // If it's a vector [spec, modes], extract just the spec
+                let spec_val = if let Value::Vector(vid) = s {
+                    with_heap(|h| {
+                        if h.vector_len(vid) > 0 {
+                            h.vector_ref(vid, 0)
+                        } else {
+                            s
+                        }
+                    })
+                } else {
+                    s
+                };
+                Value::list(vec![Value::symbol("interactive"), spec_val])
+            }))
+        }
         Value::Cons(_) => interactive_form_from_quoted_lambda(&function),
         _ => Ok(None),
     }?;
@@ -4122,9 +4141,8 @@ pub(crate) fn make_byte_code_from_parts(
         gnu_byte_offset_map: Some(gnu_byte_offset_map),
         docstring: doc,
         doc_form,
+        interactive: interactive.copied().filter(|v| !v.is_nil()),
     };
-
-    let _ = interactive; // Not used yet
 
     Ok(Value::make_bytecode(bc))
 }
