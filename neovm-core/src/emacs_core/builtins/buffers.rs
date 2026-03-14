@@ -856,17 +856,20 @@ pub(crate) fn builtin_insert_buffer_substring(
 ) -> EvalResult {
     expect_range_args("insert-buffer-substring", &args, 1, 3)?;
     let buffer_id = resolve_buffer_designator_allow_nil_current(eval, &args[0])?;
-    let default_end = buffer_id
+    let (default_start, default_end) = buffer_id
         .and_then(|id| {
-            eval.buffers
-                .get(id)
-                .map(|buf| buf.text.char_count() as i64 + 1)
+            eval.buffers.get(id).map(|buf| {
+                (
+                    buf.point_min_char() as i64 + 1,
+                    buf.point_max_char() as i64 + 1,
+                )
+            })
         })
-        .unwrap_or(1);
+        .unwrap_or((1, 1));
     let start = if args.len() > 1 && !args[1].is_nil() {
         expect_integer_or_marker(&args[1])?
     } else {
-        1
+        default_start
     };
     let end = if args.len() > 2 && !args[2].is_nil() {
         expect_integer_or_marker(&args[2])?

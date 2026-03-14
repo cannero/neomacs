@@ -1784,6 +1784,30 @@ fn insert_buffer_substring_inserts_source_region() {
 }
 
 #[test]
+fn insert_buffer_substring_defaults_to_source_accessible_region() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let source_id = eval.buffers.create_buffer("*ibs-source-defaults*");
+    eval.buffers.set_current(source_id);
+    builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
+    let _ = eval.buffers.narrow_buffer_to_region(source_id, 1, 4);
+
+    let dest_id = eval.buffers.create_buffer("*ibs-dest-defaults*");
+    eval.buffers.set_current(dest_id);
+
+    assert_eq!(
+        builtin_insert_buffer_substring(&mut eval, vec![Value::Buffer(source_id)]).unwrap(),
+        Value::Nil
+    );
+    assert_eq!(
+        eval.buffers
+            .get(dest_id)
+            .expect("destination buffer should exist")
+            .buffer_string(),
+        "bcd"
+    );
+}
+
+#[test]
 fn kill_all_local_variables_clears_buffer_locals() {
     let mut eval = super::super::eval::Evaluator::new();
     {
