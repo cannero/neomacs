@@ -340,6 +340,9 @@ pub(super) fn builtin_current_global_map(
 }
 
 /// `(current-active-maps &optional OLP POSITION)` -> list of active keymaps.
+///
+/// Returns list of currently active keymaps in priority order.
+/// GNU Emacs order: minor-mode maps > local-map > global-map.
 pub(super) fn builtin_current_active_maps(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -347,16 +350,151 @@ pub(super) fn builtin_current_active_maps(
     expect_max_args("current-active-maps", &args, 2)?;
 
     let mut maps = Vec::new();
+
+    // Collect minor mode keymaps (highest precedence).
+    let minor_maps = collect_minor_mode_maps(eval);
+    maps.extend(minor_maps);
+
+    // Local map.
     if !eval.current_local_map.is_nil() {
         maps.push(eval.current_local_map);
     }
+
+    // Global map (lowest precedence).
     maps.push(ensure_global_keymap(eval));
     Ok(Value::list(maps))
 }
 
-pub(super) fn builtin_current_minor_mode_maps(args: Vec<Value>) -> EvalResult {
+/// `(current-minor-mode-maps)` -> list of active minor mode keymaps.
+pub(super) fn builtin_current_minor_mode_maps(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("current-minor-mode-maps", &args, 0)?;
-    Ok(Value::Nil)
+    let maps = collect_minor_mode_maps(eval);
+    if maps.is_empty() {
+        Ok(Value::Nil)
+    } else {
+        Ok(Value::list(maps))
+    }
+}
+
+/// Collect all active minor mode keymaps in precedence order.
+///
+/// Mirrors GNU Emacs `current_minor_maps()` in keymap.c:
+/// 1. `emulation-mode-map-alists` (highest precedence)
+/// 2. `minor-mode-overriding-map-alist`
+/// 3. `minor-mode-map-alist` (entries already in overriding alist are skipped)
+fn collect_minor_mode_maps(eval: &super::eval::Evaluator) -> Vec<Value> {
+    let mut maps = Vec::new();
+
+    // 1. Emulation mode map alists (highest precedence).
+    if let Some(emulation_raw) =
+        super::misc_eval::dynamic_or_global_symbol_value(eval, "emulation-mode-map-alists")
+    {
+        if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
+            for entry in emulation_entries {
+                // Each entry is either a symbol (whose value is an alist) or an alist directly.
+                let alist_value = match entry.as_symbol_name() {
+                    Some(name) => super::misc_eval::dynamic_or_global_symbol_value(eval, name)
+                        .unwrap_or(Value::Nil),
+                    None => entry,
+                };
+                collect_maps_from_alist(eval, &alist_value, None, &mut maps);
+            }
+        }
+    }
+
+    // 2. minor-mode-overriding-map-alist.
+    let overriding =
+        super::misc_eval::dynamic_or_global_symbol_value(eval, "minor-mode-overriding-map-alist");
+    if let Some(ref ov) = overriding {
+        collect_maps_from_alist(eval, ov, None, &mut maps);
+    }
+
+    // 3. minor-mode-map-alist (skip entries already in overriding alist).
+    if let Some(regular) =
+        super::misc_eval::dynamic_or_global_symbol_value(eval, "minor-mode-map-alist")
+    {
+        collect_maps_from_alist(eval, &regular, overriding.as_ref(), &mut maps);
+    }
+
+    maps
+}
+
+/// Collect keymaps from a minor mode alist `((MODE-VAR . KEYMAP) ...)`.
+///
+/// For each entry where MODE-VAR is bound and non-nil, add KEYMAP to `maps`.
+/// If `skip_if_in` is provided, skip entries whose MODE-VAR appears in that alist
+/// (used to avoid duplicates between overriding and regular alists).
+fn collect_maps_from_alist(
+    eval: &super::eval::Evaluator,
+    alist: &Value,
+    skip_if_in: Option<&Value>,
+    maps: &mut Vec<Value>,
+) {
+    let Some(entries) = list_to_vec(alist) else {
+        return;
+    };
+    for entry in entries {
+        let Value::Cons(cell) = entry else {
+            continue;
+        };
+        let (mode_var, keymap_val) = {
+            let pair = read_cons(cell);
+            (pair.car, pair.cdr)
+        };
+        let Some(mode_name) = mode_var.as_symbol_name() else {
+            continue;
+        };
+
+        // Skip if this mode variable appears in the overriding alist.
+        if let Some(skip_alist) = skip_if_in {
+            if assq_in_alist(skip_alist, &mode_var) {
+                continue;
+            }
+        }
+
+        // Check if mode variable is bound and non-nil.
+        let mode_active = super::misc_eval::dynamic_or_global_symbol_value(eval, mode_name)
+            .is_some_and(|v| v.is_truthy());
+        if !mode_active {
+            continue;
+        }
+
+        // Resolve indirect keymaps (symbol → its function definition).
+        let resolved = if is_list_keymap(&keymap_val) {
+            keymap_val
+        } else if let Some(sym_name) = keymap_val.as_symbol_name() {
+            eval.obarray
+                .symbol_function(sym_name)
+                .cloned()
+                .filter(|v| is_list_keymap(v))
+                .unwrap_or(Value::Nil)
+        } else {
+            Value::Nil
+        };
+
+        if !resolved.is_nil() && is_list_keymap(&resolved) {
+            maps.push(resolved);
+        }
+    }
+}
+
+/// Check if a symbol appears as a car in an alist.
+fn assq_in_alist(alist: &Value, key: &Value) -> bool {
+    let Some(entries) = list_to_vec(alist) else {
+        return false;
+    };
+    for entry in entries {
+        if let Value::Cons(cell) = entry {
+            let pair = read_cons(cell);
+            if pair.car == *key {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// (keymap-parent KEYMAP) -> keymap or nil

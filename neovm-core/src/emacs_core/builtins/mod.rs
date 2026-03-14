@@ -1221,7 +1221,7 @@ pub(crate) fn dispatch_builtin(
         "current-local-map" => return Some(builtin_current_local_map(eval, args)),
         "current-global-map" => return Some(builtin_current_global_map(eval, args)),
         "current-active-maps" => return Some(builtin_current_active_maps(eval, args)),
-        "current-minor-mode-maps" => return Some(builtin_current_minor_mode_maps(args)),
+        "current-minor-mode-maps" => return Some(builtin_current_minor_mode_maps(eval, args)),
         "keymap-parent" => return Some(builtin_keymap_parent(eval, args)),
         "set-keymap-parent" => return Some(builtin_set_keymap_parent(eval, args)),
         "keymapp" => return Some(builtin_keymapp(eval, args)),
