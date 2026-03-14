@@ -1118,8 +1118,15 @@ pub(crate) fn builtin_compare_buffer_substrings(
     Ok(Value::Int(compare_buffer_substring_strings(&left, &right)))
 }
 
-/// `(compute-motion FROM FROMPOS TO TOPOS WIDTH OFFSETS WINDOW)` -> motion tuple
-pub(crate) fn builtin_compute_motion(args: Vec<Value>) -> EvalResult {
+/// `(compute-motion FROM FROMPOS TO TOPOS WIDTH OFFSETS WINDOW)`
+///
+/// Mirror GNU Emacs Fcompute_motion (indent.c): scan buffer text from
+/// FROM to TO, tracking display columns and lines, and return
+/// (BUFPOS HPOS VPOS PREVHPOS CONTIN).
+pub(crate) fn builtin_compute_motion(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("compute-motion", &args, 7)?;
 
     let from = expect_integer_or_marker(&args[0])?;
@@ -1152,24 +1159,155 @@ pub(crate) fn builtin_compute_motion(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    let result = if args[3].is_nil() {
-        vec![
-            Value::Int(to),
-            Value::Int(1),
-            Value::Int(0),
-            Value::Int(1),
-            Value::Nil,
-        ]
+    // Extract FROMPOS (HPOS . VPOS).
+    let (from_hpos, from_vpos) = extract_cons_ints(args[1])?;
+
+    // Extract TOPOS (HPOS . VPOS) or nil.
+    let (to_hpos, to_vpos) = if args[3].is_nil() {
+        (i64::MAX, i64::MAX)
     } else {
-        vec![
+        extract_cons_ints(args[3])?
+    };
+
+    // Extract WIDTH.
+    let width = if args[4].is_nil() {
+        80i64 // default window width
+    } else {
+        expect_fixnum(&args[4])?
+    };
+
+    // Extract tab-width from obarray.
+    let tab_width = eval
+        .obarray
+        .symbol_value("tab-width")
+        .and_then(|v| match v {
+            Value::Int(n) if *n > 0 => Some(*n as usize),
+            _ => None,
+        })
+        .unwrap_or(8);
+
+    // Get buffer text.
+    let Some(buf) = eval.buffers.current_buffer() else {
+        return Ok(Value::list(vec![
             Value::Int(from),
-            Value::Int(0),
-            Value::Int(0),
+            Value::Int(from_hpos),
+            Value::Int(from_vpos),
             Value::Int(0),
             Value::Nil,
-        ]
+        ]));
     };
-    Ok(Value::list(result))
+    let text = buf.text.to_string();
+    let begv = buf.begv;
+    let zv = buf.zv;
+
+    // Convert 1-based char positions to byte offsets.
+    let max_chars = buf.text.byte_to_char(buf.text.len());
+    let from_byte = buf
+        .text
+        .char_to_byte(((from - 1).max(0) as usize).min(max_chars));
+    let to_byte = buf
+        .text
+        .char_to_byte(((to - 1).max(0) as usize).min(max_chars));
+
+    let from_pos = from_byte.clamp(begv, zv);
+    let to_pos = to_byte.clamp(begv, zv);
+
+    let mut hpos = from_hpos;
+    let mut vpos = from_vpos;
+    let mut prev_hpos = from_hpos;
+    let mut contin = false;
+    let mut pos = from_pos;
+
+    let bytes = text.as_bytes();
+    let tw = tab_width.max(1) as i64;
+
+    while pos < to_pos {
+        // Check TOPOS stop condition.
+        if vpos > to_vpos || (vpos == to_vpos && hpos >= to_hpos) {
+            break;
+        }
+
+        prev_hpos = hpos;
+        let ch = if pos < bytes.len() {
+            // Decode UTF-8 character.
+            let b = bytes[pos];
+            if b < 0x80 {
+                pos += 1;
+                b as char
+            } else {
+                let s = &text[pos..];
+                let c = s.chars().next().unwrap_or('\u{FFFD}');
+                pos += c.len_utf8();
+                c
+            }
+        } else {
+            break;
+        };
+
+        match ch {
+            '\n' => {
+                vpos += 1;
+                hpos = 0;
+                contin = false;
+            }
+            '\t' => {
+                hpos += tw - (hpos % tw);
+            }
+            _ => {
+                hpos += crate::encoding::char_width(ch) as i64;
+            }
+        }
+
+        // Line continuation (wrapping).
+        if hpos >= width && ch != '\n' {
+            vpos += 1;
+            contin = true;
+            hpos -= width;
+        }
+    }
+
+    // Convert byte pos back to 1-based char position.
+    let final_charpos = buf.text.byte_to_char(pos.min(zv)) as i64 + 1;
+
+    Ok(Value::list(vec![
+        Value::Int(final_charpos),
+        Value::Int(hpos),
+        Value::Int(vpos),
+        Value::Int(prev_hpos),
+        if contin { Value::True } else { Value::Nil },
+    ]))
+}
+
+/// Extract two integers from a cons cell (CAR . CDR).
+fn extract_cons_ints(val: Value) -> Result<(i64, i64), Flow> {
+    match val {
+        Value::Cons(cell) => {
+            let pair = super::value::read_cons(cell);
+            let a = match pair.car {
+                Value::Int(n) => n,
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("integerp"), pair.car],
+                    ));
+                }
+            };
+            let b = match pair.cdr {
+                Value::Int(n) => n,
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("integerp"), pair.cdr],
+                    ));
+                }
+            };
+            Ok((a, b))
+        }
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("consp"), val],
+        )),
+    }
 }
 
 /// `(coordinates-in-window-p COORDINATES WINDOW)` -> COORDINATES or nil.

@@ -1793,6 +1793,9 @@ pub(crate) fn dispatch_builtin(
         "scroll-right" => return Some(super::window_cmds::builtin_scroll_right(eval, args)),
         "recenter" => return Some(super::window_cmds::builtin_recenter(eval, args)),
         "vertical-motion" => return Some(builtin_vertical_motion(eval, args)),
+        "compute-motion" => {
+            return Some(super::builtins::buffers::builtin_compute_motion(eval, args));
+        }
         "other-window-for-scrolling" => {
             return Some(super::window_cmds::builtin_other_window_for_scrolling(
                 eval, args,
@@ -2549,7 +2552,6 @@ pub(crate) fn dispatch_builtin(
         "secure-hash-algorithms" => builtin_secure_hash_algorithms(args),
         "prefix-numeric-value" => builtin_prefix_numeric_value(args),
         "command-error-default-function" => builtin_command_error_default_function(args),
-        "compute-motion" => builtin_compute_motion(args),
         "clear-string" => builtin_clear_string(args),
         "combine-after-change-execute" => builtin_combine_after_change_execute(args),
         "princ" => builtin_princ(args),
