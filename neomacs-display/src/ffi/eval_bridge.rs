@@ -3,7 +3,7 @@
 //! Provides C-callable functions to initialize, query, and evaluate Elisp
 //! via the Rust Evaluator singleton.
 
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{c_char, c_int, CStr, CString};
 
 /// Global Evaluator instance (lazily initialized via `neomacs_rust_eval_init`).
 static mut RUST_EVALUATOR: Option<neovm_core::emacs_core::Evaluator> = None;
@@ -23,9 +23,14 @@ pub unsafe extern "C" fn neomacs_rust_eval_init() -> c_int {
     }
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let evaluator = neovm_core::emacs_core::Evaluator::new();
+        let mut evaluator =
+            neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(&[
+                "neomacs",
+            ])
+            .expect("GNU-compatible bootstrap should succeed");
+        evaluator.set_variable("dump-mode", neovm_core::emacs_core::Value::Nil);
         *std::ptr::addr_of_mut!(RUST_EVALUATOR) = Some(evaluator);
-        tracing::info!("Rust Evaluator initialized");
+        tracing::info!("Rust Evaluator initialized from GNU-compatible bootstrap");
     }));
 
     match result {

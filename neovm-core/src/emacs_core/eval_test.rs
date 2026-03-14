@@ -2465,7 +2465,7 @@ fn save_match_data_restores_after_success_and_error() {
 
 #[test]
 fn save_mark_and_excursion_restores_mark_and_mark_active() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(save-current-buffer
            (let ((b (get-buffer-create \"smx-eval\")))
              (set-buffer b)
