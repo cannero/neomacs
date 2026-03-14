@@ -58,6 +58,8 @@ fn gnu_simple_line_eval() -> Evaluator {
     ev.set_lexical_binding(true);
     eval_first_form_after_marker(&mut ev, &subr_source, "(defun zerop (number)");
     for marker in [
+        "(defun beginning-of-buffer (&optional arg)",
+        "(defun end-of-buffer (&optional arg)",
         "(defun next-line (&optional arg try-vscroll)",
         "(defun previous-line (&optional arg try-vscroll)",
         "(defun line-move (arg &optional noerror _to-end try-vscroll)",
@@ -354,32 +356,53 @@ fn test_end_of_line() {
 }
 
 #[test]
-fn test_beginning_of_buffer_moves_to_start_by_default() {
-    let mut ev = eval_with_text("abc\ndef");
-    eval_str(&mut ev, "(goto-char 5)");
-    eval_str(&mut ev, "(beginning-of-buffer)");
-    assert_eq!(eval_int(&mut ev, "(point)"), 1);
-}
+fn bootstrap_beginning_and_end_of_buffer_match_simple_el() {
+    let mut ev = gnu_simple_line_eval();
+    let buf = ev.buffers.current_buffer_id().expect("current buffer");
+    ev.frames.create_frame("F1", 800, 600, buf);
 
-#[test]
-fn test_beginning_of_buffer_non_nil_arg_moves_to_end() {
-    let mut ev = eval_with_text("abc\ndef");
-    eval_str(&mut ev, "(goto-char 2)");
-    eval_str(&mut ev, "(beginning-of-buffer 1)");
-    assert_eq!(eval_int(&mut ev, "(point)"), 8);
-}
+    let ownership = eval_str(
+        &mut ev,
+        "(list (subrp (symbol-function 'beginning-of-buffer))
+               (subrp (symbol-function 'end-of-buffer)))",
+    );
+    assert_eq!(ownership, Value::list(vec![Value::Nil, Value::Nil]));
+    eval_str(&mut ev, "(fset 'push-mark (lambda (&rest _args) nil))");
+    eval_str(&mut ev, "(fset 'region-active-p (lambda () nil))");
 
-#[test]
-fn test_end_of_buffer_moves_to_end() {
-    let mut ev = eval_with_text("abc\ndef");
-    eval_str(&mut ev, "(goto-char 2)");
-    eval_str(&mut ev, "(end-of-buffer)");
-    assert_eq!(eval_int(&mut ev, "(point)"), 8);
-}
+    let beginning_default = eval_int(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"abc\ndef\")
+           (goto-char 5)
+           (beginning-of-buffer)
+           (point))",
+    );
+    assert_eq!(beginning_default, 1);
 
-#[test]
-fn test_beginning_end_of_buffer_reject_too_many_args() {
-    let mut ev = eval_with_text("abc");
+    let beginning_numeric = eval_int(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"abc\ndef\")
+           (goto-char 2)
+           (beginning-of-buffer 1)
+           (point))",
+    );
+    assert_eq!(beginning_numeric, 5);
+
+    let end_default = eval_int(
+        &mut ev,
+        "(progn
+           (erase-buffer)
+           (insert \"abc\ndef\")
+           (goto-char 2)
+           (end-of-buffer)
+           (point))",
+    );
+    assert_eq!(end_default, 8);
+
     let beginning_err = eval_str(
         &mut ev,
         "(condition-case err (beginning-of-buffer nil nil) (error (car err)))",

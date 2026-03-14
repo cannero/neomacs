@@ -419,43 +419,6 @@ pub(crate) fn builtin_end_of_line(
     Ok(Value::Nil)
 }
 
-/// (beginning-of-buffer &optional ARG)
-///
-/// GNU Emacs batch behavior keeps this as a command primitive:
-/// - nil/missing ARG => point-min
-/// - non-nil ARG => point-max
-pub(crate) fn builtin_beginning_of_buffer(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("beginning-of-buffer", &args, 1)?;
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
-    let target = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        if args.first().is_some_and(|arg| !arg.is_nil()) {
-            buf.zv
-        } else {
-            buf.begv
-        }
-    };
-    let _ = eval.buffers.goto_buffer_byte(current_id, target);
-    Ok(Value::Nil)
-}
-
-/// (end-of-buffer &optional ARG)
-///
-/// ARG is accepted for arity compatibility; point moves to point-max.
-pub(crate) fn builtin_end_of_buffer(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("end-of-buffer", &args, 1)?;
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
-    let zv = eval.buffers.get(current_id).ok_or_else(no_buffer)?.zv;
-    let _ = eval.buffers.goto_buffer_byte(current_id, zv);
-    Ok(Value::Nil)
-}
-
 /// (goto-line LINE)
 pub(crate) fn builtin_goto_line(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("goto-line", &args, 1)?;

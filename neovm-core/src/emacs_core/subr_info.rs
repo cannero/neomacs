@@ -1133,7 +1133,6 @@ fn subr_arity_value(name: &str) -> Value {
         | "pos-eol" => arity_cons(0, Some(1)),
         "line-number-at-pos" => arity_cons(0, Some(2)),
         "line-pixel-height" | "long-line-optimizations-p" => arity_cons(0, Some(0)),
-        "beginning-of-buffer" | "end-of-buffer" => arity_cons(0, Some(1)),
         "scroll-left" | "scroll-right" => arity_cons(0, Some(2)),
         "recenter" => arity_cons(0, Some(2)),
         "recursion-depth" | "region-beginning" | "region-end" => arity_cons(0, Some(0)),
