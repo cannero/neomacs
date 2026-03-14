@@ -497,9 +497,7 @@ pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
             };
             // Advance point past the read form
             let new_pt = pt + end_offset;
-            if let Some(buf) = eval.buffers.get_mut(buf_id) {
-                buf.pt = new_pt;
-            }
+            let _ = eval.buffers.goto_buffer_byte(buf_id, new_pt);
             Ok(value)
         }
         Value::Symbol(id) => Err(signal(

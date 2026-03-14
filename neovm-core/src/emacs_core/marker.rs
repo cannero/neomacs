@@ -19,7 +19,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::value::*;
-use crate::buffer::{BufferId, BufferManager, InsertionType, MarkerEntry};
+use crate::buffer::{BufferId, BufferManager, InsertionType};
 
 // ---------------------------------------------------------------------------
 // Marker struct (for documentation / internal helpers)
@@ -126,22 +126,24 @@ pub(crate) fn make_registered_buffer_marker(
     position: i64,
     insertion_type: bool,
 ) -> Value {
-    let buffer_name = buffers.get(buffer_id).map(|buffer| buffer.name.clone());
+    let (buffer_name, byte_pos) = match buffers.get(buffer_id) {
+        Some(buffer) => (
+            Some(buffer.name.clone()),
+            lisp_pos_to_byte(buffer, position),
+        ),
+        None => (None, 0),
+    };
     let marker = make_marker_value(buffer_name.as_deref(), Some(position), insertion_type);
-    let marker_id = buffers.allocate_marker_id();
+    let marker_id = buffers.create_marker(
+        buffer_id,
+        byte_pos,
+        if insertion_type {
+            InsertionType::After
+        } else {
+            InsertionType::Before
+        },
+    );
     set_marker_id(&marker, marker_id);
-
-    if let Some(buffer) = buffers.get_mut(buffer_id) {
-        buffer.markers.push(MarkerEntry {
-            id: marker_id,
-            byte_pos: lisp_pos_to_byte(buffer, position),
-            insertion_type: if insertion_type {
-                InsertionType::After
-            } else {
-                InsertionType::Before
-            },
-        });
-    }
 
     marker
 }
@@ -587,13 +589,19 @@ pub(crate) fn builtin_set_marker(
             .as_ref()
             .and_then(|name| eval.buffers.find_buffer_by_name(name))
             .or_else(|| eval.buffers.current_buffer().map(|buf| buf.id));
-        if let Some(buf_id) = target_buf_id
-            && let Some(buf) = eval.buffers.get_mut(buf_id)
-        {
+        if let Some(buf_id) = target_buf_id {
             match position {
-                Some(pos) => buf.set_mark(lisp_pos_to_byte(buf, pos)),
+                Some(pos) => {
+                    if let Some(byte_pos) = eval
+                        .buffers
+                        .get(buf_id)
+                        .map(|buf| lisp_pos_to_byte(buf, pos))
+                    {
+                        let _ = eval.buffers.set_buffer_mark(buf_id, byte_pos);
+                    }
+                }
                 None => {
-                    buf.mark = None;
+                    let _ = eval.buffers.clear_buffer_mark(buf_id);
                 }
             }
         }
@@ -627,11 +635,7 @@ fn register_marker_in_buffer(
 
     // Remove old registration from all buffers
     if let Some(mid) = existing_mid {
-        for bid in eval.buffers.buffer_list() {
-            if let Some(buf) = eval.buffers.get_mut(bid) {
-                buf.markers.retain(|m| m.id != mid);
-            }
-        }
+        eval.buffers.remove_marker(mid);
     }
 
     // Register in the target buffer if we have a buffer name and position
@@ -640,13 +644,14 @@ fn register_marker_in_buffer(
             let mid = existing_mid.unwrap_or_else(|| eval.buffers.allocate_marker_id());
             // Store the marker-id in the vector
             set_marker_id(marker, mid);
-            if let Some(buf) = eval.buffers.get_mut(buf_id) {
-                let byte_pos = lisp_pos_to_byte(buf, pos);
-                buf.markers.push(crate::buffer::MarkerEntry {
-                    id: mid,
-                    byte_pos,
-                    insertion_type: ins_type,
-                });
+            if let Some(byte_pos) = eval
+                .buffers
+                .get(buf_id)
+                .map(|buf| lisp_pos_to_byte(buf, pos))
+            {
+                let _ = eval
+                    .buffers
+                    .register_marker_id(buf_id, mid, byte_pos, ins_type);
             }
         }
     }

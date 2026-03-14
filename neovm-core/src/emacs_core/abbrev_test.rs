@@ -336,6 +336,43 @@ fn test_define_abbrev_table_and_lookup() {
 }
 
 #[test]
+fn test_insert_abbrev_table_description_writes_buffer_text() {
+    use super::super::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+    builtin_define_abbrev_table(&mut eval, vec![Value::symbol("test-table"), Value::Nil]).unwrap();
+
+    let table = eval
+        .obarray()
+        .symbol_value("test-table")
+        .cloned()
+        .expect("test-table value");
+    builtin_define_abbrev(
+        &mut eval,
+        vec![
+            table,
+            Value::string("btw"),
+            Value::string("by the way"),
+            Value::Nil,
+            Value::Int(7),
+        ],
+    )
+    .unwrap();
+
+    builtin_insert_abbrev_table_description(&mut eval, vec![Value::symbol("test-table")]).unwrap();
+
+    let rendered = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .buffer_string();
+    assert_eq!(
+        rendered,
+        "(define-abbrev-table 'test-table\n  '(\n    (\"btw\" \"by the way\" 7)\n   ))\n\n"
+    );
+}
+
+#[test]
 fn test_abbrev_tables_do_not_share_symbol_cells() {
     use super::super::eval::Evaluator;
 

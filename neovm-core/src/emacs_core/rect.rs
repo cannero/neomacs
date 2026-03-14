@@ -352,10 +352,10 @@ fn delete_extract_rectangle_eval(
     let (extracted, rewritten) =
         delete_extract_rectangle_from_text(&text, start_line, end_line, left_col, right_col);
 
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.delete_region(pmin, pmax);
-        buf.goto_char(pmin);
-        buf.insert(&rewritten);
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let _ = eval.buffers.delete_buffer_region(current_id, pmin, pmax);
+        let _ = eval.buffers.goto_buffer_byte(current_id, pmin);
+        let _ = eval.buffers.insert_into_buffer(current_id, &rewritten);
     }
 
     Ok(Value::list(

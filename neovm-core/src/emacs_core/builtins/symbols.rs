@@ -2386,9 +2386,7 @@ pub(crate) fn builtin_rename_buffer(
         }
     };
 
-    if let Some(buf) = eval.buffers.get_mut(current_id) {
-        buf.name = new_name.clone();
-    }
+    let _ = eval.buffers.set_buffer_name(current_id, new_name.clone());
 
     Ok(Value::string(new_name))
 }

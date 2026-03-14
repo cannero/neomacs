@@ -1114,8 +1114,8 @@ pub(crate) fn builtin_json_parse_buffer(
 
     let result = parser.parse_value()?;
     let new_point = point_base + parser.pos;
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.goto_char(new_point);
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let _ = eval.buffers.goto_buffer_byte(current_id, new_point);
     }
     Ok(result)
 }
@@ -1130,11 +1130,11 @@ pub(crate) fn builtin_json_insert(
     expect_min_args("json-insert", &args, 1)?;
     let opts = parse_serialize_kwargs(&args, 1)?;
     let json = serialize_to_json(&args[0], &opts, 0)?;
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.insert(&json);
+    let _ = eval.buffers.insert_into_buffer(current_id, &json);
     Ok(Value::Nil)
 }
 

@@ -1901,6 +1901,33 @@ fn test_insert_file_contents_and_write_region() {
 }
 
 #[test]
+fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
+    use super::super::eval::Evaluator;
+
+    let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_visit");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join("visit.txt");
+    let path_str = path.to_string_lossy().to_string();
+    write_string_to_file("visited text", &path_str, false).unwrap();
+
+    let mut eval = Evaluator::new();
+    let result =
+        builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str), Value::True])
+            .expect("insert-file-contents with visit should succeed");
+    let parts = list_to_vec(&result).expect("insert-file-contents should return list");
+    assert_eq!(parts[0].as_str(), Some(path_str.as_str()));
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "visited text");
+    assert_eq!(buf.file_name.as_deref(), Some(path_str.as_str()));
+    assert!(!buf.is_modified());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_insert_file_contents_beg_end_semantics() {
     use super::super::eval::Evaluator;
 
@@ -2233,6 +2260,41 @@ fn test_write_region_bounds_and_order_semantics() {
             other => panic!("unexpected flow: {other:?}"),
         }
     }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_write_region_visit_sets_file_name_and_clears_modified() {
+    use super::super::eval::Evaluator;
+
+    let dir = std::env::temp_dir().join("neovm_eval_write_region_visit");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let out_path = dir.join("visited.txt");
+    let out_str = out_path.to_string_lossy().to_string();
+
+    let mut eval = Evaluator::new();
+    eval.buffers.current_buffer_mut().unwrap().insert("neo");
+    assert!(eval.buffers.current_buffer().unwrap().is_modified());
+
+    builtin_write_region(
+        &mut eval,
+        vec![
+            Value::Nil,
+            Value::Nil,
+            Value::string(&out_str),
+            Value::Nil,
+            Value::True,
+        ],
+    )
+    .expect("write-region with visit should succeed");
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.file_name.as_deref(), Some(out_str.as_str()));
+    assert!(!buf.is_modified());
+    assert_eq!(read_file_contents(&out_str).unwrap(), "neo");
 
     let _ = fs::remove_dir_all(&dir);
 }

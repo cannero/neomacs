@@ -966,8 +966,8 @@ pub(crate) fn builtin_insert_abbrev_table_description(
         _ => {
             // Insert empty table description
             let text = format!("(define-abbrev-table '{})\n", name);
-            if let Some(buf) = eval.buffers.current_buffer_mut() {
-                buf.insert(&text);
+            if let Some(current_id) = eval.buffers.current_buffer_id() {
+                let _ = eval.buffers.insert_into_buffer(current_id, &text);
             }
             return Ok(Value::Nil);
         }
@@ -1039,8 +1039,8 @@ pub(crate) fn builtin_insert_abbrev_table_description(
     text.push_str("   ))\n\n");
 
     // Insert into current buffer
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.insert(&text);
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let _ = eval.buffers.insert_into_buffer(current_id, &text);
     }
     Ok(Value::Nil)
 }

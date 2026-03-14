@@ -775,9 +775,13 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_eval(
     expect_args("internal--labeled-narrow-to-region", &args, 3)?;
     let start = expect_integer_or_marker(&args[0])?;
     let end = expect_integer_or_marker(&args[1])?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
     let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
@@ -798,7 +802,9 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_eval(
     };
     let byte_start = buf.text.char_to_byte(s);
     let byte_end = buf.text.char_to_byte(e);
-    buf.narrow_to_region(byte_start, byte_end);
+    let _ = eval
+        .buffers
+        .narrow_buffer_to_region(current_id, byte_start, byte_end);
     Ok(Value::Nil)
 }
 

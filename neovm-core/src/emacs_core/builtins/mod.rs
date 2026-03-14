@@ -1535,10 +1535,17 @@ pub(crate) fn dispatch_builtin(
             return Some(super::navigation::builtin_line_number_at_pos(eval, args));
         }
         "forward-line" => return Some(super::navigation::builtin_forward_line(eval, args)),
+        "next-line" => return Some(super::navigation::builtin_next_line(eval, args)),
+        "previous-line" => return Some(super::navigation::builtin_previous_line(eval, args)),
+        "beginning-of-buffer" => {
+            return Some(super::navigation::builtin_beginning_of_buffer(eval, args));
+        }
         "beginning-of-line" => {
             return Some(super::navigation::builtin_beginning_of_line(eval, args));
         }
+        "end-of-buffer" => return Some(super::navigation::builtin_end_of_buffer(eval, args)),
         "end-of-line" => return Some(super::navigation::builtin_end_of_line(eval, args)),
+        "goto-line" => return Some(super::navigation::builtin_goto_line(eval, args)),
         "forward-char" => return Some(super::navigation::builtin_forward_char(eval, args)),
         "backward-char" => return Some(super::navigation::builtin_backward_char(eval, args)),
         "skip-chars-forward" => {
@@ -2061,6 +2068,7 @@ pub(crate) fn dispatch_builtin(
         "call-interactively" => {
             return Some(super::interactive::builtin_call_interactively(eval, args));
         }
+        "command-execute" => return Some(super::interactive::builtin_command_execute(eval, args)),
         "commandp" => return Some(super::interactive::builtin_commandp_interactive(eval, args)),
         "command-remapping" => {
             return Some(super::interactive::builtin_command_remapping(eval, args));
@@ -2367,6 +2375,21 @@ pub(crate) fn dispatch_builtin(
         }
         "current-column" => return Some(super::indent::builtin_current_column_eval(eval, args)),
         "move-to-column" => return Some(super::indent::builtin_move_to_column_eval(eval, args)),
+        "indent-region" => return Some(super::indent::builtin_indent_region(eval, args)),
+        "reindent-then-newline-and-indent" => {
+            return Some(super::indent::builtin_reindent_then_newline_and_indent(
+                eval, args,
+            ));
+        }
+        "indent-for-tab-command" => {
+            return Some(super::indent::builtin_indent_for_tab_command(eval, args));
+        }
+        "indent-according-to-mode" => {
+            return Some(super::indent::builtin_indent_according_to_mode(eval, args));
+        }
+        "back-to-indentation" => {
+            return Some(super::indent::builtin_back_to_indentation(eval, args));
+        }
         // Case/char (evaluator-dependent)
         "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {

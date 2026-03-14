@@ -2395,6 +2395,19 @@ fn buffer_save_excursion_tracks_marker_through_edits() {
 }
 
 #[test]
+fn insert_before_markers_advances_before_markers_at_point() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"ab\")
+           (goto-char 1)
+           (let ((m (copy-marker (point))))
+             (insert-before-markers \"X\")
+             (list (buffer-string) (marker-position m))))",
+    );
+    assert_eq!(results[0], r#"OK ("Xab" 2)"#);
+}
+
+#[test]
 fn buffer_undo_list_reflects_recorded_edits() {
     let results = eval_all(
         "(with-temp-buffer

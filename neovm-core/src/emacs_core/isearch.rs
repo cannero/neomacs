@@ -1422,11 +1422,11 @@ fn replace_string_eval_impl(
             }
             buf.point_max()
         };
-        let buf = eval
+        let current_id = eval
             .buffers
-            .current_buffer_mut()
+            .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        buf.goto_char(point_max);
+        let _ = eval.buffers.goto_buffer_byte(current_id, point_max);
         return Ok(Value::Nil);
     }
     let (start, end, source, read_only, buffer_name) = {
@@ -1472,27 +1472,32 @@ fn replace_string_eval_impl(
         if out == source {
             return Ok(Value::Nil);
         }
-        let buf = eval
+        let current_id = eval
             .buffers
-            .current_buffer_mut()
+            .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        buf.delete_region(start, end);
-        buf.goto_char(start);
-        buf.insert(&out);
+        let _ = eval.buffers.delete_buffer_region(current_id, start, end);
+        let _ = eval.buffers.goto_buffer_byte(current_id, start);
+        let _ = eval.buffers.insert_into_buffer(current_id, &out);
         if backward {
             if let Some(first) = source.chars().next() {
-                buf.goto_char(start + first.len_utf8());
+                let _ = eval
+                    .buffers
+                    .goto_buffer_byte(current_id, start + first.len_utf8());
             } else {
-                buf.goto_char(start);
+                let _ = eval.buffers.goto_buffer_byte(current_id, start);
             }
         } else if query_style_point {
             if let Some(last) = source.chars().last() {
-                buf.goto_char(start + out.len().saturating_sub(last.len_utf8()));
+                let _ = eval.buffers.goto_buffer_byte(
+                    current_id,
+                    start + out.len().saturating_sub(last.len_utf8()),
+                );
             } else {
-                buf.goto_char(start);
+                let _ = eval.buffers.goto_buffer_byte(current_id, start);
             }
         } else {
-            buf.goto_char(start + out.len());
+            let _ = eval.buffers.goto_buffer_byte(current_id, start + out.len());
         }
         return Ok(Value::Nil);
     }
@@ -1576,27 +1581,27 @@ fn replace_string_eval_impl(
         return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
     }
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.delete_region(start, end);
-    buf.goto_char(start);
-    buf.insert(&out);
+    let _ = eval.buffers.delete_buffer_region(current_id, start, end);
+    let _ = eval.buffers.goto_buffer_byte(current_id, start);
+    let _ = eval.buffers.insert_into_buffer(current_id, &out);
     if backward {
         if let Some(pos) = backward_point {
-            buf.goto_char(start + pos);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start + pos);
         } else {
-            buf.goto_char(start);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start);
         }
     } else if query_style_point {
         if let Some(pos) = query_forward_point {
-            buf.goto_char(start + pos);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start + pos);
         } else {
-            buf.goto_char(start);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start);
         }
     } else {
-        buf.goto_char(start + out.len());
+        let _ = eval.buffers.goto_buffer_byte(current_id, start + out.len());
     }
 
     Ok(Value::Nil)
@@ -1638,11 +1643,11 @@ fn replace_regexp_eval_impl(
             }
             buf.point_max()
         };
-        let buf = eval
+        let current_id = eval
             .buffers
-            .current_buffer_mut()
+            .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        buf.goto_char(point_max);
+        let _ = eval.buffers.goto_buffer_byte(current_id, point_max);
         return Ok(Value::Nil);
     }
 
@@ -1742,27 +1747,27 @@ fn replace_regexp_eval_impl(
         return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
     }
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.delete_region(start, end);
-    buf.goto_char(start);
-    buf.insert(&out);
+    let _ = eval.buffers.delete_buffer_region(current_id, start, end);
+    let _ = eval.buffers.goto_buffer_byte(current_id, start);
+    let _ = eval.buffers.insert_into_buffer(current_id, &out);
     if backward {
         if let Some(pos) = backward_point {
-            buf.goto_char(start + pos);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start + pos);
         } else {
-            buf.goto_char(start);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start);
         }
     } else if query_style_point {
         if let Some(pos) = query_forward_point {
-            buf.goto_char(start + pos);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start + pos);
         } else {
-            buf.goto_char(start);
+            let _ = eval.buffers.goto_buffer_byte(current_id, start);
         }
     } else {
-        buf.goto_char(start + out.len());
+        let _ = eval.buffers.goto_buffer_byte(current_id, start + out.len());
     }
 
     Ok(Value::Nil)
@@ -1869,16 +1874,18 @@ pub(crate) fn builtin_keep_lines_eval(
         rel_cursor = rel_line_end;
     }
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if !delete_ranges.is_empty() {
         for (del_start, del_end) in delete_ranges.into_iter().rev() {
-            buf.delete_region(del_start, del_end);
+            let _ = eval
+                .buffers
+                .delete_buffer_region(current_id, del_start, del_end);
         }
     }
-    buf.goto_char(start);
+    let _ = eval.buffers.goto_buffer_byte(current_id, start);
 
     Ok(Value::Nil)
 }
@@ -1937,16 +1944,18 @@ pub(crate) fn builtin_flush_lines_eval(
         rel_cursor = rel_line_end;
     }
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if !delete_ranges.is_empty() {
         for (del_start, del_end) in delete_ranges.into_iter().rev() {
-            buf.delete_region(del_start, del_end);
+            let _ = eval
+                .buffers
+                .delete_buffer_region(current_id, del_start, del_end);
         }
     }
-    buf.goto_char(start);
+    let _ = eval.buffers.goto_buffer_byte(current_id, start);
 
     // Emacs returns integer 0 from flush-lines regardless of match count.
     Ok(Value::Int(0))

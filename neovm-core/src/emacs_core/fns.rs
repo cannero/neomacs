@@ -334,13 +334,18 @@ fn replace_buffer_region(
     end_byte: usize,
     replacement: &str,
 ) -> Result<(), Flow> {
-    let buf = eval
-        .buffers
-        .get_mut(buffer_id)
+    eval.buffers
+        .goto_buffer_byte(buffer_id, start_byte)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    buf.goto_char(start_byte);
-    buf.delete_region(start_byte, end_byte);
-    buf.insert(replacement);
+    eval.buffers
+        .delete_buffer_region(buffer_id, start_byte, end_byte)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    eval.buffers
+        .goto_buffer_byte(buffer_id, start_byte)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    eval.buffers
+        .insert_into_buffer(buffer_id, replacement)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
     Ok(())
 }
 

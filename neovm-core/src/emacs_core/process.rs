@@ -629,26 +629,23 @@ fn insert_process_output(
                 .buffers
                 .find_buffer_by_name(&name_str)
                 .unwrap_or_else(|| eval.buffers.create_buffer(&name_str));
-            let buf = eval.buffers.get_mut(id).ok_or_else(|| {
+            eval.buffers.insert_into_buffer(id, output).ok_or_else(|| {
                 signal(
                     "error",
                     vec![Value::string("No such live buffer for process output")],
                 )
             })?;
-            buf.insert(output);
             Ok(())
         }
         Value::Buffer(id) => {
-            let buf = eval
-                .buffers
-                .get_mut(*id)
+            eval.buffers
+                .insert_into_buffer(*id, output)
                 .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-            buf.insert(output);
             Ok(())
         }
         _ => {
-            if let Some(buf) = eval.buffers.current_buffer_mut() {
-                buf.insert(output);
+            if let Some(current_id) = eval.buffers.current_buffer_id() {
+                let _ = eval.buffers.insert_into_buffer(current_id, output);
             }
             Ok(())
         }
@@ -3092,11 +3089,15 @@ pub(crate) fn builtin_call_process_region(
                 (buf.text.text_range(0, len), (0usize, len))
             };
             if delete {
-                let buf = eval
+                let current_id = eval
                     .buffers
-                    .current_buffer_mut()
+                    .current_buffer_id()
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-                buf.delete_region(maybe_delete_range.0, maybe_delete_range.1);
+                let _ = eval.buffers.delete_buffer_region(
+                    current_id,
+                    maybe_delete_range.0,
+                    maybe_delete_range.1,
+                );
             }
             text
         }
@@ -3126,11 +3127,13 @@ pub(crate) fn builtin_call_process_region(
             };
 
             if delete {
-                let buf = eval
+                let current_id = eval
                     .buffers
-                    .current_buffer_mut()
+                    .current_buffer_id()
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-                buf.delete_region(region_beg, region_end);
+                let _ = eval
+                    .buffers
+                    .delete_buffer_region(current_id, region_beg, region_end);
             }
 
             text

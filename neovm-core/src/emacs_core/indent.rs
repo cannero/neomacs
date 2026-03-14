@@ -269,18 +269,20 @@ pub(crate) fn builtin_move_to_column_eval(
         .buffers
         .current_buffer()
         .is_some_and(|buf| buffer_read_only_active(eval, buf));
-
-    let Some(buf) = eval.buffers.current_buffer_mut() else {
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
         return Ok(Value::Int(0));
     };
-
+    let Some(buf) = eval.buffers.get(current_id) else {
+        return Ok(Value::Int(0));
+    };
     let text = buf.text.to_string();
     let pt = buf.pt.clamp(buf.begv, buf.zv);
     let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, pt);
     let line = &text[bol..eol];
+    let buffer_name = buf.name.clone();
 
     if target == 0 {
-        buf.goto_char(bol);
+        let _ = eval.buffers.goto_buffer_byte(current_id, bol);
         return Ok(Value::Int(0));
     }
 
@@ -318,26 +320,23 @@ pub(crate) fn builtin_move_to_column_eval(
         if read_only {
             return Err(signal(
                 "buffer-read-only",
-                vec![Value::string(buf.name.clone())],
+                vec![Value::string(buffer_name.clone())],
             ));
         }
-        buf.goto_char(tab_byte);
+        let _ = eval.buffers.goto_buffer_byte(current_id, tab_byte);
         let pad = padding_to_column(col_before_tab, target, tabw);
-        buf.insert(&pad);
+        let _ = eval.buffers.insert_into_buffer(current_id, &pad);
         return Ok(Value::Int(target as i64));
     }
 
-    buf.goto_char(dest_byte);
+    let _ = eval.buffers.goto_buffer_byte(current_id, dest_byte);
 
     if force && reached < target {
         if read_only {
-            return Err(signal(
-                "buffer-read-only",
-                vec![Value::string(buf.name.clone())],
-            ));
+            return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
         }
         let pad = padding_to_column(reached, target, tabw);
-        buf.insert(&pad);
+        let _ = eval.buffers.insert_into_buffer(current_id, &pad);
         reached = target;
     }
 
@@ -411,12 +410,14 @@ pub(crate) fn builtin_indent_region(
         }
     }
 
-    let Some(buf) = eval.buffers.current_buffer_mut() else {
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
         return Ok(Value::Nil);
     };
-    buf.delete_region(region_start, region_end);
-    buf.goto_char(region_start);
-    buf.insert(&rewritten);
+    let _ = eval
+        .buffers
+        .delete_buffer_region(current_id, region_start, region_end);
+    let _ = eval.buffers.goto_buffer_byte(current_id, region_start);
+    let _ = eval.buffers.insert_into_buffer(current_id, &rewritten);
 
     Ok(Value::True)
 }
@@ -458,11 +459,11 @@ pub(crate) fn builtin_indent_for_tab_command(
     // When point is in horizontal whitespace, Emacs collapses it before tab insert.
     super::kill_ring::builtin_delete_horizontal_space(eval, vec![])?;
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.insert("\t");
+    let _ = eval.buffers.insert_into_buffer(current_id, "\t");
     Ok(Value::Nil)
 }
 
@@ -508,11 +509,13 @@ pub(crate) fn builtin_indent_according_to_mode(
         pt - indent_len
     };
 
-    let Some(buf) = eval.buffers.current_buffer_mut() else {
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
         return Ok(Value::Nil);
     };
-    buf.delete_region(bol, indent_end);
-    buf.goto_char(new_pt);
+    let _ = eval
+        .buffers
+        .delete_buffer_region(current_id, bol, indent_end);
+    let _ = eval.buffers.goto_buffer_byte(current_id, new_pt);
 
     Ok(Value::Nil)
 }
@@ -525,10 +528,12 @@ pub(crate) fn builtin_back_to_indentation(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("back-to-indentation", &args, 0)?;
-    let Some(buf) = eval.buffers.current_buffer_mut() else {
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
         return Ok(Value::Nil);
     };
-
+    let Some(buf) = eval.buffers.get(current_id) else {
+        return Ok(Value::Nil);
+    };
     let text = buf.text.to_string();
     let pt = buf.pt.clamp(buf.begv, buf.zv);
     let (bol, eol) = line_bounds(&text, buf.begv, buf.zv, pt);
@@ -542,7 +547,7 @@ pub(crate) fn builtin_back_to_indentation(
         }
     }
 
-    buf.goto_char(dest);
+    let _ = eval.buffers.goto_buffer_byte(current_id, dest);
     Ok(Value::Nil)
 }
 

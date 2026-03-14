@@ -1218,6 +1218,9 @@ fn buffer_size_and_modified_p_return_defaults_for_deleted_buffer_objects() {
 #[test]
 fn buffer_base_buffer_and_last_name_semantics() {
     let mut eval = super::super::eval::Evaluator::new();
+    let base_id = eval.buffers.current_buffer().unwrap().id;
+    let indirect_id = eval.buffers.create_buffer("*indirect*");
+    eval.buffers.get_mut(indirect_id).unwrap().base_buffer = Some(base_id);
 
     assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![]).unwrap(),
@@ -1230,6 +1233,10 @@ fn buffer_base_buffer_and_last_name_semantics() {
     assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![Value::Nil]).unwrap(),
         Value::Nil
+    );
+    assert_eq!(
+        builtin_buffer_base_buffer(&mut eval, vec![Value::Buffer(indirect_id)]).unwrap(),
+        Value::Buffer(base_id)
     );
     assert_eq!(
         builtin_buffer_last_name(&mut eval, vec![Value::Nil]).unwrap(),
@@ -1424,6 +1431,76 @@ fn insert_inherit_variants_reuse_insert_semantics() {
         }
         other => panic!("unexpected flow: {other:?}"),
     }
+}
+
+#[test]
+fn insert_copies_string_text_properties_into_buffer() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let text = Value::string("xy");
+    let str_id = match text {
+        Value::Str(id) => id,
+        other => panic!("expected string value, got {other:?}"),
+    };
+
+    let mut table = crate::buffer::text_props::TextPropertyTable::new();
+    table.put_property(0, 2, "face", Value::symbol("bold"));
+    crate::emacs_core::value::set_string_text_properties_table(str_id, table);
+
+    assert_eq!(builtin_insert(&mut eval, vec![text]).unwrap(), Value::Nil);
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "xy");
+    assert_eq!(
+        buf.text_props.get_property(0, "face"),
+        Some(&Value::symbol("bold"))
+    );
+    assert_eq!(
+        buf.text_props.get_property(1, "face"),
+        Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
+fn insert_and_inherit_copies_previous_text_properties() {
+    let mut eval = super::super::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.insert("ab");
+        buf.text_props
+            .put_property(1, 2, "face", Value::symbol("bold"));
+    }
+
+    assert_eq!(
+        builtin_insert_and_inherit(&mut eval, vec![Value::string("X")]).unwrap(),
+        Value::Nil
+    );
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "abX");
+    assert_eq!(
+        buf.text_props.get_property(2, "face"),
+        Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
+fn delete_all_overlays_clears_current_buffer() {
+    let mut eval = super::super::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.insert("hello");
+        buf.overlays.make_overlay(0, 2);
+        buf.overlays.make_overlay(1, 4);
+        assert_eq!(buf.overlays.len(), 2);
+    }
+
+    assert_eq!(
+        builtin_delete_all_overlays(&mut eval, vec![]).unwrap(),
+        Value::Nil
+    );
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.overlays.len(), 0);
 }
 
 #[test]
@@ -5388,6 +5465,28 @@ fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
             .copied(),
         Some(Value::string("Neo doc"))
     );
+}
+
+#[test]
+fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let buf_id = eval.buffers.create_buffer(" *vm-labeled-narrow*");
+    eval.buffers.set_current(buf_id);
+    let _ = eval.buffers.insert_into_buffer(buf_id, "abcdef");
+    let _ = eval.buffers.narrow_buffer_to_region(buf_id, 1, 4);
+
+    let narrowed = dispatch_builtin(
+        &mut eval,
+        "internal--labeled-narrow-to-region",
+        vec![Value::Int(0), Value::Int(99), Value::symbol("vm-tag")],
+    )
+    .expect("internal--labeled-narrow-to-region should resolve")
+    .expect("internal--labeled-narrow-to-region should evaluate");
+    assert_eq!(narrowed, Value::Nil);
+
+    let buf = eval.buffers.get(buf_id).expect("buffer should stay live");
+    assert_eq!(buf.text.byte_to_char(buf.point_min()) as i64 + 1, 2);
+    assert_eq!(buf.text.byte_to_char(buf.point_max()) as i64 + 1, 5);
 }
 
 #[test]

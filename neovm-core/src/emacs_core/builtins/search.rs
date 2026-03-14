@@ -14,36 +14,38 @@ pub(crate) fn builtin_search_forward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    let buf = eval
-        .buffers
-        .current_buffer_mut()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let opts = parse_search_options(buf, &args, SearchKind::ForwardLiteral)?;
-    let start_pt = buf.pt;
+    let (current_id, opts, start_pt, start_char) =
+        current_search_context(eval, &args, SearchKind::ForwardLiteral)?;
 
     if opts.steps == 0 {
-        return Ok(Value::Int(buf.text.byte_to_char(buf.pt) as i64 + 1));
+        return Ok(Value::Int(start_char));
     }
 
     let mut last_pos = None;
     for _ in 0..opts.steps {
-        let result = match opts.direction {
-            SearchDirection::Forward => super::regex::search_forward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
-            SearchDirection::Backward => super::regex::search_backward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
+        let result = {
+            let buf = eval
+                .buffers
+                .get_mut(current_id)
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+            match opts.direction {
+                SearchDirection::Forward => super::regex::search_forward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+                SearchDirection::Backward => super::regex::search_backward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+            }
         };
         match result {
             Ok(Some(pos)) => last_pos = Some(pos),
@@ -53,7 +55,8 @@ pub(crate) fn builtin_search_forward(
             }
             Err(_) => {
                 return handle_search_failure(
-                    buf,
+                    eval,
+                    current_id,
                     &pattern,
                     opts,
                     start_pt,
@@ -64,7 +67,7 @@ pub(crate) fn builtin_search_forward(
     }
 
     let end = last_pos.expect("search loop should produce at least one match");
-    Ok(Value::Int(buf.text.byte_to_char(end) as i64 + 1))
+    buffer_byte_to_char_result(eval, current_id, end)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -185,6 +188,37 @@ fn parse_search_options(
     })
 }
 
+fn current_search_context(
+    eval: &super::eval::Evaluator,
+    args: &[Value],
+    kind: SearchKind,
+) -> Result<(crate::buffer::BufferId, SearchOptions, usize, i64), Flow> {
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let buf = eval
+        .buffers
+        .get(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let opts = parse_search_options(buf, args, kind)?;
+    let start_pt = buf.pt;
+    let start_char = buf.text.byte_to_char(buf.pt) as i64 + 1;
+    Ok((current_id, opts, start_pt, start_char))
+}
+
+fn buffer_byte_to_char_result(
+    eval: &super::eval::Evaluator,
+    buffer_id: crate::buffer::BufferId,
+    byte: usize,
+) -> EvalResult {
+    let buf = eval
+        .buffers
+        .get(buffer_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    Ok(Value::Int(buf.text.byte_to_char(byte) as i64 + 1))
+}
+
 fn search_failure_position(buf: &crate::buffer::Buffer, opts: SearchOptions) -> usize {
     match opts.bound {
         Some(limit) => limit.clamp(buf.begv, buf.zv),
@@ -196,7 +230,8 @@ fn search_failure_position(buf: &crate::buffer::Buffer, opts: SearchOptions) -> 
 }
 
 fn handle_search_failure(
-    buf: &mut crate::buffer::Buffer,
+    eval: &mut super::eval::Evaluator,
+    buffer_id: crate::buffer::BufferId,
     pattern: &str,
     opts: SearchOptions,
     start_pt: usize,
@@ -205,16 +240,20 @@ fn handle_search_failure(
     match kind {
         SearchErrorKind::NotFound => match opts.noerror_mode {
             SearchNoErrorMode::Signal => {
-                buf.goto_char(start_pt);
+                let _ = eval.buffers.goto_buffer_byte(buffer_id, start_pt);
                 Err(signal("search-failed", vec![Value::string(pattern)]))
             }
             SearchNoErrorMode::KeepPoint => {
-                buf.goto_char(start_pt);
+                let _ = eval.buffers.goto_buffer_byte(buffer_id, start_pt);
                 Ok(Value::Nil)
             }
             SearchNoErrorMode::MoveToBound => {
-                let target = search_failure_position(buf, opts);
-                buf.goto_char(target);
+                let target = eval
+                    .buffers
+                    .get(buffer_id)
+                    .map(|buf| search_failure_position(buf, opts))
+                    .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+                let _ = eval.buffers.goto_buffer_byte(buffer_id, target);
                 Ok(Value::Nil)
             }
         },
@@ -230,36 +269,38 @@ pub(crate) fn builtin_search_backward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    let buf = eval
-        .buffers
-        .current_buffer_mut()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let opts = parse_search_options(buf, &args, SearchKind::BackwardLiteral)?;
-    let start_pt = buf.pt;
+    let (current_id, opts, start_pt, start_char) =
+        current_search_context(eval, &args, SearchKind::BackwardLiteral)?;
 
     if opts.steps == 0 {
-        return Ok(Value::Int(buf.text.byte_to_char(buf.pt) as i64 + 1));
+        return Ok(Value::Int(start_char));
     }
 
     let mut last_pos = None;
     for _ in 0..opts.steps {
-        let result = match opts.direction {
-            SearchDirection::Forward => super::regex::search_forward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
-            SearchDirection::Backward => super::regex::search_backward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
+        let result = {
+            let buf = eval
+                .buffers
+                .get_mut(current_id)
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+            match opts.direction {
+                SearchDirection::Forward => super::regex::search_forward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+                SearchDirection::Backward => super::regex::search_backward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+            }
         };
         match result {
             Ok(Some(pos)) => last_pos = Some(pos),
@@ -268,7 +309,8 @@ pub(crate) fn builtin_search_backward(
             }
             Err(_) => {
                 return handle_search_failure(
-                    buf,
+                    eval,
+                    current_id,
                     &pattern,
                     opts,
                     start_pt,
@@ -279,7 +321,7 @@ pub(crate) fn builtin_search_backward(
     }
 
     let end = last_pos.expect("search loop should produce at least one match");
-    Ok(Value::Int(buf.text.byte_to_char(end) as i64 + 1))
+    buffer_byte_to_char_result(eval, current_id, end)
 }
 
 pub(crate) fn builtin_re_search_forward(
@@ -291,36 +333,38 @@ pub(crate) fn builtin_re_search_forward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    let buf = eval
-        .buffers
-        .current_buffer_mut()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let opts = parse_search_options(buf, &args, SearchKind::ForwardRegexp)?;
-    let start_pt = buf.pt;
+    let (current_id, opts, start_pt, start_char) =
+        current_search_context(eval, &args, SearchKind::ForwardRegexp)?;
 
     if opts.steps == 0 {
-        return Ok(Value::Int(buf.text.byte_to_char(buf.pt) as i64 + 1));
+        return Ok(Value::Int(start_char));
     }
 
     let mut last_pos = None;
     for _ in 0..opts.steps {
-        let result = match opts.direction {
-            SearchDirection::Forward => super::regex::re_search_forward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
-            SearchDirection::Backward => super::regex::re_search_backward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
+        let result = {
+            let buf = eval
+                .buffers
+                .get_mut(current_id)
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+            match opts.direction {
+                SearchDirection::Forward => super::regex::re_search_forward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+                SearchDirection::Backward => super::regex::re_search_backward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+            }
         };
 
         match result {
@@ -329,12 +373,13 @@ pub(crate) fn builtin_re_search_forward(
                 return Err(signal("search-failed", vec![Value::string(pattern)]));
             }
             Err(msg) if msg.starts_with("Invalid regexp:") => {
-                buf.goto_char(start_pt);
+                let _ = eval.buffers.goto_buffer_byte(current_id, start_pt);
                 return Err(signal("invalid-regexp", vec![Value::string(msg)]));
             }
             Err(_) => {
                 return handle_search_failure(
-                    buf,
+                    eval,
+                    current_id,
                     &pattern,
                     opts,
                     start_pt,
@@ -345,7 +390,7 @@ pub(crate) fn builtin_re_search_forward(
     }
 
     let end = last_pos.expect("search loop should produce at least one match");
-    Ok(Value::Int(buf.text.byte_to_char(end) as i64 + 1))
+    buffer_byte_to_char_result(eval, current_id, end)
 }
 
 pub(crate) fn builtin_re_search_backward(
@@ -357,36 +402,38 @@ pub(crate) fn builtin_re_search_backward(
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
-    let buf = eval
-        .buffers
-        .current_buffer_mut()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let opts = parse_search_options(buf, &args, SearchKind::BackwardRegexp)?;
-    let start_pt = buf.pt;
+    let (current_id, opts, start_pt, start_char) =
+        current_search_context(eval, &args, SearchKind::BackwardRegexp)?;
 
     if opts.steps == 0 {
-        return Ok(Value::Int(buf.text.byte_to_char(buf.pt) as i64 + 1));
+        return Ok(Value::Int(start_char));
     }
 
     let mut last_pos = None;
     for _ in 0..opts.steps {
-        let result = match opts.direction {
-            SearchDirection::Forward => super::regex::re_search_forward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
-            SearchDirection::Backward => super::regex::re_search_backward(
-                buf,
-                &pattern,
-                opts.bound,
-                false,
-                case_fold,
-                &mut eval.match_data,
-            ),
+        let result = {
+            let buf = eval
+                .buffers
+                .get_mut(current_id)
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+            match opts.direction {
+                SearchDirection::Forward => super::regex::re_search_forward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+                SearchDirection::Backward => super::regex::re_search_backward(
+                    buf,
+                    &pattern,
+                    opts.bound,
+                    false,
+                    case_fold,
+                    &mut eval.match_data,
+                ),
+            }
         };
 
         match result {
@@ -395,12 +442,13 @@ pub(crate) fn builtin_re_search_backward(
                 return Err(signal("search-failed", vec![Value::string(pattern)]));
             }
             Err(msg) if msg.starts_with("Invalid regexp:") => {
-                buf.goto_char(start_pt);
+                let _ = eval.buffers.goto_buffer_byte(current_id, start_pt);
                 return Err(signal("invalid-regexp", vec![Value::string(msg)]));
             }
             Err(_) => {
                 return handle_search_failure(
-                    buf,
+                    eval,
+                    current_id,
                     &pattern,
                     opts,
                     start_pt,
@@ -411,7 +459,7 @@ pub(crate) fn builtin_re_search_backward(
     }
 
     let end = last_pos.expect("search loop should produce at least one match");
-    Ok(Value::Int(buf.text.byte_to_char(end) as i64 + 1))
+    buffer_byte_to_char_result(eval, current_id, end)
 }
 
 pub(crate) fn builtin_search_forward_regexp(
@@ -1077,11 +1125,18 @@ pub(crate) fn builtin_replace_match(
         return Err(signal("args-out-of-range", vec![Value::Int(0)]));
     }
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    match super::regex::replace_match_buffer(buf, &newtext, fixedcase, literal, subexp, &md) {
+    let result = {
+        let buf = eval
+            .buffers
+            .get_mut(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        super::regex::replace_match_buffer(buf, &newtext, fixedcase, literal, subexp, &md)
+    };
+    match result {
         Ok(()) => Ok(Value::Nil), // Emacs returns nil on buffer replacement
         Err(msg) if msg == missing_subexp_error && subexp == 0 => {
             Err(signal("args-out-of-range", vec![Value::Int(0)]))

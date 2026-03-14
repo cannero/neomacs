@@ -352,12 +352,13 @@ pub(crate) fn builtin_forward_line(
     } else {
         expect_int(&args[0])?
     };
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    let text = buffer_text(buf);
-    let begv = buf.begv;
-    let zv = buf.zv;
-    let (new_pos, moved) = move_by_lines_narrowed(&text, buf.pt, n, begv, zv);
-    buf.goto_char(new_pos);
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let (text, begv, zv, pt) = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        (buffer_text(buf), buf.begv, buf.zv, buf.pt)
+    };
+    let (new_pos, moved) = move_by_lines_narrowed(&text, pt, n, begv, zv);
+    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
     Ok(Value::Int(n - moved))
 }
 
@@ -440,18 +441,19 @@ pub(crate) fn builtin_beginning_of_line(
     } else {
         expect_int(&args[0])?
     };
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    let text = buffer_text(buf);
-    let begv = buf.begv;
-    let zv = buf.zv;
-    let mut pos = buf.pt;
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let (text, begv, zv, pt) = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        (buffer_text(buf), buf.begv, buf.zv, buf.pt)
+    };
+    let mut pos = pt;
     if n != 1 {
         let delta = n - 1;
         let (new_pos, _) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
         pos = new_pos;
     }
     let bol = line_beginning_byte_narrowed(&text, pos, begv);
-    buf.goto_char(bol);
+    let _ = eval.buffers.goto_buffer_byte(current_id, bol);
     Ok(Value::Nil)
 }
 
@@ -465,11 +467,12 @@ pub(crate) fn builtin_end_of_line(
     } else {
         expect_int(&args[0])?
     };
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    let text = buffer_text(buf);
-    let begv = buf.begv;
-    let zv = buf.zv;
-    let mut pos = buf.pt;
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let (text, begv, zv, pt) = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        (buffer_text(buf), buf.begv, buf.zv, buf.pt)
+    };
+    let mut pos = pt;
     let mut moved = 0;
     if n != 1 {
         let delta = n - 1;
@@ -478,11 +481,11 @@ pub(crate) fn builtin_end_of_line(
         moved = actual_moved;
     }
     if n != 1 && moved != n - 1 && pos == begv {
-        buf.goto_char(begv);
+        let _ = eval.buffers.goto_buffer_byte(current_id, begv);
         return Ok(Value::Nil);
     }
     let eol = line_end_byte_narrowed(&text, pos, zv);
-    buf.goto_char(eol);
+    let _ = eval.buffers.goto_buffer_byte(current_id, eol);
     Ok(Value::Nil)
 }
 
@@ -496,12 +499,16 @@ pub(crate) fn builtin_beginning_of_buffer(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("beginning-of-buffer", &args, 1)?;
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    if args.first().is_some_and(|arg| !arg.is_nil()) {
-        buf.goto_char(buf.zv);
-    } else {
-        buf.goto_char(buf.begv);
-    }
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let target = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        if args.first().is_some_and(|arg| !arg.is_nil()) {
+            buf.zv
+        } else {
+            buf.begv
+        }
+    };
+    let _ = eval.buffers.goto_buffer_byte(current_id, target);
     Ok(Value::Nil)
 }
 
@@ -513,8 +520,9 @@ pub(crate) fn builtin_end_of_buffer(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("end-of-buffer", &args, 1)?;
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    buf.goto_char(buf.zv);
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let zv = eval.buffers.get(current_id).ok_or_else(no_buffer)?.zv;
+    let _ = eval.buffers.goto_buffer_byte(current_id, zv);
     Ok(Value::Nil)
 }
 
@@ -528,11 +536,14 @@ pub(crate) fn builtin_goto_line(eval: &mut super::eval::Evaluator, args: Vec<Val
             vec![Value::string("Line number must be >= 1"), Value::Int(line)],
         ));
     }
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    let text = buffer_text(buf);
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let text = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        buffer_text(buf)
+    };
     // Go to line 1 (beginning of buffer), then move forward (line-1) lines.
     let (new_pos, _) = move_by_lines(&text, 0, line - 1);
-    buf.goto_char(new_pos);
+    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
     Ok(Value::Nil)
 }
 
@@ -550,18 +561,21 @@ pub(crate) fn builtin_forward_char(
     } else {
         expect_int(&args[0])?
     };
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    let cur_char = buf.point_char();
-    let total_chars = buf.text.char_count();
-    let new_char = if n >= 0 {
-        let nc = cur_char.saturating_add(n as usize);
-        nc.min(total_chars)
-    } else {
-        let abs_n = (-n) as usize;
-        cur_char.saturating_sub(abs_n)
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let (cur_char, total_chars, new_byte) = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let cur_char = buf.point_char();
+        let total_chars = buf.text.char_count();
+        let new_char = if n >= 0 {
+            let nc = cur_char.saturating_add(n as usize);
+            nc.min(total_chars)
+        } else {
+            let abs_n = (-n) as usize;
+            cur_char.saturating_sub(abs_n)
+        };
+        (cur_char, total_chars, buf.text.char_to_byte(new_char))
     };
-    let new_byte = buf.text.char_to_byte(new_char);
-    buf.goto_char(new_byte);
+    let _ = eval.buffers.goto_buffer_byte(current_id, new_byte);
     // Signal if we couldn't move the full distance
     let desired = cur_char as i64 + n;
     if desired < 0 {
@@ -636,36 +650,43 @@ pub(crate) fn builtin_skip_chars_forward(
             ));
         }
     };
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    let lim_byte = if args.len() > 1 && !args[1].is_nil() {
-        char_pos_to_byte(buf, expect_int(&args[1])?)
-    } else {
-        buf.zv
-    };
-
     let (negate, char_set) = parse_skip_chars_set(&set_str);
-    let text = buffer_text(buf);
-    let start_pos = buf.pt;
-    let mut pos = buf.pt;
-    let limit = lim_byte.min(text.len());
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let (start_pos, pos, limit, moved_chars) = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let lim_byte = if args.len() > 1 && !args[1].is_nil() {
+            char_pos_to_byte(buf, expect_int(&args[1])?)
+        } else {
+            buf.zv
+        };
+        let text = buffer_text(buf);
+        let start_pos = buf.pt;
+        let mut pos = buf.pt;
+        let limit = lim_byte.min(text.len());
 
-    while pos < limit {
-        if let Some(ch) = buf.text.char_at(pos) {
-            let in_set = char_set.contains(&ch);
-            if negate {
-                if in_set {
+        while pos < limit {
+            if let Some(ch) = buf.text.char_at(pos) {
+                let in_set = char_set.contains(&ch);
+                if negate {
+                    if in_set {
+                        break;
+                    }
+                } else if !in_set {
                     break;
                 }
-            } else if !in_set {
+                pos += ch.len_utf8();
+            } else {
                 break;
             }
-            pos += ch.len_utf8();
-        } else {
-            break;
         }
-    }
-    buf.goto_char(pos);
-    let moved_chars = buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
+
+        let moved_chars =
+            buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
+        (start_pos, pos, limit, moved_chars)
+    };
+
+    debug_assert!(pos >= start_pos || limit <= start_pos);
+    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
     Ok(Value::Int(moved_chars))
 }
 
@@ -684,37 +705,40 @@ pub(crate) fn builtin_skip_chars_backward(
             ));
         }
     };
-    let buf = eval.buffers.current_buffer_mut().ok_or_else(no_buffer)?;
-    let lim_byte = if args.len() > 1 && !args[1].is_nil() {
-        char_pos_to_byte(buf, expect_int(&args[1])?)
-    } else {
-        buf.begv
-    };
-
     let (negate, char_set) = parse_skip_chars_set(&set_str);
-    let _text = buffer_text(buf);
-    let start_pos = buf.pt;
-    let mut pos = buf.pt;
-    let limit = lim_byte;
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let (pos, moved_chars) = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let limit = if args.len() > 1 && !args[1].is_nil() {
+            char_pos_to_byte(buf, expect_int(&args[1])?)
+        } else {
+            buf.begv
+        };
+        let start_pos = buf.pt;
+        let mut pos = buf.pt;
 
-    while pos > limit {
-        // Find the character before `pos`.
-        if let Some(ch) = buf.char_before(pos) {
-            let in_set = char_set.contains(&ch);
-            if negate {
-                if in_set {
+        while pos > limit {
+            // Find the character before `pos`.
+            if let Some(ch) = buf.char_before(pos) {
+                let in_set = char_set.contains(&ch);
+                if negate {
+                    if in_set {
+                        break;
+                    }
+                } else if !in_set {
                     break;
                 }
-            } else if !in_set {
+                pos -= ch.len_utf8();
+            } else {
                 break;
             }
-            pos -= ch.len_utf8();
-        } else {
-            break;
         }
-    }
-    buf.goto_char(pos);
-    let moved_chars = buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
+
+        let moved_chars =
+            buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
+        (pos, moved_chars)
+    };
+    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
     Ok(Value::Int(moved_chars))
 }
 

@@ -1187,10 +1187,7 @@ pub(crate) fn builtin_delete_overlay(
 ) -> EvalResult {
     expect_args("delete-overlay", &args, 1)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
-
-    if let Some(buf) = eval.buffers.get_mut(buf_id) {
-        buf.overlays.delete_overlay(ov_id);
-    }
+    let _ = eval.buffers.delete_buffer_overlay(buf_id, ov_id);
     Ok(Value::Nil)
 }
 
@@ -1204,9 +1201,9 @@ pub(crate) fn builtin_overlay_put(
     let prop = expect_symbol_name(&args[1])?;
     let val = args[2];
 
-    if let Some(buf) = eval.buffers.get_mut(buf_id) {
-        buf.overlays.overlay_put(ov_id, &prop, val);
-    }
+    let _ = eval
+        .buffers
+        .put_buffer_overlay_property(buf_id, ov_id, &prop, val);
     Ok(val)
 }
 

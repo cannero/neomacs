@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use super::types::*;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
-use crate::buffer::gap_buffer::GapBuffer;
+use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
 use crate::buffer::text_props::{PropertyInterval, TextPropertyTable};
 use crate::buffer::undo::{UndoList, UndoRecord};
@@ -535,6 +535,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
     DumpBuffer {
         id: DumpBufferId(buf.id.0),
         name: buf.name.clone(),
+        base_buffer: buf.base_buffer.map(|id| DumpBufferId(id.0)),
         text: DumpGapBuffer {
             text: buf.text.dump_text(),
         },
@@ -1679,7 +1680,8 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
     Buffer {
         id: BufferId(db.id.0),
         name: db.name.clone(),
-        text: GapBuffer::from_dump(db.text.text.clone()),
+        base_buffer: db.base_buffer.map(|id| BufferId(id.0)),
+        text: BufferText::from_dump(db.text.text.clone()),
         pt: db.pt,
         mark: db.mark,
         begv: db.begv,

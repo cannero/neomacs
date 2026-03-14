@@ -911,11 +911,16 @@ fn interactive_apply_shift_selection_prefix(eval: &mut Evaluator) {
     }
 
     let mut mark_activated = false;
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        let point = buf.point();
-        buf.set_mark(point);
-        buf.properties
-            .insert("mark-active".to_string(), Value::True);
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let point = eval
+            .buffers
+            .get(current_id)
+            .map(|buf| buf.point())
+            .unwrap_or(0);
+        let _ = eval.buffers.set_buffer_mark(current_id, point);
+        let _ = eval
+            .buffers
+            .set_buffer_local_property(current_id, "mark-active", Value::True);
         mark_activated = true;
     }
     if mark_activated {
@@ -1473,8 +1478,8 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Evaluator, args: Vec<Value>
     for _ in 0..repeat_count {
         text.push(ch);
     }
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.insert(&text);
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let _ = eval.buffers.insert_into_buffer(current_id, &text);
     }
     Ok(Value::Nil)
 }

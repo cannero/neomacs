@@ -167,8 +167,8 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
 pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     let text = collect_insert_text("insert", &args)?;
     ensure_current_buffer_writable(eval)?;
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.insert(&text);
+    if let Some(id) = eval.buffers.current_buffer_id() {
+        let _ = eval.buffers.insert_into_buffer(id, &text);
     }
     Ok(Value::Nil)
 }
@@ -182,22 +182,8 @@ pub(crate) fn builtin_insert_before_markers(
 ) -> EvalResult {
     let text = collect_insert_text("insert-before-markers", &args)?;
     ensure_current_buffer_writable(eval)?;
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        let byte_len = text.len();
-        if byte_len == 0 {
-            return Ok(Value::Nil);
-        }
-        let old_pt = buf.pt;
-        buf.insert(&text);
-        // `buf.insert` already advanced InsertionType::After markers.
-        // Now advance any InsertionType::Before markers that stayed at the
-        // old insertion point — this is what distinguishes
-        // insert-before-markers from plain insert.
-        for m in &mut buf.markers {
-            if m.byte_pos == old_pt {
-                m.byte_pos += byte_len;
-            }
-        }
+    if let Some(id) = eval.buffers.current_buffer_id() {
+        let _ = eval.buffers.insert_into_buffer_before_markers(id, &text);
     }
     Ok(Value::Nil)
 }
@@ -211,7 +197,10 @@ pub(crate) fn builtin_delete_char(
     expect_max_args("delete-char", &args, 2)?;
     let n = expect_integer("delete-char", &args[0])?;
     ensure_current_buffer_writable(eval)?;
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        let Some(buf) = eval.buffers.get(current_id) else {
+            return Ok(Value::Nil);
+        };
         let pt = buf.pt;
         if n > 0 {
             // Delete N characters forward from point.
@@ -224,7 +213,7 @@ pub(crate) fn builtin_delete_char(
                     }
                 }
             }
-            buf.delete_region(pt, end);
+            let _ = eval.buffers.delete_buffer_region(current_id, pt, end);
         } else if n < 0 {
             // Delete |N| characters backward from point.
             let mut start = pt;
@@ -236,7 +225,7 @@ pub(crate) fn builtin_delete_char(
                     }
                 }
             }
-            buf.delete_region(start, pt);
+            let _ = eval.buffers.delete_buffer_region(current_id, start, pt);
         }
         // n == 0: do nothing.
     }

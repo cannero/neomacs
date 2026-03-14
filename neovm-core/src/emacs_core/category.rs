@@ -320,9 +320,13 @@ fn category_table_pointer_eq(lhs: &Value, rhs: &Value) -> bool {
 
 fn current_buffer_category_table(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
     let fallback = ensure_standard_category_table()?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     if let Some(table) = buf.properties.get(CATEGORY_TABLE_PROPERTY) {
@@ -331,8 +335,9 @@ fn current_buffer_category_table(eval: &mut super::eval::Evaluator) -> Result<Va
         }
     }
 
-    buf.properties
-        .insert(CATEGORY_TABLE_PROPERTY.to_string(), fallback);
+    let _ = eval
+        .buffers
+        .set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, fallback);
     Ok(fallback)
 }
 
@@ -340,12 +345,13 @@ fn set_current_buffer_category_table(
     eval: &mut super::eval::Evaluator,
     table: Value,
 ) -> Result<(), Flow> {
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.properties
-        .insert(CATEGORY_TABLE_PROPERTY.to_string(), table);
+    let _ = eval
+        .buffers
+        .set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, table);
     Ok(())
 }
 

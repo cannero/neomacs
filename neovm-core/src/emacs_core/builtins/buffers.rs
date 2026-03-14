@@ -136,15 +136,11 @@ pub(crate) fn builtin_delete_all_overlays(
     let Some(target_id) = target else {
         return Ok(Value::Nil);
     };
-    let Some(buf) = eval.buffers.get_mut(target_id) else {
+    if eval.buffers.get(target_id).is_none() {
         // GNU Emacs treats dead buffers as a no-op.
         return Ok(Value::Nil);
-    };
-
-    let ids = buf.overlays.overlays_in(buf.point_min(), buf.point_max());
-    for ov_id in ids {
-        buf.overlays.delete_overlay(ov_id);
     }
+    let _ = eval.buffers.delete_all_buffer_overlays(target_id);
     Ok(Value::Nil)
 }
 
@@ -369,10 +365,12 @@ pub(crate) fn builtin_buffer_base_buffer(
         expect_buffer_id(&args[0])?
     };
 
-    // NeoVM does not currently model indirect buffers; direct and deleted
-    // buffers both report no base buffer.
-    let _ = target;
-    Ok(Value::Nil)
+    Ok(eval
+        .buffers
+        .get(target)
+        .and_then(|buf| buf.base_buffer)
+        .map(Value::Buffer)
+        .unwrap_or(Value::Nil))
 }
 
 /// (buffer-last-name &optional BUFFER) → string or nil
@@ -408,9 +406,13 @@ pub(crate) fn builtin_buffer_string(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("buffer-string", &args, 0)?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_start = buf.point_min();
     let byte_end = buf.point_max();
@@ -435,9 +437,13 @@ pub(crate) fn builtin_buffer_substring(
     expect_args("buffer-substring", &args, 2)?;
     let start = expect_int(&args[0])?;
     let end = expect_int(&args[1])?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
     let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
@@ -598,19 +604,6 @@ pub(crate) fn builtin_buffer_line_statistics(
     ]))
 }
 
-fn replace_buffer_contents(buf: &mut crate::buffer::Buffer, text: &str) {
-    let len = buf.text.len();
-    if len > 0 {
-        buf.delete_region(0, len);
-    }
-    buf.widen();
-    buf.goto_char(0);
-    if !text.is_empty() {
-        buf.insert(text);
-        buf.goto_char(0);
-    }
-}
-
 fn replace_region_contents_type_predicate() -> Value {
     Value::list(vec![
         Value::symbol("or"),
@@ -688,12 +681,12 @@ pub(crate) fn builtin_buffer_swap_text(
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();
 
-    if let Some(buf) = eval.buffers.get_mut(current_id) {
-        replace_buffer_contents(buf, &other_text);
-    }
-    if let Some(buf) = eval.buffers.get_mut(other_id) {
-        replace_buffer_contents(buf, &current_text);
-    }
+    let _ = eval
+        .buffers
+        .replace_buffer_contents(current_id, &other_text);
+    let _ = eval
+        .buffers
+        .replace_buffer_contents(other_id, &current_text);
 
     Ok(Value::Nil)
 }
@@ -712,57 +705,56 @@ pub(crate) fn builtin_insert_and_inherit(
     let text = super::editfns::collect_insert_text("insert-and-inherit", &args)?;
     super::editfns::ensure_current_buffer_writable(eval)?;
 
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        let old_pt = buf.pt;
-        buf.insert(&text);
-        let text_len = text.len();
+    let current_id = match eval.buffers.current_buffer_id() {
+        Some(id) => id,
+        None => return Ok(Value::Nil),
+    };
+    let old_pt = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let _ = eval.buffers.insert_into_buffer(current_id, &text);
+    let text_len = text.len();
 
-        if text_len > 0 && old_pt > 0 {
-            // Get all properties at the character just before the insertion point.
-            let props = buf.text_props.get_properties(old_pt - 1);
+    if text_len > 0 && old_pt > 0 {
+        let props = eval
+            .buffers
+            .get(current_id)
+            .map(|buf| buf.text_props.get_properties(old_pt - 1))
+            .unwrap_or_default();
 
-            if !props.is_empty() {
-                // Check rear-nonsticky: if it's `t`, no properties are inherited.
-                // If it's a list, only properties NOT in the list are inherited.
-                let nonsticky = props.get("rear-nonsticky").copied();
-                let inherit_all = match nonsticky {
-                    None => true,
-                    Some(Value::Nil) => true,
-                    Some(val) if val.is_truthy() && list_to_vec(&val).is_none() => false, // `t` or non-list truthy
-                    _ => true, // it's a list, we'll filter per-property below
+        if !props.is_empty() {
+            let nonsticky = props.get("rear-nonsticky").copied();
+            let inherit_all = match nonsticky {
+                None => true,
+                Some(Value::Nil) => true,
+                Some(val) if val.is_truthy() && list_to_vec(&val).is_none() => false,
+                _ => true,
+            };
+
+            if inherit_all || nonsticky.is_some() {
+                let nonsticky_names: Vec<String> = match nonsticky {
+                    Some(ref val) => {
+                        if let Some(items) = list_to_vec(val) {
+                            items
+                                .iter()
+                                .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    None => Vec::new(),
                 };
 
-                if inherit_all || nonsticky.is_some() {
-                    let nonsticky_names: Vec<String> = match nonsticky {
-                        Some(ref val) => {
-                            if let Some(items) = list_to_vec(val) {
-                                items
-                                    .iter()
-                                    .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
-                                    .collect()
-                            } else {
-                                Vec::new()
-                            }
-                        }
-                        None => Vec::new(),
-                    };
-
-                    for (name, value) in &props {
-                        // Skip rear-nonsticky itself.
-                        if name == "rear-nonsticky" {
-                            continue;
-                        }
-                        // If rear-nonsticky was `t`, skip everything.
-                        if !inherit_all {
-                            continue;
-                        }
-                        // If property is listed in rear-nonsticky list, skip it.
-                        if nonsticky_names.contains(name) {
-                            continue;
-                        }
-                        buf.text_props
-                            .put_property(old_pt, old_pt + text_len, name, *value);
+                for (name, value) in &props {
+                    if name == "rear-nonsticky" || !inherit_all || nonsticky_names.contains(name) {
+                        continue;
                     }
+                    let _ = eval.buffers.put_buffer_text_property(
+                        current_id,
+                        old_pt,
+                        old_pt + text_len,
+                        name,
+                        *value,
+                    );
                 }
             }
         }
@@ -815,13 +807,11 @@ pub(crate) fn builtin_kill_all_local_variables(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("kill-all-local-variables", &args, 0, 1)?;
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.properties.clear();
-    buf.properties
-        .insert("buffer-read-only".to_string(), Value::Nil);
+    let _ = eval.buffers.clear_buffer_local_properties(current_id);
     Ok(Value::Nil)
 }
 
@@ -911,9 +901,9 @@ pub(crate) fn builtin_replace_buffer_contents_eval(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .id;
 
-    if let Some(buf) = eval.buffers.get_mut(current_id) {
-        replace_buffer_contents(buf, &source_text);
-    }
+    let _ = eval
+        .buffers
+        .replace_buffer_contents(current_id, &source_text);
 
     Ok(Value::True)
 }
@@ -939,9 +929,13 @@ pub(crate) fn builtin_replace_region_contents_eval(
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let start_byte = super::editfns::lisp_pos_to_byte(buf, start);
     let end_byte = super::editfns::lisp_pos_to_byte(buf, end);
@@ -950,10 +944,10 @@ pub(crate) fn builtin_replace_region_contents_eval(
     } else {
         (end_byte, start_byte)
     };
-    buf.delete_region(lo, hi);
-    buf.goto_char(lo);
+    let _ = eval.buffers.delete_buffer_region(current_id, lo, hi);
+    let _ = eval.buffers.goto_buffer_byte(current_id, lo);
     if !source_text.is_empty() {
-        buf.insert(&source_text);
+        let _ = eval.buffers.insert_into_buffer(current_id, &source_text);
     }
 
     Ok(Value::True)
@@ -966,11 +960,11 @@ pub(crate) fn builtin_set_buffer_multibyte_eval(
 ) -> EvalResult {
     expect_args("set-buffer-multibyte", &args, 1)?;
     let flag = args[0].is_truthy();
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.multibyte = flag;
+    let _ = eval.buffers.set_buffer_multibyte_flag(current_id, flag);
     Ok(args[0])
 }
 
@@ -1407,14 +1401,18 @@ pub(crate) fn builtin_point_max(eval: &mut super::eval::Evaluator, args: Vec<Val
 pub(crate) fn builtin_goto_char(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("goto-char", &args, 1)?;
     let pos = expect_integer_or_marker(&args[0])?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     // Convert 1-based char pos to 0-based byte pos
     let char_pos = if pos > 0 { pos as usize - 1 } else { 0 };
     let byte_pos = buf.text.char_to_byte(char_pos.min(buf.text.char_count()));
-    buf.goto_char(byte_pos);
+    let _ = eval.buffers.goto_buffer_byte(current_id, byte_pos);
     Ok(args[0])
 }
 
@@ -1431,36 +1429,28 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     for arg in &args {
         match arg {
             Value::Str(id) => {
                 let s = with_heap(|h| h.get_string(*id).to_owned());
-                let insert_pos = buf.pt;
-                buf.insert(&s);
+                let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+                let _ = eval.buffers.insert_into_buffer(current_id, &s);
                 // Transfer string text properties to buffer
                 if let Some(str_table) = get_string_text_properties_table(*id) {
-                    for iv in str_table.intervals() {
-                        if iv.properties.is_empty() {
-                            continue;
-                        }
-                        for (name, val) in &iv.properties {
-                            buf.text_props.put_property(
-                                iv.start + insert_pos,
-                                iv.end + insert_pos,
-                                name,
-                                *val,
-                            );
-                        }
-                    }
+                    let _ = eval
+                        .buffers
+                        .append_buffer_text_properties(current_id, &str_table, insert_pos);
                 }
             }
             Value::Char(c) => {
                 let mut tmp = [0u8; 4];
-                buf.insert(c.encode_utf8(&mut tmp));
+                let _ = eval
+                    .buffers
+                    .insert_into_buffer(current_id, c.encode_utf8(&mut tmp));
             }
             Value::Int(n) => {
                 if !(0..=KEY_CHAR_CODE_MASK).contains(n) {
@@ -1471,9 +1461,11 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>
                 }
                 if let Some(c) = char::from_u32(*n as u32) {
                     let mut tmp = [0u8; 4];
-                    buf.insert(c.encode_utf8(&mut tmp));
+                    let _ = eval
+                        .buffers
+                        .insert_into_buffer(current_id, c.encode_utf8(&mut tmp));
                 } else if let Some(encoded) = encode_nonunicode_char_for_storage(*n as u32) {
-                    buf.insert(&encoded);
+                    let _ = eval.buffers.insert_into_buffer(current_id, &encoded);
                 } else {
                     return Err(signal(
                         "wrong-type-argument",
@@ -1535,10 +1527,6 @@ pub(crate) fn builtin_insert_char(
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
-    let buf = eval
-        .buffers
-        .current_buffer_mut()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let to_insert = if let Some(ch) = char::from_u32(char_code as u32) {
         ch.to_string().repeat(count as usize)
     } else if let Some(encoded) = encode_nonunicode_char_for_storage(char_code as u32) {
@@ -1549,7 +1537,11 @@ pub(crate) fn builtin_insert_char(
             vec![Value::symbol("characterp"), args[0]],
         ));
     };
-    buf.insert(&to_insert);
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
     Ok(Value::Nil)
 }
 
@@ -1584,11 +1576,11 @@ pub(crate) fn builtin_insert_byte(
 
     let ch = char::from_u32(byte as u32).expect("byte range maps to a valid codepoint");
     let to_insert = ch.to_string().repeat(count as usize);
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.insert(&to_insert);
+    let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
     Ok(Value::Nil)
 }
 
@@ -1611,9 +1603,13 @@ pub(crate) fn builtin_delete_region(
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
     let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
@@ -1630,7 +1626,9 @@ pub(crate) fn builtin_delete_region(
     let e = if end > 0 { end - 1 } else { 0 };
     let byte_start = buf.text.char_to_byte(s);
     let byte_end = buf.text.char_to_byte(e);
-    buf.delete_region(byte_start, byte_end);
+    let _ = eval
+        .buffers
+        .delete_buffer_region(current_id, byte_start, byte_end);
     Ok(Value::Nil)
 }
 
@@ -1686,13 +1684,11 @@ pub(crate) fn builtin_erase_buffer(
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let len = buf.text.len();
-    buf.delete_region(0, len);
-    buf.widen();
+    let _ = eval.buffers.replace_buffer_contents(current_id, "");
     Ok(Value::Nil)
 }
 
@@ -1840,9 +1836,13 @@ pub(crate) fn builtin_narrow_to_region(
     expect_args("narrow-to-region", &args, 2)?;
     let start = expect_int(&args[0])?;
     let end = expect_int(&args[1])?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = buf.text.byte_to_char(buf.point_min()) as i64 + 1;
     let point_max = buf.text.byte_to_char(buf.point_max()) as i64 + 1;
@@ -1858,18 +1858,20 @@ pub(crate) fn builtin_narrow_to_region(
     let e = if end > 0 { end - 1 } else { 0 };
     let byte_start = buf.text.char_to_byte(s);
     let byte_end = buf.text.char_to_byte(e);
-    buf.narrow_to_region(byte_start, byte_end);
+    let _ = eval
+        .buffers
+        .narrow_buffer_to_region(current_id, byte_start, byte_end);
     Ok(Value::Nil)
 }
 
 /// (widen) → nil
 pub(crate) fn builtin_widen(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("widen", &args, 0)?;
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.widen();
+    let _ = eval.buffers.widen_buffer(current_id);
     Ok(Value::Nil)
 }
 
@@ -1902,11 +1904,11 @@ pub(crate) fn builtin_set_buffer_modified_p(
 ) -> EvalResult {
     expect_args("set-buffer-modified-p", &args, 1)?;
     let flag = args[0].is_truthy();
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.set_modified(flag);
+    let _ = eval.buffers.set_buffer_modified_flag(current_id, flag);
     Ok(args[0])
 }
 

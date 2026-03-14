@@ -329,9 +329,16 @@ pub(crate) fn builtin_make_local_variable(
     }
     // Set the current value as buffer-local if a buffer is current.
     let value = eval.visible_variable_value_or_nil(&resolved);
-    if let Some(buf) = eval.buffers.current_buffer_mut() {
-        if buf.get_buffer_local(&resolved).is_none() {
-            buf.set_buffer_local(&resolved, value);
+    if let Some(current_id) = eval.buffers.current_buffer_id() {
+        if eval
+            .buffers
+            .get(current_id)
+            .and_then(|buf| buf.get_buffer_local(&resolved))
+            .is_none()
+        {
+            let _ = eval
+                .buffers
+                .set_buffer_local_property(current_id, &resolved, value);
         }
     }
     Ok(args[0])
@@ -433,15 +440,12 @@ pub(crate) fn builtin_kill_local_variable(
     };
 
     let resolved = super::builtins::resolve_variable_alias_name(eval, &name)?;
-    if eval.buffers.current_buffer().is_some() {
-        let (buffer_id, removed) = {
-            let buf = eval
-                .buffers
-                .current_buffer_mut()
-                .expect("checked above for current buffer");
-            let removed = buf.properties.remove(&resolved).is_some();
-            (buf.id, removed)
-        };
+    if let Some(buffer_id) = eval.buffers.current_buffer_id() {
+        let removed = eval
+            .buffers
+            .remove_buffer_local_property(buffer_id, &resolved)
+            .flatten()
+            .is_some();
         if removed {
             eval.run_variable_watchers_with_where(
                 &resolved,

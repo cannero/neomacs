@@ -598,13 +598,13 @@ fn write_print_output(
     match target {
         Value::True => Ok(()),
         Value::Buffer(id) => {
-            let Some(buf) = eval.buffers.get_mut(id) else {
+            if eval.buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Output buffer no longer exists")],
                 ));
-            };
-            buf.insert(text);
+            }
+            let _ = eval.buffers.insert_into_buffer(id, text);
             Ok(())
         }
         Value::Str(name_id) => {
@@ -615,13 +615,13 @@ fn write_print_output(
                     vec![Value::string(format!("No buffer named {name}"))],
                 ));
             };
-            let Some(buf) = eval.buffers.get_mut(id) else {
+            if eval.buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Output buffer no longer exists")],
                 ));
-            };
-            buf.insert(text);
+            }
+            let _ = eval.buffers.insert_into_buffer(id, text);
             Ok(())
         }
         _ => Ok(()),
@@ -632,13 +632,13 @@ fn write_terpri_output(eval: &mut super::eval::Evaluator, target: Value) -> Resu
     match target {
         Value::True | Value::Nil => Ok(()),
         Value::Buffer(id) => {
-            let Some(buf) = eval.buffers.get_mut(id) else {
+            if eval.buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Output buffer no longer exists")],
                 ));
-            };
-            buf.insert("\n");
+            }
+            let _ = eval.buffers.insert_into_buffer(id, "\n");
             Ok(())
         }
         Value::Str(name_id) => {
@@ -649,13 +649,13 @@ fn write_terpri_output(eval: &mut super::eval::Evaluator, target: Value) -> Resu
                     vec![Value::string(format!("No buffer named {name}"))],
                 ));
             };
-            let Some(buf) = eval.buffers.get_mut(id) else {
+            if eval.buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Output buffer no longer exists")],
                 ));
-            };
-            buf.insert("\n");
+            }
+            let _ = eval.buffers.insert_into_buffer(id, "\n");
             Ok(())
         }
         other => {
@@ -996,13 +996,13 @@ pub(crate) fn builtin_write_char_eval(
         Value::True | Value::Nil => {}
         Value::Buffer(id) => {
             if let Some(text) = write_char_rendered_text(char_code) {
-                let Some(buf) = eval.buffers.get_mut(id) else {
+                if eval.buffers.get(id).is_none() {
                     return Err(signal(
                         "error",
                         vec![Value::string("Output buffer no longer exists")],
                     ));
-                };
-                buf.insert(&text);
+                }
+                let _ = eval.buffers.insert_into_buffer(id, &text);
             }
         }
         Value::Str(name_id) => {
@@ -1014,13 +1014,13 @@ pub(crate) fn builtin_write_char_eval(
                         vec![Value::string(format!("No buffer named {name}"))],
                     ));
                 };
-                let Some(buf) = eval.buffers.get_mut(id) else {
+                if eval.buffers.get(id).is_none() {
                     return Err(signal(
                         "error",
                         vec![Value::string("Output buffer no longer exists")],
                     ));
-                };
-                buf.insert(&text);
+                }
+                let _ = eval.buffers.insert_into_buffer(id, &text);
             }
         }
         other => {

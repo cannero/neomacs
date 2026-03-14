@@ -3676,7 +3676,9 @@ impl Evaluator {
                 Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
             }
         }
-        if let Some(buf) = self.buffers.current_buffer_mut() {
+        if let Some(current_id) = self.buffers.current_buffer_id()
+            && let Some(buf) = self.buffers.get_mut(current_id)
+        {
             for value in buf.properties.values_mut() {
                 Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
             }
@@ -4238,16 +4240,11 @@ impl Evaluator {
             }
 
             let value = self.eval(&tail[i + 1])?;
-            if self.buffers.current_buffer().is_some() {
-                let where_arg = {
-                    let buf = self
-                        .buffers
-                        .current_buffer_mut()
-                        .expect("checked above for current buffer");
-                    let where_arg = Value::Buffer(buf.id);
-                    buf.set_buffer_local(&resolved, value);
-                    where_arg
-                };
+            if let Some(current_id) = self.buffers.current_buffer_id() {
+                let where_arg = Value::Buffer(current_id);
+                let _ = self
+                    .buffers
+                    .set_buffer_local_property(current_id, &resolved, value);
                 self.run_variable_watchers_with_where(
                     &resolved,
                     &value,
@@ -5463,9 +5460,7 @@ impl Evaluator {
             self.buffers.set_current(buf_id);
             if let Some(marker_id) = saved_marker {
                 if let Some(saved_pt) = self.buffers.marker_position(buf_id, marker_id) {
-                    if let Some(buf) = self.buffers.get_mut(buf_id) {
-                        buf.goto_char(saved_pt);
-                    }
+                    let _ = self.buffers.goto_buffer_byte(buf_id, saved_pt);
                 }
                 self.buffers.remove_marker(marker_id);
             }
@@ -5526,10 +5521,10 @@ impl Evaluator {
             None => (0, 0),
         };
         let result = self.sf_progn(tail);
-        if let Some(buf) = self.buffers.current_buffer_mut() {
-            buf.begv = saved_begv;
-            buf.zv = saved_zv;
-            buf.pt = buf.pt.clamp(buf.begv, buf.zv);
+        if let Some(current_id) = self.buffers.current_buffer_id() {
+            let _ = self
+                .buffers
+                .restore_buffer_restriction(current_id, saved_begv, saved_zv);
         }
         result
     }
@@ -6724,35 +6719,28 @@ impl Evaluator {
         }
 
         // Update existing buffer-local binding if present.
-        if symbol_is_canonical && let Some(buf) = self.buffers.current_buffer_mut() {
+        if symbol_is_canonical
+            && let Some(current_id) = self.buffers.current_buffer_id()
+            && let Some(buf) = self.buffers.get(current_id)
+        {
             if name == "buffer-undo-list" {
-                match value {
-                    Value::True => {
-                        buf.undo_list.set_enabled(false);
-                        buf.set_buffer_local(name, Value::True);
-                    }
-                    Value::Nil => {
-                        buf.undo_list.set_enabled(true);
-                        buf.undo_list.clear();
-                        buf.set_buffer_local(name, Value::Nil);
-                    }
-                    other => {
-                        buf.undo_list.set_enabled(true);
-                        buf.set_buffer_local(name, other);
-                    }
-                }
+                let _ = self.buffers.configure_buffer_undo_list(current_id, value);
                 return;
             }
             if buf.get_buffer_local(name).is_some() {
-                buf.set_buffer_local(name, value);
+                let _ = self
+                    .buffers
+                    .set_buffer_local_property(current_id, name, value);
                 return;
             }
         }
 
         // Auto-local variables become local upon assignment.
         if symbol_is_canonical && self.custom.is_auto_buffer_local(name) {
-            if let Some(buf) = self.buffers.current_buffer_mut() {
-                buf.set_buffer_local(name, value);
+            if let Some(current_id) = self.buffers.current_buffer_id() {
+                let _ = self
+                    .buffers
+                    .set_buffer_local_property(current_id, name, value);
                 return;
             }
         }

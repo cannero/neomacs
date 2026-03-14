@@ -1272,7 +1272,9 @@ impl<'a> Vm<'a> {
                 Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
             }
         }
-        if let Some(buf) = self.buffers.current_buffer_mut() {
+        if let Some(current_id) = self.buffers.current_buffer_id()
+            && let Some(buf) = self.buffers.get_mut(current_id)
+        {
             for value in buf.properties.values_mut() {
                 Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
             }
@@ -1438,35 +1440,27 @@ impl<'a> Vm<'a> {
         }
 
         // Update existing buffer-local binding if present.
-        if let Some(buf) = self.buffers.current_buffer_mut() {
+        if let Some(current_id) = self.buffers.current_buffer_id()
+            && let Some(buf) = self.buffers.get(current_id)
+        {
             if name == "buffer-undo-list" {
-                match value {
-                    Value::True => {
-                        buf.undo_list.set_enabled(false);
-                        buf.set_buffer_local(name, Value::True);
-                    }
-                    Value::Nil => {
-                        buf.undo_list.set_enabled(true);
-                        buf.undo_list.clear();
-                        buf.set_buffer_local(name, Value::Nil);
-                    }
-                    other => {
-                        buf.undo_list.set_enabled(true);
-                        buf.set_buffer_local(name, other);
-                    }
-                }
+                let _ = self.buffers.configure_buffer_undo_list(current_id, value);
                 return Ok(());
             }
             if buf.get_buffer_local(name).is_some() {
-                buf.set_buffer_local(name, value);
+                let _ = self
+                    .buffers
+                    .set_buffer_local_property(current_id, name, value);
                 return Ok(());
             }
         }
 
         // Auto-local variables become local upon assignment.
         if self.custom.is_auto_buffer_local(name) {
-            if let Some(buf) = self.buffers.current_buffer_mut() {
-                buf.set_buffer_local(name, value);
+            if let Some(current_id) = self.buffers.current_buffer_id() {
+                let _ = self
+                    .buffers
+                    .set_buffer_local_property(current_id, name, value);
                 return Ok(());
             }
         }
@@ -1908,9 +1902,7 @@ impl<'a> Vm<'a> {
                 if self.buffers.get(buffer_id).is_some() {
                     self.buffers.set_current(buffer_id);
                     if let Some(saved_pt) = self.buffers.marker_position(buffer_id, marker_id) {
-                        if let Some(buffer) = self.buffers.get_mut(buffer_id) {
-                            buffer.goto_char(saved_pt);
-                        }
+                        let _ = self.buffers.goto_buffer_byte(buffer_id, saved_pt);
                     }
                 }
                 self.buffers.remove_marker(marker_id);
@@ -1923,10 +1915,8 @@ impl<'a> Vm<'a> {
     fn restore_saved_restriction(&mut self, saved: SavedRestriction) {
         match saved {
             SavedRestriction::None { buffer_id } => {
-                if let Some(buffer) = self.buffers.get_mut(buffer_id) {
-                    buffer.begv = 0;
-                    buffer.zv = buffer.text.len();
-                    buffer.pt = buffer.pt.clamp(buffer.begv, buffer.zv);
+                if let Some(len) = self.buffers.get(buffer_id).map(|buffer| buffer.text.len()) {
+                    let _ = self.buffers.restore_buffer_restriction(buffer_id, 0, len);
                 }
             }
             SavedRestriction::Markers {
@@ -1936,15 +1926,21 @@ impl<'a> Vm<'a> {
             } => {
                 let beg = self.buffers.marker_position(buffer_id, beg_marker);
                 let end = self.buffers.marker_position(buffer_id, end_marker);
-                if let (Some(begv), Some(zv)) = (beg, end) {
-                    if let Some(buffer) = self.buffers.get_mut(buffer_id) {
-                        buffer.begv = begv.min(buffer.text.len());
-                        buffer.zv = zv.min(buffer.text.len());
-                        if buffer.begv > buffer.zv {
-                            std::mem::swap(&mut buffer.begv, &mut buffer.zv);
-                        }
-                        buffer.pt = buffer.pt.clamp(buffer.begv, buffer.zv);
+                if let (Some(begv), Some(zv), Some(len)) = (
+                    beg,
+                    end,
+                    self.buffers.get(buffer_id).map(|buffer| buffer.text.len()),
+                ) {
+                    let mut restored_begv = begv.min(len);
+                    let mut restored_zv = zv.min(len);
+                    if restored_begv > restored_zv {
+                        std::mem::swap(&mut restored_begv, &mut restored_zv);
                     }
+                    let _ = self.buffers.restore_buffer_restriction(
+                        buffer_id,
+                        restored_begv,
+                        restored_zv,
+                    );
                 }
                 self.buffers.remove_marker(beg_marker);
                 self.buffers.remove_marker(end_marker);

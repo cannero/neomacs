@@ -447,9 +447,13 @@ fn ensure_standard_case_table_object_eval(eval: &mut super::eval::Evaluator) -> 
 
 fn current_case_table_for_buffer(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
     let fallback = ensure_standard_case_table_object_eval(eval)?;
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let buf = eval
         .buffers
-        .current_buffer_mut()
+        .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     if let Some(value) = buf.properties.get(CURRENT_CASE_TABLE_PROPERTY) {
@@ -458,8 +462,9 @@ fn current_case_table_for_buffer(eval: &mut super::eval::Evaluator) -> Result<Va
         }
     }
 
-    buf.properties
-        .insert(CURRENT_CASE_TABLE_PROPERTY.to_string(), fallback);
+    let _ =
+        eval.buffers
+            .set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, fallback);
     Ok(fallback)
 }
 
@@ -467,12 +472,13 @@ fn set_current_case_table_for_buffer(
     eval: &mut super::eval::Evaluator,
     table: Value,
 ) -> Result<(), Flow> {
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.properties
-        .insert(CURRENT_CASE_TABLE_PROPERTY.to_string(), table);
+    let _ = eval
+        .buffers
+        .set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, table);
     Ok(())
 }
 

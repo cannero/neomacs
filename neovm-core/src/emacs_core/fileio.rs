@@ -2683,15 +2683,17 @@ pub(crate) fn builtin_insert_file_contents(
     let char_count = contents.chars().count() as i64;
 
     // Insert into current buffer
-    let buf = eval
+    let current_id = eval
         .buffers
-        .current_buffer_mut()
+        .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.insert(&contents);
+    let _ = eval.buffers.insert_into_buffer(current_id, &contents);
 
     if visit {
-        buf.file_name = Some(resolved.clone());
-        buf.set_modified(false);
+        let _ = eval
+            .buffers
+            .set_buffer_file_name(current_id, Some(resolved.clone()));
+        let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
     Ok(Value::list(vec![
@@ -2749,13 +2751,14 @@ pub(crate) fn builtin_write_region(
         .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
 
     if visit {
-        // Need mutable access to set file_name and modified flag
-        let buf_mut = eval
+        let current_id = eval
             .buffers
-            .current_buffer_mut()
+            .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        buf_mut.file_name = Some(resolved);
-        buf_mut.set_modified(false);
+        let _ = eval
+            .buffers
+            .set_buffer_file_name(current_id, Some(resolved));
+        let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
     Ok(Value::Nil)
@@ -2795,20 +2798,15 @@ pub(crate) fn builtin_find_file_noselect(
             .map_err(|e| signal_file_io_path(e, "Opening input file", &abs_path))?;
 
         // Save and restore current buffer around the insert
-        let saved_current = eval
-            .buffers
-            .buffer_list()
-            .into_iter()
-            .find(|&id| eval.buffers.current_buffer().is_some_and(|b| b.id == id));
+        let saved_current = eval.buffers.current_buffer_id();
 
         eval.buffers.set_current(buf_id);
-        if let Some(buf) = eval.buffers.get_mut(buf_id) {
-            buf.insert(&contents);
-            // Move point to the beginning
-            buf.goto_char(0);
-            buf.file_name = Some(abs_path);
-            buf.set_modified(false);
-        }
+        let _ = eval.buffers.insert_into_buffer(buf_id, &contents);
+        let _ = eval.buffers.goto_buffer_byte(buf_id, 0);
+        let _ = eval
+            .buffers
+            .set_buffer_file_name(buf_id, Some(abs_path.clone()));
+        let _ = eval.buffers.set_buffer_modified_flag(buf_id, false);
 
         // Restore the previous current buffer
         if let Some(prev_id) = saved_current {
@@ -2816,9 +2814,7 @@ pub(crate) fn builtin_find_file_noselect(
         }
     } else {
         // File doesn't exist — create an empty buffer with the file name set
-        if let Some(buf) = eval.buffers.get_mut(buf_id) {
-            buf.file_name = Some(abs_path);
-        }
+        let _ = eval.buffers.set_buffer_file_name(buf_id, Some(abs_path));
     }
 
     Ok(Value::Buffer(buf_id))

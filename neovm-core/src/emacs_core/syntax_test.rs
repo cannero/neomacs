@@ -1,12 +1,12 @@
 use super::*;
+use crate::buffer::BufferText;
 use crate::buffer::buffer::{Buffer, BufferId};
-use crate::buffer::gap_buffer::GapBuffer;
 use crate::emacs_core::value::read_cons;
 
 /// Helper: create a buffer with given text, point at start, full accessible range.
 fn buf_with_text(text: &str) -> Buffer {
     let mut buf = Buffer::new(BufferId(99), "test-syntax".into());
-    buf.text = GapBuffer::from_str(text);
+    buf.text = BufferText::from_str(text);
     buf.zv = buf.text.len();
     buf.pt = 0;
     buf

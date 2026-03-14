@@ -448,6 +448,7 @@ pub struct DumpUndoList {
 pub struct DumpBuffer {
     pub id: DumpBufferId,
     pub name: String,
+    pub base_buffer: Option<DumpBufferId>,
     pub text: DumpGapBuffer,
     pub pt: usize,
     pub mark: Option<usize>,

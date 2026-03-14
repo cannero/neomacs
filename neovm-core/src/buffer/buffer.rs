@@ -1,15 +1,15 @@
 //! Buffer and BufferManager — the core text container for the Elisp VM.
 //!
-//! A `Buffer` wraps a [`GapBuffer`] with Emacs-style point, mark, narrowing,
+//! A `Buffer` wraps a [`BufferText`] with Emacs-style point, mark, narrowing,
 //! markers, and buffer-local variables.  `BufferManager` owns all live buffers
 //! and tracks the current buffer.
 
 use std::collections::HashMap;
 
-use super::gap_buffer::GapBuffer;
+use super::buffer_text::BufferText;
 use super::overlay::OverlayList;
 use super::text_props::TextPropertyTable;
-use super::undo::UndoList;
+use super::undo::{UndoList, UndoRecord};
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::Value;
 use crate::gc::GcTrace;
@@ -59,8 +59,10 @@ pub struct Buffer {
     pub id: BufferId,
     /// Buffer name (e.g. `"*scratch*"`).
     pub name: String,
+    /// Base buffer when this is an indirect buffer.
+    pub base_buffer: Option<BufferId>,
     /// The underlying text storage.
-    pub text: GapBuffer,
+    pub text: BufferText,
     /// Point — the current cursor byte position.
     pub pt: usize,
     /// Mark — optional byte position for region operations.
@@ -109,7 +111,8 @@ impl Buffer {
         Self {
             id,
             name,
-            text: GapBuffer::new(),
+            base_buffer: None,
+            text: BufferText::new(),
             pt: 0,
             mark: None,
             begv: 0,
@@ -390,6 +393,14 @@ pub struct BufferManager {
     dead_buffer_last_names: HashMap<BufferId, String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UndoExecutionResult {
+    pub had_any_records: bool,
+    pub had_boundary: bool,
+    pub applied_any: bool,
+    pub skipped_apply: bool,
+}
+
 impl BufferManager {
     /// Create a new `BufferManager` pre-populated with a `*scratch*` buffer.
     pub fn new() -> Self {
@@ -432,6 +443,11 @@ impl BufferManager {
     /// Mutable access to the current buffer.
     pub fn current_buffer_mut(&mut self) -> Option<&mut Buffer> {
         self.current.and_then(|id| self.buffers.get_mut(&id))
+    }
+
+    /// Return the current buffer id.
+    pub fn current_buffer_id(&self) -> Option<BufferId> {
+        self.current
     }
 
     /// Switch the current buffer.
@@ -478,6 +494,291 @@ impl BufferManager {
         self.buffers.keys().copied().collect()
     }
 
+    /// Centralized structural text mutations.
+    ///
+    /// Indirect buffers will eventually share a single text object.  When that
+    /// happens, sibling buffers must be updated from one place instead of every
+    /// ad hoc `buf.insert` / `buf.delete_region` call site in the tree.
+    pub fn goto_buffer_byte(&mut self, id: BufferId, pos: usize) -> Option<usize> {
+        let buf = self.buffers.get_mut(&id)?;
+        buf.goto_char(pos);
+        Some(buf.point())
+    }
+
+    pub fn insert_into_buffer(&mut self, id: BufferId, text: &str) -> Option<()> {
+        self.buffers.get_mut(&id)?.insert(text);
+        Some(())
+    }
+
+    pub fn insert_into_buffer_before_markers(&mut self, id: BufferId, text: &str) -> Option<()> {
+        let buf = self.buffers.get_mut(&id)?;
+        let byte_len = text.len();
+        if byte_len == 0 {
+            return Some(());
+        }
+        let old_pt = buf.pt;
+        buf.insert(text);
+        for marker in &mut buf.markers {
+            if marker.byte_pos == old_pt {
+                marker.byte_pos += byte_len;
+            }
+        }
+        Some(())
+    }
+
+    pub fn delete_buffer_region(&mut self, id: BufferId, start: usize, end: usize) -> Option<()> {
+        self.buffers.get_mut(&id)?.delete_region(start, end);
+        Some(())
+    }
+
+    pub fn delete_all_buffer_overlays(&mut self, id: BufferId) -> Option<()> {
+        let buf = self.buffers.get_mut(&id)?;
+        let ids = buf.overlays.overlays_in(buf.point_min(), buf.point_max());
+        for ov_id in ids {
+            buf.overlays.delete_overlay(ov_id);
+        }
+        Some(())
+    }
+
+    pub fn delete_buffer_overlay(&mut self, id: BufferId, overlay_id: u64) -> Option<()> {
+        self.buffers
+            .get_mut(&id)?
+            .overlays
+            .delete_overlay(overlay_id);
+        Some(())
+    }
+
+    pub fn put_buffer_overlay_property(
+        &mut self,
+        id: BufferId,
+        overlay_id: u64,
+        name: &str,
+        value: Value,
+    ) -> Option<()> {
+        self.buffers
+            .get_mut(&id)?
+            .overlays
+            .overlay_put(overlay_id, name, value);
+        Some(())
+    }
+
+    pub fn narrow_buffer_to_region(
+        &mut self,
+        id: BufferId,
+        start: usize,
+        end: usize,
+    ) -> Option<()> {
+        self.buffers.get_mut(&id)?.narrow_to_region(start, end);
+        Some(())
+    }
+
+    pub fn widen_buffer(&mut self, id: BufferId) -> Option<()> {
+        self.buffers.get_mut(&id)?.widen();
+        Some(())
+    }
+
+    pub fn replace_buffer_contents(&mut self, id: BufferId, text: &str) -> Option<()> {
+        let buf = self.buffers.get_mut(&id)?;
+        let len = buf.text.len();
+        if len > 0 {
+            buf.delete_region(0, len);
+        }
+        buf.widen();
+        buf.goto_char(0);
+        if !text.is_empty() {
+            buf.insert(text);
+            buf.goto_char(0);
+        }
+        Some(())
+    }
+
+    pub fn clear_buffer_local_properties(&mut self, id: BufferId) -> Option<()> {
+        let buf = self.buffers.get_mut(&id)?;
+        buf.properties.clear();
+        buf.properties
+            .insert("buffer-read-only".to_string(), Value::Nil);
+        Some(())
+    }
+
+    pub fn put_buffer_text_property(
+        &mut self,
+        id: BufferId,
+        start: usize,
+        end: usize,
+        name: &str,
+        value: Value,
+    ) -> Option<()> {
+        self.buffers
+            .get_mut(&id)?
+            .text_props
+            .put_property(start, end, name, value);
+        Some(())
+    }
+
+    pub fn append_buffer_text_properties(
+        &mut self,
+        id: BufferId,
+        table: &TextPropertyTable,
+        byte_offset: usize,
+    ) -> Option<()> {
+        self.buffers
+            .get_mut(&id)?
+            .text_props
+            .append_shifted(table, byte_offset);
+        Some(())
+    }
+
+    pub fn set_buffer_multibyte_flag(&mut self, id: BufferId, flag: bool) -> Option<()> {
+        self.buffers.get_mut(&id)?.multibyte = flag;
+        Some(())
+    }
+
+    pub fn set_buffer_modified_flag(&mut self, id: BufferId, flag: bool) -> Option<()> {
+        self.buffers.get_mut(&id)?.set_modified(flag);
+        Some(())
+    }
+
+    pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {
+        self.buffers.get_mut(&id)?.file_name = file_name;
+        Some(())
+    }
+
+    pub fn set_buffer_name(&mut self, id: BufferId, name: String) -> Option<()> {
+        self.buffers.get_mut(&id)?.name = name;
+        Some(())
+    }
+
+    pub fn set_buffer_mark(&mut self, id: BufferId, pos: usize) -> Option<()> {
+        self.buffers.get_mut(&id)?.set_mark(pos);
+        Some(())
+    }
+
+    pub fn clear_buffer_mark(&mut self, id: BufferId) -> Option<()> {
+        self.buffers.get_mut(&id)?.mark = None;
+        Some(())
+    }
+
+    pub fn set_buffer_local_property(
+        &mut self,
+        id: BufferId,
+        name: &str,
+        value: Value,
+    ) -> Option<()> {
+        self.buffers.get_mut(&id)?.set_buffer_local(name, value);
+        Some(())
+    }
+
+    pub fn remove_buffer_local_property(
+        &mut self,
+        id: BufferId,
+        name: &str,
+    ) -> Option<Option<Value>> {
+        Some(self.buffers.get_mut(&id)?.properties.remove(name))
+    }
+
+    pub fn add_undo_boundary(&mut self, id: BufferId) -> Option<()> {
+        self.buffers.get_mut(&id)?.undo_list.boundary();
+        Some(())
+    }
+
+    pub fn restore_buffer_restriction(
+        &mut self,
+        id: BufferId,
+        begv: usize,
+        zv: usize,
+    ) -> Option<()> {
+        let buf = self.buffers.get_mut(&id)?;
+        buf.begv = begv;
+        buf.zv = zv;
+        buf.pt = buf.pt.clamp(buf.begv, buf.zv);
+        Some(())
+    }
+
+    pub fn configure_buffer_undo_list(&mut self, id: BufferId, value: Value) -> Option<()> {
+        let buf = self.buffers.get_mut(&id)?;
+        match value {
+            Value::True => {
+                buf.undo_list.set_enabled(false);
+                buf.set_buffer_local("buffer-undo-list", Value::True);
+            }
+            Value::Nil => {
+                buf.undo_list.set_enabled(true);
+                buf.undo_list.clear();
+                buf.set_buffer_local("buffer-undo-list", Value::Nil);
+            }
+            other => {
+                buf.undo_list.set_enabled(true);
+                buf.set_buffer_local("buffer-undo-list", other);
+            }
+        }
+        Some(())
+    }
+
+    pub fn undo_buffer(&mut self, id: BufferId, mut count: i64) -> Option<UndoExecutionResult> {
+        let buffer = self.buffers.get_mut(&id)?;
+
+        let had_any_records = !buffer.undo_list.is_empty();
+        let had_boundary = buffer.undo_list.contains_boundary();
+        let had_trailing_boundary = buffer.undo_list.has_trailing_boundary();
+
+        if count <= 0 && had_boundary {
+            return Some(UndoExecutionResult {
+                had_any_records,
+                had_boundary,
+                applied_any: false,
+                skipped_apply: true,
+            });
+        }
+        if count <= 0 {
+            count = 1;
+        }
+
+        let previous_undoing = buffer.undo_list.undoing;
+        buffer.undo_list.undoing = true;
+        let mut applied_any = false;
+        let groups_to_undo = if had_trailing_boundary {
+            count as usize
+        } else {
+            (count as usize).saturating_add(1)
+        };
+
+        for _ in 0..groups_to_undo {
+            let group = buffer.undo_list.pop_undo_group();
+            if group.is_empty() {
+                break;
+            }
+            applied_any = true;
+
+            for record in group {
+                match record {
+                    UndoRecord::Insert { pos, len } => {
+                        let end = pos.saturating_add(len).min(buffer.text.len());
+                        buffer.delete_region(pos.min(end), end);
+                    }
+                    UndoRecord::Delete { pos, text } => {
+                        let clamped = pos.min(buffer.text.len());
+                        buffer.goto_char(clamped);
+                        buffer.insert(&text);
+                    }
+                    UndoRecord::CursorMove { pos } => {
+                        buffer.goto_char(pos.min(buffer.text.len()));
+                    }
+                    UndoRecord::PropertyChange { .. }
+                    | UndoRecord::FirstChange { .. }
+                    | UndoRecord::Boundary => {}
+                }
+            }
+        }
+
+        buffer.undo_list.undoing = previous_undoing;
+        Some(UndoExecutionResult {
+            had_any_records,
+            had_boundary,
+            applied_any,
+            skipped_apply: false,
+        })
+    }
+
     /// Generate a unique buffer name.  If `base` is not taken, returns it
     /// unchanged; otherwise appends `<2>`, `<3>`, ... until a free name is
     /// found.
@@ -512,15 +813,27 @@ impl BufferManager {
     ) -> u64 {
         let marker_id = self.next_marker_id;
         self.next_marker_id += 1;
-        if let Some(buf) = self.buffers.get_mut(&buffer_id) {
-            let clamped = pos.min(buf.text.len());
-            buf.markers.push(MarkerEntry {
-                id: marker_id,
-                byte_pos: clamped,
-                insertion_type,
-            });
-        }
+        let _ = self.register_marker_id(buffer_id, marker_id, pos, insertion_type);
         marker_id
+    }
+
+    /// Register an existing marker id in `buffer_id` at byte position `pos`.
+    pub fn register_marker_id(
+        &mut self,
+        buffer_id: BufferId,
+        marker_id: u64,
+        pos: usize,
+        insertion_type: InsertionType,
+    ) -> Option<()> {
+        let buf = self.buffers.get_mut(&buffer_id)?;
+        let clamped = pos.min(buf.text.len());
+        buf.markers.retain(|marker| marker.id != marker_id);
+        buf.markers.push(MarkerEntry {
+            id: marker_id,
+            byte_pos: clamped,
+            insertion_type,
+        });
+        Some(())
     }
 
     /// Query the current byte position of a marker.
@@ -601,7 +914,7 @@ mod tests {
     // -----------------------------------------------------------------------
     fn buf_with_text(text: &str) -> Buffer {
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        buf.text = GapBuffer::from_str(text);
+        buf.text = BufferText::from_str(text);
         buf.zv = buf.text.len();
         buf
     }
@@ -1056,7 +1369,7 @@ mod tests {
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("m");
         // Insert some text so there is room for a marker.
-        mgr.get_mut(id).unwrap().text = GapBuffer::from_str("abcdef");
+        mgr.get_mut(id).unwrap().text = BufferText::from_str("abcdef");
         mgr.get_mut(id).unwrap().zv = 6;
 
         let mid = mgr.create_marker(id, 3, InsertionType::After);
@@ -1086,8 +1399,27 @@ mod tests {
     #[test]
     fn manager_current_buffer_mut_insert() {
         let mut mgr = BufferManager::new();
-        mgr.current_buffer_mut().unwrap().insert("hello");
+        let current = mgr.current_buffer_id().unwrap();
+        mgr.insert_into_buffer(current, "hello");
         assert_eq!(mgr.current_buffer().unwrap().buffer_string(), "hello");
+    }
+
+    #[test]
+    fn manager_replace_buffer_contents_resets_narrowing_and_point() {
+        let mut mgr = BufferManager::new();
+        let current = mgr.current_buffer_id().unwrap();
+        let buf = mgr.get_mut(current).unwrap();
+        buf.insert("abcdefgh");
+        buf.narrow_to_region(2, 6);
+        buf.goto_char(4);
+
+        mgr.replace_buffer_contents(current, "xy");
+
+        let buf = mgr.get(current).unwrap();
+        assert_eq!(buf.buffer_string(), "xy");
+        assert_eq!(buf.point(), 0);
+        assert_eq!(buf.point_min(), 0);
+        assert_eq!(buf.point_max(), 2);
     }
 
     // -----------------------------------------------------------------------

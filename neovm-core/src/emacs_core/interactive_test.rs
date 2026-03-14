@@ -2519,6 +2519,26 @@ fn interactive_lambda_invalid_control_letter_signals_error() {
 }
 
 #[test]
+fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
+    let mut ev = Evaluator::new();
+    {
+        let buf = ev.buffers.current_buffer_mut().expect("current buffer");
+        buf.insert("abcd");
+        buf.goto_char(2);
+    }
+    ev.obarray
+        .set_symbol_value("this-command-keys-shift-translated", Value::True);
+    ev.obarray
+        .set_symbol_value("shift-select-mode", Value::True);
+
+    interactive_apply_shift_selection_prefix(&mut ev);
+
+    let buf = ev.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.mark(), Some(2));
+    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::True));
+}
+
+#[test]
 fn interactive_lambda_prefix_flags_star_hat_and_at_follow_batch_semantics() {
     let mut ev = Evaluator::new();
     let results = eval_all_with(

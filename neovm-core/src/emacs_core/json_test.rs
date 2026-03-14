@@ -156,6 +156,48 @@ fn serialize_wrong_no_args() {
     assert!(result.is_err());
 }
 
+#[test]
+fn json_parse_buffer_advances_point_after_value() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert(" 42 trailing");
+        buf.goto_char(0);
+    }
+
+    let value = builtin_json_parse_buffer(&mut eval, vec![]).expect("parse buffer");
+    assert_eq!(value, Value::Int(42));
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .point(),
+        3
+    );
+}
+
+#[test]
+fn json_insert_writes_at_point_and_advances() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert("ab");
+        buf.goto_char(1);
+    }
+
+    builtin_json_insert(
+        &mut eval,
+        vec![Value::vector(vec![Value::Int(1), Value::True])],
+    )
+    .expect("json insert");
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "a[1,true]b");
+    assert_eq!(buf.point(), 9);
+}
+
 // -----------------------------------------------------------------------
 // Parser tests
 // -----------------------------------------------------------------------
