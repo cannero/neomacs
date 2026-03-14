@@ -2307,7 +2307,28 @@ pub(crate) fn builtin_suspend_emacs(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_vertical_motion(args: Vec<Value>) -> EvalResult {
     expect_range_args("vertical-motion", &args, 1, 3)?;
-    let lines = expect_fixnum(&args[0])?;
+    // First arg can be LINES (integer) or (COLS . LINES) cons pair.
+    let lines = match args[0] {
+        Value::Int(n) => n,
+        Value::Cons(cell) => {
+            let pair = super::value::read_cons(cell);
+            match pair.cdr {
+                Value::Int(n) => n,
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("fixnump"), pair.cdr],
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("fixnump"), args[0]],
+            ));
+        }
+    };
     if args.len() == 1 {
         return Ok(Value::Int(lines));
     }
@@ -2318,7 +2339,7 @@ pub(crate) fn builtin_vertical_motion(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("window-live-p"), *window],
         ));
     }
-    Ok(Value::Int(0))
+    Ok(Value::Int(lines))
 }
 
 pub(crate) fn builtin_rename_buffer(
