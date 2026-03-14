@@ -3,7 +3,10 @@
 //! Implements `capitalize`, `upcase-initials`, and `char-resolve-modifiers`.
 
 use super::error::{EvalResult, Flow, signal};
+use super::intern::intern;
+use super::syntax::forward_word;
 use super::value::*;
+use crate::buffer::Buffer;
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -17,6 +20,28 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
         ))
     } else {
         Ok(())
+    }
+}
+
+fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Result<(), Flow> {
+    if args.len() < min || args.len() > max {
+        Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn expect_int(value: &Value) -> Result<i64, Flow> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integerp"), *other],
+        )),
     }
 }
 
@@ -197,6 +222,155 @@ fn titlecase_word_initial(c: char) -> String {
     }
 }
 
+fn downcase_case_string_emacs_compat(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        let code = ch as i64;
+        if ch == '\u{212A}' || preserve_downcase_case_string_payload(code) {
+            out.push(ch);
+            continue;
+        }
+        for low in ch.to_lowercase() {
+            out.push(low);
+        }
+    }
+    out
+}
+
+fn upcase_case_string_emacs_compat(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        let code = ch as i64;
+        if ch == '\u{0131}' || preserve_upcase_case_string_payload(code) {
+            out.push(ch);
+            continue;
+        }
+        for up in ch.to_uppercase() {
+            out.push(up);
+        }
+    }
+    out
+}
+
+fn preserve_downcase_case_string_payload(code: i64) -> bool {
+    matches!(
+        code,
+        7305
+            | 42955
+            | 42956
+            | 42958
+            | 42962
+            | 42964
+            | 42970
+            | 42972
+            | 68944..=68965
+            | 93856..=93880
+    )
+}
+
+fn preserve_upcase_case_string_payload(code: i64) -> bool {
+    matches!(
+        code,
+        411
+            | 612
+            | 7306
+            | 42957
+            | 42959
+            | 42963
+            | 42965
+            | 42971
+            | 68976..=68997
+            | 93883..=93907
+    )
+}
+
+fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+    let name_id = intern(name);
+    for frame in eval.dynamic.iter().rev() {
+        if let Some(value) = frame.get(&name_id) {
+            return Some(*value);
+        }
+    }
+    if let Some(buf) = eval.buffers.current_buffer() {
+        if let Some(value) = buf.get_buffer_local(name) {
+            return Some(*value);
+        }
+    }
+    eval.obarray.symbol_value(name).cloned()
+}
+
+fn region_case_read_only(eval: &super::eval::Evaluator, buf: &Buffer) -> bool {
+    if buf.read_only {
+        return true;
+    }
+    dynamic_or_global_symbol_value(eval, "buffer-read-only")
+        .map(|value| !value.is_nil())
+        .unwrap_or(false)
+}
+
+fn resolve_region(buf: &Buffer, beg: i64, end: i64) -> (usize, usize) {
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+
+    let mut a = beg.clamp(point_min, point_max);
+    let mut b = end.clamp(point_min, point_max);
+    if a > b {
+        std::mem::swap(&mut a, &mut b);
+    }
+
+    let a_byte = buf.text.char_to_byte((a - 1).max(0) as usize);
+    let b_byte = buf.text.char_to_byte((b - 1).max(0) as usize);
+    (a_byte, b_byte)
+}
+
+fn resolve_case_region(
+    eval: &super::eval::Evaluator,
+    beg: i64,
+    end: i64,
+    arg: Option<&Value>,
+) -> Result<(usize, usize), Flow> {
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+
+    if arg.is_some_and(|value| !value.is_nil()) {
+        let mark = buf.mark().ok_or_else(|| {
+            signal(
+                "error",
+                vec![Value::string(
+                    "The mark is not set now, so there is no region",
+                )],
+            )
+        })?;
+        let pt = buf.point();
+        return Ok((pt.min(mark), pt.max(mark)));
+    }
+
+    Ok(resolve_region(buf, beg, end))
+}
+
+fn replace_current_buffer_region(
+    eval: &mut super::eval::Evaluator,
+    beg: usize,
+    end: usize,
+    replacement: &str,
+    restore_point: bool,
+) -> EvalResult {
+    let buf = eval
+        .buffers
+        .current_buffer_mut()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let saved_pt = buf.point();
+    buf.delete_region(beg, end);
+    buf.goto_char(beg);
+    buf.insert(replacement);
+    if restore_point {
+        buf.goto_char(saved_pt.min(buf.point_max()));
+    }
+    Ok(Value::Nil)
+}
+
 // ---------------------------------------------------------------------------
 // Pure builtins
 // ---------------------------------------------------------------------------
@@ -341,6 +515,224 @@ pub(crate) fn apply_replace_match_case(replacement: &str, matched: &str) -> Stri
         CaseAction::AllCaps => replacement.to_uppercase(),
         CaseAction::CapInitial => upcase_initials_string(replacement),
     }
+}
+
+pub(crate) fn builtin_downcase_region(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_max_args("downcase-region", &args, 2, 3)?;
+    let beg_val = expect_int(&args[0])?;
+    let end_val = expect_int(&args[1])?;
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if region_case_read_only(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    let (beg, end) = resolve_case_region(eval, beg_val, end_val, args.get(2))?;
+    let text = buf.buffer_substring(beg, end);
+    let lower = downcase_case_string_emacs_compat(&text);
+    if text == lower {
+        return Ok(Value::Nil);
+    }
+
+    replace_current_buffer_region(eval, beg, end, &lower, true)
+}
+
+pub(crate) fn builtin_upcase_region(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_max_args("upcase-region", &args, 2, 3)?;
+    let beg_val = expect_int(&args[0])?;
+    let end_val = expect_int(&args[1])?;
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if region_case_read_only(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    let (beg, end) = resolve_case_region(eval, beg_val, end_val, args.get(2))?;
+    let text = buf.buffer_substring(beg, end);
+    let upper = upcase_case_string_emacs_compat(&text);
+    if text == upper {
+        return Ok(Value::Nil);
+    }
+
+    replace_current_buffer_region(eval, beg, end, &upper, true)
+}
+
+pub(crate) fn builtin_capitalize_region(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_max_args("capitalize-region", &args, 2, 3)?;
+    let beg_val = expect_int(&args[0])?;
+    let end_val = expect_int(&args[1])?;
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if region_case_read_only(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    let (beg, end) = resolve_case_region(eval, beg_val, end_val, args.get(2))?;
+    let text = buf.buffer_substring(beg, end);
+    let result = capitalize_string(&text);
+    if text == result {
+        return Ok(Value::Nil);
+    }
+
+    replace_current_buffer_region(eval, beg, end, &result, true)
+}
+
+pub(crate) fn builtin_upcase_initials_region(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("upcase-initials-region", &args, 2)?;
+    let beg_val = expect_int(&args[0])?;
+    let end_val = expect_int(&args[1])?;
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if region_case_read_only(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    let (beg, end) = resolve_region(buf, beg_val, end_val);
+    let text = buf.buffer_substring(beg, end);
+    let result = upcase_initials_string(&text);
+    if text == result {
+        return Ok(Value::Nil);
+    }
+
+    replace_current_buffer_region(eval, beg, end, &result, true)
+}
+
+pub(crate) fn builtin_downcase_word(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("downcase-word", &args, 1)?;
+    let n = expect_int(&args[0])?;
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let table = buf.syntax_table.clone();
+    let pt = buf.point();
+    let target = forward_word(buf, &table, n);
+    let (beg, end) = if target >= pt {
+        (pt, target)
+    } else {
+        (target, pt)
+    };
+    let text = buf.buffer_substring(beg, end);
+    let lower = downcase_case_string_emacs_compat(&text);
+    if text == lower {
+        return Ok(Value::Nil);
+    }
+    if region_case_read_only(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    replace_current_buffer_region(eval, beg, end, &lower, false)
+}
+
+pub(crate) fn builtin_upcase_word(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("upcase-word", &args, 1)?;
+    let n = expect_int(&args[0])?;
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let table = buf.syntax_table.clone();
+    let pt = buf.point();
+    let target = forward_word(buf, &table, n);
+    let (beg, end) = if target >= pt {
+        (pt, target)
+    } else {
+        (target, pt)
+    };
+    let text = buf.buffer_substring(beg, end);
+    let upper = upcase_case_string_emacs_compat(&text);
+    if text == upper {
+        return Ok(Value::Nil);
+    }
+    if region_case_read_only(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    replace_current_buffer_region(eval, beg, end, &upper, false)
+}
+
+pub(crate) fn builtin_capitalize_word(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("capitalize-word", &args, 1)?;
+    let n = expect_int(&args[0])?;
+
+    let buf = eval
+        .buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let table = buf.syntax_table.clone();
+    let pt = buf.point();
+    let target = forward_word(buf, &table, n);
+    let (beg, end) = if target >= pt {
+        (pt, target)
+    } else {
+        (target, pt)
+    };
+    let text = buf.buffer_substring(beg, end);
+    let result = capitalize_string(&text);
+    if text == result {
+        return Ok(Value::Nil);
+    }
+    if region_case_read_only(eval, buf) {
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::string(buf.name.clone())],
+        ));
+    }
+
+    replace_current_buffer_region(eval, beg, end, &result, false)
 }
 
 /// `(char-resolve-modifiers CHAR)` -- resolve modifier bits in character.

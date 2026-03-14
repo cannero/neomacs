@@ -1588,14 +1588,14 @@ pub(crate) fn dispatch_builtin(
         "autoload-do-load" => return Some(super::autoload::builtin_autoload_do_load(eval, args)),
 
         // Kill ring / text editing (evaluator-dependent — buffer access)
-        "downcase-region" => return Some(super::kill_ring::builtin_downcase_region(eval, args)),
-        "upcase-region" => return Some(super::kill_ring::builtin_upcase_region(eval, args)),
+        "downcase-region" => return Some(super::casefiddle::builtin_downcase_region(eval, args)),
+        "upcase-region" => return Some(super::casefiddle::builtin_upcase_region(eval, args)),
         "capitalize-region" => {
-            return Some(super::kill_ring::builtin_capitalize_region(eval, args));
+            return Some(super::casefiddle::builtin_capitalize_region(eval, args));
         }
-        "downcase-word" => return Some(super::kill_ring::builtin_downcase_word(eval, args)),
-        "upcase-word" => return Some(super::kill_ring::builtin_upcase_word(eval, args)),
-        "capitalize-word" => return Some(super::kill_ring::builtin_capitalize_word(eval, args)),
+        "downcase-word" => return Some(super::casefiddle::builtin_downcase_word(eval, args)),
+        "upcase-word" => return Some(super::casefiddle::builtin_upcase_word(eval, args)),
+        "capitalize-word" => return Some(super::casefiddle::builtin_capitalize_word(eval, args)),
         "indent-to" => return Some(super::kill_ring::builtin_indent_to(eval, args)),
 
         // Rectangle operations (evaluator-dependent — buffer access)
@@ -2426,7 +2426,9 @@ pub(crate) fn dispatch_builtin(
         // Case/char (evaluator-dependent)
         "char-equal" => return Some(builtin_char_equal(eval, args)),
         "upcase-initials-region" => {
-            return Some(super::kill_ring::builtin_upcase_initials_region(eval, args));
+            return Some(super::casefiddle::builtin_upcase_initials_region(
+                eval, args,
+            ));
         }
 
         // Search (evaluator-dependent)
