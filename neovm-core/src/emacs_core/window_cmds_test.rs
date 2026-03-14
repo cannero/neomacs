@@ -1052,7 +1052,7 @@ fn other_window_cycles() {
 
 #[test]
 fn other_window_updates_current_buffer_to_selected_window_buffer() {
-    let result = eval_one_with_frame(
+    let result = bootstrap_eval_one_with_frame(
         "(save-current-buffer
            (let* ((b1 (get-buffer-create \"ow-curbuf-a\"))
                   (b2 (get-buffer-create \"ow-curbuf-b\")))
@@ -1067,18 +1067,11 @@ fn other_window_updates_current_buffer_to_selected_window_buffer() {
 
 #[test]
 fn other_window_requires_count_and_enforces_number_or_marker_p() {
-    let mut ev = Evaluator::new();
-    let forms = parse_forms(
+    let out = bootstrap_eval_with_frame(
         "(condition-case err (other-window) (error (car err)))
          (condition-case err (other-window nil) (error err))
          (condition-case err (other-window \"x\") (error err))",
-    )
-    .expect("parse");
-    let out = ev
-        .eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect::<Vec<_>>();
+    );
     assert_eq!(out[0], "OK wrong-number-of-arguments");
     assert_eq!(out[1], "OK (wrong-type-argument number-or-marker-p nil)");
     assert_eq!(out[2], "OK (wrong-type-argument number-or-marker-p \"x\")");
@@ -1086,7 +1079,7 @@ fn other_window_requires_count_and_enforces_number_or_marker_p() {
 
 #[test]
 fn other_window_accepts_float_counts_with_floor_semantics() {
-    let results = eval_with_frame(
+    let results = bootstrap_eval_with_frame(
         "(let* ((w1 (progn (delete-other-windows) (selected-window)))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
            (list
@@ -1100,8 +1093,7 @@ fn other_window_accepts_float_counts_with_floor_semantics() {
 
 #[test]
 fn other_window_enforces_max_arity() {
-    let mut ev = Evaluator::new();
-    let forms = parse_forms(
+    let out = bootstrap_eval_with_frame(
         "(condition-case err (other-window 1 nil nil nil) (error (car err)))
          (condition-case err
              (let ((w1 (selected-window)))
@@ -1109,13 +1101,7 @@ fn other_window_enforces_max_arity() {
                (other-window 1 nil nil)
                (not (eq (selected-window) w1)))
            (error err))",
-    )
-    .expect("parse");
-    let out = ev
-        .eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect::<Vec<_>>();
+    );
     assert_eq!(out[0], "OK wrong-number-of-arguments");
     assert_eq!(out[1], "OK t");
 }
