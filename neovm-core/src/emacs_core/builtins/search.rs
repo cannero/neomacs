@@ -118,9 +118,7 @@ fn search_count_arg(args: &[Value]) -> Result<i64, Flow> {
 
 fn search_bound_to_byte(buf: &crate::buffer::Buffer, value: &Value) -> Result<usize, Flow> {
     let pos = expect_integer_or_marker(value)?;
-    let char_pos = if pos > 0 { pos as usize - 1 } else { 0 };
-    let byte = buf.text.char_to_byte(char_pos.min(buf.text.char_count()));
-    Ok(byte.clamp(buf.begv, buf.zv))
+    Ok(buf.lisp_pos_to_accessible_byte(pos))
 }
 
 fn parse_search_options(

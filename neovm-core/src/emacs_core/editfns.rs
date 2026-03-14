@@ -65,13 +65,7 @@ fn expect_integer(_name: &str, val: &Value) -> Result<i64, Flow> {
 /// Convert a Lisp 1-based character position to a 0-based byte position,
 /// clamping to the accessible region `[begv, zv]`.
 pub(crate) fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
-    let char_count = buf.text.char_count();
-    // Clamp the 1-based char pos into [1, char_count+1] (point-max is size+1 in
-    // Emacs convention, but that maps to byte pos == text.len()).
-    let clamped = (lisp_pos.max(1) as usize).min(char_count + 1);
-    let char0 = clamped - 1; // 0-based char index
-    let byte = buf.text.char_to_byte(char0);
-    byte.clamp(buf.begv, buf.zv)
+    buf.lisp_pos_to_accessible_byte(lisp_pos)
 }
 
 fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::Buffer) -> bool {

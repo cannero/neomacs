@@ -187,6 +187,40 @@ impl Buffer {
         self.zv_char
     }
 
+    /// Total number of characters in the buffer text.
+    pub fn total_chars(&self) -> usize {
+        self.text.char_count()
+    }
+
+    /// Convert a 0-based character position to a byte position, clamping to
+    /// the buffer text length.
+    pub fn char_to_byte_clamped(&self, char_pos: usize) -> usize {
+        self.text.char_to_byte(char_pos.min(self.total_chars()))
+    }
+
+    /// Convert a 1-based Lisp character position to a byte position, clamping
+    /// to the full buffer.
+    pub fn lisp_pos_to_byte(&self, lisp_pos: i64) -> usize {
+        let char_pos = if lisp_pos > 0 {
+            lisp_pos as usize - 1
+        } else {
+            0
+        };
+        self.char_to_byte_clamped(char_pos)
+    }
+
+    /// Convert a 1-based Lisp character position to a byte position, clamping
+    /// to the accessible region.
+    pub fn lisp_pos_to_accessible_byte(&self, lisp_pos: i64) -> usize {
+        let char_pos = if lisp_pos > 0 {
+            lisp_pos as usize - 1
+        } else {
+            0
+        };
+        let clamped_char = char_pos.clamp(self.point_min_char(), self.point_max_char());
+        self.text.char_to_byte(clamped_char)
+    }
+
     /// Legacy narrowing accessor retained while buffer internals are byte-only.
     pub fn point_max(&self) -> usize {
         self.point_max_byte()
@@ -1498,6 +1532,20 @@ mod tests {
         assert_eq!(buf.point_char(), 1);
         assert_eq!(buf.point_max_char(), 3);
         assert_eq!(buf.buffer_string(), "éz");
+    }
+
+    #[test]
+    fn char_position_conversions_clamp_to_buffer_and_accessible_bounds() {
+        let mut buf = buf_with_text("ééz");
+        assert_eq!(buf.total_chars(), 3);
+        assert_eq!(buf.char_to_byte_clamped(99), "ééz".len());
+        assert_eq!(buf.lisp_pos_to_byte(99), "ééz".len());
+
+        buf.narrow_to_byte_region('é'.len_utf8(), "ééz".len());
+        assert_eq!(buf.point_min_char(), 1);
+        assert_eq!(buf.point_max_char(), 3);
+        assert_eq!(buf.lisp_pos_to_accessible_byte(1), 'é'.len_utf8());
+        assert_eq!(buf.lisp_pos_to_accessible_byte(99), "ééz".len());
     }
 
     // -----------------------------------------------------------------------

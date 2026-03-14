@@ -306,11 +306,7 @@ fn marker_insertion_type_value(v: &Value) -> Value {
 }
 
 fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
-    let char_count = buf.text.char_count();
-    let clamped = (lisp_pos.max(1) as usize).min(char_count + 1);
-    let char0 = clamped - 1;
-    let byte = buf.text.char_to_byte(char0);
-    byte.clamp(buf.begv, buf.zv)
+    buf.lisp_pos_to_accessible_byte(lisp_pos)
 }
 
 fn marker_targets_current_mark(_eval: &super::eval::Evaluator, marker: &Value) -> bool {

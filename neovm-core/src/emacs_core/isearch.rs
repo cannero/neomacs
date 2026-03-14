@@ -62,9 +62,7 @@ fn expect_sequence_string(val: &Value) -> Result<String, Flow> {
 }
 
 fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, raw: i64) -> usize {
-    let char_pos = if raw > 0 { raw as usize - 1 } else { 0 };
-    let byte = buf.text.char_to_byte(char_pos.min(buf.text.char_count()));
-    byte.clamp(buf.begv, buf.zv)
+    buf.lisp_pos_to_accessible_byte(raw)
 }
 
 fn replacement_region_bounds(

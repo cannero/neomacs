@@ -30,8 +30,7 @@ pub(crate) fn builtin_get_pos_property(
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
-    let char_pos = if pos > 0 { (pos - 1) as usize } else { 0 };
-    let byte_pos = buf.text.char_to_byte(char_pos.min(buf.text.char_count()));
+    let byte_pos = buf.lisp_pos_to_byte(pos);
     for ov_id in buf.overlays.overlays_at(byte_pos) {
         if let Some(value) = buf.overlays.overlay_get(ov_id, prop) {
             return Ok(*value);
@@ -154,14 +153,12 @@ pub(crate) fn builtin_previous_property_change(
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
-    let char_pos = if pos > 0 { (pos - 1) as usize } else { 0 };
-    let byte_pos = buf.text.char_to_byte(char_pos.min(buf.text.char_count()));
+    let byte_pos = buf.lisp_pos_to_byte(pos);
 
     let (byte_limit, limit_val) = match args.get(2) {
         Some(v) if !v.is_nil() => {
             let limit = expect_integer_or_marker(v)?;
-            let limit_char = if limit > 0 { (limit - 1) as usize } else { 0 };
-            let limit_byte = buf.text.char_to_byte(limit_char.min(buf.text.char_count()));
+            let limit_byte = buf.lisp_pos_to_byte(limit);
             (Some(limit_byte), Some(limit))
         }
         _ => (None, None),
