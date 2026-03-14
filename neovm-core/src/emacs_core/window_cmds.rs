@@ -1347,7 +1347,7 @@ pub(crate) fn builtin_window_height(
     expect_max_args("window-height", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_window(&eval.frames, fid, wid)?;
     let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
     Ok(Value::Int(window_height_lines(w, ch)))
 }
@@ -1360,7 +1360,7 @@ pub(crate) fn builtin_window_width(
     expect_max_args("window-width", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_window(&eval.frames, fid, wid)?;
     let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
     Ok(Value::Int(window_width_cols(w, cw)))
 }
@@ -1497,7 +1497,7 @@ pub(crate) fn builtin_window_left_column(
     expect_max_args("window-left-column", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_window(&eval.frames, fid, wid)?;
     let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
     let left = if cw > 0.0 {
         (w.bounds().x / cw) as i64
@@ -1515,7 +1515,7 @@ pub(crate) fn builtin_window_top_line(
     expect_max_args("window-top-line", &args, 1)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_window(&eval.frames, fid, wid)?;
     let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
     let top = if ch > 0.0 {
         (w.bounds().y / ch) as i64
@@ -2041,6 +2041,7 @@ pub(crate) fn builtin_window_edges(
 
 /// `(window-total-height &optional WINDOW ROUND)` -> integer.
 ///
+/// Works for both leaf and internal windows, matching GNU Emacs.
 pub(crate) fn builtin_window_total_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -2048,13 +2049,14 @@ pub(crate) fn builtin_window_total_height(
     expect_max_args("window-total-height", &args, 2)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_window(&eval.frames, fid, wid)?;
     let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
     Ok(Value::Int(window_height_lines(w, ch)))
 }
 
 /// `(window-total-width &optional WINDOW ROUND)` -> integer.
 ///
+/// Works for both leaf and internal windows, matching GNU Emacs.
 pub(crate) fn builtin_window_total_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -2062,7 +2064,7 @@ pub(crate) fn builtin_window_total_width(
     expect_max_args("window-total-width", &args, 2)?;
     let _ = ensure_selected_frame_id(eval);
     let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_window(&eval.frames, fid, wid)?;
     let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
     Ok(Value::Int(window_width_cols(w, cw)))
 }
