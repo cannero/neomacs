@@ -3768,6 +3768,8 @@ pub(crate) fn builtin_make_process(
     let mut name: Option<String> = None;
     let mut buffer_name: Option<Option<String>> = None;
     let mut command: Option<Vec<String>> = None;
+    let mut filter = Value::Nil;
+    let mut sentinel = Value::Nil;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -3790,7 +3792,9 @@ pub(crate) fn builtin_make_process(
             },
             Some(":buffer") => buffer_name = Some(parse_make_process_buffer(eval, &value)?),
             Some(":command") => command = Some(parse_make_process_command(&value)?),
-            _ => {}
+            Some(":filter") => filter = value,
+            Some(":sentinel") => sentinel = value,
+            _ => {} // :connection-type, :coding, :noquery, :stop, :stderr — ignored for now
         }
         i += 2;
     }
@@ -3811,6 +3815,27 @@ pub(crate) fn builtin_make_process(
     let id = eval
         .processes
         .create_process(name, buffer_name.unwrap_or(None), program, argv);
+
+    // Set filter and sentinel if provided.
+    if !filter.is_nil() {
+        if let Some(proc) = eval.processes.get_mut(id) {
+            proc.filter = filter;
+        }
+    }
+    if !sentinel.is_nil() {
+        if let Some(proc) = eval.processes.get_mut(id) {
+            proc.sentinel = sentinel;
+        }
+    }
+
+    // Spawn the actual OS child process.
+    if let Err(e) = eval.processes.spawn_child(id) {
+        return Err(signal(
+            "file-error",
+            vec![Value::string("Searching for program"), Value::string(e)],
+        ));
+    }
+
     Ok(Value::Int(id as i64))
 }
 
