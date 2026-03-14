@@ -3787,7 +3787,7 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     );
     obarray.set_symbol_value("temp-buffer-max-width", Value::Nil);
     obarray.set_symbol_value("even-window-sizes", Value::symbol("width-only"));
-    obarray.set_symbol_value("auto-window-vscroll", Value::symbol("t"));
+    obarray.set_symbol_value("auto-window-vscroll", Value::True);
 }
 
 // ===========================================================================
