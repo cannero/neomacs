@@ -482,7 +482,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "rename-buffer"
             | "rename-file"
             | "replace-buffer-contents"
-            | "replace-regexp"
             | "replace-rectangle"
             | "redraw-display"
             | "run-at-time"

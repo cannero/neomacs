@@ -1515,6 +1515,11 @@ impl Evaluator {
             "Replace occurrences of FROM-STRING with TO-STRING.",
         );
         seed_autoload(
+            "replace-regexp",
+            "replace",
+            "Replace things after point matching REGEXP with TO-STRING.",
+        );
+        seed_autoload(
             "list-processes",
             "simple",
             "Display a list of subprocesses.",

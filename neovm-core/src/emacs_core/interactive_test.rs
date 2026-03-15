@@ -739,6 +739,7 @@ fn replace_command_autoloads_startup_are_autoloaded() {
         "how-many",
         "query-replace",
         "query-replace-regexp",
+        "replace-regexp",
         "replace-string",
     ] {
         let function = ev
@@ -873,6 +874,7 @@ fn commandp_true_for_additional_builtin_commands() {
         "make-indirect-buffer",
         "open-dribble-file",
         "query-replace",
+        "replace-regexp",
         "replace-string",
         "raise-frame",
         "re-search-forward",
