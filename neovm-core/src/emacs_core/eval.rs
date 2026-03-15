@@ -1304,7 +1304,7 @@ impl Evaluator {
             )),
         );
         // Bookmark command wrappers are startup autoloads in GNU Emacs.
-        let mut seed_autoload = |name: &str, file: &str, doc: &str| {
+        let seed_autoload = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(
                 name,
                 Value::list(vec![
@@ -1428,12 +1428,6 @@ impl Evaluator {
         // not as a startup builtin.
         obarray.clear_function_silent("word-at-point");
 
-        // Stub macros needed during bootstrap — these are normally defined in
-        // gv.el which cannot load yet (NeoVM's pcase special form can't handle
-        // gv.el's pcase patterns).  The stubs make (gv-define-expander NAME ...)
-        // and (gv-define-setter NAME ...) expand to nil so cl-lib.el can load
-        // before gv.el is available.  Once gv.el loads, its real macro
-        // definitions replace these bootstrap stubs.
         let noop_macro = Value::make_macro(LambdaData {
             params: LambdaParams {
                 required: Vec::new(),
@@ -1445,13 +1439,6 @@ impl Evaluator {
             docstring: None,
             doc_form: None,
         });
-        for stub_name in &[
-            "gv-define-expander",
-            "gv-define-setter",
-            "gv-define-simple-setter",
-        ] {
-            obarray.set_symbol_function(stub_name, noop_macro);
-        }
 
         // cl-defgeneric and cl-defmethod stubs — these macros are normally
         // defined by cl-generic.el, which fails during bootstrap (needs cl

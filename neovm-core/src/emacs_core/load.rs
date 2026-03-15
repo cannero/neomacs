@@ -2797,13 +2797,13 @@ pub(crate) const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
     "files",
     "emacs-lisp/macroexp",
     "emacs-lisp/pcase",
+    "!require-gv",
     "!enable-eager-expansion",
     "emacs-lisp/macroexp",
     "emacs-lisp/inline",
     "cus-face",
     "faces",
     "!bootstrap-cl-preloaded-stubs",
-    "!require-gv",
     "!reload-subr-after-gv",
     "!load-ldefs-boot",
     "button",
@@ -3070,7 +3070,8 @@ pub fn create_bootstrap_evaluator_with_features(
                 tracing::info!("--- cl-preloaded bootstrap stubs defined ---");
                 continue;
             }
-            // Handle sentinel for (require 'gv) — mirrors loadup.el line 199.
+            // Source bootstrap needs gv before eager expansion so early
+            // `require 'cl-lib` macroexpansion sees the real gv macros.
             if *name == "!require-gv" {
                 tracing::info!("LOADING: (require 'gv) ...");
                 let start = std::time::Instant::now();

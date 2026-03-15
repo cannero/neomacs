@@ -144,6 +144,11 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Eva
             eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
             continue;
         }
+        if *name == "!require-gv" {
+            eval.require_value(Value::symbol("gv"), None, None)
+                .expect("partial bootstrap require gv");
+            continue;
+        }
         if *name == "!load-ldefs-boot" {
             let ldefs_path = lisp_dir.join("ldefs-boot.el");
             if ldefs_path.exists() {
@@ -2115,6 +2120,26 @@ fn compiled_bootstrap_cl_preload_stubs_work_after_faces() {
         failures.is_empty(),
         "compiled bootstrap should accept cl preload stubs after faces: {failures:#?}"
     );
+}
+
+#[test]
+fn source_cl_lib_loads_after_early_gv_without_bootstrap_gv_stubs() {
+    let mut eval = partial_bootstrap_eval_until("!bootstrap-cl-preloaded-stubs", false);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (list (featurep 'gv)
+                       (macrop 'gv-define-expander)
+                       (macrop 'gv-define-setter)
+                       (macrop 'gv-define-simple-setter)
+                       (require 'cl-lib)
+                       (featurep 'cl-lib)
+                       (autoloadp (symbol-function 'cl-subseq))
+                       (macrop 'setf)))
+             (error err))"#,
+    );
+    assert_eq!(rendered, "OK (t t t t cl-lib t t t)");
 }
 
 #[test]
