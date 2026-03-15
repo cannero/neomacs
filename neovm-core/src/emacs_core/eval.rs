@@ -1332,11 +1332,6 @@ impl Evaluator {
         // Some helper autoloads are non-interactive in GNU Emacs startup
         // function-cells; override their startup metadata accordingly.
         seed_autoload_noninteractive(
-            "add-hook",
-            "subr",
-            "Add to the value of HOOK the function FUNCTION.",
-        );
-        seed_autoload_noninteractive(
             "subr-native-elisp-p",
             "cl-preloaded",
             "Return non-nil if OBJECT is native-compiled Elisp code.",
@@ -1351,11 +1346,6 @@ impl Evaluator {
             "tooltip-process-prompt-regexp",
             "tooltip",
             "Return a regexp matching PROCESS prompts.",
-        );
-        seed_autoload_noninteractive(
-            "run-mode-hooks",
-            "subr",
-            "Run mode hooks `delayed-mode-hooks' and HOOKS, or delay HOOKS.",
         );
         seed_autoload_noninteractive(
             "wholenump",
