@@ -2432,6 +2432,70 @@ impl<'a> Vm<'a> {
             "frame-list" => Some(self.builtin_frame_list_fast(args)),
             "framep" => Some(self.builtin_framep_fast(args)),
             "frame-parameter" => Some(self.builtin_frame_parameter_fast(args)),
+            "coding-system-list" => Some(crate::emacs_core::coding::builtin_coding_system_list(
+                &*self.shared.coding_systems,
+                args.to_vec(),
+            )),
+            "coding-system-aliases" => Some(
+                crate::emacs_core::coding::builtin_coding_system_aliases(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "coding-system-get" => Some(crate::emacs_core::coding::builtin_coding_system_get(
+                &*self.shared.coding_systems,
+                args.to_vec(),
+            )),
+            "coding-system-plist" => Some(crate::emacs_core::coding::builtin_coding_system_plist(
+                &*self.shared.coding_systems,
+                args.to_vec(),
+            )),
+            "coding-system-put" => Some(crate::emacs_core::coding::builtin_coding_system_put(
+                self.shared.coding_systems,
+                args.to_vec(),
+            )),
+            "coding-system-base" => Some(crate::emacs_core::coding::builtin_coding_system_base(
+                &*self.shared.coding_systems,
+                args.to_vec(),
+            )),
+            "coding-system-eol-type" => Some(
+                crate::emacs_core::coding::builtin_coding_system_eol_type(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "coding-system-type" => Some(crate::emacs_core::coding::builtin_coding_system_type(
+                &*self.shared.coding_systems,
+                args.to_vec(),
+            )),
+            "coding-system-change-eol-conversion" => Some(
+                crate::emacs_core::coding::builtin_coding_system_change_eol_conversion(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "coding-system-change-text-conversion" => Some(
+                crate::emacs_core::coding::builtin_coding_system_change_text_conversion(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "coding-system-p" => Some(crate::emacs_core::coding::builtin_coding_system_p(
+                &*self.shared.coding_systems,
+                args.to_vec(),
+            )),
+            "check-coding-system" => Some(
+                crate::emacs_core::coding::builtin_check_coding_system(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "check-coding-systems-region" => Some(
+                crate::emacs_core::coding::builtin_check_coding_systems_region(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
             "define-coding-system-internal" => Some(
                 crate::emacs_core::coding::builtin_define_coding_system_internal(
                     self.shared.coding_systems,
@@ -2441,6 +2505,72 @@ impl<'a> Vm<'a> {
             "define-coding-system-alias" => Some(
                 crate::emacs_core::coding::builtin_define_coding_system_alias(
                     self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "set-coding-system-priority" => Some(
+                crate::emacs_core::coding::builtin_set_coding_system_priority(
+                    self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "detect-coding-string" => Some(
+                crate::emacs_core::coding::builtin_detect_coding_string(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "detect-coding-region" => Some(
+                crate::emacs_core::coding::builtin_detect_coding_region(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "keyboard-coding-system" => Some(
+                crate::emacs_core::coding::builtin_keyboard_coding_system(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "terminal-coding-system" => Some(
+                crate::emacs_core::coding::builtin_terminal_coding_system(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "set-keyboard-coding-system" => Some(
+                crate::emacs_core::coding::builtin_set_keyboard_coding_system(
+                    self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "set-terminal-coding-system" => Some(
+                crate::emacs_core::coding::builtin_set_terminal_coding_system(
+                    self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "set-keyboard-coding-system-internal" => Some(
+                crate::emacs_core::coding::builtin_set_keyboard_coding_system_internal(
+                    self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "set-terminal-coding-system-internal" => Some(
+                crate::emacs_core::coding::builtin_set_terminal_coding_system_internal(
+                    self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "set-safe-terminal-coding-system-internal" => Some(
+                crate::emacs_core::coding::builtin_set_safe_terminal_coding_system_internal(
+                    self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "coding-system-priority-list" => Some(
+                crate::emacs_core::coding::builtin_coding_system_priority_list(
+                    &*self.shared.coding_systems,
                     args.to_vec(),
                 ),
             ),

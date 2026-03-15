@@ -580,7 +580,7 @@ fn vm_define_charset_alias_survives_eval_builtin_bridge() {
 }
 
 #[test]
-fn vm_define_coding_system_alias_survives_eval_builtin_bridge() {
+fn vm_define_coding_system_alias_uses_shared_runtime_manager() {
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -603,6 +603,20 @@ fn vm_define_coding_system_alias_survives_eval_builtin_bridge() {
                      (coding-system-p 'vm-emacs-internal)))"
         ),
         "OK (t t)"
+    );
+}
+
+#[test]
+fn vm_coding_system_priority_and_terminal_state_use_shared_runtime_manager() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (set-coding-system-priority 'raw-text 'utf-8)
+               (set-terminal-coding-system 'raw-text)
+               (list (car (coding-system-priority-list))
+                     (terminal-coding-system)))"
+        ),
+        "OK (raw-text raw-text)"
     );
 }
 
