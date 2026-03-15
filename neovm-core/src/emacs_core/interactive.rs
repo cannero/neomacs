@@ -389,7 +389,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "scroll-down-command"
             | "other-window"
             | "keyboard-quit"
-            | "quoted-insert"
             | "beginning-of-line"
             | "end-of-line"
             | "move-beginning-of-line"
@@ -1517,25 +1516,6 @@ pub(crate) fn builtin_save_buffer_command(_eval: &mut Evaluator, args: Vec<Value
         return Err(signal(
             "end-of-file",
             vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    Ok(Value::Nil)
-}
-
-/// `(quoted-insert &optional ARG)` -- read a character and insert it.
-///
-/// In batch mode interactive invocation hits EOF while reading input.
-pub(crate) fn builtin_quoted_insert_command(_eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    if args.is_empty() || args[0].is_nil() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    if !matches!(&args[0], Value::Int(_)) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("fixnump"), args[0]],
         ));
     }
     Ok(Value::Nil)

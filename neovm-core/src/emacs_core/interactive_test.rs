@@ -91,6 +91,33 @@ fn gnu_simple_universal_argument_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
+fn gnu_simple_quoted_insert_eval_all(src: &str) -> Vec<String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
+
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    let setup_forms = parse_forms(
+        r#"
+        (defun cadr (x) (car (cdr x)))
+        (defmacro with-no-warnings (&rest body) (cons 'progn body))
+        (setq overwrite-mode nil)
+        (fset 'read-quoted-char
+              (lambda (&rest _args)
+                (signal 'end-of-file '("Error reading from stdin"))))
+        (fset 'read-char
+              (lambda (&rest _args)
+                (signal 'end-of-file '("Error reading from stdin"))))
+        "#,
+    )
+    .expect("parse quoted-insert test stubs");
+    ev.eval_forms(&setup_forms);
+    eval_first_form_after_marker(&mut ev, &simple_source, "(defun quoted-insert (arg)");
+    eval_all_with(&mut ev, src)
+}
+
 // -------------------------------------------------------------------
 // InteractiveSpec
 // -------------------------------------------------------------------
@@ -2112,17 +2139,18 @@ fn command_execute_builtin_set_mark_command_returns_nil() {
 }
 
 #[test]
-fn command_execute_builtin_quoted_insert_reads_stdin_in_batch() {
-    let mut ev = Evaluator::new();
-    let result = builtin_command_execute(&mut ev, vec![Value::symbol("quoted-insert")])
-        .expect_err("command-execute quoted-insert should signal end-of-file in batch");
-    match result {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "end-of-file");
-            assert_eq!(sig.data, vec![Value::string("Error reading from stdin")]);
-        }
-        other => panic!("unexpected flow: {other:?}"),
-    }
+fn bootstrap_command_execute_quoted_insert_uses_simple_el() {
+    let results = gnu_simple_quoted_insert_eval_all(
+        r#"(list (commandp 'quoted-insert)
+                 (subrp (symbol-function 'quoted-insert))
+                 (condition-case err
+                     (progn (command-execute 'quoted-insert) 'no-error)
+                   (error (list (car err) (cadr err)))))"#,
+    );
+    assert_eq!(
+        results[0],
+        r#"OK (t nil (end-of-file "Error reading from stdin"))"#
+    );
 }
 
 #[test]
