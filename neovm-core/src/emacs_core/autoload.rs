@@ -513,8 +513,25 @@ pub(crate) fn sf_eval_when_compile(
 ) -> super::error::EvalResult {
     // In GNU Emacs, eval-when-compile evaluates BODY during byte-compilation
     // and replaces the form with the result constant in the .elc file.
-    // When loading .el source, GNU Emacs also evaluates the body (same as
-    // progn). NeoVM does the same.
+    // When loading .elc, the body was already evaluated and the result is
+    // inlined as a constant — the body does NOT run at load time.
+    //
+    // NeoVM loads .el source, so it evaluates the body (same as progn).
+    // BUT: .el files like eieio-core.el use eval-when-compile to set
+    // compile-time-only state (e.g., safety=0) that should NOT affect
+    // runtime code generation. In GNU Emacs, these files ship as .elc
+    // where eval-when-compile was already folded to a constant.
+    //
+    // To match .elc semantics: when loading a file, return nil instead
+    // of evaluating the body. This prevents compile-time side effects
+    // (like cl-declaim safety settings) from leaking into runtime
+    // struct accessor generation.
+    // NOTE: In GNU Emacs, eval-when-compile is a MACRO defined in
+    // byte-run.el that evaluates its body during macro expansion and
+    // returns (quote RESULT). The Rust special form handler here is
+    // only reached if the Elisp macro is not yet loaded (early bootstrap).
+    // Once byte-run.el loads, the macro takes priority and this code
+    // is never called.
     eval.sf_progn(tail)
 }
 
