@@ -875,7 +875,6 @@ fn subr_arity_value(name: &str) -> Value {
         "format-time-string" => arity_cons(1, Some(3)),
         "format-mode-line" => arity_cons(1, Some(4)),
         "indent-to" | "move-to-column" => arity_cons(1, Some(2)),
-        "indent-for-tab-command" => arity_cons(0, Some(1)),
         "backtrace--frames-from-thread" => arity_cons(1, Some(1)),
         "backtrace--locals" => arity_cons(1, Some(2)),
         "backtrace-debug" | "backtrace-eval" => arity_cons(2, Some(3)),

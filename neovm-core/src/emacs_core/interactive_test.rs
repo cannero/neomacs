@@ -422,7 +422,6 @@ fn commandp_true_for_builtin_editing_commands() {
         "delete-horizontal-space",
         "just-one-space",
         "delete-indentation",
-        "indent-for-tab-command",
         "transpose-words",
         "scroll-up",
         "scroll-down",

@@ -372,7 +372,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "delete-horizontal-space"
             | "just-one-space"
             | "delete-indentation"
-            | "indent-for-tab-command"
             | "upcase-word"
             | "downcase-word"
             | "capitalize-word"

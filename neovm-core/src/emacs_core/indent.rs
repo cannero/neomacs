@@ -3,7 +3,7 @@
 //! Implements stub versions of Emacs indentation primitives:
 //! - `current-indentation`, `indent-to`, `current-column`, `move-to-column`
 //! - `indent-line-to`, `indent-rigidly`, `newline-and-indent`,
-//!   `indent-for-tab-command`, `tab-to-tab-stop`, `delete-indentation`
+//!   `tab-to-tab-stop`, `delete-indentation`
 //!
 //! Variables: `tab-width`, `indent-tabs-mode`, `standard-indent`, `tab-stop-list`
 
@@ -491,37 +491,6 @@ pub(crate) fn builtin_indent_to_eval(
     let _ = eval.buffers.insert_into_buffer(current_id, &indent);
 
     Ok(Value::Int(mincol as i64))
-}
-
-/// (indent-for-tab-command &optional ARG) -> nil
-///
-/// Indent the current line or region, or insert a tab, as appropriate.
-/// Current behavior: insert a tab character at point.
-pub(crate) fn builtin_indent_for_tab_command(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("indent-for-tab-command", &args, 1)?;
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
-    }
-
-    // When point is in horizontal whitespace, Emacs collapses it before tab insert.
-    delete_horizontal_space_at_point(eval, false)?;
-
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.insert_into_buffer(current_id, "\t");
-    Ok(Value::Nil)
 }
 
 // ---------------------------------------------------------------------------

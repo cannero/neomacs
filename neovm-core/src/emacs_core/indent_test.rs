@@ -44,6 +44,10 @@ fn gnu_indent_el_eval() -> Evaluator {
     let project_root = manifest.parent().expect("project root");
     let indent_path = project_root.join("lisp/indent.el");
     let indent_source = fs::read_to_string(&indent_path).expect("read GNU indent.el");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
+    let subr_path = project_root.join("lisp/subr.el");
+    let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
     let syntax_path = project_root.join("lisp/emacs-lisp/syntax.el");
     let syntax_source = fs::read_to_string(&syntax_path).expect("read GNU syntax.el");
 
@@ -52,6 +56,10 @@ fn gnu_indent_el_eval() -> Evaluator {
     let progress_stub_forms = super::super::parser::parse_forms(
         r#"
         (setq fill-prefix nil)
+        (setq abbrev-mode nil)
+        (defvar tab-always-indent t)
+        (defvar tab-first-completion nil)
+        (fset 'use-region-p (lambda () nil))
         (fset 'make-progress-reporter (lambda (&rest _args) nil))
         (fset 'progress-reporter-update (lambda (&rest _args) nil))
         (fset 'progress-reporter-done (lambda (&rest _args) nil))
@@ -76,7 +84,36 @@ fn gnu_indent_el_eval() -> Evaluator {
         &indent_source,
         "(defun indent-according-to-mode (&optional inhibit-widen)",
     );
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defun indent--default-inside-comment ()",
+    );
+    eval_first_form_after_marker(
+        &mut ev,
+        &simple_source,
+        "(defun delete-horizontal-space (&optional backward-only)",
+    );
+    eval_first_form_after_marker(
+        &mut ev,
+        &simple_source,
+        "(defun delete-space--internal (chars backward-only)",
+    );
+    eval_first_form_after_marker(&mut ev, &subr_source, "(defun cadr (x)");
+    eval_first_form_after_marker(&mut ev, &subr_source, "(defun last (list &optional n)");
     eval_first_form_after_marker(&mut ev, &indent_source, "(defun indent-line-to (column)");
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defun indent--funcall-widened (func)",
+    );
+    eval_first_form_after_marker(&mut ev, &indent_source, "(defun insert-tab (&optional arg)");
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defun indent-next-tab-stop (column &optional prev)",
+    );
+    eval_first_form_after_marker(&mut ev, &indent_source, "(defun tab-to-tab-stop ()");
     eval_first_form_after_marker(
         &mut ev,
         &indent_source,
@@ -91,6 +128,12 @@ fn gnu_indent_el_eval() -> Evaluator {
         &mut ev,
         &indent_source,
         "(defun indent-region (start end &optional column)",
+    );
+    eval_first_form_after_marker(&mut ev, &indent_source, "(defun indent-relative (&optional");
+    eval_first_form_after_marker(
+        &mut ev,
+        &indent_source,
+        "(defun indent-for-tab-command (&optional arg)",
     );
     ev
 }
@@ -285,6 +328,13 @@ fn back_to_indentation_is_not_dispatch_builtin() {
 fn indent_region_is_not_dispatch_builtin() {
     assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
         "indent-region"
+    ));
+}
+
+#[test]
+fn indent_for_tab_command_is_not_dispatch_builtin() {
+    assert!(!super::super::builtin_registry::is_dispatch_builtin_name(
+        "indent-for-tab-command"
     ));
 }
 
@@ -553,7 +603,7 @@ fn init_indent_vars_sets_defaults() {
 
 #[test]
 fn indent_for_tab_command_inserts_tab() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "x")
@@ -615,7 +665,7 @@ fn eval_indent_to_rejects_non_fixnump_minimum() {
 
 #[test]
 fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "  x")
@@ -626,4 +676,21 @@ fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
     let value = ev.eval(&forms[0]).expect("eval");
     let printed = super::super::print::print_value(&value);
     assert_eq!(printed, "(nil 2 (9 120))");
+}
+
+#[test]
+fn save_restriction_restores_full_buffer_after_widen_insert() {
+    let mut ev = super::super::eval::Evaluator::new();
+    let forms = super::super::parser::parse_forms(
+        r#"(with-temp-buffer
+             (insert "x")
+             (save-restriction
+               (widen)
+               (goto-char 1)
+               (insert "\t"))
+             (append (buffer-string) nil))"#,
+    )
+    .expect("parse forms");
+    let value = ev.eval(&forms[0]).expect("eval");
+    assert_eq!(super::super::print::print_value(&value), "(9 120)");
 }
