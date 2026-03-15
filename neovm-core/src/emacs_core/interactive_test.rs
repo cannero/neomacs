@@ -732,8 +732,9 @@ fn simple_command_autoloads_startup_are_autoloaded() {
 }
 
 #[test]
-fn replace_command_autoloads_startup_are_autoloaded() {
-    let mut ev = Evaluator::new();
+fn replace_commands_are_real_lisp_functions_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in [
         "flush-lines",
         "how-many",
@@ -748,8 +749,8 @@ fn replace_command_autoloads_startup_are_autoloaded() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
-            "expected {name} startup function cell to be a GNU autoload"
+            !crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
@@ -848,13 +849,14 @@ fn mode_and_mark_commands_startup_are_autoloaded() {
 }
 
 #[test]
-fn count_matches_startup_is_interactive_autoload() {
-    let mut ev = Evaluator::new();
+fn count_matches_is_real_lisp_function_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
         .obarray
         .symbol_function("count-matches")
-        .expect("missing count-matches startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+        .expect("missing count-matches bootstrapped function cell");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
     let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("count-matches")])
         .expect("commandp call");
     assert!(command.is_truthy());
@@ -906,13 +908,10 @@ fn commandp_true_for_additional_builtin_commands() {
         "display-buffer",
         "encode-coding-region",
         "eval-buffer",
-        "flush-lines",
         "forward-sexp",
         "gui-set-selection",
         "goto-char",
-        "how-many",
         "isearch-forward",
-        "keep-lines",
         "iconify-frame",
         "kill-emacs",
         "list-processes",
@@ -922,9 +921,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "make-frame-visible",
         "make-indirect-buffer",
         "open-dribble-file",
-        "query-replace",
-        "replace-regexp",
-        "replace-string",
         "raise-frame",
         "re-search-forward",
         "redirect-debugging-output",

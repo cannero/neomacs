@@ -1490,41 +1490,6 @@ impl Evaluator {
             "Blank out the region-rectangle, shifting text right.",
         );
         seed_autoload(
-            "keep-lines",
-            "replace",
-            "Delete all lines except those containing matches for REGEXP.",
-        );
-        seed_autoload(
-            "flush-lines",
-            "replace",
-            "Delete lines containing matches for REGEXP.",
-        );
-        seed_autoload(
-            "how-many",
-            "replace",
-            "Print and return number of matches for REGEXP following point.",
-        );
-        seed_autoload(
-            "query-replace",
-            "replace",
-            "Replace some occurrences of FROM-STRING with TO-STRING.",
-        );
-        seed_autoload(
-            "query-replace-regexp",
-            "replace",
-            "Replace some things after point matching REGEXP with TO-STRING.",
-        );
-        seed_autoload(
-            "replace-string",
-            "replace",
-            "Replace occurrences of FROM-STRING with TO-STRING.",
-        );
-        seed_autoload(
-            "replace-regexp",
-            "replace",
-            "Replace things after point matching REGEXP with TO-STRING.",
-        );
-        seed_autoload(
             "list-processes",
             "simple",
             "Display a list of subprocesses.",
@@ -1565,16 +1530,6 @@ impl Evaluator {
             "Yank the last killed rectangle with upper left corner at point.",
         );
         drop(seed_autoload);
-        obarray.set_symbol_function(
-            "count-matches",
-            Value::list(vec![
-                Value::symbol("autoload"),
-                Value::string("replace"),
-                Value::string("Count matches for REGEXP following point."),
-                Value::True,
-                Value::Nil,
-            ]),
-        );
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(
                 name,
