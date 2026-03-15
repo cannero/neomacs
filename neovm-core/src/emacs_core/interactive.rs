@@ -7,7 +7,7 @@
 //!   `called-interactively-p`, `commandp`,
 //!   `key-binding`, `local-key-binding`,
 //!   `minor-mode-key-binding`, `where-is-internal`,
-//!   `substitute-command-keys`, `describe-key-briefly`, `this-command-keys`,
+//!   `describe-key-briefly`, `this-command-keys`,
 //!   `this-command-keys-vector`, `thing-at-point`, `bounds-of-thing-at-point`,
 //!   `symbol-at-point`.
 //! - Special forms: `define-minor-mode`, `define-derived-mode`,
@@ -1940,56 +1940,6 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Evaluator, args: Vec<Value>) 
     Ok(Value::list(out))
 }
 
-/// `(substitute-command-keys STRING)`
-/// Replace \\[COMMAND], \\{KEYMAP}, and \\<KEYMAP> sequences in STRING.
-pub(crate) fn builtin_substitute_command_keys(
-    eval: &mut Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("substitute-command-keys", &args, 1)?;
-    expect_max_args("substitute-command-keys", &args, 3)?;
-    let s = match args[0].as_str() {
-        Some(s) => s.to_string(),
-        None => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), args[0]],
-            ));
-        }
-    };
-
-    // Simple substitution: replace \\[command] with "M-x command"
-    let mut result = String::new();
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            if let Some(&next) = chars.peek() {
-                if next == '[' {
-                    chars.next(); // consume '['
-                    let mut cmd = String::new();
-                    for c in chars.by_ref() {
-                        if c == ']' {
-                            break;
-                        }
-                        cmd.push(c);
-                    }
-                    // Try to find a key binding for the command
-                    let key_desc = find_key_for_command(eval, &cmd);
-                    result.push_str(&key_desc);
-                    continue;
-                } else if next == '\\' {
-                    chars.next();
-                    result.push('\\');
-                    continue;
-                }
-            }
-        }
-        result.push(ch);
-    }
-
-    Ok(Value::string(result))
-}
-
 /// `(this-command-keys)` -> string of keys that invoked current command.
 pub(crate) fn builtin_this_command_keys(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("this-command-keys", &args, 0)?;
@@ -2992,65 +2942,6 @@ fn collect_where_is_sequences_value(
     }
 
     false
-}
-
-/// Find the key binding description for a command name.
-fn find_key_for_command(eval: &Evaluator, command: &str) -> String {
-    let definition = Value::symbol(command);
-
-    // Search global map for the command
-    let global_map = get_global_keymap(eval);
-    if is_list_keymap(&global_map) {
-        let mut prefix = Vec::new();
-        let mut out = Vec::new();
-        collect_where_is_sequences_value(&global_map, &definition, &mut prefix, &mut out, true, 0);
-        if let Some(seq) = out.first() {
-            if seq.len() == 1 {
-                if let Some(ke) = super::keymap::emacs_event_to_key_event(&seq[0]) {
-                    return format_key_event(&ke);
-                }
-            }
-            // Multi-key sequence
-            let key_events: Vec<KeyEvent> = seq
-                .iter()
-                .filter_map(|e| super::keymap::emacs_event_to_key_event(e))
-                .collect();
-            if !key_events.is_empty() {
-                return format_key_sequence(&key_events);
-            }
-        }
-    }
-
-    // Search local map
-    if is_list_keymap(&eval.current_local_map) {
-        let mut prefix = Vec::new();
-        let mut out = Vec::new();
-        collect_where_is_sequences_value(
-            &eval.current_local_map,
-            &definition,
-            &mut prefix,
-            &mut out,
-            true,
-            0,
-        );
-        if let Some(seq) = out.first() {
-            if seq.len() == 1 {
-                if let Some(ke) = super::keymap::emacs_event_to_key_event(&seq[0]) {
-                    return format_key_event(&ke);
-                }
-            }
-            let key_events: Vec<KeyEvent> = seq
-                .iter()
-                .filter_map(|e| super::keymap::emacs_event_to_key_event(e))
-                .collect();
-            if !key_events.is_empty() {
-                return format_key_sequence(&key_events);
-            }
-        }
-    }
-
-    // Fallback: "M-x command"
-    format!("M-x {}", command)
 }
 
 // ---------------------------------------------------------------------------

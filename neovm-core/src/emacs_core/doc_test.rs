@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::builtins::builtin_documentation_stringp;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
@@ -88,6 +88,16 @@ fn substitute_wrong_type() {
 fn substitute_wrong_arity() {
     let result = builtin_substitute_command_keys(vec![]);
     assert!(result.is_err());
+}
+
+#[test]
+fn substitute_command_keys_startup_is_autoloaded() {
+    let eval = Evaluator::new();
+    let function = eval
+        .obarray
+        .symbol_function("substitute-command-keys")
+        .expect("missing substitute-command-keys startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
 }
 
 // =======================================================================
