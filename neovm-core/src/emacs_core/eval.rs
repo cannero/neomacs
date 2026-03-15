@@ -1490,6 +1490,11 @@ impl Evaluator {
             "Blank out the region-rectangle, shifting text right.",
         );
         seed_autoload(
+            "flush-lines",
+            "replace",
+            "Delete lines containing matches for REGEXP.",
+        );
+        seed_autoload(
             "how-many",
             "replace",
             "Print and return number of matches for REGEXP following point.",

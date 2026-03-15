@@ -735,6 +735,7 @@ fn simple_command_autoloads_startup_are_autoloaded() {
 fn replace_command_autoloads_startup_are_autoloaded() {
     let mut ev = Evaluator::new();
     for name in [
+        "flush-lines",
         "how-many",
         "query-replace",
         "query-replace-regexp",
@@ -856,6 +857,7 @@ fn commandp_true_for_additional_builtin_commands() {
         "display-buffer",
         "encode-coding-region",
         "eval-buffer",
+        "flush-lines",
         "forward-sexp",
         "gui-set-selection",
         "goto-char",

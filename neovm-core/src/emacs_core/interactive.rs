@@ -428,7 +428,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "exit-recursive-edit"
             | "expand-abbrev"
             | "fit-window-to-buffer"
-            | "flush-lines"
             | "forward-line"
             | "forward-sexp"
             | "forward-word"
