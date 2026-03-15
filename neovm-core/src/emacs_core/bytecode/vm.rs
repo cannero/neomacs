@@ -1974,6 +1974,30 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_buffer_local_value_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_local_value_in_state(
+            &*self.shared.obarray,
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_local_variable_if_set_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::symbols::builtin_local_variable_if_set_p_in_state(
+            &*self.shared.obarray,
+            &*self.shared.custom,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_variable_binding_locus_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::symbols::builtin_variable_binding_locus_in_state(
+            &*self.shared.obarray,
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_move_to_column_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::indent::builtin_move_to_column_in_state(
             &*self.shared.obarray,
@@ -2654,6 +2678,9 @@ impl<'a> Vm<'a> {
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
             "buffer-enable-undo" => Some(self.builtin_buffer_enable_undo_shared(args)),
             "buffer-disable-undo" => Some(self.builtin_buffer_disable_undo_shared(args)),
+            "buffer-local-value" => Some(self.builtin_buffer_local_value_shared(args)),
+            "local-variable-if-set-p" => Some(self.builtin_local_variable_if_set_p_shared(args)),
+            "variable-binding-locus" => Some(self.builtin_variable_binding_locus_shared(args)),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),

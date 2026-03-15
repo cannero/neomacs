@@ -2833,6 +2833,14 @@ pub(crate) fn builtin_buffer_local_value(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_local_value_in_state(eval.obarray(), &eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_local_value_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("buffer-local-value", &args, 2)?;
     let name = args[0].as_symbol_name().ok_or_else(|| {
         signal(
@@ -2840,10 +2848,11 @@ pub(crate) fn builtin_buffer_local_value(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = resolve_variable_alias_name(eval, name)?;
+    let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_name_in_obarray(
+        obarray, name,
+    )?;
     let id = expect_buffer_id(&args[1])?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?;
     match buf.buffer_local_value(&resolved) {
@@ -2851,8 +2860,7 @@ pub(crate) fn builtin_buffer_local_value(
         None if resolved == "nil" => Ok(Value::Nil),
         None if resolved == "t" => Ok(Value::True),
         None if resolved.starts_with(':') => Ok(Value::symbol(resolved)),
-        None => eval
-            .obarray()
+        None => obarray
             .symbol_value(&resolved)
             .cloned()
             .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)])),

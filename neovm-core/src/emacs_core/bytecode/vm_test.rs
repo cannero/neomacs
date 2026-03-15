@@ -1301,6 +1301,49 @@ fn vm_string_match_updates_match_data_for_followup_builtins() {
 }
 
 #[test]
+fn vm_buffer_local_and_binding_builtins_use_shared_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (defvaralias 'vm-vm-alias 'vm-vm-base)
+                 (defvaralias 'vm-vm-lvis-alias 'vm-vm-lvis-base)
+                 (make-variable-buffer-local 'vm-vm-lvis-base)
+                 (list (buffer-local-value 'vm-vm-alias (current-buffer))
+                       (buffer-local-value 'vm-vm-base (current-buffer))
+                       (bufferp (variable-binding-locus 'vm-vm-alias))
+                       (buffer-live-p (variable-binding-locus 'vm-vm-base))
+                       (local-variable-if-set-p 'vm-vm-lvis-alias)
+                       (local-variable-if-set-p 'vm-vm-lvis-base)))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
+                buffer.set_buffer_local("vm-vm-base", Value::Int(3));
+            },
+        ),
+        "OK (3 3 t t t t)"
+    );
+
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (buffer-local-value nil (current-buffer))
+                 (buffer-local-value t (current-buffer))
+                 (buffer-local-value :vm-k (current-buffer))
+                 (condition-case err
+                     (buffer-local-value 'vm-miss (current-buffer))
+                   (error (car err)))
+                 (condition-case err
+                     (variable-binding-locus 1)
+                   (error (car err)))
+                 (condition-case err
+                     (local-variable-if-set-p 1)
+                   (error (car err))))"#
+        ),
+        "OK (nil t :vm-k void-variable wrong-type-argument wrong-type-argument)"
+    );
+}
+
+#[test]
 fn vm_search_builtins_use_shared_runtime_state_and_match_data() {
     assert_eq!(
         vm_eval_str(

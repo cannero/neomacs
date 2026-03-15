@@ -86,7 +86,14 @@ pub(crate) fn resolve_variable_alias_name(
     eval: &super::eval::Evaluator,
     name: &str,
 ) -> Result<String, Flow> {
-    Ok(resolve_sym(resolve_variable_alias_id(eval, intern(name))?).to_string())
+    resolve_variable_alias_name_in_obarray(eval.obarray(), name)
+}
+
+pub(crate) fn resolve_variable_alias_name_in_obarray(
+    obarray: &Obarray,
+    name: &str,
+) -> Result<String, Flow> {
+    Ok(resolve_sym(resolve_variable_alias_id_in_obarray(obarray, intern(name))?).to_string())
 }
 
 fn would_create_variable_alias_cycle(eval: &super::eval::Evaluator, new: &str, old: &str) -> bool {
@@ -3382,6 +3389,14 @@ pub(crate) fn builtin_variable_binding_locus_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_variable_binding_locus_in_state(eval.obarray(), &eval.buffers, args)
+}
+
+pub(crate) fn builtin_variable_binding_locus_in_state(
+    obarray: &Obarray,
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("variable-binding-locus", &args, 1)?;
     let name = args[0].as_symbol_name().ok_or_else(|| {
         signal(
@@ -3389,11 +3404,11 @@ pub(crate) fn builtin_variable_binding_locus_eval(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = resolve_variable_alias_name(eval, name)?;
+    let resolved = resolve_variable_alias_name_in_obarray(obarray, name)?;
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
         return Ok(Value::Nil);
     }
-    if let Some(buf) = eval.buffers.current_buffer() {
+    if let Some(buf) = buffers.current_buffer() {
         if buf.get_buffer_local(&resolved).is_some() {
             return Ok(Value::Buffer(buf.id));
         }
@@ -3611,6 +3626,14 @@ pub(crate) fn builtin_local_variable_if_set_p_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_local_variable_if_set_p_in_state(eval.obarray(), &eval.custom, args)
+}
+
+pub(crate) fn builtin_local_variable_if_set_p_in_state(
+    obarray: &Obarray,
+    custom: &crate::emacs_core::custom::CustomManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("local-variable-if-set-p", &args, 1, 2)?;
     let name = args[0].as_symbol_name().ok_or_else(|| {
         signal(
@@ -3618,11 +3641,11 @@ pub(crate) fn builtin_local_variable_if_set_p_eval(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = resolve_variable_alias_name(eval, name)?;
+    let resolved = resolve_variable_alias_name_in_obarray(obarray, name)?;
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
         return Ok(Value::Nil);
     }
-    Ok(Value::bool(eval.custom.is_auto_buffer_local(&resolved)))
+    Ok(Value::bool(custom.is_auto_buffer_local(&resolved)))
 }
 
 pub(crate) fn builtin_lock_buffer(args: Vec<Value>) -> EvalResult {
