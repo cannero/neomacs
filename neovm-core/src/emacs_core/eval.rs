@@ -1490,6 +1490,11 @@ impl Evaluator {
             "Blank out the region-rectangle, shifting text right.",
         );
         seed_autoload(
+            "how-many",
+            "replace",
+            "Print and return number of matches for REGEXP following point.",
+        );
+        seed_autoload(
             "query-replace",
             "replace",
             "Replace some occurrences of FROM-STRING with TO-STRING.",

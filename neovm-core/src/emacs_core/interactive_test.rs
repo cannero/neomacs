@@ -734,7 +734,12 @@ fn simple_command_autoloads_startup_are_autoloaded() {
 #[test]
 fn replace_command_autoloads_startup_are_autoloaded() {
     let mut ev = Evaluator::new();
-    for name in ["query-replace", "query-replace-regexp", "replace-string"] {
+    for name in [
+        "how-many",
+        "query-replace",
+        "query-replace-regexp",
+        "replace-string",
+    ] {
         let function = ev
             .obarray
             .symbol_function(name)
@@ -854,6 +859,7 @@ fn commandp_true_for_additional_builtin_commands() {
         "forward-sexp",
         "gui-set-selection",
         "goto-char",
+        "how-many",
         "isearch-forward",
         "iconify-frame",
         "kill-emacs",
