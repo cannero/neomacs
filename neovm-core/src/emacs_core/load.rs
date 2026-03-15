@@ -3103,14 +3103,23 @@ pub fn create_bootstrap_evaluator_with_features(
         // where eval-when-compile is folded to constants.
         // This fixes eieio-core.el's (eval-when-compile (cl-declaim (optimize (safety 0))))
         // which otherwise leaks safety=0 into struct accessor generation.
+        //
+        // Use a CLONED evaluator for compilation so compile-time side effects
+        // (re-evaluating defuns, requires, etc.) don't corrupt the main state.
         let critical_compile_files = ["emacs-lisp/eieio-core", "emacs-lisp/eieio"];
-        for name in &critical_compile_files {
-            if let Some(path) = find_file_in_load_path(name, &load_path) {
-                match super::file_compile::compile_el_to_neobc(&mut eval, &path) {
-                    Ok(()) => tracing::info!("Compiled {} to .neobc", name),
-                    Err(e) => tracing::warn!("Failed to compile {} to .neobc: {}", name, e),
+        if let Ok(mut compile_eval) = super::pdump::clone_evaluator(&eval) {
+            for name in &critical_compile_files {
+                if let Some(path) = find_file_in_load_path(name, &load_path) {
+                    match super::file_compile::compile_el_to_neobc(&mut compile_eval, &path) {
+                        Ok(()) => tracing::info!("Compiled {} to .neobc", name),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile {} to .neobc: {}", name, e);
+                        }
+                    }
                 }
             }
+        } else {
+            tracing::warn!("Could not clone evaluator for .neobc compilation");
         }
 
         // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
