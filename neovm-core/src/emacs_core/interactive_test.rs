@@ -749,6 +749,24 @@ fn upcase_char_startup_is_autoloaded() {
 }
 
 #[test]
+fn mode_and_mark_commands_startup_are_autoloaded() {
+    let mut ev = Evaluator::new();
+    for name in ["auto-composition-mode", "set-mark-command"] {
+        let function = ev
+            .obarray
+            .symbol_function(name)
+            .unwrap_or_else(|| panic!("missing {name} startup function cell"));
+        assert!(
+            crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} startup function cell to be a GNU autoload"
+        );
+        let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
+            .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
+        assert!(command.is_truthy(), "expected commandp true for {name}");
+    }
+}
+
+#[test]
 fn remove_hook_startup_is_noninteractive_autoload() {
     let ev = Evaluator::new();
     let function = ev
