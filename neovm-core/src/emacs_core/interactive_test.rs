@@ -734,7 +734,7 @@ fn simple_command_autoloads_startup_are_autoloaded() {
 #[test]
 fn replace_command_autoloads_startup_are_autoloaded() {
     let mut ev = Evaluator::new();
-    for name in ["query-replace", "query-replace-regexp"] {
+    for name in ["query-replace", "query-replace-regexp", "replace-string"] {
         let function = ev
             .obarray
             .symbol_function(name)
@@ -865,6 +865,7 @@ fn commandp_true_for_additional_builtin_commands() {
         "make-indirect-buffer",
         "open-dribble-file",
         "query-replace",
+        "replace-string",
         "raise-frame",
         "re-search-forward",
         "redirect-debugging-output",
