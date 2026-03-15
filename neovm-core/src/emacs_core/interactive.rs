@@ -522,7 +522,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "transpose-regions"
             | "undo"
             | "unix-sync"
-            | "upcase-char"
             | "view-register"
             | "widen"
             | "word-search-backward"

@@ -739,6 +739,16 @@ fn regexp_search_autoloads_startup_are_autoloaded() {
 }
 
 #[test]
+fn upcase_char_startup_is_autoloaded() {
+    let ev = Evaluator::new();
+    let function = ev
+        .obarray
+        .symbol_function("upcase-char")
+        .expect("missing upcase-char startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+}
+
+#[test]
 fn commandp_true_for_additional_builtin_commands() {
     let mut ev = Evaluator::new();
     for name in [
