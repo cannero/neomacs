@@ -1421,11 +1421,6 @@ impl Evaluator {
             "Return non-nil if the region is active.",
         );
         seed_autoload_noninteractive("set-mark", "simple", "Set this buffer's mark to POS.");
-        seed_autoload_noninteractive(
-            "use-region-p",
-            "simple",
-            "Return t if Transient Mark mode is enabled and the mark is active.",
-        );
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.
         drop(seed_autoload_noninteractive);

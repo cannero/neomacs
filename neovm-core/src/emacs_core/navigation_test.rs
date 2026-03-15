@@ -1,6 +1,9 @@
 use super::super::eval::Evaluator;
 use super::super::value::Value;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::{
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
+    create_bootstrap_evaluator_cached,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -24,6 +27,15 @@ fn bootstrap_eval_with_text(text: &str) -> Evaluator {
         buf.insert(text);
         buf.goto_char(0);
     }
+    ev
+}
+
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
+    let mut ev = Evaluator::new();
+    for name in names {
+        ev.obarray_mut().fmakunbound(name);
+    }
+    apply_ldefs_boot_autoloads_for_names(&mut ev, names).expect("ldefs-boot autoload restore");
     ev
 }
 
@@ -575,7 +587,7 @@ fn test_region_beginning_and_end() {
 
 #[test]
 fn test_use_region_p_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["use-region-p"]);
     let function = eval
         .obarray
         .symbol_function("use-region-p")
