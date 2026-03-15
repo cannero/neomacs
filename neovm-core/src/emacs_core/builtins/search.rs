@@ -116,12 +116,17 @@ fn search_count_arg(args: &[Value]) -> Result<i64, Flow> {
     }
 }
 
-fn search_bound_to_byte(buf: &crate::buffer::Buffer, value: &Value) -> Result<usize, Flow> {
-    let pos = expect_integer_or_marker(value)?;
+fn search_bound_to_byte(
+    eval: &super::eval::Evaluator,
+    buf: &crate::buffer::Buffer,
+    value: &Value,
+) -> Result<usize, Flow> {
+    let pos = expect_integer_or_marker_eval(eval, value)?;
     Ok(buf.lisp_pos_to_accessible_byte(pos))
 }
 
 fn parse_search_options(
+    eval: &super::eval::Evaluator,
     buf: &crate::buffer::Buffer,
     args: &[Value],
     kind: SearchKind,
@@ -134,8 +139,8 @@ fn parse_search_options(
     };
     let (bound_lisp, bound) = match args.get(1) {
         Some(v) if !v.is_nil() => {
-            let raw = expect_integer_or_marker(v)?;
-            let byte = search_bound_to_byte(buf, v)?;
+            let raw = expect_integer_or_marker_eval(eval, v)?;
+            let byte = search_bound_to_byte(eval, buf, v)?;
             (Some(raw), Some(byte))
         }
         _ => (None, None),
@@ -199,7 +204,7 @@ fn current_search_context(
         .buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let opts = parse_search_options(buf, args, kind)?;
+    let opts = parse_search_options(eval, buf, args, kind)?;
     let start_pt = buf.pt;
     let start_char = buf.text.byte_to_char(buf.pt) as i64 + 1;
     Ok((current_id, opts, start_pt, start_char))

@@ -1730,7 +1730,7 @@ pub(crate) fn builtin_point_max(eval: &mut super::eval::Evaluator, args: Vec<Val
 /// (goto-char POS) → POS
 pub(crate) fn builtin_goto_char(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("goto-char", &args, 1)?;
-    let pos = expect_integer_or_marker(&args[0])?;
+    let pos = expect_integer_or_marker_eval(eval, &args[0])?;
     let current_id = eval
         .buffers
         .current_buffer_id()
@@ -2002,8 +2002,8 @@ pub(crate) fn builtin_subst_char_in_region(
 ) -> EvalResult {
     expect_range_args("subst-char-in-region", &args, 4, 5)?;
 
-    let start = expect_integer_or_marker(&args[0])?;
-    let end = expect_integer_or_marker(&args[1])?;
+    let start = expect_integer_or_marker_eval(eval, &args[0])?;
+    let end = expect_integer_or_marker_eval(eval, &args[1])?;
     let from_code = expect_character_code(&args[2])?;
     let to_code = expect_character_code(&args[3])?;
     let noundo = args.get(4).is_some_and(|value| !value.is_nil());

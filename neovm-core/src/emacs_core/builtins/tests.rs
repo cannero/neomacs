@@ -1658,6 +1658,101 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
 }
 
 #[test]
+fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = parse_forms(
+        r#"(with-temp-buffer
+             (insert "a\nb\n")
+             (let ((end (copy-marker (point-max) t)))
+               (subst-char-in-region (point-min) end ?\n ?\s t)
+               (buffer-string)))"#,
+    )
+    .expect("parse marker-ended subst-char-in-region regression");
+
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+
+    assert_eq!(format_eval_result(&Ok(result)), r#"OK "a b ""#);
+}
+
+#[test]
+fn subst_char_in_region_uses_live_marker_end_after_insertions() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = parse_forms(
+        r#"(with-temp-buffer
+             (insert "a\n")
+             (let ((end (copy-marker (point-max) t)))
+               (goto-char (point-min))
+               (insert " ")
+               (subst-char-in-region (point-min) end ?\n ?\s t)
+               (buffer-string)))"#,
+    )
+    .expect("parse live-marker subst-char-in-region regression");
+
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+
+    assert_eq!(format_eval_result(&Ok(result)), r#"OK " a ""#);
+}
+
+#[test]
+fn goto_char_uses_live_marker_position_after_insertions() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = parse_forms(
+        r#"(with-temp-buffer
+             (insert "ab")
+             (let ((m (copy-marker (point-max) t)))
+               (goto-char (point-min))
+               (insert "X")
+               (goto-char m)
+               (point)))"#,
+    )
+    .expect("parse live-marker goto-char regression");
+
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+
+    assert_eq!(format_eval_result(&Ok(result)), "OK 4");
+}
+
+#[test]
+fn search_forward_uses_live_marker_bound_after_insertions() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = parse_forms(
+        r#"(insert "ab")
+           (let ((end (copy-marker (point-max) t)))
+             (goto-char (point-min))
+             (insert "X")
+             (goto-char (point-min))
+             (list (search-forward "b" end t)
+                   (point)
+                   (marker-position end)))"#,
+    )
+    .expect("parse live-marker search-forward regression");
+
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+
+    assert_eq!(format_eval_result(&Ok(result)), "OK (4 4 4)");
+}
+
+#[test]
 fn subst_char_in_region_rejects_different_utf8_lengths() {
     let mut eval = super::super::eval::Evaluator::new();
     builtin_insert(&mut eval, vec![Value::string("aa")]).unwrap();
