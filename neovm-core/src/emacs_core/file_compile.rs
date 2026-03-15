@@ -6,6 +6,8 @@
 //! `defun`, `defvar`, `require`, etc. take effect in the compile-time
 //! environment) and also emitted as `Eval` forms to replay at load time.
 
+use std::path::Path;
+
 use super::error::Flow;
 use super::eval::{Evaluator, quote_to_value};
 use super::expr::Expr;
@@ -84,6 +86,75 @@ fn compile_toplevel_file_form(
     // Default: evaluate for side effects, emit as Eval form.
     eval.eval(form)?;
     out.push(CompiledForm::Eval(quote_to_value(form)));
+    Ok(())
+}
+
+/// Errors that can occur during file compilation.
+#[derive(Debug)]
+pub enum CompileFileError {
+    /// An I/O error reading the source or writing the output.
+    Io(std::io::Error),
+    /// A parse error in the source file.
+    Parse(String),
+    /// An evaluation error during compile-time evaluation.
+    Eval(String),
+    /// A serialization error (e.g., forms contain non-serializable opaque values).
+    Serialize(String),
+}
+
+impl std::fmt::Display for CompileFileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CompileFileError::Io(e) => write!(f, "I/O error: {}", e),
+            CompileFileError::Parse(e) => write!(f, "parse error: {}", e),
+            CompileFileError::Eval(e) => write!(f, "eval error: {}", e),
+            CompileFileError::Serialize(e) => write!(f, "serialize error: {}", e),
+        }
+    }
+}
+
+/// Compile a `.el` file to `.neobc` bytecode.
+///
+/// This is NeoVM's equivalent of GNU Emacs's `byte-compile-file`.
+/// Reads the `.el` source, parses forms, evaluates `eval-when-compile`
+/// bodies at compile time (folding results to constants), and writes
+/// the compiled output to a `.neobc` file alongside the source.
+pub fn compile_el_to_neobc(eval: &mut Evaluator, el_path: &Path) -> Result<(), CompileFileError> {
+    // 1. Read the .el source.
+    let raw_bytes = std::fs::read(el_path).map_err(CompileFileError::Io)?;
+    let content = super::load::decode_emacs_utf8(&raw_bytes);
+
+    // 2. Detect lexical-binding from the file-local cookie.
+    let lexical = super::load::lexical_binding_enabled_for_source(&content);
+
+    // 3. Compute source hash for cache invalidation.
+    let source_hash = super::file_compile_format::source_sha256(&content);
+
+    // 4. Parse forms.
+    let forms = super::parser::parse_forms(&content)
+        .map_err(|e| CompileFileError::Parse(format!("{}", e)))?;
+
+    // 5. Set up evaluator for compilation (honour the source's lexical-binding).
+    let old_lexical = eval.lexical_binding();
+    if lexical {
+        eval.set_lexical_binding(true);
+    }
+
+    // 6. Compile forms (evaluating eval-when-compile at compile time).
+    let compiled = compile_file_forms(eval, &forms).map_err(|e| {
+        // Restore evaluator state before propagating the error.
+        eval.set_lexical_binding(old_lexical);
+        CompileFileError::Eval(format!("{:?}", e))
+    })?;
+
+    // 7. Restore evaluator state.
+    eval.set_lexical_binding(old_lexical);
+
+    // 8. Write .neobc alongside the source.
+    let neobc_path = el_path.with_extension("neobc");
+    super::file_compile_format::write_neobc(&neobc_path, &source_hash, lexical, &compiled)
+        .map_err(CompileFileError::Io)?;
+
     Ok(())
 }
 
@@ -184,5 +255,67 @@ mod tests {
         let mut eval = Evaluator::new();
         let compiled = compile_file_forms(&mut eval, &[]).unwrap();
         assert!(compiled.is_empty());
+    }
+
+    #[test]
+    fn test_compile_el_to_neobc_creates_file() {
+        use crate::emacs_core::file_compile_format::read_neobc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let el_path = dir.path().join("test-compile.el");
+        let source = ";; -*- lexical-binding: nil -*-\n\
+                      (eval-when-compile (setq test-compile-var 42))\n\
+                      (defvar my-var 1)\n";
+        std::fs::write(&el_path, source).unwrap();
+
+        let mut eval = Evaluator::new();
+        compile_el_to_neobc(&mut eval, &el_path).unwrap();
+
+        // Verify .neobc was created alongside the .el file.
+        let neobc_path = el_path.with_extension("neobc");
+        assert!(neobc_path.exists(), ".neobc file should be created");
+
+        // Read back and verify contents.
+        let loaded = read_neobc(&neobc_path, "").unwrap();
+        assert!(!loaded.lexical_binding);
+        assert_eq!(loaded.forms.len(), 2);
+    }
+
+    #[test]
+    fn test_compile_el_to_neobc_lexical_binding() {
+        use crate::emacs_core::file_compile_format::read_neobc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let el_path = dir.path().join("lexical.el");
+        let source = ";; -*- lexical-binding: t -*-\n(+ 1 2)\n";
+        std::fs::write(&el_path, source).unwrap();
+
+        let mut eval = Evaluator::new();
+        compile_el_to_neobc(&mut eval, &el_path).unwrap();
+
+        let neobc_path = el_path.with_extension("neobc");
+        let loaded = read_neobc(&neobc_path, "").unwrap();
+        assert!(loaded.lexical_binding);
+    }
+
+    #[test]
+    fn test_compile_el_to_neobc_restores_lexical_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let el_path = dir.path().join("restore.el");
+        let source = ";; -*- lexical-binding: t -*-\n(+ 1 2)\n";
+        std::fs::write(&el_path, source).unwrap();
+
+        let mut eval = Evaluator::new();
+        assert!(!eval.lexical_binding(), "starts as dynamic");
+        compile_el_to_neobc(&mut eval, &el_path).unwrap();
+        assert!(!eval.lexical_binding(), "should be restored to dynamic");
+    }
+
+    #[test]
+    fn test_compile_el_to_neobc_nonexistent_file() {
+        let mut eval = Evaluator::new();
+        let result = compile_el_to_neobc(&mut eval, Path::new("/nonexistent/foo.el"));
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), CompileFileError::Io(_)));
     }
 }

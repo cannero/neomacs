@@ -1187,7 +1187,7 @@ fn lexical_binding_enabled_in_file_local_cookie_line(line: &str) -> bool {
     false
 }
 
-fn lexical_binding_enabled_for_source(source: &str) -> bool {
+pub(crate) fn lexical_binding_enabled_for_source(source: &str) -> bool {
     let mut lines = strip_utf8_bom(source).lines();
     let first_line = lines.next();
     if first_line.is_some_and(lexical_binding_enabled_in_file_local_cookie_line) {
