@@ -654,13 +654,17 @@ fn commandp_true_for_builtin_editing_commands() {
 }
 
 #[test]
-fn abbrev_mode_startup_is_autoloaded() {
-    let ev = Evaluator::new();
+fn abbrev_mode_is_real_lisp_function_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
         .obarray
         .symbol_function("abbrev-mode")
-        .expect("missing abbrev-mode startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+        .expect("missing abbrev-mode bootstrapped function cell");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
+    let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("abbrev-mode")])
+        .expect("commandp should accept abbrev-mode");
+    assert!(command.is_truthy());
 }
 
 #[test]
@@ -899,7 +903,6 @@ fn remove_hook_startup_is_noninteractive_autoload() {
 fn commandp_true_for_additional_builtin_commands() {
     let mut ev = Evaluator::new();
     for name in [
-        "abbrev-mode",
         "bookmark-jump",
         "base64-decode-region",
         "base64-encode-region",
@@ -1603,13 +1606,14 @@ fn minor_mode_key_binding_too_many_args_errors() {
 // -------------------------------------------------------------------
 
 #[test]
-fn describe_key_briefly_startup_is_autoloaded() {
-    let ev = Evaluator::new();
+fn describe_key_briefly_is_real_lisp_function_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
         .obarray
         .symbol_function("describe-key-briefly")
-        .expect("missing describe-key-briefly startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
+        .expect("missing describe-key-briefly bootstrapped function cell");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
 }
 
 #[test]

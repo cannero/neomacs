@@ -240,13 +240,14 @@ fn snarf_documentation_wrong_arity() {
 // =======================================================================
 
 #[test]
-fn help_function_arglist_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+fn help_function_arglist_is_real_lisp_function_after_bootstrap() {
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let function = eval
         .obarray
         .symbol_function("help-function-arglist")
-        .expect("missing help-function-arglist startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
+        .expect("missing help-function-arglist bootstrapped function cell");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
 }
 
 #[test]

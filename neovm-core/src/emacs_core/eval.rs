@@ -1377,7 +1377,6 @@ impl Evaluator {
             "Determine the start and end buffer locations for the THING at point.",
         );
         seed_autoload("thing-at-point", "thingatpt", "Return the THING at point.");
-        seed_autoload("abbrev-mode", "abbrev", "Toggle Abbrev mode.");
         seed_autoload(
             "symbol-at-point",
             "thingatpt",
@@ -1403,16 +1402,6 @@ impl Evaluator {
             "delete-rectangle",
             "rect",
             "Delete (don't save) text in the region-rectangle.",
-        );
-        seed_autoload(
-            "describe-key-briefly",
-            "help",
-            "Display a short description of the key sequence KEY-LIST.",
-        );
-        seed_autoload(
-            "help-function-arglist",
-            "help",
-            "Return a formal argument list for the function DEF.",
         );
         seed_autoload(
             "describe-function",
