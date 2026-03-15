@@ -9,11 +9,6 @@ pub(crate) fn builtin_identity(args: Vec<Value>) -> EvalResult {
     Ok(args[0])
 }
 
-pub(crate) fn builtin_purecopy(args: Vec<Value>) -> EvalResult {
-    expect_args("purecopy", &args, 1)?;
-    Ok(args[0])
-}
-
 pub(crate) fn builtin_prefix_numeric_value(args: Vec<Value>) -> EvalResult {
     expect_args("prefix-numeric-value", &args, 1)?;
     let numeric = match &args[0] {

@@ -1331,7 +1331,6 @@ impl Evaluator {
         };
         // Some helper autoloads are non-interactive in GNU Emacs startup
         // function-cells; override their startup metadata accordingly.
-        seed_autoload_noninteractive("purecopy", "subr", "Return OBJECT unchanged.");
         seed_autoload_noninteractive(
             "substitute-command-keys",
             "help",
