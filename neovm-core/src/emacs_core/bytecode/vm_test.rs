@@ -1301,6 +1301,75 @@ fn vm_string_match_updates_match_data_for_followup_builtins() {
 }
 
 #[test]
+fn vm_search_builtins_use_shared_runtime_state_and_match_data() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "ab")
+                 (let ((end (copy-marker (point-max) t)))
+                   (goto-char (point-min))
+                   (insert "X")
+                   (goto-char (point-min))
+                   (list (search-forward "b" end t)
+                         (point)
+                         (marker-position end)
+                         (match-beginning 0)
+                         (match-end 0))))"#
+        ),
+        "OK (4 4 4 3 4)"
+    );
+
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "ab12")
+                 (goto-char 1)
+                 (list (re-search-forward "[0-9]+" nil t)
+                       (match-beginning 0)
+                       (match-end 0)
+                       (progn
+                         (goto-char 1)
+                         (search-forward-regexp "[a-z]+" nil t))
+                       (progn
+                         (goto-char 1)
+                         (posix-search-forward "[0-9]+" nil t))))"#
+        ),
+        "OK (5 3 5 3 5)"
+    );
+}
+
+#[test]
+fn vm_looking_at_builtins_use_shared_match_data_and_case_fold() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "A")
+                 (goto-char 1)
+                 (list
+                  (let ((case-fold-search nil))
+                    (looking-at-p "a"))
+                  (let ((case-fold-search t))
+                    (looking-at-p "a"))
+                  (progn
+                    (set-match-data '(10 11))
+                    (let ((case-fold-search t))
+                      (looking-at "a" t))
+                    (match-beginning 0))
+                  (progn
+                    (set-match-data nil)
+                    (let ((case-fold-search t))
+                      (looking-at "a"))
+                    (list (match-beginning 0)
+                          (match-end 0)))
+                  (let ((case-fold-search t))
+                    (posix-looking-at "a"))))"#
+        ),
+        "OK (nil t 10 (1 2) t)"
+    );
+}
+
+#[test]
 fn vm_when_unless() {
     assert_eq!(vm_eval_str("(when t 1 2 3)"), "OK 3");
     assert_eq!(vm_eval_str("(when nil 1 2 3)"), "OK nil");

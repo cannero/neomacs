@@ -20,7 +20,7 @@ fn point_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
     buf.text.byte_to_char(byte_pos) as i64 + 1
 }
 
-fn expect_integer_or_marker_in_buffers(
+pub(crate) fn expect_integer_or_marker_in_buffers(
     buffers: &BufferManager,
     value: &Value,
 ) -> Result<i64, Flow> {

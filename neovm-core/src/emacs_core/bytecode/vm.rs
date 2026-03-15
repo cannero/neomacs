@@ -1983,6 +1983,92 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn case_fold_search_enabled(&self) -> bool {
+        self.lookup_var("case-fold-search")
+            .map(|value| !value.is_nil())
+            .unwrap_or(true)
+    }
+
+    fn builtin_search_forward_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_search_forward_with_state(
+            self.case_fold_search_enabled(),
+            &mut *self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_search_backward_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_search_backward_with_state(
+            self.case_fold_search_enabled(),
+            &mut *self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_re_search_forward_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_re_search_forward_with_state(
+            self.case_fold_search_enabled(),
+            &mut *self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_re_search_backward_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_re_search_backward_with_state(
+            self.case_fold_search_enabled(),
+            &mut *self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_search_forward_regexp_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_search_forward_regexp_with_state(
+            self.case_fold_search_enabled(),
+            &mut *self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_search_backward_regexp_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_search_backward_regexp_with_state(
+            self.case_fold_search_enabled(),
+            &mut *self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_looking_at_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_looking_at_with_state(
+            self.case_fold_search_enabled(),
+            &*self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_looking_at_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_looking_at_p_with_state(
+            self.case_fold_search_enabled(),
+            &*self.shared.buffers,
+            args,
+        )
+    }
+
+    fn builtin_posix_looking_at_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_posix_looking_at_with_state(
+            self.case_fold_search_enabled(),
+            &*self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
         match func_val {
             Value::ByteCode(_) => {
@@ -2951,6 +3037,17 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "search-forward" => Some(self.builtin_search_forward_shared(args)),
+            "search-backward" => Some(self.builtin_search_backward_shared(args)),
+            "re-search-forward" => Some(self.builtin_re_search_forward_shared(args)),
+            "re-search-backward" => Some(self.builtin_re_search_backward_shared(args)),
+            "search-forward-regexp" => Some(self.builtin_search_forward_regexp_shared(args)),
+            "search-backward-regexp" => Some(self.builtin_search_backward_regexp_shared(args)),
+            "posix-search-forward" => Some(self.builtin_re_search_forward_shared(args)),
+            "posix-search-backward" => Some(self.builtin_re_search_backward_shared(args)),
+            "looking-at" => Some(self.builtin_looking_at_shared(args)),
+            "looking-at-p" => Some(self.builtin_looking_at_p_shared(args)),
+            "posix-looking-at" => Some(self.builtin_posix_looking_at_shared(args)),
             "string-match" => Some({
                 let case_fold = self
                     .lookup_var("case-fold-search")
