@@ -1368,11 +1368,6 @@ impl Evaluator {
             "Display the full documentation of FUNCTION (a symbol).",
         );
         seed_autoload(
-            "display-color-p",
-            "faces",
-            "Return t if DISPLAY can display colors.",
-        );
-        seed_autoload(
             "describe-variable",
             "help-fns",
             "Display the full documentation of VARIABLE (a symbol).",
@@ -1401,11 +1396,6 @@ impl Evaluator {
             "string-pixel-width",
             "subr-x",
             "Return the width of STRING in pixels.",
-        );
-        seed_autoload(
-            "x-display-color-p",
-            "faces",
-            "Obsolete alias for `display-color-p'.",
         );
         drop(seed_autoload);
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
