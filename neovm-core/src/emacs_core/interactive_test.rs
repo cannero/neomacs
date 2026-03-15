@@ -901,15 +901,14 @@ fn kmacro_name_commands_startup_are_autoloaded() {
 
 #[test]
 fn remove_hook_startup_is_noninteractive_autoload() {
-    let ev = Evaluator::new();
+    let mut ev = eval_with_ldefs_boot_autoloads(&["remove-hook"]);
     let function = ev
         .obarray
         .symbol_function("remove-hook")
         .expect("missing remove-hook startup function cell");
     assert!(crate::emacs_core::autoload::is_autoload_value(function));
-    let result =
-        builtin_commandp_interactive(&mut Evaluator::new(), vec![Value::symbol("remove-hook")])
-            .expect("commandp call");
+    let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("remove-hook")])
+        .expect("commandp call");
     assert!(result.is_nil());
 }
 

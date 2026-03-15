@@ -1349,11 +1349,6 @@ impl Evaluator {
         seed_autoload_noninteractive("activate-mark", "simple", "Activate the mark.");
         seed_autoload_noninteractive("deactivate-mark", "simple", "Deactivate the mark.");
         seed_autoload_noninteractive(
-            "remove-hook",
-            "subr",
-            "Remove FUNCTION from HOOK's functions.",
-        );
-        seed_autoload_noninteractive(
             "subr-native-elisp-p",
             "cl-preloaded",
             "Return non-nil if OBJECT is native-compiled Elisp code.",
