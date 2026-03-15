@@ -749,6 +749,20 @@ fn upcase_char_startup_is_autoloaded() {
 }
 
 #[test]
+fn remove_hook_startup_is_noninteractive_autoload() {
+    let ev = Evaluator::new();
+    let function = ev
+        .obarray
+        .symbol_function("remove-hook")
+        .expect("missing remove-hook startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+    let result =
+        builtin_commandp_interactive(&mut Evaluator::new(), vec![Value::symbol("remove-hook")])
+            .expect("commandp call");
+    assert!(result.is_nil());
+}
+
+#[test]
 fn commandp_true_for_additional_builtin_commands() {
     let mut ev = Evaluator::new();
     for name in [

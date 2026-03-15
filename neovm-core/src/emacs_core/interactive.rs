@@ -490,7 +490,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "re-search-backward"
             | "re-search-forward"
             | "recursive-edit"
-            | "remove-hook"
             | "rename-buffer"
             | "rename-file"
             | "replace-buffer-contents"
