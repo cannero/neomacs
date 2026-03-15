@@ -1,6 +1,6 @@
 //! File loading and module system (require/provide/load).
 
-use super::error::{EvalError, map_flow};
+use super::error::{EvalError, Flow, map_flow, signal};
 use super::eval::{collect_opaque_values, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::expr::print_expr;
@@ -687,6 +687,51 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
             _ => v.as_str().map(|s| s.to_string()),
         })
         .collect()
+}
+
+pub(crate) enum LoadPlan {
+    Return(Value),
+    Load { path: PathBuf },
+}
+
+pub(crate) fn plan_load_in_state(
+    obarray: &super::symbol::Obarray,
+    file: Value,
+    noerror: Option<Value>,
+    nosuffix: Option<Value>,
+    must_suffix: Option<Value>,
+) -> Result<LoadPlan, Flow> {
+    let file = match file {
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+        other => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), other],
+            ));
+        }
+    };
+    let noerror = noerror.is_some_and(|v| v.is_truthy());
+    let nosuffix = nosuffix.is_some_and(|v| v.is_truthy());
+    let must_suffix = must_suffix.is_some_and(|v| v.is_truthy());
+    let prefer_newer = obarray
+        .symbol_value("load-prefer-newer")
+        .is_some_and(|v| v.is_truthy());
+
+    let load_path = get_load_path(obarray);
+    match find_file_in_load_path_with_flags(&file, &load_path, nosuffix, must_suffix, prefer_newer)
+    {
+        Some(path) => Ok(LoadPlan::Load { path }),
+        None => {
+            if noerror {
+                Ok(LoadPlan::Return(Value::Nil))
+            } else {
+                Err(signal(
+                    "file-missing",
+                    vec![Value::string(format!("Cannot open load file: {}", file))],
+                ))
+            }
+        }
+    }
 }
 
 const ELISP_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V1";

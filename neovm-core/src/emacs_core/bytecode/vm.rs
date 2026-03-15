@@ -1755,6 +1755,26 @@ impl<'a> Vm<'a> {
         }
     }
 
+    fn load_with_vm_bridge(&mut self, args: Vec<Value>, extra_roots: &[Value]) -> EvalResult {
+        if args.is_empty() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("load"), Value::Int(0)],
+            ));
+        }
+        match crate::emacs_core::load::plan_load_in_state(
+            &*self.shared.obarray,
+            args[0],
+            args.get(1).copied(),
+            args.get(3).copied(),
+            args.get(4).copied(),
+        )? {
+            crate::emacs_core::load::LoadPlan::Return(value) => Ok(value),
+            crate::emacs_core::load::LoadPlan::Load { path } => self
+                .with_mirrored_evaluator(extra_roots, move |eval| eval.load_file_internal(&path)),
+        }
+    }
+
     /// Execute a compiled function without param binding (for inline compilation).
     fn execute_inline(&mut self, func: &ByteCodeFunction) -> EvalResult {
         let mut stack: Vec<Value> = Vec::with_capacity(func.max_stack as usize);
@@ -2188,6 +2208,7 @@ impl<'a> Vm<'a> {
                 self.shared.autoloads,
                 args,
             )),
+            "load" => Some(self.load_with_vm_bridge(args.to_vec(), args)),
             "autoload-do-load" => Some(self.autoload_do_load_with_vm_bridge(
                 args.to_vec(),
                 args,

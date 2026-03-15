@@ -1270,6 +1270,48 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
 }
 
 #[test]
+fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fixture = dir.path().join("vm-bytecode-shared-load.el");
+    std::fs::write(&fixture, "(setq vm-bytecode-load-seen load-file-name)\n")
+        .expect("write load fixture");
+
+    let mut eval = Evaluator::new_vm_harness();
+    let forms = parse_forms(
+        "(list
+           (load \"vm-bytecode-shared-load\" nil nil nil nil)
+           vm-bytecode-load-seen
+           load-file-name)",
+    )
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+    eval.obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled load should resolve path and execute through shared runtime")
+    };
+
+    assert_eq!(
+        result,
+        Value::list(vec![
+            Value::True,
+            Value::string(fixture.to_string_lossy()),
+            Value::Nil,
+        ])
+    );
+    assert!(
+        eval.loads_in_progress.is_empty(),
+        "compiled load should unwind shared loads-in-progress state"
+    );
+}
+
+#[test]
 fn vm_compiled_load_respects_loads_in_progress_guard() {
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-load.el");

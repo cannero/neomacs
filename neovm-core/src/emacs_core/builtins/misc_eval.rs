@@ -359,34 +359,16 @@ pub(super) fn builtin_garbage_collect_eval(
 
 pub(crate) fn builtin_load(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_min_args("load", &args, 1)?;
-    let file = expect_string(&args[0])?;
-    let noerror = args.get(1).is_some_and(|v| v.is_truthy());
-    let nosuffix = args.get(3).is_some_and(|v| v.is_truthy());
-    let must_suffix = args.get(4).is_some_and(|v| v.is_truthy());
-    let prefer_newer = eval
-        .obarray
-        .symbol_value("load-prefer-newer")
-        .is_some_and(|v| v.is_truthy());
-
-    let load_path = super::load::get_load_path(&eval.obarray);
-    match super::load::find_file_in_load_path_with_flags(
-        &file,
-        &load_path,
-        nosuffix,
-        must_suffix,
-        prefer_newer,
-    ) {
-        Some(path) => super::load::load_file(eval, &path).map_err(eval_error_to_flow),
-        None => {
-            // Try as absolute path
-            if noerror {
-                Ok(Value::Nil)
-            } else {
-                Err(signal(
-                    "file-missing",
-                    vec![Value::string(format!("Cannot open load file: {}", file))],
-                ))
-            }
+    match super::load::plan_load_in_state(
+        &eval.obarray,
+        args[0],
+        args.get(1).copied(),
+        args.get(3).copied(),
+        args.get(4).copied(),
+    )? {
+        super::load::LoadPlan::Return(value) => Ok(value),
+        super::load::LoadPlan::Load { path } => {
+            super::load::load_file(eval, &path).map_err(eval_error_to_flow)
         }
     }
 }
