@@ -496,7 +496,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "set-buffer-process-coding-system"
             | "set-keyboard-coding-system"
             | "set-terminal-coding-system"
-            | "setenv"
             | "start-kbd-macro"
             | "tab-to-tab-stop"
             | "suspend-emacs"

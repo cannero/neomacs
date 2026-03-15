@@ -1535,6 +1535,11 @@ impl Evaluator {
             "Give KEY a local binding as COMMAND.",
         );
         seed_autoload(
+            "setenv",
+            "env",
+            "Set the value of the environment variable named VARIABLE to VALUE.",
+        );
+        seed_autoload(
             "list-processes",
             "simple",
             "Display a list of subprocesses.",
