@@ -411,7 +411,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "delete-process"
             | "kill-process"
             | "signal-process"
-            | "process-menu-delete-process"
             | "delete-region"
             | "delete-window"
             | "decode-coding-region"

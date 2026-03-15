@@ -710,8 +710,12 @@ fn rectangle_commands_startup_are_autoloaded() {
 
 #[test]
 fn simple_command_autoloads_startup_are_autoloaded() {
-    let ev = Evaluator::new();
-    for name in ["exchange-point-and-mark", "process-menu-mode"] {
+    let mut ev = Evaluator::new();
+    for name in [
+        "exchange-point-and-mark",
+        "process-menu-delete-process",
+        "process-menu-mode",
+    ] {
         let function = ev
             .obarray
             .symbol_function(name)
@@ -720,6 +724,9 @@ fn simple_command_autoloads_startup_are_autoloaded() {
             crate::emacs_core::autoload::is_autoload_value(function),
             "expected {name} startup function cell to be a GNU autoload"
         );
+        let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
+            .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
+        assert!(command.is_truthy(), "expected commandp true for {name}");
     }
 }
 
