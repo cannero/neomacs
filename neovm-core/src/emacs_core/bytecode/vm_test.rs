@@ -672,6 +672,39 @@ fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
 }
 
 #[test]
+fn vm_use_global_map_updates_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str("(progn (use-global-map (make-sparse-keymap)) (keymapp (current-global-map)))"),
+        "OK t"
+    );
+}
+
+#[test]
+fn vm_set_buffer_and_current_buffer_share_buffer_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (get-buffer-create \"*vm-current-buffer*\")
+               (set-buffer \"*vm-current-buffer*\")
+               (buffer-name (current-buffer)))"
+        ),
+        r#"OK "*vm-current-buffer*""#
+    );
+}
+
+#[test]
+fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (autoload 'vm-symbol-file-probe "vm-symbol-file-probe-file")
+                 (symbol-file 'vm-symbol-file-probe))"#
+        ),
+        r#"OK "vm-symbol-file-probe-file""#
+    );
+}
+
+#[test]
 fn vm_string_match_updates_match_data_for_followup_builtins() {
     assert_eq!(
         vm_eval_str(

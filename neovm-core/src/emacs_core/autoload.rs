@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, signal};
 use super::intern::resolve_sym;
+use super::symbol::Obarray;
 use super::value::*;
 use crate::gc::GcTrace;
 
@@ -334,7 +335,11 @@ pub(crate) fn builtin_autoload_do_load(
     Ok(Value::Nil)
 }
 
-fn register_autoload(eval: &mut super::eval::Evaluator, args: &[Value]) -> EvalResult {
+pub(crate) fn register_autoload_in_state(
+    obarray: &mut Obarray,
+    autoloads: &mut AutoloadManager,
+    args: &[Value],
+) -> EvalResult {
     if args.len() < 2 || args.len() > 5 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -356,7 +361,7 @@ fn register_autoload(eval: &mut super::eval::Evaluator, args: &[Value]) -> EvalR
     // GNU Emacs eval.c:Fautoload — "If function is defined and not as an
     // autoload, don't override."  If the symbol already has a real (non-
     // autoload) function definition, return nil without touching it.
-    if let Some(current) = eval.obarray.symbol_function(&name).cloned() {
+    if let Some(current) = obarray.symbol_function(&name).cloned() {
         if !current.is_nil() && !is_autoload_value(&current) {
             return Ok(Value::Nil);
         }
@@ -393,8 +398,8 @@ fn register_autoload(eval: &mut super::eval::Evaluator, args: &[Value]) -> EvalR
         type_val,
     ]);
 
-    eval.obarray.set_symbol_function(&name, autoload_form);
-    eval.autoloads.register(AutoloadEntry {
+    obarray.set_symbol_function(&name, autoload_form);
+    autoloads.register(AutoloadEntry {
         name: name.clone(),
         file,
         docstring,
@@ -410,7 +415,7 @@ fn register_autoload(eval: &mut super::eval::Evaluator, args: &[Value]) -> EvalR
 /// Callable builtin form used by `funcall`/`apply` and direct function calls.
 /// Arguments are already evaluated.
 pub(crate) fn builtin_autoload(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    register_autoload(eval, &args)
+    register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
 }
 
 /// `(symbol-file SYMBOL &optional TYPE)` — return the file that defined SYMBOL.
@@ -426,16 +431,10 @@ pub(crate) fn builtin_symbol_file(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware `(symbol-file SYMBOL &optional TYPE)`.
-///
-/// NeoVM currently tracks symbol origin only for autoloaded function symbols.
-/// This matches GNU Emacs behavior for the currently supported subset:
-/// - non-symbol SYMBOL returns nil
-/// - TYPE nil/missing/`defun` queries function definition origin
-/// - other TYPE values return nil
-pub(crate) fn builtin_symbol_file_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
+pub(crate) fn builtin_symbol_file_in_state(
+    obarray: &Obarray,
+    autoloads: &AutoloadManager,
+    args: &[Value],
 ) -> EvalResult {
     if args.is_empty() || args.len() > 3 {
         return Err(signal(
@@ -458,11 +457,11 @@ pub(crate) fn builtin_symbol_file_eval(
         return Ok(Value::Nil);
     }
 
-    if let Some(entry) = eval.autoloads.get_entry(symbol_name) {
+    if let Some(entry) = autoloads.get_entry(symbol_name) {
         return Ok(Value::string(entry.file.clone()));
     }
 
-    if let Some(fndef) = eval.obarray.symbol_function(symbol_name).cloned() {
+    if let Some(fndef) = obarray.symbol_function(symbol_name).cloned() {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
                 if let Some(Value::Str(id)) = items.get(1) {
@@ -473,6 +472,20 @@ pub(crate) fn builtin_symbol_file_eval(
     }
 
     Ok(Value::Nil)
+}
+
+/// Evaluator-aware `(symbol-file SYMBOL &optional TYPE)`.
+///
+/// NeoVM currently tracks symbol origin only for autoloaded function symbols.
+/// This matches GNU Emacs behavior for the currently supported subset:
+/// - non-symbol SYMBOL returns nil
+/// - TYPE nil/missing/`defun` queries function definition origin
+/// - other TYPE values return nil
+pub(crate) fn builtin_symbol_file_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_symbol_file_in_state(&eval.obarray, &eval.autoloads, &args)
 }
 
 // ---------------------------------------------------------------------------
@@ -493,7 +506,7 @@ pub(crate) fn sf_autoload(
     for expr in tail {
         args.push(eval.eval(expr)?);
     }
-    register_autoload(eval, &args)
+    register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
 }
 
 /// `(eval-when-compile &rest BODY)`

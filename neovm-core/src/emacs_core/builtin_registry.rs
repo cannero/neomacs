@@ -1089,6 +1089,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "syntax-table",
     "syntax-table-p",
     "symbol-function",
+    "symbol-file",
     "symbol-name",
     "symbol-plist",
     "symbol-value",

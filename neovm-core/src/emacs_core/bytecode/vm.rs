@@ -2104,9 +2104,50 @@ impl<'a> Vm<'a> {
                 builtins::expect_args("current-global-map", args, 0)
                     .map(|_| self.ensure_global_keymap()),
             ),
+            "use-global-map" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_use_global_map_in_obarray(
+                    self.shared.obarray,
+                    args,
+                ),
+            ),
+            "use-local-map" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_use_local_map_in_state(
+                    self.shared.obarray,
+                    self.shared.current_local_map,
+                    args,
+                ),
+            ),
+            "current-local-map" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_current_local_map_in_state(
+                    *self.shared.current_local_map,
+                    args,
+                ),
+            ),
             "lookup-key" => Some(
                 crate::emacs_core::builtins::keymaps::builtin_lookup_key_in_obarray(
                     &*self.shared.obarray,
+                    args,
+                ),
+            ),
+            "autoload" => Some(crate::emacs_core::autoload::register_autoload_in_state(
+                self.shared.obarray,
+                self.shared.autoloads,
+                args,
+            )),
+            "symbol-file" => Some(crate::emacs_core::autoload::builtin_symbol_file_in_state(
+                &*self.shared.obarray,
+                &*self.shared.autoloads,
+                args,
+            )),
+            "set-buffer" => Some(
+                crate::emacs_core::builtins::builtin_set_buffer_in_manager(
+                    self.shared.buffers,
+                    args,
+                ),
+            ),
+            "current-buffer" => Some(
+                crate::emacs_core::builtins::builtin_current_buffer_in_manager(
+                    &*self.shared.buffers,
                     args,
                 ),
             ),

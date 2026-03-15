@@ -4,7 +4,7 @@ use super::*;
 // Buffer operations (require evaluator for BufferManager access)
 // ===========================================================================
 
-use crate::buffer::BufferId;
+use crate::buffer::{BufferId, BufferManager};
 
 pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
     match value {
@@ -344,10 +344,25 @@ pub(crate) fn builtin_set_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("set-buffer", &args, 1)?;
+    builtin_set_buffer_in_manager(&mut eval.buffers, &args)
+}
+
+/// (current-buffer) → buffer
+pub(crate) fn builtin_current_buffer(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_current_buffer_in_manager(&eval.buffers, &args)
+}
+
+pub(crate) fn builtin_set_buffer_in_manager(
+    buffers: &mut BufferManager,
+    args: &[Value],
+) -> EvalResult {
+    expect_args("set-buffer", args, 1)?;
     let id = match &args[0] {
         Value::Buffer(id) => {
-            if eval.buffers.get(*id).is_none() {
+            if buffers.get(*id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Selecting deleted buffer")],
@@ -357,7 +372,7 @@ pub(crate) fn builtin_set_buffer(
         }
         Value::Str(str_id) => {
             let s = with_heap(|h| h.get_string(*str_id).to_owned());
-            eval.buffers.find_buffer_by_name(&s).ok_or_else(|| {
+            buffers.find_buffer_by_name(&s).ok_or_else(|| {
                 signal("error", vec![Value::string(format!("No buffer named {s}"))])
             })?
         }
@@ -368,17 +383,16 @@ pub(crate) fn builtin_set_buffer(
             ));
         }
     };
-    eval.buffers.set_current(id);
+    buffers.set_current(id);
     Ok(Value::Buffer(id))
 }
 
-/// (current-buffer) → buffer
-pub(crate) fn builtin_current_buffer(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
+pub(crate) fn builtin_current_buffer_in_manager(
+    buffers: &BufferManager,
+    args: &[Value],
 ) -> EvalResult {
-    expect_args("current-buffer", &args, 0)?;
-    match eval.buffers.current_buffer() {
+    expect_args("current-buffer", args, 0)?;
+    match buffers.current_buffer() {
         Some(buf) => Ok(Value::Buffer(buf.id)),
         None => Ok(Value::Nil),
     }

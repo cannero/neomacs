@@ -1578,6 +1578,7 @@ pub(crate) fn dispatch_builtin(
         // Autoload (evaluator-dependent)
         "autoload" => return Some(super::autoload::builtin_autoload(eval, args)),
         "autoload-do-load" => return Some(super::autoload::builtin_autoload_do_load(eval, args)),
+        "symbol-file" => return Some(super::autoload::builtin_symbol_file_eval(eval, args)),
 
         // Kill ring / text editing (evaluator-dependent — buffer access)
         "downcase-region" => return Some(super::casefiddle::builtin_downcase_region(eval, args)),

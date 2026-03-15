@@ -37,15 +37,20 @@ fn expect_keymap(eval: &super::eval::Evaluator, value: &Value) -> Result<Value, 
 }
 
 /// Get the global keymap from obarray, creating one if needed.
-fn ensure_global_keymap(eval: &mut super::eval::Evaluator) -> Value {
-    if let Some(val) = eval.obarray.symbol_value("global-map").copied() {
+pub(crate) fn ensure_global_keymap_in_obarray(obarray: &mut Obarray) -> Value {
+    if let Some(val) = obarray.symbol_value("global-map").copied() {
         if is_list_keymap(&val) {
             return val;
         }
     }
     let km = make_list_keymap();
-    eval.obarray.set_symbol_value("global-map", km);
+    obarray.set_symbol_value("global-map", km);
     km
+}
+
+/// Get the global keymap from obarray, creating one if needed.
+fn ensure_global_keymap(eval: &mut super::eval::Evaluator) -> Value {
+    ensure_global_keymap_in_obarray(&mut eval.obarray)
 }
 
 /// Parse a key description from a Value, returning emacs event values.
@@ -337,11 +342,25 @@ pub(super) fn builtin_use_local_map(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("use-local-map", &args, 1)?;
-    if args[0].is_nil() {
-        eval.current_local_map = Value::Nil;
+    let keymap = if args[0].is_nil() {
+        Value::Nil
     } else {
-        let keymap = expect_keymap(eval, &args[0])?;
-        eval.current_local_map = keymap;
+        expect_keymap(eval, &args[0])?
+    };
+    eval.current_local_map = keymap;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_use_local_map_in_state(
+    obarray: &Obarray,
+    current_local_map: &mut Value,
+    args: &[Value],
+) -> EvalResult {
+    expect_args("use-local-map", args, 1)?;
+    if args[0].is_nil() {
+        *current_local_map = Value::Nil;
+    } else {
+        *current_local_map = expect_keymap_in_obarray(obarray, &args[0])?;
     }
     Ok(Value::Nil)
 }
@@ -351,9 +370,16 @@ pub(super) fn builtin_use_global_map(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("use-global-map", &args, 1)?;
-    let keymap = expect_keymap(eval, &args[0])?;
-    eval.obarray.set_symbol_value("global-map", keymap);
+    builtin_use_global_map_in_obarray(&mut eval.obarray, &args)
+}
+
+pub(crate) fn builtin_use_global_map_in_obarray(
+    obarray: &mut Obarray,
+    args: &[Value],
+) -> EvalResult {
+    expect_args("use-global-map", args, 1)?;
+    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
+    obarray.set_symbol_value("global-map", keymap);
     Ok(Value::Nil)
 }
 
@@ -362,8 +388,15 @@ pub(super) fn builtin_current_local_map(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("current-local-map", &args, 0)?;
-    Ok(eval.current_local_map)
+    builtin_current_local_map_in_state(eval.current_local_map, &args)
+}
+
+pub(crate) fn builtin_current_local_map_in_state(
+    current_local_map: Value,
+    args: &[Value],
+) -> EvalResult {
+    expect_args("current-local-map", args, 0)?;
+    Ok(current_local_map)
 }
 
 /// (current-global-map) -> keymap
