@@ -1217,6 +1217,45 @@ fn vm_char_primitives_and_buffer_substring_use_narrowed_current_buffer_state() {
 }
 
 #[test]
+fn vm_byte_position_and_get_byte_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "éa")
+                 (let ((m (copy-marker 2)))
+                   (list (byte-to-position 1)
+                         (byte-to-position 2)
+                         (byte-to-position 3)
+                         (position-bytes 1)
+                         (position-bytes m)
+                         (position-bytes 3)
+                         (get-byte m))))"#
+        ),
+        "OK (1 1 2 1 3 4 97)"
+    );
+
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (insert-byte 200 1)
+                 (insert-byte 65 1)
+                 (list (get-byte 1)
+                     (get-byte 2)
+                     (condition-case err
+                         (get-byte 3)
+                       (error (car err)))))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                eval.buffers
+                    .set_buffer_multibyte_flag(current, false)
+                    .expect("set-buffer-multibyte should accept scratch buffer");
+            },
+        ),
+        "OK (200 65 args-out-of-range)"
+    );
+}
+
+#[test]
 fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
     assert_eq!(
         vm_eval_with_init_str(

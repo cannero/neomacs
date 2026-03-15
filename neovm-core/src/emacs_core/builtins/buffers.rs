@@ -2676,14 +2676,20 @@ pub(crate) fn builtin_byte_to_position(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_byte_to_position_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_byte_to_position_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("byte-to-position", &args, 1)?;
     let byte_pos = expect_fixnum(&args[0])?;
     if byte_pos <= 0 {
         return Ok(Value::Nil);
     }
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -2711,11 +2717,17 @@ pub(crate) fn builtin_position_bytes(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("position-bytes", &args, 1)?;
-    let pos = expect_integer_or_marker(&args[0])?;
+    builtin_position_bytes_in_manager(&eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
+pub(crate) fn builtin_position_bytes_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("position-bytes", &args, 1)?;
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -2730,6 +2742,10 @@ pub(crate) fn builtin_position_bytes(
 
 /// `(get-byte &optional POSITION STRING)` -- return a byte value at point or in STRING.
 pub(crate) fn builtin_get_byte(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_get_byte_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_byte_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
     expect_max_args("get-byte", &args, 2)?;
 
     // STRING path: POSITION is a zero-based character index.
@@ -2763,15 +2779,14 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Evaluator, args: Vec<Valu
     }
 
     // Buffer path: POSITION is a 1-based character position.
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     let byte_pos = if args.is_empty() || args[0].is_nil() {
         buf.point()
     } else {
-        let pos = expect_integer_or_marker(&args[0])?;
+        let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
         let point_min = buf.point_min_char() as i64 + 1;
         let point_max = buf.point_max_char() as i64 + 1;
         if pos < point_min || pos >= point_max {
@@ -2788,7 +2803,14 @@ pub(crate) fn builtin_get_byte(eval: &mut super::eval::Evaluator, args: Vec<Valu
     }
 
     if !buf.multibyte {
-        return Ok(Value::Int(buf.text.byte_at(byte_pos) as i64));
+        let code = match buf.char_after(byte_pos) {
+            Some(ch) => ch as u32,
+            None => return Ok(Value::Int(0)),
+        };
+        if (0xE300..=0xE3FF).contains(&code) {
+            return Ok(Value::Int((code - 0xE300) as i64));
+        }
+        return Ok(Value::Int(code as i64));
     }
 
     let code = match buf.char_after(byte_pos) {

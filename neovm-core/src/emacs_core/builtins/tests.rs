@@ -2660,6 +2660,30 @@ fn byte_position_and_clear_bitmap_semantics() {
         Value::Int(3)
     );
     assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::Int(1)]).unwrap(),
+        Value::Int(1)
+    );
+    assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::Int(2)]).unwrap(),
+        Value::Int(2)
+    );
+    assert_eq!(
+        builtin_position_bytes(&mut eval, vec![Value::Int(3)]).unwrap(),
+        Value::Int(4)
+    );
+    assert_eq!(
+        builtin_position_bytes(
+            &mut eval,
+            vec![crate::emacs_core::marker::make_marker_value(
+                Some("*scratch*"),
+                Some(2),
+                false,
+            )],
+        )
+        .unwrap(),
+        Value::Int(2)
+    );
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::Int(5)]).unwrap(),
         Value::Nil
     );
@@ -9655,6 +9679,18 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
         Value::Int(98)
     );
     assert_eq!(
+        builtin_get_byte(
+            &mut eval,
+            vec![crate::emacs_core::marker::make_marker_value(
+                Some("*scratch*"),
+                Some(2),
+                false,
+            )],
+        )
+        .unwrap(),
+        Value::Int(98)
+    );
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::Int(3)]).unwrap(),
         Value::Int(99)
     );
@@ -9682,6 +9718,22 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
         }
         other => panic!("unexpected flow: {other:?}"),
     }
+
+    builtin_erase_buffer(&mut eval, vec![]).unwrap();
+    let current_id = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .set_buffer_multibyte_flag(current_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    builtin_insert_byte(&mut eval, vec![Value::Int(200), Value::Int(1)]).unwrap();
+    builtin_insert_byte(&mut eval, vec![Value::Int(65), Value::Int(1)]).unwrap();
+    assert_eq!(
+        builtin_get_byte(&mut eval, vec![Value::Int(1)]).unwrap(),
+        Value::Int(200)
+    );
+    assert_eq!(
+        builtin_get_byte(&mut eval, vec![Value::Int(2)]).unwrap(),
+        Value::Int(65)
+    );
 }
 
 #[test]

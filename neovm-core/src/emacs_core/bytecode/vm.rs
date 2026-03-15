@@ -1774,6 +1774,27 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_byte_to_position_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_byte_to_position_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_position_bytes_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_position_bytes_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_get_byte_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_get_byte_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_narrow_to_region_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_narrow_to_region_in_manager(
             &mut *self.shared.buffers,
@@ -2513,6 +2534,9 @@ impl<'a> Vm<'a> {
             "char-after" => Some(self.builtin_char_after_shared(args)),
             "char-before" => Some(self.builtin_char_before_shared(args)),
             "buffer-size" => Some(self.builtin_buffer_size_shared(args)),
+            "byte-to-position" => Some(self.builtin_byte_to_position_shared(args)),
+            "position-bytes" => Some(self.builtin_position_bytes_shared(args)),
+            "get-byte" => Some(self.builtin_get_byte_shared(args)),
             "narrow-to-region" => Some(self.builtin_narrow_to_region_shared(args)),
             "widen" => Some(self.builtin_widen_shared(args)),
             "buffer-modified-p" => Some(self.builtin_buffer_modified_p_shared(args)),
