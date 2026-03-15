@@ -1,122 +1,42 @@
 use super::*;
 use crate::emacs_core::bytecode::compiler::Compiler;
-use crate::emacs_core::category::CategoryManager;
-use crate::emacs_core::coding::CodingSystemManager;
-use crate::emacs_core::custom::CustomManager;
+use crate::emacs_core::eval::{Evaluator, VmSharedState};
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
-use crate::window::FrameManager;
 use std::path::PathBuf;
 
-fn vm_eval(src: &str) -> Result<Value, EvalError> {
-    let forms = parse_forms(src).expect("parse");
-    let mut compiler = Compiler::new(false);
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    // Set up standard variables
-    obarray.set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
-    obarray.set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
+fn new_vm(eval: &mut Evaluator) -> Vm<'_> {
+    Vm::new(VmSharedState::from_evaluator(eval))
+}
 
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
+fn with_vm_eval<R>(src: &str, lexical: bool, f: impl FnOnce(Result<Value, EvalError>) -> R) -> R {
+    let mut eval = Evaluator::new_vm_harness();
+    eval.set_lexical_binding(lexical);
+    let forms = parse_forms(src).expect("parse");
+    let mut compiler = Compiler::new(lexical);
 
     let mut last = Value::Nil;
     for form in &forms {
         let func = compiler.compile_toplevel(form);
-        let mut vm = Vm::new(
-            &mut obarray,
-            &mut dynamic,
-            &mut lexenv,
-            &mut features,
-            &mut require_stack,
-            &mut loads_in_progress,
-            &mut autoloads,
-            &mut custom,
-            &mut buffers,
-            &mut category_manager,
-            &mut frames,
-            &mut coding_systems,
-            &mut match_data,
-            &mut watchers,
-            &mut catch_tags,
-        );
-        last = vm.execute(&func, vec![]).map_err(map_flow)?;
+        let mut vm = new_vm(&mut eval);
+        match vm.execute(&func, vec![]) {
+            Ok(value) => last = value,
+            Err(flow) => return f(Err(map_flow(flow))),
+        }
     }
-    Ok(last)
+    f(Ok(last))
 }
 
 fn vm_eval_str(src: &str) -> String {
-    match vm_eval(src) {
-        Ok(val) => format!("OK {}", val),
-        Err(e) => format!("ERR {:?}", e),
-    }
-}
-
-fn vm_eval_with_lexical(src: &str, lexical: bool) -> Result<Value, EvalError> {
-    let forms = parse_forms(src).expect("parse");
-    let mut compiler = Compiler::new(lexical);
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    obarray.set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
-    obarray.set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
-
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
-
-    let mut last = Value::Nil;
-    for form in &forms {
-        let func = compiler.compile_toplevel(form);
-        let mut vm = Vm::new(
-            &mut obarray,
-            &mut dynamic,
-            &mut lexenv,
-            &mut features,
-            &mut require_stack,
-            &mut loads_in_progress,
-            &mut autoloads,
-            &mut custom,
-            &mut buffers,
-            &mut category_manager,
-            &mut frames,
-            &mut coding_systems,
-            &mut match_data,
-            &mut watchers,
-            &mut catch_tags,
-        );
-        last = vm.execute(&func, vec![]).map_err(map_flow)?;
-    }
-    Ok(last)
+    with_vm_eval(src, false, |result| {
+        crate::emacs_core::error::format_eval_result(&result)
+    })
 }
 
 fn vm_eval_lexical_str(src: &str) -> String {
-    match vm_eval_with_lexical(src, true) {
-        Ok(val) => format!("OK {}", val),
-        Err(e) => format!("ERR {:?}", e),
-    }
+    with_vm_eval(src, true, |result| {
+        crate::emacs_core::error::format_eval_result(&result)
+    })
 }
 
 #[test]
@@ -152,46 +72,16 @@ fn execute_manual_vm<T>(
     mut func: ByteCodeFunction,
     init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,
 ) -> (Value, crate::buffer::BufferManager, T) {
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let init_state = init(&mut func, &mut buffers);
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
+    let mut eval = Evaluator::new_vm_harness();
+    let init_state = init(&mut func, &mut eval.buffers);
 
     let result = {
-        let mut vm = Vm::new(
-            &mut obarray,
-            &mut dynamic,
-            &mut lexenv,
-            &mut features,
-            &mut require_stack,
-            &mut loads_in_progress,
-            &mut autoloads,
-            &mut custom,
-            &mut buffers,
-            &mut category_manager,
-            &mut frames,
-            &mut coding_systems,
-            &mut match_data,
-            &mut watchers,
-            &mut catch_tags,
-        );
+        let mut vm = new_vm(&mut eval);
         vm.execute(&func, vec![])
             .expect("manual bytecode should execute")
     };
 
+    let buffers = std::mem::replace(&mut eval.buffers, crate::buffer::BufferManager::new());
     (result, buffers, init_state)
 }
 
@@ -455,40 +345,9 @@ fn vm_unbind_restores_saved_restriction() {
 
 #[test]
 fn vm_eval_bridge_preserves_active_catch_tags() {
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags = vec![Value::symbol("vm-bridge-catch")];
-
-    let mut vm = Vm::new(
-        &mut obarray,
-        &mut dynamic,
-        &mut lexenv,
-        &mut features,
-        &mut require_stack,
-        &mut loads_in_progress,
-        &mut autoloads,
-        &mut custom,
-        &mut buffers,
-        &mut category_manager,
-        &mut frames,
-        &mut coding_systems,
-        &mut match_data,
-        &mut watchers,
-        &mut catch_tags,
-    );
+    let mut eval = Evaluator::new_vm_harness();
+    eval.catch_tags.push(Value::symbol("vm-bridge-catch"));
+    let mut vm = new_vm(&mut eval);
 
     let throw_form = Value::list(vec![
         Value::symbol("throw"),
@@ -662,39 +521,8 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         interactive: None,
     };
 
-    let mut obarray = Obarray::new();
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
-
-    let mut vm = Vm::new(
-        &mut obarray,
-        &mut dynamic,
-        &mut lexenv,
-        &mut features,
-        &mut require_stack,
-        &mut loads_in_progress,
-        &mut autoloads,
-        &mut custom,
-        &mut buffers,
-        &mut category_manager,
-        &mut frames,
-        &mut coding_systems,
-        &mut match_data,
-        &mut watchers,
-        &mut catch_tags,
-    );
+    let mut eval = Evaluator::new_vm_harness();
+    let mut vm = new_vm(&mut eval);
     let result = vm.execute(&func, vec![]).expect("vm switch should execute");
     assert_eq!(result, Value::Int(20));
 }
@@ -820,40 +648,8 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         interactive: None,
     };
 
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
-
-    let mut vm = Vm::new(
-        &mut obarray,
-        &mut dynamic,
-        &mut lexenv,
-        &mut features,
-        &mut require_stack,
-        &mut loads_in_progress,
-        &mut autoloads,
-        &mut custom,
-        &mut buffers,
-        &mut category_manager,
-        &mut frames,
-        &mut coding_systems,
-        &mut match_data,
-        &mut watchers,
-        &mut catch_tags,
-    );
+    let mut eval = Evaluator::new_vm_harness();
+    let mut vm = new_vm(&mut eval);
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
     assert_eq!(result, Value::list(vec![Value::Int(42), Value::Int(99)]));
@@ -864,6 +660,14 @@ fn vm_eval_bridge_preserves_frames_across_eval_dependent_builtins() {
     assert_eq!(
         vm_eval_str("(frame-parameter (selected-frame) 'width)"),
         "OK 80"
+    );
+}
+
+#[test]
+fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
+    assert_eq!(
+        vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),
+        "OK t"
     );
 }
 
@@ -925,9 +729,8 @@ fn vm_fillarray_string_writeback() {
 
 #[test]
 fn vm_aref_aset_error_parity() {
-    let aref_err = vm_eval("(aref [10 20 30] -1)").expect_err("aref should reject -1");
-    match aref_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(aref [10 20 30] -1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "args-out-of-range");
             assert_eq!(
                 data,
@@ -938,11 +741,10 @@ fn vm_aref_aset_error_parity() {
             );
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let aset_err = vm_eval("(aset [10 20 30] -1 99)").expect_err("aset should reject -1");
-    match aset_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(aset [10 20 30] -1 99)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "args-out-of-range");
             assert_eq!(
                 data,
@@ -953,38 +755,34 @@ fn vm_aref_aset_error_parity() {
             );
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let string_aset_err =
-        vm_eval("(aset \"abc\" 1 nil)").expect_err("aset string should validate character");
-    match string_aset_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(aset \"abc\" 1 nil)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("characterp"), Value::Nil]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 }
 
 #[test]
 fn vm_builtin_wrong_arity_uses_subr_payload() {
-    let zero_arity = vm_eval("(car)").expect_err("car with 0 args must signal");
-    match zero_arity {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(car)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(data, vec![Value::Subr(intern("car")), Value::Int(0)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let two_arity = vm_eval("(car 1 2)").expect_err("car with 2 args must signal");
-    match two_arity {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(car 1 2)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(data, vec![Value::Subr(intern("car")), Value::Int(2)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 }
 
 #[test]
@@ -996,39 +794,8 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
     func.ops = vec![Op::Constant(0), Op::Return];
     func.max_stack = 1;
 
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
-    let mut vm = Vm::new(
-        &mut obarray,
-        &mut dynamic,
-        &mut lexenv,
-        &mut features,
-        &mut require_stack,
-        &mut loads_in_progress,
-        &mut autoloads,
-        &mut custom,
-        &mut buffers,
-        &mut category_manager,
-        &mut frames,
-        &mut coding_systems,
-        &mut match_data,
-        &mut watchers,
-        &mut catch_tags,
-    );
+    let mut eval = Evaluator::new_vm_harness();
+    let mut vm = new_vm(&mut eval);
 
     let err = vm
         .execute(&func, vec![Value::Int(1)])
@@ -1047,180 +814,159 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
 
 #[test]
 fn vm_string_compare_type_errors_match_oracle() {
-    let string_equal_err = vm_eval("(string= \"ab\" 1)").expect_err("string= must type-check");
-    match string_equal_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(string= \"ab\" 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("stringp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let string_lessp_err =
-        vm_eval("(string-lessp \"ab\" 1)").expect_err("string-lessp must type-check");
-    match string_lessp_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(string-lessp \"ab\" 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("stringp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 }
 
 #[test]
 fn vm_list_lookup_type_errors_match_oracle() {
-    let car_err = vm_eval("(car 1)").expect_err("car must type-check list");
-    match car_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(car 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let cdr_err = vm_eval("(cdr 1)").expect_err("cdr must type-check list");
-    match cdr_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(cdr 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    assert_eq!(
-        vm_eval("(car-safe 1)").expect("car-safe should be nil"),
-        Value::Nil
-    );
-    assert_eq!(
-        vm_eval("(cdr-safe 1)").expect("cdr-safe should be nil"),
-        Value::Nil
-    );
+    with_vm_eval("(car-safe 1)", false, |result| match result {
+        Ok(value) => assert_eq!(value, Value::Nil),
+        other => panic!("unexpected error: {other:?}"),
+    });
+    with_vm_eval("(cdr-safe 1)", false, |result| match result {
+        Ok(value) => assert_eq!(value, Value::Nil),
+        other => panic!("unexpected error: {other:?}"),
+    });
 
-    let nth_int_err = vm_eval("(nth 'a '(1 2 3))").expect_err("nth must type-check index");
-    match nth_int_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(nth 'a '(1 2 3))", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("integerp"), Value::symbol("a")]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let nth_list_err = vm_eval("(nth 1 1)").expect_err("nth must type-check list");
-    match nth_list_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(nth 1 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let nthcdr_int_err = vm_eval("(nthcdr 'a '(1 2 3))").expect_err("nthcdr must type-check index");
-    match nthcdr_int_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(nthcdr 'a '(1 2 3))", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("integerp"), Value::symbol("a")]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let nthcdr_list_err = vm_eval("(nthcdr 1 1)").expect_err("nthcdr must type-check list");
-    match nthcdr_list_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(nthcdr 1 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let memq_err = vm_eval("(memq 'a 1)").expect_err("memq must type-check list");
-    match memq_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(memq 'a 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let assq_err = vm_eval("(assq 'a 1)").expect_err("assq must type-check alist");
-    match assq_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(assq 'a 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 }
 
 #[test]
 fn vm_length_and_symbol_access_type_errors_match_oracle() {
-    let dotted_length_err =
-        vm_eval("(length '(1 . 2))").expect_err("length must reject dotted lists");
-    match dotted_length_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(length '(1 . 2))", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("listp"), Value::Int(2)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let symbol_value_err =
-        vm_eval("(symbol-value 1)").expect_err("symbol-value must type-check symbols");
-    match symbol_value_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(symbol-value 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let symbol_function_err =
-        vm_eval("(symbol-function 1)").expect_err("symbol-function must type-check symbols");
-    match symbol_function_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(symbol-function 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 }
 
 #[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
-    let set_err = vm_eval("(set 1 2)").expect_err("set must type-check symbols");
-    match set_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(set 1 2)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let fset_err = vm_eval("(fset 1 2)").expect_err("fset must type-check symbols");
-    match fset_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(fset 1 2)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let get_err = vm_eval("(get 1 'p)").expect_err("get must type-check symbols");
-    match get_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(get 1 'p)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 
-    let put_err = vm_eval("(put 1 'p 2)").expect_err("put must type-check first argument");
-    match put_err {
-        EvalError::Signal { symbol, data } => {
+    with_vm_eval("(put 1 'p 2)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
             assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
-    }
+    });
 }
 
 #[test]
@@ -1290,40 +1036,8 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         interactive: None,
     };
 
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
-
-    let mut vm = Vm::new(
-        &mut obarray,
-        &mut dynamic,
-        &mut lexenv,
-        &mut features,
-        &mut require_stack,
-        &mut loads_in_progress,
-        &mut autoloads,
-        &mut custom,
-        &mut buffers,
-        &mut category_manager,
-        &mut frames,
-        &mut coding_systems,
-        &mut match_data,
-        &mut watchers,
-        &mut catch_tags,
-    );
+    let mut eval = Evaluator::new_vm_harness();
+    let mut vm = new_vm(&mut eval);
 
     let result = vm
         .execute(
@@ -1346,52 +1060,21 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
 
 #[test]
 fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
+    let mut eval = Evaluator::new_vm_harness();
     let forms =
         parse_forms("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")").expect("parse");
     let mut compiler = Compiler::new(false);
     let func = compiler.compile_toplevel(&forms[0]);
 
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
-
     let result = {
-        let mut vm = Vm::new(
-            &mut obarray,
-            &mut dynamic,
-            &mut lexenv,
-            &mut features,
-            &mut require_stack,
-            &mut loads_in_progress,
-            &mut autoloads,
-            &mut custom,
-            &mut buffers,
-            &mut category_manager,
-            &mut frames,
-            &mut coding_systems,
-            &mut match_data,
-            &mut watchers,
-            &mut catch_tags,
-        );
+        let mut vm = new_vm(&mut eval);
         vm.execute(&func, vec![])
             .expect("compiled autoload should execute")
     };
 
     assert_eq!(result, Value::symbol("vm-bytecode-auto"));
-    let entry = autoloads
+    let entry = eval
+        .autoloads
         .get_entry("vm-bytecode-auto")
         .expect("autoload registration should propagate back out of VM bridge");
     assert_eq!(entry.file, "vm-bytecode-auto-file");
@@ -1407,6 +1090,7 @@ fn vm_compiled_require_respects_recursive_require_guard() {
     )
     .expect("write require fixture");
 
+    let mut eval = Evaluator::new_vm_harness();
     let forms = parse_forms(
         "(progn
            (setq vm-bytecode-required-ran nil)
@@ -1416,46 +1100,14 @@ fn vm_compiled_require_respects_recursive_require_guard() {
     .expect("parse");
     let mut compiler = Compiler::new(false);
     let func = compiler.compile_toplevel(&forms[0]);
-
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    obarray.set_symbol_value(
+    eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack = vec![intern("vm-bytecode-rec")];
-    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
+    eval.require_stack = vec![intern("vm-bytecode-rec")];
 
     let result = {
-        let mut vm = Vm::new(
-            &mut obarray,
-            &mut dynamic,
-            &mut lexenv,
-            &mut features,
-            &mut require_stack,
-            &mut loads_in_progress,
-            &mut autoloads,
-            &mut custom,
-            &mut buffers,
-            &mut category_manager,
-            &mut frames,
-            &mut coding_systems,
-            &mut match_data,
-            &mut watchers,
-            &mut catch_tags,
-        );
+        let mut vm = new_vm(&mut eval);
         vm.execute(&func, vec![])
             .expect("compiled require should observe recursive guard")
     };
@@ -1474,6 +1126,7 @@ fn vm_compiled_load_respects_loads_in_progress_guard() {
     std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
     let fixture = fixture.canonicalize().expect("canonical load fixture");
 
+    let mut eval = Evaluator::new_vm_harness();
     let forms = parse_forms(&format!(
         "(progn
            (setq vm-bytecode-load-ran nil)
@@ -1484,42 +1137,10 @@ fn vm_compiled_load_respects_loads_in_progress_guard() {
     .expect("parse");
     let mut compiler = Compiler::new(false);
     let func = compiler.compile_toplevel(&forms[0]);
-
-    let mut obarray = Obarray::new();
-    crate::emacs_core::errors::init_standard_errors(&mut obarray);
-    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
-    let mut lexenv: Value = Value::Nil;
-    let mut features: Vec<SymId> = Vec::new();
-    let mut require_stack: Vec<SymId> = Vec::new();
-    let mut loads_in_progress = vec![fixture];
-    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
-    let mut custom = CustomManager::new();
-    let mut buffers = crate::buffer::BufferManager::new();
-    let mut category_manager = CategoryManager::new();
-    let mut frames = FrameManager::new();
-    let mut coding_systems = CodingSystemManager::new();
-    let mut match_data: Option<MatchData> = None;
-    let mut watchers = VariableWatcherList::new();
-    let mut catch_tags: Vec<Value> = Vec::new();
+    eval.loads_in_progress = vec![fixture];
 
     let result = {
-        let mut vm = Vm::new(
-            &mut obarray,
-            &mut dynamic,
-            &mut lexenv,
-            &mut features,
-            &mut require_stack,
-            &mut loads_in_progress,
-            &mut autoloads,
-            &mut custom,
-            &mut buffers,
-            &mut category_manager,
-            &mut frames,
-            &mut coding_systems,
-            &mut match_data,
-            &mut watchers,
-            &mut catch_tags,
-        );
+        let mut vm = new_vm(&mut eval);
         vm.execute(&func, vec![])
             .expect("compiled load should observe recursive load guard")
     };

@@ -116,10 +116,14 @@ pub(crate) fn with_saved_interner<R>(f: impl FnOnce() -> R) -> R {
     result
 }
 
+pub(crate) fn current_interner_ptr() -> *mut StringInterner {
+    CURRENT_INTERNER.with(|h| h.get())
+}
+
 /// Get raw pointer to the current interner.
 /// In test mode, auto-creates a fallback interner if none is set.
 #[inline]
-fn current_interner_ptr() -> *mut StringInterner {
+fn current_interner_ptr_or_fallback() -> *mut StringInterner {
     CURRENT_INTERNER.with(|h| {
         let ptr = h.get();
         if !ptr.is_null() {
@@ -148,7 +152,7 @@ fn current_interner_ptr() -> *mut StringInterner {
 /// Intern a string using the thread-local interner. Convenience wrapper.
 #[inline]
 pub fn intern(s: &str) -> SymId {
-    let ptr = current_interner_ptr();
+    let ptr = current_interner_ptr_or_fallback();
     unsafe { &mut *ptr }.intern(s)
 }
 
@@ -156,14 +160,14 @@ pub fn intern(s: &str) -> SymId {
 /// Always creates a new unique SymId, never reuses an existing one.
 #[inline]
 pub fn intern_uninterned(s: &str) -> SymId {
-    let ptr = current_interner_ptr();
+    let ptr = current_interner_ptr_or_fallback();
     unsafe { &mut *ptr }.intern_uninterned(s)
 }
 
 /// Look up the canonical interned id for a string without interning it.
 #[inline]
 pub fn lookup_interned(s: &str) -> Option<SymId> {
-    let ptr = current_interner_ptr();
+    let ptr = current_interner_ptr_or_fallback();
     unsafe { &*ptr }.lookup(s)
 }
 
@@ -177,7 +181,7 @@ pub fn lookup_interned(s: &str) -> Option<SymId> {
 /// Same unsafe-pointer pattern as `as_str()` / `get_lambda_data()` in value.rs.
 #[inline]
 pub fn resolve_sym(id: SymId) -> &'static str {
-    let ptr = current_interner_ptr();
+    let ptr = current_interner_ptr_or_fallback();
     let interner = unsafe { &*ptr };
     let s = interner.resolve(id);
     // Safety: The String's heap buffer is stable because:

@@ -1,19 +1,18 @@
 //! Bytecode virtual machine — stack-based interpreter.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
 use crate::buffer::{BufferId, BufferManager, InsertionType};
 use crate::emacs_core::advice::VariableWatcherList;
-use crate::emacs_core::autoload::AutoloadManager;
 use crate::emacs_core::builtins;
 use crate::emacs_core::category::CategoryManager;
 use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
 use crate::emacs_core::errors::signal_matches_condition_value;
+use crate::emacs_core::eval::VmSharedState;
 use crate::emacs_core::intern::{SymId, intern, intern_uninterned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 use crate::emacs_core::string_escape::{storage_char_len, storage_substring};
@@ -83,80 +82,33 @@ enum VmUnwindEntry {
 ///
 /// Operates on an Evaluator's obarray and dynamic binding stack.
 pub struct Vm<'a> {
-    obarray: &'a mut Obarray,
-    dynamic: &'a mut Vec<OrderedSymMap>,
-    lexenv: &'a mut Value,
-    #[allow(dead_code)]
-    features: &'a mut Vec<SymId>,
-    require_stack: &'a mut Vec<SymId>,
-    loads_in_progress: &'a mut Vec<PathBuf>,
-    autoloads: &'a mut AutoloadManager,
-    custom: &'a mut CustomManager,
-    buffers: &'a mut BufferManager,
-    category_manager: &'a mut CategoryManager,
-    frames: &'a mut FrameManager,
-    coding_systems: &'a mut CodingSystemManager,
-    match_data: &'a mut Option<MatchData>,
-    watchers: &'a mut VariableWatcherList,
-    /// Active catch tags from the evaluator — shared with interpreter
-    /// so throws can check for matching catches across eval/VM boundaries.
-    catch_tags: &'a mut Vec<Value>,
+    shared: VmSharedState<'a>,
     /// Values that must remain GC-visible while the VM crosses into evaluator
     /// code that may trigger collection.
     gc_roots: Vec<Value>,
-    depth: usize,
-    max_depth: usize,
 }
 
 impl<'a> Vm<'a> {
-    pub fn new(
-        obarray: &'a mut Obarray,
-        dynamic: &'a mut Vec<OrderedSymMap>,
-        lexenv: &'a mut Value,
-        features: &'a mut Vec<SymId>,
-        require_stack: &'a mut Vec<SymId>,
-        loads_in_progress: &'a mut Vec<PathBuf>,
-        autoloads: &'a mut AutoloadManager,
-        custom: &'a mut CustomManager,
-        buffers: &'a mut BufferManager,
-        category_manager: &'a mut CategoryManager,
-        frames: &'a mut FrameManager,
-        coding_systems: &'a mut CodingSystemManager,
-        match_data: &'a mut Option<MatchData>,
-        watchers: &'a mut VariableWatcherList,
-        catch_tags: &'a mut Vec<Value>,
-    ) -> Self {
+    pub(crate) fn from_evaluator(eval: &'a mut crate::emacs_core::eval::Evaluator) -> Self {
+        Self::new(VmSharedState::from_evaluator(eval))
+    }
+
+    pub(crate) fn new(shared: VmSharedState<'a>) -> Self {
         Self {
-            obarray,
-            dynamic,
-            lexenv,
-            features,
-            require_stack,
-            loads_in_progress,
-            autoloads,
-            custom,
-            buffers,
-            category_manager,
-            frames,
-            coding_systems,
-            match_data,
-            watchers,
-            catch_tags,
+            shared,
             gc_roots: Vec::new(),
-            depth: 0,
-            max_depth: 1600,
         }
     }
 
     /// Set the current depth and max_depth (inherited from the Evaluator).
     pub fn set_depth(&mut self, depth: usize, max_depth: usize) {
-        self.depth = depth;
-        self.max_depth = max_depth;
+        *self.shared.depth = depth;
+        *self.shared.max_depth = max_depth;
     }
 
     /// Get the current depth (to sync back to the Evaluator).
     pub fn get_depth(&self) -> usize {
-        self.depth
+        *self.shared.depth
     }
 
     fn with_frame_roots<T>(
@@ -255,10 +207,10 @@ impl<'a> Vm<'a> {
         args: Vec<Value>,
         func_value: Value,
     ) -> EvalResult {
-        self.depth += 1;
-        if self.depth > self.max_depth {
-            let overflow_depth = self.depth as i64;
-            self.depth -= 1;
+        *self.shared.depth += 1;
+        if *self.shared.depth > *self.shared.max_depth {
+            let overflow_depth = *self.shared.depth as i64;
+            *self.shared.depth -= 1;
             return Err(signal(
                 "excessive-lisp-nesting",
                 vec![Value::Int(overflow_depth)],
@@ -266,7 +218,7 @@ impl<'a> Vm<'a> {
         }
 
         let result = self.run_frame(func, args, func_value);
-        self.depth -= 1;
+        *self.shared.depth -= 1;
         result
     }
 
@@ -367,31 +319,31 @@ impl<'a> Vm<'a> {
                 // the current lexical environment, starting from the captured
                 // closure env when one exists.
                 let saved_lexenv = if let Some(env) = func.env {
-                    std::mem::replace(self.lexenv, env)
+                    std::mem::replace(self.shared.lexenv, env)
                 } else {
-                    *self.lexenv
+                    *self.shared.lexenv
                 };
                 for (sym_id, val) in frame.iter() {
-                    *self.lexenv = lexenv_prepend(*self.lexenv, *sym_id, *val);
+                    *self.shared.lexenv = lexenv_prepend(*self.shared.lexenv, *sym_id, *val);
                 }
                 let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
-                *self.lexenv = saved_lexenv;
+                *self.shared.lexenv = saved_lexenv;
                 let cleanup = self.unwind_specpdl_all(&mut specpdl);
                 return merge_result_with_cleanup(result, cleanup);
             }
 
-            self.dynamic.push(frame);
+            self.shared.dynamic.push(frame);
             let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
-            self.dynamic.pop();
+            self.shared.dynamic.pop();
             let cleanup = self.unwind_specpdl_all(&mut specpdl);
             return merge_result_with_cleanup(result, cleanup);
         }
 
         // No params: set up lexenv for lexical closures/functions, then run.
         let saved_lexenv = if let Some(env) = func.env {
-            Some(std::mem::replace(self.lexenv, env))
+            Some(std::mem::replace(self.shared.lexenv, env))
         } else if func.lexical {
-            Some(*self.lexenv)
+            Some(*self.shared.lexenv)
         } else {
             None
         };
@@ -399,7 +351,7 @@ impl<'a> Vm<'a> {
         let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
 
         if let Some(old) = saved_lexenv {
-            *self.lexenv = old;
+            *self.shared.lexenv = old;
         }
         let cleanup_roots = Self::result_roots(&result);
         let mut cleanup_extra_roots = cleanup_roots.clone();
@@ -509,15 +461,15 @@ impl<'a> Vm<'a> {
                     let old_value = self.lookup_var(&name).unwrap_or(Value::Nil);
                     let name_id = intern(&name);
                     let lexical_bind = func.lexical
-                        && !self.obarray.is_constant_id(name_id)
-                        && !self.obarray.is_special_id(name_id)
+                        && !self.shared.obarray.is_constant_id(name_id)
+                        && !self.shared.obarray.is_special_id(name_id)
                         && !crate::emacs_core::value::lexenv_declares_special(
-                            *self.lexenv,
+                            *self.shared.lexenv,
                             name_id,
                         );
                     if lexical_bind {
-                        let old_lexenv = *self.lexenv;
-                        *self.lexenv = lexenv_prepend(*self.lexenv, name_id, val);
+                        let old_lexenv = *self.shared.lexenv;
+                        *self.shared.lexenv = lexenv_prepend(*self.shared.lexenv, name_id, val);
                         specpdl.push(VmUnwindEntry::LexicalBinding {
                             name: name.clone(),
                             restored_value: old_value,
@@ -526,7 +478,7 @@ impl<'a> Vm<'a> {
                     } else {
                         let mut frame = OrderedSymMap::new();
                         frame.insert(name_id, val);
-                        self.dynamic.push(frame);
+                        self.shared.dynamic.push(frame);
                         specpdl.push(VmUnwindEntry::DynamicBinding {
                             name: name.clone(),
                             restored_value: old_value,
@@ -705,19 +657,24 @@ impl<'a> Vm<'a> {
                     return Ok(stack.pop().unwrap_or(Value::Nil));
                 }
                 Op::SaveCurrentBuffer => {
-                    if let Some(buffer_id) = self.buffers.current_buffer().map(|buffer| buffer.id) {
+                    if let Some(buffer_id) =
+                        self.shared.buffers.current_buffer().map(|buffer| buffer.id)
+                    {
                         specpdl.push(VmUnwindEntry::CurrentBuffer { buffer_id });
                     }
                 }
                 Op::SaveExcursion => {
                     if let Some((buffer_id, point)) = self
+                        .shared
                         .buffers
                         .current_buffer()
                         .map(|buffer| (buffer.id, buffer.pt))
                     {
-                        let marker_id =
-                            self.buffers
-                                .create_marker(buffer_id, point, InsertionType::Before);
+                        let marker_id = self.shared.buffers.create_marker(
+                            buffer_id,
+                            point,
+                            InsertionType::Before,
+                        );
                         specpdl.push(VmUnwindEntry::Excursion {
                             buffer_id,
                             marker_id,
@@ -726,6 +683,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::SaveRestriction => {
                     if let Some((buffer_id, begv, zv, len)) = self
+                        .shared
                         .buffers
                         .current_buffer()
                         .map(|buffer| (buffer.id, buffer.begv, buffer.zv, buffer.text.len()))
@@ -733,12 +691,16 @@ impl<'a> Vm<'a> {
                         let entry = if begv == 0 && zv == len {
                             VmUnwindEntry::Restriction(SavedRestriction::None { buffer_id })
                         } else {
-                            let beg_marker =
-                                self.buffers
-                                    .create_marker(buffer_id, begv, InsertionType::Before);
-                            let end_marker =
-                                self.buffers
-                                    .create_marker(buffer_id, zv, InsertionType::After);
+                            let beg_marker = self.shared.buffers.create_marker(
+                                buffer_id,
+                                begv,
+                                InsertionType::Before,
+                            );
+                            let end_marker = self.shared.buffers.create_marker(
+                                buffer_id,
+                                zv,
+                                InsertionType::After,
+                            );
                             VmUnwindEntry::Restriction(SavedRestriction::Markers {
                                 buffer_id,
                                 beg_marker,
@@ -1126,14 +1088,14 @@ impl<'a> Vm<'a> {
                     });
                     // Register in evaluator so sf_throw / nested VM throws can
                     // see this catch tag when deciding throw vs no-catch.
-                    self.catch_tags.push(tag);
+                    self.shared.catch_tags.push(tag);
                 }
                 Op::PopHandler => {
                     if let Some(handler) = handlers.pop() {
                         match handler {
                             Handler::Catch { .. } => {
                                 // Remove from evaluator's catch_tags registry.
-                                self.catch_tags.pop();
+                                self.shared.catch_tags.pop();
                             }
                             _ => {}
                         }
@@ -1165,7 +1127,7 @@ impl<'a> Vm<'a> {
                     let val = constants[*idx as usize];
                     if let Some(bc_data) = val.get_bytecode_data() {
                         let mut closure = bc_data.clone();
-                        closure.env = Some(*self.lexenv);
+                        closure.env = Some(*self.shared.lexenv);
                         stack.push(Value::make_bytecode(closure));
                     } else {
                         stack.push(val);
@@ -1204,7 +1166,8 @@ impl<'a> Vm<'a> {
             Value::Symbol(id) => {
                 let name = resolve_sym(*id);
                 let alias_target =
-                    self.obarray
+                    self.shared
+                        .obarray
                         .symbol_function(name)
                         .and_then(|bound| match bound {
                             Value::Symbol(tid) => Some(resolve_sym(*tid).to_owned()),
@@ -1269,22 +1232,22 @@ impl<'a> Vm<'a> {
         }
         // Walk the lexenv cons alist and replace alias refs in binding values
         {
-            let mut lexenv_val = *self.lexenv;
+            let mut lexenv_val = *self.shared.lexenv;
             Self::replace_alias_refs_in_value(
                 &mut lexenv_val,
                 first_arg,
                 &replacement,
                 &mut visited,
             );
-            *self.lexenv = lexenv_val;
+            *self.shared.lexenv = lexenv_val;
         }
-        for frame in self.dynamic.iter_mut() {
+        for frame in self.shared.dynamic.iter_mut() {
             for value in frame.values_mut() {
                 Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
             }
         }
-        if let Some(current_id) = self.buffers.current_buffer_id()
-            && let Some(buf) = self.buffers.get_mut(current_id)
+        if let Some(current_id) = self.shared.buffers.current_buffer_id()
+            && let Some(buf) = self.shared.buffers.get_mut(current_id)
         {
             for value in buf.properties.values_mut() {
                 Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
@@ -1292,13 +1255,14 @@ impl<'a> Vm<'a> {
         }
 
         let symbols: Vec<String> = self
+            .shared
             .obarray
             .all_symbols()
             .into_iter()
             .map(str::to_string)
             .collect();
         for name in symbols {
-            if let Some(symbol) = self.obarray.get_mut(&name) {
+            if let Some(symbol) = self.shared.obarray.get_mut(&name) {
                 if let Some(value) = symbol.value.as_mut() {
                     Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
                 }
@@ -1388,34 +1352,34 @@ impl<'a> Vm<'a> {
         }
 
         let name_id = intern(name);
-        let is_special = (self.obarray.is_special_id(name_id)
-            && !self.obarray.is_constant_id(name_id))
-            || crate::emacs_core::value::lexenv_declares_special(*self.lexenv, name_id);
+        let is_special = (self.shared.obarray.is_special_id(name_id)
+            && !self.shared.obarray.is_constant_id(name_id))
+            || crate::emacs_core::value::lexenv_declares_special(*self.shared.lexenv, name_id);
 
         // GNU Emacs resolves declared-special vars dynamically even when
         // lexical binding is active; the interpreter path already does this.
         if !is_special {
-            if let Some(val) = lexenv_lookup(*self.lexenv, name_id) {
+            if let Some(val) = lexenv_lookup(*self.shared.lexenv, name_id) {
                 return Ok(val);
             }
         }
 
         // Check dynamic
-        for frame in self.dynamic.iter().rev() {
+        for frame in self.shared.dynamic.iter().rev() {
             if let Some(val) = frame.get(&name_id) {
                 return Ok(*val);
             }
         }
 
         // Current buffer-local binding.
-        if let Some(buf) = self.buffers.current_buffer()
+        if let Some(buf) = self.shared.buffers.current_buffer()
             && let Some(value) = buf.buffer_local_value(name)
         {
             return Ok(value);
         }
 
         // Obarray
-        if let Some(val) = self.obarray.symbol_value(name) {
+        if let Some(val) = self.shared.obarray.symbol_value(name) {
             return Ok(*val);
         }
 
@@ -1431,19 +1395,19 @@ impl<'a> Vm<'a> {
 
     fn assign_var(&mut self, name: &str, value: Value) -> Result<(), Flow> {
         let name_id = intern(name);
-        let is_special = (self.obarray.is_special_id(name_id)
-            && !self.obarray.is_constant_id(name_id))
-            || crate::emacs_core::value::lexenv_declares_special(*self.lexenv, name_id);
+        let is_special = (self.shared.obarray.is_special_id(name_id)
+            && !self.shared.obarray.is_constant_id(name_id))
+            || crate::emacs_core::value::lexenv_declares_special(*self.shared.lexenv, name_id);
 
         if !is_special {
-            if let Some(cell_id) = lexenv_assq(*self.lexenv, name_id) {
+            if let Some(cell_id) = lexenv_assq(*self.shared.lexenv, name_id) {
                 lexenv_set(cell_id, value);
                 return Ok(());
             }
         }
 
         // Check dynamic
-        for frame in self.dynamic.iter_mut().rev() {
+        for frame in self.shared.dynamic.iter_mut().rev() {
             if frame.contains_key(&name_id) {
                 frame.insert(name_id, value);
                 return Ok(());
@@ -1451,15 +1415,19 @@ impl<'a> Vm<'a> {
         }
 
         // Update existing buffer-local binding if present.
-        if let Some(current_id) = self.buffers.current_buffer_id()
-            && let Some(buf) = self.buffers.get(current_id)
+        if let Some(current_id) = self.shared.buffers.current_buffer_id()
+            && let Some(buf) = self.shared.buffers.get(current_id)
         {
             if name == "buffer-undo-list" {
-                let _ = self.buffers.configure_buffer_undo_list(current_id, value);
+                let _ = self
+                    .shared
+                    .buffers
+                    .configure_buffer_undo_list(current_id, value);
                 return Ok(());
             }
             if buf.get_buffer_local(name).is_some() {
                 let _ = self
+                    .shared
                     .buffers
                     .set_buffer_local_property(current_id, name, value);
                 return Ok(());
@@ -1467,9 +1435,10 @@ impl<'a> Vm<'a> {
         }
 
         // Auto-local variables become local upon assignment.
-        if self.custom.is_auto_buffer_local(name) {
-            if let Some(current_id) = self.buffers.current_buffer_id() {
+        if self.shared.custom.is_auto_buffer_local(name) {
+            if let Some(current_id) = self.shared.buffers.current_buffer_id() {
                 let _ = self
+                    .shared
                     .buffers
                     .set_buffer_local_property(current_id, name, value);
                 return Ok(());
@@ -1477,7 +1446,7 @@ impl<'a> Vm<'a> {
         }
 
         // Fall through to obarray
-        self.obarray.set_symbol_value(name, value);
+        self.shared.obarray.set_symbol_value(name, value);
         self.run_variable_watchers(name, &value, &Value::Nil, "set")
     }
 
@@ -1488,12 +1457,16 @@ impl<'a> Vm<'a> {
         old_value: &Value,
         operation: &str,
     ) -> Result<(), Flow> {
-        if !self.watchers.has_watchers(name) {
+        if !self.shared.watchers.has_watchers(name) {
             return Ok(());
         }
-        let calls =
-            self.watchers
-                .notify_watchers(name, new_value, old_value, operation, &Value::Nil);
+        let calls = self.shared.watchers.notify_watchers(
+            name,
+            new_value,
+            old_value,
+            operation,
+            &Value::Nil,
+        );
         for (callback, args) in calls {
             let mut callback_roots = Vec::with_capacity(args.len() + 1);
             callback_roots.push(callback);
@@ -1505,21 +1478,23 @@ impl<'a> Vm<'a> {
     }
 
     fn ensure_selected_frame_id(&mut self) -> FrameId {
-        if let Some(fid) = self.frames.selected_frame().map(|frame| frame.id) {
+        if let Some(fid) = self.shared.frames.selected_frame().map(|frame| frame.id) {
             return fid;
         }
 
         let buf_id = self
+            .shared
             .buffers
             .current_buffer()
             .map(|buffer| buffer.id)
-            .unwrap_or_else(|| self.buffers.create_buffer("*scratch*"));
-        let fid = self.frames.create_frame("F1", 640, 384, buf_id);
+            .unwrap_or_else(|| self.shared.buffers.create_buffer("*scratch*"));
+        let fid = self.shared.frames.create_frame("F1", 640, 384, buf_id);
         let minibuffer_buf_id = self
+            .shared
             .buffers
             .find_buffer_by_name(" *Minibuf-0*")
-            .unwrap_or_else(|| self.buffers.create_buffer(" *Minibuf-0*"));
-        if let Some(frame) = self.frames.get_mut(fid) {
+            .unwrap_or_else(|| self.shared.buffers.create_buffer(" *Minibuf-0*"));
+        if let Some(frame) = self.shared.frames.get_mut(fid) {
             frame.parameters.insert("width".to_string(), Value::Int(80));
             frame
                 .parameters
@@ -1545,7 +1520,7 @@ impl<'a> Vm<'a> {
             None | Some(Value::Nil) => Ok(self.ensure_selected_frame_id()),
             Some(Value::Int(n)) => {
                 let fid = FrameId(*n as u64);
-                if self.frames.get(fid).is_some() {
+                if self.shared.frames.get(fid).is_some() {
                     Ok(fid)
                 } else {
                     Err(signal(
@@ -1556,7 +1531,7 @@ impl<'a> Vm<'a> {
             }
             Some(Value::Frame(id)) => {
                 let fid = FrameId(*id);
-                if self.frames.get(fid).is_some() {
+                if self.shared.frames.get(fid).is_some() {
                     Ok(fid)
                 } else {
                     Err(signal(
@@ -1573,13 +1548,13 @@ impl<'a> Vm<'a> {
     }
 
     fn ensure_global_keymap(&mut self) -> Value {
-        if let Some(value) = self.obarray.symbol_value("global-map").copied() {
+        if let Some(value) = self.shared.obarray.symbol_value("global-map").copied() {
             if crate::emacs_core::keymap::is_list_keymap(&value) {
                 return value;
             }
         }
         let keymap = crate::emacs_core::keymap::make_list_keymap();
-        self.obarray.set_symbol_value("global-map", keymap);
+        self.shared.obarray.set_symbol_value("global-map", keymap);
         keymap
     }
 
@@ -1615,6 +1590,7 @@ impl<'a> Vm<'a> {
         builtins::expect_args("frame-list", args, 0)?;
         let _ = self.ensure_selected_frame_id();
         let frames = self
+            .shared
             .frames
             .frame_list()
             .into_iter()
@@ -1630,7 +1606,7 @@ impl<'a> Vm<'a> {
             Value::Int(n) => n as u64,
             _ => return Ok(Value::Nil),
         };
-        let Some(frame) = self.frames.get(FrameId(id)) else {
+        let Some(frame) = self.shared.frames.get(FrameId(id)) else {
             return Ok(Value::Nil);
         };
         Ok(frame
@@ -1648,6 +1624,7 @@ impl<'a> Vm<'a> {
             _ => return Ok(Value::Nil),
         };
         let frame = self
+            .shared
             .frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
@@ -1678,7 +1655,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_fboundp_fast(&self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::symbols::builtin_fboundp_in_obarray(self.obarray, args)
+        crate::emacs_core::builtins::symbols::builtin_fboundp_in_obarray(self.shared.obarray, args)
     }
 
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
@@ -1697,7 +1674,7 @@ impl<'a> Vm<'a> {
             Value::Symbol(id) => {
                 let name = resolve_sym(id);
                 // Try obarray function cell
-                if let Some(func) = self.obarray.symbol_function(name).cloned() {
+                if let Some(func) = self.shared.obarray.symbol_function(name).cloned() {
                     if func.is_nil() {
                         if builtins::builtin_registry::is_dispatch_builtin_name(name)
                             || builtins::is_pure_builtin_name(name)
@@ -1761,7 +1738,8 @@ impl<'a> Vm<'a> {
     ) -> Result<(), Flow> {
         match flow {
             Flow::Throw { tag, value } => {
-                if let Some(res) = resolve_throw_target(handlers, &mut self.catch_tags, &tag) {
+                if let Some(res) = resolve_throw_target(handlers, &mut self.shared.catch_tags, &tag)
+                {
                     let extra = [tag, value];
                     if let Err(cleanup_flow) =
                         self.with_frame_roots(_func, stack, handlers, specpdl, &extra, |vm| {
@@ -1803,15 +1781,25 @@ impl<'a> Vm<'a> {
                 // catch_tags (catches established by the interpreter above us).
                 // If found -> Flow::Throw (will be caught by sf_catch).
                 // If not -> signal no-catch immediately (GNU Emacs semantics).
-                if !tag.is_nil() && self.catch_tags.iter().rev().any(|t| eq_value(t, &tag)) {
+                if !tag.is_nil()
+                    && self
+                        .shared
+                        .catch_tags
+                        .iter()
+                        .rev()
+                        .any(|t| eq_value(t, &tag))
+                {
                     return Err(Flow::Throw { tag, value });
                 }
                 Err(signal("no-catch", vec![tag, value]))
             }
             Flow::Signal(sig) => {
-                if let Some(res) =
-                    resolve_signal_target(handlers, &mut self.catch_tags, self.obarray, &sig)
-                {
+                if let Some(res) = resolve_signal_target(
+                    handlers,
+                    &mut self.shared.catch_tags,
+                    self.shared.obarray,
+                    &sig,
+                ) {
                     let mut signal_roots = Vec::new();
                     Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut signal_roots);
                     if let Err(cleanup_flow) = self.with_frame_roots(
@@ -1888,7 +1876,7 @@ impl<'a> Vm<'a> {
                 name,
                 restored_value,
             } => {
-                self.dynamic.pop();
+                self.shared.dynamic.pop();
                 self.run_variable_watchers(&name, &restored_value, &Value::Nil, "unlet")?;
             }
             VmUnwindEntry::LexicalBinding {
@@ -1896,7 +1884,7 @@ impl<'a> Vm<'a> {
                 restored_value,
                 old_lexenv,
             } => {
-                *self.lexenv = old_lexenv;
+                *self.shared.lexenv = old_lexenv;
                 self.run_variable_watchers(&name, &restored_value, &Value::Nil, "unlet")?;
             }
             VmUnwindEntry::Cleanup { cleanup } => {
@@ -1904,19 +1892,21 @@ impl<'a> Vm<'a> {
                 self.with_extra_roots(&cleanup_root, |vm| vm.call_function(cleanup, vec![]))?;
             }
             VmUnwindEntry::CurrentBuffer { buffer_id } => {
-                self.buffers.set_current(buffer_id);
+                self.shared.buffers.set_current(buffer_id);
             }
             VmUnwindEntry::Excursion {
                 buffer_id,
                 marker_id,
             } => {
-                if self.buffers.get(buffer_id).is_some() {
-                    self.buffers.set_current(buffer_id);
-                    if let Some(saved_pt) = self.buffers.marker_position(buffer_id, marker_id) {
-                        let _ = self.buffers.goto_buffer_byte(buffer_id, saved_pt);
+                if self.shared.buffers.get(buffer_id).is_some() {
+                    self.shared.buffers.set_current(buffer_id);
+                    if let Some(saved_pt) =
+                        self.shared.buffers.marker_position(buffer_id, marker_id)
+                    {
+                        let _ = self.shared.buffers.goto_buffer_byte(buffer_id, saved_pt);
                     }
                 }
-                self.buffers.remove_marker(marker_id);
+                self.shared.buffers.remove_marker(marker_id);
             }
             VmUnwindEntry::Restriction(saved) => self.restore_saved_restriction(saved),
         }
@@ -1926,8 +1916,16 @@ impl<'a> Vm<'a> {
     fn restore_saved_restriction(&mut self, saved: SavedRestriction) {
         match saved {
             SavedRestriction::None { buffer_id } => {
-                if let Some(len) = self.buffers.get(buffer_id).map(|buffer| buffer.text.len()) {
-                    let _ = self.buffers.restore_buffer_restriction(buffer_id, 0, len);
+                if let Some(len) = self
+                    .shared
+                    .buffers
+                    .get(buffer_id)
+                    .map(|buffer| buffer.text.len())
+                {
+                    let _ = self
+                        .shared
+                        .buffers
+                        .restore_buffer_restriction(buffer_id, 0, len);
                 }
             }
             SavedRestriction::Markers {
@@ -1935,26 +1933,29 @@ impl<'a> Vm<'a> {
                 beg_marker,
                 end_marker,
             } => {
-                let beg = self.buffers.marker_position(buffer_id, beg_marker);
-                let end = self.buffers.marker_position(buffer_id, end_marker);
+                let beg = self.shared.buffers.marker_position(buffer_id, beg_marker);
+                let end = self.shared.buffers.marker_position(buffer_id, end_marker);
                 if let (Some(begv), Some(zv), Some(len)) = (
                     beg,
                     end,
-                    self.buffers.get(buffer_id).map(|buffer| buffer.text.len()),
+                    self.shared
+                        .buffers
+                        .get(buffer_id)
+                        .map(|buffer| buffer.text.len()),
                 ) {
                     let mut restored_begv = begv.min(len);
                     let mut restored_zv = zv.min(len);
                     if restored_begv > restored_zv {
                         std::mem::swap(&mut restored_begv, &mut restored_zv);
                     }
-                    let _ = self.buffers.restore_buffer_restriction(
+                    let _ = self.shared.buffers.restore_buffer_restriction(
                         buffer_id,
                         restored_begv,
                         restored_zv,
                     );
                 }
-                self.buffers.remove_marker(beg_marker);
-                self.buffers.remove_marker(end_marker);
+                self.shared.buffers.remove_marker(beg_marker);
+                self.shared.buffers.remove_marker(end_marker);
             }
         }
     }
@@ -2002,10 +2003,10 @@ impl<'a> Vm<'a> {
                 // args: [init_value, symbol_name]
                 if args.len() >= 2 {
                     let sym_name = args[1].as_symbol_name().unwrap_or("nil").to_string();
-                    if !self.obarray.boundp(&sym_name) {
-                        self.obarray.set_symbol_value(&sym_name, args[0]);
+                    if !self.shared.obarray.boundp(&sym_name) {
+                        self.shared.obarray.set_symbol_value(&sym_name, args[0]);
                     }
-                    self.obarray.make_special(&sym_name);
+                    self.shared.obarray.make_special(&sym_name);
                     return Ok(Value::symbol(sym_name));
                 }
                 return Ok(Value::Nil);
@@ -2013,8 +2014,8 @@ impl<'a> Vm<'a> {
             "%%defconst" => {
                 if args.len() >= 2 {
                     let sym_name = args[1].as_symbol_name().unwrap_or("nil").to_string();
-                    self.obarray.set_symbol_value(&sym_name, args[0]);
-                    let sym = self.obarray.get_or_intern(&sym_name);
+                    self.shared.obarray.set_symbol_value(&sym_name, args[0]);
+                    let sym = self.shared.obarray.get_or_intern(&sym_name);
                     sym.constant = true;
                     sym.special = true;
                     return Ok(Value::symbol(sym_name));
@@ -2039,7 +2040,14 @@ impl<'a> Vm<'a> {
                 let tag = args[0];
                 let value = args[1];
                 // Check evaluator catch_tags for a matching catch.
-                if !tag.is_nil() && self.catch_tags.iter().rev().any(|t| eq_value(t, &tag)) {
+                if !tag.is_nil()
+                    && self
+                        .shared
+                        .catch_tags
+                        .iter()
+                        .rev()
+                        .any(|t| eq_value(t, &tag))
+                {
                     return Err(Flow::Throw { tag, value });
                 }
                 return Err(signal("no-catch", vec![tag, value]));
@@ -2068,12 +2076,12 @@ impl<'a> Vm<'a> {
             ),
             "modify-category-entry" => Some(
                 crate::emacs_core::category::modify_category_entry_in_manager(
-                    self.category_manager,
+                    self.shared.category_manager,
                     args,
                 ),
             ),
             "modify-syntax-entry" => Some(
-                crate::emacs_core::syntax::modify_syntax_entry_in_buffers(self.buffers, args),
+                crate::emacs_core::syntax::modify_syntax_entry_in_buffers(self.shared.buffers, args),
             ),
             "decode-char" => Some(crate::emacs_core::charset::builtin_decode_char(args.to_vec())),
             "encode-char" => Some(crate::emacs_core::charset::builtin_encode_char(args.to_vec())),
@@ -2098,13 +2106,13 @@ impl<'a> Vm<'a> {
             ),
             "lookup-key" => Some(
                 crate::emacs_core::builtins::keymaps::builtin_lookup_key_in_obarray(
-                    &*self.obarray,
+                    &*self.shared.obarray,
                     args,
                 ),
             ),
             "keymapp" => Some(
                 crate::emacs_core::builtins::keymaps::builtin_keymapp_in_obarray(
-                    &*self.obarray,
+                    &*self.shared.obarray,
                     args,
                 ),
             ),
@@ -2113,7 +2121,7 @@ impl<'a> Vm<'a> {
                 builtins::expect_max_args("define-key", args, 4)?;
                 let keymap =
                     crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
-                        self.obarray,
+                        self.shared.obarray,
                         &args[0],
                     )?;
                 let events = crate::emacs_core::builtins::keymaps::expect_key_events(&args[1])?;
@@ -2126,7 +2134,7 @@ impl<'a> Vm<'a> {
                 let sym = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
                 if let Some(raw) =
                     crate::emacs_core::builtins::symbols::symbol_raw_plist_value_in_obarray(
-                        self.obarray,
+                        self.shared.obarray,
                         sym,
                     )
                 {
@@ -2141,8 +2149,7 @@ impl<'a> Vm<'a> {
                 ) {
                     return Ok(Value::Nil);
                 }
-                Ok(self
-                    .obarray
+                Ok(self.shared.obarray
                     .get_property_id(sym, prop)
                     .cloned()
                     .unwrap_or(Value::Nil))
@@ -2155,7 +2162,7 @@ impl<'a> Vm<'a> {
                 let value = args[2];
                 if let Some(raw) =
                     crate::emacs_core::builtins::symbols::symbol_raw_plist_value_in_obarray(
-                        self.obarray,
+                        self.shared.obarray,
                         sym,
                     )
                 {
@@ -2164,19 +2171,19 @@ impl<'a> Vm<'a> {
                             raw, args[1], value,
                         ])?;
                     crate::emacs_core::builtins::symbols::set_symbol_raw_plist_in_obarray(
-                        self.obarray,
+                        self.shared.obarray,
                         sym,
                         plist,
                     );
                     return Ok(value);
                 }
-                self.obarray.put_property_id(sym, prop, value);
+                self.shared.obarray.put_property_id(sym, prop, value);
                 Ok(value)
                 })())
             }
             "default-toplevel-value" => Some(
                 crate::emacs_core::builtins::symbols::builtin_default_toplevel_value_in_obarray(
-                    self.obarray,
+                    self.shared.obarray,
                     args.to_vec(),
                 ),
             ),
@@ -2187,25 +2194,25 @@ impl<'a> Vm<'a> {
                     .and_then(|value| crate::emacs_core::builtins::symbols::expect_symbol_id(&value).ok());
                 let resolved_name = symbol.and_then(|symbol| {
                     crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-                        self.obarray,
+                        self.shared.obarray,
                         symbol,
                     )
                     .ok()
                     .map(resolve_sym)
                 });
-                if resolved_name.is_some_and(|name| self.watchers.has_watchers(name)) {
+                if resolved_name.is_some_and(|name| self.shared.watchers.has_watchers(name)) {
                     return None;
                 }
                 Some(
                     crate::emacs_core::builtins::symbols::builtin_set_default_toplevel_value_in_obarray(
-                        self.obarray,
+                        self.shared.obarray,
                         args.to_vec(),
                     ),
                 )
             }
             "internal--define-uninitialized-variable" => Some(
                 crate::emacs_core::builtins::symbols::builtin_internal_define_uninitialized_variable_in_obarray(
-                    self.obarray,
+                    self.shared.obarray,
                     args.to_vec(),
                 ),
             ),
@@ -2218,24 +2225,24 @@ impl<'a> Vm<'a> {
                 });
                 let resolved_name = symbol.and_then(|symbol| {
                     crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-                        self.obarray,
+                        self.shared.obarray,
                         symbol,
                     )
                     .ok()
                     .map(resolve_sym)
                 });
-                if resolved_name.is_some_and(|name| self.watchers.has_watchers(name)) {
+                if resolved_name.is_some_and(|name| self.shared.watchers.has_watchers(name)) {
                     return None;
                 }
                 Some(crate::emacs_core::custom::builtin_set_default_in_obarray(
-                    self.obarray,
+                    self.shared.obarray,
                     args.to_vec(),
                 ))
             }
             "make-variable-buffer-local" => Some(
                 crate::emacs_core::custom::builtin_make_variable_buffer_local_with_state(
-                    self.obarray,
-                    self.custom,
+                    self.shared.obarray,
+                    self.shared.custom,
                     args.to_vec(),
                 ),
             ),
@@ -2272,7 +2279,7 @@ impl<'a> Vm<'a> {
                     });
                     return Ok(sym);
                 }
-                self.obarray.intern(&name);
+                self.shared.obarray.intern(&name);
                 Ok(Value::symbol(name))
             })()),
             "mapcar" => Some(self.builtin_mapcar_fast(args)),
@@ -2282,13 +2289,13 @@ impl<'a> Vm<'a> {
             "frame-parameter" => Some(self.builtin_frame_parameter_fast(args)),
             "define-coding-system-internal" => Some(
                 crate::emacs_core::coding::builtin_define_coding_system_internal(
-                    self.coding_systems,
+                    self.shared.coding_systems,
                     args.to_vec(),
                 ),
             ),
             "define-coding-system-alias" => Some(
                 crate::emacs_core::coding::builtin_define_coding_system_alias(
-                    self.coding_systems,
+                    self.shared.coding_systems,
                     args.to_vec(),
                 ),
             ),
@@ -2299,34 +2306,34 @@ impl<'a> Vm<'a> {
                     .unwrap_or(true);
                 crate::emacs_core::builtins::search::builtin_string_match_with_state(
                     case_fold,
-                    self.match_data,
+                    self.shared.match_data,
                     args,
                 )
             }),
             "match-beginning" => Some(
                 crate::emacs_core::builtins::search::builtin_match_beginning_with_state(
-                    Some(&*self.buffers),
-                    self.match_data,
+                    Some(&*self.shared.buffers),
+                    self.shared.match_data,
                     args,
                 ),
             ),
             "match-end" => Some(
                 crate::emacs_core::builtins::search::builtin_match_end_with_state(
-                    Some(&*self.buffers),
-                    self.match_data,
+                    Some(&*self.shared.buffers),
+                    self.shared.match_data,
                     args,
                 ),
             ),
             "match-data" => Some(
                 crate::emacs_core::builtins::search::builtin_match_data_with_state(
-                    Some(self.buffers),
-                    self.match_data,
+                    Some(self.shared.buffers),
+                    self.shared.match_data,
                     args,
                 ),
             ),
             "set-match-data" => Some(
                 crate::emacs_core::builtins::search::builtin_set_match_data_with_state(
-                    self.match_data,
+                    self.shared.match_data,
                     args,
                 ),
             ),
@@ -2368,22 +2375,7 @@ impl<'a> Vm<'a> {
         // Point thread-local at eval.heap which now holds the real data.
         set_current_heap(&mut eval.heap);
 
-        eval.obarray = self.obarray.clone();
-        eval.dynamic = self.dynamic.clone();
-        eval.lexenv = *self.lexenv;
-        eval.features = self.features.clone();
-        std::mem::swap(self.require_stack, &mut eval.require_stack);
-        std::mem::swap(self.loads_in_progress, &mut eval.loads_in_progress);
-        std::mem::swap(self.autoloads, &mut eval.autoloads);
-        eval.catch_tags = self.catch_tags.clone();
-        eval.custom = self.custom.clone();
-        eval.buffers = self.buffers.clone();
-        std::mem::swap(self.frames, &mut eval.frames);
-        eval.match_data = self.match_data.clone();
-        eval.depth = self.depth;
-        eval.max_depth = self.max_depth;
-        std::mem::swap(self.coding_systems, &mut eval.coding_systems);
-        std::mem::swap(self.watchers, &mut eval.watchers);
+        self.shared.swap_with_evaluator(&mut eval);
         let saved_temp_roots = eval.save_temp_roots();
         for root in &self.gc_roots {
             eval.push_temp_root(*root);
@@ -2394,22 +2386,8 @@ impl<'a> Vm<'a> {
 
         let result = f(&mut eval);
 
-        std::mem::swap(self.obarray, &mut eval.obarray);
-        std::mem::swap(self.dynamic, &mut eval.dynamic);
-        std::mem::swap(self.lexenv, &mut eval.lexenv);
-        std::mem::swap(self.features, &mut eval.features);
-        std::mem::swap(self.require_stack, &mut eval.require_stack);
-        std::mem::swap(self.loads_in_progress, &mut eval.loads_in_progress);
-        std::mem::swap(self.autoloads, &mut eval.autoloads);
-        std::mem::swap(self.catch_tags, &mut eval.catch_tags);
-        std::mem::swap(self.custom, &mut eval.custom);
-        std::mem::swap(self.buffers, &mut eval.buffers);
-        std::mem::swap(self.frames, &mut eval.frames);
-        std::mem::swap(self.match_data, &mut eval.match_data);
-        std::mem::swap(self.coding_systems, &mut eval.coding_systems);
-        std::mem::swap(self.watchers, &mut eval.watchers);
         eval.restore_temp_roots(saved_temp_roots);
-        self.depth = eval.depth;
+        self.shared.swap_with_evaluator(&mut eval);
 
         // Swap the heap data back to its original location so the parent
         // Evaluator's Box<LispHeap> is consistent when we return.  Any
@@ -2430,7 +2408,8 @@ impl<'a> Vm<'a> {
     fn dispatch_vm_builtin_eval(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {
         let trace_vm_builtins = std::env::var_os("NEOVM_TRACE_VM_BUILTINS").is_some();
         let trace_load_file_name = if trace_vm_builtins {
-            self.obarray
+            self.shared
+                .obarray
                 .symbol_value("load-file-name")
                 .and_then(|value| value.as_str().map(str::to_owned))
                 .unwrap_or_else(|| "<unknown>".to_string())
@@ -2634,8 +2613,11 @@ fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
         Value::Int(n) => Ok(Value::Int(n.wrapping_add(1))),
         Value::Float(f, _) => Ok(Value::Float(f + 1.0, next_float_id())),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::Int(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?
-                .wrapping_add(1),
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                vm.shared.buffers,
+                marker,
+            )?
+            .wrapping_add(1),
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -2649,8 +2631,11 @@ fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
         Value::Int(n) => Ok(Value::Int(n.wrapping_sub(1))),
         Value::Float(f, _) => Ok(Value::Float(f - 1.0, next_float_id())),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::Int(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?
-                .wrapping_sub(1),
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                vm.shared.buffers,
+                marker,
+            )?
+            .wrapping_sub(1),
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -2664,7 +2649,10 @@ fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
         Value::Int(n) => Ok(Value::Int(-n)),
         Value::Float(f, _) => Ok(Value::Float(-f, next_float_id())),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(Value::Int(
-            -crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?,
+            -crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                vm.shared.buffers,
+                marker,
+            )?,
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -2707,8 +2695,10 @@ fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
         Value::Float(f, _) => Ok(*f),
         Value::Char(c) => Ok(*c as u32 as f64),
         marker if crate::emacs_core::marker::is_marker(marker) => Ok(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(vm.buffers, marker)?
-                as f64,
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(
+                vm.shared.buffers,
+                marker,
+            )? as f64,
         ),
         other => Err(signal(
             "wrong-type-argument",

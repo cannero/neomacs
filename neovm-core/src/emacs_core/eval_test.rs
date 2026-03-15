@@ -67,6 +67,25 @@ fn load_minimal_backquote_runtime(eval: &mut Evaluator) {
 }
 
 #[test]
+fn evaluator_drop_clears_owned_thread_locals() {
+    {
+        let mut ev = Evaluator::new_vm_harness();
+        assert!(std::ptr::eq(
+            crate::emacs_core::intern::current_interner_ptr(),
+            &mut *ev.interner,
+        ));
+        assert!(crate::emacs_core::value::has_current_heap());
+        assert!(std::ptr::eq(
+            crate::emacs_core::value::current_heap_ptr(),
+            &mut *ev.heap,
+        ));
+    }
+
+    assert!(crate::emacs_core::intern::current_interner_ptr().is_null());
+    assert!(!crate::emacs_core::value::has_current_heap());
+}
+
+#[test]
 fn basic_arithmetic() {
     assert_eq!(eval_one("(+ 1 2)"), "OK 3");
     assert_eq!(eval_one("(- 10 3)"), "OK 7");

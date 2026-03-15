@@ -19,7 +19,8 @@ use super::error::*;
 use super::expr::Expr;
 use super::interactive::InteractiveRegistry;
 use super::intern::{
-    StringInterner, SymId, intern, lookup_interned, resolve_sym, set_current_interner,
+    StringInterner, SymId, clear_current_interner, current_interner_ptr, intern, lookup_interned,
+    resolve_sym, set_current_interner,
 };
 use super::keymap::{list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap};
 use super::kmacro::KmacroManager;
@@ -210,6 +211,308 @@ impl InterpretedClosureTrimCacheEntry {
             && self.body_exprs == body_exprs
             && self.iform_expr == *iform_expr
             && self.env_shape == env_shape
+    }
+}
+
+/// The portion of `Evaluator` state that bytecode and interpreted evaluation
+/// must share to match GNU Emacs's single-runtime model.
+///
+/// This bundle is also the correct GC/root boundary for VM fallback into
+/// evaluator paths: if the temporary mirrored evaluator omits one of these
+/// fields, collections during builtin dispatch can lose live values or expose
+/// stale runtime state.
+pub(crate) struct VmSharedState<'a> {
+    pub(crate) obarray: &'a mut Obarray,
+    pub(crate) dynamic: &'a mut Vec<OrderedSymMap>,
+    pub(crate) lexenv: &'a mut Value,
+    pub(crate) features: &'a mut Vec<SymId>,
+    pub(crate) require_stack: &'a mut Vec<SymId>,
+    pub(crate) loads_in_progress: &'a mut Vec<std::path::PathBuf>,
+    pub(crate) buffers: &'a mut BufferManager,
+    pub(crate) match_data: &'a mut Option<MatchData>,
+    pub(crate) watchers: &'a mut VariableWatcherList,
+    pub(crate) current_local_map: &'a mut Value,
+    pub(crate) autoloads: &'a mut AutoloadManager,
+    pub(crate) custom: &'a mut CustomManager,
+    pub(crate) frames: &'a mut FrameManager,
+    pub(crate) category_manager: &'a mut CategoryManager,
+    pub(crate) coding_systems: &'a mut CodingSystemManager,
+    pub(crate) depth: &'a mut usize,
+    pub(crate) max_depth: &'a mut usize,
+    pub(crate) catch_tags: &'a mut Vec<Value>,
+    processes: &'a mut ProcessManager,
+    timers: &'a mut TimerManager,
+    standard_syntax_table: &'a mut Value,
+    registers: &'a mut RegisterManager,
+    bookmarks: &'a mut BookmarkManager,
+    abbrevs: &'a mut AbbrevManager,
+    rectangle: &'a mut RectangleState,
+    interactive: &'a mut InteractiveRegistry,
+    recent_input_events: &'a mut Vec<Value>,
+    read_command_keys: &'a mut Vec<Value>,
+    input_mode_interrupt: &'a mut bool,
+    modes: &'a mut ModeRegistry,
+    threads: &'a mut ThreadManager,
+    kmacro: &'a mut KmacroManager,
+    command_loop: &'a mut crate::keyboard::CommandLoop,
+    input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
+    #[cfg(unix)]
+    wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
+    redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
+    face_table: &'a mut FaceTable,
+    gc_pending: &'a mut bool,
+    gc_count: &'a mut u64,
+    gc_stress: &'a mut bool,
+    temp_roots: &'a mut Vec<Value>,
+    saved_lexenvs: &'a mut Vec<Value>,
+    named_call_cache: &'a mut Vec<NamedCallCache>,
+    pcase_macroexpand_temp_counter: &'a mut usize,
+    literal_cache: &'a mut HashMap<*const Expr, Value>,
+    macro_expansion_cache: &'a mut HashMap<(crate::gc::types::ObjId, usize, u64), (Rc<Expr>, u64)>,
+    macro_cache_hits: &'a mut u64,
+    macro_cache_misses: &'a mut u64,
+    macro_expand_total_us: &'a mut u64,
+    macro_cache_disabled: &'a mut bool,
+    interpreted_closure_filter_fn: &'a mut Option<Value>,
+    interpreted_closure_trim_cache: &'a mut HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
+}
+
+impl<'a> VmSharedState<'a> {
+    fn new(
+        obarray: &'a mut Obarray,
+        dynamic: &'a mut Vec<OrderedSymMap>,
+        lexenv: &'a mut Value,
+        features: &'a mut Vec<SymId>,
+        require_stack: &'a mut Vec<SymId>,
+        loads_in_progress: &'a mut Vec<std::path::PathBuf>,
+        buffers: &'a mut BufferManager,
+        match_data: &'a mut Option<MatchData>,
+        processes: &'a mut ProcessManager,
+        timers: &'a mut TimerManager,
+        watchers: &'a mut VariableWatcherList,
+        standard_syntax_table: &'a mut Value,
+        current_local_map: &'a mut Value,
+        registers: &'a mut RegisterManager,
+        bookmarks: &'a mut BookmarkManager,
+        abbrevs: &'a mut AbbrevManager,
+        autoloads: &'a mut AutoloadManager,
+        custom: &'a mut CustomManager,
+        rectangle: &'a mut RectangleState,
+        interactive: &'a mut InteractiveRegistry,
+        recent_input_events: &'a mut Vec<Value>,
+        read_command_keys: &'a mut Vec<Value>,
+        input_mode_interrupt: &'a mut bool,
+        frames: &'a mut FrameManager,
+        modes: &'a mut ModeRegistry,
+        threads: &'a mut ThreadManager,
+        category_manager: &'a mut CategoryManager,
+        kmacro: &'a mut KmacroManager,
+        command_loop: &'a mut crate::keyboard::CommandLoop,
+        input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
+        #[cfg(unix)] wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
+        redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
+        coding_systems: &'a mut CodingSystemManager,
+        face_table: &'a mut FaceTable,
+        depth: &'a mut usize,
+        max_depth: &'a mut usize,
+        gc_pending: &'a mut bool,
+        gc_count: &'a mut u64,
+        gc_stress: &'a mut bool,
+        temp_roots: &'a mut Vec<Value>,
+        catch_tags: &'a mut Vec<Value>,
+        saved_lexenvs: &'a mut Vec<Value>,
+        named_call_cache: &'a mut Vec<NamedCallCache>,
+        pcase_macroexpand_temp_counter: &'a mut usize,
+        literal_cache: &'a mut HashMap<*const Expr, Value>,
+        macro_expansion_cache: &'a mut HashMap<
+            (crate::gc::types::ObjId, usize, u64),
+            (Rc<Expr>, u64),
+        >,
+        macro_cache_hits: &'a mut u64,
+        macro_cache_misses: &'a mut u64,
+        macro_expand_total_us: &'a mut u64,
+        macro_cache_disabled: &'a mut bool,
+        interpreted_closure_filter_fn: &'a mut Option<Value>,
+        interpreted_closure_trim_cache: &'a mut HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
+    ) -> Self {
+        Self {
+            obarray,
+            dynamic,
+            lexenv,
+            features,
+            require_stack,
+            loads_in_progress,
+            buffers,
+            match_data,
+            processes,
+            timers,
+            watchers,
+            standard_syntax_table,
+            current_local_map,
+            registers,
+            bookmarks,
+            abbrevs,
+            autoloads,
+            custom,
+            rectangle,
+            interactive,
+            recent_input_events,
+            read_command_keys,
+            input_mode_interrupt,
+            frames,
+            modes,
+            threads,
+            category_manager,
+            kmacro,
+            command_loop,
+            input_rx,
+            #[cfg(unix)]
+            wakeup_fd,
+            redisplay_fn,
+            coding_systems,
+            face_table,
+            depth,
+            max_depth,
+            gc_pending,
+            gc_count,
+            gc_stress,
+            temp_roots,
+            catch_tags,
+            saved_lexenvs,
+            named_call_cache,
+            pcase_macroexpand_temp_counter,
+            literal_cache,
+            macro_expansion_cache,
+            macro_cache_hits,
+            macro_cache_misses,
+            macro_expand_total_us,
+            macro_cache_disabled,
+            interpreted_closure_filter_fn,
+            interpreted_closure_trim_cache,
+        }
+    }
+
+    pub(crate) fn from_evaluator(eval: &'a mut Evaluator) -> Self {
+        Self::new(
+            &mut eval.obarray,
+            &mut eval.dynamic,
+            &mut eval.lexenv,
+            &mut eval.features,
+            &mut eval.require_stack,
+            &mut eval.loads_in_progress,
+            &mut eval.buffers,
+            &mut eval.match_data,
+            &mut eval.processes,
+            &mut eval.timers,
+            &mut eval.watchers,
+            &mut eval.standard_syntax_table,
+            &mut eval.current_local_map,
+            &mut eval.registers,
+            &mut eval.bookmarks,
+            &mut eval.abbrevs,
+            &mut eval.autoloads,
+            &mut eval.custom,
+            &mut eval.rectangle,
+            &mut eval.interactive,
+            &mut eval.recent_input_events,
+            &mut eval.read_command_keys,
+            &mut eval.input_mode_interrupt,
+            &mut eval.frames,
+            &mut eval.modes,
+            &mut eval.threads,
+            &mut eval.category_manager,
+            &mut eval.kmacro,
+            &mut eval.command_loop,
+            &mut eval.input_rx,
+            #[cfg(unix)]
+            &mut eval.wakeup_fd,
+            &mut eval.redisplay_fn,
+            &mut eval.coding_systems,
+            &mut eval.face_table,
+            &mut eval.depth,
+            &mut eval.max_depth,
+            &mut eval.gc_pending,
+            &mut eval.gc_count,
+            &mut eval.gc_stress,
+            &mut eval.temp_roots,
+            &mut eval.catch_tags,
+            &mut eval.saved_lexenvs,
+            &mut eval.named_call_cache,
+            &mut eval.pcase_macroexpand_temp_counter,
+            &mut eval.literal_cache,
+            &mut eval.macro_expansion_cache,
+            &mut eval.macro_cache_hits,
+            &mut eval.macro_cache_misses,
+            &mut eval.macro_expand_total_us,
+            &mut eval.macro_cache_disabled,
+            &mut eval.interpreted_closure_filter_fn,
+            &mut eval.interpreted_closure_trim_cache,
+        )
+    }
+
+    pub(crate) fn swap_with_evaluator(&mut self, eval: &mut Evaluator) {
+        std::mem::swap(self.obarray, &mut eval.obarray);
+        std::mem::swap(self.dynamic, &mut eval.dynamic);
+        std::mem::swap(self.lexenv, &mut eval.lexenv);
+        std::mem::swap(self.features, &mut eval.features);
+        std::mem::swap(self.require_stack, &mut eval.require_stack);
+        std::mem::swap(self.loads_in_progress, &mut eval.loads_in_progress);
+        std::mem::swap(self.buffers, &mut eval.buffers);
+        std::mem::swap(self.match_data, &mut eval.match_data);
+        std::mem::swap(self.processes, &mut eval.processes);
+        std::mem::swap(self.timers, &mut eval.timers);
+        std::mem::swap(self.watchers, &mut eval.watchers);
+        std::mem::swap(self.standard_syntax_table, &mut eval.standard_syntax_table);
+        std::mem::swap(self.current_local_map, &mut eval.current_local_map);
+        std::mem::swap(self.registers, &mut eval.registers);
+        std::mem::swap(self.bookmarks, &mut eval.bookmarks);
+        std::mem::swap(self.abbrevs, &mut eval.abbrevs);
+        std::mem::swap(self.autoloads, &mut eval.autoloads);
+        std::mem::swap(self.custom, &mut eval.custom);
+        std::mem::swap(self.rectangle, &mut eval.rectangle);
+        std::mem::swap(self.interactive, &mut eval.interactive);
+        std::mem::swap(self.recent_input_events, &mut eval.recent_input_events);
+        std::mem::swap(self.read_command_keys, &mut eval.read_command_keys);
+        std::mem::swap(self.input_mode_interrupt, &mut eval.input_mode_interrupt);
+        std::mem::swap(self.frames, &mut eval.frames);
+        std::mem::swap(self.modes, &mut eval.modes);
+        std::mem::swap(self.threads, &mut eval.threads);
+        std::mem::swap(self.category_manager, &mut eval.category_manager);
+        std::mem::swap(self.kmacro, &mut eval.kmacro);
+        std::mem::swap(self.command_loop, &mut eval.command_loop);
+        std::mem::swap(self.input_rx, &mut eval.input_rx);
+        #[cfg(unix)]
+        std::mem::swap(self.wakeup_fd, &mut eval.wakeup_fd);
+        std::mem::swap(self.redisplay_fn, &mut eval.redisplay_fn);
+        std::mem::swap(self.coding_systems, &mut eval.coding_systems);
+        std::mem::swap(self.face_table, &mut eval.face_table);
+        std::mem::swap(self.depth, &mut eval.depth);
+        std::mem::swap(self.max_depth, &mut eval.max_depth);
+        std::mem::swap(self.gc_pending, &mut eval.gc_pending);
+        std::mem::swap(self.gc_count, &mut eval.gc_count);
+        std::mem::swap(self.gc_stress, &mut eval.gc_stress);
+        std::mem::swap(self.temp_roots, &mut eval.temp_roots);
+        std::mem::swap(self.catch_tags, &mut eval.catch_tags);
+        std::mem::swap(self.saved_lexenvs, &mut eval.saved_lexenvs);
+        std::mem::swap(self.named_call_cache, &mut eval.named_call_cache);
+        std::mem::swap(
+            self.pcase_macroexpand_temp_counter,
+            &mut eval.pcase_macroexpand_temp_counter,
+        );
+        std::mem::swap(self.literal_cache, &mut eval.literal_cache);
+        std::mem::swap(self.macro_expansion_cache, &mut eval.macro_expansion_cache);
+        std::mem::swap(self.macro_cache_hits, &mut eval.macro_cache_hits);
+        std::mem::swap(self.macro_cache_misses, &mut eval.macro_cache_misses);
+        std::mem::swap(self.macro_expand_total_us, &mut eval.macro_expand_total_us);
+        std::mem::swap(self.macro_cache_disabled, &mut eval.macro_cache_disabled);
+        std::mem::swap(
+            self.interpreted_closure_filter_fn,
+            &mut eval.interpreted_closure_filter_fn,
+        );
+        std::mem::swap(
+            self.interpreted_closure_trim_cache,
+            &mut eval.interpreted_closure_trim_cache,
+        );
     }
 }
 
@@ -446,9 +749,85 @@ impl Default for Evaluator {
     }
 }
 
+impl Drop for Evaluator {
+    fn drop(&mut self) {
+        if std::ptr::eq(current_interner_ptr(), &mut *self.interner) {
+            clear_current_interner();
+        }
+        if std::ptr::eq(current_heap_ptr(), &mut *self.heap) {
+            clear_current_heap();
+        }
+    }
+}
+
 impl Evaluator {
     pub fn new() -> Self {
         Self::new_inner(true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_vm_harness() -> Self {
+        let mut ev = Self::new_inner(true);
+        ev.obarray = Obarray::new();
+        super::errors::init_standard_errors(&mut ev.obarray);
+        ev.obarray
+            .set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
+        ev.obarray
+            .set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
+        ev.dynamic.clear();
+        ev.lexenv = Value::Nil;
+        ev.features.clear();
+        ev.require_stack.clear();
+        ev.loads_in_progress.clear();
+        ev.buffers = BufferManager::new();
+        ev.match_data = None;
+        ev.processes = ProcessManager::new();
+        ev.timers = TimerManager::new();
+        ev.watchers = VariableWatcherList::new();
+        ev.current_local_map = Value::Nil;
+        ev.registers = RegisterManager::new();
+        ev.bookmarks = BookmarkManager::new();
+        ev.abbrevs = AbbrevManager::new();
+        ev.autoloads = AutoloadManager::new();
+        ev.custom = CustomManager::new();
+        ev.rectangle = RectangleState::new();
+        ev.interactive = InteractiveRegistry::new();
+        ev.recent_input_events.clear();
+        ev.read_command_keys.clear();
+        ev.input_mode_interrupt = false;
+        ev.frames = FrameManager::new();
+        ev.modes = ModeRegistry::new();
+        ev.threads = ThreadManager::new();
+        ev.category_manager = CategoryManager::new();
+        ev.kmacro = KmacroManager::new();
+        ev.command_loop = crate::keyboard::CommandLoop::default();
+        ev.input_rx = None;
+        #[cfg(unix)]
+        {
+            ev.wakeup_fd = None;
+        }
+        ev.redisplay_fn = None;
+        ev.coding_systems = CodingSystemManager::new();
+        ev.face_table = FaceTable::new();
+        ev.depth = 0;
+        ev.max_depth = 1600;
+        ev.gc_pending = false;
+        ev.gc_count = 0;
+        ev.gc_stress = false;
+        ev.temp_roots.clear();
+        ev.catch_tags.clear();
+        ev.saved_lexenvs.clear();
+        ev.named_call_cache.clear();
+        ev.pcase_macroexpand_temp_counter = 0;
+        ev.literal_cache.clear();
+        ev.macro_expansion_cache.clear();
+        ev.macro_cache_hits = 0;
+        ev.macro_cache_misses = 0;
+        ev.macro_expand_total_us = 0;
+        ev.macro_cache_disabled = false;
+        ev.interpreted_closure_filter_fn = None;
+        ev.interpreted_closure_trim_cache.clear();
+        ev
     }
 
     pub(crate) fn new_preserving_thread_locals() -> Self {
@@ -4907,24 +5286,7 @@ impl Evaluator {
 
         // Execute via VM
         self.refresh_features_from_variable();
-        let mut vm = super::bytecode::Vm::new(
-            &mut self.obarray,
-            &mut self.dynamic,
-            &mut self.lexenv,
-            &mut self.features,
-            &mut self.require_stack,
-            &mut self.loads_in_progress,
-            &mut self.autoloads,
-            &mut self.custom,
-            &mut self.buffers,
-            &mut self.category_manager,
-            &mut self.frames,
-            &mut self.coding_systems,
-            &mut self.match_data,
-            &mut self.watchers,
-            &mut self.catch_tags,
-        );
-        vm.set_depth(self.depth, self.max_depth);
+        let mut vm = super::bytecode::Vm::from_evaluator(self);
         let exec_start = trace_toplevel_bytecode.then(std::time::Instant::now);
         let result = vm.execute(&bc, vec![]);
         if let Some(start) = exec_start {
@@ -4935,7 +5297,6 @@ impl Evaluator {
                 start.elapsed()
             );
         }
-        self.depth = vm.get_depth();
         self.sync_features_variable();
         result
     }
@@ -5820,26 +6181,8 @@ impl Evaluator {
                 self.refresh_features_from_variable();
                 let func_val = Value::ByteCode(bc);
                 let bc_data = self.heap.get_bytecode(bc).clone();
-                let mut vm = super::bytecode::Vm::new(
-                    &mut self.obarray,
-                    &mut self.dynamic,
-                    &mut self.lexenv,
-                    &mut self.features,
-                    &mut self.require_stack,
-                    &mut self.loads_in_progress,
-                    &mut self.autoloads,
-                    &mut self.custom,
-                    &mut self.buffers,
-                    &mut self.category_manager,
-                    &mut self.frames,
-                    &mut self.coding_systems,
-                    &mut self.match_data,
-                    &mut self.watchers,
-                    &mut self.catch_tags,
-                );
-                vm.set_depth(self.depth, self.max_depth);
+                let mut vm = super::bytecode::Vm::from_evaluator(self);
                 let result = vm.execute_with_func_value(&bc_data, args, func_val);
-                self.depth = vm.get_depth();
                 self.sync_features_variable();
                 result
             }
