@@ -1,7 +1,10 @@
 use super::super::intern::intern;
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::{
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
+    create_bootstrap_evaluator_cached,
+};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
@@ -12,6 +15,15 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .iter()
         .map(format_eval_result)
         .collect()
+}
+
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
+    let mut eval = Evaluator::new();
+    for name in names {
+        eval.obarray_mut().fmakunbound(name);
+    }
+    apply_ldefs_boot_autoloads_for_names(&mut eval, names).expect("ldefs-boot autoload restore");
+    eval
 }
 
 // -----------------------------------------------------------------------
@@ -504,7 +516,7 @@ fn test_name_last_kbd_macro_wrong_type() {
 
 #[test]
 fn test_kbd_macro_query_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["kbd-macro-query"]);
     let function = eval
         .obarray
         .symbol_function("kbd-macro-query")
@@ -569,7 +581,7 @@ fn test_resolve_macro_events_wrong_type() {
 
 #[test]
 fn test_insert_kbd_macro_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["insert-kbd-macro"]);
     let function = eval
         .obarray
         .symbol_function("insert-kbd-macro")

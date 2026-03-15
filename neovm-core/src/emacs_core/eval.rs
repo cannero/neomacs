@@ -1346,26 +1346,6 @@ impl Evaluator {
             "help-fns",
             "Display the full documentation of VARIABLE (a symbol).",
         );
-        seed_autoload(
-            "insert-kbd-macro",
-            "macros",
-            "Insert in buffer the definition of kbd macro MACRONAME, as Lisp code.",
-        );
-        seed_autoload(
-            "kmacro-name-last-macro",
-            "kmacro",
-            "Assign a name to the last keyboard macro defined.",
-        );
-        seed_autoload(
-            "name-last-kbd-macro",
-            "macros",
-            "Assign a name to the last keyboard macro defined.",
-        );
-        seed_autoload(
-            "kbd-macro-query",
-            "macros",
-            "Query user during kbd macro execution.",
-        );
         drop(seed_autoload);
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(

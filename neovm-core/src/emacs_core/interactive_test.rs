@@ -883,7 +883,8 @@ fn count_matches_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn kmacro_name_commands_startup_are_autoloaded() {
-    let mut ev = Evaluator::new();
+    let mut ev =
+        eval_with_ldefs_boot_autoloads(&["kmacro-name-last-macro", "name-last-kbd-macro"]);
     for name in ["kmacro-name-last-macro", "name-last-kbd-macro"] {
         let function = ev
             .obarray
