@@ -6,7 +6,7 @@ use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
     create_bootstrap_evaluator_cached,
 };
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

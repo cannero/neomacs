@@ -52,6 +52,8 @@ mod backquote_comprehensive_patterns;
 #[path = "beginning-of-line.rs"]
 mod beginning_of_line;
 mod bitwise;
+#[path = "bootstrap-library-require.rs"]
+mod bootstrap_library_require;
 #[path = "bool-vector-comprehensive.rs"]
 mod bool_vector_comprehensive;
 #[path = "bool-vector-operations.rs"]

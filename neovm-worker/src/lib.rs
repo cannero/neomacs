@@ -1,5 +1,8 @@
 use neovm_core::emacs_core::intern::resolve_sym;
-use neovm_core::emacs_core::{self, EvalError, Evaluator};
+use neovm_core::emacs_core::load::{
+    apply_runtime_startup_state, create_bootstrap_evaluator_cached,
+};
+use neovm_core::emacs_core::{self, EvalError};
 use neovm_core::{TaskHandle, TaskScheduler, TaskStatus};
 use neovm_host_abi::{
     Affinity, ChannelId, LispValue, SelectOp, SelectResult, Signal, TaskError, TaskOptions,
@@ -441,7 +444,10 @@ impl WorkerRuntime {
     }
 
     pub fn with_elisp_executor(config: WorkerConfig) -> Self {
-        let evaluator = Arc::new(Mutex::new(Evaluator::new()));
+        let mut evaluator =
+            create_bootstrap_evaluator_cached().expect("worker bootstrap evaluator");
+        apply_runtime_startup_state(&mut evaluator).expect("worker runtime startup state");
+        let evaluator = Arc::new(Mutex::new(evaluator));
         Self::with_executor(config, move |form, _opts, _ctx| {
             let source = std::str::from_utf8(&form.bytes).map_err(|err| {
                 TaskError::Failed(Signal {
@@ -1458,6 +1464,45 @@ mod tests {
         assert_eq!(
             String::from_utf8(call_out.bytes).expect("utf8 output"),
             "42"
+        );
+    }
+
+    #[test]
+    fn elisp_executor_uses_bootstrap_runtime_surface() {
+        let rt = WorkerRuntime::with_elisp_executor(WorkerConfig {
+            threads: 1,
+            queue_capacity: 16,
+        });
+        let workers = rt.start_dummy_workers();
+
+        let task = rt
+            .spawn(
+                LispValue {
+                    bytes: br#"(list
+                                  (featurep 'seq)
+                                  (featurep 'cl-generic)
+                                  (featurep 'cl-lib)
+                                  (featurep 'gv)
+                                  (condition-case err (require 'cl-lib) (error err))
+                                  (condition-case err (require 'gv) (error err))
+                                  (autoloadp (symbol-function 'cl-subseq))
+                                  (macrop 'gv-define-setter))"#
+                        .to_vec(),
+                },
+                TaskOptions::default(),
+            )
+            .expect("task should enqueue");
+        let result = TaskScheduler::task_await(&rt, task, Some(Duration::from_secs(1)))
+            .expect("bootstrap runtime probe should succeed");
+
+        rt.close();
+        for worker in workers {
+            worker.join().expect("worker thread should join");
+        }
+
+        assert_eq!(
+            String::from_utf8(result.bytes).expect("utf8 output"),
+            "(t t nil nil cl-lib gv t t)"
         );
     }
 }

@@ -4,7 +4,7 @@ use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, create_bootstrap_evaluator,
 };
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
     let mut ev = create_bootstrap_evaluator().expect("bootstrap");
