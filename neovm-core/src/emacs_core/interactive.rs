@@ -402,7 +402,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "buffer-disable-undo"
             | "buffer-enable-undo"
             | "call-last-kbd-macro"
-            | "clear-rectangle"
             | "copy-file"
             | "copy-to-register"
             | "count-matches"
@@ -417,7 +416,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "signal-process"
             | "process-menu-delete-process"
             | "process-menu-mode"
-            | "delete-rectangle"
             | "delete-region"
             | "delete-window"
             | "decode-coding-region"
@@ -459,7 +457,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "kill-buffer"
             | "kill-emacs"
             | "kill-local-variable"
-            | "kill-rectangle"
             | "load-file"
             | "lower-frame"
             | "lossage-size"
@@ -484,7 +481,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "newline-and-indent"
             | "number-to-register"
             | "open-dribble-file"
-            | "open-rectangle"
             | "open-termscript"
             | "point-to-register"
             | "pop-to-buffer"
@@ -525,7 +521,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "set-terminal-coding-system"
             | "setenv"
             | "start-kbd-macro"
-            | "string-rectangle"
             | "tab-to-tab-stop"
             | "suspend-emacs"
             | "top-level"
@@ -540,7 +535,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "word-search-forward"
             | "write-region"
             | "x-menu-bar-open-internal"
-            | "yank-rectangle"
     )
 }
 
