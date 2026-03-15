@@ -3351,12 +3351,6 @@ pub(crate) fn dispatch_builtin(
         "composition-get-gstring" => super::composite::builtin_composition_get_gstring(args),
         "clear-composition-cache" => super::composite::builtin_clear_composition_cache(args),
         "composition-sort-rules" => super::composite::builtin_composition_sort_rules(args),
-        // Indentation (pure)
-        "current-indentation" => super::indent::builtin_current_indentation(args),
-        "indent-to" => super::indent::builtin_indent_to(args),
-        "current-column" => super::indent::builtin_current_column(args),
-        "move-to-column" => super::indent::builtin_move_to_column(args),
-
         // Error hierarchy (pure)
         "signal" => super::errors::builtin_signal(args),
 

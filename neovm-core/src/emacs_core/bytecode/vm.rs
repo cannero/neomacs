@@ -1658,6 +1658,42 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::symbols::builtin_fboundp_in_obarray(self.shared.obarray, args)
     }
 
+    fn builtin_current_indentation_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::indent::builtin_current_indentation_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_indent_to_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::indent::builtin_indent_to_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_current_column_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::indent::builtin_current_column_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_move_to_column_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::indent::builtin_move_to_column_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
         match func_val {
             Value::ByteCode(_) => {
@@ -2191,6 +2227,10 @@ impl<'a> Vm<'a> {
             "set-char-table-extra-slot" => Some(
                 crate::emacs_core::chartable::builtin_set_char_table_extra_slot(args.to_vec()),
             ),
+            "current-indentation" => Some(self.builtin_current_indentation_shared(args)),
+            "indent-to" => Some(self.builtin_indent_to_shared(args)),
+            "current-column" => Some(self.builtin_current_column_shared(args)),
+            "move-to-column" => Some(self.builtin_move_to_column_shared(args)),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),

@@ -147,42 +147,6 @@ fn eval_all(ev: &mut Evaluator, src: &str) -> Vec<String> {
 }
 
 #[test]
-fn current_indentation_returns_zero() {
-    let result = builtin_current_indentation(vec![]).unwrap();
-    assert_eq!(result.as_int(), Some(0));
-}
-
-#[test]
-fn indent_to_returns_column() {
-    let result = builtin_indent_to(vec![Value::Int(42)]).unwrap();
-    assert_eq!(result.as_int(), Some(42));
-}
-
-#[test]
-fn indent_to_with_minimum() {
-    let result = builtin_indent_to(vec![Value::Int(10), Value::Int(4)]).unwrap();
-    assert_eq!(result.as_int(), Some(10));
-}
-
-#[test]
-fn current_column_returns_zero() {
-    let result = builtin_current_column(vec![]).unwrap();
-    assert_eq!(result.as_int(), Some(0));
-}
-
-#[test]
-fn move_to_column_returns_column() {
-    let result = builtin_move_to_column(vec![Value::Int(15)]).unwrap();
-    assert_eq!(result.as_int(), Some(15));
-}
-
-#[test]
-fn move_to_column_with_force() {
-    let result = builtin_move_to_column(vec![Value::Int(8), Value::True]).unwrap();
-    assert_eq!(result.as_int(), Some(8));
-}
-
-#[test]
 fn eval_column_and_indentation_subset() {
     let mut ev = super::super::eval::Evaluator::new();
     let forms = super::super::parser::parse_forms(
@@ -561,19 +525,24 @@ fn indent_according_to_mode_is_not_dispatch_builtin() {
 
 #[test]
 fn wrong_arg_count_errors() {
+    let mut eval = super::super::eval::Evaluator::new();
     // current-indentation takes no args
-    assert!(builtin_current_indentation(vec![Value::Int(1)]).is_err());
+    assert!(builtin_current_indentation_eval(&mut eval, vec![Value::Int(1)]).is_err());
     // indent-to requires at least 1 arg
-    assert!(builtin_indent_to(vec![]).is_err());
+    assert!(builtin_indent_to_eval(&mut eval, vec![]).is_err());
     // indent-to accepts at most 2 args
-    assert!(builtin_indent_to(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).is_err());
+    assert!(
+        builtin_indent_to_eval(&mut eval, vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+            .is_err()
+    );
     // current-column takes no args
-    assert!(builtin_current_column(vec![Value::Int(1)]).is_err());
+    assert!(builtin_current_column_eval(&mut eval, vec![Value::Int(1)]).is_err());
 }
 
 #[test]
 fn indent_to_rejects_non_integer() {
-    assert!(builtin_indent_to(vec![Value::string("foo")]).is_err());
+    let mut eval = super::super::eval::Evaluator::new();
+    assert!(builtin_indent_to_eval(&mut eval, vec![Value::string("foo")]).is_err());
 }
 
 #[test]
@@ -661,6 +630,43 @@ fn eval_indent_to_rejects_non_fixnump_minimum() {
     assert_eq!(printed[1], r#"OK (wrong-type-argument fixnump "x")"#);
     assert_eq!(printed[2], "OK (wrong-type-argument fixnump t)");
     assert_eq!(printed[3], r#"OK (wrong-type-argument fixnump "x")"#);
+}
+
+#[test]
+fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
+    let mut ev = super::super::eval::Evaluator::new();
+    let forms = super::super::parser::parse_forms(
+        r#"(let ((tab-width 4))
+             (with-temp-buffer
+               (insert "a\tb")
+               (goto-char (point-min))
+               (forward-char 2)
+               (list (current-column)
+                     (current-indentation)
+                     (move-to-column 3)
+                     (current-column))))
+           (let ((tab-width 4) (indent-tabs-mode t))
+             (with-temp-buffer
+               (list (indent-to 6 1)
+                     (current-column)
+                     (append (buffer-string) nil))))
+           (with-temp-buffer
+             (setq tab-width 4)
+             (insert "\tb")
+             (goto-char (point-max))
+             (list (current-indentation) (current-column)))"#,
+    )
+    .expect("parse forms");
+
+    let results = ev.eval_forms(&forms);
+    let printed: Vec<String> = results
+        .iter()
+        .map(super::super::format_eval_result)
+        .collect();
+
+    assert_eq!(printed[0], "OK (4 0 4 4)");
+    assert_eq!(printed[1], "OK (6 6 (9 32 32))");
+    assert_eq!(printed[2], "OK (4 5)");
 }
 
 #[test]

@@ -39,6 +39,26 @@ fn vm_eval_lexical_str(src: &str) -> String {
     })
 }
 
+fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Evaluator)) -> String {
+    let mut eval = Evaluator::new_vm_harness();
+    init(&mut eval);
+    let forms = parse_forms(src).expect("parse");
+    let mut compiler = Compiler::new(false);
+
+    let mut last = Value::Nil;
+    for form in &forms {
+        let func = compiler.compile_toplevel(form);
+        let mut vm = new_vm(&mut eval);
+        match vm.execute(&func, vec![]) {
+            Ok(value) => last = value,
+            Err(flow) => {
+                return crate::emacs_core::error::format_eval_result(&Err(map_flow(flow)));
+            }
+        }
+    }
+    crate::emacs_core::error::format_eval_result(&Ok(last))
+}
+
 #[test]
 fn vm_lexical_let_closure_captures_bytecode_binding() {
     assert_eq!(
@@ -800,6 +820,41 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
     };
 
     assert_eq!(result, Value::Int(12));
+}
+
+#[test]
+fn vm_indentation_builtins_use_buffer_local_current_buffer_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list (current-indentation)
+                     (current-column)
+                     (progn
+                       (goto-char 1)
+                       (move-to-column 3))
+                     (current-column))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
+                buffer.set_buffer_local("tab-width", Value::Int(4));
+                buffer.insert("\tb");
+                buffer.goto_char(3);
+            },
+        ),
+        "OK (4 5 4 4)"
+    );
+}
+
+#[test]
+fn vm_indent_to_uses_dynamic_indentation_bindings() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((tab-width 4) (indent-tabs-mode t))
+                 (list (indent-to 6 1)
+                       (current-column)
+                       (append (buffer-string) nil)))"#
+        ),
+        "OK (6 6 (9 32 32))"
+    );
 }
 
 #[test]
