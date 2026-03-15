@@ -768,9 +768,11 @@ impl BufferManager {
         self.dead_buffer_last_names.get(&id).map(|s| s.as_str())
     }
 
-    /// List all live buffer ids (arbitrary order).
+    /// List all live buffer ids in stable creation order.
     pub fn buffer_list(&self) -> Vec<BufferId> {
-        self.buffers.keys().copied().collect()
+        let mut ids: Vec<BufferId> = self.buffers.keys().copied().collect();
+        ids.sort_by_key(|id| id.0);
+        ids
     }
 
     fn shared_text_root_id(&self, id: BufferId) -> Option<BufferId> {
@@ -1276,13 +1278,20 @@ impl BufferManager {
     /// unchanged; otherwise appends `<2>`, `<3>`, ... until a free name is
     /// found.
     pub fn generate_new_buffer_name(&self, base: &str) -> String {
-        if self.find_buffer_by_name(base).is_none() {
+        self.generate_new_buffer_name_ignoring(base, None)
+    }
+
+    /// Generate a unique buffer name, allowing `ignore` to be reused even if
+    /// a live buffer already owns that name.
+    pub fn generate_new_buffer_name_ignoring(&self, base: &str, ignore: Option<&str>) -> String {
+        if ignore == Some(base) || self.find_buffer_by_name(base).is_none() {
             return base.to_string();
         }
         let mut n = 2u64;
         loop {
             let candidate = format!("{}<{}>", base, n);
-            if self.find_buffer_by_name(&candidate).is_none() {
+            if ignore == Some(candidate.as_str()) || self.find_buffer_by_name(&candidate).is_none()
+            {
                 return candidate;
             }
             n += 1;
@@ -2066,10 +2075,10 @@ mod tests {
     #[test]
     fn manager_buffer_list() {
         let mut mgr = BufferManager::new();
-        mgr.create_buffer("a");
-        mgr.create_buffer("b");
-        // *scratch* + a + b = 3
-        assert_eq!(mgr.buffer_list().len(), 3);
+        let scratch = mgr.find_buffer_by_name("*scratch*").expect("scratch");
+        let a = mgr.create_buffer("a");
+        let b = mgr.create_buffer("b");
+        assert_eq!(mgr.buffer_list(), vec![scratch, a, b]);
     }
 
     #[test]
@@ -2087,6 +2096,21 @@ mod tests {
         assert_eq!(mgr.generate_new_buffer_name("buf"), "buf<2>");
         mgr.create_buffer("buf<2>");
         assert_eq!(mgr.generate_new_buffer_name("buf"), "buf<3>");
+    }
+
+    #[test]
+    fn manager_generate_new_buffer_name_honors_ignore_candidate() {
+        let mut mgr = BufferManager::new();
+        mgr.create_buffer("buf");
+        mgr.create_buffer("buf<2>");
+        assert_eq!(
+            mgr.generate_new_buffer_name_ignoring("buf", Some("buf<2>")),
+            "buf<2>"
+        );
+        assert_eq!(
+            mgr.generate_new_buffer_name_ignoring("buf", Some("buf<3>")),
+            "buf<3>"
+        );
     }
 
     // -----------------------------------------------------------------------

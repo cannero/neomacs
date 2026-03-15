@@ -1696,6 +1696,27 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::builtin_point_in_manager(&*self.shared.buffers, args.to_vec())
     }
 
+    fn builtin_buffer_list_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_list_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_other_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_other_buffer_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_generate_new_buffer_name_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_generate_new_buffer_name_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_insert_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_insert_in_state(
             &*self.shared.obarray,
@@ -2689,6 +2710,9 @@ impl<'a> Vm<'a> {
             }
             "buffer-string" => Some(self.builtin_buffer_string_shared(args)),
             "point" => Some(self.builtin_point_shared(args)),
+            "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
+            "other-buffer" => Some(self.builtin_other_buffer_shared(args)),
+            "generate-new-buffer-name" => Some(self.builtin_generate_new_buffer_name_shared(args)),
             "point-min" => Some(self.builtin_point_min_shared(args)),
             "point-max" => Some(self.builtin_point_max_shared(args)),
             "goto-char" => Some(self.builtin_goto_char_shared(args)),

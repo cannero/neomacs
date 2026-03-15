@@ -2499,62 +2499,97 @@ pub(crate) fn builtin_buffer_list(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_list_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_list_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-list", &args, 1)?;
-    let ids = eval.buffers.buffer_list();
+    let ids = buffers.buffer_list();
     let vals: Vec<Value> = ids.into_iter().map(Value::Buffer).collect();
     Ok(Value::list(vals))
+}
+
+fn other_buffer_designator(
+    buffers: &crate::buffer::BufferManager,
+    value: Option<&Value>,
+) -> Option<crate::buffer::BufferId> {
+    match value {
+        Some(Value::Buffer(id)) if buffers.get(*id).is_some() => Some(*id),
+        Some(Value::Str(name_id)) => {
+            let name = with_heap(|h| h.get_string(*name_id).to_owned());
+            buffers.find_buffer_by_name(&name)
+        }
+        _ => None,
+    }
+}
+
+fn is_hidden_buffer(buffers: &crate::buffer::BufferManager, id: crate::buffer::BufferId) -> bool {
+    buffers
+        .get(id)
+        .map(|buf| buf.name.starts_with(' '))
+        .unwrap_or(true)
 }
 
 /// (other-buffer &optional BUFFER VISIBLE-OK FRAME) → buffer
 ///
 /// Batch-friendly behavior:
-/// - prefers `*Messages*` when available and distinct from BUFFER
-/// - otherwise returns a live buffer distinct from BUFFER when possible
-/// - falls back to BUFFER/current buffer when no alternative exists
+/// - scans live buffers in stable manager order
+/// - treats the current buffer as the only visible buffer in headless mode
+/// - never returns hidden buffers (names starting with a space)
+/// - falls back to `*scratch*`, creating it if needed
 pub(crate) fn builtin_other_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_other_buffer_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_other_buffer_in_manager(
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("other-buffer", &args, 3)?;
 
-    let current_id = eval.buffers.current_buffer().map(|buf| buf.id);
-    let avoid_id = match args.first() {
-        None | Some(Value::Nil) => current_id,
-        Some(Value::Buffer(id)) => Some(*id),
-        Some(Value::Str(name_id)) => {
-            let name = with_heap(|h| h.get_string(*name_id).to_owned());
-            eval.buffers.find_buffer_by_name(&name)
-        }
-        // GNU Emacs is permissive for non-buffer designators here; treat as
-        // unspecified and still return a live buffer.
-        Some(_) => current_id,
-    };
+    let current_id = buffers.current_buffer_id();
+    let avoid_id = other_buffer_designator(buffers, args.first());
+    let visible_ok = args.get(1).is_some_and(|arg| !arg.is_nil());
+    let mut notsogood = None;
 
-    if let Some(messages_id) = eval.buffers.find_buffer_by_name("*Messages*") {
-        if Some(messages_id) != avoid_id {
-            return Ok(Value::Buffer(messages_id));
+    for id in buffers.buffer_list() {
+        if Some(id) == avoid_id || is_hidden_buffer(buffers, id) {
+            continue;
+        }
+        if visible_ok || Some(id) != current_id {
+            return Ok(Value::Buffer(id));
+        }
+        if notsogood.is_none() {
+            notsogood = Some(id);
         }
     }
 
-    if let Some(id) = eval
-        .buffers
-        .buffer_list()
-        .into_iter()
-        .find(|id| Some(*id) != avoid_id)
-    {
+    if let Some(id) = notsogood {
         return Ok(Value::Buffer(id));
     }
 
-    if let Some(id) = avoid_id.or(current_id) {
-        return Ok(Value::Buffer(id));
-    }
-
-    Ok(Value::Nil)
+    let scratch = buffers
+        .find_buffer_by_name("*scratch*")
+        .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
+    Ok(Value::Buffer(scratch))
 }
 
 /// (generate-new-buffer-name BASE) → string
 pub(crate) fn builtin_generate_new_buffer_name(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_generate_new_buffer_name_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_generate_new_buffer_name_in_manager(
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("generate-new-buffer-name", &args, 1)?;
@@ -2571,7 +2606,10 @@ pub(crate) fn builtin_generate_new_buffer_name(
         ));
     }
     let base = expect_string(&args[0])?;
-    Ok(Value::string(eval.buffers.generate_new_buffer_name(&base)))
+    let ignore = args.get(1).and_then(Value::as_str);
+    Ok(Value::string(
+        buffers.generate_new_buffer_name_ignoring(&base, ignore),
+    ))
 }
 
 /// (bufferp OBJECT) → t or nil

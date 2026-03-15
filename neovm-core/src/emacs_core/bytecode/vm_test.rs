@@ -1476,6 +1476,24 @@ fn vm_replace_match_and_match_translate_use_shared_match_state() {
 }
 
 #[test]
+fn vm_buffer_manager_query_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (get-buffer-create "*Messages*")
+                 (get-buffer-create "*vm-alt*")
+                 (get-buffer-create " hidden")
+                 (list
+                  (mapcar #'buffer-name (buffer-list))
+                  (buffer-name (other-buffer "*vm-alt*"))
+                  (buffer-name (other-buffer "*vm-alt*" t))
+                  (generate-new-buffer-name "*vm-alt*" "*vm-alt*<2>")))"#
+        ),
+        r#"OK (("*scratch*" "*Messages*" "*vm-alt*" " hidden") "*Messages*" "*scratch*" "*vm-alt*<2>")"#
+    );
+}
+
+#[test]
 fn vm_when_unless() {
     assert_eq!(vm_eval_str("(when t 1 2 3)"), "OK 3");
     assert_eq!(vm_eval_str("(when nil 1 2 3)"), "OK nil");

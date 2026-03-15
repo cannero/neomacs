@@ -1205,6 +1205,7 @@ fn get_buffer_rejects_non_string_non_buffer_designators() {
 fn generate_new_buffer_name_optional_arg_matches_expected_types() {
     let mut eval = super::super::eval::Evaluator::new();
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*gnbn-opt*")]).unwrap();
+    let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*gnbn-opt*<2>")]).unwrap();
 
     let with_nil =
         builtin_generate_new_buffer_name(&mut eval, vec![Value::string("*gnbn-opt*"), Value::Nil])
@@ -1227,14 +1228,14 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
     .unwrap();
     let with_string = builtin_generate_new_buffer_name(
         &mut eval,
-        vec![Value::string("*gnbn-opt*"), Value::string("*gnbn-opt*<9>")],
+        vec![Value::string("*gnbn-opt*"), Value::string("*gnbn-opt*<2>")],
     )
     .unwrap();
 
-    assert_eq!(with_nil, Value::string("*gnbn-opt*<2>"));
-    assert_eq!(with_true, Value::string("*gnbn-opt*<2>"));
-    assert_eq!(with_symbol, Value::string("*gnbn-opt*<2>"));
-    assert_eq!(with_keyword, Value::string("*gnbn-opt*<2>"));
+    assert_eq!(with_nil, Value::string("*gnbn-opt*<3>"));
+    assert_eq!(with_true, Value::string("*gnbn-opt*<3>"));
+    assert_eq!(with_symbol, Value::string("*gnbn-opt*<3>"));
+    assert_eq!(with_keyword, Value::string("*gnbn-opt*<3>"));
     assert_eq!(with_string, Value::string("*gnbn-opt*<2>"));
 
     let err = builtin_generate_new_buffer_name(
@@ -2915,18 +2916,47 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*Messages*")]).unwrap();
     let avoid = builtin_get_buffer_create(&mut eval, vec![Value::string("*ob-avoid*")])
         .expect("create avoid buffer");
+    let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*ob-alt*")]).unwrap();
+    let _ = builtin_get_buffer_create(&mut eval, vec![Value::string(" hidden")]).unwrap();
 
     let other = builtin_other_buffer(&mut eval, vec![avoid]).expect("other-buffer");
-    assert!(matches!(other, Value::Buffer(_)));
-    assert_ne!(other, avoid);
+    assert_eq!(
+        other,
+        eval.buffers
+            .find_buffer_by_name("*Messages*")
+            .map(Value::Buffer)
+            .expect("messages buffer")
+    );
+
+    let visible_ok =
+        builtin_other_buffer(&mut eval, vec![avoid, Value::True]).expect("other-buffer visible-ok");
+    assert_eq!(
+        visible_ok,
+        eval.buffers
+            .find_buffer_by_name("*scratch*")
+            .map(Value::Buffer)
+            .expect("scratch buffer")
+    );
 
     let from_non_buffer =
         builtin_other_buffer(&mut eval, vec![Value::Int(1)]).expect("other-buffer int");
-    assert!(matches!(from_non_buffer, Value::Buffer(_)));
+    assert_eq!(
+        from_non_buffer,
+        eval.buffers
+            .find_buffer_by_name("*Messages*")
+            .map(Value::Buffer)
+            .expect("messages buffer")
+    );
 
     let from_missing_name = builtin_other_buffer(&mut eval, vec![Value::string("*missing*")])
         .expect("other-buffer missing name");
-    assert!(matches!(from_missing_name, Value::Buffer(_)));
+    assert_eq!(
+        from_missing_name,
+        eval.buffers
+            .find_buffer_by_name("*Messages*")
+            .map(Value::Buffer)
+            .expect("messages buffer")
+    );
 
     let err = builtin_other_buffer(
         &mut eval,
@@ -2940,6 +2970,22 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
         }
         other => panic!("unexpected flow: {other:?}"),
     }
+}
+
+#[test]
+fn buffer_list_returns_live_buffers_in_creation_order() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .expect("scratch");
+    let a = builtin_get_buffer_create(&mut eval, vec![Value::string("*bl-a*")]).unwrap();
+    let b = builtin_get_buffer_create(&mut eval, vec![Value::string("*bl-b*")]).unwrap();
+
+    assert_eq!(
+        builtin_buffer_list(&mut eval, vec![]).expect("buffer-list"),
+        Value::list(vec![Value::Buffer(scratch), a, b])
+    );
 }
 
 #[test]
