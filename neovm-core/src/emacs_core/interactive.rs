@@ -4,7 +4,7 @@
 //! - `InteractiveSpec` and `InteractiveRegistry` for tracking which functions
 //!   are interactive commands and their argument specifications.
 //! - Built-in functions: `call-interactively`, `interactive-p`,
-//!   `called-interactively-p`, `commandp`, `command-execute`,
+//!   `called-interactively-p`, `commandp`,
 //!   `execute-extended-command`, `key-binding`, `local-key-binding`,
 //!   `minor-mode-key-binding`, `where-is-internal`,
 //!   `substitute-command-keys`, `describe-key-briefly`, `this-command-keys`,
@@ -1364,39 +1364,6 @@ fn resolve_command_target(eval: &Evaluator, designator: &Value) -> Option<(Strin
         Value::Keyword(id) => Some((resolve_sym(*id).to_owned(), *designator)),
         _ => Some(("<anonymous>".to_string(), *designator)),
     }
-}
-
-/// `(command-execute CMD &optional RECORD-FLAG KEYS SPECIAL)`
-/// Execute CMD as an editor command.
-pub(crate) fn builtin_command_execute(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_min_args("command-execute", &args, 1)?;
-    expect_max_args("command-execute", &args, 4)?;
-    expect_optional_command_keys_vector(args.get(2))?;
-
-    let cmd = &args[0];
-    if !command_designator_p(eval, cmd) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("commandp"), *cmd],
-        ));
-    }
-    let Some((resolved_name, func)) = resolve_command_target(eval, cmd) else {
-        return Err(signal("void-function", vec![*cmd]));
-    };
-    let func = normalize_command_callable(eval, func)?;
-    let mut context = InteractiveInvocationContext::from_keys_arg(eval, args.get(2));
-    let call_args = resolve_interactive_invocation_args(
-        eval,
-        &resolved_name,
-        &func,
-        CommandInvocationKind::CommandExecute,
-        &mut context,
-    )?;
-
-    eval.interactive.push_interactive_call(true);
-    let result = eval.apply(func, call_args);
-    eval.interactive.pop_interactive_call();
-    result
 }
 
 /// `(eval-expression EXPRESSION &optional INSERT-VALUE NO-TRUNCATE LEXICAL)` -- evaluate and

@@ -2082,7 +2082,6 @@ pub(crate) fn dispatch_builtin(
         "call-interactively" => {
             return Some(super::interactive::builtin_call_interactively(eval, args));
         }
-        "command-execute" => return Some(super::interactive::builtin_command_execute(eval, args)),
         "commandp" => return Some(super::interactive::builtin_commandp_interactive(eval, args)),
         "command-remapping" => {
             return Some(super::interactive::builtin_command_remapping(eval, args));

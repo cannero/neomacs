@@ -2350,8 +2350,8 @@ impl Evaluator {
             // Run pre-command-hook
             let _ = self.run_hook_if_bound("pre-command-hook");
 
-            // Execute: (command-execute cmd)
-            let exec_result = super::interactive::builtin_command_execute(self, vec![binding]);
+            // Execute the Lisp-owned command-execute function like GNU Emacs.
+            let exec_result = self.apply(Value::symbol("command-execute"), vec![binding]);
 
             if let Err(ref flow) = exec_result {
                 match flow {

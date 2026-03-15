@@ -1158,7 +1158,6 @@ fn subr_arity_value(name: &str) -> Value {
         "force-mode-line-update" | "force-window-update" => arity_cons(0, Some(1)),
         "featurep" => arity_cons(1, Some(2)),
         "commandp" => arity_cons(1, Some(2)),
-        "command-execute" => arity_cons(1, Some(4)),
         "command-modes" => arity_cons(1, Some(1)),
         "command-remapping" => arity_cons(1, Some(3)),
         "sleep-for" => arity_cons(1, Some(2)),

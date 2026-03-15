@@ -167,7 +167,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "color-supported-p",
     "color-values-from-color-spec",
     "command-error-default-function",
-    "command-execute",
     "command-modes",
     "command-remapping",
     "commandp",
