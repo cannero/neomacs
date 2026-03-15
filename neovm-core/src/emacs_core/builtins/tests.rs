@@ -5911,6 +5911,101 @@ fn replace_match_missing_subexp_signals_error() {
 }
 
 #[test]
+fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
+    use crate::emacs_core::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+    builtin_set_match_data_eval(&mut eval, vec![Value::Nil]).expect("clear match data");
+
+    let result = builtin_replace_match(&mut eval, vec![Value::string("bar")]);
+    assert!(matches!(
+        result,
+        Err(Flow::Signal(sig))
+            if sig.symbol_name() == "error"
+                && sig.data
+                    == vec![
+                        Value::string("replace-match subexpression does not exist"),
+                        Value::Nil,
+                    ]
+    ));
+}
+
+#[test]
+fn replace_match_buffer_updates_live_match_data_like_gnu() {
+    use crate::emacs_core::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
+        buffer.insert("foo-42");
+        buffer.goto_char(0);
+    }
+
+    builtin_re_search_forward(&mut eval, vec![Value::string("\\([a-z]+\\)-\\([0-9]+\\)")])
+        .expect("seed buffer match data");
+    builtin_replace_match(&mut eval, vec![Value::string("\\2-\\1")])
+        .expect("replace-match should succeed");
+
+    let buffer = eval.buffers.current_buffer().expect("scratch buffer");
+    assert_eq!(buffer.text.text_range(0, buffer.text.len()), "42-foo");
+
+    assert_eq!(
+        builtin_match_beginning(&mut eval, vec![Value::Int(0)]).expect("match-beginning 0"),
+        Value::Int(1)
+    );
+    assert_eq!(
+        builtin_match_end(&mut eval, vec![Value::Int(0)]).expect("match-end 0"),
+        Value::Int(7)
+    );
+    assert_eq!(
+        builtin_match_beginning(&mut eval, vec![Value::Int(1)]).expect("match-beginning 1"),
+        Value::Int(1)
+    );
+    assert_eq!(
+        builtin_match_end(&mut eval, vec![Value::Int(1)]).expect("match-end 1"),
+        Value::Int(1)
+    );
+    assert_eq!(
+        builtin_match_beginning(&mut eval, vec![Value::Int(2)]).expect("match-beginning 2"),
+        Value::Int(1)
+    );
+    assert_eq!(
+        builtin_match_end(&mut eval, vec![Value::Int(2)]).expect("match-end 2"),
+        Value::Int(7)
+    );
+}
+
+#[test]
+fn match_data_translate_shifts_groups_in_shared_eval_state() {
+    use crate::emacs_core::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+    builtin_set_match_data_eval(
+        &mut eval,
+        vec![Value::list(vec![
+            Value::Int(1),
+            Value::Int(4),
+            Value::Int(2),
+            Value::Int(3),
+        ])],
+    )
+    .expect("seed match data");
+
+    builtin_match_data_translate_eval(&mut eval, vec![Value::Int(5)])
+        .expect("translate match data");
+
+    assert_eq!(
+        builtin_match_data_eval(&mut eval, vec![]).expect("read translated match data"),
+        Value::list(vec![
+            Value::Int(6),
+            Value::Int(9),
+            Value::Int(7),
+            Value::Int(8),
+        ])
+    );
+}
+
+#[test]
 fn looking_at_p_respects_case_fold_search() {
     use crate::emacs_core::eval::Evaluator;
 

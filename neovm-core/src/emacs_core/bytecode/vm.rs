@@ -2093,6 +2093,29 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_posix_string_match_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_posix_string_match_with_state(
+            self.case_fold_search_enabled(),
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_match_data_translate_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_match_data_translate_with_state(
+            self.shared.match_data,
+            args,
+        )
+    }
+
+    fn builtin_replace_match_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::search::builtin_replace_match_with_state(
+            &mut *self.shared.buffers,
+            self.shared.match_data,
+            args,
+        )
+    }
+
     fn builtin_skip_chars_forward_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::navigation::builtin_skip_chars_forward_in_manager(
             &mut *self.shared.buffers,
@@ -3118,6 +3141,7 @@ impl<'a> Vm<'a> {
                     args,
                 )
             }),
+            "posix-string-match" => Some(self.builtin_posix_string_match_shared(args)),
             "match-beginning" => Some(
                 crate::emacs_core::builtins::search::builtin_match_beginning_with_state(
                     Some(&*self.shared.buffers),
@@ -3145,6 +3169,8 @@ impl<'a> Vm<'a> {
                     args,
                 ),
             ),
+            "match-data--translate" => Some(self.builtin_match_data_translate_shared(args)),
+            "replace-match" => Some(self.builtin_replace_match_shared(args)),
             _ => None,
         }
     }

@@ -656,6 +656,15 @@ pub(crate) fn builtin_string_match_eval(
     builtin_string_match_with_state(case_fold, &mut eval.match_data, &args)
 }
 
+pub(crate) fn builtin_posix_string_match_with_state(
+    case_fold: bool,
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
+) -> EvalResult {
+    expect_range_args("posix-string-match", args, 2, 4)?;
+    builtin_string_match_with_state(case_fold, match_data, args)
+}
+
 pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Value]) -> EvalResult {
     expect_range_args("string-match-p", args, 2, 3)?;
     match (&args[0], &args[1]) {
@@ -713,8 +722,10 @@ pub(crate) fn builtin_posix_string_match(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("posix-string-match", &args, 2, 4)?;
-    builtin_string_match_eval(eval, args)
+    let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
+        .map(|v| !v.is_nil())
+        .unwrap_or(true);
+    builtin_posix_string_match_with_state(case_fold, &mut eval.match_data, &args)
 }
 
 pub(crate) fn builtin_match_string(
@@ -1095,11 +1106,73 @@ pub(crate) fn builtin_set_match_data_eval(
     builtin_set_match_data_with_state(&mut eval.match_data, &args)
 }
 
-pub(crate) fn builtin_replace_match(
+fn translate_match_data(match_data: &mut Option<super::regex::MatchData>, delta: i64) {
+    if let Some(md) = match_data {
+        for group in md.groups.iter_mut() {
+            if let Some((start, end)) = group {
+                *start = (*start as i64 + delta).max(0) as usize;
+                *end = (*end as i64 + delta).max(0) as usize;
+            }
+        }
+    }
+}
+
+pub(crate) fn builtin_match_data_translate_with_state(
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
+) -> EvalResult {
+    expect_args("match-data--translate", args, 1)?;
+    let delta = expect_fixnum(&args[0])?;
+    translate_match_data(match_data, delta);
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_match_data_translate_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("replace-match", &args, 1)?;
+    builtin_match_data_translate_with_state(&mut eval.match_data, &args)
+}
+
+fn update_match_data_after_buffer_replace(
+    match_data: &mut Option<super::regex::MatchData>,
+    oldstart: usize,
+    oldend: usize,
+    newend: usize,
+) {
+    let Some(md) = match_data else {
+        return;
+    };
+
+    let change = newend as i64 - oldend as i64;
+    for group in md.groups.iter_mut() {
+        let Some((start, end)) = group.as_mut() else {
+            continue;
+        };
+
+        if *start <= oldstart {
+            // Keep starts for enclosing groups, matching GNU's optimistic
+            // `update_search_regs` heuristic.
+        } else if *start >= oldend {
+            *start = (*start as i64 + change) as usize;
+        } else {
+            *start = oldstart;
+        }
+
+        if *end >= oldend {
+            *end = (*end as i64 + change) as usize;
+        } else if *end > oldstart {
+            *end = oldstart;
+        }
+    }
+}
+
+pub(crate) fn builtin_replace_match_with_state(
+    buffers: &mut crate::buffer::BufferManager,
+    match_data: &mut Option<super::regex::MatchData>,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args("replace-match", args, 1)?;
     if args.len() > 5 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -1111,14 +1184,15 @@ pub(crate) fn builtin_replace_match(
     }
 
     let newtext = expect_strict_string(&args[0])?;
-    let fixedcase = args.len() > 1 && args[1].is_truthy();
-    let literal = args.len() > 2 && args[2].is_truthy();
-    let string_arg = if args.len() > 3 && !args[3].is_nil() {
+    let fixedcase = args.get(1).is_some_and(|arg| arg.is_truthy());
+    let literal = args.get(2).is_some_and(|arg| arg.is_truthy());
+    let raw_subexp = args.get(4).copied().unwrap_or(Value::Nil);
+    let string_arg = if args.get(3).is_some_and(|arg| !arg.is_nil()) {
         Some(expect_strict_string(&args[3])?)
     } else {
         None
     };
-    let subexp = if args.len() > 4 && !args[4].is_nil() {
+    let subexp = if args.get(4).is_some_and(|arg| !arg.is_nil()) {
         let n = expect_int(&args[4])?;
         if n < 0 {
             return if let Some(source) = string_arg.as_ref() {
@@ -1139,59 +1213,95 @@ pub(crate) fn builtin_replace_match(
         0usize
     };
 
-    // Clone match_data to avoid borrow conflict
-    let md = eval.match_data.clone();
+    let md_snapshot = match_data.clone();
     let missing_subexp_error = super::regex::REPLACE_MATCH_SUBEXP_MISSING;
+    let missing_subexp_signal = |subexp_value: Value| {
+        signal(
+            "error",
+            vec![Value::string(missing_subexp_error), subexp_value],
+        )
+    };
 
     if let Some(source) = string_arg {
-        if md
-            .as_ref()
-            .and_then(|m| m.groups.first())
-            .and_then(|g| *g)
-            .is_none()
-            && subexp == 0
-        {
-            return Err(signal("args-out-of-range", vec![Value::Int(0)]));
+        if md_snapshot.is_none() {
+            return Err(missing_subexp_signal(raw_subexp));
         }
         return match super::regex::replace_match_string(
-            &source, &newtext, fixedcase, literal, subexp, &md,
+            &source,
+            &newtext,
+            fixedcase,
+            literal,
+            subexp,
+            &md_snapshot,
         ) {
             Ok(result) => Ok(Value::string(result)),
-            Err(msg) if msg == missing_subexp_error && subexp == 0 => {
-                Err(signal("args-out-of-range", vec![Value::Int(0)]))
-            }
-            Err(msg) if msg == missing_subexp_error => Err(signal(
-                "error",
-                vec![Value::string(msg), Value::Int(subexp as i64)],
-            )),
+            Err(msg) if msg == missing_subexp_error => Err(missing_subexp_signal(raw_subexp)),
             Err(msg) => Err(signal("error", vec![Value::string(msg)])),
         };
     }
 
-    if md.as_ref().is_some_and(|m| m.searched_string.is_some()) {
+    if md_snapshot
+        .as_ref()
+        .is_some_and(|m| m.searched_string.is_some())
+    {
         return Err(signal("args-out-of-range", vec![Value::Int(0)]));
     }
 
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let (oldstart, oldend, replacement_len) = {
+        let md = md_snapshot
+            .as_ref()
+            .ok_or_else(|| missing_subexp_signal(raw_subexp))?;
+        let (oldstart, oldend) = match md.groups.get(subexp) {
+            Some(Some(pair)) => *pair,
+            Some(None) | None => return Err(missing_subexp_signal(raw_subexp)),
+        };
+
+        let buf = buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let source = buf.text.text_range(0, buf.text.len());
+        let replacement = super::regex::replace_match_string(
+            &source,
+            &newtext,
+            fixedcase,
+            literal,
+            subexp,
+            &md_snapshot,
+        )
+        .map_err(|msg| {
+            if msg == missing_subexp_error {
+                missing_subexp_signal(raw_subexp)
+            } else {
+                signal("error", vec![Value::string(msg)])
+            }
+        })?;
+        let replacement_len = replacement.len() - (source.len() - (oldend - oldstart));
+        (oldstart, oldend, replacement_len)
+    };
+
     let result = {
-        let buf = eval
-            .buffers
+        let buf = buffers
             .get_mut(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        super::regex::replace_match_buffer(buf, &newtext, fixedcase, literal, subexp, &md)
+        super::regex::replace_match_buffer(buf, &newtext, fixedcase, literal, subexp, &md_snapshot)
     };
     match result {
-        Ok(()) => Ok(Value::Nil), // Emacs returns nil on buffer replacement
-        Err(msg) if msg == missing_subexp_error && subexp == 0 => {
-            Err(signal("args-out-of-range", vec![Value::Int(0)]))
+        Ok(()) => {
+            let newend = oldstart + replacement_len;
+            update_match_data_after_buffer_replace(match_data, oldstart, oldend, newend);
+            Ok(Value::Nil)
         }
-        Err(msg) if msg == missing_subexp_error => Err(signal(
-            "error",
-            vec![Value::string(msg), Value::Int(subexp as i64)],
-        )),
+        Err(msg) if msg == missing_subexp_error => Err(missing_subexp_signal(raw_subexp)),
         Err(msg) => Err(signal("error", vec![Value::string(msg)])),
     }
+}
+
+pub(crate) fn builtin_replace_match(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_replace_match_with_state(&mut eval.buffers, &mut eval.match_data, &args)
 }

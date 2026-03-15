@@ -1443,6 +1443,39 @@ fn vm_looking_at_builtins_use_shared_match_data_and_case_fold() {
 }
 
 #[test]
+fn vm_replace_match_and_match_translate_use_shared_match_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((case-fold-search t))
+                   (posix-string-match "A" "a"))
+                 (progn
+                   (string-match "\\([a-z]+\\)-\\([0-9]+\\)" "foo-42")
+                   (replace-match "bar" t t "foo-42" 1))
+                 (progn
+                   (set-match-data '(1 4 2 3))
+                   (match-data--translate 5)
+                   (match-data))
+                 (progn
+                   (erase-buffer)
+                   (insert "foo-42")
+                   (goto-char 1)
+                   (re-search-forward "\\([a-z]+\\)-\\([0-9]+\\)")
+                   (list
+                    (replace-match "\\2-\\1")
+                    (buffer-string)
+                    (match-beginning 0)
+                    (match-end 0)
+                    (match-beginning 1)
+                    (match-end 1)
+                    (match-beginning 2)
+                    (match-end 2))))"#
+        ),
+        r#"OK (0 "bar-42" (6 9 7 8) (nil "42-foo" 1 7 1 1 1 7))"#
+    );
+}
+
+#[test]
 fn vm_when_unless() {
     assert_eq!(vm_eval_str("(when t 1 2 3)"), "OK 3");
     assert_eq!(vm_eval_str("(when nil 1 2 3)"), "OK nil");
