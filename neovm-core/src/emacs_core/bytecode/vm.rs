@@ -1849,6 +1849,33 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_delete_region_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_delete_region_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_delete_and_extract_region_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_delete_and_extract_region_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_erase_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_erase_buffer_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_move_to_column_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::indent::builtin_move_to_column_in_state(
             &*self.shared.obarray,
@@ -2424,6 +2451,11 @@ impl<'a> Vm<'a> {
             }
             "following-char" => Some(self.builtin_following_char_shared(args)),
             "preceding-char" => Some(self.builtin_preceding_char_shared(args)),
+            "delete-region" => Some(self.builtin_delete_region_shared(args)),
+            "delete-and-extract-region" => {
+                Some(self.builtin_delete_and_extract_region_shared(args))
+            }
+            "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),

@@ -1954,47 +1954,12 @@ pub(crate) fn builtin_delete_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("delete-region", &args, 2)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
-    }
-
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
-        .get(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.point_min_char() as i64 + 1;
-    let point_max = buf.point_max_char() as i64 + 1;
-    if start < point_min || start > point_max || end < point_min || end > point_max {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
-        ));
-    }
-    let lo = start.min(end) as usize;
-    let hi = start.max(end) as usize;
-    // Convert 1-based to 0-based char positions, then to byte positions
-    let s = if lo > 0 { lo - 1 } else { 0 };
-    let e = if hi > 0 { hi - 1 } else { 0 };
-    let byte_start = buf.text.char_to_byte(s);
-    let byte_end = buf.text.char_to_byte(e);
-    let _ = eval
-        .buffers
-        .delete_buffer_region(current_id, byte_start, byte_end);
-    Ok(Value::Nil)
+    super::editfns::builtin_delete_region_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        args,
+    )
 }
 
 /// `(delete-and-extract-region START END)` -> deleted text
@@ -2002,34 +1967,12 @@ pub(crate) fn builtin_delete_and_extract_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("delete-and-extract-region", &args, 2)?;
-    let start = expect_integer_or_marker(&args[0])?;
-    let end = expect_integer_or_marker(&args[1])?;
-
-    let (point_min, point_max, current_buffer) = {
-        let buf = eval
-            .buffers
-            .current_buffer()
-            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        (
-            buf.point_min_char() as i64 + 1,
-            buf.point_max_char() as i64 + 1,
-            Value::Buffer(buf.id),
-        )
-    };
-
-    if start < point_min || start > point_max || end < point_min || end > point_max {
-        return Err(signal(
-            "args-out-of-range",
-            vec![current_buffer, Value::Int(start), Value::Int(end)],
-        ));
-    }
-
-    let lo = start.min(end);
-    let hi = start.max(end);
-    let deleted = builtin_buffer_substring(eval, vec![Value::Int(lo), Value::Int(hi)])?;
-    let _ = builtin_delete_region(eval, vec![Value::Int(lo), Value::Int(hi)])?;
-    Ok(deleted)
+    super::editfns::builtin_delete_and_extract_region_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        args,
+    )
 }
 
 /// (subst-char-in-region START END FROMCHAR TOCHAR &optional NOUNDO) → nil
@@ -2117,24 +2060,12 @@ pub(crate) fn builtin_erase_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("erase-buffer", &args, 0)?;
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
-    }
-
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.replace_buffer_contents(current_id, "");
-    Ok(Value::Nil)
+    super::editfns::builtin_erase_buffer_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        args,
+    )
 }
 
 /// (buffer-enable-undo &optional BUFFER) -> nil

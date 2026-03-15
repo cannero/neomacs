@@ -331,6 +331,94 @@ pub(crate) fn builtin_delete_char_in_state(
     Ok(Value::Nil)
 }
 
+/// `(delete-region START END)` — delete text in the accessible current buffer.
+pub(crate) fn builtin_delete_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("delete-region", &args, 2)?;
+    let Some((start_byte, end_byte)) =
+        current_buffer_accessible_char_region_in_buffers(buffers, &args[0], &args[1])?
+    else {
+        return Ok(Value::Nil);
+    };
+    if start_byte == end_byte {
+        return Ok(Value::Nil);
+    }
+
+    let Some(current_id) = buffers.current_buffer_id() else {
+        return Ok(Value::Nil);
+    };
+    let read_only = buffers
+        .get(current_id)
+        .is_some_and(|buf| buffer_read_only_active_in_state(obarray, dynamic, buf));
+    if read_only {
+        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+    }
+
+    let _ = buffers.delete_buffer_region(current_id, start_byte, end_byte);
+    Ok(Value::Nil)
+}
+
+/// `(delete-and-extract-region START END)` — delete text and return it.
+pub(crate) fn builtin_delete_and_extract_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("delete-and-extract-region", &args, 2)?;
+    let Some((start_byte, end_byte)) =
+        current_buffer_accessible_char_region_in_buffers(buffers, &args[0], &args[1])?
+    else {
+        return Ok(Value::string(""));
+    };
+    if start_byte == end_byte {
+        return Ok(Value::string(""));
+    }
+
+    let Some(current_id) = buffers.current_buffer_id() else {
+        return Ok(Value::string(""));
+    };
+    let deleted = {
+        let Some(buf) = buffers.get(current_id) else {
+            return Ok(Value::string(""));
+        };
+        if buffer_read_only_active_in_state(obarray, dynamic, buf) {
+            return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+        }
+        Value::string(buf.buffer_substring(start_byte, end_byte))
+    };
+
+    let _ = buffers.delete_buffer_region(current_id, start_byte, end_byte);
+    Ok(deleted)
+}
+
+/// `(erase-buffer)` — delete all text and remove any narrowing restriction.
+pub(crate) fn builtin_erase_buffer_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("erase-buffer", &args, 0)?;
+    let Some(current_id) = buffers.current_buffer_id() else {
+        return Ok(Value::Nil);
+    };
+
+    let should_signal_read_only = buffers.get(current_id).is_some_and(|buf| {
+        !buf.text.is_empty() && buffer_read_only_active_in_state(obarray, dynamic, buf)
+    });
+    if should_signal_read_only {
+        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+    }
+
+    let _ = buffers.replace_buffer_contents(current_id, "");
+    Ok(Value::Nil)
+}
+
 /// `(buffer-substring START END)` — return text between START and END.
 pub(crate) fn builtin_buffer_substring(
     eval: &mut super::eval::Evaluator,

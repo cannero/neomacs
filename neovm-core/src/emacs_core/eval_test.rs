@@ -2331,10 +2331,25 @@ fn buffer_delete_region() {
 }
 
 #[test]
+fn buffer_delete_and_extract_region_accepts_live_markers_after_insertions() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"abcdef\")
+           (let ((start (copy-marker 2))
+                 (end (copy-marker 5 t)))
+             (goto-char 1)
+             (insert \"X\")
+             (list (delete-and-extract-region start end)
+                   (buffer-string))))",
+    );
+    assert_eq!(results[0], r#"OK ("bcd" "Xaef")"#);
+}
+
+#[test]
 fn buffer_erase() {
     let results = eval_all(
         "(get-buffer-create \"era\")
-         (set-buffer \"era\")
+        (set-buffer \"era\")
          (insert \"stuff\")
          (erase-buffer)
          (buffer-string)
@@ -2342,6 +2357,54 @@ fn buffer_erase() {
     );
     assert_eq!(results[4], r#"OK """#);
     assert_eq!(results[5], "OK 0");
+}
+
+#[test]
+fn buffer_mutation_read_only_shape_matches_gnu() {
+    let results = eval_all(
+        "(list
+           (with-temp-buffer
+             (insert \"abc\")
+             (setq buffer-read-only t)
+             (condition-case err
+                 (delete-region 1 2)
+               (error (list (car err) (bufferp (car (cdr err)))))))
+           (with-temp-buffer
+             (insert \"abc\")
+             (setq buffer-read-only t)
+             (condition-case err
+                 (delete-and-extract-region 1 2)
+               (error (list (car err) (bufferp (car (cdr err)))))))
+           (with-temp-buffer
+             (insert \"abc\")
+             (setq buffer-read-only t)
+             (condition-case err
+                 (erase-buffer)
+               (error (list (car err) (bufferp (car (cdr err))))))))",
+    );
+    assert_eq!(
+        results[0],
+        "OK ((buffer-read-only t) (buffer-read-only t) (buffer-read-only t))"
+    );
+}
+
+#[test]
+fn buffer_mutation_read_only_noop_cases_match_gnu() {
+    let results = eval_all(
+        "(list
+           (with-temp-buffer
+             (setq buffer-read-only t)
+             (delete-region 1 1))
+           (with-temp-buffer
+             (setq buffer-read-only t)
+             (delete-and-extract-region 1 1))
+           (with-temp-buffer
+             (narrow-to-region 1 1)
+             (setq buffer-read-only t)
+             (erase-buffer)
+             (list (point-min) (point-max) (buffer-string))))",
+    );
+    assert_eq!(results[0], r#"OK (nil "" (1 1 ""))"#);
 }
 
 #[test]

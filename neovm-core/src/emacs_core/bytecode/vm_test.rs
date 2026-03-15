@@ -856,6 +856,44 @@ fn vm_buffer_restriction_and_modified_state_use_shared_runtime_manager() {
 }
 
 #[test]
+fn vm_buffer_mutation_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "abcdef")
+                 (let ((start (copy-marker 2))
+                       (end (copy-marker 5 t)))
+                   (goto-char 1)
+                   (insert "X")
+                   (list (delete-and-extract-region start end)
+                         (buffer-string)
+                         (progn
+                           (narrow-to-region 2 4)
+                           (erase-buffer)
+                           (list (point-min) (point-max) (buffer-string) (buffer-size))))))"#
+        ),
+        r#"OK ("bcd" "Xaef" (1 1 "" 0))"#
+    );
+}
+
+#[test]
+fn vm_read_only_noop_buffer_mutations_match_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq buffer-read-only t)
+                 (list (delete-region 1 1)
+                       (delete-and-extract-region 1 1)
+                       (progn
+                         (narrow-to-region 1 1)
+                         (erase-buffer)
+                         (list (point-min) (point-max) (buffer-string)))))"#
+        ),
+        r#"OK (nil "" (1 1 ""))"#
+    );
+}
+
+#[test]
 fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
     assert_eq!(
         vm_eval_str(
