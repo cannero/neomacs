@@ -345,7 +345,6 @@ fn builtin_command_name(name: &str) -> bool {
     matches!(
         name,
         "ignore"
-            | "eval-expression"
             | "self-insert-command"
             | "newline"
             | "forward-char"
@@ -617,6 +616,16 @@ fn value_is_interactive_form(value: &Value) -> bool {
     }
 }
 
+fn value_is_interactive_autoload(value: &Value) -> bool {
+    if !super::autoload::is_autoload_value(value) {
+        return false;
+    }
+    let Some(items) = value_list_to_vec(value) else {
+        return false;
+    };
+    !matches!(items.get(3), None | Some(Value::Nil))
+}
+
 fn quoted_lambda_has_interactive_form(value: &Value) -> bool {
     let Some(items) = value_list_to_vec(value) else {
         return false;
@@ -690,6 +699,9 @@ fn command_object_p(eval: &Evaluator, resolved_name: Option<&str>, value: &Value
         if eval.interactive.is_interactive(name) || builtin_command_name(name) {
             return true;
         }
+    }
+    if value_is_interactive_autoload(value) {
+        return true;
     }
 
     match value {
@@ -1396,34 +1408,6 @@ fn resolve_command_target(eval: &Evaluator, designator: &Value) -> Option<(Strin
         Value::Keyword(id) => Some((resolve_sym(*id).to_owned(), *designator)),
         _ => Some(("<anonymous>".to_string(), *designator)),
     }
-}
-
-/// `(eval-expression EXPRESSION &optional INSERT-VALUE NO-TRUNCATE LEXICAL)` -- evaluate and
-/// return EXPRESSION.
-pub(crate) fn builtin_eval_expression(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    if args.is_empty() {
-        if eval.interactive.is_called_interactively() {
-            return Err(signal(
-                "end-of-file",
-                vec![Value::string("Error reading from stdin")],
-            ));
-        }
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("eval-expression"), Value::Int(0)],
-        ));
-    }
-    if args.len() > 4 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("eval-expression"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-
-    eval.eval_value(&args[0])
 }
 
 fn last_command_event_char(eval: &Evaluator) -> Option<char> {

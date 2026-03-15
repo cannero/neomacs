@@ -1435,6 +1435,11 @@ impl Evaluator {
             "Display the full documentation of VARIABLE (a symbol).",
         );
         seed_autoload(
+            "eval-expression",
+            "simple",
+            "Evaluate EXP and print value in the echo area.",
+        );
+        seed_autoload(
             "exchange-point-and-mark",
             "simple",
             "Put the mark where point is now, and point where the mark is now.",

@@ -151,6 +151,40 @@ fn gnu_simple_execute_extended_command_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
+fn load_gnu_eval_expression_into(ev: &mut Evaluator) {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
+
+    let setup_forms = parse_forms(
+        r#"
+        (defun read--expression (&rest _args)
+          (signal 'end-of-file '("Error reading from stdin")))
+        (defun eval-expression-get-print-arguments (&rest _args) nil)
+        "#,
+    )
+    .expect("parse eval-expression test stubs");
+    ev.eval_forms(&setup_forms);
+    eval_first_form_after_marker(
+        ev,
+        &simple_source,
+        "(defun eval-expression (exp &optional insert-value no-truncate char-print-limit)",
+    );
+}
+
+fn gnu_simple_eval_expression_eval() -> Evaluator {
+    let mut ev = Evaluator::new();
+    load_gnu_eval_expression_into(&mut ev);
+    ev
+}
+
+fn gnu_simple_command_execute_with_eval_expression_eval() -> Evaluator {
+    let mut ev = gnu_simple_command_execute_eval();
+    load_gnu_eval_expression_into(&mut ev);
+    ev
+}
+
 fn gnu_simple_universal_argument_eval_all(src: &str) -> Vec<String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
@@ -510,6 +544,21 @@ fn commandp_true_for_execute_extended_command_from_simple_el() {
         ),
         vec!["OK (t nil)".to_string()]
     );
+}
+
+#[test]
+fn eval_expression_startup_is_autoloaded() {
+    let ev = Evaluator::new();
+    let function = ev
+        .obarray
+        .symbol_function("eval-expression")
+        .expect("missing eval-expression startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
+    let mut commandp_eval = Evaluator::new();
+    let result =
+        builtin_commandp_interactive(&mut commandp_eval, vec![Value::symbol("eval-expression")])
+            .expect("commandp should accept eval-expression startup autoload");
+    assert!(result.is_truthy());
 }
 
 #[test]
@@ -1533,7 +1582,7 @@ fn command_execute_rejects_too_many_arguments() {
 
 #[test]
 fn command_execute_builtin_eval_expression_reads_stdin_in_batch() {
-    let mut ev = gnu_simple_command_execute_eval();
+    let mut ev = gnu_simple_command_execute_with_eval_expression_eval();
     let result = ev
         .apply(
             Value::symbol("command-execute"),
@@ -2887,7 +2936,7 @@ fn call_interactively_non_command_signals_commandp_error() {
 
 #[test]
 fn call_interactively_eval_expression_reads_stdin_in_batch() {
-    let mut ev = Evaluator::new();
+    let mut ev = gnu_simple_eval_expression_eval();
     let result = builtin_call_interactively(&mut ev, vec![Value::symbol("eval-expression")])
         .expect_err("call-interactively eval-expression should signal end-of-file in batch");
     match result {
@@ -2901,25 +2950,24 @@ fn call_interactively_eval_expression_reads_stdin_in_batch() {
 
 #[test]
 fn eval_expression_rejects_too_many_args() {
-    let mut ev = Evaluator::new();
-    let result = builtin_eval_expression(
-        &mut ev,
-        vec![
-            Value::Int(1),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-        ],
-    )
-    .expect_err("eval-expression should reject more than four args");
+    let mut ev = gnu_simple_eval_expression_eval();
+    let result = ev
+        .apply(
+            Value::symbol("eval-expression"),
+            vec![
+                Value::Int(1),
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+                Value::Nil,
+            ],
+        )
+        .expect_err("eval-expression should reject more than four args");
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(
-                sig.data,
-                vec![Value::symbol("eval-expression"), Value::Int(5)]
-            );
+            assert_eq!(sig.data.len(), 2);
+            assert_eq!(sig.data[1], Value::Int(5));
         }
         other => panic!("unexpected flow: {other:?}"),
     }
