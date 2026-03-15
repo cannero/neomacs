@@ -1525,6 +1525,16 @@ impl Evaluator {
             "Replace things after point matching REGEXP with TO-STRING.",
         );
         seed_autoload(
+            "global-set-key",
+            "subr",
+            "Give KEY a global binding as COMMAND.",
+        );
+        seed_autoload(
+            "local-set-key",
+            "subr",
+            "Give KEY a local binding as COMMAND.",
+        );
+        seed_autoload(
             "list-processes",
             "simple",
             "Display a list of subprocesses.",
