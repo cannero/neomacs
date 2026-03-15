@@ -1539,6 +1539,7 @@ impl Evaluator {
             "env",
             "Set the value of the environment variable named VARIABLE to VALUE.",
         );
+        seed_autoload("load-file", "files", "Load the Lisp file named FILE.");
         seed_autoload(
             "list-processes",
             "simple",

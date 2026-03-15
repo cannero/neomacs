@@ -445,7 +445,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "kill-buffer"
             | "kill-emacs"
             | "kill-local-variable"
-            | "load-file"
             | "lower-frame"
             | "lossage-size"
             | "malloc-info"
