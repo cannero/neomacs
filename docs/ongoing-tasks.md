@@ -3,15 +3,17 @@
 This is an auto-updating log for incremental NeoVM rewrite slices that should keep landing in regular verified batches.
 
 ## Current focus areas
-1. **Compatibility slices** – keep expanding `test/neovm/vm-compat` cases (window/frame semantics, timers, inputs, display primitives). Every addition must gate on `check-all-neovm` and matching Oracle TSVs.
-2. **Rust core backend** – keep `core-backend-rust` as the default path, use `core-backend-emacs-c` only as a short-lived rollback switch, and remove fallback paths as tracker rows reach `rust-default`/`c-removed`.
-3. **Concurrency model** – reinforce the isolate-first scheduler (`neovm-worker`), message passing, and Specpdl isolation across isolates while keeping the host/VM boundary clean.
-4. **Platform guidance** – expand README platform notes and link to issue #22 for macOS, plus consider creating future follow-ups for Windows/other hosts once a stable build path exists.
+1. **Bootstrap fidelity** – prioritize faithful GNU-style bootstrap/loadup/runtime surface so upstream Lisp libraries (`cl-lib`, `gv`, `seq`, `nadvice`, etc.) remain the semantic source of truth. Treat Rust-side library compatibility buckets and bootstrap sentinels as deletion-target debt. See `docs/plans/2026-03-15-bootstrap-fidelity-design.md`.
+2. **Compatibility slices** – keep expanding `test/neovm/vm-compat` cases (window/frame semantics, timers, inputs, display primitives). Every addition must gate on `check-all-neovm` and matching Oracle TSVs.
+3. **Rust core backend** – keep `core-backend-rust` as the default path, use `core-backend-emacs-c` only as a short-lived rollback switch, and remove fallback paths as tracker rows reach `rust-default`/`c-removed`.
+4. **Concurrency model** – reinforce the isolate-first scheduler (`neovm-worker`), message passing, and Specpdl isolation across isolates while keeping the host/VM boundary clean.
+5. **Platform guidance** – expand README platform notes and link to issue #22 for macOS, plus consider creating future follow-ups for Windows/other hosts once a stable build path exists.
 
 ## Auto-exploration queue
 These are the next candidate slices to explore automatically (an initial 20 tasks is already in `docs/neomacs-direct-c-to-rust-plan.md`; keep advancing through them in order, re-checking Oracle behavior each time). Track progress with verified batches and push after each slice.
 
 ## Next actionable move
+- Start a bootstrap-fidelity slice: add dedicated oracle checks for `require 'cl-lib`, `require 'gv`, `require 'seq`, and `require 'cl-generic`, then remove one real bootstrap shim by fixing the blocker rather than adding another compatibility layer.
 - Identify the next VM builtin still stubbed or drifting (the plan references process/file wrappers, display/window, and stub enforcement). Implement a targeted lock-in slice with new corpus cases and `check-neovm` regression checks.
 - Recent completed slice: `start-process` now matches oracle buffer/program/name/arg contracts (including buffer-object designators and strict arg typing), locked by `cases/start-process-buffer-and-type-contract-semantics`.
 - Recent completed slice: `call-process`/`call-process-region`/`start-file-process` now enforce oracle string contracts (with `PROGRAM=nil` preserved where required), locked by `cases/call-process-start-file-process-string-contract-semantics`.
