@@ -2093,6 +2093,34 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_skip_chars_forward_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_skip_chars_forward_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_skip_chars_backward_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_skip_chars_backward_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_scan_lists_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::syntax::builtin_scan_lists_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_scan_sexps_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::syntax::builtin_scan_sexps_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
         match func_val {
             Value::ByteCode(_) => {
@@ -2681,6 +2709,10 @@ impl<'a> Vm<'a> {
             "buffer-local-value" => Some(self.builtin_buffer_local_value_shared(args)),
             "local-variable-if-set-p" => Some(self.builtin_local_variable_if_set_p_shared(args)),
             "variable-binding-locus" => Some(self.builtin_variable_binding_locus_shared(args)),
+            "skip-chars-forward" => Some(self.builtin_skip_chars_forward_shared(args)),
+            "skip-chars-backward" => Some(self.builtin_skip_chars_backward_shared(args)),
+            "scan-lists" => Some(self.builtin_scan_lists_shared(args)),
+            "scan-sexps" => Some(self.builtin_scan_sexps_shared(args)),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),

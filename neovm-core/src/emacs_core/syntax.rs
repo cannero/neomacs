@@ -2377,6 +2377,13 @@ pub(crate) fn builtin_scan_lists(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_scan_lists_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_scan_lists_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() != 3 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2412,8 +2419,7 @@ pub(crate) fn builtin_scan_lists(
         }
     };
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
@@ -2431,6 +2437,13 @@ pub(crate) fn builtin_scan_lists(
 /// `(scan-sexps FROM COUNT)` — scan over COUNT sexps from FROM.
 pub(crate) fn builtin_scan_sexps(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_scan_sexps_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_scan_sexps_in_manager(
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 2 {
@@ -2459,8 +2472,7 @@ pub(crate) fn builtin_scan_sexps(
         }
     };
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();

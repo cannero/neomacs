@@ -1256,6 +1256,36 @@ fn vm_byte_position_and_get_byte_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_syntax_navigation_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "abc123")
+                 (goto-char 1)
+                 (list (skip-chars-forward "a-c")
+                       (point)
+                       (progn
+                         (goto-char (point-max))
+                         (skip-chars-backward "1-3"))
+                       (point)))"#
+        ),
+        "OK (3 4 -3 4)"
+    );
+
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "(a (b)) c")
+                 (list (scan-sexps 1 1)
+                       (scan-lists 1 2 0)
+                       (scan-sexps (point-max) -1)))"#
+        ),
+        "OK (8 10 9)"
+    );
+}
+
+#[test]
 fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
     assert_eq!(
         vm_eval_with_init_str(

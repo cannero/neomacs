@@ -553,6 +553,13 @@ pub(crate) fn builtin_skip_chars_forward(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_skip_chars_forward_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_skip_chars_forward_in_manager(
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("skip-chars-forward", &args, 1)?;
     let set_str = match &args[0] {
         Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
@@ -564,9 +571,9 @@ pub(crate) fn builtin_skip_chars_forward(
         }
     };
     let (negate, char_set) = parse_skip_chars_set(&set_str);
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (start_pos, pos, limit, moved_chars) = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
         let lim_byte = if args.len() > 1 && !args[1].is_nil() {
             char_pos_to_byte(buf, expect_int(&args[1])?)
         } else {
@@ -599,13 +606,20 @@ pub(crate) fn builtin_skip_chars_forward(
     };
 
     debug_assert!(pos >= start_pos || limit <= start_pos);
-    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
+    let _ = buffers.goto_buffer_byte(current_id, pos);
     Ok(Value::Int(moved_chars))
 }
 
 /// (skip-chars-backward STRING &optional LIM)
 pub(crate) fn builtin_skip_chars_backward(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_skip_chars_backward_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_skip_chars_backward_in_manager(
+    buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("skip-chars-backward", &args, 1)?;
@@ -619,9 +633,9 @@ pub(crate) fn builtin_skip_chars_backward(
         }
     };
     let (negate, char_set) = parse_skip_chars_set(&set_str);
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (pos, moved_chars) = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
         let limit = if args.len() > 1 && !args[1].is_nil() {
             char_pos_to_byte(buf, expect_int(&args[1])?)
         } else {
@@ -651,7 +665,7 @@ pub(crate) fn builtin_skip_chars_backward(
             buf.text.byte_to_char(pos) as i64 - buf.text.byte_to_char(start_pos) as i64;
         (pos, moved_chars)
     };
-    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
+    let _ = buffers.goto_buffer_byte(current_id, pos);
     Ok(Value::Int(moved_chars))
 }
 
