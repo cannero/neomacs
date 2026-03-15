@@ -1095,10 +1095,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn char_to_byte_past_end_panics() {
+    fn char_to_byte_past_end_clamps() {
         let buf = GapBuffer::from_str("hi");
-        buf.char_to_byte(3);
+        // char_to_byte clamps to buffer end instead of panicking
+        // when char_pos exceeds char_count (for stale positions).
+        assert_eq!(buf.char_to_byte(3), buf.len());
+        assert_eq!(buf.char_to_byte(100), buf.len());
     }
 
     // -----------------------------------------------------------------------
