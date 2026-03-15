@@ -394,54 +394,10 @@ pub(crate) fn builtin_neovm_precompile_file(
     Ok(Value::string(cache.to_string_lossy()))
 }
 
-fn parse_eval_lexenv(
-    arg: Option<&Value>,
-) -> Result<(bool, Option<crate::emacs_core::value::Value>), Flow> {
-    let Some(arg) = arg else {
-        return Ok((false, None));
-    };
-    if arg.is_nil() {
-        return Ok((false, None));
-    }
-
-    // Emacs eval:
-    // - non-nil atom => lexical mode enabled, no explicit env bindings.
-    // - cons         => lexical mode enabled with explicit interpreter env.
-    let Value::Cons(_) = arg else {
-        return Ok((true, None));
-    };
-
-    // Validate that the env is a proper list (not a dotted pair).
-    // GNU Emacs signals wrong-type-argument for improper lists like (x . 1).
-    if list_to_vec(arg).is_none() {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("listp"), *arg],
-        ));
-    }
-
-    // Already a cons alist — pass through directly as the lexenv Value.
-    Ok((true, Some(*arg)))
-}
-
 pub(crate) fn builtin_eval(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_min_args("eval", &args, 1)?;
     expect_max_args("eval", &args, 2)?;
-    let (use_lexical, lexenv_value) = parse_eval_lexenv(args.get(1))?;
-    let saved_mode = eval.lexical_binding();
-    eval.set_lexical_binding(use_lexical);
-    let saved_lexenv = if let Some(env) = lexenv_value {
-        let old = std::mem::replace(&mut eval.lexenv, env);
-        Some(old)
-    } else {
-        None
-    };
-    let result = eval.eval_value(&args[0]);
-    if let Some(old) = saved_lexenv {
-        eval.lexenv = old;
-    }
-    eval.set_lexical_binding(saved_mode);
-    result
+    eval.eval_value_with_lexical_arg(args[0], args.get(1).copied())
 }
 
 // Misc builtins

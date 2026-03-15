@@ -1775,6 +1775,20 @@ impl<'a> Vm<'a> {
         }
     }
 
+    fn eval_with_vm_bridge(&mut self, args: Vec<Value>, extra_roots: &[Value]) -> EvalResult {
+        if !(1..=2).contains(&args.len()) {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("eval"), Value::Int(args.len() as i64)],
+            ));
+        }
+        let form = args[0];
+        let lexical_arg = args.get(1).copied();
+        self.with_mirrored_evaluator(extra_roots, move |eval| {
+            eval.eval_value_with_lexical_arg(form, lexical_arg)
+        })
+    }
+
     /// Execute a compiled function without param binding (for inline compilation).
     fn execute_inline(&mut self, func: &ByteCodeFunction) -> EvalResult {
         let mut stack: Vec<Value> = Vec::with_capacity(func.max_stack as usize);
@@ -2208,6 +2222,7 @@ impl<'a> Vm<'a> {
                 self.shared.autoloads,
                 args,
             )),
+            "eval" => Some(self.eval_with_vm_bridge(args.to_vec(), args)),
             "load" => Some(self.load_with_vm_bridge(args.to_vec(), args)),
             "autoload-do-load" => Some(self.autoload_do_load_with_vm_bridge(
                 args.to_vec(),

@@ -344,7 +344,7 @@ fn vm_unbind_restores_saved_restriction() {
 }
 
 #[test]
-fn vm_eval_bridge_preserves_active_catch_tags() {
+fn vm_eval_shared_runtime_path_preserves_active_catch_tags() {
     let mut eval = Evaluator::new_vm_harness();
     eval.catch_tags.push(Value::symbol("vm-bridge-catch"));
     let mut vm = new_vm(&mut eval);
@@ -357,15 +357,21 @@ fn vm_eval_bridge_preserves_active_catch_tags() {
         ]),
         Value::Int(7),
     ]);
-    let result = vm
-        .dispatch_vm_builtin_eval("eval", vec![throw_form, Value::Nil])
-        .expect("eval should dispatch through eval bridge");
+    let result = vm.dispatch_vm_builtin("eval", vec![throw_form, Value::Nil]);
 
     assert!(matches!(
         result,
         Err(Flow::Throw { tag, value })
             if tag == Value::symbol("vm-bridge-catch") && value == Value::Int(7)
     ));
+}
+
+#[test]
+fn vm_eval_with_explicit_lexenv_restores_outer_vm_lexenv() {
+    assert_eq!(
+        vm_eval_lexical_str("(let ((x 41)) (list (eval 'x '((x . 7))) x))"),
+        "OK (7 41)"
+    );
 }
 
 #[test]

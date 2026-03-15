@@ -827,6 +827,31 @@ pub(crate) fn finish_require_in_state(features: &[SymId], sym_id: SymId, name: &
     }
 }
 
+pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option<Value>), Flow> {
+    let Some(arg) = arg else {
+        return Ok((false, None));
+    };
+    if arg.is_nil() {
+        return Ok((false, None));
+    }
+
+    // GNU eval:
+    // - non-nil atom => lexical mode enabled, empty interpreter environment.
+    // - cons         => lexical mode enabled with explicit interpreter env.
+    let Value::Cons(_) = arg else {
+        return Ok((true, None));
+    };
+
+    if list_to_vec(&arg).is_none() {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), arg],
+        ));
+    }
+
+    Ok((true, Some(arg)))
+}
+
 impl Default for Evaluator {
     fn default() -> Self {
         Self::new()
@@ -3116,6 +3141,27 @@ impl Evaluator {
             EvalError::Signal { symbol, data } => signal(resolve_sym(symbol), data),
             EvalError::UncaughtThrow { tag, value } => signal("no-catch", vec![tag, value]),
         })
+    }
+
+    pub(crate) fn eval_value_with_lexical_arg(
+        &mut self,
+        form: Value,
+        lexical_arg: Option<Value>,
+    ) -> EvalResult {
+        let (use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
+        let saved_mode = self.lexical_binding();
+        self.set_lexical_binding(use_lexical);
+        let saved_lexenv = if let Some(env) = lexenv_value {
+            Some(std::mem::replace(&mut self.lexenv, env))
+        } else {
+            None
+        };
+        let result = self.eval_value(&form);
+        if let Some(old) = saved_lexenv {
+            self.lexenv = old;
+        }
+        self.set_lexical_binding(saved_mode);
+        result
     }
 
     /// Keep the Lisp-visible `features` variable in sync with the evaluator's
