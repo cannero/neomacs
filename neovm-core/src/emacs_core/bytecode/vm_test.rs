@@ -1022,6 +1022,48 @@ fn vm_insert_before_markers_updates_markers_at_point() {
 }
 
 #[test]
+fn vm_insert_and_insert_char_use_shared_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "ab")
+                 (goto-char 1)
+                 (let ((m (copy-marker (point))))
+                   (list
+                    (progn
+                      (insert "X")
+                      (list (buffer-string) (marker-position m) (point)))
+                    (progn
+                      (insert-char ?Y 2)
+                      (list (buffer-string) (marker-position m) (point))))))"#
+        ),
+        r#"OK (("Xab" 1 2) ("XYYab" 1 4))"#
+    );
+}
+
+#[test]
+fn vm_insert_read_only_shape_and_noop_cases_match_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq buffer-read-only t)
+                 (list
+                  (condition-case err
+                      (insert "x")
+                    (error (list (car err) (bufferp (car (cdr err))))))
+                  (condition-case err
+                      (insert-char ?x 1)
+                    (error (list (car err) (bufferp (car (cdr err))))))
+                  (list (insert)
+                        (insert "")
+                        (insert-char ?x 0)
+                        (buffer-string))))"#
+        ),
+        r#"OK ((buffer-read-only t) (buffer-read-only t) (nil nil nil ""))"#
+    );
+}
+
+#[test]
 fn vm_char_primitives_and_buffer_substring_use_narrowed_current_buffer_state() {
     assert_eq!(
         vm_eval_with_init_str(

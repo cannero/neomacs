@@ -1781,42 +1781,23 @@ pub(crate) fn builtin_goto_char_in_manager(
     Ok(args[0])
 }
 
-/// (insert &rest ARGS) → nil
-pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
-    }
+struct InsertPiece {
+    text: String,
+    text_props: Option<crate::buffer::text_props::TextPropertyTable>,
+}
 
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    for arg in &args {
+fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
+    let mut pieces = Vec::with_capacity(args.len());
+    for arg in args {
         match arg {
-            Value::Str(id) => {
-                let s = with_heap(|h| h.get_string(*id).to_owned());
-                let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
-                let _ = eval.buffers.insert_into_buffer(current_id, &s);
-                // Transfer string text properties to buffer
-                if let Some(str_table) = get_string_text_properties_table(*id) {
-                    let _ = eval
-                        .buffers
-                        .append_buffer_text_properties(current_id, &str_table, insert_pos);
-                }
-            }
-            Value::Char(c) => {
-                let mut tmp = [0u8; 4];
-                let _ = eval
-                    .buffers
-                    .insert_into_buffer(current_id, c.encode_utf8(&mut tmp));
-            }
+            Value::Str(id) => pieces.push(InsertPiece {
+                text: with_heap(|h| h.get_string(*id).to_owned()),
+                text_props: get_string_text_properties_table(*id),
+            }),
+            Value::Char(c) => pieces.push(InsertPiece {
+                text: c.to_string(),
+                text_props: None,
+            }),
             Value::Int(n) => {
                 if !(0..=KEY_CHAR_CODE_MASK).contains(n) {
                     return Err(signal(
@@ -1825,12 +1806,15 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>
                     ));
                 }
                 if let Some(c) = char::from_u32(*n as u32) {
-                    let mut tmp = [0u8; 4];
-                    let _ = eval
-                        .buffers
-                        .insert_into_buffer(current_id, c.encode_utf8(&mut tmp));
+                    pieces.push(InsertPiece {
+                        text: c.to_string(),
+                        text_props: None,
+                    });
                 } else if let Some(encoded) = encode_nonunicode_char_for_storage(*n as u32) {
-                    let _ = eval.buffers.insert_into_buffer(current_id, &encoded);
+                    pieces.push(InsertPiece {
+                        text: encoded,
+                        text_props: None,
+                    });
                 } else {
                     return Err(signal(
                         "wrong-type-argument",
@@ -1844,6 +1828,99 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>
                     vec![Value::symbol("char-or-string-p"), *other],
                 ));
             }
+        }
+    }
+    Ok(pieces)
+}
+
+fn apply_inherited_text_properties(
+    buffers: &mut BufferManager,
+    current_id: BufferId,
+    old_pt: usize,
+    text_len: usize,
+) {
+    use super::value::list_to_vec;
+
+    if text_len == 0 || old_pt == 0 {
+        return;
+    }
+
+    let props = buffers
+        .get(current_id)
+        .map(|buf| buf.text_props.get_properties(old_pt - 1))
+        .unwrap_or_default();
+    if props.is_empty() {
+        return;
+    }
+
+    let nonsticky = props.get("rear-nonsticky").copied();
+    let inherit_all = match nonsticky {
+        None => true,
+        Some(Value::Nil) => true,
+        Some(val) if val.is_truthy() && list_to_vec(&val).is_none() => false,
+        _ => true,
+    };
+    if !(inherit_all || nonsticky.is_some()) {
+        return;
+    }
+
+    let nonsticky_names: Vec<String> = match nonsticky {
+        Some(ref val) => {
+            if let Some(items) = list_to_vec(val) {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+        None => Vec::new(),
+    };
+
+    for (name, value) in &props {
+        if name == "rear-nonsticky" || !inherit_all || nonsticky_names.contains(name) {
+            continue;
+        }
+        let _ =
+            buffers.put_buffer_text_property(current_id, old_pt, old_pt + text_len, name, *value);
+    }
+}
+
+/// (insert &rest ARGS) → nil
+pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_insert_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_insert_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    let pieces = collect_insert_pieces(&args)?;
+    if pieces.iter().all(|piece| piece.text.is_empty()) {
+        return Ok(Value::Nil);
+    }
+
+    let current_id = buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if buffers
+        .get(current_id)
+        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
+    {
+        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+    }
+
+    for piece in pieces {
+        if piece.text.is_empty() {
+            continue;
+        }
+        let insert_pos = buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+        let _ = buffers.insert_into_buffer(current_id, &piece.text);
+        if let Some(str_table) = piece.text_props {
+            let _ = buffers.append_buffer_text_properties(current_id, &str_table, insert_pos);
         }
     }
     Ok(Value::Nil)
@@ -1869,27 +1946,24 @@ pub(crate) fn builtin_insert_char(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_insert_char_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_insert_char_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("insert-char", &args, 1, 3)?;
     let char_code = insert_char_code_from_value(&args[0])?;
-    let count = if args.len() > 1 {
-        expect_fixnum(&args[1])?
-    } else {
-        1
+    let count = match args.get(1) {
+        None | Some(Value::Nil) => 1,
+        Some(value) => expect_fixnum(value)?,
     };
 
     if count <= 0 {
         return Ok(Value::Nil);
-    }
-
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
     let to_insert = if let Some(ch) = char::from_u32(char_code as u32) {
@@ -1902,11 +1976,21 @@ pub(crate) fn builtin_insert_char(
             vec![Value::symbol("characterp"), args[0]],
         ));
     };
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
+    if buffers
+        .get(current_id)
+        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
+    {
+        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+    }
+
+    let insert_pos = buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let _ = buffers.insert_into_buffer(current_id, &to_insert);
+    if args.get(2).is_some_and(|value| value.is_truthy()) {
+        apply_inherited_text_properties(buffers, current_id, insert_pos, to_insert.len());
+    }
     Ok(Value::Nil)
 }
 

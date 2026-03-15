@@ -1696,6 +1696,15 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::builtin_point_in_manager(&*self.shared.buffers, args.to_vec())
     }
 
+    fn builtin_insert_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_insert_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_point_min_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_point_min_in_manager(
             &*self.shared.buffers,
@@ -1776,6 +1785,15 @@ impl<'a> Vm<'a> {
     fn builtin_buffer_chars_modified_tick_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_buffer_chars_modified_tick_in_manager(
             &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_insert_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_insert_char_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
             args.to_vec(),
         )
     }
@@ -2422,6 +2440,7 @@ impl<'a> Vm<'a> {
             "indent-to" => Some(self.builtin_indent_to_shared(args)),
             "current-column" => Some(self.builtin_current_column_shared(args)),
             "move-to-column" => Some(self.builtin_move_to_column_shared(args)),
+            "insert" => Some(self.builtin_insert_shared(args)),
             "buffer-string" => Some(self.builtin_buffer_string_shared(args)),
             "point" => Some(self.builtin_point_shared(args)),
             "point-min" => Some(self.builtin_point_min_shared(args)),
@@ -2438,6 +2457,7 @@ impl<'a> Vm<'a> {
             "buffer-chars-modified-tick" => {
                 Some(self.builtin_buffer_chars_modified_tick_shared(args))
             }
+            "insert-char" => Some(self.builtin_insert_char_shared(args)),
             "bobp" => Some(self.builtin_bobp_shared(args)),
             "eobp" => Some(self.builtin_eobp_shared(args)),
             "bolp" => Some(self.builtin_bolp_shared(args)),

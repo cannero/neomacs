@@ -1910,6 +1910,33 @@ fn insert_and_inherit_copies_previous_text_properties() {
 }
 
 #[test]
+fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
+    let mut eval = super::super::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.insert("ab");
+        buf.text_props
+            .put_property(1, 2, "face", Value::symbol("bold"));
+    }
+
+    assert_eq!(
+        builtin_insert_char(
+            &mut eval,
+            vec![Value::Int('X' as i64), Value::Nil, Value::True],
+        )
+        .unwrap(),
+        Value::Nil
+    );
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "abX");
+    assert_eq!(
+        buf.text_props.get_property(2, "face"),
+        Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
 fn delete_all_overlays_clears_current_buffer() {
     let mut eval = super::super::eval::Evaluator::new();
     {
