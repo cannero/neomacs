@@ -1379,11 +1379,6 @@ impl Evaluator {
         seed_autoload("thing-at-point", "thingatpt", "Return the THING at point.");
         seed_autoload("abbrev-mode", "abbrev", "Toggle Abbrev mode.");
         seed_autoload(
-            "auto-composition-mode",
-            "composite",
-            "Toggle auto-composition mode.",
-        );
-        seed_autoload(
             "symbol-at-point",
             "thingatpt",
             "Return the symbol at point, or nil if none is found.",
@@ -1435,24 +1430,9 @@ impl Evaluator {
             "Display the full documentation of VARIABLE (a symbol).",
         );
         seed_autoload(
-            "eval-expression",
-            "simple",
-            "Evaluate EXP and print value in the echo area.",
-        );
-        seed_autoload(
-            "exchange-point-and-mark",
-            "simple",
-            "Put the mark where point is now, and point where the mark is now.",
-        );
-        seed_autoload(
             "extract-rectangle",
             "rect",
             "Return the contents of the rectangle with corners at START and END.",
-        );
-        seed_autoload(
-            "transient-mark-mode",
-            "simple",
-            "Toggle Transient Mark mode.",
         );
         seed_autoload(
             "insert-kbd-macro",
@@ -1488,26 +1468,6 @@ impl Evaluator {
             "open-rectangle",
             "rect",
             "Blank out the region-rectangle, shifting text right.",
-        );
-        seed_autoload(
-            "list-processes",
-            "simple",
-            "Display a list of subprocesses.",
-        );
-        seed_autoload(
-            "process-menu-delete-process",
-            "simple",
-            "Delete the process described on the current line.",
-        );
-        seed_autoload(
-            "process-menu-mode",
-            "simple",
-            "Major mode for listing processes.",
-        );
-        seed_autoload(
-            "set-mark-command",
-            "simple",
-            "Set the mark where point is, and activate it; or jump to the mark.",
         );
         seed_autoload(
             "string-pixel-width",

@@ -569,17 +569,16 @@ fn commandp_true_for_execute_extended_command_from_simple_el() {
 }
 
 #[test]
-fn eval_expression_startup_is_autoloaded() {
-    let ev = Evaluator::new();
+fn eval_expression_is_real_lisp_function_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
         .obarray
         .symbol_function("eval-expression")
-        .expect("missing eval-expression startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
-    let mut commandp_eval = Evaluator::new();
-    let result =
-        builtin_commandp_interactive(&mut commandp_eval, vec![Value::symbol("eval-expression")])
-            .expect("commandp should accept eval-expression startup autoload");
+        .expect("missing eval-expression bootstrapped function cell");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
+    let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("eval-expression")])
+        .expect("commandp should accept eval-expression");
     assert!(result.is_truthy());
 }
 
@@ -709,8 +708,9 @@ fn rectangle_commands_startup_are_autoloaded() {
 }
 
 #[test]
-fn simple_command_autoloads_startup_are_autoloaded() {
-    let mut ev = Evaluator::new();
+fn simple_commands_are_real_lisp_functions_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in [
         "exchange-point-and-mark",
         "list-processes",
@@ -722,8 +722,8 @@ fn simple_command_autoloads_startup_are_autoloaded() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
-            "expected {name} startup function cell to be a GNU autoload"
+            !crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
@@ -831,16 +831,17 @@ fn upcase_char_startup_is_autoloaded() {
 }
 
 #[test]
-fn mode_and_mark_commands_startup_are_autoloaded() {
-    let mut ev = Evaluator::new();
+fn mode_and_mark_commands_are_real_lisp_functions_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in ["auto-composition-mode", "set-mark-command"] {
         let function = ev
             .obarray
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
-            "expected {name} startup function cell to be a GNU autoload"
+            !crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
@@ -914,7 +915,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "isearch-forward",
         "iconify-frame",
         "kill-emacs",
-        "list-processes",
         "lower-frame",
         "make-directory",
         "make-frame-invisible",
@@ -931,8 +931,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "transpose-regions",
         "kill-process",
         "signal-process",
-        "process-menu-delete-process",
-        "process-menu-mode",
         "suspend-emacs",
         "top-level",
         "unix-sync",
