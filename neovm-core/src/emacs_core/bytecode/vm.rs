@@ -1731,6 +1731,36 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_bobp_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_bobp_in_manager(&*self.shared.buffers, args.to_vec())
+    }
+
+    fn builtin_eobp_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_eobp_in_manager(&*self.shared.buffers, args.to_vec())
+    }
+
+    fn builtin_bolp_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_bolp_in_manager(&*self.shared.buffers, args.to_vec())
+    }
+
+    fn builtin_eolp_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_eolp_in_manager(&*self.shared.buffers, args.to_vec())
+    }
+
+    fn builtin_line_beginning_position_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_line_beginning_position_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_line_end_position_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::navigation::builtin_line_end_position_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_insert_before_markers_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::editfns::builtin_insert_before_markers_in_state(
             &*self.shared.obarray,
@@ -2323,6 +2353,12 @@ impl<'a> Vm<'a> {
             "goto-char" => Some(self.builtin_goto_char_shared(args)),
             "char-after" => Some(self.builtin_char_after_shared(args)),
             "char-before" => Some(self.builtin_char_before_shared(args)),
+            "bobp" => Some(self.builtin_bobp_shared(args)),
+            "eobp" => Some(self.builtin_eobp_shared(args)),
+            "bolp" => Some(self.builtin_bolp_shared(args)),
+            "eolp" => Some(self.builtin_eolp_shared(args)),
+            "line-beginning-position" => Some(self.builtin_line_beginning_position_shared(args)),
+            "line-end-position" => Some(self.builtin_line_end_position_shared(args)),
             "insert-before-markers" => Some(self.builtin_insert_before_markers_shared(args)),
             "delete-char" => Some(self.builtin_delete_char_shared(args)),
             "buffer-substring-no-properties" => {

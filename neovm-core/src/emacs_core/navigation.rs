@@ -6,6 +6,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::{Value, lexenv_lookup, read_cons, with_heap};
+use crate::buffer::BufferManager;
 
 // ---------------------------------------------------------------------------
 // Argument helpers (duplicated from builtins.rs — they are not `pub`)
@@ -58,6 +59,10 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 /// Get a no-current-buffer signal flow.
 fn no_buffer() -> Flow {
     signal("error", vec![Value::string("No current buffer")])
+}
+
+fn current_buffer_in_manager(buffers: &BufferManager) -> Result<&crate::buffer::Buffer, Flow> {
+    buffers.current_buffer().ok_or_else(no_buffer)
 }
 
 fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
@@ -204,37 +209,22 @@ fn line_end_byte_narrowed(text: &str, byte_pos: usize, zv: usize) -> usize {
 
 /// (bobp) -- at beginning of buffer?
 pub(crate) fn builtin_bobp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
-    Ok(Value::bool(buf.pt == buf.begv))
+    builtin_bobp_in_manager(&eval.buffers, _args)
 }
 
 /// (eobp) -- at end of buffer?
 pub(crate) fn builtin_eobp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
-    Ok(Value::bool(buf.pt == buf.zv))
+    builtin_eobp_in_manager(&eval.buffers, _args)
 }
 
 /// (bolp) -- at beginning of line?
 pub(crate) fn builtin_bolp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
-    if buf.pt == buf.begv {
-        return Ok(Value::True);
-    }
-    let text = buffer_text(buf);
-    let at_bol = buf.pt > 0 && buf.pt <= text.len() && text.as_bytes()[buf.pt - 1] == b'\n';
-    Ok(Value::bool(buf.pt == 0 || at_bol))
+    builtin_bolp_in_manager(&eval.buffers, _args)
 }
 
 /// (eolp) -- at end of line?
 pub(crate) fn builtin_eolp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
-    if buf.pt == buf.zv {
-        return Ok(Value::True);
-    }
-    match buf.char_after(buf.pt) {
-        Some('\n') => Ok(Value::True),
-        _ => Ok(Value::Nil),
-    }
+    builtin_eolp_in_manager(&eval.buffers, _args)
 }
 
 // ===========================================================================
@@ -246,12 +236,55 @@ pub(crate) fn builtin_line_beginning_position(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_line_beginning_position_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_bobp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+    expect_args("bobp", &args, 0)?;
+    let buf = current_buffer_in_manager(buffers)?;
+    Ok(Value::bool(buf.pt == buf.begv))
+}
+
+pub(crate) fn builtin_eobp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+    expect_args("eobp", &args, 0)?;
+    let buf = current_buffer_in_manager(buffers)?;
+    Ok(Value::bool(buf.pt == buf.zv))
+}
+
+pub(crate) fn builtin_bolp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+    expect_args("bolp", &args, 0)?;
+    let buf = current_buffer_in_manager(buffers)?;
+    if buf.pt == buf.begv {
+        return Ok(Value::True);
+    }
+    let text = buffer_text(buf);
+    let at_bol = buf.pt > 0 && buf.pt <= text.len() && text.as_bytes()[buf.pt - 1] == b'\n';
+    Ok(Value::bool(buf.pt == 0 || at_bol))
+}
+
+pub(crate) fn builtin_eolp_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+    expect_args("eolp", &args, 0)?;
+    let buf = current_buffer_in_manager(buffers)?;
+    if buf.pt == buf.zv {
+        return Ok(Value::True);
+    }
+    match buf.char_after(buf.pt) {
+        Some('\n') => Ok(Value::True),
+        _ => Ok(Value::Nil),
+    }
+}
+
+pub(crate) fn builtin_line_beginning_position_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("line-beginning-position", &args, 1)?;
     let n = if args.is_empty() || args[0].is_nil() {
         1
     } else {
         expect_int(&args[0])?
     };
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
+    let buf = current_buffer_in_manager(buffers)?;
     let text = buffer_text(buf);
     let begv = buf.begv;
     let zv = buf.zv;
@@ -270,12 +303,20 @@ pub(crate) fn builtin_line_end_position(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_line_end_position_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_line_end_position_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("line-end-position", &args, 1)?;
     let n = if args.is_empty() || args[0].is_nil() {
         1
     } else {
         expect_int(&args[0])?
     };
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
+    let buf = current_buffer_in_manager(buffers)?;
     let text = buffer_text(buf);
     let begv = buf.begv;
     let zv = buf.zv;

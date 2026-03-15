@@ -2510,6 +2510,37 @@ fn delete_char_respects_narrowing_boundaries() {
 }
 
 #[test]
+fn navigation_predicates_and_line_positions_respect_narrowing() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"wx\nab\ncd\")
+           (narrow-to-region 4 6)
+           (goto-char (point-min))
+           (list (list (bobp) (eobp) (bolp) (eolp)
+                       (line-beginning-position) (line-end-position))
+                 (progn
+                   (goto-char (point-max))
+                   (list (bobp) (eobp) (bolp) (eolp)
+                         (line-beginning-position) (line-end-position)))))",
+    );
+    assert_eq!(results[0], "OK ((t nil t nil 4 6) (nil t nil t 4 6))");
+}
+
+#[test]
+fn line_position_optional_argument_matches_gnu_current_rules() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"a\nbb\nccc\")
+           (goto-char 2)
+           (list (line-beginning-position 2)
+                 (line-end-position 2)
+                 (line-beginning-position 3)
+                 (line-end-position 3)))",
+    );
+    assert_eq!(results[0], "OK (3 5 6 9)");
+}
+
+#[test]
 fn save_match_data_restores_after_success_and_error() {
     let results = eval_all(
         "(set-match-data '(1 2))

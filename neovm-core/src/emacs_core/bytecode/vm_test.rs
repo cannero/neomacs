@@ -790,6 +790,46 @@ fn vm_goto_char_and_char_queries_use_live_marker_positions() {
 }
 
 #[test]
+fn vm_navigation_predicates_and_line_positions_use_shared_narrowed_buffer_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list (list (bobp) (eobp) (bolp) (eolp)
+                           (line-beginning-position) (line-end-position))
+                     (progn
+                       (goto-char (point-max))
+                       (list (bobp) (eobp) (bolp) (eolp)
+                             (line-beginning-position) (line-end-position))))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
+                buffer.insert("wx\nab\ncd");
+                let start = buffer.lisp_pos_to_byte(4);
+                let end = buffer.lisp_pos_to_byte(6);
+                buffer.narrow_to_region(start, end);
+                buffer.goto_char(buffer.begv);
+            },
+        ),
+        "OK ((t nil t nil 4 6) (nil t nil t 4 6))"
+    );
+}
+
+#[test]
+fn vm_line_position_optional_argument_matches_gnu_current_rules() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "a\nbb\nccc")
+                 (goto-char 2)
+                 (list (line-beginning-position 2)
+                       (line-end-position 2)
+                       (line-beginning-position 3)
+                       (line-end-position 3)))"#
+        ),
+        "OK (3 5 6 9)"
+    );
+}
+
+#[test]
 fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
     assert_eq!(
         vm_eval_str(
