@@ -2332,7 +2332,7 @@ fn buffer_modified_p() {
 
 #[test]
 fn buffer_mark() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(get-buffer-create \"mk\")
          (set-buffer \"mk\")
          (insert \"hello\")

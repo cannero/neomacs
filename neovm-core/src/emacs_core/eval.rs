@@ -1336,8 +1336,6 @@ impl Evaluator {
             "subr",
             "Add to the value of HOOK the function FUNCTION.",
         );
-        seed_autoload_noninteractive("activate-mark", "simple", "Activate the mark.");
-        seed_autoload_noninteractive("deactivate-mark", "simple", "Deactivate the mark.");
         seed_autoload_noninteractive(
             "subr-native-elisp-p",
             "cl-preloaded",
@@ -1400,22 +1398,6 @@ impl Evaluator {
             "simple",
             "Refresh the Process Menu buffer.",
         );
-        seed_autoload_noninteractive(
-            "mark",
-            "simple",
-            "Return the mark's position as an integer.",
-        );
-        seed_autoload_noninteractive(
-            "pop-mark",
-            "simple",
-            "Pop off mark ring into the buffer's actual mark.",
-        );
-        seed_autoload_noninteractive(
-            "push-mark",
-            "simple",
-            "Set mark at LOCATION and push old mark on mark ring.",
-        );
-        seed_autoload_noninteractive("set-mark", "simple", "Set this buffer's mark to POS.");
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.
         drop(seed_autoload_noninteractive);
