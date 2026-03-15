@@ -1816,6 +1816,15 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_subst_char_in_region_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_subst_char_in_region_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_bobp_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::navigation::builtin_bobp_in_manager(&*self.shared.buffers, args.to_vec())
     }
@@ -2480,6 +2489,7 @@ impl<'a> Vm<'a> {
                 Some(self.builtin_buffer_chars_modified_tick_shared(args))
             }
             "insert-char" => Some(self.builtin_insert_char_shared(args)),
+            "subst-char-in-region" => Some(self.builtin_subst_char_in_region_shared(args)),
             "bobp" => Some(self.builtin_bobp_shared(args)),
             "eobp" => Some(self.builtin_eobp_shared(args)),
             "bolp" => Some(self.builtin_bolp_shared(args)),

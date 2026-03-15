@@ -1107,6 +1107,32 @@ fn vm_insert_inherit_variants_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_subst_char_in_region_uses_shared_runtime_state_and_gnu_noop_rules() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "a\n")
+                 (let ((end (copy-marker (point-max) t)))
+                   (goto-char (point-min))
+                   (insert " ")
+                   (let ((changed
+                          (progn
+                            (subst-char-in-region (point-min) end ?\n ?\s t)
+                            (buffer-substring-no-properties (point-min) (point-max)))))
+                     (setq buffer-read-only t)
+                     (list changed
+                           (condition-case err
+                               (subst-char-in-region 1 2 ?\s ?_)
+                             (error (list (car err) (bufferp (car (cdr err))))))
+                           (subst-char-in-region 1 1 ?\s ?_)
+                           (subst-char-in-region 1 (point-max) ?z ?_)
+                           (buffer-substring-no-properties (point-min) (point-max))))))"#
+        ),
+        r#"OK (" a " (buffer-read-only t) nil nil " a ")"#
+    );
+}
+
+#[test]
 fn vm_char_primitives_and_buffer_substring_use_narrowed_current_buffer_state() {
     assert_eq!(
         vm_eval_with_init_str(

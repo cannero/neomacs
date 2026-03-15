@@ -2065,10 +2065,19 @@ pub(crate) fn builtin_subst_char_in_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_subst_char_in_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_subst_char_in_region_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("subst-char-in-region", &args, 4, 5)?;
 
-    let start = expect_integer_or_marker_eval(eval, &args[0])?;
-    let end = expect_integer_or_marker_eval(eval, &args[1])?;
+    let start = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let from_code = expect_character_code(&args[2])?;
     let to_code = expect_character_code(&args[3])?;
     let noundo = args.get(4).is_some_and(|value| !value.is_nil());
@@ -2095,24 +2104,11 @@ pub(crate) fn builtin_subst_char_in_region(
         ));
     }
 
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
-    }
-
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let (byte_start, byte_end) = {
-        let buf = eval
-            .buffers
+    let (byte_start, byte_end, needs_change) = {
+        let buf = buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let point_min = buf.point_min_char() as i64 + 1;
@@ -2120,7 +2116,7 @@ pub(crate) fn builtin_subst_char_in_region(
         if start < point_min || start > point_max || end < point_min || end > point_max {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
+                vec![Value::Buffer(buf.id), args[0], args[1]],
             ));
         }
 
@@ -2128,14 +2124,27 @@ pub(crate) fn builtin_subst_char_in_region(
         let hi = start.max(end) as usize;
         let start_char = lo.saturating_sub(1);
         let end_char = hi.saturating_sub(1);
-        (
-            buf.text.char_to_byte(start_char),
-            buf.text.char_to_byte(end_char),
-        )
+        let byte_start = buf.text.char_to_byte(start_char);
+        let byte_end = buf.text.char_to_byte(end_char);
+        let needs_change = from_char != to_char
+            && byte_start < byte_end
+            && buf
+                .buffer_substring(byte_start, byte_end)
+                .contains(from_char);
+        (byte_start, byte_end, needs_change)
     };
+    if !needs_change {
+        return Ok(Value::Nil);
+    }
 
-    let _ = eval
-        .buffers
+    if buffers
+        .get(current_id)
+        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
+    {
+        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+    }
+
+    let _ = buffers
         .subst_char_in_buffer_region(current_id, byte_start, byte_end, from_char, to_char, noundo);
     Ok(Value::Nil)
 }

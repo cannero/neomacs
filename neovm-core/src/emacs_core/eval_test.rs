@@ -2614,6 +2614,26 @@ fn insert_inherit_variants_match_gnu_property_and_marker_semantics() {
 }
 
 #[test]
+fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
+    let results = eval_all(
+        "(list
+           (with-temp-buffer
+             (insert \"abc\")
+             (setq buffer-read-only t)
+             (condition-case err
+                 (subst-char-in-region 1 2 ?a ?b)
+               (error (list (car err) (bufferp (car (cdr err)))))))
+           (with-temp-buffer
+             (insert \"abc\")
+             (setq buffer-read-only t)
+             (list (subst-char-in-region 1 1 ?a ?b)
+                   (subst-char-in-region 1 4 ?z ?b)
+                   (buffer-substring-no-properties (point-min) (point-max)))))",
+    );
+    assert_eq!(results[0], r#"OK ((buffer-read-only t) (nil nil "abc"))"#);
+}
+
+#[test]
 fn buffer_undo_list_reflects_recorded_edits() {
     let results = eval_all(
         "(with-temp-buffer
