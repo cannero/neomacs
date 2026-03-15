@@ -1359,16 +1359,6 @@ impl Evaluator {
             "Search backward from point for regular expression REGEXP.",
         );
         seed_autoload_noninteractive(
-            "delete-extract-rectangle",
-            "rect",
-            "Delete the contents of the rectangle with corners at START and END.",
-        );
-        seed_autoload_noninteractive(
-            "extract-rectangle",
-            "rect",
-            "Return the contents of the rectangle with corners at START and END.",
-        );
-        seed_autoload_noninteractive(
             "remove-hook",
             "subr",
             "Remove FUNCTION from HOOK's functions.",
@@ -1430,11 +1420,6 @@ impl Evaluator {
         ] {
             seed_autoload_noninteractive(name, "seq", "");
         }
-        seed_autoload_noninteractive(
-            "insert-rectangle",
-            "rect",
-            "Insert text of RECTANGLE with upper left corner at point.",
-        );
         seed_autoload_noninteractive(
             "list-processes--refresh",
             "simple",
