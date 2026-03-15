@@ -1096,7 +1096,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ("emacs-version", "Version numbers of this version of Emacs."),
     (
         "emacsclient-program-name",
-        "Name of the `emacsclient` program distributed with Emacs.",
+        "Program name for an external `emacsclient` helper, if available.",
     ),
     (
         "emulation-mode-map-alists",
@@ -1136,7 +1136,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "etags-program-name",
-        "Name of the `etags` program distributed with Emacs.",
+        "Program name for an external `etags` helper, if available.",
     ),
     (
         "eval-buffer-list",
@@ -1564,7 +1564,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "installation-directory",
-        "A directory within which to look for the `lib-src' and `etc' directories.",
+        "A directory within which to look for runtime support files such as `etc'.",
     ),
     (
         "integer-width",
@@ -1996,7 +1996,7 @@ pub(crate) static STARTUP_VARIABLE_DOC_STUBS: &[(&str, &str)] = &[
     ),
     (
         "movemail-program-name",
-        "Name of the `movemail' program distributed with Emacs.",
+        "Program name for an external `movemail` helper, if available.",
     ),
     (
         "multibyte-syntax-as-symbol",
