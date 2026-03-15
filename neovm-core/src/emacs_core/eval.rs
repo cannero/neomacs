@@ -1352,27 +1352,6 @@ impl Evaluator {
             "window",
             "Return the width, in columns, of WINDOW.",
         );
-        for name in [
-            "seq-concatenate",
-            "seq-contains-p",
-            "seq-count",
-            "seq-do",
-            "seq-drop",
-            "seq-empty-p",
-            "seq-every-p",
-            "seq-mapn",
-            "seq-max",
-            "seq-min",
-            "seq-position",
-            "seq-reduce",
-            "seq-reverse",
-            "seq-some",
-            "seq-sort",
-            "seq-subseq",
-            "seq-take",
-        ] {
-            seed_autoload_noninteractive(name, "seq", "");
-        }
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.
         drop(seed_autoload_noninteractive);
