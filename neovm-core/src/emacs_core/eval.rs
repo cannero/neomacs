@@ -1347,11 +1347,6 @@ impl Evaluator {
             "Parse a string DATE that represents a date-time and return a time value.",
         );
         seed_autoload(
-            "read-passwd",
-            "auth-source",
-            "Read a password, prompting with PROMPT, and return it.",
-        );
-        seed_autoload(
             "describe-function",
             "help-fns",
             "Display the full documentation of FUNCTION (a symbol).",
@@ -1415,11 +1410,6 @@ impl Evaluator {
             "format-spec",
             "format-spec",
             "Return a string based on FORMAT and SPECIFICATION.",
-        );
-        seed_autoload_noninteractive(
-            "read-passwd",
-            "auth-source",
-            "Read a password, prompting with PROMPT, and return it.",
         );
         seed_autoload_noninteractive(
             "safe-date-to-time",

@@ -1,6 +1,8 @@
 use super::*;
 use crate::emacs_core::eval::Evaluator;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
+use crate::emacs_core::load::{
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, create_bootstrap_evaluator,
+};
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
 
@@ -12,6 +14,15 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .iter()
         .map(format_eval_result)
         .collect()
+}
+
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
+    let mut eval = Evaluator::new();
+    for name in names {
+        eval.obarray_mut().fmakunbound(name);
+    }
+    apply_ldefs_boot_autoloads_for_names(&mut eval, names).expect("ldefs-boot autoload restore");
+    eval
 }
 
 // ===================================================================
@@ -551,7 +562,7 @@ fn read_number_rejects_non_string_prompt() {
 
 #[test]
 fn read_passwd_startup_is_autoloaded() {
-    let eval = Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["read-passwd"]);
     let function = eval
         .obarray
         .symbol_function("read-passwd")
