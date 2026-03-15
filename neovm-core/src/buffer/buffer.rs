@@ -312,7 +312,7 @@ impl Buffer {
         let byte_len = end - start;
         let char_len = end_char - start_char;
 
-        if self.pt > end {
+        if self.pt >= end {
             self.pt -= byte_len;
             self.pt_char -= char_len;
         } else if self.pt > start {
@@ -321,7 +321,7 @@ impl Buffer {
         }
 
         if shift_begv {
-            if self.begv > end {
+            if self.begv >= end {
                 self.begv -= byte_len;
                 self.begv_char -= char_len;
             } else if self.begv > start {
@@ -330,7 +330,7 @@ impl Buffer {
             }
         }
 
-        if self.zv > end {
+        if self.zv >= end {
             self.zv -= byte_len;
             self.zv_char -= char_len;
         } else if self.zv > start {
@@ -339,7 +339,7 @@ impl Buffer {
         }
 
         if let Some(mark) = self.mark {
-            if mark > end {
+            if mark >= end {
                 self.mark = Some(mark - byte_len);
                 self.mark_char = self.mark_char.map(|mark_char| mark_char - char_len);
             } else if mark > start {
@@ -349,7 +349,7 @@ impl Buffer {
         }
 
         for marker in &mut self.markers {
-            if marker.byte_pos > end {
+            if marker.byte_pos >= end {
                 marker.byte_pos -= byte_len;
                 marker.char_pos -= char_len;
             } else if marker.byte_pos > start {
@@ -363,6 +363,16 @@ impl Buffer {
         self.modified = true;
         self.modified_tick += 1;
         self.chars_modified_tick += 1;
+    }
+
+    fn apply_same_len_edit_side_effects(&mut self, preserve_modified_state: bool) {
+        let old_modified = self.modified;
+        self.modified = true;
+        self.modified_tick += 1;
+        self.chars_modified_tick += 1;
+        if preserve_modified_state {
+            self.modified = old_modified;
+        }
     }
 
     // -- Editing -------------------------------------------------------------
@@ -410,6 +420,47 @@ impl Buffer {
 
         self.text.delete_range(start, end);
         self.apply_byte_delete_side_effects(start, end, start_char, end_char, false);
+    }
+
+    /// Replace every occurrence of `from` with `to` in the byte range
+    /// `[start, end)`.
+    ///
+    /// The replacement is performed in place, so callers must ensure the
+    /// characters have the same UTF-8 byte length.
+    pub fn subst_char_in_region(
+        &mut self,
+        start: usize,
+        end: usize,
+        from: char,
+        to: char,
+        noundo: bool,
+    ) -> bool {
+        if start >= end || from == to {
+            return false;
+        }
+
+        let original = self.text.text_range(start, end);
+        if !original.contains(from) {
+            return false;
+        }
+
+        let replacement: String = original
+            .chars()
+            .map(|ch| if ch == from { to } else { ch })
+            .collect();
+        if replacement == original {
+            return false;
+        }
+
+        if !noundo {
+            self.undo_list.prepare_change(start, self.pt);
+            self.undo_list.record_delete(start, &original);
+            self.undo_list.record_insert(start, replacement.len());
+        }
+
+        self.text.replace_same_len_range(start, end, &replacement);
+        self.apply_same_len_edit_side_effects(noundo);
+        true
     }
 
     // -- Text queries --------------------------------------------------------
@@ -761,6 +812,10 @@ impl BufferManager {
         buf.apply_byte_delete_side_effects(start, end, start_char, end_char, true);
     }
 
+    fn adjust_shared_same_len_edit_metadata(buf: &mut Buffer, preserve_modified_state: bool) {
+        buf.apply_same_len_edit_side_effects(preserve_modified_state);
+    }
+
     fn sync_shared_undo_lists(&mut self, root_id: BufferId, source_id: BufferId) -> Option<()> {
         let source_undo = self.buffers.get(&source_id)?.undo_list.clone();
         for shared_id in self.buffers_sharing_root_ids(root_id) {
@@ -853,6 +908,42 @@ impl BufferManager {
         }
         self.sync_shared_undo_lists(root_id, id)?;
         Some(())
+    }
+
+    pub fn subst_char_in_buffer_region(
+        &mut self,
+        id: BufferId,
+        start: usize,
+        end: usize,
+        from: char,
+        to: char,
+        noundo: bool,
+    ) -> Option<bool> {
+        if start >= end || from == to {
+            return Some(false);
+        }
+
+        let root_id = self.shared_text_root_id(id)?;
+        let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let changed = self
+            .buffers
+            .get_mut(&id)?
+            .subst_char_in_region(start, end, from, to, noundo);
+        if !changed {
+            return Some(false);
+        }
+
+        for sibling_id in shared_ids {
+            if sibling_id == id {
+                continue;
+            }
+            let sibling = self.buffers.get_mut(&sibling_id)?;
+            Self::adjust_shared_same_len_edit_metadata(sibling, noundo);
+        }
+        if !noundo {
+            self.sync_shared_undo_lists(root_id, id)?;
+        }
+        Some(true)
     }
 
     pub fn delete_all_buffer_overlays(&mut self, id: BufferId) -> Option<()> {
@@ -1615,6 +1706,15 @@ mod tests {
     }
 
     #[test]
+    fn delete_region_adjusts_point_at_end_boundary() {
+        let mut buf = buf_with_text("abcdef");
+        buf.goto_char(5);
+        buf.delete_region(1, 5);
+        assert_eq!(buf.point(), 1);
+        assert_eq!(buf.point_char(), 1);
+    }
+
+    #[test]
     fn delete_region_adjusts_mark() {
         let mut buf = buf_with_text("abcdef");
         buf.set_mark(4);
@@ -1622,6 +1722,20 @@ mod tests {
         // mark was at 4, past deleted range end (3), so shifts by 2
         assert_eq!(buf.mark(), Some(2));
         assert_eq!(buf.mark_char(), Some(2));
+    }
+
+    #[test]
+    fn delete_region_moves_marker_at_end_to_start() {
+        let mut buf = buf_with_text("0123456789ABCDEF");
+        buf.markers.push(MarkerEntry {
+            id: 1,
+            byte_pos: 12,
+            char_pos: 12,
+            insertion_type: InsertionType::Before,
+        });
+        buf.delete_region(5, 12);
+        assert_eq!(buf.markers[0].byte_pos, 5);
+        assert_eq!(buf.markers[0].char_pos, 5);
     }
 
     #[test]

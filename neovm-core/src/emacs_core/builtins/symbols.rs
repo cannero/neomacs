@@ -3205,11 +3205,6 @@ fn levenshtein_distance_bytes(a: &[u8], b: &[u8]) -> usize {
     prev[n]
 }
 
-pub(crate) fn builtin_subst_char_in_region(args: Vec<Value>) -> EvalResult {
-    expect_range_args("subst-char-in-region", &args, 4, 5)?;
-    Ok(Value::Nil)
-}
-
 pub(crate) fn builtin_subr_native_comp_unit(args: Vec<Value>) -> EvalResult {
     expect_args("subr-native-comp-unit", &args, 1)?;
     Ok(Value::Nil)

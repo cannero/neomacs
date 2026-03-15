@@ -303,6 +303,43 @@ impl GapBuffer {
         self.gap_end += end - start;
     }
 
+    /// Overwrite the logical byte range `[start, end)` with `replacement`.
+    ///
+    /// `replacement` must have the exact same byte length as the replaced
+    /// region, and both boundaries must lie on UTF-8 character boundaries.
+    pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
+        assert!(
+            start <= end,
+            "replace_same_len_range: start ({start}) > end ({end})"
+        );
+        assert!(
+            end <= self.len(),
+            "replace_same_len_range: end ({end}) > len ({})",
+            self.len()
+        );
+        assert_eq!(
+            replacement.len(),
+            end - start,
+            "replace_same_len_range: replacement byte length ({}) must match replaced length ({})",
+            replacement.len(),
+            end - start
+        );
+        if start == end {
+            return;
+        }
+        debug_assert!(
+            self.is_char_boundary(start),
+            "replace_same_len_range: start ({start}) is not on a UTF-8 character boundary"
+        );
+        debug_assert!(
+            end == self.len() || self.is_char_boundary(end),
+            "replace_same_len_range: end ({end}) is not on a UTF-8 character boundary"
+        );
+
+        self.move_gap_to(end);
+        self.buf[start..end].copy_from_slice(replacement.as_bytes());
+    }
+
     // -----------------------------------------------------------------------
     // Gap management
     // -----------------------------------------------------------------------

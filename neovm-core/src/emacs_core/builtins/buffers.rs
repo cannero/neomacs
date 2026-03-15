@@ -1981,6 +1981,86 @@ pub(crate) fn builtin_delete_and_extract_region(
     Ok(deleted)
 }
 
+/// (subst-char-in-region START END FROMCHAR TOCHAR &optional NOUNDO) → nil
+pub(crate) fn builtin_subst_char_in_region(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("subst-char-in-region", &args, 4, 5)?;
+
+    let start = expect_integer_or_marker(&args[0])?;
+    let end = expect_integer_or_marker(&args[1])?;
+    let from_code = expect_character_code(&args[2])?;
+    let to_code = expect_character_code(&args[3])?;
+    let noundo = args.get(4).is_some_and(|value| !value.is_nil());
+
+    let from_char = char::from_u32(from_code as u32).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("characterp"), args[2]],
+        )
+    })?;
+    let to_char = char::from_u32(to_code as u32).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("characterp"), args[3]],
+        )
+    })?;
+
+    if from_char.len_utf8() != to_char.len_utf8() {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Characters in `subst-char-in-region' have different byte-lengths",
+            )],
+        ));
+    }
+
+    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
+        if buffer_read_only_active(eval, buf) {
+            Some(buf.name.clone())
+        } else {
+            None
+        }
+    });
+    if let Some(name) = read_only_buffer_name {
+        return Err(signal("buffer-read-only", vec![Value::string(name)]));
+    }
+
+    let current_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let (byte_start, byte_end) = {
+        let buf = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let point_min = buf.point_min_char() as i64 + 1;
+        let point_max = buf.point_max_char() as i64 + 1;
+        if start < point_min || start > point_max || end < point_min || end > point_max {
+            return Err(signal(
+                "args-out-of-range",
+                vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
+            ));
+        }
+
+        let lo = start.min(end) as usize;
+        let hi = start.max(end) as usize;
+        let start_char = lo.saturating_sub(1);
+        let end_char = hi.saturating_sub(1);
+        (
+            buf.text.char_to_byte(start_char),
+            buf.text.char_to_byte(end_char),
+        )
+    };
+
+    let _ = eval
+        .buffers
+        .subst_char_in_buffer_region(current_id, byte_start, byte_end, from_char, to_char, noundo);
+    Ok(Value::Nil)
+}
+
 /// (erase-buffer) → nil
 pub(crate) fn builtin_erase_buffer(
     eval: &mut super::eval::Evaluator,

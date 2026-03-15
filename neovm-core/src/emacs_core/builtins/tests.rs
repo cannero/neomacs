@@ -1608,6 +1608,86 @@ fn buffer_modified_tick_semantics() {
 }
 
 #[test]
+fn subst_char_in_region_replaces_chars_in_accessible_region() {
+    let mut eval = super::super::eval::Evaluator::new();
+    builtin_insert(&mut eval, vec![Value::string("hello world hello")]).unwrap();
+
+    builtin_subst_char_in_region(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(18),
+            Value::Int('l' as i64),
+            Value::Int('L' as i64),
+        ],
+    )
+    .expect("subst-char-in-region should succeed");
+
+    assert_eq!(
+        builtin_buffer_string(&mut eval, vec![]).unwrap().as_str(),
+        Some("heLLo worLd heLLo")
+    );
+}
+
+#[test]
+fn subst_char_in_region_preserves_modified_flag_with_noundo() {
+    let mut eval = super::super::eval::Evaluator::new();
+    builtin_insert(&mut eval, vec![Value::string("a\nb\n")]).unwrap();
+    builtin_set_buffer_modified_p(&mut eval, vec![Value::Nil]).unwrap();
+
+    builtin_subst_char_in_region(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(5),
+            Value::Int('\n' as i64),
+            Value::Int(' ' as i64),
+            Value::True,
+        ],
+    )
+    .expect("subst-char-in-region with NOUNDO should succeed");
+
+    assert_eq!(
+        builtin_buffer_string(&mut eval, vec![]).unwrap().as_str(),
+        Some("a b ")
+    );
+    assert_eq!(
+        builtin_buffer_modified_p(&mut eval, vec![]).unwrap(),
+        Value::Nil
+    );
+}
+
+#[test]
+fn subst_char_in_region_rejects_different_utf8_lengths() {
+    let mut eval = super::super::eval::Evaluator::new();
+    builtin_insert(&mut eval, vec![Value::string("aa")]).unwrap();
+
+    let err = builtin_subst_char_in_region(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(3),
+            Value::Int('a' as i64),
+            Value::Int('ß' as i64),
+        ],
+    )
+    .unwrap_err();
+
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(
+                sig.data,
+                vec![Value::string(
+                    "Characters in `subst-char-in-region' have different byte-lengths",
+                )]
+            );
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+}
+
+#[test]
 fn insert_honors_inhibit_read_only_override() {
     let mut eval = super::super::eval::Evaluator::new();
     eval.obarray
@@ -4089,20 +4169,6 @@ fn pure_dispatch_sort_subr_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin string-distance should resolve")
     .expect("builtin string-distance should evaluate");
     assert_eq!(string_distance, Value::Int(1));
-
-    let subst = dispatch_builtin_pure(
-        "subst-char-in-region",
-        vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(97),
-            Value::Int(98),
-            Value::Nil,
-        ],
-    )
-    .expect("builtin subst-char-in-region should resolve")
-    .expect("builtin subst-char-in-region should evaluate");
-    assert!(subst.is_nil());
 
     let subr_unit = dispatch_builtin_pure("subr-native-comp-unit", vec![Value::Nil])
         .expect("builtin subr-native-comp-unit should resolve")

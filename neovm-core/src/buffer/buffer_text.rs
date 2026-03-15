@@ -107,6 +107,16 @@ impl BufferText {
         storage.char_count -= deleted_chars;
     }
 
+    pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
+        if start >= end {
+            return;
+        }
+        self.storage
+            .borrow_mut()
+            .gap
+            .replace_same_len_range(start, end, replacement);
+    }
+
     pub fn byte_to_char(&self, byte_pos: usize) -> usize {
         self.storage.borrow().gap.byte_to_char(byte_pos)
     }
