@@ -1,11 +1,13 @@
 //! Bytecode virtual machine — stack-based interpreter.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
 use crate::buffer::{BufferId, BufferManager, InsertionType};
 use crate::emacs_core::advice::VariableWatcherList;
+use crate::emacs_core::autoload::AutoloadManager;
 use crate::emacs_core::builtins;
 use crate::emacs_core::category::CategoryManager;
 use crate::emacs_core::coding::CodingSystemManager;
@@ -86,6 +88,9 @@ pub struct Vm<'a> {
     lexenv: &'a mut Value,
     #[allow(dead_code)]
     features: &'a mut Vec<SymId>,
+    require_stack: &'a mut Vec<SymId>,
+    loads_in_progress: &'a mut Vec<PathBuf>,
+    autoloads: &'a mut AutoloadManager,
     custom: &'a mut CustomManager,
     buffers: &'a mut BufferManager,
     category_manager: &'a mut CategoryManager,
@@ -109,6 +114,9 @@ impl<'a> Vm<'a> {
         dynamic: &'a mut Vec<OrderedSymMap>,
         lexenv: &'a mut Value,
         features: &'a mut Vec<SymId>,
+        require_stack: &'a mut Vec<SymId>,
+        loads_in_progress: &'a mut Vec<PathBuf>,
+        autoloads: &'a mut AutoloadManager,
         custom: &'a mut CustomManager,
         buffers: &'a mut BufferManager,
         category_manager: &'a mut CategoryManager,
@@ -123,6 +131,9 @@ impl<'a> Vm<'a> {
             dynamic,
             lexenv,
             features,
+            require_stack,
+            loads_in_progress,
+            autoloads,
             custom,
             buffers,
             category_manager,
@@ -2361,6 +2372,9 @@ impl<'a> Vm<'a> {
         eval.dynamic = self.dynamic.clone();
         eval.lexenv = *self.lexenv;
         eval.features = self.features.clone();
+        std::mem::swap(self.require_stack, &mut eval.require_stack);
+        std::mem::swap(self.loads_in_progress, &mut eval.loads_in_progress);
+        std::mem::swap(self.autoloads, &mut eval.autoloads);
         eval.catch_tags = self.catch_tags.clone();
         eval.custom = self.custom.clone();
         eval.buffers = self.buffers.clone();
@@ -2384,6 +2398,9 @@ impl<'a> Vm<'a> {
         std::mem::swap(self.dynamic, &mut eval.dynamic);
         std::mem::swap(self.lexenv, &mut eval.lexenv);
         std::mem::swap(self.features, &mut eval.features);
+        std::mem::swap(self.require_stack, &mut eval.require_stack);
+        std::mem::swap(self.loads_in_progress, &mut eval.loads_in_progress);
+        std::mem::swap(self.autoloads, &mut eval.autoloads);
         std::mem::swap(self.catch_tags, &mut eval.catch_tags);
         std::mem::swap(self.custom, &mut eval.custom);
         std::mem::swap(self.buffers, &mut eval.buffers);

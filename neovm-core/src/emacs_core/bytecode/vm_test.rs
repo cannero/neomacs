@@ -6,6 +6,7 @@ use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
 use crate::window::FrameManager;
+use std::path::PathBuf;
 
 fn vm_eval(src: &str) -> Result<Value, EvalError> {
     let forms = parse_forms(src).expect("parse");
@@ -19,6 +20,9 @@ fn vm_eval(src: &str) -> Result<Value, EvalError> {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut category_manager = CategoryManager::new();
@@ -36,6 +40,9 @@ fn vm_eval(src: &str) -> Result<Value, EvalError> {
             &mut dynamic,
             &mut lexenv,
             &mut features,
+            &mut require_stack,
+            &mut loads_in_progress,
+            &mut autoloads,
             &mut custom,
             &mut buffers,
             &mut category_manager,
@@ -68,6 +75,9 @@ fn vm_eval_with_lexical(src: &str, lexical: bool) -> Result<Value, EvalError> {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut category_manager = CategoryManager::new();
@@ -85,6 +95,9 @@ fn vm_eval_with_lexical(src: &str, lexical: bool) -> Result<Value, EvalError> {
             &mut dynamic,
             &mut lexenv,
             &mut features,
+            &mut require_stack,
+            &mut loads_in_progress,
+            &mut autoloads,
             &mut custom,
             &mut buffers,
             &mut category_manager,
@@ -144,6 +157,9 @@ fn execute_manual_vm<T>(
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let init_state = init(&mut func, &mut buffers);
@@ -160,6 +176,9 @@ fn execute_manual_vm<T>(
             &mut dynamic,
             &mut lexenv,
             &mut features,
+            &mut require_stack,
+            &mut loads_in_progress,
+            &mut autoloads,
             &mut custom,
             &mut buffers,
             &mut category_manager,
@@ -441,6 +460,9 @@ fn vm_eval_bridge_preserves_active_catch_tags() {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut category_manager = CategoryManager::new();
@@ -455,6 +477,9 @@ fn vm_eval_bridge_preserves_active_catch_tags() {
         &mut dynamic,
         &mut lexenv,
         &mut features,
+        &mut require_stack,
+        &mut loads_in_progress,
+        &mut autoloads,
         &mut custom,
         &mut buffers,
         &mut category_manager,
@@ -641,6 +666,9 @@ fn vm_switch_branches_using_hash_table_jump_table() {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut category_manager = CategoryManager::new();
@@ -655,6 +683,9 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         &mut dynamic,
         &mut lexenv,
         &mut features,
+        &mut require_stack,
+        &mut loads_in_progress,
+        &mut autoloads,
         &mut custom,
         &mut buffers,
         &mut category_manager,
@@ -794,6 +825,9 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut category_manager = CategoryManager::new();
@@ -808,6 +842,9 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         &mut dynamic,
         &mut lexenv,
         &mut features,
+        &mut require_stack,
+        &mut loads_in_progress,
+        &mut autoloads,
         &mut custom,
         &mut buffers,
         &mut category_manager,
@@ -964,6 +1001,9 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut category_manager = CategoryManager::new();
@@ -977,6 +1017,9 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
         &mut dynamic,
         &mut lexenv,
         &mut features,
+        &mut require_stack,
+        &mut loads_in_progress,
+        &mut autoloads,
         &mut custom,
         &mut buffers,
         &mut category_manager,
@@ -1252,6 +1295,9 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
     let mut dynamic: Vec<OrderedSymMap> = Vec::new();
     let mut lexenv: Value = Value::Nil;
     let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
     let mut custom = CustomManager::new();
     let mut buffers = crate::buffer::BufferManager::new();
     let mut category_manager = CategoryManager::new();
@@ -1266,6 +1312,9 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         &mut dynamic,
         &mut lexenv,
         &mut features,
+        &mut require_stack,
+        &mut loads_in_progress,
+        &mut autoloads,
         &mut custom,
         &mut buffers,
         &mut category_manager,
@@ -1292,5 +1341,192 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
             Value::Int(4),
             Value::Nil,
         ])
+    );
+}
+
+#[test]
+fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
+    let forms =
+        parse_forms("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")").expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+
+    let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
+    let mut custom = CustomManager::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
+    let mut frames = FrameManager::new();
+    let mut coding_systems = CodingSystemManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags: Vec<Value> = Vec::new();
+
+    let result = {
+        let mut vm = Vm::new(
+            &mut obarray,
+            &mut dynamic,
+            &mut lexenv,
+            &mut features,
+            &mut require_stack,
+            &mut loads_in_progress,
+            &mut autoloads,
+            &mut custom,
+            &mut buffers,
+            &mut category_manager,
+            &mut frames,
+            &mut coding_systems,
+            &mut match_data,
+            &mut watchers,
+            &mut catch_tags,
+        );
+        vm.execute(&func, vec![])
+            .expect("compiled autoload should execute")
+    };
+
+    assert_eq!(result, Value::symbol("vm-bytecode-auto"));
+    let entry = autoloads
+        .get_entry("vm-bytecode-auto")
+        .expect("autoload registration should propagate back out of VM bridge");
+    assert_eq!(entry.file, "vm-bytecode-auto-file");
+}
+
+#[test]
+fn vm_compiled_require_respects_recursive_require_guard() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fixture = dir.path().join("vm-bytecode-rec.el");
+    std::fs::write(
+        &fixture,
+        "(setq vm-bytecode-required-ran t)\n(provide 'vm-bytecode-rec)\n",
+    )
+    .expect("write require fixture");
+
+    let forms = parse_forms(
+        "(progn
+           (setq vm-bytecode-required-ran nil)
+           (require 'vm-bytecode-rec)
+           vm-bytecode-required-ran)",
+    )
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+
+    let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
+    obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack = vec![intern("vm-bytecode-rec")];
+    let mut loads_in_progress: Vec<PathBuf> = Vec::new();
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
+    let mut custom = CustomManager::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
+    let mut frames = FrameManager::new();
+    let mut coding_systems = CodingSystemManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags: Vec<Value> = Vec::new();
+
+    let result = {
+        let mut vm = Vm::new(
+            &mut obarray,
+            &mut dynamic,
+            &mut lexenv,
+            &mut features,
+            &mut require_stack,
+            &mut loads_in_progress,
+            &mut autoloads,
+            &mut custom,
+            &mut buffers,
+            &mut category_manager,
+            &mut frames,
+            &mut coding_systems,
+            &mut match_data,
+            &mut watchers,
+            &mut catch_tags,
+        );
+        vm.execute(&func, vec![])
+            .expect("compiled require should observe recursive guard")
+    };
+
+    assert_eq!(
+        result,
+        Value::Nil,
+        "compiled require should return immediately without loading the file again"
+    );
+}
+
+#[test]
+fn vm_compiled_load_respects_loads_in_progress_guard() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fixture = dir.path().join("vm-bytecode-load.el");
+    std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
+    let fixture = fixture.canonicalize().expect("canonical load fixture");
+
+    let forms = parse_forms(&format!(
+        "(progn
+           (setq vm-bytecode-load-ran nil)
+           (load {:?} nil nil t)
+           vm-bytecode-load-ran)",
+        fixture.to_string_lossy()
+    ))
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+
+    let mut obarray = Obarray::new();
+    crate::emacs_core::errors::init_standard_errors(&mut obarray);
+    let mut dynamic: Vec<OrderedSymMap> = Vec::new();
+    let mut lexenv: Value = Value::Nil;
+    let mut features: Vec<SymId> = Vec::new();
+    let mut require_stack: Vec<SymId> = Vec::new();
+    let mut loads_in_progress = vec![fixture];
+    let mut autoloads = crate::emacs_core::autoload::AutoloadManager::new();
+    let mut custom = CustomManager::new();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut category_manager = CategoryManager::new();
+    let mut frames = FrameManager::new();
+    let mut coding_systems = CodingSystemManager::new();
+    let mut match_data: Option<MatchData> = None;
+    let mut watchers = VariableWatcherList::new();
+    let mut catch_tags: Vec<Value> = Vec::new();
+
+    let result = {
+        let mut vm = Vm::new(
+            &mut obarray,
+            &mut dynamic,
+            &mut lexenv,
+            &mut features,
+            &mut require_stack,
+            &mut loads_in_progress,
+            &mut autoloads,
+            &mut custom,
+            &mut buffers,
+            &mut category_manager,
+            &mut frames,
+            &mut coding_systems,
+            &mut match_data,
+            &mut watchers,
+            &mut catch_tags,
+        );
+        vm.execute(&func, vec![])
+            .expect("compiled load should observe recursive load guard")
+    };
+
+    assert_eq!(
+        result,
+        Value::Nil,
+        "compiled load should skip re-entering a file already being loaded"
     );
 }
