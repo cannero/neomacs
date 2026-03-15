@@ -1594,6 +1594,57 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
         eval.push_temp_root(*v);
     }
 
+    // Check for pre-compiled .neobc file.  If a valid .neobc exists with a
+    // source hash matching the current .el content, load it directly — this
+    // skips parsing, macro expansion, and eval-when-compile re-execution.
+    let neobc_path = path.with_extension("neobc");
+    if neobc_path.exists() {
+        let source_hash = super::file_compile_format::source_sha256(&content);
+        if let Ok(loaded) = super::file_compile_format::read_neobc(&neobc_path, &source_hash) {
+            tracing::info!(
+                "neobc cache hit for {} ({} forms)",
+                path.display(),
+                loaded.forms.len()
+            );
+            // Set up lexical binding from the compiled file.
+            if loaded.lexical_binding {
+                eval.set_lexical_binding(true);
+                eval.lexenv = Value::list(vec![Value::True]);
+            }
+            // Set load-file-name before evaluating forms (require/provide need it).
+            eval.set_variable(
+                "load-file-name",
+                Value::string(path.to_string_lossy().to_string()),
+            );
+            // Evaluate each loaded form.
+            let neobc_result = (|| -> Result<Value, EvalError> {
+                for form in &loaded.forms {
+                    match form {
+                        super::file_compile_format::LoadedForm::Eval(expr) => {
+                            eval.eval_expr(expr)?;
+                        }
+                        super::file_compile_format::LoadedForm::Constant(_) => {
+                            // eval-when-compile constant — already evaluated, skip.
+                        }
+                    }
+                    eval.gc_safe_point();
+                }
+                record_load_history(eval, path);
+                Ok(Value::True)
+            })();
+            // Restore context and return.
+            eval.set_lexical_binding(old_lexical);
+            eval.lexenv = old_lexenv;
+            if let Some(old) = old_load_file {
+                eval.set_variable("load-file-name", old);
+            } else {
+                eval.set_variable("load-file-name", Value::Nil);
+            }
+            eval.restore_temp_roots(saved_roots);
+            return neobc_result;
+        }
+    }
+
     // Check for lexical-binding file variable in file-local line.
     if lexical_binding_enabled_for_source(&content) {
         eval.set_lexical_binding(true);
