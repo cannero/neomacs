@@ -103,13 +103,20 @@ pub(crate) fn builtin_compose_region_internal_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_compose_region_internal_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_compose_region_internal_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("compose-region-internal", &args, 2, 4)?;
     expect_integer_or_marker_p(&args[0])?;
     expect_integer_or_marker_p(&args[1])?;
 
     let start = integer_value(&args[0]);
     let end = integer_value(&args[1]);
-    let (buffer_handle, point_max) = if let Some(buf) = eval.buffers.current_buffer() {
+    let (buffer_handle, point_max) = if let Some(buf) = buffers.current_buffer() {
         (
             Value::Buffer(buf.id),
             buf.buffer_string().chars().count() as i64 + 1,

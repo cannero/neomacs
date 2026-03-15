@@ -2151,6 +2151,13 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_compose_region_internal_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::composite::builtin_compose_region_internal_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_skip_chars_forward_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::navigation::builtin_skip_chars_forward_in_manager(
             &mut *self.shared.buffers,
@@ -3211,6 +3218,7 @@ impl<'a> Vm<'a> {
             "replace-match" => Some(self.builtin_replace_match_shared(args)),
             "find-charset-region" => Some(self.builtin_find_charset_region_shared(args)),
             "charset-after" => Some(self.builtin_charset_after_shared(args)),
+            "compose-region-internal" => Some(self.builtin_compose_region_internal_shared(args)),
             _ => None,
         }
     }

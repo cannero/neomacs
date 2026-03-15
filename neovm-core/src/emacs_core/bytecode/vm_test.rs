@@ -1513,6 +1513,22 @@ fn vm_charset_region_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_compose_region_internal_uses_shared_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "abc")
+                 (list
+                  (compose-region-internal 1 3)
+                  (condition-case err
+                      (compose-region-internal 0 3)
+                    (error (list (car err) (cdr err))))))"#
+        ),
+        r#"OK (nil (args-out-of-range (#<buffer 1> 0 3)))"#
+    );
+}
+
+#[test]
 fn vm_when_unless() {
     assert_eq!(vm_eval_str("(when t 1 2 3)"), "OK 3");
     assert_eq!(vm_eval_str("(when nil 1 2 3)"), "OK nil");
