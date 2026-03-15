@@ -1684,13 +1684,15 @@ impl<'a> Vm<'a> {
                         return Err(signal("void-function", vec![Value::symbol(name)]));
                     }
                     if crate::emacs_core::autoload::is_autoload_value(&func) {
-                        let mut extra_roots = Vec::with_capacity(args.len() + 2);
-                        extra_roots.push(Value::Symbol(id));
-                        extra_roots.push(func);
-                        extra_roots.extend(args.iter().copied());
-                        return self.with_mirrored_evaluator(&extra_roots, move |eval| {
-                            eval.apply(Value::Symbol(id), args)
-                        });
+                        let mut autoload_roots = Vec::with_capacity(args.len() + 2);
+                        autoload_roots.push(Value::Symbol(id));
+                        autoload_roots.push(func);
+                        autoload_roots.extend(args.iter().copied());
+                        let loaded = self.autoload_do_load_with_vm_bridge(
+                            vec![func, Value::Symbol(id)],
+                            &autoload_roots,
+                        )?;
+                        return self.call_function(loaded, args);
                     }
                     return self.call_function(func, args);
                 }
@@ -1698,6 +1700,32 @@ impl<'a> Vm<'a> {
                 self.dispatch_vm_builtin(name, args)
             }
             _ => Err(signal("invalid-function", vec![func_val])),
+        }
+    }
+
+    fn autoload_do_load_with_vm_bridge(
+        &mut self,
+        args: Vec<Value>,
+        extra_roots: &[Value],
+    ) -> EvalResult {
+        match crate::emacs_core::autoload::plan_autoload_do_load_in_state(
+            &*self.shared.obarray,
+            &args,
+        )? {
+            crate::emacs_core::autoload::AutoloadDoLoadPlan::Return(value) => Ok(value),
+            crate::emacs_core::autoload::AutoloadDoLoadPlan::Load { file, funname } => {
+                let path = crate::emacs_core::autoload::resolve_autoload_load_path(
+                    &*self.shared.obarray,
+                    &file,
+                )?;
+                self.with_mirrored_evaluator(extra_roots, move |eval| {
+                    eval.load_file_internal(&path)
+                })?;
+                crate::emacs_core::autoload::finish_autoload_do_load_in_state(
+                    &*self.shared.obarray,
+                    funname.as_deref(),
+                )
+            }
         }
     }
 
@@ -2132,6 +2160,10 @@ impl<'a> Vm<'a> {
             "autoload" => Some(crate::emacs_core::autoload::register_autoload_in_state(
                 self.shared.obarray,
                 self.shared.autoloads,
+                args,
+            )),
+            "autoload-do-load" => Some(self.autoload_do_load_with_vm_bridge(
+                args.to_vec(),
                 args,
             )),
             "symbol-file" => Some(crate::emacs_core::autoload::builtin_symbol_file_in_state(

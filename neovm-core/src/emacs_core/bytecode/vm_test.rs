@@ -705,6 +705,72 @@ fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
 }
 
 #[test]
+fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("vm-bytecode-autoload-do-load.el"),
+        "(defun vm-bytecode-autoload-do-load () 91)\n",
+    )
+    .expect("write autoload-do-load fixture");
+
+    let mut eval = Evaluator::new_vm_harness();
+    eval.obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+    let forms = parse_forms(
+        r#"(progn
+             (autoload 'vm-bytecode-autoload-do-load "vm-bytecode-autoload-do-load")
+             (autoload-do-load (symbol-function 'vm-bytecode-autoload-do-load)
+                               'vm-bytecode-autoload-do-load)
+             (vm-bytecode-autoload-do-load))"#,
+    )
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled autoload-do-load should execute")
+    };
+
+    assert_eq!(result, Value::Int(91));
+}
+
+#[test]
+fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("vm-bytecode-autoload-call.el"),
+        "(defun vm-bytecode-autoload-call (x) (+ x 7))\n",
+    )
+    .expect("write autoload call fixture");
+
+    let mut eval = Evaluator::new_vm_harness();
+    eval.obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+    let forms = parse_forms(
+        r#"(progn
+             (autoload 'vm-bytecode-autoload-call "vm-bytecode-autoload-call")
+             (vm-bytecode-autoload-call 5))"#,
+    )
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled autoloaded call should execute")
+    };
+
+    assert_eq!(result, Value::Int(12));
+}
+
+#[test]
 fn vm_string_match_updates_match_data_for_followup_builtins() {
     assert_eq!(
         vm_eval_str(

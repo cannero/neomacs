@@ -10,8 +10,9 @@
 //!   `define-obsolete-variable-alias`, `make-obsolete`, `make-obsolete-variable`.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
-use super::error::{EvalResult, signal};
+use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::*;
@@ -245,10 +246,18 @@ pub(crate) fn is_autoload_value(val: &Value) -> bool {
 /// `(autoload-do-load FUNDEF &optional FUNNAME MACRO-ONLY)` — trigger autoload.
 /// If FUNDEF is an autoload form, load the file and return the new definition.
 /// Otherwise return FUNDEF unchanged.
-pub(crate) fn builtin_autoload_do_load(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) enum AutoloadDoLoadPlan {
+    Return(Value),
+    Load {
+        file: String,
+        funname: Option<String>,
+    },
+}
+
+pub(crate) fn plan_autoload_do_load_in_state(
+    obarray: &Obarray,
+    args: &[Value],
+) -> Result<AutoloadDoLoadPlan, Flow> {
     if args.is_empty() || args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -261,7 +270,7 @@ pub(crate) fn builtin_autoload_do_load(
 
     let fundef = &args[0];
     if !is_autoload_value(fundef) {
-        return Ok(*fundef);
+        return Ok(AutoloadDoLoadPlan::Return(*fundef));
     }
 
     let items = list_to_vec(fundef).unwrap_or_default();
@@ -269,10 +278,10 @@ pub(crate) fn builtin_autoload_do_load(
     let file = if items.len() > 1 {
         match &items[1] {
             Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-            _ => return Ok(*fundef),
+            _ => return Ok(AutoloadDoLoadPlan::Return(*fundef)),
         }
     } else {
-        return Ok(*fundef);
+        return Ok(AutoloadDoLoadPlan::Return(*fundef));
     };
 
     let funname = if args.len() > 1 {
@@ -290,7 +299,7 @@ pub(crate) fn builtin_autoload_do_load(
         let is_macro_type =
             matches!(kind, Value::True) || kind.as_symbol_name().map_or(false, |s| s == "macro");
         if !is_macro_type {
-            return Ok(*fundef);
+            return Ok(AutoloadDoLoadPlan::Return(*fundef));
         }
     }
 
@@ -299,40 +308,56 @@ pub(crate) fn builtin_autoload_do_load(
     // This prevents redundant re-loads that can cause side effects like
     // advice being installed multiple times.
     if let Some(ref name) = funname {
-        if let Some(current) = eval.obarray.symbol_function(name).cloned() {
+        if let Some(current) = obarray.symbol_function(name).cloned() {
             if !is_autoload_value(&current) {
                 // The function is already defined (not an autoload) — a previous
                 // load already resolved it. Return the current definition.
-                return Ok(current);
+                return Ok(AutoloadDoLoadPlan::Return(current));
             }
         }
     }
 
-    // Load the file
-    let load_path = super::load::get_load_path(&eval.obarray);
-    match super::load::find_file_in_load_path(&file, &load_path) {
-        Some(path) => {
-            eval.load_file_internal(&path)?;
-        }
-        None => {
-            return Err(signal(
-                "file-missing",
-                vec![Value::string(format!(
-                    "Cannot open load file: no such file or directory, {}",
-                    file
-                ))],
-            ));
-        }
-    }
+    Ok(AutoloadDoLoadPlan::Load { file, funname })
+}
 
-    // Return the new definition if we know the function name
+pub(crate) fn resolve_autoload_load_path(obarray: &Obarray, file: &str) -> Result<PathBuf, Flow> {
+    let load_path = super::load::get_load_path(obarray);
+    match super::load::find_file_in_load_path(file, &load_path) {
+        Some(path) => Ok(path),
+        None => Err(signal(
+            "file-missing",
+            vec![Value::string(format!(
+                "Cannot open load file: no such file or directory, {}",
+                file
+            ))],
+        )),
+    }
+}
+
+pub(crate) fn finish_autoload_do_load_in_state(
+    obarray: &Obarray,
+    funname: Option<&str>,
+) -> EvalResult {
     if let Some(name) = funname {
-        if let Some(func) = eval.obarray.symbol_function(&name).cloned() {
+        if let Some(func) = obarray.symbol_function(name).cloned() {
             return Ok(func);
         }
     }
-
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_autoload_do_load(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    match plan_autoload_do_load_in_state(&eval.obarray, &args)? {
+        AutoloadDoLoadPlan::Return(value) => Ok(value),
+        AutoloadDoLoadPlan::Load { file, funname } => {
+            let path = resolve_autoload_load_path(&eval.obarray, &file)?;
+            eval.load_file_internal(&path)?;
+            finish_autoload_do_load_in_state(&eval.obarray, funname.as_deref())
+        }
+    }
 }
 
 pub(crate) fn register_autoload_in_state(
