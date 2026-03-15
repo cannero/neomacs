@@ -1728,6 +1728,31 @@ fn goto_char_uses_live_marker_position_after_insertions() {
 }
 
 #[test]
+fn char_queries_use_live_marker_positions_after_insertions() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = parse_forms(
+        r#"(with-temp-buffer
+             (insert "ab")
+             (let ((m (copy-marker 2)))
+               (goto-char 1)
+               (insert "X")
+               (list (marker-position m)
+                     (char-after m)
+                     (char-before m))))"#,
+    )
+    .expect("parse live-marker char query regression");
+
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+
+    assert_eq!(format_eval_result(&Ok(result)), "OK (3 98 97)");
+}
+
+#[test]
 fn search_forward_uses_live_marker_bound_after_insertions() {
     let mut eval = super::super::eval::Evaluator::new();
     let forms = parse_forms(

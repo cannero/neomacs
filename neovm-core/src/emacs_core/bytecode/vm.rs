@@ -1685,6 +1685,52 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_buffer_string_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_string_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_point_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_point_in_manager(&*self.shared.buffers, args.to_vec())
+    }
+
+    fn builtin_point_min_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_point_min_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_point_max_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_point_max_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_goto_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_goto_char_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_char_after_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_char_after_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_char_before_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_char_before_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_insert_before_markers_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::editfns::builtin_insert_before_markers_in_state(
             &*self.shared.obarray,
@@ -2270,6 +2316,13 @@ impl<'a> Vm<'a> {
             "indent-to" => Some(self.builtin_indent_to_shared(args)),
             "current-column" => Some(self.builtin_current_column_shared(args)),
             "move-to-column" => Some(self.builtin_move_to_column_shared(args)),
+            "buffer-string" => Some(self.builtin_buffer_string_shared(args)),
+            "point" => Some(self.builtin_point_shared(args)),
+            "point-min" => Some(self.builtin_point_min_shared(args)),
+            "point-max" => Some(self.builtin_point_max_shared(args)),
+            "goto-char" => Some(self.builtin_goto_char_shared(args)),
+            "char-after" => Some(self.builtin_char_after_shared(args)),
+            "char-before" => Some(self.builtin_char_before_shared(args)),
             "insert-before-markers" => Some(self.builtin_insert_before_markers_shared(args)),
             "delete-char" => Some(self.builtin_delete_char_shared(args)),
             "buffer-substring-no-properties" => {

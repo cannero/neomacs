@@ -20,6 +20,23 @@ fn point_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
     buf.text.byte_to_char(byte_pos) as i64 + 1
 }
 
+fn expect_integer_or_marker_in_buffers(
+    buffers: &BufferManager,
+    value: &Value,
+) -> Result<i64, Flow> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        other if crate::emacs_core::marker::is_marker(other) => {
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(buffers, other)
+        }
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *other],
+        )),
+    }
+}
+
 fn canonicalize_or_self(path: &str) -> String {
     std::fs::canonicalize(path)
         .map(|p| p.to_string_lossy().into_owned())
@@ -496,28 +513,7 @@ pub(crate) fn builtin_buffer_string(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("buffer-string", &args, 0)?;
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
-        .get(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let byte_start = buf.point_min();
-    let byte_end = buf.point_max();
-    let result = Value::string(buf.buffer_string());
-    // Copy buffer text properties to the result string
-    if !buf.text_props.is_empty() {
-        if let Value::Str(new_id) = &result {
-            let sliced = buf.text_props.slice(byte_start, byte_end);
-            if !sliced.is_empty() {
-                set_string_text_properties_table(*new_id, sliced);
-            }
-        }
-    }
-    Ok(result)
+    builtin_buffer_string_in_manager(&eval.buffers, args)
 }
 
 /// (buffer-substring START END) → string
@@ -565,6 +561,28 @@ pub(crate) fn builtin_buffer_substring(
             if !sliced.is_empty() {
                 set_string_text_properties_table(*new_id, sliced);
             }
+        }
+    }
+    Ok(result)
+}
+
+pub(crate) fn builtin_buffer_string_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("buffer-string", &args, 0)?;
+    let buf = buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let byte_start = buf.point_min();
+    let byte_end = buf.point_max();
+    let result = Value::string(buf.buffer_string());
+    if !buf.text_props.is_empty()
+        && let Value::Str(new_id) = &result
+    {
+        let sliced = buf.text_props.slice(byte_start, byte_end);
+        if !sliced.is_empty() {
+            set_string_text_properties_table(*new_id, sliced);
         }
     }
     Ok(result)
@@ -1698,49 +1716,68 @@ pub(crate) fn builtin_command_error_default_function(args: Vec<Value>) -> EvalRe
 
 /// (point) → integer
 pub(crate) fn builtin_point(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_args("point", &args, 0)?;
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    // Return 1-based char position
-    Ok(Value::Int(buf.point_char() as i64 + 1))
+    builtin_point_in_manager(&eval.buffers, args)
 }
 
 /// (point-min) → integer
 pub(crate) fn builtin_point_min(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_point_min_in_manager(&eval.buffers, args)
+}
+
+/// (point-max) → integer
+pub(crate) fn builtin_point_max(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_point_max_in_manager(&eval.buffers, args)
+}
+
+/// (goto-char POS) → POS
+pub(crate) fn builtin_goto_char(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_goto_char_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_point_in_manager(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
+    expect_args("point", &args, 0)?;
+    let buf = buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    Ok(Value::Int(buf.point_char() as i64 + 1))
+}
+
+pub(crate) fn builtin_point_min_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("point-min", &args, 0)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     Ok(Value::Int(buf.point_min_char() as i64 + 1))
 }
 
-/// (point-max) → integer
-pub(crate) fn builtin_point_max(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_point_max_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("point-max", &args, 0)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     Ok(Value::Int(buf.point_max_char() as i64 + 1))
 }
 
-/// (goto-char POS) → POS
-pub(crate) fn builtin_goto_char(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_goto_char_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("goto-char", &args, 1)?;
-    let pos = expect_integer_or_marker_eval(eval, &args[0])?;
-    let current_id = eval
-        .buffers
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = buf.lisp_pos_to_byte(pos);
-    let _ = eval.buffers.goto_buffer_byte(current_id, byte_pos);
+    let _ = buffers.goto_buffer_byte(current_id, byte_pos);
     Ok(args[0])
 }
 
@@ -2452,14 +2489,21 @@ pub(crate) fn builtin_char_after(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let buf = eval
-        .buffers
+    builtin_char_after_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_char_after_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("char-after", &args, 1)?;
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || matches!(args[0], Value::Nil) {
         (buf.point() < buf.zv).then_some(buf.point())
     } else {
-        let pos = expect_int(&args[0])?;
+        let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
         if pos <= 0 {
             return Ok(Value::Nil);
         }
@@ -2468,7 +2512,7 @@ pub(crate) fn builtin_char_after(
         if pos < point_min || pos >= point_max {
             return Ok(Value::Nil);
         }
-        Some(buf.text.char_to_byte((pos - 1) as usize))
+        Some(buf.lisp_pos_to_accessible_byte(pos))
     };
     match byte_pos.and_then(|pos| buf.char_after(pos)) {
         Some(c) => Ok(Value::Int(c as i64)),
@@ -2481,14 +2525,21 @@ pub(crate) fn builtin_char_before(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let buf = eval
-        .buffers
+    builtin_char_before_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_char_before_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("char-before", &args, 1)?;
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let byte_pos = if args.is_empty() || matches!(args[0], Value::Nil) {
         (buf.point() > buf.begv).then_some(buf.point())
     } else {
-        let pos = expect_int(&args[0])?;
+        let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
         if pos <= 0 {
             return Ok(Value::Nil);
         }
@@ -2497,7 +2548,7 @@ pub(crate) fn builtin_char_before(
         if pos <= point_min || pos > point_max {
             return Ok(Value::Nil);
         }
-        Some(buf.text.char_to_byte((pos - 1) as usize))
+        Some(buf.lisp_pos_to_accessible_byte(pos))
     };
     match byte_pos.and_then(|pos| buf.char_before(pos)) {
         Some(c) => Ok(Value::Int(c as i64)),

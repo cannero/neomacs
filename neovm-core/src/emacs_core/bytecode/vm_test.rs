@@ -745,6 +745,51 @@ fn vm_set_buffer_and_current_buffer_share_buffer_runtime_state() {
 }
 
 #[test]
+fn vm_current_buffer_query_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list (point-min)
+                     (point-max)
+                     (buffer-string)
+                     (goto-char 99)
+                     (point)
+                     (goto-char 2)
+                     (point)
+                     (char-after)
+                     (char-before))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
+                buffer.insert("hello");
+                let start = buffer.lisp_pos_to_byte(2);
+                let end = buffer.lisp_pos_to_byte(5);
+                buffer.narrow_to_region(start, end);
+            },
+        ),
+        r#"OK (2 5 "ell" 99 5 2 2 101 nil)"#
+    );
+}
+
+#[test]
+fn vm_goto_char_and_char_queries_use_live_marker_positions() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "ab")
+                 (let ((m (copy-marker 2)))
+                   (goto-char 1)
+                   (insert "X")
+                   (list (point)
+                         (marker-position m)
+                         (progn (goto-char m) (point))
+                         (char-after m)
+                         (char-before m))))"#
+        ),
+        "OK (2 3 3 98 97)"
+    );
+}
+
+#[test]
 fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
     assert_eq!(
         vm_eval_str(
