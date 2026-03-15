@@ -546,10 +546,7 @@ pub(crate) fn builtin_set_marker(
     let position: Option<i64> = match &args[1] {
         Value::Nil => None,
         Value::Int(n) => Some(*n),
-        v if is_marker(v) => match marker_position_value(v) {
-            Value::Int(n) => Some(n),
-            _ => None,
-        },
+        v if is_marker(v) => marker_position_as_int_eval(eval, v).ok(),
         other => {
             return Err(signal(
                 "wrong-type-argument",

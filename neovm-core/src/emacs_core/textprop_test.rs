@@ -668,6 +668,28 @@ fn text_property_any_not_found() {
 }
 
 #[test]
+fn text_property_any_uses_live_marker_end_after_insertions() {
+    let mut eval = Evaluator::new();
+    let forms = crate::emacs_core::parser::parse_forms(
+        r#"(with-temp-buffer
+             (insert "abc")
+             (let ((end (copy-marker (point-max) t)))
+               (goto-char (point-max))
+               (insert "Z")
+               (put-text-property 4 5 'hard t)
+               (text-property-any 1 end 'hard t)))"#,
+    )
+    .expect("parse text-property-any marker regression");
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+    assert_eq!(result, Value::Int(4));
+}
+
+#[test]
 fn text_property_not_all_reports_first_mismatch() {
     let mut eval = eval_with_text("abcd");
     builtin_put_text_property(

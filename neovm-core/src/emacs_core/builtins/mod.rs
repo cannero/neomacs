@@ -857,6 +857,8 @@ fn dispatch_builtin_id_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     match id {
+        PureBuiltinId::Max => builtin_max_eval(eval, args),
+        PureBuiltinId::Min => builtin_min_eval(eval, args),
         PureBuiltinId::NumEq => builtin_num_eq_eval(eval, args),
         PureBuiltinId::NumLt => builtin_num_lt_eval(eval, args),
         PureBuiltinId::NumLe => builtin_num_le_eval(eval, args),
@@ -2446,8 +2448,8 @@ pub(crate) fn dispatch_builtin(
         "mod" => builtin_mod(args),
         "1+" => builtin_add1(args),
         "1-" => builtin_sub1(args),
-        "max" => builtin_max(args),
-        "min" => builtin_min(args),
+        "max" => builtin_max_eval(eval, args),
+        "min" => builtin_min_eval(eval, args),
         "abs" => builtin_abs(args),
 
         // Logical / bitwise

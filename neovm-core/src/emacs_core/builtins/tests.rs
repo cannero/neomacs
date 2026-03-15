@@ -199,6 +199,48 @@ fn pure_dispatch_typed_numeric_primitives_accept_markers() {
 }
 
 #[test]
+fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let forms = parse_forms(
+        r#"(with-temp-buffer
+             (insert "abc")
+             (let ((m (copy-marker (point-max) t)))
+               (goto-char 2)
+               (insert "XYZ")
+               (max 1 m)))"#,
+    )
+    .expect("parse max marker regression");
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
+fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let forms = parse_forms(
+        r#"(with-temp-buffer
+             (insert "abc")
+             (let ((m (copy-marker (point-max) t)))
+               (goto-char 2)
+               (insert "XYZ")
+               (min 10 m)))"#,
+    )
+    .expect("parse min marker regression");
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
 fn pure_dispatch_typed_percent_rejects_float_args() {
     let err = dispatch_builtin_pure("%", vec![Value::Float(1.5, next_float_id()), Value::Int(2)])
         .expect("builtin % should resolve")

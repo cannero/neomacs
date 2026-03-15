@@ -4277,10 +4277,6 @@ impl Evaluator {
             "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
             "track-mouse" => super::misc::sf_track_mouse(self, tail),
             "with-syntax-table" => super::misc::sf_with_syntax_table(self, tail),
-            // Interactive / mode definition special forms
-            "define-minor-mode" => super::interactive::sf_define_minor_mode(self, tail),
-            "define-derived-mode" => super::interactive::sf_define_derived_mode(self, tail),
-            "define-generic-mode" => super::interactive::sf_define_generic_mode(self, tail),
             _ => return None,
         })
     }

@@ -1,8 +1,8 @@
 use super::*;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::{Evaluator, value_to_expr};
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::intern::{intern, resolve_sym};
-use crate::emacs_core::value::{HashTableTest, Value, with_heap};
+use crate::emacs_core::value::{HashTableTest, Value, list_to_vec, with_heap};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
@@ -2329,6 +2329,1055 @@ fn bootstrap_load_sequence_includes_neomacs_term_layer_after_tool_bar() {
         neomacs_idx,
         tool_bar_idx + 1,
         "neomacs term layer should load immediately after tool-bar like loadup.el"
+    );
+}
+
+#[test]
+fn partial_bootstrap_fill_delete_newlines_matches_gnu_trailing_space_behavior() {
+    let mut eval = partial_bootstrap_eval_until("tool-bar", false);
+    let load_path = get_load_path(&eval.obarray());
+    let fill_path =
+        bootstrap_fixture_path(&load_path, "textmodes/fill", false).expect("fill fixture path");
+    load_file(&mut eval, &fill_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading fill.el from {}: {}",
+            fill_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let forms = parse_forms(
+        r#"(with-temp-buffer
+             (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+             (insert "Disable the mode if ARG is a negative number.\n")
+             (let ((to (copy-marker (point) t)))
+               (fill-delete-newlines (point-min) to 'left t nil)
+               (buffer-string)))"#,
+    )
+    .expect("parse fill-delete-newlines regression");
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+
+    assert_eq!(
+        format_eval_result(&Ok(result)),
+        r#"OK "Enable the mode if ARG is nil, omitted, or is a positive number.  Disable the mode if ARG is a negative number. ""#
+    );
+}
+
+#[test]
+fn bootstrap_tool_bar_mode_comes_from_gnu_mode_macro_path() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_test_writer()
+        .try_init();
+
+    tracing::info!("tool-bar probe: begin partial bootstrap");
+    let mut eval = partial_bootstrap_eval_until("tool-bar", false);
+    tracing::info!("tool-bar probe: partial bootstrap complete");
+    let load_path = get_load_path(&eval.obarray());
+    let easy_mmode_path = bootstrap_fixture_path(&load_path, "emacs-lisp/easy-mmode", false)
+        .expect("easy-mmode fixture path");
+    tracing::info!("tool-bar probe: loading {}", easy_mmode_path.display());
+    load_file(&mut eval, &easy_mmode_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading easy-mmode from {}: {}",
+            easy_mmode_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+    tracing::info!("tool-bar probe: easy-mmode load complete");
+    let tool_bar_path =
+        bootstrap_fixture_path(&load_path, "tool-bar", false).expect("tool-bar fixture path");
+    tracing::info!("tool-bar probe: loading {}", tool_bar_path.display());
+    let source = fs::read_to_string(&tool_bar_path).expect("read tool-bar source");
+    let top_level_forms =
+        crate::emacs_core::parser::parse_forms(&source).expect("parse tool-bar source");
+    for (label, src) in [
+        (
+            "pretty-name",
+            r#"(easy-mmode-pretty-mode-name 'tool-bar-mode nil)"#,
+        ),
+        (
+            "docstring-arg-check",
+            r#"(string-match-p
+                 "\\bARG\\b"
+                 "Toggle the tool bar in all graphical frames (Tool Bar mode).\n\nSee `tool-bar-add-item' and `tool-bar-add-item-from-menu' for\nconveniently adding tool bar items.")"#,
+        ),
+        (
+            "argdoc-format",
+            r#"(let* ((mode-pretty-name "Tool-Bar mode")
+                      (getter 'tool-bar-mode)
+                      (global t)
+                      (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                      (fill-column (if (integerp docs-fc) docs-fc 65))
+                      (argdoc (format
+                               easy-mmode--arg-docstring
+                               (if global "global " "")
+                               mode-pretty-name
+                               (concat
+                                (if (symbolp getter) "the variable ")
+                                (format "`%s'"
+                                        (string-replace "'" "\\='" (format "%S" getter)))))))
+                 argdoc)"#,
+        ),
+        (
+            "ensure-empty-lines-basic",
+            r#"(with-temp-buffer
+                 (insert "Toggle the tool bar in all graphical frames (Tool Bar mode).")
+                 (ensure-empty-lines)
+                 (buffer-string))"#,
+        ),
+        (
+            "forward-paragraph-basic",
+            r#"(with-temp-buffer
+                 (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+                 (insert "Disable the mode if ARG is a negative number.\n")
+                 (goto-char (point-min))
+                 (forward-paragraph 1)
+                 (point))"#,
+        ),
+        (
+            "fill-delete-newlines-basic",
+            r#"(with-temp-buffer
+                 (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+                 (insert "Disable the mode if ARG is a negative number.\n")
+                 (let ((to (copy-marker (point) t)))
+                   (fill-delete-newlines (point-min) to 'left t nil)
+                   (buffer-string)))"#,
+        ),
+        (
+            "fill-move-to-break-point-basic",
+            r#"(with-temp-buffer
+                 (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+                 (insert "Disable the mode if ARG is a negative number.\n")
+                 (let ((to (copy-marker (point) t)))
+                   (fill-delete-newlines (point-min) to 'left t nil)
+                   (goto-char (point-min))
+                   (let ((linebeg (point)))
+                     (move-to-column (current-fill-column))
+                     (unless (> (current-column) (current-fill-column))
+                       (forward-char 1))
+                     (fill-move-to-break-point linebeg)
+                     (list (point) (current-column) (buffer-string)))))"#,
+        ),
+        (
+            "fill-newline-basic",
+            r#"(with-temp-buffer
+                 (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+                 (insert "Disable the mode if ARG is a negative number.\n")
+                 (let ((to (copy-marker (point) t)))
+                   (fill-delete-newlines (point-min) to 'left t nil)
+                   (goto-char (point-min))
+                   (let ((linebeg (point)))
+                     (move-to-column (current-fill-column))
+                     (unless (> (current-column) (current-fill-column))
+                       (forward-char 1))
+                     (fill-move-to-break-point linebeg)
+                     (fill-newline)
+                     (list (point) (current-column) (buffer-string)))))"#,
+        ),
+        (
+            "fill-second-iteration-setup",
+            r#"(with-temp-buffer
+                 (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+                 (insert "Disable the mode if ARG is a negative number.\n")
+                 (goto-char (point-min))
+                 (let* ((from (point))
+                        (to (progn
+                              (goto-char (point-max))
+                              (copy-marker (point) t))))
+                   (fill-delete-newlines from to 'left t nil)
+                   (goto-char from)
+                   (let ((linebeg (point)))
+                     (move-to-column (current-fill-column))
+                     (unless (> (current-column) (current-fill-column))
+                       (forward-char 1))
+                     (fill-move-to-break-point linebeg)
+                     (skip-chars-forward " \t")
+                     (fill-newline))
+                   (let ((linebeg (point)))
+                     (move-to-column (current-fill-column))
+                     (format "%S"
+                             (list :point (point)
+                                   :column (current-column)
+                                   :to (marker-position to)
+                                   :linebeg linebeg
+                                   :text (buffer-string))))))"#,
+        ),
+        (
+            "fill-region-as-paragraph-basic",
+            r#"(with-temp-buffer
+                 (let ((start (point)))
+                   (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+                   (insert "Disable the mode if ARG is a negative number.\n")
+                   (fill-region-as-paragraph start (point) 'left t)
+                   (buffer-string)))"#,
+        ),
+        (
+            "fill-region-basic",
+            r#"(with-temp-buffer
+                 (let ((start (point)))
+                   (insert "Enable the mode if ARG is nil, omitted, or is a positive number.\n")
+                   (insert "Disable the mode if ARG is a negative number.\n")
+                   (fill-region start (point) 'left t))
+                 (buffer-string))"#,
+        ),
+        (
+            "docstring-forward-paragraph-boundary",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let ((initial (point))
+                         (max (copy-marker (point-max) t)))
+                     (fill-forward-paragraph 1)
+                     (let ((end (min max (point)))
+                           (after-forward (point)))
+                       (fill-forward-paragraph -1)
+                       (list :initial initial
+                             :after-forward after-forward
+                             :end end
+                             :beg (point))))))"#,
+        ),
+        (
+            "docstring-first-paragraph-fill",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let ((end (save-excursion
+                                (fill-forward-paragraph 1)
+                                (point))))
+                     (fill-region-as-paragraph (point) end 'left t)
+                     (list :point (point)
+                           :end end
+                           :text (buffer-string)))))"#,
+        ),
+        (
+            "docstring-second-paragraph-boundary",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((max (copy-marker (point-max) t))
+                          (first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((initial (point)))
+                       (fill-forward-paragraph 1)
+                       (let ((second-end (min max (point)))
+                             (after-forward (point)))
+                         (fill-forward-paragraph -1)
+                         (list :initial initial
+                               :after-forward after-forward
+                               :second-end second-end
+                               :beg (point)
+                               :max (marker-position max)
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-post-delete",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (list :point (point)
+                             :from from
+                             :to (marker-position to)
+                             :text (buffer-string))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-first-iteration",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (let ((after-move (point))
+                               (after-move-col (current-column)))
+                           (unless (> (current-column) (current-fill-column))
+                             (forward-char 1))
+                           (let ((after-forward (point))
+                                 (after-forward-col (current-column)))
+                             (fill-move-to-break-point linebeg)
+                             (let ((after-break (point))
+                                   (after-break-col (current-column)))
+                               (skip-chars-forward " \t")
+                               (list :linebeg linebeg
+                                     :to (marker-position to)
+                                     :after-move after-move
+                                     :after-move-col after-move-col
+                                     :after-forward after-forward
+                                     :after-forward-col after-forward-col
+                                     :after-break after-break
+                                     :after-break-col after-break-col
+                                     :after-skip (point)
+                                     :after-skip-col (current-column)
+                                     :before-end (< (point) to)
+                                     :text (buffer-string))))))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-first-cut",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (list :point (point)
+                               :to (marker-position to)
+                               :linebeg linebeg
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-second-iteration-setup",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (list :point (point)
+                               :column (current-column)
+                               :to (marker-position to)
+                               :linebeg linebeg
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-second-iteration-break",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (let ((after-move (point))
+                               (after-move-col (current-column)))
+                           (unless (> (current-column) (current-fill-column))
+                             (forward-char 1))
+                           (let ((after-forward (point))
+                                 (after-forward-col (current-column)))
+                             (fill-move-to-break-point linebeg)
+                             (let ((after-break (point))
+                                   (after-break-col (current-column)))
+                               (skip-chars-forward " \t")
+                               (list :linebeg linebeg
+                                     :to (marker-position to)
+                                     :after-move after-move
+                                     :after-move-col after-move-col
+                                     :after-forward after-forward
+                                     :after-forward-col after-forward-col
+                                     :after-break after-break
+                                     :after-break-col after-break-col
+                                     :after-skip (point)
+                                     :after-skip-col (current-column)
+                                     :before-end (< (point) to)
+                                     :text (buffer-string))))))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-second-cut",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (list :point (point)
+                               :to (marker-position to)
+                               :linebeg linebeg
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-post-second-cut",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (list :point (point)
+                               :column (current-column)
+                               :to (marker-position to)
+                               :linebeg linebeg
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-first-justify",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t))
+                         (list :point (point)
+                               :to (marker-position to)
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-second-justify",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t))
+                         (list :point (point)
+                               :to (marker-position to)
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-final-justify",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (goto-char to)
+                       (justify-current-line 'left t t)
+                       (list :point (point)
+                             :to (marker-position to)
+                             :text (buffer-string))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-finalize",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (goto-char to)
+                       (justify-current-line 'left t t)
+                       (goto-char to)
+                       (unless (eobp) (forward-char 1))
+                       (set-marker to nil)
+                       (list :point (point)
+                             :text (buffer-string))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-third-iteration-setup",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (let ((linebeg (point))
+                             (before (point))
+                             (before-col (current-column)))
+                         (move-to-column (current-fill-column))
+                         (list :linebeg linebeg
+                               :to (marker-position to)
+                               :before before
+                               :before-col before-col
+                               :after-move (point)
+                               :after-move-col (current-column)
+                               :text (buffer-string)))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-third-iteration-break",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((from (point))
+                           (to (save-excursion
+                                 (fill-forward-paragraph 1)
+                                 (copy-marker (point) t))))
+                       (fill-delete-newlines from to 'left t nil)
+                       (goto-char from)
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (let ((linebeg (point)))
+                         (move-to-column (current-fill-column))
+                         (unless (> (current-column) (current-fill-column))
+                           (forward-char 1))
+                         (fill-move-to-break-point linebeg)
+                         (skip-chars-forward " \t")
+                         (fill-newline)
+                         (save-excursion
+                           (forward-line -1)
+                           (justify-current-line 'left nil t)))
+                       (let ((linebeg (point))
+                             (before (point))
+                             (before-col (current-column)))
+                         (move-to-column (current-fill-column))
+                         (let ((after-move (point))
+                               (after-move-col (current-column)))
+                           (unless (> (current-column) (current-fill-column))
+                             (forward-char 1))
+                           (let ((after-forward (point))
+                                 (after-forward-col (current-column)))
+                             (fill-move-to-break-point linebeg)
+                             (let ((after-break (point))
+                                   (after-break-col (current-column)))
+                               (skip-chars-forward " \t")
+                               (list :linebeg linebeg
+                                     :to (marker-position to)
+                                     :before before
+                                     :before-col before-col
+                                     :after-move after-move
+                                     :after-move-col after-move-col
+                                     :after-forward after-forward
+                                     :after-forward-col after-forward-col
+                                     :after-break after-break
+                                     :after-break-col after-break-col
+                                     :after-skip (point)
+                                     :after-skip-col (current-column)
+                                     :before-end (< (point) to)
+                                     :text (buffer-string))))))))))"#,
+        ),
+        (
+            "docstring-second-paragraph-fill-return",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((second-end (save-excursion
+                                         (fill-forward-paragraph 1)
+                                         (point))))
+                       (fill-region-as-paragraph (point) second-end 'left t)
+                       'ok))))"#,
+        ),
+        (
+            "docstring-second-paragraph-fill",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (insert argdoc)
+                   (goto-char (point-min))
+                   (let* ((max (copy-marker (point-max) t))
+                          (first-end (save-excursion
+                                       (fill-forward-paragraph 1)
+                                       (point))))
+                     (fill-region-as-paragraph (point) first-end 'left t)
+                     (let ((second-end (save-excursion
+                                         (fill-forward-paragraph 1)
+                                         (point))))
+                       (fill-region-as-paragraph (point) second-end 'left t)
+                       (list :point (point)
+                             :max (marker-position max)
+                             :second-end second-end
+                             :text (buffer-string))))))"#,
+        ),
+        (
+            "docstring-boilerplate-fill",
+            r#"(with-temp-buffer
+                 (let* ((fill-prefix nil)
+                        (docs-fc (bound-and-true-p emacs-lisp-docstring-fill-column))
+                        (fill-column (if (integerp docs-fc) docs-fc 65))
+                        (argdoc (format
+                                 easy-mmode--arg-docstring
+                                 "global "
+                                 "Tool-Bar mode"
+                                 "the variable `tool-bar-mode'")))
+                   (let ((start (point)))
+                     (insert argdoc)
+                     (fill-region start (point) 'left t))
+                   (buffer-string)))"#,
+        ),
+        (
+            "docstring",
+            r#"(easy-mmode--mode-docstring
+                 "Toggle the tool bar in all graphical frames (Tool Bar mode).
+
+See `tool-bar-add-item' and `tool-bar-add-item-from-menu' for
+conveniently adding tool bar items."
+                 "Tool-Bar mode"
+                 'tool-bar-map
+                 'tool-bar-mode
+                 t)"#,
+        ),
+        (
+            "pcase-modevar",
+            r#"(let ((getter 'tool-bar-mode))
+                 (pcase getter
+                   (`(default-value ',v) v)
+                   (_ getter)))"#,
+        ),
+    ] {
+        let forms = crate::emacs_core::parser::parse_forms(src).expect("parse easy-mmode probe");
+        tracing::info!("tool-bar probe: helper {}", label);
+        let value = eval.eval_expr(&forms[0]).unwrap_or_else(|err| {
+            panic!(
+                "failed evaluating tool-bar helper {label} from {}: {}",
+                tool_bar_path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+        let rendered = crate::emacs_core::print::print_value_with_buffers(&value, &eval.buffers);
+        tracing::info!("tool-bar probe: helper {} => {}", label, rendered);
+    }
+    let macroexpand_probe = crate::emacs_core::parser::parse_forms(
+        r#"(macroexpand
+             '(define-minor-mode tool-bar-mode
+                "Toggle the tool bar in all graphical frames (Tool Bar mode).
+
+See `tool-bar-add-item' and `tool-bar-add-item-from-menu' for
+conveniently adding tool bar items."
+                :init-value t
+                :global t
+                :variable tool-bar-mode
+                (let ((val (if tool-bar-mode 1 0)))
+                  (dolist (frame (frame-list))
+                    (set-frame-parameter frame 'tool-bar-lines val))
+                  (if (assq 'tool-bar-lines default-frame-alist)
+                      (setq default-frame-alist
+                            (cons (cons 'tool-bar-lines val)
+                                  (assq-delete-all 'tool-bar-lines
+                                                   default-frame-alist)))))
+                (and tool-bar-mode
+                     (= 1 (length (default-value 'tool-bar-map)))
+                     (tool-bar-setup))))"#,
+    )
+    .expect("parse macroexpand probe");
+    tracing::info!("tool-bar probe: macroexpand form 1");
+    let expanded = eval
+        .eval_expr(&macroexpand_probe[0])
+        .expect("macroexpand tool-bar define-minor-mode");
+    tracing::info!("tool-bar probe: macroexpand complete");
+    if let Some(forms) = list_to_vec(&expanded) {
+        if matches!(forms.first(), Some(Value::Symbol(id)) if resolve_sym(*id) == "progn") {
+            for (idx, form) in forms.iter().enumerate().skip(1) {
+                tracing::info!("tool-bar probe: eval expanded subform {}", idx);
+                let expr = value_to_expr(form);
+                eval.eval_expr(&expr).unwrap_or_else(|err| {
+                    panic!(
+                        "failed evaluating tool-bar expanded subform {} from {}: {}",
+                        idx,
+                        tool_bar_path.display(),
+                        format_eval_error(&eval, &err)
+                    )
+                });
+            }
+        } else {
+            panic!("unexpected macroexpand output for tool-bar define-minor-mode: {expanded:?}");
+        }
+    } else {
+        panic!("macroexpand did not return a list for tool-bar define-minor-mode: {expanded:?}");
+    }
+    for (idx, form) in top_level_forms.iter().enumerate().skip(1) {
+        tracing::info!("tool-bar probe: eval top-level form {}", idx + 1);
+        eval.eval_expr(form).unwrap_or_else(|err| {
+            panic!(
+                "failed evaluating tool-bar form {} from {}: {}",
+                idx + 1,
+                tool_bar_path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+    }
+    tracing::info!("tool-bar probe: load complete");
+    let forms = crate::emacs_core::parser::parse_forms(
+        r#"(list
+             (special-form-p 'define-minor-mode)
+             (commandp 'tool-bar-mode)
+             (not (and (consp (symbol-function 'tool-bar-mode))
+                       (eq (car (symbol-function 'tool-bar-mode)) 'autoload)))
+             (keymapp tool-bar-map))"#,
+    )
+    .expect("parse tool-bar bootstrap probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("evaluate tool-bar bootstrap probe");
+    assert_eq!(
+        result,
+        Value::list(vec![Value::Nil, Value::True, Value::True, Value::True])
     );
 }
 

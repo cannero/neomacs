@@ -122,10 +122,6 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             | "save-current-buffer"
             | "track-mouse"
             | "with-syntax-table"
-            // Mode definition
-            | "define-minor-mode"
-            | "define-derived-mode"
-            | "define-generic-mode"
     )
 }
 
@@ -175,10 +171,8 @@ pub(crate) fn is_special_form(name: &str) -> bool {
 pub(crate) fn is_evaluator_sf_skip_macroexpand(name: &str) -> bool {
     // NOTE: pcase-let, pcase-let*, pcase-dolist are NOT here because
     // they have fallback macro handlers in macroexpand_known_fallback_macro.
-    matches!(
-        name,
-        "define-minor-mode" | "define-derived-mode" | "define-generic-mode"
-    )
+    let _ = name;
+    false
 }
 
 pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {

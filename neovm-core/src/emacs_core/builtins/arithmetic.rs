@@ -225,6 +225,27 @@ pub(crate) fn builtin_max(args: Vec<Value>) -> EvalResult {
     }
 }
 
+pub(crate) fn builtin_max_eval(eval: &super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    expect_min_args("max", &args, 1)?;
+    let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
+    let mut best_value = args[0];
+    for a in &args[1..] {
+        let n = expect_number_or_marker_f64_eval(eval, a)?;
+        if n > best_num {
+            best_num = n;
+            best_value = *a;
+        }
+    }
+    match best_value {
+        Value::Int(_) | Value::Float(_, _) => Ok(best_value),
+        Value::Char(c) => Ok(Value::Int(c as i64)),
+        other if super::marker::is_marker(&other) => Ok(Value::Int(
+            super::marker::marker_position_as_int_eval(eval, &other)?,
+        )),
+        _ => unreachable!("max winner must be numeric"),
+    }
+}
+
 pub(crate) fn builtin_min(args: Vec<Value>) -> EvalResult {
     expect_min_args("min", &args, 1)?;
     let mut best_num = expect_number_or_marker_f64(&args[0])?;
@@ -242,6 +263,27 @@ pub(crate) fn builtin_min(args: Vec<Value>) -> EvalResult {
         other if super::marker::is_marker(&other) => {
             Ok(Value::Int(super::marker::marker_position_as_int(&other)?))
         }
+        _ => unreachable!("min winner must be numeric"),
+    }
+}
+
+pub(crate) fn builtin_min_eval(eval: &super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    expect_min_args("min", &args, 1)?;
+    let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
+    let mut best_value = args[0];
+    for a in &args[1..] {
+        let n = expect_number_or_marker_f64_eval(eval, a)?;
+        if n < best_num {
+            best_num = n;
+            best_value = *a;
+        }
+    }
+    match best_value {
+        Value::Int(_) | Value::Float(_, _) => Ok(best_value),
+        Value::Char(c) => Ok(Value::Int(c as i64)),
+        other if super::marker::is_marker(&other) => Ok(Value::Int(
+            super::marker::marker_position_as_int_eval(eval, &other)?,
+        )),
         _ => unreachable!("min winner must be numeric"),
     }
 }

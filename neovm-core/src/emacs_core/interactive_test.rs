@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, bootstrap_load_path_entries,
     create_bootstrap_evaluator_cached,
 };
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
@@ -36,6 +36,13 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
     let mut ev = Evaluator::new();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    ev.set_variable(
+        "load-path",
+        Value::list(bootstrap_load_path_entries(&lisp_dir)),
+    );
     for name in names {
         ev.obarray_mut().fmakunbound(name);
     }
@@ -342,217 +349,45 @@ fn registry_default() {
 }
 
 // -------------------------------------------------------------------
-// define-minor-mode special form
+// GNU mode-definition macro ownership
 // -------------------------------------------------------------------
 
 #[test]
-fn define_minor_mode_creates_variable() {
-    let results = eval_all(
-        r#"(define-minor-mode test-mode "Test mode" :lighter " Test")
-           test-mode"#,
-    );
-    assert_eq!(results[0], "OK test-mode");
-    assert_eq!(results[1], "OK nil"); // initially off
-}
+fn mode_definition_macros_start_as_gnu_autoloads() {
+    assert!(!crate::emacs_core::subr_info::is_special_form(
+        "define-minor-mode"
+    ));
+    assert!(!crate::emacs_core::subr_info::is_special_form(
+        "define-derived-mode"
+    ));
+    assert!(!crate::emacs_core::subr_info::is_special_form(
+        "define-generic-mode"
+    ));
 
-#[test]
-fn define_minor_mode_creates_toggle_function() {
-    let mut ev = Evaluator::new();
+    let mut ev = eval_with_ldefs_boot_autoloads(&[
+        "define-minor-mode",
+        "define-derived-mode",
+        "define-generic-mode",
+    ]);
     let results = eval_all_with(
         &mut ev,
-        r#"(define-minor-mode my-mode "My mode" :lighter " My")
-           (my-mode)
-           my-mode"#,
+        r#"(list
+             (and (consp (symbol-function 'define-minor-mode))
+                  (eq (car (symbol-function 'define-minor-mode)) 'autoload)
+                  (eq (get 'define-minor-mode 'autoload-macro) 'expand))
+             (and (consp (symbol-function 'define-derived-mode))
+                  (eq (car (symbol-function 'define-derived-mode)) 'autoload)
+                  (eq (get 'define-derived-mode 'autoload-macro) 'expand))
+             (and (consp (symbol-function 'define-generic-mode))
+                  (eq (car (symbol-function 'define-generic-mode)) 'autoload)
+                  (eq (get 'define-generic-mode 'autoload-macro) 'expand)))"#,
     );
-    assert_eq!(results[0], "OK my-mode");
-    // After toggling, mode should be on (t)
-    assert_eq!(results[2], "OK t");
-}
-
-#[test]
-fn define_minor_mode_toggle_off() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(define-minor-mode tog-mode "Toggle mode")
-           (tog-mode)
-           tog-mode
-           (tog-mode)
-           tog-mode"#,
-    );
-    // First toggle: on
-    assert_eq!(results[2], "OK t");
-    // Second toggle: off
-    assert_eq!(results[4], "OK nil");
-}
-
-#[test]
-fn define_minor_mode_registers_interactive() {
-    let mut ev = Evaluator::new();
-    eval_all_with(
-        &mut ev,
-        r#"(define-minor-mode int-mode "Interactive mode")"#,
-    );
-    assert!(ev.interactive.is_interactive("int-mode"));
-}
-
-#[test]
-fn define_minor_mode_with_body() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(defvar body-ran nil)
-           (define-minor-mode body-mode "Body mode"
-             (setq body-ran t))
-           (body-mode)
-           body-ran"#,
-    );
-    assert_eq!(results[3], "OK t");
-}
-
-#[test]
-fn define_minor_mode_global() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(define-minor-mode glob-mode "Global mode" :global t)"#,
-    );
-    assert_eq!(results[0], "OK glob-mode");
-}
-
-// -------------------------------------------------------------------
-// define-derived-mode special form
-// -------------------------------------------------------------------
-
-#[test]
-fn define_derived_mode_creates_mode() {
-    let results = eval_all(
-        r#"(define-derived-mode my-text-mode nil "MyText"
-             "A text mode.")"#,
-    );
-    assert_eq!(results[0], "OK my-text-mode");
-}
-
-#[test]
-fn define_derived_mode_with_parent() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(defvar parent-ran nil)
-           (defun parent-mode ()
-             (setq parent-ran t))
-           (define-derived-mode child-mode parent-mode "Child"
-             "A child mode.")"#,
-    );
-    assert_eq!(results[2], "OK child-mode");
-}
-
-#[test]
-fn define_derived_mode_sets_major_mode() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(define-derived-mode custom-mode nil "Custom")
-           (custom-mode)
-           major-mode"#,
-    );
-    assert_eq!(results[2], "OK custom-mode");
-}
-
-#[test]
-fn define_derived_mode_sets_mode_name() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(define-derived-mode fancy-mode nil "Fancy")
-           (fancy-mode)
-           mode-name"#,
-    );
-    assert_eq!(results[2], r#"OK "Fancy""#);
-}
-
-#[test]
-fn define_derived_mode_runs_body() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(defvar derived-body-ran nil)
-           (define-derived-mode body-derived-mode nil "BodyDerived"
-             "Mode with body."
-             (setq derived-body-ran t))
-           (body-derived-mode)
-           derived-body-ran"#,
-    );
-    assert_eq!(results[3], "OK t");
-}
-
-#[test]
-fn define_derived_mode_registers_interactive() {
-    let mut ev = Evaluator::new();
-    eval_all_with(&mut ev, r#"(define-derived-mode ireg-mode nil "IReg")"#);
-    assert!(ev.interactive.is_interactive("ireg-mode"));
-}
-
-#[test]
-fn define_derived_mode_installs_inherited_syntax_table() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(defvar vm-parent-mode-syntax-table
-             (let ((st (make-syntax-table)))
-               (modify-syntax-entry ?\n ">" st)
-               (modify-syntax-entry ?\; "<" st)
-               st))
-           (define-derived-mode vm-parent-mode nil "Parent")
-           (define-derived-mode vm-child-mode vm-parent-mode "Child")
-           (vm-child-mode)
-           (list (eq major-mode 'vm-child-mode)
-                 (eq (char-table-parent vm-child-mode-syntax-table)
-                     vm-parent-mode-syntax-table)
-                 (char-syntax ?\n)
-                 (char-syntax ?\;))"#,
-    );
-    assert_eq!(results[4], "OK (t t 62 60)");
-}
-
-#[test]
-fn define_derived_mode_installs_child_keymap_with_parent_inheritance() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
-        r#"(defvar vm-parent-map (make-sparse-keymap))
-           (define-derived-mode vm-parent-map-mode nil "Parent")
-           (define-derived-mode vm-child-map-mode vm-parent-map-mode "Child")
-           (vm-child-map-mode)
-           (list (eq (current-local-map) vm-child-map-mode-map)
-                 (eq (keymap-parent vm-child-map-mode-map)
-                     vm-parent-map-mode-map))"#,
-    );
-    assert_eq!(results[4], "OK (t t)");
-}
-
-// -------------------------------------------------------------------
-// define-generic-mode special form
-// -------------------------------------------------------------------
-
-#[test]
-fn define_generic_mode_creates_mode() {
-    let results = eval_all(r#"(define-generic-mode my-generic-mode nil nil nil nil nil)"#);
-    assert_eq!(results[0], "OK my-generic-mode");
+    assert_eq!(results[0], "OK (t t t)");
 }
 
 // -------------------------------------------------------------------
 // commandp (interactive-aware version)
 // -------------------------------------------------------------------
-
-#[test]
-fn commandp_with_interactive_registration() {
-    let mut ev = Evaluator::new();
-    eval_all_with(&mut ev, r#"(define-minor-mode cmd-test-mode "Test")"#);
-    // cmd-test-mode should now be a command
-    let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("cmd-test-mode")]);
-    assert!(result.unwrap().is_truthy());
-}
 
 #[test]
 fn commandp_non_interactive() {
@@ -4035,45 +3870,4 @@ fn command_remapping_resolves_remap_bindings_on_lisp_keymaps() {
         ),
         "OK nil"
     );
-}
-
-// -------------------------------------------------------------------
-// Integration: via Elisp eval
-// -------------------------------------------------------------------
-
-#[test]
-fn eval_define_minor_mode() {
-    let results = eval_all(r#"(define-minor-mode my-test-mode "A test minor mode" :lighter " T")"#);
-    assert_eq!(results[0], "OK my-test-mode");
-}
-
-#[test]
-fn eval_define_derived_mode() {
-    let results = eval_all(r#"(define-derived-mode my-custom-mode nil "MyCustom" "Custom mode.")"#);
-    assert_eq!(results[0], "OK my-custom-mode");
-}
-
-#[test]
-fn eval_define_derived_mode_and_activate() {
-    let results = eval_all(
-        r#"(define-derived-mode act-mode nil "Activated")
-           (act-mode)
-           major-mode"#,
-    );
-    assert_eq!(results[2], "OK act-mode");
-}
-
-#[test]
-fn eval_minor_mode_full_cycle() {
-    let results = eval_all(
-        r#"(define-minor-mode cycle-mode "Cycle mode" :lighter " C")
-           cycle-mode
-           (cycle-mode)
-           cycle-mode
-           (cycle-mode)
-           cycle-mode"#,
-    );
-    assert_eq!(results[1], "OK nil"); // initially off
-    assert_eq!(results[3], "OK t"); // toggled on
-    assert_eq!(results[5], "OK nil"); // toggled off
 }

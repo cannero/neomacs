@@ -59,11 +59,42 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
     }
 }
 
+fn expect_int_eval(eval: &super::eval::Evaluator, value: &Value) -> Result<i64, Flow> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        marker if super::marker::is_marker(marker) => {
+            super::marker::marker_position_as_int_eval(eval, marker)
+        }
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integerp"), *other],
+        )),
+    }
+}
+
 fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     match value {
         Value::Int(n) => Ok(*n),
         Value::Char(c) => Ok(*c as i64),
         marker if super::marker::is_marker(marker) => super::marker::marker_position_as_int(marker),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *other],
+        )),
+    }
+}
+
+fn expect_integer_or_marker_eval(
+    eval: &super::eval::Evaluator,
+    value: &Value,
+) -> Result<i64, Flow> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        marker if super::marker::is_marker(marker) => {
+            super::marker::marker_position_as_int_eval(eval, marker)
+        }
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -197,8 +228,8 @@ pub(crate) fn builtin_put_text_property(
 ) -> EvalResult {
     expect_min_args("put-text-property", &args, 4)?;
     expect_max_args("put-text-property", &args, 5)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     let prop = expect_symbol_name(&args[2])?;
     let val = args[3];
 
@@ -233,7 +264,7 @@ pub(crate) fn builtin_get_text_property(
 ) -> EvalResult {
     expect_min_args("get-text-property", &args, 2)?;
     expect_max_args("get-text-property", &args, 3)?;
-    let pos = expect_int(&args[0])?;
+    let pos = expect_int_eval(eval, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
@@ -283,8 +314,8 @@ pub(crate) fn builtin_add_text_properties(
 ) -> EvalResult {
     expect_min_args("add-text-properties", &args, 3)?;
     expect_max_args("add-text-properties", &args, 4)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_id) = is_string_object(args.get(3)) {
@@ -344,8 +375,8 @@ pub(crate) fn builtin_add_face_text_property(
 ) -> EvalResult {
     expect_min_args("add-face-text-property", &args, 3)?;
     expect_max_args("add-face-text-property", &args, 5)?;
-    let beg = expect_integer_or_marker(&args[0])?;
-    let end = expect_integer_or_marker(&args[1])?;
+    let beg = expect_integer_or_marker_eval(eval, &args[0])?;
+    let end = expect_integer_or_marker_eval(eval, &args[1])?;
     let new_face = args[2];
     let append = args.get(3).is_some_and(Value::is_truthy);
 
@@ -397,8 +428,8 @@ pub(crate) fn builtin_remove_text_properties(
 ) -> EvalResult {
     expect_min_args("remove-text-properties", &args, 3)?;
     expect_max_args("remove-text-properties", &args, 4)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_id) = is_string_object(args.get(3)) {
@@ -444,8 +475,8 @@ pub(crate) fn builtin_set_text_properties(
 ) -> EvalResult {
     expect_min_args("set-text-properties", &args, 3)?;
     expect_max_args("set-text-properties", &args, 4)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     // set-text-properties accepts nil for PROPS (= remove all)
     let pairs = if args[2].is_nil() {
         Vec::new()
@@ -492,8 +523,8 @@ pub(crate) fn builtin_remove_list_of_text_properties(
 ) -> EvalResult {
     expect_min_args("remove-list-of-text-properties", &args, 3)?;
     expect_max_args("remove-list-of-text-properties", &args, 4)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     let names = list_to_vec(&args[2])
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[2]]))?;
 
@@ -554,7 +585,7 @@ pub(crate) fn builtin_text_properties_at(
 ) -> EvalResult {
     expect_min_args("text-properties-at", &args, 1)?;
     expect_max_args("text-properties-at", &args, 2)?;
-    let pos = expect_int(&args[0])?;
+    let pos = expect_int_eval(eval, &args[0])?;
 
     if let Some(str_id) = is_string_object(args.get(1)) {
         let s = with_heap(|h| h.get_string(str_id).to_owned());
@@ -584,7 +615,7 @@ pub(crate) fn builtin_next_single_property_change(
 ) -> EvalResult {
     expect_min_args("next-single-property-change", &args, 2)?;
     expect_max_args("next-single-property-change", &args, 4)?;
-    let pos = expect_int(&args[0])?;
+    let pos = expect_int_eval(eval, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
@@ -697,7 +728,7 @@ pub(crate) fn builtin_previous_single_property_change(
 ) -> EvalResult {
     expect_min_args("previous-single-property-change", &args, 2)?;
     expect_max_args("previous-single-property-change", &args, 4)?;
-    let pos = expect_int(&args[0])?;
+    let pos = expect_int_eval(eval, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
@@ -812,7 +843,7 @@ pub(crate) fn builtin_next_property_change(
 ) -> EvalResult {
     expect_min_args("next-property-change", &args, 1)?;
     expect_max_args("next-property-change", &args, 3)?;
-    let pos = expect_int(&args[0])?;
+    let pos = expect_int_eval(eval, &args[0])?;
 
     if let Some(str_id) = is_string_object(args.get(1)) {
         let s = with_heap(|h| h.get_string(str_id).to_owned());
@@ -906,8 +937,8 @@ pub(crate) fn builtin_text_property_any(
 ) -> EvalResult {
     expect_min_args("text-property-any", &args, 4)?;
     expect_max_args("text-property-any", &args, 5)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     let prop = expect_symbol_name(&args[2])?;
     let val = &args[3];
 
@@ -964,8 +995,8 @@ pub(crate) fn builtin_text_property_not_all(
 ) -> EvalResult {
     expect_min_args("text-property-not-all", &args, 4)?;
     expect_max_args("text-property-not-all", &args, 5)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     let prop = expect_symbol_name(&args[2])?;
     let val = &args[3];
 
@@ -1026,7 +1057,7 @@ pub(crate) fn builtin_get_char_property_and_overlay(
 ) -> EvalResult {
     expect_min_args("get-char-property-and-overlay", &args, 2)?;
     expect_max_args("get-char-property-and-overlay", &args, 3)?;
-    let pos = expect_int(&args[0])?;
+    let pos = expect_int_eval(eval, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     // For strings, no overlays — just return (text-prop-value . nil)
@@ -1080,7 +1111,7 @@ pub(crate) fn builtin_next_overlay_change(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("next-overlay-change", &args, 1)?;
-    let pos = expect_integer_or_marker(&args[0])?;
+    let pos = expect_integer_or_marker_eval(eval, &args[0])?;
     let buf_id = eval
         .buffers
         .current_buffer()
@@ -1119,7 +1150,7 @@ pub(crate) fn builtin_previous_overlay_change(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("previous-overlay-change", &args, 1)?;
-    let pos = expect_integer_or_marker(&args[0])?;
+    let pos = expect_integer_or_marker_eval(eval, &args[0])?;
     let buf_id = eval
         .buffers
         .current_buffer()
@@ -1159,8 +1190,8 @@ pub(crate) fn builtin_make_overlay(
 ) -> EvalResult {
     expect_min_args("make-overlay", &args, 2)?;
     expect_max_args("make-overlay", &args, 5)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
     let buf_id = resolve_buffer_id(eval, args.get(2))?;
     let front_advance = args.get(3).is_some_and(|v| v.is_truthy());
     let rear_advance = args.get(4).is_some_and(|v| v.is_truthy());
@@ -1265,7 +1296,7 @@ pub(crate) fn builtin_overlays_at(
 ) -> EvalResult {
     expect_min_args("overlays-at", &args, 1)?;
     expect_max_args("overlays-at", &args, 2)?;
-    let pos = expect_int(&args[0])?;
+    let pos = expect_int_eval(eval, &args[0])?;
 
     let buf_id = eval
         .buffers
@@ -1293,8 +1324,8 @@ pub(crate) fn builtin_overlays_in(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("overlays-in", &args, 2)?;
-    let beg = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[0])?;
+    let end = expect_int_eval(eval, &args[1])?;
 
     let buf_id = eval
         .buffers
@@ -1325,7 +1356,7 @@ pub(crate) fn builtin_move_overlay(
     expect_min_args("move-overlay", &args, 3)?;
     expect_max_args("move-overlay", &args, 4)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
-    let beg = expect_int(&args[1])?;
+    let beg = expect_int_eval(eval, &args[1])?;
     let end = expect_int(&args[2])?;
     // Optional BUFFER argument — if given, we'd need to move between buffers.
     // For simplicity, we move within the same buffer.
@@ -1425,22 +1456,28 @@ pub(crate) fn builtin_remove_overlays(
         .map(|b| b.id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
+    let (start_pos, end_pos) = {
+        let buf = eval
+            .buffers
+            .get(buf_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+        let start = if args.is_empty() || args[0].is_nil() {
+            buf.point_min()
+        } else {
+            elisp_pos_to_byte(buf, expect_int_eval(eval, &args[0])?)
+        };
+        let end = if args.len() < 2 || args[1].is_nil() {
+            buf.point_max()
+        } else {
+            elisp_pos_to_byte(buf, expect_int_eval(eval, &args[1])?)
+        };
+        (start, end)
+    };
+
     let buf = eval
         .buffers
         .get_mut(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-
-    let byte_beg = if args.is_empty() || args[0].is_nil() {
-        buf.point_min()
-    } else {
-        elisp_pos_to_byte(buf, expect_int(&args[0])?)
-    };
-
-    let byte_end = if args.len() < 2 || args[1].is_nil() {
-        buf.point_max()
-    } else {
-        elisp_pos_to_byte(buf, expect_int(&args[1])?)
-    };
 
     let filter_name = if args.len() >= 3 && !args[2].is_nil() {
         Some(expect_symbol_name(&args[2])?)
@@ -1455,7 +1492,7 @@ pub(crate) fn builtin_remove_overlays(
     };
 
     // Collect overlay ids in range.
-    let ids = buf.overlays.overlays_in(byte_beg, byte_end);
+    let ids = buf.overlays.overlays_in(start_pos, end_pos);
 
     // Filter and delete.
     for ov_id in ids {

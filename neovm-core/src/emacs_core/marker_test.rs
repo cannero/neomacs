@@ -185,3 +185,54 @@ fn mark_marker_follows_cached_mark_char_position() {
         Ok(Value::Int(2))
     ));
 }
+
+#[test]
+fn copy_marker_from_integer_tracks_insertions_before_it() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = super::super::parser::parse_forms(
+        r#"(with-temp-buffer
+             (insert "abc")
+             (let ((m (copy-marker (point-max) t)))
+               (goto-char 2)
+               (insert "X")
+               (list (marker-position m)
+                     (buffer-string))))"#,
+    )
+    .expect("parse copy-marker insertion regression");
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+    assert_eq!(
+        crate::emacs_core::error::format_eval_result(&Ok(result)),
+        r#"OK (5 "aXbc")"#
+    );
+}
+
+#[test]
+fn set_marker_uses_live_source_marker_position_after_insertions() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let forms = super::super::parser::parse_forms(
+        r#"(with-temp-buffer
+             (insert "abc")
+             (let ((src (copy-marker (point-max) t))
+                   (dst (make-marker)))
+               (goto-char 2)
+               (insert "X")
+               (set-marker dst src)
+               (marker-position dst)))"#,
+    )
+    .expect("parse set-marker source marker regression");
+    let result = eval
+        .eval_forms(&forms)
+        .into_iter()
+        .last()
+        .expect("one form")
+        .expect("evaluation succeeds");
+    assert_eq!(
+        crate::emacs_core::error::format_eval_result(&Ok(result)),
+        "OK 5"
+    );
+}
