@@ -1520,6 +1520,16 @@ impl Evaluator {
             "Yank the last killed rectangle with upper left corner at point.",
         );
         drop(seed_autoload);
+        obarray.set_symbol_function(
+            "count-matches",
+            Value::list(vec![
+                Value::symbol("autoload"),
+                Value::string("replace"),
+                Value::string("Count matches for REGEXP following point."),
+                Value::True,
+                Value::Nil,
+            ]),
+        );
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(
                 name,
@@ -1581,11 +1591,6 @@ impl Evaluator {
             "Set abbrev property PROP to VAL on SYMBOL.",
         );
         seed_autoload_noninteractive("activate-mark", "simple", "Activate the mark.");
-        seed_autoload_noninteractive(
-            "count-matches",
-            "replace",
-            "Count matches for REGEXP following point.",
-        );
         seed_autoload_noninteractive("deactivate-mark", "simple", "Deactivate the mark.");
         seed_autoload_noninteractive(
             "search-forward-regexp",

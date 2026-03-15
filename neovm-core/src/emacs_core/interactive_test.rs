@@ -767,6 +767,19 @@ fn mode_and_mark_commands_startup_are_autoloaded() {
 }
 
 #[test]
+fn count_matches_startup_is_interactive_autoload() {
+    let mut ev = Evaluator::new();
+    let function = ev
+        .obarray
+        .symbol_function("count-matches")
+        .expect("missing count-matches startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+    let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("count-matches")])
+        .expect("commandp call");
+    assert!(command.is_truthy());
+}
+
+#[test]
 fn remove_hook_startup_is_noninteractive_autoload() {
     let ev = Evaluator::new();
     let function = ev

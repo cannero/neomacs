@@ -402,7 +402,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "call-last-kbd-macro"
             | "copy-file"
             | "copy-to-register"
-            | "count-matches"
             | "defining-kbd-macro"
             | "delete-directory"
             | "delete-file"
