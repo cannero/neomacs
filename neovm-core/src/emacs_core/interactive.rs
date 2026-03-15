@@ -389,7 +389,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "end-of-line"
             | "move-beginning-of-line"
             | "move-end-of-line"
-            | "abbrev-mode"
             | "abort-minibuffers"
             | "abort-recursive-edit"
             | "add-name-to-file"

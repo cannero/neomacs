@@ -655,6 +655,16 @@ fn commandp_true_for_builtin_editing_commands() {
 }
 
 #[test]
+fn abbrev_mode_startup_is_autoloaded() {
+    let ev = Evaluator::new();
+    let function = ev
+        .obarray
+        .symbol_function("abbrev-mode")
+        .expect("missing abbrev-mode startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+}
+
+#[test]
 fn commandp_true_for_additional_builtin_commands() {
     let mut ev = Evaluator::new();
     for name in [
