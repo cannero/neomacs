@@ -1525,22 +1525,6 @@ impl Evaluator {
             "Replace things after point matching REGEXP with TO-STRING.",
         );
         seed_autoload(
-            "global-set-key",
-            "subr",
-            "Give KEY a global binding as COMMAND.",
-        );
-        seed_autoload(
-            "local-set-key",
-            "subr",
-            "Give KEY a local binding as COMMAND.",
-        );
-        seed_autoload(
-            "setenv",
-            "env",
-            "Set the value of the environment variable named VARIABLE to VALUE.",
-        );
-        seed_autoload("load-file", "files", "Load the Lisp file named FILE.");
-        seed_autoload(
             "list-processes",
             "simple",
             "Display a list of subprocesses.",

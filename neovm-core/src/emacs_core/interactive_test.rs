@@ -758,16 +758,17 @@ fn replace_command_autoloads_startup_are_autoloaded() {
 }
 
 #[test]
-fn subr_key_binding_commands_startup_are_autoloaded() {
-    let mut ev = Evaluator::new();
+fn subr_key_binding_commands_are_real_lisp_functions_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in ["global-set-key", "local-set-key"] {
         let function = ev
             .obarray
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
-            "expected {name} startup function cell to be a GNU autoload"
+            !crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
@@ -776,26 +777,28 @@ fn subr_key_binding_commands_startup_are_autoloaded() {
 }
 
 #[test]
-fn env_command_startup_is_autoloaded() {
-    let mut ev = Evaluator::new();
+fn env_command_is_real_lisp_function_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
         .obarray
         .symbol_function("setenv")
-        .expect("missing setenv startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+        .expect("missing setenv bootstrapped function cell");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
     let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("setenv")])
         .expect("commandp should accept setenv");
     assert!(command.is_truthy());
 }
 
 #[test]
-fn files_command_startup_is_autoloaded() {
-    let mut ev = Evaluator::new();
+fn files_command_is_real_lisp_function_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
         .obarray
         .symbol_function("load-file")
-        .expect("missing load-file startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+        .expect("missing load-file bootstrapped function cell");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
     let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("load-file")])
         .expect("commandp should accept load-file");
     assert!(command.is_truthy());
@@ -928,7 +931,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "rename-buffer",
         "replace-buffer-contents",
         "select-frame",
-        "setenv",
         "set-buffer-process-coding-system",
         "transpose-regions",
         "kill-process",
