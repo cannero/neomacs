@@ -2490,6 +2490,26 @@ fn char_primitives_respect_narrowing() {
 }
 
 #[test]
+fn delete_char_respects_narrowing_boundaries() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"abc\")
+           (narrow-to-region 1 2)
+           (list (progn
+                   (goto-char (point-max))
+                   (condition-case err
+                       (delete-char 1)
+                     (error (car err))))
+                 (progn
+                   (goto-char (point-min))
+                   (condition-case err
+                       (delete-char -1)
+                     (error (car err))))))",
+    );
+    assert_eq!(results[0], "OK (end-of-buffer beginning-of-buffer)");
+}
+
+#[test]
 fn save_match_data_restores_after_success_and_error() {
     let results = eval_all(
         "(set-match-data '(1 2))

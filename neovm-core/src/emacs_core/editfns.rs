@@ -10,7 +10,9 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
+use super::symbol::Obarray;
 use super::value::*;
+use crate::buffer::{Buffer, BufferManager};
 #[cfg(unix)]
 use std::ffi::CStr;
 
@@ -68,9 +70,35 @@ pub(crate) fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> us
     buf.lisp_pos_to_accessible_byte(lisp_pos)
 }
 
-fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::Buffer) -> bool {
+fn dynamic_buffer_or_global_symbol_value(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buf: Option<&Buffer>,
+    name: &str,
+) -> Option<Value> {
+    let name_id = intern(name);
+    for frame in dynamic.iter().rev() {
+        if let Some(value) = frame.get(&name_id) {
+            return Some(*value);
+        }
+    }
+
+    if let Some(buf) = buf
+        && let Some(value) = buf.get_buffer_local(name)
+    {
+        return Some(*value);
+    }
+
+    obarray.symbol_value(name).copied()
+}
+
+pub(crate) fn buffer_read_only_active_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buf: &Buffer,
+) -> bool {
     let inhibit_name_id = intern("inhibit-read-only");
-    for frame in eval.dynamic.iter().rev() {
+    for frame in dynamic.iter().rev() {
         if let Some(value) = frame.get(&inhibit_name_id)
             && value.is_truthy()
         {
@@ -84,8 +112,7 @@ fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::B
         return false;
     }
 
-    if eval
-        .obarray
+    if obarray
         .symbol_value("inhibit-read-only")
         .is_some_and(|value| value.is_truthy())
     {
@@ -96,29 +123,77 @@ fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::B
         return true;
     }
 
-    let name_id = intern("buffer-read-only");
-    for frame in eval.dynamic.iter().rev() {
-        if let Some(value) = frame.get(&name_id) {
-            return value.is_truthy();
-        }
-    }
-
-    if let Some(value) = buf.get_buffer_local("buffer-read-only") {
-        return value.is_truthy();
-    }
-
-    eval.obarray
-        .symbol_value("buffer-read-only")
+    dynamic_buffer_or_global_symbol_value(obarray, dynamic, Some(buf), "buffer-read-only")
         .is_some_and(|value| value.is_truthy())
 }
 
-pub(crate) fn ensure_current_buffer_writable(eval: &super::eval::Evaluator) -> Result<(), Flow> {
-    if let Some(buf) = eval.buffers.current_buffer() {
-        if buffer_read_only_active(eval, buf) {
-            return Err(signal("buffer-read-only", vec![Value::string(&buf.name)]));
-        }
+fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::Buffer) -> bool {
+    buffer_read_only_active_in_state(&eval.obarray, &eval.dynamic, buf)
+}
+
+pub(crate) fn ensure_current_buffer_writable_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &BufferManager,
+) -> Result<(), Flow> {
+    if let Some(buf) = buffers.current_buffer()
+        && buffer_read_only_active_in_state(obarray, dynamic, buf)
+    {
+        return Err(signal("buffer-read-only", vec![Value::Buffer(buf.id)]));
     }
     Ok(())
+}
+
+pub(crate) fn ensure_current_buffer_writable(eval: &super::eval::Evaluator) -> Result<(), Flow> {
+    ensure_current_buffer_writable_in_state(&eval.obarray, &eval.dynamic, &eval.buffers)
+}
+
+fn expect_integer_or_marker_in_buffers(
+    buffers: &BufferManager,
+    value: &Value,
+) -> Result<i64, Flow> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        other if super::marker::is_marker(other) => {
+            super::marker::marker_position_as_int_with_buffers(buffers, other)
+        }
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *other],
+        )),
+    }
+}
+
+fn current_buffer_accessible_char_region_in_buffers(
+    buffers: &BufferManager,
+    start_arg: &Value,
+    end_arg: &Value,
+) -> Result<Option<(usize, usize)>, Flow> {
+    let Some(buf) = buffers.current_buffer() else {
+        return Ok(None);
+    };
+
+    let start = expect_integer_or_marker_in_buffers(buffers, start_arg)?;
+    let end = expect_integer_or_marker_in_buffers(buffers, end_arg)?;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+    if start < point_min || start > point_max || end < point_min || end > point_max {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Buffer(buf.id), *start_arg, *end_arg],
+        ));
+    }
+
+    let (from, to) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    Ok(Some((
+        buf.lisp_pos_to_accessible_byte(from),
+        buf.lisp_pos_to_accessible_byte(to),
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -174,10 +249,19 @@ pub(crate) fn builtin_insert_before_markers(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_insert_before_markers_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_insert_before_markers_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     let text = collect_insert_text("insert-before-markers", &args)?;
-    ensure_current_buffer_writable(eval)?;
-    if let Some(id) = eval.buffers.current_buffer_id() {
-        let _ = eval.buffers.insert_into_buffer_before_markers(id, &text);
+    ensure_current_buffer_writable_in_state(obarray, dynamic, buffers)?;
+    if let Some(id) = buffers.current_buffer_id() {
+        let _ = buffers.insert_into_buffer_before_markers(id, &text);
     }
     Ok(Value::Nil)
 }
@@ -187,41 +271,62 @@ pub(crate) fn builtin_delete_char(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_char_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_char_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("delete-char", &args, 1)?;
     expect_max_args("delete-char", &args, 2)?;
     let n = expect_integer("delete-char", &args[0])?;
-    ensure_current_buffer_writable(eval)?;
-    if let Some(current_id) = eval.buffers.current_buffer_id() {
-        let Some(buf) = eval.buffers.get(current_id) else {
-            return Ok(Value::Nil);
-        };
-        let pt = buf.pt;
-        if n > 0 {
-            // Delete N characters forward from point.
-            let mut end = pt;
-            for _ in 0..n {
-                match buf.char_after(end) {
-                    Some(ch) => end += ch.len_utf8(),
-                    None => {
+    ensure_current_buffer_writable_in_state(obarray, dynamic, buffers)?;
+    if let Some(current_id) = buffers.current_buffer_id() {
+        let Some((start, end)) = ({
+            let Some(buf) = buffers.get(current_id) else {
+                return Ok(Value::Nil);
+            };
+            let pt = buf.pt;
+            if n > 0 {
+                // Delete N characters forward from point.
+                let mut end = pt;
+                for _ in 0..n {
+                    if end >= buf.zv {
                         return Err(signal("end-of-buffer", vec![]));
                     }
-                }
-            }
-            let _ = eval.buffers.delete_buffer_region(current_id, pt, end);
-        } else if n < 0 {
-            // Delete |N| characters backward from point.
-            let mut start = pt;
-            for _ in 0..(-n) {
-                match buf.char_before(start) {
-                    Some(ch) => start -= ch.len_utf8(),
-                    None => {
-                        return Err(signal("beginning-of-buffer", vec![]));
+                    match buf.char_after(end) {
+                        Some(ch) => end += ch.len_utf8(),
+                        None => {
+                            return Err(signal("end-of-buffer", vec![]));
+                        }
                     }
                 }
+                Some((pt, end))
+            } else if n < 0 {
+                // Delete |N| characters backward from point.
+                let mut start = pt;
+                for _ in 0..(-n) {
+                    if start <= buf.begv {
+                        return Err(signal("beginning-of-buffer", vec![]));
+                    }
+                    match buf.char_before(start) {
+                        Some(ch) => start -= ch.len_utf8(),
+                        None => {
+                            return Err(signal("beginning-of-buffer", vec![]));
+                        }
+                    }
+                }
+                Some((start, pt))
+            } else {
+                None
             }
-            let _ = eval.buffers.delete_buffer_region(current_id, start, pt);
-        }
-        // n == 0: do nothing.
+        }) else {
+            return Ok(Value::Nil);
+        };
+        let _ = buffers.delete_buffer_region(current_id, start, end);
     }
     Ok(Value::Nil)
 }
@@ -255,7 +360,23 @@ pub(crate) fn builtin_buffer_substring_no_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_buffer_substring(eval, args)
+    builtin_buffer_substring_no_properties_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_substring_no_properties_in_state(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("buffer-substring-no-properties", &args, 2)?;
+    let Some((start_byte, end_byte)) =
+        current_buffer_accessible_char_region_in_buffers(buffers, &args[0], &args[1])?
+    else {
+        return Ok(Value::string(""));
+    };
+    let Some(buf) = buffers.current_buffer() else {
+        return Ok(Value::string(""));
+    };
+    Ok(Value::string(buf.buffer_substring(start_byte, end_byte)))
 }
 
 /// `(following-char)` — return character after point (0 if at end).
@@ -263,8 +384,15 @@ pub(crate) fn builtin_following_char(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_following_char_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_following_char_in_state(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("following-char", &args, 0)?;
-    match eval.buffers.current_buffer() {
+    match buffers.current_buffer() {
         Some(buf) => match (buf.pt < buf.zv).then(|| buf.char_after(buf.pt)).flatten() {
             Some(ch) => Ok(Value::Int(ch as i64)),
             None => Ok(Value::Int(0)),
@@ -278,8 +406,15 @@ pub(crate) fn builtin_preceding_char(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_preceding_char_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_preceding_char_in_state(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("preceding-char", &args, 0)?;
-    match eval.buffers.current_buffer() {
+    match buffers.current_buffer() {
         Some(buf) => match (buf.pt > buf.begv)
             .then(|| buf.char_before(buf.pt))
             .flatten()

@@ -858,6 +858,76 @@ fn vm_indent_to_uses_dynamic_indentation_bindings() {
 }
 
 #[test]
+fn vm_insert_before_markers_updates_markers_at_point() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "ab")
+                 (goto-char 1)
+                 (let ((m (copy-marker (point))))
+                   (insert-before-markers "X")
+                   (list (buffer-string) (marker-position m))))"#
+        ),
+        r#"OK ("Xab" 2)"#
+    );
+}
+
+#[test]
+fn vm_char_primitives_and_buffer_substring_use_narrowed_current_buffer_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list (following-char)
+                     (preceding-char)
+                     (buffer-substring-no-properties 3 8)
+                     (buffer-substring-no-properties 8 3)
+                     (condition-case err
+                         (buffer-substring-no-properties 0 1)
+                       (error (car err))))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
+                buffer.insert("Hello, 世界");
+                let start = buffer.lisp_pos_to_byte(3);
+                let end = buffer.lisp_pos_to_byte(8);
+                buffer.narrow_to_region(start, end);
+                buffer.goto_char(buffer.begv);
+            },
+        ),
+        r#"OK (108 0 "llo, " "llo, " args-out-of-range)"#
+    );
+}
+
+#[test]
+fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list
+                 (let ((buffer-read-only t))
+                   (condition-case err
+                       (delete-char 1)
+                     (error (car err))))
+                 (let ((buffer-read-only t)
+                       (inhibit-read-only t))
+                   (delete-char 1)
+                   (buffer-string))
+                 (progn
+                   (narrow-to-region 1 2)
+                   (goto-char (point-max))
+                   (condition-case err
+                       (delete-char 1)
+                     (error (car err)))))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
+                buffer.insert("abc");
+                buffer.goto_char(0);
+            },
+        ),
+        r#"OK (buffer-read-only "bc" end-of-buffer)"#
+    );
+}
+
+#[test]
 fn vm_string_match_updates_match_data_for_followup_builtins() {
     assert_eq!(
         vm_eval_str(

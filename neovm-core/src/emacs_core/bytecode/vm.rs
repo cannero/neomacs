@@ -1685,6 +1685,45 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_insert_before_markers_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_insert_before_markers_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_delete_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_delete_char_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_buffer_substring_no_properties_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_buffer_substring_no_properties_in_state(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_following_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_following_char_in_state(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_preceding_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::editfns::builtin_preceding_char_in_state(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_move_to_column_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::indent::builtin_move_to_column_in_state(
             &*self.shared.obarray,
@@ -2231,6 +2270,13 @@ impl<'a> Vm<'a> {
             "indent-to" => Some(self.builtin_indent_to_shared(args)),
             "current-column" => Some(self.builtin_current_column_shared(args)),
             "move-to-column" => Some(self.builtin_move_to_column_shared(args)),
+            "insert-before-markers" => Some(self.builtin_insert_before_markers_shared(args)),
+            "delete-char" => Some(self.builtin_delete_char_shared(args)),
+            "buffer-substring-no-properties" => {
+                Some(self.builtin_buffer_substring_no_properties_shared(args))
+            }
+            "following-char" => Some(self.builtin_following_char_shared(args)),
+            "preceding-char" => Some(self.builtin_preceding_char_shared(args)),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),
