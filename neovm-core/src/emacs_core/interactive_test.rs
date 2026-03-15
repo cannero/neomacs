@@ -737,6 +737,7 @@ fn replace_command_autoloads_startup_are_autoloaded() {
     for name in [
         "flush-lines",
         "how-many",
+        "keep-lines",
         "query-replace",
         "query-replace-regexp",
         "replace-regexp",
@@ -864,6 +865,7 @@ fn commandp_true_for_additional_builtin_commands() {
         "goto-char",
         "how-many",
         "isearch-forward",
+        "keep-lines",
         "iconify-frame",
         "kill-emacs",
         "list-processes",

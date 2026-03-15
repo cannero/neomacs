@@ -443,7 +443,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "iconify-frame"
             | "isearch-backward"
             | "isearch-forward"
-            | "keep-lines"
             | "kill-buffer"
             | "kill-emacs"
             | "kill-local-variable"
