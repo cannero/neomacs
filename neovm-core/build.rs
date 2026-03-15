@@ -4,12 +4,18 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+#[path = "build_support/unicode_gen.rs"]
+mod unicode_gen;
+
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let project_root = manifest_dir.parent().expect("workspace root");
 
+    unicode_gen::ensure_generated_unicode_lisp(&manifest_dir, project_root);
+
     let tracked_roots = [
         manifest_dir.join("src"),
+        manifest_dir.join("unicode-data"),
         manifest_dir.join("Cargo.toml"),
         manifest_dir.join("build.rs"),
         project_root.join("lisp"),

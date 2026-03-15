@@ -7,9 +7,7 @@ license.workspace = true
 description = "WGPU text renderer primitives for Neomacs"
 
 [features]
-default = ["core-backend-rust"]
-core-backend-emacs-c = ["neomacs-layout-engine/core-backend-emacs-c"]
-core-backend-rust = ["neomacs-layout-engine/core-backend-rust"]
+default = []
 video = ["gstreamer", "gstreamer-video", "gstreamer-app", "gstreamer-allocators"]
 wpe-webkit = []
 
@@ -30,4 +28,4 @@ gstreamer-video = { workspace = true, optional = true }
 gstreamer-app = { workspace = true, optional = true }
 gstreamer-allocators = { workspace = true, optional = true }
 neomacs-display-protocol.workspace = true
-neomacs-layout-engine = { workspace = true, default-features = false }
+neomacs-layout-engine.workspace = true

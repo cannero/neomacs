@@ -367,12 +367,10 @@ Build commands in this README are run from the repository root. There is no `./r
 nix develop --accept-flake-config
 
 # Build Neomacs
-./autogen.sh
-./configure --with-neomacs
-make -j$(nproc)
+cargo build --release --manifest-path neomacs-bin/Cargo.toml
 
 # Run
-./src/emacs
+./target/release/neomacs
 ```
 
 ### Linux (Arch Linux)
@@ -395,12 +393,10 @@ sudo pacman -S --needed \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Build Neomacs
-./autogen.sh
-./configure --with-neomacs
-make -j$(nproc)
+cargo build --release --manifest-path neomacs-bin/Cargo.toml
 
 # Run
-./src/emacs
+./target/release/neomacs
 ```
 
 ### macOS (Experimental)
@@ -421,21 +417,11 @@ brew install autoconf automake texinfo pkgconf \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Build Neomacs
-./autogen.sh
-./configure --with-neomacs --without-ns --with-file-notification=no
-make -j$(sysctl -n hw.ncpu)
+cargo build --release --manifest-path neomacs-bin/Cargo.toml \
+  --no-default-features --features neo-term
 
 # Run
-./src/emacs
-```
-
-#### macOS VM Harness (Docker-OSX)
-
-From repo root:
-
-```bash
-cd neomacs-build-test/macos
-./build-over-ssh.sh
+./target/release/neomacs
 ```
 
 This defaults to `full` mode and already applies:
@@ -514,9 +500,7 @@ nix build \
 #### Manual build (inside dev shell)
 
 ```bash
-./autogen.sh
-./configure --with-neomacs
-make -j$(nproc)
+cargo build --release --manifest-path neomacs-bin/Cargo.toml
 ```
 
 ---

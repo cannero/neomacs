@@ -15,8 +15,8 @@ name = "neomacs"
 path = "src/main.rs"
 
 [dependencies]
-neomacs-display-runtime = { workspace = true, default-features = false, features = ["core-backend-rust"] }
-neovm-core = { workspace = true, features = ["core-backend-rust"] }
+neomacs-display-runtime = { workspace = true, default-features = false }
+neovm-core.workspace = true
 
 # Utilities
 tracing.workspace = true

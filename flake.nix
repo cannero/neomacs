@@ -338,16 +338,7 @@
         }
       );
 
-      # Package (for nix build)
-      packages = forAllSystems (system:
-        let
-          pkgs = pkgsFor system;
-          craneLib = (crane.mkLib pkgs).overrideToolchain pkgs.rust-neomacs;
-        in {
-          default = self.packages.${system}.neomacs;
-
-          neomacs = pkgs.callPackage ./nix/neomacs.nix { inherit craneLib; };
-        }
-      );
+      # Legacy nix package removed with the deleted Emacs C build path.
+      packages = forAllSystems (_system: { });
     };
 }

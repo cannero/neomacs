@@ -11,9 +11,6 @@
 #![allow(unused)] // TODO: Remove once implementation is complete
 #![allow(unsafe_op_in_unsafe_fn)] // TODO: migrate FFI-heavy code to explicit unsafe blocks
 
-#[cfg(all(feature = "core-backend-emacs-c", feature = "core-backend-rust"))]
-compile_error!("features `core-backend-emacs-c` and `core-backend-rust` are mutually exclusive");
-
 pub mod backend;
 pub mod core;
 pub mod text;
@@ -44,12 +41,7 @@ use std::sync::Once;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// NeoVM core backend selected at compile time.
-#[cfg(feature = "core-backend-rust")]
 pub const CORE_BACKEND: &str = "rust";
-
-/// NeoVM core backend selected at compile time.
-#[cfg(not(feature = "core-backend-rust"))]
-pub const CORE_BACKEND: &str = "emacs-c";
 
 static LOGGING_INIT: Once = Once::new();
 
