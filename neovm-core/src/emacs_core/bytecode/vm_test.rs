@@ -68,6 +68,18 @@ fn vm_lexical_param_closure_captures_bytecode_binding() {
     );
 }
 
+#[test]
+fn vm_interpreted_lambda_call_restores_outer_binding_state() {
+    assert_eq!(
+        vm_eval_str("(let ((x 41)) (list (funcall (lambda (x) x) 7) x))"),
+        "OK (7 41)"
+    );
+    assert_eq!(
+        vm_eval_lexical_str("(let ((x 41)) (list (funcall (lambda (x) x) 7) x))"),
+        "OK (7 41)"
+    );
+}
+
 fn execute_manual_vm<T>(
     mut func: ByteCodeFunction,
     init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,

@@ -514,6 +514,35 @@ impl<'a> VmSharedState<'a> {
             &mut eval.interpreted_closure_trim_cache,
         );
     }
+
+    pub(crate) fn begin_lambda_call(
+        &mut self,
+        lambda: &LambdaData,
+        args: &[Value],
+        func_value: Value,
+    ) -> Result<ActiveLambdaCallState, Flow> {
+        begin_lambda_call_in_state(
+            self.obarray,
+            self.dynamic,
+            self.lexenv,
+            self.saved_lexenvs,
+            self.temp_roots,
+            lambda,
+            args,
+            func_value,
+        )
+    }
+
+    pub(crate) fn finish_lambda_call(&mut self, state: ActiveLambdaCallState) {
+        finish_lambda_call_in_state(
+            self.obarray,
+            self.dynamic,
+            self.lexenv,
+            self.saved_lexenvs,
+            self.temp_roots,
+            state,
+        );
+    }
 }
 
 fn value_from_symbol_id(sym_id: SymId) -> Value {
@@ -850,6 +879,143 @@ pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option
     }
 
     Ok((true, Some(arg)))
+}
+
+pub(crate) struct ActiveLambdaCallState {
+    saved_temp_roots_len: usize,
+    has_lexenv: bool,
+    saved_lexical_mode: Option<bool>,
+}
+
+fn bind_lexical_value_rooted_in_state(
+    lexenv: &mut Value,
+    temp_roots: &mut Vec<Value>,
+    sym: SymId,
+    value: Value,
+) {
+    let saved_roots = temp_roots.len();
+    temp_roots.push(value);
+    *lexenv = lexenv_prepend(*lexenv, sym, value);
+    temp_roots.truncate(saved_roots);
+}
+
+fn begin_lambda_call_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut Vec<OrderedSymMap>,
+    lexenv: &mut Value,
+    saved_lexenvs: &mut Vec<Value>,
+    temp_roots: &mut Vec<Value>,
+    lambda: &LambdaData,
+    args: &[Value],
+    func_value: Value,
+) -> Result<ActiveLambdaCallState, Flow> {
+    let params = &lambda.params;
+
+    if args.len() < params.min_arity() {
+        tracing::warn!(
+            "wrong-number-of-arguments (lambda call too few): got {} args, min={}, params={:?}, docstring={:?}",
+            args.len(),
+            params.min_arity(),
+            params,
+            lambda.docstring
+        );
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![func_value, Value::Int(args.len() as i64)],
+        ));
+    }
+    if let Some(max) = params.max_arity()
+        && args.len() > max
+    {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![func_value, Value::Int(args.len() as i64)],
+        ));
+    }
+
+    let saved_temp_roots_len = temp_roots.len();
+    temp_roots.extend(args.iter().copied());
+
+    let has_lexenv = lambda.env.is_some();
+    if let Some(env) = lambda.env {
+        temp_roots.push(env);
+        let old = std::mem::replace(lexenv, env);
+        temp_roots.push(old);
+        saved_lexenvs.push(old);
+
+        let mut arg_idx = 0;
+        for param in &params.required {
+            bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, args[arg_idx]);
+            arg_idx += 1;
+        }
+        for param in &params.optional {
+            if arg_idx < args.len() {
+                bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, args[arg_idx]);
+                arg_idx += 1;
+            } else {
+                bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, Value::Nil);
+            }
+        }
+        if let Some(rest_name) = params.rest {
+            let rest_value = Value::list(args[arg_idx..].to_vec());
+            bind_lexical_value_rooted_in_state(lexenv, temp_roots, rest_name, rest_value);
+        }
+    } else {
+        let mut frame = OrderedSymMap::new();
+        let mut arg_idx = 0;
+        for param in &params.required {
+            frame.insert(*param, args[arg_idx]);
+            arg_idx += 1;
+        }
+        for param in &params.optional {
+            if arg_idx < args.len() {
+                frame.insert(*param, args[arg_idx]);
+                arg_idx += 1;
+            } else {
+                frame.insert(*param, Value::Nil);
+            }
+        }
+        if let Some(rest_name) = params.rest {
+            frame.insert(rest_name, Value::list(args[arg_idx..].to_vec()));
+        }
+        dynamic.push(frame);
+    }
+
+    let saved_lexical_mode = if has_lexenv {
+        let old = obarray
+            .symbol_value("lexical-binding")
+            .is_some_and(|value| value.is_truthy());
+        obarray.set_symbol_value("lexical-binding", Value::True);
+        Some(old)
+    } else {
+        None
+    };
+
+    Ok(ActiveLambdaCallState {
+        saved_temp_roots_len,
+        has_lexenv,
+        saved_lexical_mode,
+    })
+}
+
+fn finish_lambda_call_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut Vec<OrderedSymMap>,
+    lexenv: &mut Value,
+    saved_lexenvs: &mut Vec<Value>,
+    temp_roots: &mut Vec<Value>,
+    state: ActiveLambdaCallState,
+) {
+    if let Some(old_mode) = state.saved_lexical_mode {
+        obarray.set_symbol_value("lexical-binding", Value::bool(old_mode));
+    }
+    if state.has_lexenv {
+        let old_lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
+        *lexenv = old_lexenv;
+    } else {
+        dynamic.pop();
+    }
+    temp_roots.truncate(state.saved_temp_roots_len);
 }
 
 impl Default for Evaluator {
@@ -3162,6 +3328,41 @@ impl Evaluator {
         }
         self.set_lexical_binding(saved_mode);
         result
+    }
+
+    pub(crate) fn eval_lambda_body(&mut self, body: &[Expr]) -> EvalResult {
+        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+            self.sf_progn(body)
+        })
+    }
+
+    fn begin_lambda_call(
+        &mut self,
+        lambda: &LambdaData,
+        args: &[Value],
+        func_value: Value,
+    ) -> Result<ActiveLambdaCallState, Flow> {
+        begin_lambda_call_in_state(
+            &mut self.obarray,
+            &mut self.dynamic,
+            &mut self.lexenv,
+            &mut self.saved_lexenvs,
+            &mut self.temp_roots,
+            lambda,
+            args,
+            func_value,
+        )
+    }
+
+    fn finish_lambda_call(&mut self, state: ActiveLambdaCallState) {
+        finish_lambda_call_in_state(
+            &mut self.obarray,
+            &mut self.dynamic,
+            &mut self.lexenv,
+            &mut self.saved_lexenvs,
+            &mut self.temp_roots,
+            state,
+        );
     }
 
     /// Keep the Lisp-visible `features` variable in sync with the evaluator's
@@ -6674,120 +6875,15 @@ impl Evaluator {
         args: Vec<Value>,
         func_value: Value,
     ) -> EvalResult {
-        let params = &lambda.params;
-
-        // Arity check
-        if args.len() < params.min_arity() {
-            tracing::warn!(
-                "wrong-number-of-arguments (apply_lambda too few): got {} args, min={}, params={:?}, docstring={:?}",
-                args.len(),
-                params.min_arity(),
-                params,
-                lambda.docstring
-            );
-            return Err(signal(
-                "wrong-number-of-arguments",
-                vec![func_value, Value::Int(args.len() as i64)],
-            ));
-        }
-        if let Some(max) = params.max_arity() {
-            if args.len() > max {
-                return Err(signal(
-                    "wrong-number-of-arguments",
-                    vec![func_value, Value::Int(args.len() as i64)],
-                ));
-            }
-        }
-
-        let saved_arg_roots = self.save_temp_roots();
-        for &arg in &args {
-            self.push_temp_root(arg);
-        }
-
-        let has_lexenv = lambda.env.is_some();
-        if let Some(env) = lambda.env {
-            // Keep both environments explicitly rooted for the whole dynamic
-            // extent of the call. During nested macro expansion we can trigger
-            // GC while bouncing between interpreted closures, and relying only
-            // on `self.lexenv` / `saved_lexenvs` has proven too fragile.
-            self.push_temp_root(env);
-            let old = std::mem::replace(&mut self.lexenv, env);
-            self.push_temp_root(old);
-            self.saved_lexenvs.push(old);
-            // Prepend param bindings onto the captured env
-            let mut arg_idx = 0;
-            for param in &params.required {
-                self.bind_lexical_value_rooted(*param, args[arg_idx]);
-                arg_idx += 1;
-            }
-            for param in &params.optional {
-                if arg_idx < args.len() {
-                    self.bind_lexical_value_rooted(*param, args[arg_idx]);
-                    arg_idx += 1;
-                } else {
-                    self.bind_lexical_value_rooted(*param, Value::Nil);
-                }
-            }
-            if let Some(ref rest_name) = params.rest {
-                let rest_args: Vec<Value> = args[arg_idx..].to_vec();
-                let rest_value = Value::list(rest_args);
-                self.bind_lexical_value_rooted(*rest_name, rest_value);
-            }
-        } else {
-            // Dynamic binding (no captured lexenv)
-            let mut frame = OrderedSymMap::new();
-            let mut arg_idx = 0;
-            for param in &params.required {
-                frame.insert(*param, args[arg_idx]);
-                arg_idx += 1;
-            }
-            for param in &params.optional {
-                if arg_idx < args.len() {
-                    frame.insert(*param, args[arg_idx]);
-                    arg_idx += 1;
-                } else {
-                    frame.insert(*param, Value::Nil);
-                }
-            }
-            if let Some(ref rest_name) = params.rest {
-                let rest_args: Vec<Value> = args[arg_idx..].to_vec();
-                frame.insert(*rest_name, Value::list(rest_args));
-            }
-            self.dynamic.push(frame);
-        }
-        let saved_lexical_mode = if has_lexenv {
-            let old = self.lexical_binding();
-            self.set_lexical_binding(true);
-            Some(old)
-        } else {
-            None
-        };
-
-        // Macros are sometimes invoked directly via apply_lambda during
-        // expansion, bypassing apply(). Keep the same stack-growth guard here.
-        let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            self.sf_progn(&lambda.body)
-        });
-
-        if let Some(old_mode) = saved_lexical_mode {
-            self.set_lexical_binding(old_mode);
-        }
-        if has_lexenv {
-            let old_lexenv = self.saved_lexenvs.pop().expect("saved_lexenvs underflow");
-            self.lexenv = old_lexenv;
-        } else {
-            self.dynamic.pop();
-        }
-        self.restore_temp_roots(saved_arg_roots);
+        let call_state = self.begin_lambda_call(lambda, &args, func_value)?;
+        let result = self.eval_lambda_body(&lambda.body);
+        self.finish_lambda_call(call_state);
         result
     }
 
     #[inline]
     fn bind_lexical_value_rooted(&mut self, sym: SymId, value: Value) {
-        let saved_roots = self.save_temp_roots();
-        self.push_temp_root(value);
-        self.lexenv = lexenv_prepend(self.lexenv, sym, value);
-        self.restore_temp_roots(saved_roots);
+        bind_lexical_value_rooted_in_state(&mut self.lexenv, &mut self.temp_roots, sym, value);
     }
 
     // -----------------------------------------------------------------------

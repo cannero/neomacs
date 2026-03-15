@@ -1665,10 +1665,19 @@ impl<'a> Vm<'a> {
                 self.execute_with_func_value(&bc_data, args, func_val)
             }
             Value::Lambda(_) => {
+                let lambda_data = func_val.get_lambda_data().unwrap().clone();
                 let mut extra_roots = Vec::with_capacity(args.len() + 1);
                 extra_roots.push(func_val);
                 extra_roots.extend(args.iter().copied());
-                self.with_mirrored_evaluator(&extra_roots, move |eval| eval.apply(func_val, args))
+                let call_state = self
+                    .shared
+                    .begin_lambda_call(&lambda_data, &args, func_val)?;
+                let body = lambda_data.body.clone();
+                let result = self.with_mirrored_evaluator(&extra_roots, move |eval| {
+                    eval.eval_lambda_body(&body)
+                });
+                self.shared.finish_lambda_call(call_state);
+                result
             }
             Value::Subr(id) => self.dispatch_vm_builtin(resolve_sym(id), args),
             Value::Symbol(id) => {
