@@ -1219,6 +1219,57 @@ fn vm_compiled_require_respects_recursive_require_guard() {
 }
 
 #[test]
+fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fixture = dir.path().join("vm-bytecode-load.el");
+    std::fs::write(
+        &fixture,
+        "(setq vm-bytecode-required-ran t)\n(provide 'vm-bytecode-load)\n",
+    )
+    .expect("write require fixture");
+
+    let mut eval = Evaluator::new_vm_harness();
+    let forms = parse_forms(
+        "(progn
+           (setq vm-bytecode-required-ran nil)
+           (list
+             (require 'vm-bytecode-load nil nil)
+             vm-bytecode-required-ran
+             (featurep 'vm-bytecode-load)))",
+    )
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+    eval.obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled require should load feature through shared runtime")
+    };
+
+    assert_eq!(
+        result,
+        Value::list(vec![
+            Value::symbol("vm-bytecode-load"),
+            Value::True,
+            Value::True,
+        ])
+    );
+    assert!(
+        eval.features.contains(&intern("vm-bytecode-load")),
+        "compiled require should update shared features state"
+    );
+    assert!(
+        eval.require_stack.is_empty(),
+        "compiled require should unwind shared require stack after load"
+    );
+}
+
+#[test]
 fn vm_compiled_load_respects_loads_in_progress_guard() {
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-load.el");

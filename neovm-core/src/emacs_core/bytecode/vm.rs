@@ -1729,6 +1729,32 @@ impl<'a> Vm<'a> {
         }
     }
 
+    fn require_with_vm_bridge(&mut self, args: Vec<Value>, extra_roots: &[Value]) -> EvalResult {
+        match crate::emacs_core::eval::plan_require_in_state(
+            &*self.shared.obarray,
+            &*self.shared.features,
+            &*self.shared.require_stack,
+            args.first().copied().unwrap_or(Value::Nil),
+            args.get(1).copied(),
+            args.get(2).copied(),
+        )? {
+            crate::emacs_core::eval::RequirePlan::Return(value) => Ok(value),
+            crate::emacs_core::eval::RequirePlan::Load { sym_id, name, path } => {
+                self.shared.require_stack.push(sym_id);
+                let result = self.with_mirrored_evaluator(extra_roots, move |eval| {
+                    eval.load_file_internal(&path)
+                });
+                let _ = self.shared.require_stack.pop();
+                result?;
+                crate::emacs_core::eval::finish_require_in_state(
+                    &*self.shared.features,
+                    sym_id,
+                    &name,
+                )
+            }
+        }
+    }
+
     /// Execute a compiled function without param binding (for inline compilation).
     fn execute_inline(&mut self, func: &ByteCodeFunction) -> EvalResult {
         let mut stack: Vec<Value> = Vec::with_capacity(func.max_stack as usize);
@@ -2166,6 +2192,7 @@ impl<'a> Vm<'a> {
                 args.to_vec(),
                 args,
             )),
+            "require" => Some(self.require_with_vm_bridge(args.to_vec(), args)),
             "symbol-file" => Some(crate::emacs_core::autoload::builtin_symbol_file_in_state(
                 &*self.shared.obarray,
                 &*self.shared.autoloads,

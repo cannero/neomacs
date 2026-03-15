@@ -2084,6 +2084,32 @@ fn features_variable_controls_featurep_and_require() {
 }
 
 #[test]
+fn require_accepts_nil_filename_as_feature_name() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("vm-require-nil.el"),
+        "(provide 'vm-require-nil)\n",
+    )
+    .expect("write require fixture");
+
+    let escaped = dir
+        .path()
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let script = format!(
+        "(progn (setq load-path (cons \"{}\" load-path)) 'ok)\n\
+         (require 'vm-require-nil nil)\n\
+         (featurep 'vm-require-nil)",
+        escaped
+    );
+    let results = eval_all(&script);
+
+    assert_eq!(results[1], "OK vm-require-nil");
+    assert_eq!(results[2], "OK t");
+}
+
+#[test]
 fn provide_preserves_features_variable_entries() {
     let results = eval_all(
         "(setq features '(vm-existing))

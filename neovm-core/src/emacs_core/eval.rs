@@ -743,6 +743,90 @@ pub struct Evaluator {
     interpreted_closure_trim_cache: HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
 }
 
+pub(crate) enum RequirePlan {
+    Return(Value),
+    Load {
+        sym_id: SymId,
+        name: String,
+        path: std::path::PathBuf,
+    },
+}
+
+pub(crate) fn plan_require_in_state(
+    obarray: &Obarray,
+    features: &[SymId],
+    require_stack: &[SymId],
+    feature: Value,
+    filename: Option<Value>,
+    noerror: Option<Value>,
+) -> Result<RequirePlan, Flow> {
+    let sym_id = match feature {
+        Value::Symbol(s) => s,
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), feature],
+            ));
+        }
+    };
+    let name = resolve_sym(sym_id).to_owned();
+    if features.contains(&sym_id) {
+        return Ok(RequirePlan::Return(Value::symbol(&name)));
+    }
+
+    // Preserve current NeoVM recursive-require semantics in this bridge-slice.
+    if require_stack.contains(&sym_id) {
+        tracing::debug!(
+            "Recursive require for feature '{}', returning immediately",
+            name
+        );
+        return Ok(RequirePlan::Return(Value::symbol(&name)));
+    }
+
+    let filename = match filename {
+        Some(Value::Nil) => name.clone(),
+        Some(Value::Str(id)) => with_heap(|h| h.get_string(id).to_owned()),
+        Some(other) => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), other],
+            ));
+        }
+        None => name.clone(),
+    };
+
+    let load_path = super::load::get_load_path(obarray);
+    match super::load::find_file_in_load_path(&filename, &load_path) {
+        Some(path) => Ok(RequirePlan::Load { sym_id, name, path }),
+        None => {
+            if noerror.is_some_and(|value| value.is_truthy()) {
+                return Ok(RequirePlan::Return(Value::Nil));
+            }
+            Err(signal(
+                "file-missing",
+                vec![Value::string(format!(
+                    "Cannot open load file: no such file or directory, {}",
+                    name
+                ))],
+            ))
+        }
+    }
+}
+
+pub(crate) fn finish_require_in_state(features: &[SymId], sym_id: SymId, name: &str) -> EvalResult {
+    if features.contains(&sym_id) {
+        Ok(Value::symbol(name))
+    } else {
+        Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "Required feature '{}' was not provided",
+                name
+            ))],
+        ))
+    }
+}
+
 impl Default for Evaluator {
     fn default() -> Self {
         Self::new()
@@ -5428,70 +5512,25 @@ impl Evaluator {
         filename: Option<Value>,
         noerror: Option<Value>,
     ) -> EvalResult {
-        let sym_id = match &feature {
-            Value::Symbol(s) => *s,
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("symbolp"), feature],
-                ));
-            }
-        };
-        let name = resolve_sym(sym_id).to_owned();
-        if self.has_feature(&name) {
-            return Ok(Value::symbol(&name));
-        }
-
-        // Official Emacs treats recursive require as a no-op (returns feature symbol)
-        // rather than signaling an error. This is common in practice when modules
-        // have circular dependencies (e.g., dired ↔ dired-aux, project ↔ xref).
-        if self.require_stack.iter().any(|f| *f == sym_id) {
-            tracing::debug!(
-                "Recursive require for feature '{}', returning immediately",
-                name
-            );
-            return Ok(Value::symbol(&name));
-        }
-        self.require_stack.push(sym_id);
-
-        let result = (|| -> EvalResult {
-            let filename = match &filename {
-                Some(Value::Str(id)) => self.heap.get_string(*id).to_owned(),
-                Some(_) | None => name.clone(),
-            };
-
-            let load_path = super::load::get_load_path(&self.obarray);
-            match super::load::find_file_in_load_path(&filename, &load_path) {
-                Some(path) => {
+        match plan_require_in_state(
+            &self.obarray,
+            &self.features,
+            &self.require_stack,
+            feature,
+            filename,
+            noerror,
+        )? {
+            RequirePlan::Return(value) => Ok(value),
+            RequirePlan::Load { sym_id, name, path } => {
+                self.require_stack.push(sym_id);
+                let result = (|| -> EvalResult {
                     self.load_file_internal(&path)?;
-                    if self.has_feature(&name) {
-                        Ok(Value::symbol(name))
-                    } else {
-                        Err(signal(
-                            "error",
-                            vec![Value::string(format!(
-                                "Required feature '{}' was not provided",
-                                name
-                            ))],
-                        ))
-                    }
-                }
-                None => {
-                    if noerror.is_some_and(|value| value.is_truthy()) {
-                        return Ok(Value::Nil);
-                    }
-                    Err(signal(
-                        "file-missing",
-                        vec![Value::string(format!(
-                            "Cannot open load file: no such file or directory, {}",
-                            name
-                        ))],
-                    ))
-                }
+                    finish_require_in_state(&self.features, sym_id, &name)
+                })();
+                let _ = self.require_stack.pop();
+                result
             }
-        })();
-        let _ = self.require_stack.pop();
-        result
+        }
     }
 
     fn sf_with_current_buffer(&mut self, tail: &[Expr]) -> EvalResult {
