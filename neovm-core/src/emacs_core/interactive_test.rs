@@ -825,7 +825,7 @@ fn files_command_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn regexp_search_autoloads_startup_are_autoloaded() {
-    let ev = Evaluator::new();
+    let ev = eval_with_ldefs_boot_autoloads(&["search-forward-regexp", "search-backward-regexp"]);
     for name in ["search-forward-regexp", "search-backward-regexp"] {
         let function = ev
             .obarray

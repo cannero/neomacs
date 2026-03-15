@@ -1349,16 +1349,6 @@ impl Evaluator {
         seed_autoload_noninteractive("activate-mark", "simple", "Activate the mark.");
         seed_autoload_noninteractive("deactivate-mark", "simple", "Deactivate the mark.");
         seed_autoload_noninteractive(
-            "search-forward-regexp",
-            "subr",
-            "Search forward from point for regular expression REGEXP.",
-        );
-        seed_autoload_noninteractive(
-            "search-backward-regexp",
-            "subr",
-            "Search backward from point for regular expression REGEXP.",
-        );
-        seed_autoload_noninteractive(
             "remove-hook",
             "subr",
             "Remove FUNCTION from HOOK's functions.",
