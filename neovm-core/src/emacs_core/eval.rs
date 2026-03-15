@@ -1415,11 +1415,6 @@ impl Evaluator {
             "simple",
             "Set mark at LOCATION and push old mark on mark ring.",
         );
-        seed_autoload_noninteractive(
-            "region-active-p",
-            "simple",
-            "Return non-nil if the region is active.",
-        );
         seed_autoload_noninteractive("set-mark", "simple", "Set this buffer's mark to POS.");
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.

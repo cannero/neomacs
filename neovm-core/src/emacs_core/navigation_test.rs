@@ -629,7 +629,7 @@ fn test_region_active_p_true_for_active_empty_region() {
 
 #[test]
 fn test_region_active_p_requires_mark() {
-    let mut ev = eval_with_text("hello");
+    let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
         "(let ((transient-mark-mode t)
@@ -641,7 +641,7 @@ fn test_region_active_p_requires_mark() {
 
 #[test]
 fn test_region_active_p_over_arity() {
-    let mut ev = eval_with_text("hello");
+    let mut ev = bootstrap_eval_with_text("hello");
     let result = eval_str(
         &mut ev,
         "(condition-case err (region-active-p nil) (error (car err)))",
