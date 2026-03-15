@@ -2166,6 +2166,52 @@ fn compiled_cl_preloaded_loads_after_faces() {
 }
 
 #[test]
+fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
+    let mut eval = partial_bootstrap_eval_until("simple", false);
+    let load_path = get_load_path(&eval.obarray());
+    let path = bootstrap_fixture_path(&load_path, "simple", false).expect("simple.el path");
+    let content = std::fs::read_to_string(&path).expect("read simple.el");
+    let forms = parse_source_forms(&path, &content).expect("parse simple.el");
+
+    let cycle_spacing_form = forms
+        .get(89)
+        .expect("cycle-spacing source bootstrap form")
+        .clone();
+    assert!(
+        print_expr(&cycle_spacing_form).starts_with("(defun cycle-spacing"),
+        "unexpected simple.el FORM[89]: {}",
+        print_expr(&cycle_spacing_form)
+    );
+
+    let subset_source = format!(
+        ";;; cycle-spacing-subset.el --- focused bootstrap slice -*- lexical-binding: t; -*-\n\n{}\n\n{}\n\n{}\n",
+        print_expr(&forms[87]),
+        print_expr(&forms[88]),
+        print_expr(&forms[89]),
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let subset_path = dir.path().join("cycle-spacing-subset.el");
+    std::fs::write(&subset_path, subset_source).expect("write cycle-spacing subset");
+
+    load_file(&mut eval, &subset_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading focused cycle-spacing subset from {}: {}",
+            subset_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let probe = crate::emacs_core::parser::parse_forms(
+        "(list (boundp 'cycle-spacing--context) (fboundp 'cycle-spacing))",
+    )
+    .expect("parse cycle-spacing probe");
+    let result = eval
+        .eval_expr(&probe[0])
+        .expect("evaluate cycle-spacing probe");
+    assert_eq!(result, Value::list(vec![Value::True, Value::True]));
+}
+
+#[test]
 fn compiled_characters_loads_after_case_table() {
     let mut eval = partial_bootstrap_eval_until("international/characters", true);
     let load_path = get_load_path(&eval.obarray());

@@ -3082,6 +3082,59 @@ fn gc_stress_prog1_roots_first_value() {
 }
 
 #[test]
+fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    ev.lexenv = Value::list(vec![Value::True]);
+    ev.gc_stress = true;
+    ev.heap.set_gc_threshold(1);
+    let forms = parse_forms(
+        r#"
+        (let ((newenv nil)
+              (magic (make-symbol "vm-magic")))
+          (let ((var (make-symbol "vm-var")))
+            (setq newenv
+                  (cons
+                   (cons 'vm-head
+                         (lambda (&rest args)
+                           (if (eq (car args) magic)
+                               (list magic var)
+                             (cons 'funcall (cons var args)))))
+                   newenv))
+            (let* ((form '(vm-head 1 2 3))
+                   (head (car form))
+                   (env-expander (assq head newenv)))
+              (apply (cdr env-expander) (cdr form)))))
+        "#,
+    )
+    .expect("parse");
+    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    assert_eq!(result, "OK (funcall vm-var 1 2 3)");
+}
+
+#[test]
+fn interpreted_closure_while_can_advance_lexical_loop_variable() {
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    let forms = parse_forms(
+        r#"
+        (funcall
+         (let ((items '(a b c)))
+           (lambda ()
+             (let ((l items)
+                   (count 0))
+               (while l
+                 (setq l (cdr l))
+                 (setq count (1+ count)))
+               count))))
+        "#,
+    )
+    .expect("parse");
+    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    assert_eq!(result, "OK 3");
+}
+
+#[test]
 fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
     let mut ev = Evaluator::new();
     ev.set_lexical_binding(true);

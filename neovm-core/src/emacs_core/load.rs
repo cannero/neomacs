@@ -1659,12 +1659,13 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
     let result = (|| -> Result<Value, EvalError> {
         let generated_loaddefs = is_generated_loaddefs_source(&content);
 
-        // Clear the macro expansion cache to avoid stale entries from
-        // previous files whose parsed form memory has been freed and
-        // potentially reused at the same addresses.  Lambda-body caches
-        // (Rc<Vec<Expr>>) are still valid but will be re-populated on
-        // first use — a small one-time cost per file.
+        // Clear pointer-identity caches before each source file. Parsed Expr
+        // allocations from previous files can be freed and reused at the same
+        // addresses, so cross-file reuse would alias unrelated forms.
+        // Lambda-body caches (Rc<Vec<Expr>>) are still valid but will be
+        // re-populated on first use — a small one-time cost per file.
         eval.macro_expansion_cache.clear();
+        eval.literal_cache.clear();
 
         if generated_loaddefs {
             let forms = parse_source_with_cache(path, &content, eval.lexical_binding())?;

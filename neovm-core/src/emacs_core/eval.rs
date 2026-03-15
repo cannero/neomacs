@@ -421,7 +421,8 @@ pub struct Evaluator {
     /// temporary lambdas in pcase), its memory can be reused by a new
     /// lambda body, making `tail.as_ptr()` match a stale entry whose
     /// args are completely different.  The fingerprint catches this.
-    pub(crate) macro_expansion_cache: HashMap<(crate::gc::types::ObjId, usize), (Rc<Expr>, u64)>,
+    pub(crate) macro_expansion_cache:
+        HashMap<(crate::gc::types::ObjId, usize, u64), (Rc<Expr>, u64)>,
     /// Diagnostic counters for macro expansion cache.
     pub(crate) macro_cache_hits: u64,
     pub(crate) macro_cache_misses: u64,
@@ -3134,7 +3135,11 @@ impl Evaluator {
                 if let Value::Cons(cons_id) = func {
                     let car = func.cons_car();
                     if car.is_symbol_named("macro") {
-                        let cache_key = (cons_id, tail.as_ptr() as usize);
+                        let cache_key = (
+                            cons_id,
+                            tail.as_ptr() as usize,
+                            self.macro_expansion_context_key(),
+                        );
                         let current_fp = tail_fingerprint(tail);
                         if !self.macro_cache_disabled {
                             if let Some((cached, stored_fp)) =
@@ -6267,7 +6272,13 @@ impl Evaluator {
 
         let has_lexenv = lambda.env.is_some();
         if let Some(env) = lambda.env {
+            // Keep both environments explicitly rooted for the whole dynamic
+            // extent of the call. During nested macro expansion we can trigger
+            // GC while bouncing between interpreted closures, and relying only
+            // on `self.lexenv` / `saved_lexenvs` has proven too fragile.
+            self.push_temp_root(env);
             let old = std::mem::replace(&mut self.lexenv, env);
+            self.push_temp_root(old);
             self.saved_lexenvs.push(old);
             // Prepend param bindings onto the captured env
             let mut arg_idx = 0;
@@ -6318,8 +6329,6 @@ impl Evaluator {
             None
         };
 
-        self.restore_temp_roots(saved_arg_roots);
-
         // Macros are sometimes invoked directly via apply_lambda during
         // expansion, bypassing apply(). Keep the same stack-growth guard here.
         let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
@@ -6335,6 +6344,7 @@ impl Evaluator {
         } else {
             self.dynamic.pop();
         }
+        self.restore_temp_roots(saved_arg_roots);
         result
     }
 
@@ -6362,7 +6372,11 @@ impl Evaluator {
         // Check cache: same macro object + same source location (args slice
         // pointer from Rc<Vec<Expr>> body) → same expansion.
         // Fingerprint validation detects ABA from reused addresses.
-        let cache_key = (id, args.as_ptr() as usize);
+        let cache_key = (
+            id,
+            args.as_ptr() as usize,
+            self.macro_expansion_context_key(),
+        );
         let current_fp = tail_fingerprint(args);
         if !self.macro_cache_disabled {
             if let Some((cached, stored_fp)) = self.macro_expansion_cache.get(&cache_key) {
@@ -6456,6 +6470,40 @@ impl Evaluator {
         self.set_lexical_binding(old_lexical);
         self.restore_temp_roots(saved_roots);
         result
+    }
+
+    fn macro_expansion_context_key(&self) -> u64 {
+        fn value_identity_key(value: Value) -> u64 {
+            match value {
+                Value::Nil => 0,
+                Value::True => 1,
+                Value::Int(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
+                Value::Char(c) => (c as u64) ^ 0x11,
+                Value::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
+                Value::Keyword(sym) => ((sym.0 as u64) << 8) ^ 0x21,
+                Value::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
+                Value::Float(_, id) => (id as u64) ^ 0x23,
+                Value::Cons(id)
+                | Value::Vector(id)
+                | Value::Record(id)
+                | Value::HashTable(id)
+                | Value::Str(id)
+                | Value::Lambda(id)
+                | Value::Macro(id)
+                | Value::ByteCode(id) => (((id.index as u64) << 32) | id.generation as u64) ^ 0x30,
+                Value::Buffer(id) => (id.0 as u64) ^ 0x41,
+                Value::Frame(id) => id ^ 0x42,
+                Value::Window(id) => id ^ 0x44,
+                Value::Timer(id) => id ^ 0x46,
+            }
+        }
+
+        value_identity_key(
+            self.obarray()
+                .symbol_value("macroexpand-all-environment")
+                .copied()
+                .unwrap_or(Value::Nil),
+        )
     }
 
     // -----------------------------------------------------------------------
