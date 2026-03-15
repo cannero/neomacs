@@ -475,7 +475,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "pop-to-buffer"
             | "posix-search-backward"
             | "posix-search-forward"
-            | "query-replace"
             | "query-replace-regexp"
             | "raise-frame"
             | "recenter"

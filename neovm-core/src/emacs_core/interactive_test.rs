@@ -732,6 +732,19 @@ fn simple_command_autoloads_startup_are_autoloaded() {
 }
 
 #[test]
+fn replace_command_autoloads_startup_are_autoloaded() {
+    let mut ev = Evaluator::new();
+    let function = ev
+        .obarray
+        .symbol_function("query-replace")
+        .expect("missing query-replace startup function cell");
+    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+    let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("query-replace")])
+        .expect("commandp should accept query-replace");
+    assert!(command.is_truthy());
+}
+
+#[test]
 fn regexp_search_autoloads_startup_are_autoloaded() {
     let ev = Evaluator::new();
     for name in ["search-forward-regexp", "search-backward-regexp"] {

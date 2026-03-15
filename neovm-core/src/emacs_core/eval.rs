@@ -1490,6 +1490,11 @@ impl Evaluator {
             "Blank out the region-rectangle, shifting text right.",
         );
         seed_autoload(
+            "query-replace",
+            "replace",
+            "Replace some occurrences of FROM-STRING with TO-STRING.",
+        );
+        seed_autoload(
             "list-processes",
             "simple",
             "Display a list of subprocesses.",
