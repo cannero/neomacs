@@ -1336,16 +1336,6 @@ impl Evaluator {
             "subr",
             "Add to the value of HOOK the function FUNCTION.",
         );
-        seed_autoload_noninteractive(
-            "abbrev-get",
-            "abbrev",
-            "Return abbrev property PROP for SYMBOL.",
-        );
-        seed_autoload_noninteractive(
-            "abbrev-put",
-            "abbrev",
-            "Set abbrev property PROP to VAL on SYMBOL.",
-        );
         seed_autoload_noninteractive("activate-mark", "simple", "Activate the mark.");
         seed_autoload_noninteractive("deactivate-mark", "simple", "Deactivate the mark.");
         seed_autoload_noninteractive(
