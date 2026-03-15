@@ -1054,12 +1054,55 @@ fn vm_insert_read_only_shape_and_noop_cases_match_gnu() {
                   (condition-case err
                       (insert-char ?x 1)
                     (error (list (car err) (bufferp (car (cdr err))))))
+                  (condition-case err
+                      (insert-and-inherit "x")
+                    (error (list (car err) (bufferp (car (cdr err))))))
+                  (condition-case err
+                      (insert-before-markers-and-inherit "x")
+                    (error (list (car err) (bufferp (car (cdr err))))))
                   (list (insert)
                         (insert "")
                         (insert-char ?x 0)
+                        (insert-and-inherit)
+                        (insert-and-inherit "")
+                        (insert-before-markers-and-inherit)
+                        (insert-before-markers-and-inherit "")
                         (buffer-string))))"#
         ),
-        r#"OK ((buffer-read-only t) (buffer-read-only t) (nil nil nil ""))"#
+        r#"OK ((buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (nil nil nil nil nil nil nil ""))"#
+    );
+}
+
+#[test]
+fn vm_insert_inherit_variants_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "a")
+                 (put-text-property 1 2 'face 'bold)
+                 (let ((first
+                        (progn
+                          (insert-and-inherit
+                           (propertize "X" 'face 'italic 'mouse-face 'highlight))
+                          (list (buffer-substring-no-properties (point-min) (point-max))
+                                (get-text-property 2 'face)
+                                (get-text-property 2 'mouse-face)))))
+                   (erase-buffer)
+                   (insert "ab")
+                   (put-text-property 1 2 'face 'bold)
+                   (goto-char 2)
+                   (let ((m (copy-marker (point))))
+                     (list first
+                           (progn
+                             (insert-before-markers-and-inherit
+                              (propertize "X" 'mouse-face 'highlight))
+                             (list (buffer-substring-no-properties (point-min) (point-max))
+                                   (marker-position m)
+                                   (get-text-property 2 'face)
+                                   (get-text-property 2 'mouse-face)))))))"#
+        ),
+        r#"OK (("aX" bold highlight) ("aXb" 3 bold highlight))"#
     );
 }
 

@@ -849,76 +849,21 @@ pub(crate) fn builtin_insert_and_inherit(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    use super::value::list_to_vec;
-
-    let text = super::editfns::collect_insert_text("insert-and-inherit", &args)?;
-    super::editfns::ensure_current_buffer_writable(eval)?;
-
-    let current_id = match eval.buffers.current_buffer_id() {
-        Some(id) => id,
-        None => return Ok(Value::Nil),
-    };
-    let old_pt = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
-    let _ = eval.buffers.insert_into_buffer(current_id, &text);
-    let text_len = text.len();
-
-    if text_len > 0 && old_pt > 0 {
-        let props = eval
-            .buffers
-            .get(current_id)
-            .map(|buf| buf.text_props.get_properties(old_pt - 1))
-            .unwrap_or_default();
-
-        if !props.is_empty() {
-            let nonsticky = props.get("rear-nonsticky").copied();
-            let inherit_all = match nonsticky {
-                None => true,
-                Some(Value::Nil) => true,
-                Some(val) if val.is_truthy() && list_to_vec(&val).is_none() => false,
-                _ => true,
-            };
-
-            if inherit_all || nonsticky.is_some() {
-                let nonsticky_names: Vec<String> = match nonsticky {
-                    Some(ref val) => {
-                        if let Some(items) = list_to_vec(val) {
-                            items
-                                .iter()
-                                .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
-                                .collect()
-                        } else {
-                            Vec::new()
-                        }
-                    }
-                    None => Vec::new(),
-                };
-
-                for (name, value) in &props {
-                    if name == "rear-nonsticky" || !inherit_all || nonsticky_names.contains(name) {
-                        continue;
-                    }
-                    let _ = eval.buffers.put_buffer_text_property(
-                        current_id,
-                        old_pt,
-                        old_pt + text_len,
-                        name,
-                        *value,
-                    );
-                }
-            }
-        }
-    }
-    Ok(Value::Nil)
+    builtin_insert_and_inherit_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
 }
 
 /// `(insert-before-markers-and-inherit &rest ARGS)` -> nil
 ///
-/// Text property inheritance is currently equivalent to plain insertion.
 pub(crate) fn builtin_insert_before_markers_and_inherit(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    super::editfns::builtin_insert_before_markers(eval, args)
+    builtin_insert_before_markers_and_inherit_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        args,
+    )
 }
 
 /// `(insert-buffer-substring BUFFER &optional START END)` -> nil
@@ -1898,7 +1843,56 @@ pub(crate) fn builtin_insert_in_state(
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
-    let pieces = collect_insert_pieces(&args)?;
+    insert_pieces_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        collect_insert_pieces(&args)?,
+        false,
+        false,
+    )
+}
+
+pub(crate) fn builtin_insert_and_inherit_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    insert_pieces_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        collect_insert_pieces(&args)?,
+        false,
+        true,
+    )
+}
+
+pub(crate) fn builtin_insert_before_markers_and_inherit_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    insert_pieces_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        collect_insert_pieces(&args)?,
+        true,
+        true,
+    )
+}
+
+fn insert_pieces_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    pieces: Vec<InsertPiece>,
+    before_markers: bool,
+    inherit: bool,
+) -> EvalResult {
     if pieces.iter().all(|piece| piece.text.is_empty()) {
         return Ok(Value::Nil);
     }
@@ -1918,9 +1912,16 @@ pub(crate) fn builtin_insert_in_state(
             continue;
         }
         let insert_pos = buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
-        let _ = buffers.insert_into_buffer(current_id, &piece.text);
+        if before_markers {
+            let _ = buffers.insert_into_buffer_before_markers(current_id, &piece.text);
+        } else {
+            let _ = buffers.insert_into_buffer(current_id, &piece.text);
+        }
         if let Some(str_table) = piece.text_props {
             let _ = buffers.append_buffer_text_properties(current_id, &str_table, insert_pos);
+        }
+        if inherit {
+            apply_inherited_text_properties(buffers, current_id, insert_pos, piece.text.len());
         }
     }
     Ok(Value::Nil)

@@ -2546,14 +2546,28 @@ fn insert_read_only_shape_and_noop_cases_match_gnu() {
                (error (list (car err) (bufferp (car (cdr err)))))))
            (with-temp-buffer
              (setq buffer-read-only t)
+             (condition-case err
+                 (insert-and-inherit \"x\")
+               (error (list (car err) (bufferp (car (cdr err)))))))
+           (with-temp-buffer
+             (setq buffer-read-only t)
+             (condition-case err
+                 (insert-before-markers-and-inherit \"x\")
+               (error (list (car err) (bufferp (car (cdr err)))))))
+           (with-temp-buffer
+             (setq buffer-read-only t)
              (list (insert)
                    (insert \"\")
                    (insert-char ?x 0)
+                   (insert-and-inherit)
+                   (insert-and-inherit \"\")
+                   (insert-before-markers-and-inherit)
+                   (insert-before-markers-and-inherit \"\")
                    (buffer-string))))",
     );
     assert_eq!(
         results[0],
-        r#"OK ((buffer-read-only t) (buffer-read-only t) (nil nil nil ""))"#
+        r#"OK ((buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (nil nil nil nil nil nil nil ""))"#
     );
 }
 
@@ -2568,6 +2582,35 @@ fn insert_char_nil_count_defaults_to_one_with_inherit() {
                  (get-text-property 3 'face)))",
     );
     assert_eq!(results[0], r#"OK ("abX" bold)"#);
+}
+
+#[test]
+fn insert_inherit_variants_match_gnu_property_and_marker_semantics() {
+    let results = eval_all(
+        "(list
+           (with-temp-buffer
+             (insert \"a\")
+             (put-text-property 1 2 'face 'bold)
+             (insert-and-inherit (propertize \"X\" 'face 'italic 'mouse-face 'highlight))
+             (list (buffer-substring-no-properties (point-min) (point-max))
+                   (get-text-property 2 'face)
+                   (get-text-property 2 'mouse-face)))
+           (with-temp-buffer
+             (insert \"ab\")
+             (put-text-property 1 2 'face 'bold)
+             (goto-char 2)
+             (let ((m (copy-marker (point))))
+               (insert-before-markers-and-inherit
+                (propertize \"X\" 'mouse-face 'highlight))
+               (list (buffer-substring-no-properties (point-min) (point-max))
+                     (marker-position m)
+                     (get-text-property 2 'face)
+                     (get-text-property 2 'mouse-face)))))",
+    );
+    assert_eq!(
+        results[0],
+        r#"OK (("aX" bold highlight) ("aXb" 3 bold highlight))"#
+    );
 }
 
 #[test]

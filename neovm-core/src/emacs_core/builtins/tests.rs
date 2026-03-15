@@ -1937,6 +1937,45 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
 }
 
 #[test]
+fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names() {
+    let mut eval = super::super::eval::Evaluator::new();
+    builtin_insert(&mut eval, vec![Value::string("a")]).unwrap();
+    crate::emacs_core::textprop::builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+        ],
+    )
+    .unwrap();
+
+    let text = Value::string("X");
+    let str_id = match text {
+        Value::Str(id) => id,
+        other => panic!("expected string value, got {other:?}"),
+    };
+    let mut table = crate::buffer::text_props::TextPropertyTable::new();
+    table.put_property(0, 1, "face", Value::symbol("italic"));
+    table.put_property(0, 1, "mouse-face", Value::symbol("highlight"));
+    crate::emacs_core::value::set_string_text_properties_table(str_id, table);
+
+    builtin_insert_and_inherit(&mut eval, vec![text]).unwrap();
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "aX");
+    assert_eq!(
+        buf.text_props.get_property(1, "face"),
+        Some(&Value::symbol("bold"))
+    );
+    assert_eq!(
+        buf.text_props.get_property(1, "mouse-face"),
+        Some(&Value::symbol("highlight"))
+    );
+}
+
+#[test]
 fn delete_all_overlays_clears_current_buffer() {
     let mut eval = super::super::eval::Evaluator::new();
     {
