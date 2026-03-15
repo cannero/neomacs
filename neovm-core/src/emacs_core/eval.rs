@@ -1317,24 +1317,9 @@ impl Evaluator {
             );
         };
         seed_autoload(
-            "format-seconds",
-            "time-date",
-            "Use format control STRING to format the number SECONDS.",
-        );
-        seed_autoload(
-            "format-spec",
-            "format-spec",
-            "Return a string based on FORMAT and SPECIFICATION.",
-        );
-        seed_autoload(
             "upcase-char",
             "misc",
             "Uppercasify ARG chars starting from point.  Point doesn't move.",
-        );
-        seed_autoload(
-            "safe-date-to-time",
-            "time-date",
-            "Parse a string DATE that represents a date-time and return a time value.",
         );
         seed_autoload(
             "describe-function",
@@ -1365,21 +1350,6 @@ impl Evaluator {
             "add-hook",
             "subr",
             "Add to the value of HOOK the function FUNCTION.",
-        );
-        seed_autoload_noninteractive(
-            "format-seconds",
-            "time-date",
-            "Use format control STRING to format the number SECONDS.",
-        );
-        seed_autoload_noninteractive(
-            "format-spec",
-            "format-spec",
-            "Return a string based on FORMAT and SPECIFICATION.",
-        );
-        seed_autoload_noninteractive(
-            "safe-date-to-time",
-            "time-date",
-            "Parse a string DATE that represents a date-time and return a time value.",
         );
         seed_autoload_noninteractive(
             "abbrev-get",
