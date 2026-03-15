@@ -2000,6 +2000,15 @@ pub(crate) fn builtin_insert_byte(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_insert_byte_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_insert_byte_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("insert-byte", &args, 2, 3)?;
     let byte = expect_fixnum(&args[0])?;
     if !(0..=255).contains(&byte) {
@@ -2013,24 +2022,36 @@ pub(crate) fn builtin_insert_byte(
         return Ok(Value::Nil);
     }
 
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
-            Some(buf.name.clone())
-        } else {
-            None
-        }
-    });
-    if let Some(name) = read_only_buffer_name {
-        return Err(signal("buffer-read-only", vec![Value::string(name)]));
-    }
-
-    let ch = char::from_u32(byte as u32).expect("byte range maps to a valid codepoint");
-    let to_insert = ch.to_string().repeat(count as usize);
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.insert_into_buffer(current_id, &to_insert);
+    let multibyte = buffers
+        .get(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
+        .multibyte;
+    if buffers
+        .get(current_id)
+        .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
+    {
+        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+    }
+
+    let unit = if !multibyte {
+        bytes_to_unibyte_storage_string(&[byte as u8])
+    } else if byte < 0x80 {
+        char::from_u32(byte as u32)
+            .expect("ASCII byte maps to a valid codepoint")
+            .to_string()
+    } else {
+        encode_nonunicode_char_for_storage((byte + 0x3FFF00) as u32)
+            .expect("raw byte char should encode")
+    };
+    let to_insert = unit.repeat(count as usize);
+    let insert_pos = buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
+    let _ = buffers.insert_into_buffer(current_id, &to_insert);
+    if args.get(2).is_some_and(|value| value.is_truthy()) {
+        apply_inherited_text_properties(buffers, current_id, insert_pos, to_insert.len());
+    }
     Ok(Value::Nil)
 }
 
@@ -2167,6 +2188,13 @@ pub(crate) fn builtin_buffer_enable_undo(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_enable_undo_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_enable_undo_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2178,21 +2206,21 @@ pub(crate) fn builtin_buffer_enable_undo(
     }
 
     let id = if args.is_empty() || matches!(args[0], Value::Nil) {
-        eval.buffers
+        buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
             .id
     } else {
         match &args[0] {
             Value::Buffer(id) => {
-                if eval.buffers.get(*id).is_none() {
+                if buffers.get(*id).is_none() {
                     return Ok(Value::Nil);
                 }
                 *id
             }
             Value::Str(name_id) => {
                 let name = with_heap(|h| h.get_string(*name_id).to_owned());
-                eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
+                buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
                         vec![Value::string(format!("No buffer named {name}"))],
@@ -2207,18 +2235,22 @@ pub(crate) fn builtin_buffer_enable_undo(
             }
         }
     };
-    let buf = eval
-        .buffers
-        .get_mut(id)
+    buffers
+        .configure_buffer_undo_list(id, Value::Nil)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    buf.undo_list.set_enabled(true);
-    buf.set_buffer_local("buffer-undo-list", Value::Nil);
     Ok(Value::Nil)
 }
 
 /// (buffer-disable-undo &optional BUFFER) -> t
 pub(crate) fn builtin_buffer_disable_undo(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_buffer_disable_undo_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_disable_undo_in_manager(
+    buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {
@@ -2232,14 +2264,14 @@ pub(crate) fn builtin_buffer_disable_undo(
     }
 
     let id = if args.is_empty() || matches!(args[0], Value::Nil) {
-        eval.buffers
+        buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
             .id
     } else {
         match &args[0] {
             Value::Buffer(id) => {
-                if eval.buffers.get(*id).is_none() {
+                if buffers.get(*id).is_none() {
                     return Err(signal(
                         "error",
                         vec![Value::string("Selecting deleted buffer")],
@@ -2249,7 +2281,7 @@ pub(crate) fn builtin_buffer_disable_undo(
             }
             Value::Str(name_id) => {
                 let name = with_heap(|h| h.get_string(*name_id).to_owned());
-                match eval.buffers.find_buffer_by_name(&name) {
+                match buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
                         return Err(signal(
@@ -2267,12 +2299,9 @@ pub(crate) fn builtin_buffer_disable_undo(
             }
         }
     };
-    let buf = eval
-        .buffers
-        .get_mut(id)
+    buffers
+        .configure_buffer_undo_list(id, Value::True)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    buf.undo_list.set_enabled(false);
-    buf.set_buffer_local("buffer-undo-list", Value::True);
     Ok(Value::True)
 }
 

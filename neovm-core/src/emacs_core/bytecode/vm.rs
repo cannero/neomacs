@@ -1825,6 +1825,15 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_insert_byte_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_insert_byte_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_subst_char_in_region_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_subst_char_in_region_in_state(
             &*self.shared.obarray,
@@ -1925,6 +1934,20 @@ impl<'a> Vm<'a> {
         crate::emacs_core::editfns::builtin_erase_buffer_in_state(
             &*self.shared.obarray,
             self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_buffer_enable_undo_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_enable_undo_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_buffer_disable_undo_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_disable_undo_in_manager(
             &mut *self.shared.buffers,
             args.to_vec(),
         )
@@ -2499,6 +2522,7 @@ impl<'a> Vm<'a> {
                 Some(self.builtin_buffer_chars_modified_tick_shared(args))
             }
             "insert-char" => Some(self.builtin_insert_char_shared(args)),
+            "insert-byte" => Some(self.builtin_insert_byte_shared(args)),
             "subst-char-in-region" => Some(self.builtin_subst_char_in_region_shared(args)),
             "bobp" => Some(self.builtin_bobp_shared(args)),
             "eobp" => Some(self.builtin_eobp_shared(args)),
@@ -2518,6 +2542,8 @@ impl<'a> Vm<'a> {
                 Some(self.builtin_delete_and_extract_region_shared(args))
             }
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
+            "buffer-enable-undo" => Some(self.builtin_buffer_enable_undo_shared(args)),
+            "buffer-disable-undo" => Some(self.builtin_buffer_disable_undo_shared(args)),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),

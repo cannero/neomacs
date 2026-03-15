@@ -2556,9 +2556,15 @@ fn insert_read_only_shape_and_noop_cases_match_gnu() {
                (error (list (car err) (bufferp (car (cdr err)))))))
            (with-temp-buffer
              (setq buffer-read-only t)
+             (condition-case err
+                 (insert-byte 120 1)
+               (error (list (car err) (bufferp (car (cdr err)))))))
+           (with-temp-buffer
+             (setq buffer-read-only t)
              (list (insert)
                    (insert \"\")
                    (insert-char ?x 0)
+                   (insert-byte 120 0)
                    (insert-and-inherit)
                    (insert-and-inherit \"\")
                    (insert-before-markers-and-inherit)
@@ -2567,7 +2573,7 @@ fn insert_read_only_shape_and_noop_cases_match_gnu() {
     );
     assert_eq!(
         results[0],
-        r#"OK ((buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (nil nil nil nil nil nil nil ""))"#
+        r#"OK ((buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (nil nil nil nil nil nil nil nil ""))"#
     );
 }
 

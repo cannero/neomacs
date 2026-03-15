@@ -2779,6 +2779,27 @@ fn byte_position_and_clear_bitmap_semantics() {
 fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     let mut eval = super::super::eval::Evaluator::new();
 
+    let disable_current =
+        builtin_buffer_disable_undo(&mut eval, vec![]).expect("buffer-disable-undo should work");
+    assert_eq!(disable_current, Value::True);
+    let current_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let current = eval.buffers.get(current_id).expect("current buffer");
+    assert!(!current.undo_list.is_enabled());
+    assert_eq!(
+        current.get_buffer_local("buffer-undo-list"),
+        Some(&Value::True)
+    );
+
+    let enable_current =
+        builtin_buffer_enable_undo(&mut eval, vec![]).expect("buffer-enable-undo should work");
+    assert_eq!(enable_current, Value::Nil);
+    let current = eval.buffers.get(current_id).expect("current buffer");
+    assert!(current.undo_list.is_enabled());
+    assert_eq!(
+        current.get_buffer_local("buffer-undo-list"),
+        Some(&Value::Nil)
+    );
+
     let enable_missing_name =
         builtin_buffer_enable_undo(&mut eval, vec![Value::string("*undo-enable-missing*")])
             .expect_err("buffer-enable-undo missing string should signal");
@@ -7546,6 +7567,44 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
         }
         other => panic!("expected signal, got: {other:?}"),
     }
+}
+
+#[test]
+fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+
+    builtin_insert_byte(&mut eval, vec![Value::Int(65), Value::Int(2)])
+        .expect("insert-byte should insert ASCII bytes");
+    let ascii = builtin_buffer_string(&mut eval, vec![])
+        .expect("buffer-string should evaluate")
+        .as_str()
+        .expect("buffer-string should return text")
+        .to_string();
+    assert_eq!(ascii, "AA");
+
+    builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
+    builtin_insert_byte(&mut eval, vec![Value::Int(200), Value::Int(1)])
+        .expect("insert-byte should insert raw byte chars in multibyte buffers");
+    let multibyte = builtin_buffer_string(&mut eval, vec![])
+        .expect("buffer-string should evaluate")
+        .as_str()
+        .expect("buffer-string should return text")
+        .to_string();
+    assert_eq!(decode_storage_char_codes(&multibyte), vec![0x3FFF00 + 200]);
+
+    builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
+    let current_id = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .set_buffer_multibyte_flag(current_id, false)
+        .expect("set-buffer-multibyte should accept current buffer");
+    builtin_insert_byte(&mut eval, vec![Value::Int(200), Value::Int(1)])
+        .expect("insert-byte should insert plain bytes in unibyte buffers");
+    let unibyte = builtin_buffer_string(&mut eval, vec![])
+        .expect("buffer-string should evaluate")
+        .as_str()
+        .expect("buffer-string should return text")
+        .to_string();
+    assert_eq!(decode_storage_char_codes(&unibyte), vec![200]);
 }
 
 #[test]

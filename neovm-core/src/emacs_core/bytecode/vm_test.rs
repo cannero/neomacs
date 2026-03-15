@@ -1060,16 +1060,20 @@ fn vm_insert_read_only_shape_and_noop_cases_match_gnu() {
                   (condition-case err
                       (insert-before-markers-and-inherit "x")
                     (error (list (car err) (bufferp (car (cdr err))))))
+                  (condition-case err
+                      (insert-byte 120 1)
+                    (error (list (car err) (bufferp (car (cdr err))))))
                   (list (insert)
                         (insert "")
                         (insert-char ?x 0)
+                        (insert-byte 120 0)
                         (insert-and-inherit)
                         (insert-and-inherit "")
                         (insert-before-markers-and-inherit)
                         (insert-before-markers-and-inherit "")
                         (buffer-string))))"#
         ),
-        r#"OK ((buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (nil nil nil nil nil nil nil ""))"#
+        r#"OK ((buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (buffer-read-only t) (nil nil nil nil nil nil nil nil ""))"#
     );
 }
 
@@ -1103,6 +1107,44 @@ fn vm_insert_inherit_variants_use_shared_runtime_state() {
                                    (get-text-property 2 'mouse-face)))))))"#
         ),
         r#"OK (("aX" bold highlight) ("aXb" 3 bold highlight))"#
+    );
+}
+
+#[test]
+fn vm_insert_byte_and_buffer_undo_toggles_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (list (progn
+                         (insert-byte 65 2)
+                         (buffer-string))
+                       (progn
+                         (erase-buffer)
+                         (insert-byte 200 1)
+                         (append (buffer-string) nil))
+                       (progn
+                         (buffer-enable-undo)
+                         buffer-undo-list)
+                       (progn
+                         (buffer-disable-undo)
+                         buffer-undo-list)))"#
+        ),
+        r#"OK ("AA" (4194248) nil t)"#
+    );
+
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (insert-byte 200 1)
+                 (append (buffer-string) nil))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+                eval.buffers
+                    .set_buffer_multibyte_flag(current, false)
+                    .expect("set-buffer-multibyte should accept scratch buffer");
+            },
+        ),
+        "OK (200)"
     );
 }
 
