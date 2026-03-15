@@ -840,7 +840,7 @@ fn regexp_search_autoloads_startup_are_autoloaded() {
 
 #[test]
 fn upcase_char_startup_is_autoloaded() {
-    let ev = Evaluator::new();
+    let ev = eval_with_ldefs_boot_autoloads(&["upcase-char"]);
     let function = ev
         .obarray
         .symbol_function("upcase-char")

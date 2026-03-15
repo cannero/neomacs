@@ -1317,11 +1317,6 @@ impl Evaluator {
             );
         };
         seed_autoload(
-            "upcase-char",
-            "misc",
-            "Uppercasify ARG chars starting from point.  Point doesn't move.",
-        );
-        seed_autoload(
             "describe-function",
             "help-fns",
             "Display the full documentation of FUNCTION (a symbol).",
