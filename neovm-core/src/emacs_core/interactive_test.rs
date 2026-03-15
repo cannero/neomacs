@@ -921,7 +921,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "base64-encode-region",
         "base64url-encode-region",
         "decode-coding-region",
-        "describe-function",
         "display-buffer",
         "encode-coding-region",
         "eval-buffer",

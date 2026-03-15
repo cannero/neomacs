@@ -1316,16 +1316,6 @@ impl Evaluator {
                 ]),
             );
         };
-        seed_autoload(
-            "describe-function",
-            "help-fns",
-            "Display the full documentation of FUNCTION (a symbol).",
-        );
-        seed_autoload(
-            "describe-variable",
-            "help-fns",
-            "Display the full documentation of VARIABLE (a symbol).",
-        );
         drop(seed_autoload);
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(
