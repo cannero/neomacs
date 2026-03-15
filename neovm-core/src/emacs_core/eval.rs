@@ -1342,17 +1342,6 @@ impl Evaluator {
             "Uppercasify ARG chars starting from point.  Point doesn't move.",
         );
         seed_autoload(
-            "bounds-of-thing-at-point",
-            "thingatpt",
-            "Determine the start and end buffer locations for the THING at point.",
-        );
-        seed_autoload("thing-at-point", "thingatpt", "Return the THING at point.");
-        seed_autoload(
-            "symbol-at-point",
-            "thingatpt",
-            "Return the symbol at point, or nil if none is found.",
-        );
-        seed_autoload(
             "safe-date-to-time",
             "time-date",
             "Parse a string DATE that represents a date-time and return a time value.",
@@ -1416,17 +1405,6 @@ impl Evaluator {
             "add-hook",
             "subr",
             "Add to the value of HOOK the function FUNCTION.",
-        );
-        seed_autoload_noninteractive(
-            "bounds-of-thing-at-point",
-            "thingatpt",
-            "Determine the start and end buffer locations for the THING at point.",
-        );
-        seed_autoload_noninteractive("thing-at-point", "thingatpt", "Return the THING at point.");
-        seed_autoload_noninteractive(
-            "symbol-at-point",
-            "thingatpt",
-            "Return the symbol at point, or nil if none is found.",
         );
         seed_autoload_noninteractive(
             "format-seconds",

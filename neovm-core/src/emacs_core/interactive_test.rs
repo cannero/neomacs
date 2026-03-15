@@ -1672,7 +1672,11 @@ fn describe_key_briefly_loaded_wrong_type_matches_gnu() {
 
 #[test]
 fn thingatpt_startup_functions_are_autoloaded() {
-    let ev = Evaluator::new();
+    let ev = eval_with_ldefs_boot_autoloads(&[
+        "bounds-of-thing-at-point",
+        "thing-at-point",
+        "symbol-at-point",
+    ]);
 
     for name in [
         "bounds-of-thing-at-point",
