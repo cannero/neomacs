@@ -665,6 +665,28 @@ fn abbrev_mode_startup_is_autoloaded() {
 }
 
 #[test]
+fn bookmark_commands_startup_are_autoloaded() {
+    let ev = Evaluator::new();
+    for name in [
+        "bookmark-delete",
+        "bookmark-jump",
+        "bookmark-load",
+        "bookmark-rename",
+        "bookmark-save",
+        "bookmark-set",
+    ] {
+        let function = ev
+            .obarray
+            .symbol_function(name)
+            .unwrap_or_else(|| panic!("missing {name} startup function cell"));
+        assert!(
+            crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} startup function cell to be a GNU autoload"
+        );
+    }
+}
+
+#[test]
 fn commandp_true_for_additional_builtin_commands() {
     let mut ev = Evaluator::new();
     for name in [
