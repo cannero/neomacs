@@ -26,8 +26,8 @@ For each module you bring online:
 1. **Expose the module through `elisp/mod.rs`.** Add `pub mod <module>;` to the module list so the compiler builds it when NeoVM is enabled. Keep the list alphabetically grouped with adjacent domains.
 2. **Register builtins.** Ensure the module declares builtin definitions (via `builtin_registry::declare_builtin!` or similar) and that `builtin_registry` picks up the functions. This typically means creating a `dispatch` function that adds entries to the VM’s registry when the module is initialized.
 3. **Sync compatibility cases.** Expand `test/neovm/vm-compat` with relevant `.forms` files (or reuse existing ones) that exercise the new builtins so the NeoVM output can be compared to the GNU Emacs oracle. Update additional gating scripts if the subsystem affects `math`, `display`, or builtin registry counts.
-4. **Run the compatibility gate.** Execute the targeted harness (e.g., `make -C test/neovm/vm-compat check-neovm` or the specific builtin registry gate) and verify there are no regressions. Add references to `docs/neomacs-direct-c-to-rust-plan.md` and `docs/ongoing-tasks.md` describing the new slice once it is checked in.
-5. **Document your slice.** Capture the change inside `docs/neomacs-direct-c-to-rust-plan.md`, noting which compatibility slice you completed and how it affects the NeoVM minus the C core.
+4. **Run the compatibility gate.** Execute the targeted harness (e.g., `make -C test/neovm/vm-compat check-neovm` or the specific builtin registry gate) and verify there are no regressions. Record the completed slice in `docs/ongoing-tasks.md` so the active backlog stays current.
+5. **Document your slice.** Capture the change in the relevant plan or design note under `docs/plans/` when the work needs durable context beyond the running task log.
 
 ## Suggested first slices
 

@@ -147,7 +147,7 @@ Concurrency
 
 ## Decoupling the Editor from NeoVM
 
-Neomacs intentionally separates the editor storefront from the Elisp VM runtime. The C core remains the default backend but is registrable behind a `rust-backend` compile-time flag so the editor can fall back to GNU Emacs behavior while the Rust copies mature. The first-class surface for this split is `rust/neovm-host-abi`, which keeps the host/editor API idiomatic Rust (with `HostAbi`, `Affinity`, `EffectClass`, task snapshots/patches, and the scheduler hooks) while keeping `src/emacs` untouched until the runtime is stable. `Vm<H, S>` only depends on the host traits; editor-specific state (display, buffers, input queues, GTK/X11 handles, etc.) lives in the host implementation and communicates via safe RPC.
+Neomacs intentionally separates the editor storefront from the Elisp VM runtime. The runtime path is now Rust-only: `neomacs-bin` and the surrounding Rust crates host the editor, while `neovm-core` owns the Elisp VM semantics. The first-class surface for this split is `rust/neovm-host-abi`, which keeps the host/editor API idiomatic Rust (with `HostAbi`, `Affinity`, `EffectClass`, task snapshots/patches, and the scheduler hooks). `Vm<H, S>` only depends on the host traits; editor-specific state (display, buffers, input queues, platform window handles, etc.) lives in the host implementation and communicates via safe RPC.
 
 Decoupling lets us treat editors as just another host. Every buffer/window/frame lives in the host; the VM only sees handles and dispatches requests through the ABI. The host still owns visual layout, asynchronous input, and windowing, but NeoVM can now run on other hosts (e.g., headless test harnesses or alternative GUIs) without dragging editor plumbing into the runtime.
 
@@ -216,9 +216,9 @@ Implemented now:
   - `thread-name` on the main thread returns `nil` (no synthetic `"main"` name)
   - `all-threads` drops joined thread handles while preserving join idempotency on the handle object
   - compatibility corpus includes oracle-checked `cases/thread-join-semantics`, `cases/thread-join-error-paths`, `cases/thread-last-error-publication`, `cases/thread-last-error-clear-flag`, `cases/thread-name-semantics`, `cases/thread-all-threads-semantics`, `cases/thread-signal-semantics`, `cases/thread-sync-error-payloads`, `cases/thread-sync-semantics`, and `cases/thread-condition-wait-arity`
-- configure-time core backend selection: `--with-neovm-core-backend=emacs-c|rust`
-  - `emacs-c` keeps the current legacy core path
-  - `rust` enables the future Rust-core build mode surface for migration
+- single runtime path: the Rust host/editor stack plus `neovm-core`
+  - there is no configure-time backend switch anymore
+  - compatibility with GNU Emacs is achieved through Rust C-equivalent primitives plus upstream Lisp loading, not by retaining an Emacs C fallback backend
 - Source-only loading policy in `neovm-core` loader:
   - load-path suffix resolution uses source-first policy (`.el`, not `.elc`)
   - explicit `.elc` rejection with `file-error` and actionable message
