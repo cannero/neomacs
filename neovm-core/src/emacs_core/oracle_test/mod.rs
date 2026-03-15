@@ -676,6 +676,8 @@ mod r#if;
 mod if_advanced;
 #[path = "if-cond-when-unless-comprehensive.rs"]
 mod if_cond_when_unless_comprehensive;
+#[path = "indent-to.rs"]
+mod indent_to;
 #[path = "indirect-function.rs"]
 mod indirect_function;
 mod insert;
