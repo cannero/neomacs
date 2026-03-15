@@ -1327,16 +1327,6 @@ impl Evaluator {
             "Return a string based on FORMAT and SPECIFICATION.",
         );
         seed_autoload(
-            "string-clean-whitespace",
-            "subr-x",
-            "Clean up whitespace in STRING.",
-        );
-        seed_autoload(
-            "string-glyph-split",
-            "subr-x",
-            "Split STRING into a list of strings representing separate glyphs.",
-        );
-        seed_autoload(
             "upcase-char",
             "misc",
             "Uppercasify ARG chars starting from point.  Point doesn't move.",
@@ -1375,11 +1365,6 @@ impl Evaluator {
             "kbd-macro-query",
             "macros",
             "Query user during kbd macro execution.",
-        );
-        seed_autoload(
-            "string-pixel-width",
-            "subr-x",
-            "Return the width of STRING in pixels.",
         );
         drop(seed_autoload);
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
@@ -1545,21 +1530,6 @@ impl Evaluator {
             "use-region-p",
             "simple",
             "Return t if Transient Mark mode is enabled and the mark is active.",
-        );
-        seed_autoload_noninteractive(
-            "string-clean-whitespace",
-            "subr-x",
-            "Clean up whitespace in STRING.",
-        );
-        seed_autoload_noninteractive(
-            "string-glyph-split",
-            "subr-x",
-            "Split STRING into a list of strings representing separate glyphs.",
-        );
-        seed_autoload_noninteractive(
-            "string-pixel-width",
-            "subr-x",
-            "Return the width of STRING in pixels.",
         );
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.

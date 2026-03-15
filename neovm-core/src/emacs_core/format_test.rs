@@ -1,6 +1,8 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
+use crate::emacs_core::load::{
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, create_bootstrap_evaluator,
+};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
@@ -11,6 +13,15 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
         .iter()
         .map(format_eval_result)
         .collect()
+}
+
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
+    let mut eval = Evaluator::new();
+    for name in names {
+        eval.obarray_mut().fmakunbound(name);
+    }
+    apply_ldefs_boot_autoloads_for_names(&mut eval, names).expect("ldefs-boot autoload restore");
+    eval
 }
 
 // ===================================================================
@@ -281,7 +292,7 @@ fn string_clean_whitespace_bootstrap_matches_gnu_elisp() {
 
 #[test]
 fn string_pixel_width_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["string-pixel-width"]);
     let function = eval
         .obarray
         .symbol_function("string-pixel-width")
