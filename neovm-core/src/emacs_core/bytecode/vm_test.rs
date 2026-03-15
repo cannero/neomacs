@@ -1494,6 +1494,25 @@ fn vm_buffer_manager_query_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_charset_region_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "aé😀")
+                 (list
+                  (find-charset-region 1 4)
+                  (find-charset-region 2 3)
+                  (find-charset-region 4 4)
+                  (charset-after 1)
+                  (charset-after 2)
+                  (charset-after 3)
+                  (charset-after 4)))"#
+        ),
+        r#"OK ((ascii unicode unicode-bmp) (unicode-bmp) (ascii) ascii unicode-bmp unicode nil)"#
+    );
+}
+
+#[test]
 fn vm_when_unless() {
     assert_eq!(vm_eval_str("(when t 1 2 3)"), "OK 3");
     assert_eq!(vm_eval_str("(when nil 1 2 3)"), "OK nil");

@@ -2137,6 +2137,20 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_find_charset_region_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::charset::builtin_find_charset_region_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_charset_after_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::charset::builtin_charset_after_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_skip_chars_forward_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::navigation::builtin_skip_chars_forward_in_manager(
             &mut *self.shared.buffers,
@@ -3195,6 +3209,8 @@ impl<'a> Vm<'a> {
             ),
             "match-data--translate" => Some(self.builtin_match_data_translate_shared(args)),
             "replace-match" => Some(self.builtin_replace_match_shared(args)),
+            "find-charset-region" => Some(self.builtin_find_charset_region_shared(args)),
+            "charset-after" => Some(self.builtin_charset_after_shared(args)),
             _ => None,
         }
     }

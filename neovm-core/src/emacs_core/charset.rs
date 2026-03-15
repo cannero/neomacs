@@ -767,13 +767,19 @@ pub(crate) fn builtin_find_charset_region_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_find_charset_region_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_find_charset_region_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("find-charset-region", &args, 2)?;
     expect_max_args("find-charset-region", &args, 3)?;
     let beg = expect_int_or_marker(&args[0])?;
     let end = expect_int_or_marker(&args[1])?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -979,9 +985,15 @@ pub(crate) fn builtin_charset_after_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_charset_after_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_charset_after_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("charset-after", &args, 1)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
