@@ -655,7 +655,6 @@ fn commandp_true_for_builtin_editing_commands() {
         "scroll-up-command",
         "scroll-down-command",
         "recenter",
-        "recenter-top-bottom",
         "move-beginning-of-line",
         "move-end-of-line",
     ] {
@@ -939,7 +938,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "re-search-forward",
         "redirect-debugging-output",
         "rename-buffer",
-        "replace-buffer-contents",
         "select-frame",
         "set-buffer-process-coding-system",
         "transpose-regions",
@@ -950,6 +948,23 @@ fn commandp_true_for_additional_builtin_commands() {
         "unix-sync",
         "write-region",
         "x-menu-bar-open-internal",
+    ] {
+        let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
+            .expect("commandp call");
+        assert!(result.is_truthy(), "expected commandp true for {name}");
+    }
+}
+
+#[test]
+fn commandp_true_for_loaded_lisp_commands_after_bootstrap() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    for name in [
+        "newline-and-indent",
+        "recenter-top-bottom",
+        "replace-buffer-contents",
+        "tab-to-tab-stop",
+        "transient-mark-mode",
     ] {
         let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .expect("commandp call");
