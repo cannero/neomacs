@@ -917,7 +917,6 @@ fn remove_hook_startup_is_noninteractive_autoload() {
 fn commandp_true_for_additional_builtin_commands() {
     let mut ev = Evaluator::new();
     for name in [
-        "bookmark-jump",
         "base64-decode-region",
         "base64-encode-region",
         "base64url-encode-region",
@@ -953,7 +952,6 @@ fn commandp_true_for_additional_builtin_commands() {
         "unix-sync",
         "write-region",
         "x-menu-bar-open-internal",
-        "yank-rectangle",
     ] {
         let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .expect("commandp call");

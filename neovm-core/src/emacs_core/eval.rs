@@ -1317,36 +1317,6 @@ impl Evaluator {
             );
         };
         seed_autoload(
-            "bookmark-delete",
-            "bookmark",
-            "Delete BOOKMARK-NAME from the bookmark list.",
-        );
-        seed_autoload(
-            "bookmark-jump",
-            "bookmark",
-            "Jump to bookmark BOOKMARK (a point in some file).",
-        );
-        seed_autoload(
-            "bookmark-load",
-            "bookmark",
-            "Load bookmarks from FILE (which must be in bookmark format).",
-        );
-        seed_autoload(
-            "bookmark-rename",
-            "bookmark",
-            "Change the name of OLD-NAME bookmark to NEW-NAME name.",
-        );
-        seed_autoload(
-            "bookmark-save",
-            "bookmark",
-            "Save currently defined bookmarks in FILE.",
-        );
-        seed_autoload(
-            "bookmark-set",
-            "bookmark",
-            "Set a bookmark named NAME at the current location.",
-        );
-        seed_autoload(
             "format-seconds",
             "time-date",
             "Use format control STRING to format the number SECONDS.",
@@ -1392,17 +1362,6 @@ impl Evaluator {
             "auth-source",
             "Read a password, prompting with PROMPT, and return it.",
         );
-        seed_autoload("clear-rectangle", "rect", "Blank out the region-rectangle.");
-        seed_autoload(
-            "delete-extract-rectangle",
-            "rect",
-            "Delete the contents of the rectangle with corners at START and END.",
-        );
-        seed_autoload(
-            "delete-rectangle",
-            "rect",
-            "Delete (don't save) text in the region-rectangle.",
-        );
         seed_autoload(
             "describe-function",
             "help-fns",
@@ -1419,11 +1378,6 @@ impl Evaluator {
             "Display the full documentation of VARIABLE (a symbol).",
         );
         seed_autoload(
-            "extract-rectangle",
-            "rect",
-            "Return the contents of the rectangle with corners at START and END.",
-        );
-        seed_autoload(
             "insert-kbd-macro",
             "macros",
             "Insert in buffer the definition of kbd macro MACRONAME, as Lisp code.",
@@ -1432,11 +1386,6 @@ impl Evaluator {
             "kmacro-name-last-macro",
             "kmacro",
             "Assign a name to the last keyboard macro defined.",
-        );
-        seed_autoload(
-            "insert-rectangle",
-            "rect",
-            "Insert text of RECTANGLE with upper left corner at point.",
         );
         seed_autoload(
             "name-last-kbd-macro",
@@ -1449,34 +1398,14 @@ impl Evaluator {
             "Query user during kbd macro execution.",
         );
         seed_autoload(
-            "kill-rectangle",
-            "rect",
-            "Delete the region-rectangle and save it as the last killed one.",
-        );
-        seed_autoload(
-            "open-rectangle",
-            "rect",
-            "Blank out the region-rectangle, shifting text right.",
-        );
-        seed_autoload(
             "string-pixel-width",
             "subr-x",
             "Return the width of STRING in pixels.",
         );
         seed_autoload(
-            "string-rectangle",
-            "rect",
-            "Replace rectangle contents with STRING on each line.",
-        );
-        seed_autoload(
             "x-display-color-p",
             "faces",
             "Obsolete alias for `display-color-p'.",
-        );
-        seed_autoload(
-            "yank-rectangle",
-            "rect",
-            "Yank the last killed rectangle with upper left corner at point.",
         );
         drop(seed_autoload);
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {

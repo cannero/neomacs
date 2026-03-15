@@ -1,7 +1,10 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::bytecode::opcode::Op;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::{
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
+    create_bootstrap_evaluator_cached,
+};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
@@ -12,6 +15,15 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .iter()
         .map(format_eval_result)
         .collect()
+}
+
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
+    let mut eval = Evaluator::new();
+    for name in names {
+        eval.obarray_mut().fmakunbound(name);
+    }
+    apply_ldefs_boot_autoloads_for_names(&mut eval, names).expect("ldefs-boot autoload restore");
+    eval
 }
 
 #[test]
@@ -28,7 +40,7 @@ fn rectangle_state_default_trait() {
 
 #[test]
 fn extract_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["extract-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("extract-rectangle")
@@ -88,7 +100,7 @@ fn extract_rectangle_line_validates_args() {
 
 #[test]
 fn delete_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["delete-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("delete-rectangle")
@@ -111,7 +123,7 @@ fn delete_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn kill_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["kill-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("kill-rectangle")
@@ -138,7 +150,7 @@ fn kill_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn yank_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["yank-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("yank-rectangle")
@@ -211,7 +223,7 @@ fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
 
 #[test]
 fn insert_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["insert-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("insert-rectangle")
@@ -255,7 +267,7 @@ fn insert_rectangle_loaded_rejects_non_string_elements() {
 
 #[test]
 fn open_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["open-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("open-rectangle")
@@ -278,7 +290,7 @@ fn open_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn clear_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["clear-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("clear-rectangle")
@@ -301,7 +313,7 @@ fn clear_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn string_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["string-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("string-rectangle")
@@ -334,7 +346,7 @@ fn string_rectangle_loaded_rejects_non_char_or_string() {
 
 #[test]
 fn delete_extract_rectangle_startup_is_autoloaded() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = eval_with_ldefs_boot_autoloads(&["delete-extract-rectangle"]);
     let function = eval
         .obarray
         .symbol_function("delete-extract-rectangle")
