@@ -851,7 +851,7 @@ fn subr_arity_value(name: &str) -> Value {
         | "posix-search-backward" => arity_cons(1, Some(4)),
         "add-variable-watcher" => arity_cons(2, Some(2)),
         "remove-variable-watcher" | "narrow-to-region" => arity_cons(2, Some(2)),
-        "save-buffer" | "scroll-down" | "scroll-up" => arity_cons(0, Some(1)),
+        "scroll-down" | "scroll-up" => arity_cons(0, Some(1)),
         "load-average" => arity_cons(0, Some(1)),
         "select-window" | "minor-mode-key-binding" => arity_cons(1, Some(2)),
         "select-frame" => arity_cons(1, Some(2)),

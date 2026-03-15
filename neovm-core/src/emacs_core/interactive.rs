@@ -378,8 +378,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "capitalize-region"
             | "upcase-initials-region"
             | "switch-to-buffer"
-            | "find-file"
-            | "save-buffer"
             | "select-frame"
             | "set-mark-command"
             | "recenter-top-bottom"
@@ -1476,32 +1474,6 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Evaluator, args: Vec<Value>
 pub(crate) fn builtin_keyboard_quit(_eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
     expect_args("keyboard-quit", &args, 0)?;
     Err(signal("quit", vec![]))
-}
-
-/// `(find-file &optional FILENAME WILDCARDS)` -- visit FILENAME.
-///
-/// In batch mode interactive invocation without FILENAME signals EOF.
-pub(crate) fn builtin_find_file_command(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    if args.is_empty() || args[0].is_nil() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    super::fileio::builtin_find_file_noselect(eval, vec![args[0]])
-}
-
-/// `(save-buffer &optional ARG)` -- save current buffer.
-///
-/// In batch mode interactive invocation prompts for a file name and hits EOF.
-pub(crate) fn builtin_save_buffer_command(_eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    if args.is_empty() || args[0].is_nil() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    Ok(Value::Nil)
 }
 
 /// `(key-binding KEY &optional ACCEPT-DEFAULTS NO-REMAP POSITION)`

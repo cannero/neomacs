@@ -146,6 +146,28 @@ fn gnu_simple_execute_extended_command_eval() -> Evaluator {
     ev
 }
 
+fn gnu_files_command_eval() -> Evaluator {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let files_path = project_root.join("lisp/files.el");
+    let files_source = fs::read_to_string(&files_path).expect("read GNU files.el");
+
+    let mut ev = gnu_simple_command_execute_eval();
+    for marker in [
+        "(defun find-file-read-args (prompt mustmatch)",
+        "(defun find-file (filename &optional wildcards)",
+        "(defun save-buffer (&optional arg)",
+    ] {
+        eval_first_form_after_marker(&mut ev, &files_source, marker);
+    }
+    ev
+}
+
+fn gnu_files_command_eval_all(src: &str) -> Vec<String> {
+    let mut ev = gnu_files_command_eval();
+    eval_all_with(&mut ev, src)
+}
+
 fn gnu_simple_execute_extended_command_eval_all(src: &str) -> Vec<String> {
     let mut ev = gnu_simple_execute_extended_command_eval();
     eval_all_with(&mut ev, src)
@@ -2169,39 +2191,23 @@ fn call_interactively_builtin_copy_region_as_kill_without_mark_signals_error() {
 }
 
 #[test]
-fn command_execute_builtin_find_file_reads_stdin_in_batch() {
-    let mut ev = gnu_simple_command_execute_eval();
-    let result = ev
-        .apply(
-            Value::symbol("command-execute"),
-            vec![Value::symbol("find-file")],
-        )
-        .expect_err("command-execute find-file should signal end-of-file in batch");
-    match result {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "end-of-file");
-            assert_eq!(sig.data, vec![Value::string("Error reading from stdin")]);
-        }
-        other => panic!("unexpected flow: {other:?}"),
-    }
+fn find_file_is_owned_by_gnu_files_el() {
+    let results = gnu_files_command_eval_all(
+        r#"(list
+             (commandp 'find-file)
+             (subrp (symbol-function 'find-file)))"#,
+    );
+    assert_eq!(results[0], "OK (t nil)");
 }
 
 #[test]
-fn command_execute_builtin_save_buffer_reads_stdin_in_batch() {
-    let mut ev = gnu_simple_command_execute_eval();
-    let result = ev
-        .apply(
-            Value::symbol("command-execute"),
-            vec![Value::symbol("save-buffer")],
-        )
-        .expect_err("command-execute save-buffer should signal end-of-file in batch");
-    match result {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "end-of-file");
-            assert_eq!(sig.data, vec![Value::string("Error reading from stdin")]);
-        }
-        other => panic!("unexpected flow: {other:?}"),
-    }
+fn save_buffer_is_owned_by_gnu_files_el() {
+    let results = gnu_files_command_eval_all(
+        r#"(list
+             (commandp 'save-buffer)
+             (subrp (symbol-function 'save-buffer)))"#,
+    );
+    assert_eq!(results[0], "OK (t nil)");
 }
 
 #[test]
