@@ -713,6 +713,7 @@ fn simple_command_autoloads_startup_are_autoloaded() {
     let mut ev = Evaluator::new();
     for name in [
         "exchange-point-and-mark",
+        "list-processes",
         "process-menu-delete-process",
         "process-menu-mode",
     ] {

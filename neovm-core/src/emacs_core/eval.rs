@@ -1490,6 +1490,11 @@ impl Evaluator {
             "Blank out the region-rectangle, shifting text right.",
         );
         seed_autoload(
+            "list-processes",
+            "simple",
+            "Display a list of subprocesses.",
+        );
+        seed_autoload(
             "process-menu-delete-process",
             "simple",
             "Delete the process described on the current line.",

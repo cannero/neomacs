@@ -454,7 +454,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "lossage-size"
             | "malloc-info"
             | "malloc-trim"
-            | "list-processes"
             | "local-set-key"
             | "make-directory"
             | "make-frame"
