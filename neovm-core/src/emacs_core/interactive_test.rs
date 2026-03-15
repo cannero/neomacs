@@ -724,6 +724,21 @@ fn simple_command_autoloads_startup_are_autoloaded() {
 }
 
 #[test]
+fn regexp_search_autoloads_startup_are_autoloaded() {
+    let ev = Evaluator::new();
+    for name in ["search-forward-regexp", "search-backward-regexp"] {
+        let function = ev
+            .obarray
+            .symbol_function(name)
+            .unwrap_or_else(|| panic!("missing {name} startup function cell"));
+        assert!(
+            crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} startup function cell to be a GNU autoload"
+        );
+    }
+}
+
+#[test]
 fn commandp_true_for_additional_builtin_commands() {
     let mut ev = Evaluator::new();
     for name in [

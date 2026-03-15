@@ -489,8 +489,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "redirect-debugging-output"
             | "re-search-backward"
             | "re-search-forward"
-            | "search-backward-regexp"
-            | "search-forward-regexp"
             | "recursive-edit"
             | "remove-hook"
             | "rename-buffer"
