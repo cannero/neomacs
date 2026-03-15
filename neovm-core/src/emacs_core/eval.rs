@@ -6020,6 +6020,17 @@ impl Evaluator {
             (None, body_start)
         };
 
+        let mut body_start = body_start;
+        while let Some(Expr::List(items)) = tail.get(body_start) {
+            if items.first().is_some_and(
+                |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "declare"),
+            ) {
+                body_start += 1;
+            } else {
+                break;
+            }
+        }
+
         let params_value = quote_to_value(&tail[0]);
         let body_value = Value::list(tail[body_start..].iter().map(quote_to_value).collect());
         let env_value = if self.lexical_binding() || self.lexenv != Value::Nil {

@@ -5,7 +5,7 @@
 //!   are interactive commands and their argument specifications.
 //! - Built-in functions: `call-interactively`, `interactive-p`,
 //!   `called-interactively-p`, `commandp`,
-//!   `execute-extended-command`, `key-binding`, `local-key-binding`,
+//!   `key-binding`, `local-key-binding`,
 //!   `minor-mode-key-binding`, `where-is-internal`,
 //!   `substitute-command-keys`, `describe-key-briefly`, `this-command-keys`,
 //!   `this-command-keys-vector`, `thing-at-point`, `bounds-of-thing-at-point`,
@@ -348,7 +348,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "eval-expression"
             | "self-insert-command"
             | "newline"
-            | "execute-extended-command"
             | "forward-char"
             | "backward-char"
             | "delete-char"
@@ -567,11 +566,28 @@ fn expr_is_interactive_form(expr: &Expr) -> bool {
     }
 }
 
-fn lambda_body_has_interactive_form(body: &[Expr]) -> bool {
+fn expr_is_declare_form(expr: &Expr) -> bool {
+    match expr {
+        Expr::List(items) => items
+            .first()
+            .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "declare")),
+        _ => false,
+    }
+}
+
+fn lambda_body_metadata_end(body: &[Expr]) -> usize {
     let mut body_index = 0;
     if matches!(body.first(), Some(Expr::Str(_))) {
         body_index = 1;
     }
+    while body.get(body_index).is_some_and(expr_is_declare_form) {
+        body_index += 1;
+    }
+    body_index
+}
+
+fn lambda_body_has_interactive_form(body: &[Expr]) -> bool {
+    let body_index = lambda_body_metadata_end(body);
     body.get(body_index).is_some_and(expr_is_interactive_form)
 }
 
@@ -613,8 +629,21 @@ fn quoted_lambda_has_interactive_form(value: &Value) -> bool {
     if matches!(items.get(body_index), Some(Value::Str(_))) {
         body_index += 1;
     }
+    while items.get(body_index).is_some_and(value_is_declare_form) {
+        body_index += 1;
+    }
 
     items.get(body_index).is_some_and(value_is_interactive_form)
+}
+
+fn value_is_declare_form(value: &Value) -> bool {
+    match value {
+        Value::Cons(cell) => {
+            let pair = read_cons(*cell);
+            pair.car.as_symbol_name() == Some("declare")
+        }
+        _ => false,
+    }
 }
 
 fn resolve_function_designator_symbol(eval: &Evaluator, name: &str) -> Option<(String, Value)> {
@@ -976,7 +1005,10 @@ fn parse_interactive_spec(expr: &Expr) -> Option<ParsedInteractiveSpec> {
 }
 
 fn parsed_interactive_spec_from_lambda(lambda: &LambdaData) -> Option<ParsedInteractiveSpec> {
-    lambda.body.first().and_then(parse_interactive_spec)
+    lambda
+        .body
+        .get(lambda_body_metadata_end(&lambda.body))
+        .and_then(parse_interactive_spec)
 }
 
 fn interactive_form_value_to_args(value: Value) -> Result<Vec<Value>, Flow> {
@@ -1486,74 +1518,6 @@ pub(crate) fn builtin_save_buffer_command(_eval: &mut Evaluator, args: Vec<Value
         ));
     }
     Ok(Value::Nil)
-}
-
-/// `(execute-extended-command PREFIXARG &optional COMMAND-NAME TYPED)`
-/// Read a command name and execute it. This is the M-x equivalent.
-/// In batch mode, COMMAND-NAME must be provided or input reads hit EOF.
-pub(crate) fn builtin_execute_extended_command(
-    eval: &mut Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("execute-extended-command", &args, 1)?;
-    expect_max_args("execute-extended-command", &args, 3)?;
-
-    // Batch mode prompt path: M-x reads from stdin and hits EOF.
-    if args.len() < 2 {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-
-    let command_name = if let Some(name) = args[1].as_str() {
-        name.to_string()
-    } else {
-        let name = command_name_display(&args[1]);
-        return Err(signal(
-            "error",
-            vec![Value::string(format!(
-                "\u{2018}{name}\u{2019} is not a valid command name"
-            ))],
-        ));
-    };
-
-    let command_designator = Value::symbol(command_name.clone());
-    if !command_designator_p(eval, &command_designator) {
-        return Err(signal(
-            "error",
-            vec![Value::string(format!(
-                "\u{2018}{command_name}\u{2019} is not a valid command name"
-            ))],
-        ));
-    }
-
-    // Oracle M-x path invokes COMMAND interactively, with CURRENT-PREFIX-ARG
-    // seeded from PREFIXARG and PREFIX-ARG reset for the command body.
-    let mut frame = OrderedSymMap::new();
-    frame.insert(intern("current-prefix-arg"), args[0]);
-    frame.insert(intern("prefix-arg"), Value::Nil);
-    eval.dynamic.push(frame);
-    let result = builtin_call_interactively(eval, vec![command_designator]);
-    eval.dynamic.pop();
-    result?;
-    Ok(Value::Nil)
-}
-
-fn command_name_display(value: &Value) -> String {
-    if let Some(name) = value.as_symbol_name() {
-        return name.to_string();
-    }
-    if let Some(text) = value.as_str() {
-        return text.to_string();
-    }
-    if let Value::Int(n) = value {
-        return n.to_string();
-    }
-    if let Value::Float(n, _) = value {
-        return n.to_string();
-    }
-    value.type_name().to_string()
 }
 
 /// `(key-binding KEY &optional ACCEPT-DEFAULTS NO-REMAP POSITION)`

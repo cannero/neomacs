@@ -76,6 +76,8 @@ fn gnu_simple_command_execute_eval() -> Evaluator {
     let project_root = manifest.parent().expect("project root");
     let simple_path = project_root.join("lisp/simple.el");
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
+    let subr_path = project_root.join("lisp/subr.el");
+    let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
 
     let mut ev = Evaluator::new();
     let setup_forms = parse_forms(
@@ -97,6 +99,7 @@ fn gnu_simple_command_execute_eval() -> Evaluator {
     )
     .expect("parse command-execute test stubs");
     ev.eval_forms(&setup_forms);
+    eval_first_form_after_marker(&mut ev, &subr_source, "(defun error (string &rest args)");
     eval_first_form_after_marker(
         &mut ev,
         &simple_source,
@@ -112,6 +115,39 @@ fn gnu_simple_command_execute_eval() -> Evaluator {
 
 fn gnu_simple_command_execute_eval_all(src: &str) -> Vec<String> {
     let mut ev = gnu_simple_command_execute_eval();
+    eval_all_with(&mut ev, src)
+}
+
+fn gnu_simple_execute_extended_command_eval() -> Evaluator {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
+
+    let mut ev = gnu_simple_command_execute_eval();
+    let setup_forms = parse_forms(
+        r#"
+        (setq suggest-key-bindings nil)
+        (setq extended-command-suggest-shorter nil)
+        (setq execute-extended-command--binding-timer nil)
+        (setq executing-kbd-macro nil)
+        (fset 'read-extended-command
+              (lambda (&rest _args)
+                (signal 'end-of-file '("Error reading from stdin"))))
+        "#,
+    )
+    .expect("parse execute-extended-command test stubs");
+    ev.eval_forms(&setup_forms);
+    eval_first_form_after_marker(
+        &mut ev,
+        &simple_source,
+        "(defun execute-extended-command (prefixarg &optional command-name typed)",
+    );
+    ev
+}
+
+fn gnu_simple_execute_extended_command_eval_all(src: &str) -> Vec<String> {
+    let mut ev = gnu_simple_execute_extended_command_eval();
     eval_all_with(&mut ev, src)
 }
 
@@ -466,11 +502,29 @@ fn commandp_true_for_builtin_ignore() {
 }
 
 #[test]
-fn commandp_true_for_builtin_execute_extended_command() {
-    let mut ev = Evaluator::new();
-    let result =
-        builtin_commandp_interactive(&mut ev, vec![Value::symbol("execute-extended-command")]);
-    assert!(result.unwrap().is_truthy());
+fn commandp_true_for_execute_extended_command_from_simple_el() {
+    assert_eq!(
+        gnu_simple_execute_extended_command_eval_all(
+            r#"(list (commandp 'execute-extended-command)
+                     (subrp (symbol-function 'execute-extended-command)))"#
+        ),
+        vec!["OK (t nil)".to_string()]
+    );
+}
+
+#[test]
+fn commandp_true_for_defun_with_declare_before_interactive() {
+    assert_eq!(
+        eval_all(
+            r#"(progn
+                 (defun neo-declare-interactive ()
+                   (declare (interactive-only t))
+                   (interactive)
+                   'ok)
+                 (commandp 'neo-declare-interactive))"#
+        ),
+        vec!["OK t".to_string()]
+    );
 }
 
 #[test]
@@ -3047,18 +3101,19 @@ fn keyboard_quit_signals_quit() {
 
 #[test]
 fn execute_extended_command_with_command_name() {
-    let mut ev = Evaluator::new();
-    let result =
-        builtin_execute_extended_command(&mut ev, vec![Value::Nil, Value::string("ignore")])
-            .expect("execute-extended-command should run command names");
-    assert!(result.is_nil());
+    let results = gnu_simple_execute_extended_command_eval_all(
+        r#"(progn
+             (defun neo-eec-noargs ()
+               (interactive)
+               'neo-eec-noargs-ran)
+             (execute-extended-command nil "neo-eec-noargs"))"#,
+    );
+    assert_eq!(results[0], "OK nil");
 }
 
 #[test]
 fn execute_extended_command_returns_nil_and_seeds_current_prefix_arg() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = gnu_simple_execute_extended_command_eval_all(
         r#"(progn
              (setq neo-eec-seen-vars :unset)
              (defun neo-eec-vars ()
@@ -3078,9 +3133,7 @@ fn execute_extended_command_returns_nil_and_seeds_current_prefix_arg() {
 
 #[test]
 fn execute_extended_command_applies_prefix_arg_for_p_and_p_specs() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = gnu_simple_execute_extended_command_eval_all(
         r#"(progn
              (setq neo-eec-seen-p :unset)
              (setq neo-eec-seen-P :unset)
@@ -3108,8 +3161,9 @@ fn execute_extended_command_applies_prefix_arg_for_p_and_p_specs() {
 
 #[test]
 fn execute_extended_command_no_name_signals_end_of_file() {
-    let mut ev = Evaluator::new();
-    let result = builtin_execute_extended_command(&mut ev, vec![Value::Nil])
+    let mut ev = gnu_simple_execute_extended_command_eval();
+    let result = ev
+        .apply(Value::symbol("execute-extended-command"), vec![Value::Nil])
         .expect_err("execute-extended-command should signal end-of-file in batch");
     match result {
         Flow::Signal(sig) => {
@@ -3122,10 +3176,13 @@ fn execute_extended_command_no_name_signals_end_of_file() {
 
 #[test]
 fn execute_extended_command_rejects_symbol_name_payload() {
-    let mut ev = Evaluator::new();
-    let result =
-        builtin_execute_extended_command(&mut ev, vec![Value::Nil, Value::symbol("ignore")])
-            .expect_err("symbol payload should not be accepted as a command name");
+    let mut ev = gnu_simple_execute_extended_command_eval();
+    let result = ev
+        .apply(
+            Value::symbol("execute-extended-command"),
+            vec![Value::Nil, Value::symbol("ignore")],
+        )
+        .expect_err("symbol payload should not be accepted as a command name");
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -3142,8 +3199,12 @@ fn execute_extended_command_rejects_symbol_name_payload() {
 
 #[test]
 fn execute_extended_command_rejects_non_command_name() {
-    let mut ev = Evaluator::new();
-    let result = builtin_execute_extended_command(&mut ev, vec![Value::Nil, Value::string("car")])
+    let mut ev = gnu_simple_execute_extended_command_eval();
+    let result = ev
+        .apply(
+            Value::symbol("execute-extended-command"),
+            vec![Value::Nil, Value::string("car")],
+        )
         .expect_err("non-command names should be rejected");
     match result {
         Flow::Signal(sig) => {
@@ -3161,8 +3222,12 @@ fn execute_extended_command_rejects_non_command_name() {
 
 #[test]
 fn execute_extended_command_rejects_non_string_name_payload() {
-    let mut ev = Evaluator::new();
-    let result = builtin_execute_extended_command(&mut ev, vec![Value::Nil, Value::Int(1)])
+    let mut ev = gnu_simple_execute_extended_command_eval();
+    let result = ev
+        .apply(
+            Value::symbol("execute-extended-command"),
+            vec![Value::Nil, Value::Int(1)],
+        )
         .expect_err("non-string command names should be rejected");
     match result {
         Flow::Signal(sig) => {
@@ -3180,12 +3245,13 @@ fn execute_extended_command_rejects_non_string_name_payload() {
 
 #[test]
 fn execute_extended_command_rejects_overflow_arity() {
-    let mut ev = Evaluator::new();
-    let result = builtin_execute_extended_command(
-        &mut ev,
-        vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil],
-    )
-    .expect_err("execute-extended-command should reject more than three arguments");
+    let mut ev = gnu_simple_execute_extended_command_eval();
+    let result = ev
+        .apply(
+            Value::symbol("execute-extended-command"),
+            vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil],
+        )
+        .expect_err("execute-extended-command should reject more than three arguments");
     match result {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("unexpected flow: {other:?}"),
