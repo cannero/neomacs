@@ -46,6 +46,7 @@ pub mod error;
 pub mod errors;
 pub mod eval;
 pub mod expr;
+pub(crate) mod file_compile;
 pub mod fileio;
 pub mod floatfns;
 pub mod fns;
