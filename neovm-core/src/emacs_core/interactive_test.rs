@@ -2096,11 +2096,9 @@ fn call_interactively_builtin_transpose_words_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_other_window_uses_default_prefix_arg() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(let ((w1 (selected-window)))
-             (split-window-internal (selected-window) nil nil nil)
+             (split-window)
              (call-interactively 'other-window)
              (not (eq (selected-window) w1)))"#,
     );

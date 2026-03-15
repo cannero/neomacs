@@ -1284,9 +1284,7 @@ fn default_command_execute_args(eval: &Evaluator, name: &str) -> Result<Vec<Valu
         | "forward-sexp"
         | "backward-sexp"
         | "scroll-up-command"
-        | "scroll-down-command"
-        | "recenter-top-bottom"
-        | "other-window" => Ok(vec![Value::Int(1)]),
+        | "scroll-down-command" => Ok(vec![Value::Int(1)]),
         "kill-region" => interactive_region_args(eval, "user-error"),
         "kill-ring-save" => interactive_region_args(eval, "error"),
         "copy-region-as-kill" => interactive_region_args(eval, "error"),
