@@ -2535,6 +2535,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     let barf_buffer = builtin_get_buffer_create(&mut eval, vec![Value::string("*barf*")])
         .expect("create buffer for barf-if-buffer-read-only tests");
     let _ = builtin_set_buffer(&mut eval, vec![barf_buffer]).expect("select barf test buffer");
+    builtin_insert(&mut eval, vec![Value::string("abc")]).expect("seed barf test buffer");
 
     assert_eq!(
         builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Int(0)]).unwrap(),
@@ -2546,9 +2547,21 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     let barf_read_only = builtin_barf_if_buffer_read_only(&mut eval, vec![])
         .expect_err("barf-if-buffer-read-only should signal on read-only buffers");
     match barf_read_only {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "buffer-read-only"),
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "buffer-read-only");
+            assert_eq!(sig.data, vec![barf_buffer]);
+        }
         other => panic!("unexpected flow: {other:?}"),
     }
+
+    if let Some(buf) = eval.buffers.current_buffer_mut() {
+        buf.text_props
+            .put_property(1, 2, "inhibit-read-only", Value::True);
+    }
+    assert_eq!(
+        builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Int(2)]).unwrap(),
+        Value::Nil
+    );
 
     let barf_range = builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Int(0)])
         .expect_err("barf-if-buffer-read-only should check lower-bound positions");

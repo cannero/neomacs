@@ -1705,6 +1705,15 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_barf_if_buffer_read_only_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_barf_if_buffer_read_only_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_insert_and_inherit_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_insert_and_inherit_in_state(
             &*self.shared.obarray,
@@ -2468,6 +2477,7 @@ impl<'a> Vm<'a> {
             "current-column" => Some(self.builtin_current_column_shared(args)),
             "move-to-column" => Some(self.builtin_move_to_column_shared(args)),
             "insert" => Some(self.builtin_insert_shared(args)),
+            "barf-if-buffer-read-only" => Some(self.builtin_barf_if_buffer_read_only_shared(args)),
             "insert-and-inherit" => Some(self.builtin_insert_and_inherit_shared(args)),
             "insert-before-markers-and-inherit" => {
                 Some(self.builtin_insert_before_markers_and_inherit_shared(args))

@@ -467,30 +467,46 @@ pub(crate) fn builtin_barf_if_buffer_read_only(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_barf_if_buffer_read_only_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_barf_if_buffer_read_only_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("barf-if-buffer-read-only", &args, 1)?;
     let position = match args.first() {
         None | Some(Value::Nil) => None,
         Some(value) => Some(expect_fixnum(value)?),
     };
 
-    let Some(buf) = eval.buffers.current_buffer() else {
+    let Some(buf) = buffers.current_buffer() else {
         return Ok(Value::Nil);
     };
     let point_min = buf.point_min_char() as i64 + 1;
-    let read_only = buffer_read_only_active(eval, buf);
-    let buffer_name = buf.name.clone();
+    let read_only =
+        crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf);
     if !read_only {
         return Ok(Value::Nil);
     }
-    if let Some(pos) = position {
-        if pos < point_min {
-            return Err(signal(
-                "args-out-of-range",
-                vec![Value::Int(pos), Value::Int(pos)],
-            ));
-        }
+    let pos = position.unwrap_or_else(|| buf.point_char() as i64 + 1);
+    if pos < point_min {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Int(pos), Value::Int(pos)],
+        ));
     }
-    Err(signal("buffer-read-only", vec![Value::string(buffer_name)]))
+    let prop_byte = buf.lisp_pos_to_accessible_byte(pos);
+    if buf
+        .text_props
+        .get_property(prop_byte, "inhibit-read-only")
+        .is_some_and(Value::is_truthy)
+    {
+        return Ok(Value::Nil);
+    }
+    Err(signal("buffer-read-only", vec![Value::Buffer(buf.id)]))
 }
 
 pub(crate) fn builtin_bury_buffer_internal(

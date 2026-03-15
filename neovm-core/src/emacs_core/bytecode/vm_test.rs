@@ -1133,6 +1133,23 @@ fn vm_subst_char_in_region_uses_shared_runtime_state_and_gnu_noop_rules() {
 }
 
 #[test]
+fn vm_barf_if_buffer_read_only_uses_shared_state_and_inhibit_text_property() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "abc")
+                 (put-text-property 2 3 'inhibit-read-only t)
+                 (setq buffer-read-only t)
+                 (list (barf-if-buffer-read-only 2)
+                       (condition-case err
+                           (barf-if-buffer-read-only 1)
+                         (error (list (car err) (bufferp (car (cdr err))))))))"#
+        ),
+        r#"OK (nil (buffer-read-only t))"#
+    );
+}
+
+#[test]
 fn vm_char_primitives_and_buffer_substring_use_narrowed_current_buffer_state() {
     assert_eq!(
         vm_eval_with_init_str(
