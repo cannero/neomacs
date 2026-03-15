@@ -830,6 +830,32 @@ fn vm_line_position_optional_argument_matches_gnu_current_rules() {
 }
 
 #[test]
+fn vm_buffer_restriction_and_modified_state_use_shared_runtime_manager() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "abcdef")
+                 (list (buffer-size)
+                       (buffer-modified-p)
+                       (set-buffer-modified-p nil)
+                       (buffer-modified-p)
+                       (buffer-modified-tick)
+                       (buffer-chars-modified-tick)
+                       (let ((start (copy-marker 2))
+                             (end (copy-marker 5 t)))
+                         (goto-char 1)
+                         (insert "X")
+                         (narrow-to-region start end)
+                         (list (point-min) (point-max) (buffer-string)))
+                       (progn
+                         (widen)
+                         (list (point-min) (point-max) (buffer-string)))))"#
+        ),
+        r#"OK (6 t nil nil 2 2 (3 6 "bcd") (1 8 "Xabcdef"))"#
+    );
+}
+
+#[test]
 fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
     assert_eq!(
         vm_eval_str(

@@ -1731,6 +1731,55 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_buffer_size_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_size_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_narrow_to_region_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_narrow_to_region_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_widen_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_widen_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_buffer_modified_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_modified_p_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_set_buffer_modified_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_set_buffer_modified_p_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_buffer_modified_tick_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_modified_tick_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_buffer_chars_modified_tick_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_chars_modified_tick_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_bobp_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::navigation::builtin_bobp_in_manager(&*self.shared.buffers, args.to_vec())
     }
@@ -2353,6 +2402,15 @@ impl<'a> Vm<'a> {
             "goto-char" => Some(self.builtin_goto_char_shared(args)),
             "char-after" => Some(self.builtin_char_after_shared(args)),
             "char-before" => Some(self.builtin_char_before_shared(args)),
+            "buffer-size" => Some(self.builtin_buffer_size_shared(args)),
+            "narrow-to-region" => Some(self.builtin_narrow_to_region_shared(args)),
+            "widen" => Some(self.builtin_widen_shared(args)),
+            "buffer-modified-p" => Some(self.builtin_buffer_modified_p_shared(args)),
+            "set-buffer-modified-p" => Some(self.builtin_set_buffer_modified_p_shared(args)),
+            "buffer-modified-tick" => Some(self.builtin_buffer_modified_tick_shared(args)),
+            "buffer-chars-modified-tick" => {
+                Some(self.builtin_buffer_chars_modified_tick_shared(args))
+            }
             "bobp" => Some(self.builtin_bobp_shared(args)),
             "eobp" => Some(self.builtin_eobp_shared(args)),
             "bolp" => Some(self.builtin_bolp_shared(args)),

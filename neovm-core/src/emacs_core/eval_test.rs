@@ -2360,6 +2360,21 @@ fn buffer_narrowing() {
 }
 
 #[test]
+fn buffer_narrowing_accepts_live_marker_bounds_after_insertions() {
+    let results = eval_all(
+        "(with-temp-buffer
+           (insert \"abcdef\")
+           (let ((start (copy-marker 2))
+                 (end (copy-marker 5 t)))
+             (goto-char 1)
+             (insert \"X\")
+             (narrow-to-region start end)
+             (list (point-min) (point-max) (buffer-string))))",
+    );
+    assert_eq!(results[0], r#"OK (3 6 "bcd")"#);
+}
+
+#[test]
 fn buffer_modified_p() {
     let results = eval_all(
         "(get-buffer-create \"mod\")

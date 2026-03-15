@@ -2256,17 +2256,23 @@ pub(crate) fn builtin_buffer_size(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_size_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_size_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-size", &args, 1)?;
     if args.is_empty() || matches!(args[0], Value::Nil) {
-        let buf = eval
-            .buffers
+        let buf = buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         return Ok(Value::Int(buf.text.char_count() as i64));
     }
 
     let id = expect_buffer_id(&args[0])?;
-    if let Some(buf) = eval.buffers.get(id) {
+    if let Some(buf) = buffers.get(id) {
         Ok(Value::Int(buf.text.char_count() as i64))
     } else {
         Ok(Value::Int(0))
@@ -2278,15 +2284,20 @@ pub(crate) fn builtin_narrow_to_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_narrow_to_region_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_narrow_to_region_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("narrow-to-region", &args, 2)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
-    let current_id = eval
-        .buffers
+    let start = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = buf.point_min_char() as i64 + 1;
@@ -2303,20 +2314,24 @@ pub(crate) fn builtin_narrow_to_region(
     let e = if end > 0 { end - 1 } else { 0 };
     let byte_start = buf.text.char_to_byte(s);
     let byte_end = buf.text.char_to_byte(e);
-    let _ = eval
-        .buffers
-        .narrow_buffer_to_region(current_id, byte_start, byte_end);
+    let _ = buffers.narrow_buffer_to_region(current_id, byte_start, byte_end);
     Ok(Value::Nil)
 }
 
 /// (widen) → nil
 pub(crate) fn builtin_widen(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_widen_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_widen_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("widen", &args, 0)?;
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.widen_buffer(current_id);
+    let _ = buffers.widen_buffer(current_id);
     Ok(Value::Nil)
 }
 
@@ -2325,17 +2340,23 @@ pub(crate) fn builtin_buffer_modified_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_modified_p_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_modified_p_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-modified-p", &args, 1)?;
     if args.is_empty() || matches!(args[0], Value::Nil) {
-        let buf = eval
-            .buffers
+        let buf = buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         return Ok(Value::bool(buf.is_modified()));
     }
 
     let id = expect_buffer_id(&args[0])?;
-    if let Some(buf) = eval.buffers.get(id) {
+    if let Some(buf) = buffers.get(id) {
         Ok(Value::bool(buf.is_modified()))
     } else {
         Ok(Value::Nil)
@@ -2347,24 +2368,30 @@ pub(crate) fn builtin_set_buffer_modified_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_buffer_modified_p_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_buffer_modified_p_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-buffer-modified-p", &args, 1)?;
     let flag = args[0].is_truthy();
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.set_buffer_modified_flag(current_id, flag);
+    let _ = buffers.set_buffer_modified_flag(current_id, flag);
     Ok(args[0])
 }
 
-fn optional_buffer_tick_target(
-    eval: &super::eval::Evaluator,
+fn optional_buffer_tick_target_in_manager(
+    buffers: &BufferManager,
     name: &str,
     args: &[Value],
 ) -> Result<Option<BufferId>, Flow> {
     expect_max_args(name, args, 1)?;
     if args.is_empty() || matches!(args[0], Value::Nil) {
-        Ok(eval.buffers.current_buffer().map(|buf| buf.id))
+        Ok(buffers.current_buffer().map(|buf| buf.id))
     } else {
         Ok(Some(expect_buffer_id(&args[0])?))
     }
@@ -2375,11 +2402,18 @@ pub(crate) fn builtin_buffer_modified_tick(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let target = optional_buffer_tick_target(eval, "buffer-modified-tick", &args)?;
-    if let Some(id) = target {
-        if let Some(buf) = eval.buffers.get(id) {
-            return Ok(Value::Int(buf.modified_tick));
-        }
+    builtin_buffer_modified_tick_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_modified_tick_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    let target = optional_buffer_tick_target_in_manager(buffers, "buffer-modified-tick", &args)?;
+    if let Some(id) = target
+        && let Some(buf) = buffers.get(id)
+    {
+        return Ok(Value::Int(buf.modified_tick));
     }
     Ok(Value::Int(1))
 }
@@ -2389,11 +2423,19 @@ pub(crate) fn builtin_buffer_chars_modified_tick(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let target = optional_buffer_tick_target(eval, "buffer-chars-modified-tick", &args)?;
-    if let Some(id) = target {
-        if let Some(buf) = eval.buffers.get(id) {
-            return Ok(Value::Int(buf.chars_modified_tick));
-        }
+    builtin_buffer_chars_modified_tick_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_chars_modified_tick_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    let target =
+        optional_buffer_tick_target_in_manager(buffers, "buffer-chars-modified-tick", &args)?;
+    if let Some(id) = target
+        && let Some(buf) = buffers.get(id)
+    {
+        return Ok(Value::Int(buf.chars_modified_tick));
     }
     Ok(Value::Int(1))
 }
