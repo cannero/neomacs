@@ -1,14 +1,9 @@
-//! Neomacs Display C Bridge
+//! Neomacs display facade.
 //!
-//! This crate exposes the legacy C ABI surface for the display engine while
-//! delegating runtime behavior to `neomacs-display-runtime`.
+//! The pure Rust runtime lives in `neomacs-display-runtime`. This crate now
+//! exists only as a temporary Rust-side re-export layer.
 
 #![allow(unused)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-#[cfg(all(feature = "core-backend-emacs-c", feature = "core-backend-rust"))]
-compile_error!("features `core-backend-emacs-c` and `core-backend-rust` are mutually exclusive");
-
 pub use neomacs_display_runtime::*;
-
-pub mod ffi;

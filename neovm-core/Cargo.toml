@@ -6,11 +6,6 @@ authors.workspace = true
 license.workspace = true
 description = "Core runtime structures for NeoVM"
 
-[features]
-default = ["core-backend-rust"]
-core-backend-emacs-c = []
-core-backend-rust = []
-
 [dependencies]
 neovm-host-abi.workspace = true
 crossbeam-channel.workspace = true

@@ -7,9 +7,7 @@ license.workspace = true
 description = "Rust layout engine crate for Neomacs"
 
 [features]
-default = ["core-backend-rust"]
-core-backend-emacs-c = ["neovm-core/core-backend-emacs-c"]
-core-backend-rust = ["neovm-core/core-backend-rust"]
+default = []
 neo-term = ["neomacs-display-protocol/neo-term"]
 
 [dependencies]

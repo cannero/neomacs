@@ -4,14 +4,14 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "C ABI bridge for neomacs-display-runtime"
+description = "Legacy display facade for neomacs-display-runtime"
 repository = "https://github.com/eval-exec/neomacs-1"
 
 [lib]
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
-neomacs-display-runtime = { workspace = true, default-features = false }
+neomacs-display-runtime.workspace = true
 neomacs-display-protocol.workspace = true
 neomacs-renderer-wgpu.workspace = true
 neovm-core.workspace = true
@@ -23,14 +23,8 @@ winit.workspace = true
 arboard.workspace = true
 alacritty_terminal = { workspace = true, optional = true }
 
-[build-dependencies]
-cbindgen.workspace = true
-which.workspace = true
-
 [features]
-default = ["video", "neo-term", "core-backend-rust"]
-core-backend-emacs-c = ["neomacs-display-runtime/core-backend-emacs-c"]
-core-backend-rust = ["neomacs-display-runtime/core-backend-rust"]
+default = ["video", "neo-term"]
 video = ["neomacs-display-runtime/video"]
 wpe-webkit = ["neomacs-display-runtime/wpe-webkit"]
 neo-term = ["neomacs-display-runtime/neo-term", "alacritty_terminal"]

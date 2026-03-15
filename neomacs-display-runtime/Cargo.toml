@@ -70,18 +70,7 @@ pkg-config = { workspace = true, optional = true }
 
 [features]
 # Default: all features enabled
-default = ["video", "neo-term", "core-backend-rust"]
-# Core backend selection
-core-backend-emacs-c = [
-    "neovm-core/core-backend-emacs-c",
-    "neomacs-layout-engine/core-backend-emacs-c",
-    "neomacs-renderer-wgpu/core-backend-emacs-c",
-]
-core-backend-rust = [
-    "neovm-core/core-backend-rust",
-    "neomacs-layout-engine/core-backend-rust",
-    "neomacs-renderer-wgpu/core-backend-rust",
-]
+default = ["video", "neo-term"]
 tty-backend = []
 # Video with GStreamer
 video = [
