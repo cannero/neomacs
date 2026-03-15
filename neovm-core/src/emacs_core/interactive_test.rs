@@ -1,5 +1,8 @@
 use super::*;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::{
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
+    create_bootstrap_evaluator_cached,
+};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
@@ -29,6 +32,15 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     eval_all_with(&mut ev, src)
+}
+
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
+    let mut ev = Evaluator::new();
+    for name in names {
+        ev.obarray_mut().fmakunbound(name);
+    }
+    apply_ldefs_boot_autoloads_for_names(&mut ev, names).expect("ldefs-boot autoload restore");
+    ev
 }
 
 fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
@@ -669,15 +681,16 @@ fn abbrev_mode_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn bookmark_commands_startup_are_autoloaded() {
-    let ev = Evaluator::new();
-    for name in [
+    let names = [
         "bookmark-delete",
         "bookmark-jump",
         "bookmark-load",
         "bookmark-rename",
         "bookmark-save",
         "bookmark-set",
-    ] {
+    ];
+    let ev = eval_with_ldefs_boot_autoloads(&names);
+    for name in names {
         let function = ev
             .obarray
             .symbol_function(name)
@@ -691,15 +704,16 @@ fn bookmark_commands_startup_are_autoloaded() {
 
 #[test]
 fn rectangle_commands_startup_are_autoloaded() {
-    let ev = Evaluator::new();
-    for name in [
+    let names = [
         "clear-rectangle",
         "delete-rectangle",
         "kill-rectangle",
         "open-rectangle",
         "string-rectangle",
         "yank-rectangle",
-    ] {
+    ];
+    let ev = eval_with_ldefs_boot_autoloads(&names);
+    for name in names {
         let function = ev
             .obarray
             .symbol_function(name)

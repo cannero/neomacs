@@ -2549,6 +2549,76 @@ fn runtime_loaddefs_restore_state(
     Ok((args, property_forms))
 }
 
+pub(crate) fn apply_ldefs_boot_autoloads_for_names(
+    eval: &mut super::eval::Evaluator,
+    names: &[&str],
+) -> Result<(), EvalError> {
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let ldefs_path = project_root.join("lisp/ldefs-boot.el");
+    let source = fs::read_to_string(&ldefs_path).map_err(|err| EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![Value::string(format!(
+            "ldefs-boot autoload restore: failed reading {}: {err}",
+            ldefs_path.display()
+        ))],
+    })?;
+    let forms =
+        crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![Value::string(format!(
+                "ldefs-boot autoload restore: failed parsing {}: {err}",
+                ldefs_path.display()
+            ))],
+        })?;
+
+    let wanted = names
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut property_forms = Vec::new();
+
+    for form in &forms {
+        let Expr::List(items) = form else {
+            continue;
+        };
+        let Some(Expr::Symbol(head_id)) = items.first() else {
+            continue;
+        };
+        if resolve_sym(*head_id) == "autoload"
+            && let Some(name) = items.get(1).and_then(expr_quoted_symbol_name)
+            && wanted.contains(&name)
+        {
+            eval_generated_loaddefs_form(eval, form)?;
+        }
+    }
+
+    for form in &forms {
+        let Expr::List(items) = form else {
+            continue;
+        };
+        let Some(Expr::Symbol(head_id)) = items.first() else {
+            continue;
+        };
+        let head = resolve_sym(*head_id);
+        if head != "function-put" && head != "put" {
+            continue;
+        }
+        let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) else {
+            continue;
+        };
+        if wanted.contains(&name) {
+            property_forms.push(form.clone());
+        }
+    }
+
+    for form in &property_forms {
+        eval_generated_loaddefs_form(eval, form)?;
+    }
+
+    Ok(())
+}
+
 fn normalize_bootstrap_runtime_surface(
     eval: &mut super::eval::Evaluator,
     project_root: &Path,
