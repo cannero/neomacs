@@ -3098,6 +3098,21 @@ pub fn create_bootstrap_evaluator_with_features(
 
         tracing::info!("\n=== LOADUP BOOTSTRAP COMPLETE ===");
 
+        // After bootstrap loading completes, compile critical files to .neobc
+        // so that subsequent loads (via require) use the compiled version
+        // where eval-when-compile is folded to constants.
+        // This fixes eieio-core.el's (eval-when-compile (cl-declaim (optimize (safety 0))))
+        // which otherwise leaks safety=0 into struct accessor generation.
+        let critical_compile_files = ["emacs-lisp/eieio-core", "emacs-lisp/eieio"];
+        for name in &critical_compile_files {
+            if let Some(path) = find_file_in_load_path(name, &load_path) {
+                match super::file_compile::compile_el_to_neobc(&mut eval, &path) {
+                    Ok(()) => tracing::info!("Compiled {} to .neobc", name),
+                    Err(e) => tracing::warn!("Failed to compile {} to .neobc: {}", name, e),
+                }
+            }
+        }
+
         // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
         // and interactive evaluation. Match this for oracle test parity.
         eval.set_lexical_binding(true);
