@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
 fn eval_one(src: &str) -> String {
@@ -10,6 +11,24 @@ fn eval_one(src: &str) -> String {
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Evaluator::new();
+    let forms = parse_forms(src).expect("parse");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
+
+fn bootstrap_eval_one(src: &str) -> String {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let forms = parse_forms(src).expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    format_eval_result(&result)
+}
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -1180,7 +1199,7 @@ fn process_coding_tty_and_kill_buffer_query_runtime_surface() {
 
 #[test]
 fn process_list_network_serial_runtime_surface() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(mapcar (lambda (s)
                      (list s
                            (fboundp s)
@@ -1270,7 +1289,7 @@ fn process_list_network_serial_runtime_surface() {
 
 #[test]
 fn list_processes_refresh_returns_propertized_spacer() {
-    let result = eval_one(r#"(list-processes--refresh)"#);
+    let result = bootstrap_eval_one(r#"(list-processes--refresh)"#);
     assert_eq!(
         result,
         r##"OK ("" header-line-indent #(" " 0 1 (display (space :align-to (+ header-line-indent-width 0)))))"##

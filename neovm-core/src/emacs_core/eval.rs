@@ -1393,11 +1393,6 @@ impl Evaluator {
         ] {
             seed_autoload_noninteractive(name, "seq", "");
         }
-        seed_autoload_noninteractive(
-            "list-processes--refresh",
-            "simple",
-            "Refresh the Process Menu buffer.",
-        );
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.
         drop(seed_autoload_noninteractive);
