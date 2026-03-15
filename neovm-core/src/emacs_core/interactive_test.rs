@@ -71,6 +71,26 @@ fn gnu_subr_keymap_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
+fn gnu_simple_universal_argument_eval_all(src: &str) -> Vec<String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
+
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    let setup_forms = parse_forms(
+        r#"
+        (fset 'prefix-command-preserve-state (lambda () nil))
+        (fset 'universal-argument--mode (lambda () nil))
+        "#,
+    )
+    .expect("parse universal-argument test stubs");
+    ev.eval_forms(&setup_forms);
+    eval_first_form_after_marker(&mut ev, &simple_source, "(defun universal-argument ()");
+    eval_all_with(&mut ev, src)
+}
+
 // -------------------------------------------------------------------
 // InteractiveSpec
 // -------------------------------------------------------------------
@@ -2106,21 +2126,26 @@ fn command_execute_builtin_quoted_insert_reads_stdin_in_batch() {
 }
 
 #[test]
-fn command_execute_builtin_universal_argument_sets_prefix_arg() {
-    let mut ev = Evaluator::new();
-    let result = builtin_command_execute(&mut ev, vec![Value::symbol("universal-argument")])
-        .expect("universal-argument should execute");
-    assert!(result.is_nil());
-    // prefix-arg should now be (4)
-    let prefix = ev
-        .obarray()
-        .symbol_value("prefix-arg")
-        .copied()
-        .unwrap_or(Value::Nil);
-    assert!(
-        matches!(prefix, Value::Cons(_)),
-        "prefix-arg should be a list (4)"
+fn prefix_argument_commands_are_not_dispatch_builtins() {
+    for name in ["universal-argument", "digit-argument", "negative-argument"] {
+        assert!(
+            !super::super::builtin_registry::is_dispatch_builtin_name(name),
+            "{name} should come from GNU simple.el"
+        );
+    }
+}
+
+#[test]
+fn bootstrap_command_execute_universal_argument_sets_prefix_arg() {
+    let results = gnu_simple_universal_argument_eval_all(
+        r#"(progn
+             (setq prefix-arg nil)
+             (command-execute 'universal-argument)
+             (list (consp prefix-arg)
+                   (equal prefix-arg '(4))
+                   (subrp (symbol-function 'universal-argument))))"#,
     );
+    assert_eq!(results[0], "OK (t t nil)");
 }
 
 #[test]
