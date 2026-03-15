@@ -1588,15 +1588,6 @@ pub(crate) fn builtin_subr_arity(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// `(subr-native-elisp-p OBJECT)` -- return t if OBJECT is a native-compiled
-/// Elisp subr.
-///
-/// NeoVM does not currently model native-compiled Elisp subrs, so this always
-/// returns nil.
-pub(crate) fn builtin_subr_native_elisp_p(args: Vec<Value>) -> EvalResult {
-    Ok(Value::Nil)
-}
-
 /// `(native-comp-function-p OBJECT)` -- return t if OBJECT is a native-compiled
 /// function object.
 ///

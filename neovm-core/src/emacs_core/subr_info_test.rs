@@ -1824,9 +1824,6 @@ fn subr_primitive_and_native_predicates() {
 
     let non_subr = builtin_subr_primitive_p(vec![Value::Int(1)]).unwrap();
     assert!(non_subr.is_nil());
-
-    let native = builtin_subr_native_elisp_p(vec![Value::Subr(intern("car"))]).unwrap();
-    assert!(native.is_nil());
 }
 
 // -- interpreted-function-p --

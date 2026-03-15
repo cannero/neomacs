@@ -1331,11 +1331,6 @@ impl Evaluator {
         };
         // Some helper autoloads are non-interactive in GNU Emacs startup
         // function-cells; override their startup metadata accordingly.
-        seed_autoload_noninteractive(
-            "subr-native-elisp-p",
-            "cl-preloaded",
-            "Return non-nil if OBJECT is native-compiled Elisp code.",
-        );
         seed_autoload_noninteractive("purecopy", "subr", "Return OBJECT unchanged.");
         seed_autoload_noninteractive(
             "substitute-command-keys",
