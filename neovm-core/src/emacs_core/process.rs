@@ -2377,16 +2377,6 @@ pub(crate) fn builtin_syntax_propertize_in_process_p(
     Ok(Value::Nil)
 }
 
-/// (tooltip-process-prompt-regexp PROCESS) -> nil
-pub(crate) fn builtin_tooltip_process_prompt_regexp(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("tooltip-process-prompt-regexp", &args, 1)?;
-    let _id = resolve_live_process_or_wrong_type(eval, &args[0])?;
-    Ok(Value::Nil)
-}
-
 /// (window--adjust-process-windows) -> nil
 pub(crate) fn builtin_window_adjust_process_windows(
     _eval: &mut super::eval::Evaluator,

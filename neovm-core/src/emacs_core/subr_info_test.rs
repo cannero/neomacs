@@ -352,7 +352,6 @@ fn subr_arity_process_primitives_match_oracle() {
     assert_subr_arity("set-binary-mode", 2, Some(2));
     assert_subr_arity("set-network-process-option", 3, Some(4));
     assert_subr_arity("serial-process-configure", 0, None);
-    assert_subr_arity("tooltip-process-prompt-regexp", 1, Some(1));
 }
 
 #[test]

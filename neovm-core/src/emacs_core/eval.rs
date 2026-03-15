@@ -1343,11 +1343,6 @@ impl Evaluator {
             "Replace key descriptions in STRING.",
         );
         seed_autoload_noninteractive(
-            "tooltip-process-prompt-regexp",
-            "tooltip",
-            "Return a regexp matching PROCESS prompts.",
-        );
-        seed_autoload_noninteractive(
             "wholenump",
             "subr",
             "Return non-nil if OBJECT is an integer greater than or equal to zero.",
