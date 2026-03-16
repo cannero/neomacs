@@ -996,6 +996,29 @@ fn vm_frame_identity_and_display_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_terminal_and_display_entrypoints_use_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((frame (selected-frame))
+                      (before (length (frame-list)))
+                      (created (x-create-frame '((name . "vm-x-frame")
+                                                 (title . "vm-x-title")))))
+                 (list
+                  (null (redraw-frame frame))
+                  (null (tty-type frame))
+                  (condition-case err (tty-type (selected-window)) (error (car err)))
+                  (condition-case err (suspend-tty frame) (error (car err)))
+                  (condition-case err (resume-tty frame) (error (car err)))
+                  (condition-case err (x-server-vendor frame) (error (car err)))
+                  (framep created)
+                  (= (length (frame-list)) (1+ before))
+                  (equal (frame-parameter created 'name) "vm-x-frame")))"#,
+        ),
+        "OK (t t wrong-type-argument error error error neomacs t t)"
+    );
+}
+
+#[test]
 fn vm_xdisp_window_visibility_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
