@@ -3692,7 +3692,10 @@ impl<'a> Vm<'a> {
                 Some(crate::emacs_core::reader::builtin_set_quit_char(args.to_vec()))
             }
             "waiting-for-user-input-p" => Some(
-                crate::emacs_core::reader::builtin_waiting_for_user_input_p(args.to_vec()),
+                crate::emacs_core::reader::builtin_waiting_for_user_input_p_in_state(
+                    *self.shared.waiting_for_user_input,
+                    args.to_vec(),
+                ),
             ),
             "read-char" => Some(self.builtin_read_char_shared(args)),
             "read-key-sequence" => Some(self.builtin_read_key_sequence_shared(args)),

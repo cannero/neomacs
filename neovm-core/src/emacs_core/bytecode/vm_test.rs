@@ -1941,6 +1941,16 @@ fn vm_minibuffer_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_waiting_for_user_input_builtin_uses_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_with_init_str("(waiting-for-user-input-p)", |eval| {
+            eval.set_waiting_for_user_input(true);
+        }),
+        "OK t"
+    );
+}
+
+#[test]
 fn vm_simple_process_builtins_use_shared_runtime_state() {
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))

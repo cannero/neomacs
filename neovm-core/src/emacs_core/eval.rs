@@ -253,6 +253,7 @@ pub(crate) struct VmSharedState<'a> {
     pub(crate) recent_input_events: &'a mut Vec<Value>,
     read_command_keys: &'a mut Vec<Value>,
     pub(crate) input_mode_interrupt: &'a mut bool,
+    pub(crate) waiting_for_user_input: &'a mut bool,
     modes: &'a mut ModeRegistry,
     pub(crate) threads: &'a mut ThreadManager,
     kmacro: &'a mut KmacroManager,
@@ -307,6 +308,7 @@ impl<'a> VmSharedState<'a> {
         recent_input_events: &'a mut Vec<Value>,
         read_command_keys: &'a mut Vec<Value>,
         input_mode_interrupt: &'a mut bool,
+        waiting_for_user_input: &'a mut bool,
         frames: &'a mut FrameManager,
         modes: &'a mut ModeRegistry,
         threads: &'a mut ThreadManager,
@@ -367,6 +369,7 @@ impl<'a> VmSharedState<'a> {
             recent_input_events,
             read_command_keys,
             input_mode_interrupt,
+            waiting_for_user_input,
             frames,
             modes,
             threads,
@@ -433,6 +436,7 @@ impl<'a> VmSharedState<'a> {
             &mut eval.recent_input_events,
             &mut eval.read_command_keys,
             &mut eval.input_mode_interrupt,
+            &mut eval.waiting_for_user_input,
             &mut eval.frames,
             &mut eval.modes,
             &mut eval.threads,
@@ -724,6 +728,8 @@ pub struct Evaluator {
     current_message: Option<String>,
     /// Batch-compatible input-mode interrupt flag for `current-input-mode`.
     input_mode_interrupt: bool,
+    /// True while the command loop is blocked waiting for external input.
+    waiting_for_user_input: bool,
     /// Frame manager — owns all frames and windows.
     pub(crate) frames: FrameManager,
     /// Mode registry — major/minor modes.
@@ -2274,6 +2280,7 @@ impl Evaluator {
             read_command_keys: Vec::new(),
             current_message: None,
             input_mode_interrupt: true,
+            waiting_for_user_input: false,
             frames: FrameManager::new(),
             modes: ModeRegistry::new(),
             threads: ThreadManager::new(),
@@ -2376,6 +2383,7 @@ impl Evaluator {
             read_command_keys: Vec::new(),
             current_message: None,
             input_mode_interrupt: true,
+            waiting_for_user_input: false,
             frames: FrameManager::new(),
             modes,
             threads: ThreadManager::new(),
@@ -2915,27 +2923,26 @@ impl Evaluator {
                 has_live_procs.then_some(std::time::Duration::from_millis(100))
             });
 
-            let event = if let Some(timeout) = timeout {
-                match rx.recv_timeout(timeout) {
-                    Ok(event) => event,
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                        // Timer fired or process poll interval — run pending work and loop back
-                        self.fire_pending_timers();
-                        self.poll_process_output();
-                        continue;
-                    }
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                        self.command_loop.running = false;
-                        return Err(super::error::signal("quit", vec![]));
-                    }
-                }
+            self.waiting_for_user_input = true;
+            let wait_result = if let Some(timeout) = timeout {
+                rx.recv_timeout(timeout)
             } else {
-                match rx.recv() {
-                    Ok(event) => event,
-                    Err(_) => {
-                        self.command_loop.running = false;
-                        return Err(super::error::signal("quit", vec![]));
-                    }
+                rx.recv()
+                    .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
+            };
+            self.waiting_for_user_input = false;
+
+            let event = match wait_result {
+                Ok(event) => event,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    // Timer fired or process poll interval — run pending work and loop back
+                    self.fire_pending_timers();
+                    self.poll_process_output();
+                    continue;
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    self.command_loop.running = false;
+                    return Err(super::error::signal("quit", vec![]));
                 }
             };
 
@@ -3329,6 +3336,14 @@ impl Evaluator {
 
     pub(crate) fn set_input_mode_interrupt(&mut self, interrupt: bool) {
         self.input_mode_interrupt = interrupt;
+    }
+
+    pub(crate) fn waiting_for_user_input(&self) -> bool {
+        self.waiting_for_user_input
+    }
+
+    pub(crate) fn set_waiting_for_user_input(&mut self, waiting: bool) {
+        self.waiting_for_user_input = waiting;
     }
 
     pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {

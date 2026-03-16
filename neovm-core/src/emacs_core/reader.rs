@@ -1130,6 +1130,21 @@ pub(crate) fn builtin_waiting_for_user_input_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_waiting_for_user_input_p_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_waiting_for_user_input_p_in_state(eval.waiting_for_user_input(), args)
+}
+
+pub(crate) fn builtin_waiting_for_user_input_p_in_state(
+    waiting_for_user_input: bool,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("waiting-for-user-input-p", &args, 0)?;
+    Ok(Value::bool(waiting_for_user_input))
+}
+
 // ---------------------------------------------------------------------------
 // 15. y-or-n-p
 // ---------------------------------------------------------------------------

@@ -2189,7 +2189,9 @@ pub(crate) fn dispatch_builtin(
         }
         "set-quit-char" => return Some(super::reader::builtin_set_quit_char(args)),
         "waiting-for-user-input-p" => {
-            return Some(super::reader::builtin_waiting_for_user_input_p(args));
+            return Some(super::reader::builtin_waiting_for_user_input_p_eval(
+                eval, args,
+            ));
         }
         "read-char" => {
             tracing::info!("read-char called (will block for input)");

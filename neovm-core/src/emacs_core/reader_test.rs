@@ -1223,6 +1223,14 @@ fn waiting_for_user_input_p_returns_nil() {
 }
 
 #[test]
+fn waiting_for_user_input_p_eval_tracks_runtime_flag() {
+    let mut eval = Evaluator::new();
+    eval.set_waiting_for_user_input(true);
+    let result = builtin_waiting_for_user_input_p_eval(&mut eval, vec![]).unwrap();
+    assert!(matches!(result, Value::True));
+}
+
+#[test]
 fn waiting_for_user_input_p_rejects_args() {
     let result = builtin_waiting_for_user_input_p(vec![Value::Nil]);
     assert!(matches!(
