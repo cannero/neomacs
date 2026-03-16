@@ -3792,6 +3792,34 @@ impl<'a> Vm<'a> {
             "replace-region-contents" => Some(self.builtin_replace_region_contents_shared(args)),
             "delete-field" => Some(self.builtin_delete_field_shared(args)),
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
+            "downcase-region" => Some(crate::emacs_core::casefiddle::builtin_downcase_region_in_state(
+                &self.shared.obarray,
+                &self.shared.dynamic,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "upcase-region" => Some(crate::emacs_core::casefiddle::builtin_upcase_region_in_state(
+                &self.shared.obarray,
+                &self.shared.dynamic,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "capitalize-region" => Some(
+                crate::emacs_core::casefiddle::builtin_capitalize_region_in_state(
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "upcase-initials-region" => Some(
+                crate::emacs_core::casefiddle::builtin_upcase_initials_region_in_state(
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "buffer-enable-undo" => Some(self.builtin_buffer_enable_undo_shared(args)),
             "buffer-disable-undo" => Some(self.builtin_buffer_disable_undo_shared(args)),
             "kill-all-local-variables" => Some(self.builtin_kill_all_local_variables_shared(args)),

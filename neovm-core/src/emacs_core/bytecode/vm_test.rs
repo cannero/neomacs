@@ -1620,6 +1620,30 @@ fn vm_buffer_mutation_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_casefiddle_region_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "heLLo woRLD")
+                 (list
+                  (progn
+                    (downcase-region 1 6)
+                    (buffer-string))
+                  (progn
+                    (upcase-region 7 12)
+                    (buffer-string))
+                  (progn
+                    (capitalize-region 1 12)
+                    (buffer-string))
+                  (progn
+                    (upcase-initials-region 1 12)
+                    (buffer-string))))"#
+        ),
+        r#"OK ("hello woRLD" "hello WORLD" "Hello World" "Hello World")"#
+    );
+}
+
+#[test]
 fn vm_buffer_substring_copy_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

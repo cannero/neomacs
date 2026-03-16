@@ -4,6 +4,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
+use super::symbol::Obarray;
 use super::syntax::forward_word;
 use super::value::*;
 use crate::buffer::Buffer;
@@ -323,14 +324,13 @@ fn resolve_region(buf: &Buffer, beg: i64, end: i64) -> (usize, usize) {
     (a_byte, b_byte)
 }
 
-fn resolve_case_region(
-    eval: &super::eval::Evaluator,
+fn resolve_case_region_in_buffers(
+    buffers: &crate::buffer::BufferManager,
     beg: i64,
     end: i64,
     arg: Option<&Value>,
 ) -> Result<(usize, usize), Flow> {
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -350,15 +350,23 @@ fn resolve_case_region(
     Ok(resolve_region(buf, beg, end))
 }
 
-fn replace_current_buffer_region(
-    eval: &mut super::eval::Evaluator,
+fn resolve_case_region(
+    eval: &super::eval::Evaluator,
+    beg: i64,
+    end: i64,
+    arg: Option<&Value>,
+) -> Result<(usize, usize), Flow> {
+    resolve_case_region_in_buffers(&eval.buffers, beg, end, arg)
+}
+
+fn replace_current_buffer_region_in_buffers(
+    buffers: &mut crate::buffer::BufferManager,
     beg: usize,
     end: usize,
     replacement: &str,
     restore_point: bool,
 ) -> EvalResult {
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer_mut()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let saved_pt = buf.point();
@@ -369,6 +377,56 @@ fn replace_current_buffer_region(
         buf.goto_char(saved_pt.min(buf.point_max()));
     }
     Ok(Value::Nil)
+}
+
+fn replace_current_buffer_region(
+    eval: &mut super::eval::Evaluator,
+    beg: usize,
+    end: usize,
+    replacement: &str,
+    restore_point: bool,
+) -> EvalResult {
+    replace_current_buffer_region_in_buffers(
+        &mut eval.buffers,
+        beg,
+        end,
+        replacement,
+        restore_point,
+    )
+}
+
+fn casify_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+    name: &str,
+    transform: impl FnOnce(&str) -> String,
+) -> EvalResult {
+    expect_min_max_args(name, &args, 2, 3)?;
+    let beg_val = expect_int(&args[0])?;
+    let end_val = expect_int(&args[1])?;
+
+    let (beg, end, text) = {
+        let buf = buffers
+            .current_buffer()
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        if super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
+            return Err(signal(
+                "buffer-read-only",
+                vec![Value::string(buf.name.clone())],
+            ));
+        }
+        let (beg, end) = resolve_case_region_in_buffers(buffers, beg_val, end_val, args.get(2))?;
+        (beg, end, buf.buffer_substring(beg, end))
+    };
+
+    let replacement = transform(&text);
+    if replacement == text {
+        return Ok(Value::Nil);
+    }
+
+    replace_current_buffer_region_in_buffers(buffers, beg, end, &replacement, true)
 }
 
 // ---------------------------------------------------------------------------
@@ -521,116 +579,92 @@ pub(crate) fn builtin_downcase_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_max_args("downcase-region", &args, 2, 3)?;
-    let beg_val = expect_int(&args[0])?;
-    let end_val = expect_int(&args[1])?;
+    builtin_downcase_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    if region_case_read_only(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    let (beg, end) = resolve_case_region(eval, beg_val, end_val, args.get(2))?;
-    let text = buf.buffer_substring(beg, end);
-    let lower = downcase_case_string_emacs_compat(&text);
-    if text == lower {
-        return Ok(Value::Nil);
-    }
-
-    replace_current_buffer_region(eval, beg, end, &lower, true)
+pub(crate) fn builtin_downcase_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    casify_region_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args,
+        "downcase-region",
+        downcase_case_string_emacs_compat,
+    )
 }
 
 pub(crate) fn builtin_upcase_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_max_args("upcase-region", &args, 2, 3)?;
-    let beg_val = expect_int(&args[0])?;
-    let end_val = expect_int(&args[1])?;
+    builtin_upcase_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    if region_case_read_only(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    let (beg, end) = resolve_case_region(eval, beg_val, end_val, args.get(2))?;
-    let text = buf.buffer_substring(beg, end);
-    let upper = upcase_case_string_emacs_compat(&text);
-    if text == upper {
-        return Ok(Value::Nil);
-    }
-
-    replace_current_buffer_region(eval, beg, end, &upper, true)
+pub(crate) fn builtin_upcase_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    casify_region_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args,
+        "upcase-region",
+        upcase_case_string_emacs_compat,
+    )
 }
 
 pub(crate) fn builtin_capitalize_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_max_args("capitalize-region", &args, 2, 3)?;
-    let beg_val = expect_int(&args[0])?;
-    let end_val = expect_int(&args[1])?;
+    builtin_capitalize_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    if region_case_read_only(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    let (beg, end) = resolve_case_region(eval, beg_val, end_val, args.get(2))?;
-    let text = buf.buffer_substring(beg, end);
-    let result = capitalize_string(&text);
-    if text == result {
-        return Ok(Value::Nil);
-    }
-
-    replace_current_buffer_region(eval, beg, end, &result, true)
+pub(crate) fn builtin_capitalize_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    casify_region_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args,
+        "capitalize-region",
+        capitalize_string,
+    )
 }
 
 pub(crate) fn builtin_upcase_initials_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("upcase-initials-region", &args, 2)?;
-    let beg_val = expect_int(&args[0])?;
-    let end_val = expect_int(&args[1])?;
+    builtin_upcase_initials_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    if region_case_read_only(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    let (beg, end) = resolve_region(buf, beg_val, end_val);
-    let text = buf.buffer_substring(beg, end);
-    let result = upcase_initials_string(&text);
-    if text == result {
-        return Ok(Value::Nil);
-    }
-
-    replace_current_buffer_region(eval, beg, end, &result, true)
+pub(crate) fn builtin_upcase_initials_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    casify_region_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args,
+        "upcase-initials-region",
+        upcase_initials_string,
+    )
 }
 
 pub(crate) fn builtin_downcase_word(
