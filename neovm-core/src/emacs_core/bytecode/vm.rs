@@ -4348,6 +4348,54 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "process-coding-system" => Some(
+                crate::emacs_core::process::builtin_process_coding_system_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-coding-system" => Some(
+                crate::emacs_core::process::builtin_set_process_coding_system_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-datagram-address" => Some(
+                crate::emacs_core::process::builtin_process_datagram_address_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-datagram-address" => Some(
+                crate::emacs_core::process::builtin_set_process_datagram_address_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-inherit-coding-system-flag" => Some(
+                crate::emacs_core::process::builtin_process_inherit_coding_system_flag_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-inherit-coding-system-flag" => Some(
+                crate::emacs_core::process::builtin_set_process_inherit_coding_system_flag_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-tty-name" => Some(
+                crate::emacs_core::process::builtin_process_tty_name_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-window-size" => Some(
+                crate::emacs_core::process::builtin_set_process_window_size_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
             "run-hook-with-args-until-failure" => {
                 Some(self.builtin_run_hook_with_args_until_failure_shared(args))
             }

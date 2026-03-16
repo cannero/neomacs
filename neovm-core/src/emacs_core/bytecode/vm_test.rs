@@ -1912,6 +1912,95 @@ fn vm_stale_process_introspection_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_process_coding_and_tty_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1) (pp 2) (np 3))
+             (list
+              (equal (process-coding-system p) '(utf-8-unix . utf-8-unix))
+              (null (process-datagram-address p))
+              (null (process-inherit-coding-system-flag p))
+              (null (set-process-coding-system p 'utf-16le 'utf-8-unix))
+              (equal (process-coding-system p) '(utf-16le . utf-8-unix))
+              (eq (set-process-inherit-coding-system-flag p t) t)
+              (process-inherit-coding-system-flag p)
+              (stringp (process-tty-name p))
+              (stringp (process-tty-name p 'stdin))
+              (stringp (process-tty-name p 'stdout))
+              (stringp (process-tty-name p 'stderr))
+              (eq (condition-case err (process-tty-name p 0) (error (car err))) 'error)
+              (null (process-tty-name pp))
+              (null (process-tty-name pp nil))
+              (null (process-tty-name pp 'stdin))
+              (null (process-tty-name pp 'stdout))
+              (null (process-tty-name pp 'stderr))
+              (null (process-tty-name np))
+              (null (process-tty-name np nil))
+              (null (process-tty-name np 'stdin))
+              (null (process-tty-name np 'stdout))
+              (null (process-tty-name np 'stderr))
+              (eq (set-process-datagram-address p nil) nil)
+              (null (process-datagram-address p))
+              (eq (set-process-window-size p 10 20) t)))"#,
+        |eval| {
+            let pid = eval.processes.create_process(
+                "vm-proc-coding".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+            let pipe_id = eval.processes.create_process_with_kind(
+                "vm-proc-pipe".into(),
+                None,
+                String::new(),
+                vec![],
+                crate::emacs_core::process::ProcessKind::Pipe,
+            );
+            assert_eq!(pipe_id, 2);
+            let network_id = eval.processes.create_process_with_kind(
+                "vm-proc-network".into(),
+                None,
+                String::new(),
+                vec![],
+                crate::emacs_core::process::ProcessKind::Network,
+            );
+            assert_eq!(network_id, 3);
+        },
+    );
+    assert_eq!(
+        result,
+        "OK (t t t t t t t t t t t t t t t t t t t t t t t t t)"
+    );
+}
+
+#[test]
+fn vm_stale_process_coding_and_tty_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (null (set-process-coding-system p 'utf-16le))
+              (equal (process-coding-system p) '(utf-16le . utf-16le))
+              (eq (set-process-inherit-coding-system-flag p t) t)
+              (process-inherit-coding-system-flag p)
+              (eq (set-process-datagram-address p nil) nil)
+              (null (process-datagram-address p))
+              (null (set-process-window-size p 10 20))
+              (stringp (process-tty-name p))))"#,
+        |eval| {
+            let pid = eval.processes.create_process(
+                "vm-proc-stale-coding".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+            assert!(eval.processes.delete_process(pid));
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t)");
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));

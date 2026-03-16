@@ -4029,9 +4029,16 @@ pub(crate) fn builtin_process_coding_system(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_coding_system_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_coding_system_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-coding-system", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4045,8 +4052,15 @@ pub(crate) fn builtin_process_datagram_address(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_datagram_address_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_datagram_address_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-datagram-address", &args, 1)?;
-    let _id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let _id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     Ok(Value::Nil)
 }
 
@@ -4055,9 +4069,16 @@ pub(crate) fn builtin_process_inherit_coding_system_flag(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_inherit_coding_system_flag_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_inherit_coding_system_flag_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-inherit-coding-system-flag", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4107,6 +4128,13 @@ pub(crate) fn builtin_set_process_coding_system(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_coding_system_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_coding_system_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-process-coding-system", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -4117,8 +4145,8 @@ pub(crate) fn builtin_set_process_coding_system(
             ],
         ));
     }
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4154,8 +4182,15 @@ pub(crate) fn builtin_set_process_datagram_address(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_datagram_address_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_datagram_address_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-datagram-address", &args, 2)?;
-    let _id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let _id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     Ok(Value::Nil)
 }
 
@@ -4164,9 +4199,16 @@ pub(crate) fn builtin_set_process_inherit_coding_system_flag(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_inherit_coding_system_flag_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_inherit_coding_system_flag_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-inherit-coding-system-flag", &args, 2)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4205,12 +4247,19 @@ pub(crate) fn builtin_set_process_window_size(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_window_size_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_window_size_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-window-size", &args, 3)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     let cols = expect_integer(&args[1])?;
     let rows = expect_integer(&args[2])?;
-    let is_live = eval.processes.get(id).is_some();
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let is_live = processes.get(id).is_some();
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4272,6 +4321,13 @@ pub(crate) fn builtin_process_tty_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_tty_name_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_tty_name_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("process-tty-name", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -4282,8 +4338,8 @@ pub(crate) fn builtin_process_tty_name(
             ],
         ));
     }
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
