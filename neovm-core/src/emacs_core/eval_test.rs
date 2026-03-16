@@ -2680,6 +2680,55 @@ fn insert_inherit_variants_match_gnu_property_and_marker_semantics() {
 }
 
 #[test]
+fn insert_buffer_substring_preserves_source_text_properties() {
+    assert_eq!(
+        eval_one(
+            r#"(let ((src (get-buffer-create "*eval-sub-src*"))
+                     (dst (get-buffer-create "*eval-sub-dst*")))
+                 (with-current-buffer src
+                   (erase-buffer)
+                   (insert "abcXYZ")
+                   (put-text-property 2 5 'face 'bold))
+                 (set-buffer dst)
+                 (erase-buffer)
+                 (insert-buffer-substring src 2 5)
+                 (let ((sub (with-current-buffer src
+                              (buffer-substring 2 5)))
+                       (copied (buffer-string)))
+                   (list sub
+                         (get-text-property 1 'face sub)
+                         copied
+                         (get-text-property 1 'face copied))))"#,
+        ),
+        r#"OK (#("bcX" 0 3 (face bold)) bold #("bcX" 0 3 (face bold)) bold)"#
+    );
+}
+
+#[test]
+fn compare_buffer_substrings_respects_case_fold_search() {
+    assert_eq!(
+        eval_one(
+            r#"(let ((left (get-buffer-create "*eval-cmp-left*"))
+                     (right (get-buffer-create "*eval-cmp-right*")))
+                 (with-current-buffer left
+                   (erase-buffer)
+                   (insert "Abc"))
+                 (with-current-buffer right
+                   (erase-buffer)
+                   (insert "aBc"))
+                 (list
+                  (let ((case-fold-search nil))
+                    (compare-buffer-substrings left nil nil right nil nil))
+                  (let ((case-fold-search t))
+                    (compare-buffer-substrings left nil nil right nil nil))
+                  (let ((case-fold-search t))
+                    (compare-buffer-substrings left 1 2 right 1 3))))"#,
+        ),
+        "OK (-1 0 -2)"
+    );
+}
+
+#[test]
 fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
     let results = eval_all(
         "(list

@@ -629,6 +629,50 @@ pub(crate) fn builtin_buffer_substring(
     Ok(result)
 }
 
+pub(crate) fn builtin_buffer_substring_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("buffer-substring", &args, 2)?;
+    let start = expect_int(&args[0])?;
+    let end = expect_int(&args[1])?;
+    let current_id = buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let buf = buffers
+        .get(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+    if start < point_min || start > point_max || end < point_min || end > point_max {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
+        ));
+    }
+    let start = start as usize;
+    let end = end as usize;
+    let s = if start > 0 { start - 1 } else { 0 };
+    let e = if end > 0 { end - 1 } else { 0 };
+    let byte_start = buf.text.char_to_byte(s);
+    let byte_end = buf.text.char_to_byte(e);
+    let (byte_lo, byte_hi) = if byte_start <= byte_end {
+        (byte_start, byte_end)
+    } else {
+        (byte_end, byte_start)
+    };
+    let result = Value::string(buf.buffer_substring(byte_lo, byte_hi));
+    if !buf.text_props.is_empty()
+        && let Value::Str(new_id) = &result
+    {
+        let sliced = buf.text_props.slice(byte_lo, byte_hi);
+        if !sliced.is_empty() {
+            set_string_text_properties_table(*new_id, sliced);
+        }
+    }
+    Ok(result)
+}
+
 pub(crate) fn builtin_buffer_string_in_manager(
     buffers: &BufferManager,
     args: Vec<Value>,
@@ -747,7 +791,113 @@ fn checked_buffer_slice_for_char_region(
     Ok(buf.buffer_substring(from_byte, to_byte))
 }
 
-fn compare_buffer_substring_strings(left: &str, right: &str) -> i64 {
+fn resolve_buffer_designator_allow_nil_current_in_manager(
+    buffers: &BufferManager,
+    arg: &Value,
+) -> Result<Option<BufferId>, Flow> {
+    match arg {
+        Value::Nil => buffers
+            .current_buffer()
+            .map(|buf| Some(buf.id))
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
+        Value::Buffer(id) => {
+            if buffers.get(*id).is_some() {
+                Ok(Some(*id))
+            } else {
+                Err(signal(
+                    "error",
+                    vec![Value::string("Selecting deleted buffer")],
+                ))
+            }
+        }
+        Value::Str(name_id) => {
+            let name = with_heap(|h| h.get_string(*name_id).to_owned());
+            buffers.find_buffer_by_name(&name).map(Some).ok_or_else(|| {
+                signal(
+                    "error",
+                    vec![Value::string(format!("No buffer named {name}"))],
+                )
+            })
+        }
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *other],
+        )),
+    }
+}
+
+fn checked_buffer_slice_for_char_region_in_manager(
+    buffers: &BufferManager,
+    buffer_id: Option<BufferId>,
+    start: i64,
+    end: i64,
+    start_arg: Value,
+    end_arg: Value,
+) -> Result<String, Flow> {
+    let Some(buffer_id) = buffer_id else {
+        return Ok(String::new());
+    };
+    let Some(buf) = buffers.get(buffer_id) else {
+        return Ok(String::new());
+    };
+
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+    if start < point_min || start > point_max || end < point_min || end > point_max {
+        return Err(signal("args-out-of-range", vec![start_arg, end_arg]));
+    }
+
+    let (from, to) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    let from_byte = buf.lisp_pos_to_accessible_byte(from);
+    let to_byte = buf.lisp_pos_to_accessible_byte(to);
+    Ok(buf.buffer_substring(from_byte, to_byte))
+}
+
+fn checked_buffer_substring_for_char_region_in_manager(
+    buffers: &BufferManager,
+    buffer_id: Option<BufferId>,
+    start: i64,
+    end: i64,
+    start_arg: Value,
+    end_arg: Value,
+) -> Result<Value, Flow> {
+    let Some(buffer_id) = buffer_id else {
+        return Ok(Value::string(""));
+    };
+    let Some(buf) = buffers.get(buffer_id) else {
+        return Ok(Value::string(""));
+    };
+
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+    if start < point_min || start > point_max || end < point_min || end > point_max {
+        return Err(signal("args-out-of-range", vec![start_arg, end_arg]));
+    }
+
+    let (from, to) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    let from_byte = buf.lisp_pos_to_accessible_byte(from);
+    let to_byte = buf.lisp_pos_to_accessible_byte(to);
+    let result = Value::string(buf.buffer_substring(from_byte, to_byte));
+    if !buf.text_props.is_empty()
+        && let Value::Str(new_id) = &result
+    {
+        let sliced = buf.text_props.slice(from_byte, to_byte);
+        if !sliced.is_empty() {
+            set_string_text_properties_table(*new_id, sliced);
+        }
+    }
+    Ok(result)
+}
+
+fn compare_buffer_substring_strings(left: &str, right: &str, case_fold: bool) -> i64 {
     let mut pos = 1i64;
     let mut left_iter = left.chars();
     let mut right_iter = right.chars();
@@ -755,6 +905,16 @@ fn compare_buffer_substring_strings(left: &str, right: &str) -> i64 {
     loop {
         match (left_iter.next(), right_iter.next()) {
             (Some(a), Some(b)) => {
+                let a = if case_fold {
+                    a.to_lowercase().next().unwrap_or(a)
+                } else {
+                    a
+                };
+                let b = if case_fold {
+                    b.to_lowercase().next().unwrap_or(b)
+                } else {
+                    b
+                };
                 if a != b {
                     return if a < b { -pos } else { pos };
                 }
@@ -934,11 +1094,20 @@ pub(crate) fn builtin_insert_buffer_substring(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_insert_buffer_substring_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_insert_buffer_substring_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("insert-buffer-substring", &args, 1, 3)?;
-    let buffer_id = resolve_buffer_designator_allow_nil_current(eval, &args[0])?;
+    let buffer_id = resolve_buffer_designator_allow_nil_current_in_manager(buffers, &args[0])?;
     let (default_start, default_end) = buffer_id
         .and_then(|id| {
-            eval.buffers.get(id).map(|buf| {
+            buffers.get(id).map(|buf| {
                 (
                     buf.point_min_char() as i64 + 1,
                     buf.point_max_char() as i64 + 1,
@@ -947,25 +1116,25 @@ pub(crate) fn builtin_insert_buffer_substring(
         })
         .unwrap_or((1, 1));
     let start = if args.len() > 1 && !args[1].is_nil() {
-        expect_integer_or_marker(&args[1])?
+        expect_integer_or_marker_in_buffers(buffers, &args[1])?
     } else {
         default_start
     };
     let end = if args.len() > 2 && !args[2].is_nil() {
-        expect_integer_or_marker(&args[2])?
+        expect_integer_or_marker_in_buffers(buffers, &args[2])?
     } else {
         default_end
     };
 
-    let text = checked_buffer_slice_for_char_region(
-        eval,
+    let text = checked_buffer_substring_for_char_region_in_manager(
+        buffers,
         buffer_id,
         start,
         end,
         Value::Int(start),
         Value::Int(end),
     )?;
-    builtin_insert(eval, vec![Value::string(text)])
+    builtin_insert_in_state(obarray, dynamic, buffers, vec![text])
 }
 
 /// `(kill-all-local-variables &optional KILL-PERMANENT)` -> nil
@@ -1308,73 +1477,70 @@ pub(crate) fn builtin_compare_buffer_substrings(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let case_fold = super::misc_eval::dynamic_or_global_symbol_value(eval, "case-fold-search")
+        .map(|value| !value.is_nil())
+        .unwrap_or(true);
+    builtin_compare_buffer_substrings_in_state(case_fold, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_compare_buffer_substrings_in_state(
+    case_fold: bool,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("compare-buffer-substrings", &args, 6)?;
 
-    let left_buffer = resolve_buffer_designator_allow_nil_current(eval, &args[0])?;
-    let right_buffer = resolve_buffer_designator_allow_nil_current(eval, &args[3])?;
+    let left_buffer = resolve_buffer_designator_allow_nil_current_in_manager(buffers, &args[0])?;
+    let right_buffer = resolve_buffer_designator_allow_nil_current_in_manager(buffers, &args[3])?;
 
     let left_start = if args[1].is_nil() {
         left_buffer
-            .and_then(|id| {
-                eval.buffers
-                    .get(id)
-                    .map(|buf| buf.point_min_char() as i64 + 1)
-            })
+            .and_then(|id| buffers.get(id).map(|buf| buf.point_min_char() as i64 + 1))
             .unwrap_or(1)
     } else {
-        expect_integer_or_marker(&args[1])?
+        expect_integer_or_marker_in_buffers(buffers, &args[1])?
     };
     let left_end = if args[2].is_nil() {
         left_buffer
-            .and_then(|id| {
-                eval.buffers
-                    .get(id)
-                    .map(|buf| buf.point_max_char() as i64 + 1)
-            })
+            .and_then(|id| buffers.get(id).map(|buf| buf.point_max_char() as i64 + 1))
             .unwrap_or(1)
     } else {
-        expect_integer_or_marker(&args[2])?
+        expect_integer_or_marker_in_buffers(buffers, &args[2])?
     };
     let right_start = if args[4].is_nil() {
         right_buffer
-            .and_then(|id| {
-                eval.buffers
-                    .get(id)
-                    .map(|buf| buf.point_min_char() as i64 + 1)
-            })
+            .and_then(|id| buffers.get(id).map(|buf| buf.point_min_char() as i64 + 1))
             .unwrap_or(1)
     } else {
-        expect_integer_or_marker(&args[4])?
+        expect_integer_or_marker_in_buffers(buffers, &args[4])?
     };
     let right_end = if args[5].is_nil() {
         right_buffer
-            .and_then(|id| {
-                eval.buffers
-                    .get(id)
-                    .map(|buf| buf.point_max_char() as i64 + 1)
-            })
+            .and_then(|id| buffers.get(id).map(|buf| buf.point_max_char() as i64 + 1))
             .unwrap_or(1)
     } else {
-        expect_integer_or_marker(&args[5])?
+        expect_integer_or_marker_in_buffers(buffers, &args[5])?
     };
 
-    let left = checked_buffer_slice_for_char_region(
-        eval,
+    let left = checked_buffer_slice_for_char_region_in_manager(
+        buffers,
         left_buffer,
         left_start,
         left_end,
         args[1],
         args[2],
     )?;
-    let right = checked_buffer_slice_for_char_region(
-        eval,
+    let right = checked_buffer_slice_for_char_region_in_manager(
+        buffers,
         right_buffer,
         right_start,
         right_end,
         args[4],
         args[5],
     )?;
-    Ok(Value::Int(compare_buffer_substring_strings(&left, &right)))
+    Ok(Value::Int(compare_buffer_substring_strings(
+        &left, &right, case_fold,
+    )))
 }
 
 /// `(compute-motion FROM FROMPOS TO TOPOS WIDTH OFFSETS WINDOW)`

@@ -1857,6 +1857,13 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_buffer_substring_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_buffer_substring_in_manager(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_point_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_point_in_manager(&*self.shared.buffers, args.to_vec())
     }
@@ -2089,6 +2096,15 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_insert_buffer_substring_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_insert_buffer_substring_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_delete_char_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::editfns::builtin_delete_char_in_state(
             &*self.shared.obarray,
@@ -2124,6 +2140,14 @@ impl<'a> Vm<'a> {
             &*self.shared.obarray,
             self.shared.dynamic.as_slice(),
             &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_compare_buffer_substrings_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_compare_buffer_substrings_in_state(
+            self.case_fold_search_enabled(),
+            &*self.shared.buffers,
             args.to_vec(),
         )
     }
@@ -2986,6 +3010,7 @@ impl<'a> Vm<'a> {
                 Some(self.builtin_insert_before_markers_and_inherit_shared(args))
             }
             "buffer-string" => Some(self.builtin_buffer_string_shared(args)),
+            "buffer-substring" => Some(self.builtin_buffer_substring_shared(args)),
             "point" => Some(self.builtin_point_shared(args)),
             "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
             "other-buffer" => Some(self.builtin_other_buffer_shared(args)),
@@ -3017,6 +3042,7 @@ impl<'a> Vm<'a> {
             "line-beginning-position" => Some(self.builtin_line_beginning_position_shared(args)),
             "line-end-position" => Some(self.builtin_line_end_position_shared(args)),
             "insert-before-markers" => Some(self.builtin_insert_before_markers_shared(args)),
+            "insert-buffer-substring" => Some(self.builtin_insert_buffer_substring_shared(args)),
             "delete-char" => Some(self.builtin_delete_char_shared(args)),
             "buffer-substring-no-properties" => {
                 Some(self.builtin_buffer_substring_no_properties_shared(args))
@@ -3026,6 +3052,9 @@ impl<'a> Vm<'a> {
             "delete-region" => Some(self.builtin_delete_region_shared(args)),
             "delete-and-extract-region" => {
                 Some(self.builtin_delete_and_extract_region_shared(args))
+            }
+            "compare-buffer-substrings" => {
+                Some(self.builtin_compare_buffer_substrings_shared(args))
             }
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
             "buffer-enable-undo" => Some(self.builtin_buffer_enable_undo_shared(args)),

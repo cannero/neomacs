@@ -877,6 +877,58 @@ fn vm_buffer_mutation_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_buffer_substring_copy_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((src (get-buffer-create "*vm-sub-src*"))
+                     (dst (get-buffer-create "*vm-sub-dst*")))
+                 (set-buffer src)
+                 (erase-buffer)
+                 (insert "abcXYZ")
+                 (put-text-property 2 5 'face 'bold)
+                 (set-buffer dst)
+                 (erase-buffer)
+                 (insert-buffer-substring src 2 5)
+                 (let ((sub (progn
+                              (set-buffer src)
+                              (buffer-substring 2 5)))
+                       (copied (progn
+                                 (set-buffer dst)
+                                 (buffer-string))))
+                   (list sub
+                         (get-text-property 1 'face sub)
+                         copied
+                         (get-text-property 1 'face copied))))"#
+        ),
+        r#"OK (#("bcX" 0 3 (face bold)) bold #("bcX" 0 3 (face bold)) bold)"#
+    );
+}
+
+#[test]
+fn vm_compare_buffer_substrings_uses_shared_case_fold_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((left (get-buffer-create "*vm-cmp-left*"))
+                     (right (get-buffer-create "*vm-cmp-right*")))
+                 (set-buffer left)
+                 (erase-buffer)
+                 (insert "Abc")
+                 (set-buffer right)
+                 (erase-buffer)
+                 (insert "aBc")
+                 (list
+                  (let ((case-fold-search nil))
+                    (compare-buffer-substrings left nil nil right nil nil))
+                  (let ((case-fold-search t))
+                    (compare-buffer-substrings left nil nil right nil nil))
+                  (let ((case-fold-search t))
+                    (compare-buffer-substrings left 1 2 right 1 3))))"#
+        ),
+        "OK (-1 0 -2)"
+    );
+}
+
+#[test]
 fn vm_read_only_noop_buffer_mutations_match_gnu() {
     assert_eq!(
         vm_eval_str(
