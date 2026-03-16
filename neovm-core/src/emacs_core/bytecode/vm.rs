@@ -1527,13 +1527,202 @@ impl<'a> Vm<'a> {
             where_value,
         );
         for (callback, args) in calls {
-            let mut callback_roots = Vec::with_capacity(args.len() + 1);
-            callback_roots.push(callback);
-            callback_roots.extend(args.iter().copied());
-            let _ =
-                self.with_extra_roots(&callback_roots, |vm| vm.call_function(callback, args))?;
+            let _ = self.call_function_with_roots(callback, &args)?;
         }
         Ok(())
+    }
+
+    fn call_function_with_roots(&mut self, function: Value, args: &[Value]) -> EvalResult {
+        let mut roots = Vec::with_capacity(args.len() + 1);
+        roots.push(function);
+        roots.extend(args.iter().copied());
+        self.with_extra_roots(&roots, |vm| vm.call_function(function, args.to_vec()))
+    }
+
+    fn run_hook_functions(&mut self, functions: &[Value], args: &[Value]) -> Result<(), Flow> {
+        for function in functions {
+            let _ = self.call_function_with_roots(*function, args)?;
+        }
+        Ok(())
+    }
+
+    fn builtin_run_hooks_shared(&mut self, args: &[Value]) -> EvalResult {
+        for hook_sym in args {
+            let hook_name = hook_sym.as_symbol_name().ok_or_else(|| {
+                signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("symbolp"), *hook_sym],
+                )
+            })?;
+            let hook_value =
+                crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    hook_name,
+                )
+                .unwrap_or(Value::Nil);
+            let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+                &*self.shared.obarray,
+                hook_name,
+                hook_value,
+                true,
+            );
+            self.run_hook_functions(&functions, &[])?;
+        }
+        Ok(Value::Nil)
+    }
+
+    fn builtin_run_hook_with_args_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_min_args("run-hook-with-args", args, 1)?;
+        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            )
+        })?;
+        let hook_value =
+            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                hook_name,
+            )
+            .unwrap_or(Value::Nil);
+        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+            &*self.shared.obarray,
+            hook_name,
+            hook_value,
+            true,
+        );
+        self.run_hook_functions(&functions, &args[1..])?;
+        Ok(Value::Nil)
+    }
+
+    fn builtin_run_hook_with_args_until_success_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_min_args("run-hook-with-args-until-success", args, 1)?;
+        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            )
+        })?;
+        let hook_value =
+            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                hook_name,
+            )
+            .unwrap_or(Value::Nil);
+        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+            &*self.shared.obarray,
+            hook_name,
+            hook_value,
+            true,
+        );
+        for function in functions {
+            let value = self.call_function_with_roots(function, &args[1..])?;
+            if value.is_truthy() {
+                return Ok(value);
+            }
+        }
+        Ok(Value::Nil)
+    }
+
+    fn builtin_run_hook_with_args_until_failure_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_min_args("run-hook-with-args-until-failure", args, 1)?;
+        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            )
+        })?;
+        let hook_value =
+            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                hook_name,
+            )
+            .unwrap_or(Value::Nil);
+        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+            &*self.shared.obarray,
+            hook_name,
+            hook_value,
+            true,
+        );
+        for function in functions {
+            let value = self.call_function_with_roots(function, &args[1..])?;
+            if value.is_nil() {
+                return Ok(Value::Nil);
+            }
+        }
+        Ok(Value::True)
+    }
+
+    fn builtin_run_hook_wrapped_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_min_args("run-hook-wrapped", args, 2)?;
+        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            )
+        })?;
+        let wrapper = args[1];
+        let hook_value =
+            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                hook_name,
+            )
+            .unwrap_or(Value::Nil);
+        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+            &*self.shared.obarray,
+            hook_name,
+            hook_value,
+            true,
+        );
+        for function in functions {
+            let mut call_args = Vec::with_capacity(args.len() - 1);
+            call_args.push(function);
+            call_args.extend(args[2..].iter().copied());
+            let _ = self.call_function_with_roots(wrapper, &call_args)?;
+        }
+        Ok(Value::Nil)
+    }
+
+    fn builtin_run_hook_query_error_with_timeout_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("run-hook-query-error-with-timeout", args, 1)?;
+        let hook_name = args[0].as_symbol_name().ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            )
+        })?;
+        let hook_value =
+            crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                hook_name,
+            )
+            .unwrap_or(Value::Nil);
+        let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+            &*self.shared.obarray,
+            hook_name,
+            hook_value,
+            true,
+        );
+        match self.run_hook_functions(&functions, &[]) {
+            Ok(()) => Ok(Value::Nil),
+            Err(Flow::Signal(_)) => Err(signal(
+                "end-of-file",
+                vec![Value::string("Error reading from stdin")],
+            )),
+            Err(flow) => Err(flow),
+        }
     }
 
     fn builtin_set_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -1917,15 +2106,48 @@ impl<'a> Vm<'a> {
             &mut *self.shared.buffers,
             args.to_vec(),
         )?;
-        if !plan.run_clone_hook && !plan.run_buffer_list_update_hook {
-            return Ok(Value::Buffer(plan.id));
+        if plan.run_clone_hook {
+            self.shared.buffers.set_current(plan.id);
+            let hook_value =
+                crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    "clone-indirect-buffer-hook",
+                )
+                .unwrap_or(Value::Nil);
+            let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+                &*self.shared.obarray,
+                "clone-indirect-buffer-hook",
+                hook_value,
+                true,
+            );
+            let clone_result = self.run_hook_functions(&functions, &[]);
+            if let Some(saved_id) = plan.saved_current
+                && self.shared.buffers.get(saved_id).is_some()
+            {
+                self.shared.buffers.set_current(saved_id);
+            }
+            clone_result?;
         }
-        let mut extra_roots = Vec::with_capacity(args.len() + 1);
-        extra_roots.push(Value::Buffer(plan.id));
-        extra_roots.extend(args.iter().copied());
-        self.with_mirrored_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::builtins::finish_make_indirect_buffer_hooks(eval, plan)
-        })
+        if plan.run_buffer_list_update_hook {
+            let hook_value =
+                crate::emacs_core::builtins::symbol_dynamic_buffer_or_global_value_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    "buffer-list-update-hook",
+                )
+                .unwrap_or(Value::Nil);
+            let functions = crate::emacs_core::builtins::collect_hook_functions_in_state(
+                &*self.shared.obarray,
+                "buffer-list-update-hook",
+                hook_value,
+                true,
+            );
+            self.run_hook_functions(&functions, &[])?;
+        }
+        Ok(Value::Buffer(plan.id))
     }
 
     fn builtin_kill_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -1979,20 +2201,9 @@ impl<'a> Vm<'a> {
             let plan = crate::emacs_core::builtins::keymaps::plan_keymap_iteration(keymap);
             let parent = plan.parent;
             let bindings = plan.bindings;
-            if !bindings.is_empty() {
-                let mut extra_roots = Vec::with_capacity(2 + bindings.len() * 2);
-                extra_roots.push(function);
-                extra_roots.push(keymap);
-                extra_roots.push(parent);
-                for (event, binding) in &bindings {
-                    extra_roots.push(*event);
-                    extra_roots.push(*binding);
-                }
-                self.with_mirrored_evaluator(&extra_roots, move |eval| {
-                    crate::emacs_core::builtins::keymaps::execute_keymap_iteration_callbacks(
-                        eval, function, &bindings,
-                    )
-                })?;
+            for (event, binding) in &bindings {
+                let call_args = [*event, *binding];
+                let _ = self.call_function_with_roots(function, &call_args)?;
             }
 
             if !include_parents {
@@ -3573,6 +3784,18 @@ impl<'a> Vm<'a> {
             "key-binding" => Some(self.builtin_key_binding_shared(args)),
             "local-key-binding" => Some(self.builtin_local_key_binding_shared(args)),
             "minor-mode-key-binding" => Some(self.builtin_minor_mode_key_binding_shared(args)),
+            "run-hooks" => Some(self.builtin_run_hooks_shared(args)),
+            "run-hook-with-args" => Some(self.builtin_run_hook_with_args_shared(args)),
+            "run-hook-with-args-until-success" => {
+                Some(self.builtin_run_hook_with_args_until_success_shared(args))
+            }
+            "run-hook-with-args-until-failure" => {
+                Some(self.builtin_run_hook_with_args_until_failure_shared(args))
+            }
+            "run-hook-wrapped" => Some(self.builtin_run_hook_wrapped_shared(args)),
+            "run-hook-query-error-with-timeout" => {
+                Some(self.builtin_run_hook_query_error_with_timeout_shared(args))
+            }
             "autoload" => Some(crate::emacs_core::autoload::register_autoload_in_state(
                 self.shared.obarray,
                 self.shared.autoloads,

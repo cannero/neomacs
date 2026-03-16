@@ -1130,7 +1130,7 @@ fn vm_keymap_structure_builtins_use_shared_runtime_state() {
 }
 
 #[test]
-fn vm_map_keymap_builtins_use_shared_state_and_narrow_callback_bridge() {
+fn vm_map_keymap_builtins_use_shared_state_and_vm_callbacks() {
     assert_eq!(
         vm_eval_str(
             r#"(let* ((parent (make-sparse-keymap))
@@ -1153,6 +1153,48 @@ fn vm_map_keymap_builtins_use_shared_state_and_narrow_callback_bridge() {
                     (reverse seen))))"#
         ),
         "OK ((child-binding parent-binding) (child-binding parent-binding))"
+    );
+}
+
+#[test]
+fn vm_hook_builtins_use_shared_runtime_state_and_vm_callbacks() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((buf (get-buffer-create "vm-hook-buf"))
+                     (seen nil))
+                 (fset 'vm-hook-global
+                       (lambda (&rest xs)
+                         (setq seen (cons (cons 'global xs) seen))
+                         nil))
+                 (fset 'vm-hook-local
+                       (lambda (&rest xs)
+                         (setq seen (cons (cons 'local xs) seen))
+                         'ok))
+                 (fset 'vm-hook-fail
+                       (lambda (&rest xs)
+                         (setq seen (cons (cons 'fail xs) seen))
+                         nil))
+                 (fset 'vm-hook-wrapper
+                       (lambda (fn x)
+                         (setq seen (cons (list 'wrap fn x) seen))
+                         nil))
+                 (setq vm-hook-probe '(vm-hook-global))
+                 (set-buffer buf)
+                 (make-local-variable 'vm-hook-probe)
+                 (setq vm-hook-probe '(vm-hook-local t))
+                 (list
+                  (run-hooks 'vm-hook-probe)
+                  (run-hook-with-args 'vm-hook-probe 1 2)
+                  (run-hook-with-args-until-success 'vm-hook-probe 3)
+                  (progn
+                    (setq vm-hook-probe '(vm-hook-fail t))
+                    (run-hook-with-args-until-failure 'vm-hook-probe 4))
+                  (progn
+                    (setq vm-hook-probe '(vm-hook-local))
+                    (run-hook-wrapped 'vm-hook-probe 'vm-hook-wrapper 5))
+                  (reverse seen)))"#
+        ),
+        "OK (nil nil ok nil nil ((local) (global) (local 1 2) (global 1 2) (local 3) (fail 4) (wrap vm-hook-local 5)))"
     );
 }
 
@@ -1439,7 +1481,7 @@ fn vm_buffer_identity_builtins_use_shared_runtime_state() {
 }
 
 #[test]
-fn vm_make_indirect_buffer_uses_shared_manager_state_and_narrow_hook_bridge() {
+fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(
             r#"(let ((base (get-buffer-create "vm-mib-base")))

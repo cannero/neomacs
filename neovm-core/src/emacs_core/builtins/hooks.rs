@@ -1,77 +1,93 @@
 use super::*;
+use crate::emacs_core::symbol::Obarray;
 
 // ===========================================================================
-// Hook system (need evaluator)
+// Hook system
 // ===========================================================================
 
 fn symbol_dynamic_buffer_or_global_value(
     eval: &super::eval::Evaluator,
     name: &str,
 ) -> Option<Value> {
+    symbol_dynamic_buffer_or_global_value_in_state(
+        eval.obarray(),
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        name,
+    )
+}
+
+pub(crate) fn symbol_dynamic_buffer_or_global_value_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    name: &str,
+) -> Option<Value> {
     let name_id = intern(name);
-    for frame in eval.dynamic.iter().rev() {
+    for frame in dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
             return Some(*value);
         }
     }
-    if let Some(buf) = eval.buffers.current_buffer() {
-        if let Some(value) = buf.get_buffer_local(name) {
-            return Some(*value);
-        }
+    if let Some(buf) = buffers.current_buffer()
+        && let Some(value) = buf.get_buffer_local(name)
+    {
+        return Some(*value);
     }
-    eval.obarray().symbol_value(name).cloned()
+    obarray.symbol_value(name).cloned()
 }
 
-enum HookControl {
-    Continue,
-    Return(Value),
-}
-
-fn walk_hook_value_with<F>(
-    eval: &mut super::eval::Evaluator,
+fn collect_hook_functions_impl(
+    obarray: &Obarray,
     hook_name: &str,
     hook_value: Value,
     inherit_global: bool,
-    callback: &mut F,
-) -> Result<HookControl, Flow>
-where
-    F: FnMut(&mut super::eval::Evaluator, Value) -> Result<HookControl, Flow>,
-{
+    out: &mut Vec<Value>,
+) {
     match hook_value {
-        Value::Nil => Ok(HookControl::Continue),
+        Value::Nil => {}
         Value::Cons(_) => {
             // Oracle-compatible traversal: iterate cons cells, ignore improper
             // list tails, and treat `t` as "also run the global value".
             let mut cursor = hook_value;
             let mut saw_global_marker = false;
             while let Value::Cons(cell) = cursor {
-                let (func, next) = {
-                    let pair = read_cons(cell);
-                    (pair.car, pair.cdr)
-                };
-                if func.as_symbol_name() == Some("t") {
+                let pair = read_cons(cell);
+                if pair.car.as_symbol_name() == Some("t") {
                     saw_global_marker = true;
                 } else {
-                    match callback(eval, func)? {
-                        HookControl::Continue => {}
-                        HookControl::Return(value) => return Ok(HookControl::Return(value)),
-                    }
+                    out.push(pair.car);
                 }
-                cursor = next;
+                cursor = pair.cdr;
             }
 
             if saw_global_marker && inherit_global {
-                let global_value = eval
-                    .obarray()
+                let global_value = obarray
                     .symbol_value(hook_name)
                     .cloned()
                     .unwrap_or(Value::Nil);
-                return walk_hook_value_with(eval, hook_name, global_value, false, callback);
+                collect_hook_functions_impl(obarray, hook_name, global_value, false, out);
             }
-            Ok(HookControl::Continue)
         }
-        value => callback(eval, value),
+        value => out.push(value),
     }
+}
+
+pub(crate) fn collect_hook_functions_in_state(
+    obarray: &Obarray,
+    hook_name: &str,
+    hook_value: Value,
+    inherit_global: bool,
+) -> Vec<Value> {
+    let mut functions = Vec::new();
+    collect_hook_functions_impl(
+        obarray,
+        hook_name,
+        hook_value,
+        inherit_global,
+        &mut functions,
+    );
+    functions
 }
 
 fn run_hook_value(
@@ -81,13 +97,12 @@ fn run_hook_value(
     hook_args: &[Value],
     inherit_global: bool,
 ) -> Result<(), Flow> {
-    let mut callback = |eval: &mut super::eval::Evaluator, value: Value| {
-        eval.apply(value, hook_args.to_vec())?;
-        Ok(HookControl::Continue)
-    };
-    match walk_hook_value_with(eval, hook_name, hook_value, inherit_global, &mut callback)? {
-        HookControl::Continue | HookControl::Return(_) => Ok(()),
+    for func in
+        collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, inherit_global)
+    {
+        eval.apply(func, hook_args.to_vec())?;
     }
+    Ok(())
 }
 
 pub(crate) fn builtin_run_hooks(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
@@ -135,18 +150,13 @@ pub(crate) fn builtin_run_hook_with_args_until_success(
     })?;
     let hook_args: Vec<Value> = args[1..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    let mut callback = |eval: &mut super::eval::Evaluator, func: Value| {
+    for func in collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true) {
         let value = eval.apply(func, hook_args.clone())?;
         if value.is_truthy() {
-            Ok(HookControl::Return(value))
-        } else {
-            Ok(HookControl::Continue)
+            return Ok(value);
         }
-    };
-    match walk_hook_value_with(eval, hook_name, hook_value, true, &mut callback)? {
-        HookControl::Continue => Ok(Value::Nil),
-        HookControl::Return(value) => Ok(value),
     }
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_run_hook_with_args_until_failure(
@@ -162,18 +172,13 @@ pub(crate) fn builtin_run_hook_with_args_until_failure(
     })?;
     let hook_args: Vec<Value> = args[1..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    let mut callback = |eval: &mut super::eval::Evaluator, func: Value| {
+    for func in collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true) {
         let value = eval.apply(func, hook_args.clone())?;
         if value.is_nil() {
-            Ok(HookControl::Return(Value::Nil))
-        } else {
-            Ok(HookControl::Continue)
+            return Ok(Value::Nil);
         }
-    };
-    match walk_hook_value_with(eval, hook_name, hook_value, true, &mut callback)? {
-        HookControl::Continue => Ok(Value::True),
-        HookControl::Return(value) => Ok(value),
     }
+    Ok(Value::True)
 }
 
 pub(crate) fn builtin_run_hook_wrapped(
@@ -190,14 +195,12 @@ pub(crate) fn builtin_run_hook_wrapped(
     let wrapper = args[1];
     let wrapped_args: Vec<Value> = args[2..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    let mut callback = |eval: &mut super::eval::Evaluator, func: Value| {
+    for func in collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true) {
         let mut call_args = Vec::with_capacity(wrapped_args.len() + 1);
         call_args.push(func);
         call_args.extend(wrapped_args.clone());
         eval.apply(wrapper, call_args)?;
-        Ok(HookControl::Continue)
-    };
-    let _ = walk_hook_value_with(eval, hook_name, hook_value, true, &mut callback)?;
+    }
     Ok(Value::Nil)
 }
 
