@@ -259,6 +259,7 @@ pub(crate) struct VmSharedState<'a> {
     #[cfg(unix)]
     wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
     redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
+    display_host: &'a mut Option<Box<dyn DisplayHost>>,
     face_table: &'a mut FaceTable,
     gc_pending: &'a mut bool,
     gc_count: &'a mut u64,
@@ -311,6 +312,7 @@ impl<'a> VmSharedState<'a> {
         input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
         #[cfg(unix)] wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
         redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
+        display_host: &'a mut Option<Box<dyn DisplayHost>>,
         coding_systems: &'a mut CodingSystemManager,
         face_table: &'a mut FaceTable,
         depth: &'a mut usize,
@@ -369,6 +371,7 @@ impl<'a> VmSharedState<'a> {
             #[cfg(unix)]
             wakeup_fd,
             redisplay_fn,
+            display_host,
             coding_systems,
             face_table,
             depth,
@@ -427,6 +430,7 @@ impl<'a> VmSharedState<'a> {
             #[cfg(unix)]
             &mut eval.wakeup_fd,
             &mut eval.redisplay_fn,
+            &mut eval.display_host,
             &mut eval.coding_systems,
             &mut eval.face_table,
             &mut eval.depth,
@@ -484,6 +488,7 @@ impl<'a> VmSharedState<'a> {
         #[cfg(unix)]
         std::mem::swap(self.wakeup_fd, &mut eval.wakeup_fd);
         std::mem::swap(self.redisplay_fn, &mut eval.redisplay_fn);
+        std::mem::swap(self.display_host, &mut eval.display_host);
         std::mem::swap(self.coding_systems, &mut eval.coding_systems);
         std::mem::swap(self.face_table, &mut eval.face_table);
         std::mem::swap(self.depth, &mut eval.depth);
@@ -679,6 +684,18 @@ pub(crate) fn restore_scratch_gc_roots(saved_len: usize) {
     SCRATCH_GC_ROOTS.with(|scratch| scratch.borrow_mut().truncate(saved_len));
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuiFrameHostRequest {
+    pub frame_id: crate::window::FrameId,
+    pub width: u32,
+    pub height: u32,
+    pub title: String,
+}
+
+pub trait DisplayHost {
+    fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
+}
+
 /// The Elisp evaluator.
 ///
 /// # Safety: Send
@@ -781,6 +798,8 @@ pub struct Evaluator {
     ///
     /// `None` in batch mode (no display).
     pub redisplay_fn: Option<Box<dyn FnMut(&mut Self)>>,
+    /// Host-display bridge for GUI frame realization.
+    pub display_host: Option<Box<dyn DisplayHost>>,
     /// Coding system manager — encoding/decoding registry.
     pub(crate) coding_systems: CodingSystemManager,
     /// Face table — global registry of named face definitions.
@@ -1160,6 +1179,7 @@ impl Evaluator {
             ev.wakeup_fd = None;
         }
         ev.redisplay_fn = None;
+        ev.display_host = None;
         ev.coding_systems = CodingSystemManager::new();
         ev.face_table = FaceTable::new();
         ev.depth = 0;
@@ -2216,6 +2236,7 @@ impl Evaluator {
             "load-file-name",
             "noninteractive",
             "inhibit-quit",
+            "inhibit-read-only",
             "internal-make-interpreted-closure-function",
             "print-length",
             "print-level",
@@ -2288,6 +2309,7 @@ impl Evaluator {
             #[cfg(unix)]
             wakeup_fd: None,
             redisplay_fn: None,
+            display_host: None,
             coding_systems: CodingSystemManager::new(),
             face_table: FaceTable::new(),
             depth: 0,
@@ -2387,6 +2409,7 @@ impl Evaluator {
             #[cfg(unix)]
             wakeup_fd: None,
             redisplay_fn: None,
+            display_host: None,
             coding_systems,
             face_table,
             depth: 0,
@@ -2530,6 +2553,10 @@ impl Evaluator {
         self.input_rx = Some(input_rx);
         self.wakeup_fd = Some(wakeup_fd);
         self.command_loop.running = true;
+    }
+
+    pub fn set_display_host(&mut self, host: Box<dyn DisplayHost>) {
+        self.display_host = Some(host);
     }
 
     // -----------------------------------------------------------------------

@@ -109,7 +109,7 @@ pub use error::{
     EvalError, format_eval_result, format_eval_result_bytes_with_eval,
     format_eval_result_with_eval, print_value_bytes_with_eval, print_value_with_eval,
 };
-pub use eval::Evaluator;
+pub use eval::{DisplayHost, Evaluator, GuiFrameHostRequest};
 pub use expr::{Expr, ParseError, print_expr};
 pub use intern::SymId;
 pub use parser::parse_forms;

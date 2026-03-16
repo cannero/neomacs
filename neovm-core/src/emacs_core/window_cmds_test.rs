@@ -1,5 +1,9 @@
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
-use crate::emacs_core::{Evaluator, Value, format_eval_result, parse_forms};
+use crate::emacs_core::{
+    DisplayHost, Evaluator, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
+};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Evaluate all forms with a fresh evaluator that has a frame+window set up.
 fn eval_with_frame(src: &str) -> Vec<String> {
@@ -34,6 +38,24 @@ fn bootstrap_eval_one_with_frame(src: &str) -> String {
         .into_iter()
         .next()
         .expect("result")
+}
+
+#[derive(Clone, Default)]
+struct RecordingDisplayHost {
+    requests: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
+}
+
+impl RecordingDisplayHost {
+    fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl DisplayHost for RecordingDisplayHost {
+    fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
+        self.requests.borrow_mut().push(request);
+        Ok(())
+    }
 }
 
 // -- Window queries --
@@ -2292,6 +2314,80 @@ fn make_frame_creates_new() {
 }
 
 #[test]
+fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
+    let mut ev = Evaluator::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("bootstrap", 800, 600, scratch);
+    ev.frames
+        .get_mut(fid)
+        .expect("bootstrap frame")
+        .parameters
+        .insert("window-system".to_string(), Value::symbol("neomacs"));
+
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("name"), Value::string("GUI")),
+        Value::cons(Value::symbol("width"), Value::Int(80)),
+        Value::cons(Value::symbol("height"), Value::Int(25)),
+        Value::cons(Value::symbol("visibility"), Value::Nil),
+    ]);
+    let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
+
+    let created_id = match created {
+        Value::Frame(id) => crate::window::FrameId(id),
+        other => panic!("expected frame object, got {other:?}"),
+    };
+    assert_ne!(created_id, fid);
+    let frame = ev.frames.get(created_id).expect("created frame");
+    assert_eq!(ev.frames.frame_list().len(), 2);
+    assert_eq!(frame.name, "GUI");
+    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
+    assert!(!frame.visible);
+    assert_eq!(frame.char_width, 8.0);
+    assert_eq!(frame.char_height, 16.0);
+}
+
+#[test]
+fn x_create_frame_reuses_bootstrap_primary_frame_and_notifies_host() {
+    let mut ev = Evaluator::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
+    {
+        let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("neomacs"));
+        if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
+            mini_leaf.set_bounds(crate::window::Rect::new(0.0, 608.0, 960.0, 32.0));
+        }
+    }
+    ev.set_variable("frame-initial-frame", Value::Frame(fid.0));
+    let host = RecordingDisplayHost::new();
+    let requests = host.requests.clone();
+    ev.set_display_host(Box::new(host));
+
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("name"), Value::string("Neomacs")),
+        Value::cons(Value::symbol("title"), Value::string("Neomacs")),
+        Value::cons(Value::symbol("width"), Value::Int(80)),
+        Value::cons(Value::symbol("height"), Value::Int(25)),
+    ]);
+    let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
+
+    assert_eq!(created, Value::Frame(fid.0));
+    assert_eq!(ev.frames.frame_list().len(), 1);
+    let frame = ev.frames.get(fid).expect("reused bootstrap frame");
+    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].frame_id, fid);
+    assert_eq!(requests[0].title, "Neomacs");
+    assert_eq!(requests[0].width, frame.width);
+    assert_eq!(requests[0].height, frame.height);
+}
+
+#[test]
 fn delete_frame_works() {
     let results = eval_with_frame(
         "(let ((f2 (make-frame)))
@@ -2405,6 +2501,28 @@ fn modify_frame_parameters_name() {
     );
     assert_eq!(results[0], "OK nil");
     assert_eq!(results[1], r#"OK "NewName""#);
+}
+
+#[test]
+fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    let forms =
+        parse_forms("(modify-frame-parameters (selected-frame) '((width . 80) (height . 25)))")
+            .expect("parse");
+    let out = ev.eval_forms(&forms);
+    assert!(
+        out[0].is_ok(),
+        "modify-frame-parameters failed: {:?}",
+        out[0]
+    );
+
+    let frame = ev.frames.get(fid).expect("frame should exist");
+    assert_eq!(frame.width, 800);
+    assert_eq!(frame.height, 600);
+    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
 }
 
 #[test]

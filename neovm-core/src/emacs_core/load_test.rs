@@ -1124,6 +1124,24 @@ fn bootstrap_runtime_eieio_core_starts_as_gnu_autoload_state() {
 }
 
 #[test]
+fn runtime_startup_state_preserves_gui_frame_metrics() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    let scratch = eval.buffers.create_buffer("*scratch*");
+    let fid = eval.frames.create_frame("F1", 960, 640, scratch);
+    let frame_before = eval.frames.get(fid).expect("bootstrap frame should exist");
+    let expected_char_width = frame_before.char_width;
+    let expected_char_height = frame_before.char_height;
+    let expected_font_pixel_size = frame_before.font_pixel_size;
+
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let frame_after = eval.frames.get(fid).expect("runtime frame should exist");
+    assert_eq!(frame_after.char_width, expected_char_width);
+    assert_eq!(frame_after.char_height, expected_char_height);
+    assert_eq!(frame_after.font_pixel_size, expected_font_pixel_size);
+}
+
+#[test]
 fn bootstrap_misc_upcase_char_preserves_point_and_uppercases_region() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");

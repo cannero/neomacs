@@ -3491,11 +3491,6 @@ pub(crate) fn builtin_x_begin_drag(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_x_create_frame(args: Vec<Value>) -> EvalResult {
-    expect_args("x-create-frame", &args, 1)?;
-    Ok(Value::Nil)
-}
-
 pub(crate) fn builtin_x_double_buffered_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-double-buffered-p", &args, 0, 1)?;
     Ok(Value::Nil)

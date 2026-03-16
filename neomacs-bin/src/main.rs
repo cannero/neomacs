@@ -19,15 +19,36 @@ use neomacs_display_runtime::FrameGlyphBuffer;
 use neomacs_display_runtime::render_thread::{
     RenderThread, SharedImageDimensions, SharedMonitorInfo,
 };
-use neomacs_display_runtime::thread_comm::ThreadComms;
+use neomacs_display_runtime::thread_comm::{RenderCommand, ThreadComms};
 
 use neovm_core::buffer::BufferId;
-use neovm_core::emacs_core::Evaluator;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::error::EvalError;
 use neovm_core::emacs_core::intern::resolve_sym;
 use neovm_core::emacs_core::print_value_with_eval;
+use neovm_core::emacs_core::{DisplayHost, Evaluator, GuiFrameHostRequest};
 use neovm_core::window::{FrameId, Window};
+
+struct PrimaryWindowDisplayHost {
+    cmd_tx: crossbeam_channel::Sender<RenderCommand>,
+}
+
+impl DisplayHost for PrimaryWindowDisplayHost {
+    fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
+        self.cmd_tx
+            .send(RenderCommand::SetWindowTitle {
+                title: request.title,
+            })
+            .map_err(|err| format!("failed to update primary window title: {err}"))?;
+        self.cmd_tx
+            .send(RenderCommand::SetWindowSize {
+                width: request.width,
+                height: request.height,
+            })
+            .map_err(|err| format!("failed to update primary window size: {err}"))?;
+        Ok(())
+    }
+}
 
 fn main() {
     // 1. Initialize logging
@@ -70,6 +91,9 @@ fn main() {
     //    which needs the display system to be running for input and redisplay.
     let comms = ThreadComms::new().expect("Failed to create thread comms");
     let (emacs_comms, render_comms) = comms.split();
+    evaluator.set_display_host(Box::new(PrimaryWindowDisplayHost {
+        cmd_tx: emacs_comms.cmd_tx.clone(),
+    }));
 
     // 5. Create shared state + spawn render thread
     let image_dimensions: SharedImageDimensions = Arc::new(Mutex::new(HashMap::new()));

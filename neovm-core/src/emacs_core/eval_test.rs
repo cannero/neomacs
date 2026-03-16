@@ -2638,6 +2638,34 @@ fn insert_read_only_shape_and_noop_cases_match_gnu() {
 }
 
 #[test]
+fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    let forms = parse_forms(
+        "(with-temp-buffer
+           (setq buffer-read-only t)
+           (let ((inhibit-read-only t))
+             (insert \"ok\")
+             (buffer-string)))",
+    )
+    .expect("parse");
+    let result = ev.eval_expr(&forms[0]);
+    assert_eq!(format_eval_result(&result), r#"OK "ok""#);
+}
+
+#[test]
+fn bootstrap_display_warning_does_not_signal_buffer_read_only() {
+    let result = bootstrap_eval_one(
+        "(condition-case err
+             (progn
+               (display-warning 'emacs \"hello from neomacs startup\")
+               'ok)
+           (error (list 'error (car err))))",
+    );
+    assert_eq!(result, "OK ok");
+}
+
+#[test]
 fn insert_char_nil_count_defaults_to_one_with_inherit() {
     let results = eval_all(
         "(with-temp-buffer

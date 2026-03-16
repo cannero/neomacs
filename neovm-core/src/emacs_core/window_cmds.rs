@@ -4575,6 +4575,218 @@ pub(crate) fn builtin_make_frame_in_state(
     Ok(Value::Frame(fid.0))
 }
 
+#[derive(Default)]
+struct ParsedGuiFrameParams {
+    name: Option<String>,
+    title: Option<String>,
+    width_columns: Option<u32>,
+    height_lines: Option<u32>,
+    visibility: Option<bool>,
+    all: std::collections::HashMap<String, Value>,
+}
+
+#[derive(Clone, Copy)]
+struct GuiFrameMetrics {
+    width_px: u32,
+    height_px: u32,
+    char_width: f32,
+    char_height: f32,
+    font_pixel_size: f32,
+    minibuffer_height: f32,
+}
+
+fn stringish_value(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(ToOwned::to_owned)
+        .or_else(|| value.as_symbol_name().map(ToOwned::to_owned))
+}
+
+fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
+    let mut parsed = ParsedGuiFrameParams::default();
+    let Some(value) = value else {
+        return parsed;
+    };
+    let Some(items) = list_to_vec(value) else {
+        return parsed;
+    };
+    for item in items {
+        let Value::Cons(cell) = item else {
+            continue;
+        };
+        let pair = read_cons(cell);
+        let Some(key) = pair.car.as_symbol_name() else {
+            continue;
+        };
+        let key_name = key.to_string();
+        parsed.all.insert(key_name.clone(), pair.cdr);
+        match key {
+            "name" => parsed.name = stringish_value(&pair.cdr),
+            "title" => parsed.title = stringish_value(&pair.cdr),
+            "width" => {
+                if let Some(n) = pair.cdr.as_int() {
+                    if n > 0 {
+                        parsed.width_columns = Some(n as u32);
+                    }
+                }
+            }
+            "height" => {
+                if let Some(n) = pair.cdr.as_int() {
+                    if n > 0 {
+                        parsed.height_lines = Some(n as u32);
+                    }
+                }
+            }
+            "visibility" => parsed.visibility = Some(pair.cdr.is_truthy()),
+            _ => {}
+        }
+    }
+    parsed
+}
+
+fn current_gui_frame_metrics(eval: &super::eval::Evaluator) -> GuiFrameMetrics {
+    if let Some(frame) = eval.frames.selected_frame() {
+        let minibuffer_height = frame
+            .minibuffer_leaf
+            .as_ref()
+            .map(|leaf| leaf.bounds().height.max(frame.char_height).max(1.0))
+            .unwrap_or_else(|| (frame.char_height * 2.0).max(1.0));
+        return GuiFrameMetrics {
+            width_px: frame.width.max(1),
+            height_px: frame.height.max(minibuffer_height.ceil() as u32 + 1),
+            char_width: frame.char_width.max(1.0),
+            char_height: frame.char_height.max(1.0),
+            font_pixel_size: frame.font_pixel_size.max(1.0),
+            minibuffer_height,
+        };
+    }
+    GuiFrameMetrics {
+        width_px: 960,
+        height_px: 640,
+        char_width: 8.0,
+        char_height: 16.0,
+        font_pixel_size: 16.0,
+        minibuffer_height: 32.0,
+    }
+}
+
+fn bootstrap_primary_frame_id(eval: &super::eval::Evaluator) -> Option<FrameId> {
+    if eval.frames.frame_list().len() != 1 {
+        return None;
+    }
+    let value = eval.obarray.symbol_value("frame-initial-frame")?;
+    match value {
+        Value::Frame(id) => Some(FrameId(*id)),
+        Value::Int(id) if *id >= 0 => Some(FrameId(*id as u64)),
+        _ => None,
+    }
+    .filter(|fid| eval.frames.get(*fid).is_some())
+}
+
+/// `(x-create-frame PARMS)` -> frame.
+///
+/// GNU Emacs owns `make-frame` in Lisp and delegates the host-window boundary
+/// to the C primitive `x-create-frame`.  NeoVM mirrors that split here:
+/// this builtin realizes the Lisp frame object and lets the frontend binary
+/// adopt that frame as the primary GUI window.
+pub(crate) fn builtin_x_create_frame(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("x-create-frame", &args, 1)?;
+
+    let parsed = parse_gui_frame_params(args.first());
+    let metrics = current_gui_frame_metrics(eval);
+    let width_px = parsed
+        .width_columns
+        .map(|cols| ((cols as f32 * metrics.char_width).round().max(1.0)) as u32)
+        .unwrap_or(metrics.width_px);
+    let text_height_px = parsed.height_lines.map(|lines| {
+        ((lines as f32 * metrics.char_height)
+            .round()
+            .max(metrics.char_height)) as u32
+    });
+    let height_px = text_height_px
+        .map(|text| text.saturating_add(metrics.minibuffer_height.round() as u32))
+        .unwrap_or(metrics.height_px);
+    let title = parsed
+        .title
+        .clone()
+        .or_else(|| parsed.name.clone())
+        .unwrap_or_else(|| "Neomacs".to_string());
+    let name = parsed.name.clone().unwrap_or_else(|| title.clone());
+    let current_buffer_id = eval
+        .buffers
+        .current_buffer()
+        .map(|buffer| buffer.id)
+        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
+    let minibuffer_buffer_id = eval.buffers.find_buffer_by_name(" *Minibuf-0*");
+    let reused_bootstrap = bootstrap_primary_frame_id(eval);
+    let fid = reused_bootstrap.unwrap_or_else(|| {
+        eval.frames
+            .create_frame(&name, width_px, height_px, current_buffer_id)
+    });
+    let root_height = (height_px as f32 - metrics.minibuffer_height).max(metrics.char_height);
+    let minibuffer_y = root_height;
+    let mut host_request = None;
+    {
+        let frame = eval
+            .frames
+            .get_mut(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        frame.name = name.clone();
+        frame.title = title.clone();
+        frame.width = width_px;
+        frame.height = height_px;
+        frame.visible = parsed.visibility.unwrap_or(frame.visible);
+        frame.char_width = metrics.char_width;
+        frame.char_height = metrics.char_height;
+        frame.font_pixel_size = metrics.font_pixel_size;
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("neomacs"));
+        for (key, value) in parsed.all {
+            frame.parameters.insert(key, value);
+        }
+        if let Window::Leaf {
+            buffer_id, bounds, ..
+        } = &mut frame.root_window
+        {
+            *buffer_id = current_buffer_id;
+            *bounds = Rect::new(0.0, 0.0, width_px as f32, root_height);
+        }
+        if let Some(minibuffer_leaf) = frame.minibuffer_leaf.as_mut() {
+            if let Some(minibuffer_buffer_id) = minibuffer_buffer_id {
+                minibuffer_leaf.set_buffer(minibuffer_buffer_id);
+            }
+            minibuffer_leaf.set_bounds(Rect::new(
+                0.0,
+                minibuffer_y,
+                width_px as f32,
+                metrics.minibuffer_height.min(height_px as f32),
+            ));
+        }
+        if reused_bootstrap.is_some() {
+            host_request = Some(super::eval::GuiFrameHostRequest {
+                frame_id: fid,
+                width: width_px,
+                height: height_px,
+                title: frame.title.clone(),
+            });
+        }
+    }
+    if let Some(request) = host_request {
+        if let Some(host) = eval.display_host.as_mut() {
+            host.realize_gui_frame(request)
+                .map_err(|message| signal("error", vec![Value::string(message)]))?;
+        }
+    }
+    if reused_bootstrap.is_some() {
+        let _ = eval.frames.select_frame(fid);
+    }
+    Ok(Value::Frame(fid.0))
+}
+
 /// `(delete-frame &optional FRAME FORCE)` -> nil.
 pub(crate) fn builtin_delete_frame(
     eval: &mut super::eval::Evaluator,
@@ -4727,12 +4939,12 @@ pub(crate) fn builtin_modify_frame_parameters(
                     }
                     "width" => {
                         if let Some(n) = pair.cdr.as_int() {
-                            frame.width = n as u32;
+                            frame.parameters.insert("width".to_string(), Value::Int(n));
                         }
                     }
                     "height" => {
                         if let Some(n) = pair.cdr.as_int() {
-                            frame.height = n as u32;
+                            frame.parameters.insert("height".to_string(), Value::Int(n));
                         }
                     }
                     "visibility" => {

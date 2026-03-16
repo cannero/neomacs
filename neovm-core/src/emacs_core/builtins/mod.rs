@@ -1851,6 +1851,7 @@ pub(crate) fn dispatch_builtin(
             return Some(super::window_cmds::builtin_visible_frame_list(eval, args));
         }
         "frame-list" => return Some(super::window_cmds::builtin_frame_list(eval, args)),
+        "x-create-frame" => return Some(super::window_cmds::builtin_x_create_frame(eval, args)),
         "make-frame-visible" => {
             return Some(super::window_cmds::builtin_make_frame_visible(eval, args));
         }
@@ -3182,7 +3183,6 @@ pub(crate) fn dispatch_builtin(
         "value<" => builtin_value_lt(args),
         "variable-binding-locus" => builtin_variable_binding_locus(args),
         "x-begin-drag" => builtin_x_begin_drag(args),
-        "x-create-frame" => builtin_x_create_frame(args),
         "x-double-buffered-p" => builtin_x_double_buffered_p(args),
         "x-menu-bar-open-internal" => builtin_x_menu_bar_open_internal(args),
         "xw-color-defined-p" => builtin_xw_color_defined_p(args),
@@ -3999,7 +3999,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "value<" => builtin_value_lt(args),
         "variable-binding-locus" => builtin_variable_binding_locus(args),
         "x-begin-drag" => builtin_x_begin_drag(args),
-        "x-create-frame" => builtin_x_create_frame(args),
         "x-double-buffered-p" => builtin_x_double_buffered_p(args),
         "x-menu-bar-open-internal" => builtin_x_menu_bar_open_internal(args),
         "xw-color-defined-p" => builtin_xw_color_defined_p(args),

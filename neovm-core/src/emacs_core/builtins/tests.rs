@@ -4644,11 +4644,6 @@ fn pure_dispatch_x_display_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin x-begin-drag should evaluate");
     assert!(x_begin_drag.is_nil());
 
-    let x_create_frame = dispatch_builtin_pure("x-create-frame", vec![Value::list(vec![])])
-        .expect("builtin x-create-frame should resolve")
-        .expect("builtin x-create-frame should evaluate");
-    assert!(x_create_frame.is_nil());
-
     let x_double_buffered = dispatch_builtin_pure("x-double-buffered-p", vec![])
         .expect("builtin x-double-buffered-p should resolve")
         .expect("builtin x-double-buffered-p should evaluate");
