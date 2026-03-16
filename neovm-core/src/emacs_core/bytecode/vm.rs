@@ -6896,10 +6896,28 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_terpri_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (obarray, dynamic, buffers, _, _, _) = self.shared.printer_runtime_state();
+        if let Some(result) = crate::emacs_core::builtins::builtin_terpri_in_state(
+            &*obarray,
+            dynamic.as_slice(),
+            buffers,
+            args.to_vec(),
+        )? {
+            return Ok(result);
+        }
         self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_terpri_eval)
     }
 
     fn builtin_write_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (obarray, dynamic, buffers, _, _, _) = self.shared.printer_runtime_state();
+        if let Some(result) = crate::emacs_core::builtins::builtin_write_char_in_state(
+            &*obarray,
+            dynamic.as_slice(),
+            buffers,
+            args.to_vec(),
+        )? {
+            return Ok(result);
+        }
         self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_write_char_eval)
     }
 

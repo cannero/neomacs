@@ -1290,10 +1290,36 @@ pub(crate) fn builtin_terpri_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    if let Some(result) = builtin_terpri_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        args.clone(),
+    )? {
+        return Ok(result);
+    }
     expect_max_args("terpri", &args, 2)?;
     let target = resolve_print_target(eval, args.first());
     write_terpri_output(eval, target)?;
     Ok(Value::True)
+}
+
+pub(crate) fn builtin_terpri_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> Result<Option<Value>, Flow> {
+    expect_max_args("terpri", &args, 2)?;
+    let target = resolve_print_target_in_state(obarray, dynamic, args.first());
+    if matches!(
+        target,
+        Value::True | Value::Nil | Value::Buffer(_) | Value::Str(_)
+    ) {
+        write_print_output_to_target(buffers, target, "\n")?;
+        return Ok(Some(Value::True));
+    }
+    Ok(None)
 }
 
 pub(super) fn write_char_rendered_text(char_code: i64) -> Option<String> {
@@ -1316,6 +1342,14 @@ pub(crate) fn builtin_write_char_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    if let Some(result) = builtin_write_char_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        args.clone(),
+    )? {
+        return Ok(result);
+    }
     expect_range_args("write-char", &args, 1, 2)?;
     let char_code = expect_fixnum(&args[0])?;
     let target = resolve_print_target(eval, args.get(1));
@@ -1362,6 +1396,29 @@ pub(crate) fn builtin_write_char_eval(
     }
 
     Ok(Value::Int(char_code))
+}
+
+pub(crate) fn builtin_write_char_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> Result<Option<Value>, Flow> {
+    expect_range_args("write-char", &args, 1, 2)?;
+    let char_code = expect_fixnum(&args[0])?;
+    let target = resolve_print_target_in_state(obarray, dynamic, args.get(1));
+
+    if matches!(
+        target,
+        Value::True | Value::Nil | Value::Buffer(_) | Value::Str(_)
+    ) {
+        if let Some(text) = write_char_rendered_text(char_code) {
+            write_print_output_to_target(buffers, target, &text)?;
+        }
+        return Ok(Some(Value::Int(char_code)));
+    }
+
+    Ok(None)
 }
 
 pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
