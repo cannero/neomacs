@@ -322,12 +322,13 @@ impl<'a> RustBufferAccess<'a> {
 
     /// Convert a character position to a byte position.
     ///
-    /// Wraps `GapBuffer::char_to_byte()`.
+    /// `WindowParams` and layout use Lisp character positions, which are
+    /// 1-based. `GapBuffer::char_to_byte()` expects a 0-based character index.
     pub fn charpos_to_bytepos(&self, charpos: i64) -> i64 {
         if charpos <= 0 {
             return 0;
         }
-        self.buffer.text.char_to_byte(charpos as usize) as i64
+        self.buffer.text.char_to_byte((charpos - 1) as usize) as i64
     }
 
     /// Copy buffer text bytes in the range `[byte_from, byte_to)` into `out`.
@@ -1035,7 +1036,7 @@ fn underline_style_to_u8(style: &NeoUnderlineStyle) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neovm_core::buffer::{BufferId, BufferManager};
+    use neovm_core::buffer::BufferManager;
     use neovm_core::window::{FrameManager, Rect as NeoRect, WindowId};
 
     /// Create a minimal Evaluator-like test fixture (FrameManager + BufferManager)
@@ -1105,16 +1106,20 @@ mod tests {
     fn test_window_params_from_neovm_internal_returns_none() {
         use neovm_core::window::SplitDirection;
 
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator.buffer_manager_mut().create_buffer("*test*");
+        let frame_id = evaluator
+            .frame_manager_mut()
+            .create_frame("test", 800, 600, buf_id);
         let internal = Window::Internal {
             id: WindowId(99),
             direction: SplitDirection::Vertical,
             children: vec![],
             bounds: NeoRect::new(0.0, 0.0, 100.0, 100.0),
+            combination_limit: false,
         };
-        let buf = neovm_core::buffer::Buffer::new(BufferId(1), "*test*".to_string());
-        let mut frame_mgr = FrameManager::new();
-        let fid = frame_mgr.create_frame("test", 800, 600, BufferId(1));
-        let frame = frame_mgr.get(fid).unwrap();
+        let buf = evaluator.buffer_manager().get(buf_id).unwrap();
+        let frame = evaluator.frame_manager().get(frame_id).unwrap();
 
         let result = window_params_from_neovm(&internal, &buf, frame, false, false);
         assert!(result.is_none(), "Internal windows should return None");
@@ -1127,11 +1132,18 @@ mod tests {
 
         // Set buffer-local variables.
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
-            buf.properties
-                .insert("truncate-lines".to_string(), Value::True);
-            buf.properties
-                .insert("tab-width".to_string(), Value::Int(4));
-            buf.properties.insert("word-wrap".to_string(), Value::Nil);
+            buf.properties.insert(
+                "truncate-lines".to_string(),
+                neovm_core::emacs_core::value::RuntimeBindingValue::Bound(Value::True),
+            );
+            buf.properties.insert(
+                "tab-width".to_string(),
+                neovm_core::emacs_core::value::RuntimeBindingValue::Bound(Value::Int(4)),
+            );
+            buf.properties.insert(
+                "word-wrap".to_string(),
+                neovm_core::emacs_core::value::RuntimeBindingValue::Bound(Value::Nil),
+            );
         }
 
         let frame_id = evaluator
@@ -1227,8 +1239,10 @@ mod tests {
         let access = RustBufferAccess::new(buf);
 
         assert_eq!(access.charpos_to_bytepos(0), 0);
-        assert_eq!(access.charpos_to_bytepos(1), 1); // ASCII: 1 byte per char
-        assert_eq!(access.charpos_to_bytepos(3), 3);
+        assert_eq!(access.charpos_to_bytepos(1), 0);
+        assert_eq!(access.charpos_to_bytepos(2), 1);
+        assert_eq!(access.charpos_to_bytepos(3), 2);
+        assert_eq!(access.charpos_to_bytepos(4), 3);
     }
 
     #[test]
