@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{intern, resolve_sym};
+use super::intern::{SymId, intern, resolve_sym};
 use super::value::*;
 use crate::gc::GcTrace;
 
@@ -311,6 +311,50 @@ pub(crate) fn builtin_make_local_variable(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let obarray = &eval.obarray;
+    let dynamic = eval.dynamic.as_slice();
+    let buffers = &mut eval.buffers;
+    builtin_make_local_variable_in_state(obarray, dynamic, buffers, args)
+}
+
+fn runtime_binding_for_make_local_variable(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    symbol: SymId,
+    resolved: SymId,
+) -> RuntimeBindingValue {
+    if let Some(binding) = lookup_runtime_binding(dynamic, symbol) {
+        return binding;
+    }
+    if resolved != symbol
+        && let Some(binding) = lookup_runtime_binding(dynamic, resolved)
+    {
+        return binding;
+    }
+    if let Some(value) = obarray.symbol_value_id(resolved) {
+        return RuntimeBindingValue::Bound(*value);
+    }
+
+    let resolved_name = resolve_sym(resolved);
+    if super::builtins::is_canonical_symbol_id(resolved) && resolved_name == "nil" {
+        return RuntimeBindingValue::Bound(Value::Nil);
+    }
+    if super::builtins::is_canonical_symbol_id(resolved) && resolved_name == "t" {
+        return RuntimeBindingValue::Bound(Value::True);
+    }
+    if super::builtins::is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') {
+        return RuntimeBindingValue::Bound(Value::Keyword(resolved));
+    }
+
+    RuntimeBindingValue::Void
+}
+
+pub(crate) fn builtin_make_local_variable_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("make-local-variable", &args, 1)?;
     let name = match &args[0] {
         Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
@@ -323,28 +367,25 @@ pub(crate) fn builtin_make_local_variable(
             ));
         }
     };
-    let resolved = super::builtins::resolve_variable_alias_name(eval, &name)?;
-    if eval.obarray().is_constant(&resolved) {
+    let symbol = intern(&name);
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(obarray, symbol)?;
+    let resolved_name = resolve_sym(resolved);
+    if obarray.is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
-    if let Some(current_id) = eval.buffers.current_buffer_id() {
-        if eval
-            .buffers
+
+    if let Some(current_id) = buffers.current_buffer_id() {
+        if buffers
             .get(current_id)
-            .is_some_and(|buf| !buf.has_buffer_local(&resolved))
+            .is_some_and(|buf| !buf.has_buffer_local(resolved_name))
         {
-            match eval.eval_symbol_by_id(intern(&resolved)) {
-                Ok(value) => {
-                    let _ = eval
-                        .buffers
-                        .set_buffer_local_property(current_id, &resolved, value);
+            match runtime_binding_for_make_local_variable(obarray, dynamic, symbol, resolved) {
+                RuntimeBindingValue::Bound(value) => {
+                    let _ = buffers.set_buffer_local_property(current_id, resolved_name, value);
                 }
-                Err(Flow::Signal(sig)) if sig.symbol_name() == "void-variable" => {
-                    let _ = eval
-                        .buffers
-                        .set_buffer_local_void_property(current_id, &resolved);
+                RuntimeBindingValue::Void => {
+                    let _ = buffers.set_buffer_local_void_property(current_id, resolved_name);
                 }
-                Err(flow) => return Err(flow),
             }
         }
     }
@@ -356,6 +397,14 @@ pub(crate) fn builtin_local_variable_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_local_variable_p_in_state(eval.obarray(), &eval.buffers, args)
+}
+
+pub(crate) fn builtin_local_variable_p_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("local-variable-p", &args, 1)?;
     expect_max_args("local-variable-p", &args, 2)?;
     let name = args[0].as_symbol_name().ok_or_else(|| {
@@ -364,12 +413,12 @@ pub(crate) fn builtin_local_variable_p(
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let resolved = super::builtins::resolve_variable_alias_name(eval, name)?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, name)?;
 
     let buf = if args.len() > 1 {
         match &args[1] {
-            Value::Nil => eval.buffers.current_buffer(),
-            Value::Buffer(id) => eval.buffers.get(*id),
+            Value::Nil => buffers.current_buffer(),
+            Value::Buffer(id) => buffers.get(*id),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -378,7 +427,7 @@ pub(crate) fn builtin_local_variable_p(
             }
         }
     } else {
-        eval.buffers.current_buffer()
+        buffers.current_buffer()
     };
 
     match buf {
@@ -392,11 +441,17 @@ pub(crate) fn builtin_buffer_local_variables(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_local_variables_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_local_variables_in_state(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-local-variables", &args, 1)?;
 
     let id = match args.first() {
-        None | Some(Value::Nil) => eval
-            .buffers
+        None | Some(Value::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
@@ -409,8 +464,7 @@ pub(crate) fn builtin_buffer_local_variables(
         }
     };
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such live buffer")]))?;
 
@@ -436,6 +490,35 @@ pub(crate) fn builtin_kill_local_variable(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let obarray = &eval.obarray;
+    let buffers = &mut eval.buffers;
+    let outcome = builtin_kill_local_variable_in_state(obarray, buffers, args)?;
+    if outcome.removed {
+        if let Some(buffer_id) = outcome.buffer_id {
+            eval.run_variable_watchers_with_where(
+                &outcome.resolved_name,
+                &Value::Nil,
+                &Value::Nil,
+                "makunbound",
+                &Value::Buffer(buffer_id),
+            )?;
+        }
+    }
+    Ok(outcome.result)
+}
+
+pub(crate) struct KillLocalVariableOutcome {
+    pub result: Value,
+    pub removed: bool,
+    pub resolved_name: String,
+    pub buffer_id: Option<crate::buffer::BufferId>,
+}
+
+pub(crate) fn builtin_kill_local_variable_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> Result<KillLocalVariableOutcome, Flow> {
     expect_args("kill-local-variable", &args, 1)?;
     let name = match &args[0] {
         Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
@@ -449,30 +532,35 @@ pub(crate) fn builtin_kill_local_variable(
         }
     };
 
-    let resolved = super::builtins::resolve_variable_alias_name(eval, &name)?;
-    if let Some(buffer_id) = eval.buffers.current_buffer_id() {
-        let removed = eval
-            .buffers
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, &name)?;
+    let mut removed = false;
+    let buffer_id = buffers.current_buffer_id();
+    if let Some(buffer_id) = buffer_id {
+        removed = buffers
             .remove_buffer_local_property(buffer_id, &resolved)
             .flatten()
             .is_some();
-        if removed {
-            eval.run_variable_watchers_with_where(
-                &resolved,
-                &Value::Nil,
-                &Value::Nil,
-                "makunbound",
-                &Value::Buffer(buffer_id),
-            )?;
-        }
     }
 
-    Ok(args[0])
+    Ok(KillLocalVariableOutcome {
+        result: args[0],
+        removed,
+        resolved_name: resolved,
+        buffer_id,
+    })
 }
 
 /// `(default-value SYMBOL)` -- get the default (global) value of a variable.
 pub(crate) fn builtin_default_value(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_default_value_in_state(eval.obarray(), eval.dynamic.as_slice(), args)
+}
+
+pub(crate) fn builtin_default_value_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("default-value", &args, 1)?;
@@ -487,21 +575,21 @@ pub(crate) fn builtin_default_value(
             ));
         }
     };
-    let resolved = super::builtins::resolve_variable_alias_id(eval, symbol)?;
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
-    if let Some(binding) = lookup_runtime_binding(eval.dynamic.as_slice(), symbol) {
+    if let Some(binding) = lookup_runtime_binding(dynamic, symbol) {
         return binding
             .as_value()
             .ok_or_else(|| signal("void-variable", vec![args[0]]));
     }
     if resolved != symbol
-        && let Some(binding) = lookup_runtime_binding(eval.dynamic.as_slice(), resolved)
+        && let Some(binding) = lookup_runtime_binding(dynamic, resolved)
     {
         return binding
             .as_value()
             .ok_or_else(|| signal("void-variable", vec![args[0]]));
     }
-    match eval.obarray.symbol_value_id(resolved) {
+    match obarray.symbol_value_id(resolved) {
         Some(v) => Ok(*v),
         None if super::builtins::is_canonical_symbol_id(resolved)
             && resolved_name.starts_with(':') =>

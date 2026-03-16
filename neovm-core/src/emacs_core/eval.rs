@@ -7052,14 +7052,14 @@ pub(crate) fn set_runtime_binding_in_state(
     custom: &CustomManager,
     sym_id: SymId,
     value: Value,
-) {
+) -> Option<crate::buffer::BufferId> {
     let name = resolve_sym(sym_id);
     let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
 
     for frame in dynamic.iter_mut().rev() {
         if frame.contains_key(&sym_id) {
             frame.insert(sym_id, value);
-            return;
+            return None;
         }
     }
 
@@ -7069,22 +7069,23 @@ pub(crate) fn set_runtime_binding_in_state(
     {
         if name == "buffer-undo-list" {
             let _ = buffers.configure_buffer_undo_list(current_id, value);
-            return;
+            return Some(current_id);
         }
         if buf.has_buffer_local(name) {
             let _ = buffers.set_buffer_local_property(current_id, name, value);
-            return;
+            return Some(current_id);
         }
     }
 
     if symbol_is_canonical && custom.is_auto_buffer_local(name) {
         if let Some(current_id) = buffers.current_buffer_id() {
             let _ = buffers.set_buffer_local_property(current_id, name, value);
-            return;
+            return Some(current_id);
         }
     }
 
     obarray.set_symbol_value_id(sym_id, value);
+    None
 }
 
 pub(crate) fn makunbound_runtime_binding_in_state(
@@ -7128,6 +7129,14 @@ impl Evaluator {
     /// Uses the SymId directly for lexenv/dynamic lookup, preserving
     /// uninterned symbol identity (like Emacs's EQ-based setq).
     pub(crate) fn assign_by_id(&mut self, sym_id: SymId, value: Value) {
+        let _ = self.assign_by_id_with_locus(sym_id, value);
+    }
+
+    pub(crate) fn assign_by_id_with_locus(
+        &mut self,
+        sym_id: SymId,
+        value: Value,
+    ) -> Option<crate::buffer::BufferId> {
         let name = resolve_sym(sym_id);
         // If lexical binding and not special, check lexenv first
         if self.lexical_binding()
@@ -7136,7 +7145,7 @@ impl Evaluator {
         {
             if let Some(cell_id) = lexenv_assq(self.lexenv, sym_id) {
                 lexenv_set(cell_id, value);
-                return;
+                return None;
             }
         }
 
@@ -7147,14 +7156,18 @@ impl Evaluator {
             &self.custom,
             sym_id,
             value,
-        );
+        )
     }
 
     pub(crate) fn assign(&mut self, name: &str, value: Value) {
         self.assign_by_id(intern(name), value);
     }
 
-    pub(crate) fn set_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
+    pub(crate) fn set_runtime_binding_by_id(
+        &mut self,
+        sym_id: SymId,
+        value: Value,
+    ) -> Option<crate::buffer::BufferId> {
         set_runtime_binding_in_state(
             &mut self.obarray,
             self.dynamic.as_mut_slice(),
@@ -7162,7 +7175,7 @@ impl Evaluator {
             &self.custom,
             sym_id,
             value,
-        );
+        )
     }
 
     pub(crate) fn makunbound_runtime_binding_by_id(&mut self, sym_id: SymId) {
@@ -7255,8 +7268,11 @@ impl Evaluator {
         value: Value,
         operation: &str,
     ) -> EvalResult {
-        self.assign(name, value);
-        self.run_variable_watchers(name, &value, &Value::Nil, operation)?;
+        let where_value = self
+            .assign_by_id_with_locus(intern(name), value)
+            .map(Value::Buffer)
+            .unwrap_or(Value::Nil);
+        self.run_variable_watchers_with_where(name, &value, &Value::Nil, operation, &where_value)?;
         Ok(value)
     }
 
@@ -7266,9 +7282,12 @@ impl Evaluator {
         value: Value,
         operation: &str,
     ) -> EvalResult {
-        self.assign_by_id(sym_id, value);
+        let where_value = self
+            .assign_by_id_with_locus(sym_id, value)
+            .map(Value::Buffer)
+            .unwrap_or(Value::Nil);
         let name = resolve_sym(sym_id);
-        self.run_variable_watchers(name, &value, &Value::Nil, operation)?;
+        self.run_variable_watchers_with_where(name, &value, &Value::Nil, operation, &where_value)?;
         Ok(value)
     }
 

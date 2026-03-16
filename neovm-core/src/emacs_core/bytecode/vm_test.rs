@@ -1941,6 +1941,53 @@ fn vm_makunbound_uses_shared_runtime_void_bindings() {
 }
 
 #[test]
+fn vm_make_local_variable_ignores_lexical_locals_and_uses_runtime_binding() {
+    assert_eq!(
+        vm_eval_lexical_str(
+            r#"(progn
+                 (setq vm-mlv-lex-global 'global)
+                 (let ((buf (get-buffer-create "vm-mlv-lex-buf")))
+                   (set-buffer buf)
+                   (let ((vm-mlv-lex-global 'lex))
+                     (make-local-variable 'vm-mlv-lex-global)
+                     (list vm-mlv-lex-global
+                           (symbol-value 'vm-mlv-lex-global)
+                           (buffer-local-value 'vm-mlv-lex-global buf)
+                           (local-variable-p 'vm-mlv-lex-global buf)
+                           (condition-case err
+                               (buffer-local-value 'vm-mlv-lex-global buf)
+                             (error (car err)))
+                           (default-value 'vm-mlv-lex-global)))))"#
+        ),
+        "OK (lex global global t global global)"
+    );
+}
+
+#[test]
+fn vm_kill_local_variable_uses_shared_runtime_and_buffer_where_watchers() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq vm-klv-events nil)
+                 (fset 'vm-klv-rec
+                       (lambda (symbol newval operation where)
+                         (setq vm-klv-events
+                               (cons (list symbol newval operation (bufferp where) (buffer-live-p where))
+                                     vm-klv-events))))
+                 (defvaralias 'vm-klv-alias 'vm-klv-base)
+                 (add-variable-watcher 'vm-klv-base 'vm-klv-rec)
+                 (let ((buf (get-buffer-create "vm-klv-buf")))
+                   (set-buffer buf)
+                   (make-local-variable 'vm-klv-alias)
+                   (set 'vm-klv-alias 7)
+                   (kill-local-variable 'vm-klv-alias))
+                 vm-klv-events)"#
+        ),
+        "OK ((vm-klv-base nil makunbound t t) (vm-klv-base 7 set t t))"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

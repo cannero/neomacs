@@ -1505,6 +1505,17 @@ impl<'a> Vm<'a> {
         old_value: &Value,
         operation: &str,
     ) -> Result<(), Flow> {
+        self.run_variable_watchers_with_where(name, new_value, old_value, operation, &Value::Nil)
+    }
+
+    fn run_variable_watchers_with_where(
+        &mut self,
+        name: &str,
+        new_value: &Value,
+        old_value: &Value,
+        operation: &str,
+        where_value: &Value,
+    ) -> Result<(), Flow> {
         if !self.shared.watchers.has_watchers(name) {
             return Ok(());
         }
@@ -1513,7 +1524,7 @@ impl<'a> Vm<'a> {
             new_value,
             old_value,
             operation,
-            &Value::Nil,
+            where_value,
         );
         for (callback, args) in calls {
             let mut callback_roots = Vec::with_capacity(args.len() + 1);
@@ -1541,15 +1552,23 @@ impl<'a> Vm<'a> {
         ) {
             return result;
         }
-        crate::emacs_core::eval::set_runtime_binding_in_state(
+        let where_value = crate::emacs_core::eval::set_runtime_binding_in_state(
             self.shared.obarray,
             self.shared.dynamic.as_mut_slice(),
             self.shared.buffers,
             &*self.shared.custom,
             resolved,
             value,
-        );
-        self.run_variable_watchers(resolve_sym(resolved), &value, &Value::Nil, "set")?;
+        )
+        .map(Value::Buffer)
+        .unwrap_or(Value::Nil);
+        self.run_variable_watchers_with_where(
+            resolve_sym(resolved),
+            &value,
+            &Value::Nil,
+            "set",
+            &where_value,
+        )?;
         Ok(value)
     }
 
@@ -1577,6 +1596,50 @@ impl<'a> Vm<'a> {
             "makunbound",
         )?;
         Ok(args[0])
+    }
+
+    fn builtin_make_local_variable_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::custom::builtin_make_local_variable_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_local_variable_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::custom::builtin_local_variable_p_in_state(
+            &*self.shared.obarray,
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_buffer_local_variables_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::custom::builtin_buffer_local_variables_in_state(
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_kill_local_variable_shared(&mut self, args: &[Value]) -> EvalResult {
+        let outcome = crate::emacs_core::custom::builtin_kill_local_variable_in_state(
+            &*self.shared.obarray,
+            self.shared.buffers,
+            args.to_vec(),
+        )?;
+        if outcome.removed
+            && let Some(buffer_id) = outcome.buffer_id
+        {
+            self.run_variable_watchers_with_where(
+                &outcome.resolved_name,
+                &Value::Nil,
+                &Value::Nil,
+                "makunbound",
+                &Value::Buffer(buffer_id),
+            )?;
+        }
+        Ok(outcome.result)
     }
 
     fn ensure_selected_frame_id(&mut self) -> FrameId {
@@ -2959,6 +3022,11 @@ impl<'a> Vm<'a> {
                 &*self.shared.buffers,
                 args.to_vec(),
             )),
+            "default-value" => Some(crate::emacs_core::custom::builtin_default_value_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                args.to_vec(),
+            )),
             "set" => Some(self.builtin_set_shared(args)),
             "makunbound" => Some(self.builtin_makunbound_shared(args)),
             "default-boundp" => Some(
@@ -3015,6 +3083,10 @@ impl<'a> Vm<'a> {
                     args,
                 ),
             ),
+            "make-local-variable" => Some(self.builtin_make_local_variable_shared(args)),
+            "local-variable-p" => Some(self.builtin_local_variable_p_shared(args)),
+            "buffer-local-variables" => Some(self.builtin_buffer_local_variables_shared(args)),
+            "kill-local-variable" => Some(self.builtin_kill_local_variable_shared(args)),
             "current-buffer" => Some(
                 crate::emacs_core::builtins::builtin_current_buffer_in_manager(
                     &*self.shared.buffers,

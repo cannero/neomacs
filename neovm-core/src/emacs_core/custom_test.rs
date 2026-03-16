@@ -540,6 +540,27 @@ fn make_local_variable_on_void_symbol_creates_local_void_binding() {
 }
 
 #[test]
+fn make_local_variable_ignores_lexical_bindings_like_gnu() {
+    let result = bootstrap_eval_all(
+        r#"(let ((lexical-binding t))
+             (eval
+              '(progn
+                 (setq vm-mlv-lex-global 'global)
+                 (with-temp-buffer
+                   (let ((vm-mlv-lex-global 'lex))
+                     (make-local-variable 'vm-mlv-lex-global)
+                     (list vm-mlv-lex-global
+                           (symbol-value 'vm-mlv-lex-global)
+                           (buffer-local-value 'vm-mlv-lex-global (current-buffer))
+                           (local-variable-p 'vm-mlv-lex-global (current-buffer))
+                           (buffer-local-boundp 'vm-mlv-lex-global (current-buffer))
+                           (default-value 'vm-mlv-lex-global)))))
+              t))"#,
+    );
+    assert_eq!(result[0], "OK (lex global global t t global)");
+}
+
+#[test]
 fn make_local_variable_constant_and_keyword_payloads_match_oracle() {
     let result = eval_all(
         r#"(list

@@ -652,8 +652,17 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Evaluator, args: Vec<Value>) -
     {
         return result;
     }
-    eval.set_runtime_binding_by_id(resolved, value);
-    eval.run_variable_watchers(resolve_sym(resolved), &value, &Value::Nil, "set")?;
+    let where_value = eval
+        .set_runtime_binding_by_id(resolved, value)
+        .map(Value::Buffer)
+        .unwrap_or(Value::Nil);
+    eval.run_variable_watchers_with_where(
+        resolve_sym(resolved),
+        &value,
+        &Value::Nil,
+        "set",
+        &where_value,
+    )?;
     Ok(value)
 }
 
