@@ -2349,6 +2349,86 @@ fn vm_set_process_thread_builtin_uses_shared_runtime_state() {
 }
 
 #[test]
+fn vm_non_child_process_creation_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (make-network-process)
+                 (condition-case err (make-network-process :name "np") (error err))
+                 (condition-case err (make-network-process :name 1) (error err))
+                 (condition-case err (make-network-process :service 80) (error err))
+                 (let ((p (make-network-process :name "np-server" :server t :service 0)))
+                   (list (processp p)
+                         (eq (process-type p) 'network)
+                         (eq (process-thread p) (current-thread))))
+                 (make-pipe-process)
+                 (let ((p (make-pipe-process :name "pp")))
+                   (list (processp p)
+                         (eq (process-type p) 'pipe)
+                         (let ((b (process-buffer p)))
+                           (and (bufferp b) (equal (buffer-name b) "pp")))
+                         (eq (process-thread p) (current-thread))))
+                 (condition-case err (make-pipe-process :name 1) (error err))
+                 (make-serial-process)
+                 (condition-case err (make-serial-process :name "sp" :port t :speed 9600) (error err))
+                 (condition-case err (make-serial-process :name "sp" :port 1 :speed 9600) (error err))
+                 (condition-case err (make-serial-process :name "sp") (error err))
+                 (condition-case err (make-serial-process :name "sp" :port "/tmp/no-port") (error err))
+                 (let ((p (make-serial-process :name "sp" :port "/tmp/ttyS0" :speed 9600)))
+                   (list (processp p)
+                         (eq (process-type p) 'serial))))"#
+        ),
+        "OK (nil (wrong-type-argument stringp nil) (error \":name value not a string\") (error \"Missing :name keyword parameter\") (t t t) nil (t t t t) (error \":name value not a string\") nil (wrong-type-argument stringp t) (wrong-type-argument stringp 1) (error \"No port specified\") (error \":speed not specified\") (t t))"
+    );
+}
+
+#[test]
+fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (null (serial-process-configure))
+             (null (serial-process-configure :name "vm-serial"))
+             (eq (car (condition-case err (serial-process-configure :process 2) (error err))) 'error)
+             (eq (car (condition-case err (set-network-process-option) (error err)))
+                 'wrong-number-of-arguments)
+             (eq (car (condition-case err (set-network-process-option 2 :foo 1) (error err)))
+                 'error)
+             (eq (car (condition-case err (set-network-process-option 3 1 1) (error err)))
+                 'wrong-type-argument)
+             (null (set-network-process-option 3 :foo 1 t))
+             (eq (car (condition-case err (set-network-process-option 3 :foo 1) (error err)))
+                 'error))"#,
+        |eval| {
+            use crate::emacs_core::process::ProcessKind;
+
+            let buffer_id = eval.buffers.create_buffer("*vm-serial-proc*");
+            eval.buffers.set_current(buffer_id);
+            let serial_id = eval.processes.create_process_with_kind(
+                "vm-serial".into(),
+                Some("*vm-serial-proc*".into()),
+                String::new(),
+                vec![],
+                ProcessKind::Serial,
+            );
+            assert_eq!(serial_id, 1);
+            let real_id =
+                eval.processes
+                    .create_process("vm-real".into(), None, "/bin/cat".into(), vec![]);
+            assert_eq!(real_id, 2);
+            let network_id = eval.processes.create_process_with_kind(
+                "vm-network".into(),
+                None,
+                String::new(),
+                vec![],
+                ProcessKind::Network,
+            );
+            assert_eq!(network_id, 3);
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t)");
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));

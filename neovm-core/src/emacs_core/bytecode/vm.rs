@@ -4234,6 +4234,40 @@ impl<'a> Vm<'a> {
             "run-hook-with-args-until-success" => {
                 Some(self.builtin_run_hook_with_args_until_success_shared(args))
             }
+            "make-network-process" => Some(
+                crate::emacs_core::process::builtin_make_network_process_in_state(
+                    self.shared.processes,
+                    &*self.shared.threads,
+                    args.to_vec(),
+                ),
+            ),
+            "make-pipe-process" => Some(
+                crate::emacs_core::process::builtin_make_pipe_process_in_state(
+                    self.shared.processes,
+                    self.shared.buffers,
+                    &*self.shared.threads,
+                    args.to_vec(),
+                ),
+            ),
+            "make-serial-process" => Some(
+                crate::emacs_core::process::builtin_make_serial_process_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "serial-process-configure" => Some(
+                crate::emacs_core::process::builtin_serial_process_configure_in_state(
+                    &*self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-network-process-option" => Some(
+                crate::emacs_core::process::builtin_set_network_process_option_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
             "get-process" => Some(crate::emacs_core::process::builtin_get_process_in_state(
                 &*self.shared.processes,
                 args.to_vec(),

@@ -1292,10 +1292,17 @@ fn resolve_live_process_designator(
     eval: &super::eval::Evaluator,
     value: &Value,
 ) -> Option<ProcessId> {
+    resolve_live_process_designator_in_manager(&eval.processes, value)
+}
+
+fn resolve_live_process_designator_in_manager(
+    processes: &ProcessManager,
+    value: &Value,
+) -> Option<ProcessId> {
     match value {
         Value::Int(n) if *n >= 0 => {
             let id = *n as ProcessId;
-            eval.processes.get(id).map(|_| id)
+            processes.get(id).map(|_| id)
         }
         _ => None,
     }
@@ -1305,12 +1312,25 @@ fn resolve_live_process_or_wrong_type(
     eval: &super::eval::Evaluator,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
-    resolve_live_process_designator(eval, value).ok_or_else(|| {
+    resolve_live_process_or_wrong_type_in_manager(&eval.processes, value)
+}
+
+fn resolve_live_process_or_wrong_type_in_manager(
+    processes: &ProcessManager,
+    value: &Value,
+) -> Result<ProcessId, Flow> {
+    resolve_live_process_designator_in_manager(processes, value).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), *value],
         )
     })
+}
+
+fn current_thread_handle(threads: &ThreadManager) -> Value {
+    threads
+        .thread_handle(threads.current_thread_id())
+        .unwrap_or(Value::Nil)
 }
 
 fn is_stale_process_id_designator(eval: &super::eval::Evaluator, value: &Value) -> bool {
@@ -1860,17 +1880,23 @@ fn parse_make_process_buffer(
     eval: &mut super::eval::Evaluator,
     value: &Value,
 ) -> Result<Option<String>, Flow> {
+    parse_make_process_buffer_in_state(&mut eval.buffers, value)
+}
+
+fn parse_make_process_buffer_in_state(
+    buffers: &mut BufferManager,
+    value: &Value,
+) -> Result<Option<String>, Flow> {
     match value {
         Value::Nil => Ok(None),
         Value::Str(name) => {
             let name_str = with_heap(|h| h.get_string(*name).to_owned());
-            if eval.buffers.find_buffer_by_name(&name_str).is_none() {
-                let _ = eval.buffers.create_buffer(&name_str);
+            if buffers.find_buffer_by_name(&name_str).is_none() {
+                let _ = buffers.create_buffer(&name_str);
             }
             Ok(Some(name_str))
         }
-        Value::Buffer(id) => eval
-            .buffers
+        Value::Buffer(id) => buffers
             .get(*id)
             .map(|buf| Some(buf.name.clone()))
             .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")])),
@@ -2823,6 +2849,14 @@ pub(crate) fn builtin_make_network_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_make_network_process_in_state(&mut eval.processes, &eval.threads, args)
+}
+
+pub(crate) fn builtin_make_network_process_in_state(
+    processes: &mut ProcessManager,
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::Nil);
     }
@@ -2879,19 +2913,15 @@ pub(crate) fn builtin_make_network_process(
         ));
     }
 
-    let id = eval.processes.create_process_with_kind(
+    let id = processes.create_process_with_kind(
         name,
         None,
         "network".to_string(),
         Vec::new(),
         ProcessKind::Network,
     );
-    let current_thread = eval
-        .threads
-        .thread_handle(eval.threads.current_thread_id())
-        .unwrap_or(Value::Nil);
-    if let Some(proc) = eval.processes.get_mut(id) {
-        proc.thread = current_thread;
+    if let Some(proc) = processes.get_mut(id) {
+        proc.thread = current_thread_handle(threads);
     }
     Ok(Value::Int(id as i64))
 }
@@ -2899,6 +2929,15 @@ pub(crate) fn builtin_make_network_process(
 /// (make-pipe-process &rest ARGS) -> process-or-nil
 pub(crate) fn builtin_make_pipe_process(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_make_pipe_process_in_state(&mut eval.processes, &mut eval.buffers, &eval.threads, args)
+}
+
+pub(crate) fn builtin_make_pipe_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &mut BufferManager,
+    threads: &ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() {
@@ -2921,7 +2960,7 @@ pub(crate) fn builtin_make_pipe_process(
                 name = Some(expect_process_name_string(&value)?);
             }
             ":buffer" => {
-                buffer_name = Some(parse_make_process_buffer(eval, &value)?);
+                buffer_name = Some(parse_make_process_buffer_in_state(buffers, &value)?);
             }
             _ => {}
         }
@@ -2938,26 +2977,22 @@ pub(crate) fn builtin_make_pipe_process(
     let resolved_buffer_name = match buffer_name {
         Some(explicit) => explicit,
         None => {
-            if eval.buffers.find_buffer_by_name(&name).is_none() {
-                let _ = eval.buffers.create_buffer(&name);
+            if buffers.find_buffer_by_name(&name).is_none() {
+                let _ = buffers.create_buffer(&name);
             }
             Some(name.clone())
         }
     };
 
-    let id = eval.processes.create_process_with_kind(
+    let id = processes.create_process_with_kind(
         name,
         resolved_buffer_name,
         "pipe".to_string(),
         Vec::new(),
         ProcessKind::Pipe,
     );
-    let current_thread = eval
-        .threads
-        .thread_handle(eval.threads.current_thread_id())
-        .unwrap_or(Value::Nil);
-    if let Some(proc) = eval.processes.get_mut(id) {
-        proc.thread = current_thread;
+    if let Some(proc) = processes.get_mut(id) {
+        proc.thread = current_thread_handle(threads);
     }
     Ok(Value::Int(id as i64))
 }
@@ -2965,6 +3000,13 @@ pub(crate) fn builtin_make_pipe_process(
 /// (make-serial-process &rest ARGS) -> process-or-nil
 pub(crate) fn builtin_make_serial_process(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_make_serial_process_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_make_serial_process_in_state(
+    processes: &mut ProcessManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() {
@@ -3009,7 +3051,7 @@ pub(crate) fn builtin_make_serial_process(
         return Err(signal("error", vec![Value::string(":speed not specified")]));
     }
 
-    let id = eval.processes.create_process_with_kind(
+    let id = processes.create_process_with_kind(
         name.unwrap_or_else(|| "serial".to_string()),
         None,
         "serial".to_string(),
@@ -3022,6 +3064,14 @@ pub(crate) fn builtin_make_serial_process(
 /// (serial-process-configure &rest ARGS) -> nil
 pub(crate) fn builtin_serial_process_configure(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_serial_process_configure_in_state(&eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_serial_process_configure_in_state(
+    processes: &ProcessManager,
+    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     let mut process_id: Option<ProcessId> = None;
@@ -3038,14 +3088,16 @@ pub(crate) fn builtin_serial_process_configure(
                 if value.is_nil() {
                     process_id = None;
                 } else {
-                    process_id = Some(resolve_process_or_missing_error(eval, &value)?);
+                    process_id = Some(resolve_process_or_missing_error_in_manager(
+                        processes, &value,
+                    )?);
                 }
             }
             ":name" => match value {
                 Value::Str(name) => {
                     let name_str = with_heap(|h| h.get_string(name).to_owned());
                     process_id = Some(
-                        eval.processes
+                        processes
                             .find_by_name(&name_str)
                             .ok_or_else(|| signal_process_does_not_exist(&name_str))?,
                     );
@@ -3059,10 +3111,9 @@ pub(crate) fn builtin_serial_process_configure(
 
     let id = match process_id {
         Some(id) => id,
-        None => resolve_optional_process_or_current_buffer(eval, None)?,
+        None => resolve_optional_process_or_current_buffer_in_state(processes, buffers, None)?,
     };
-    let proc = eval
-        .processes
+    let proc = processes
         .get(id)
         .ok_or_else(|| signal_wrong_type_processp(Value::Int(id as i64)))?;
     if proc.kind != ProcessKind::Serial {
@@ -3076,6 +3127,13 @@ pub(crate) fn builtin_set_network_process_option(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_network_process_option_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_set_network_process_option_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() < 3 || args.len() > 4 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -3086,8 +3144,8 @@ pub(crate) fn builtin_set_network_process_option(
         ));
     }
 
-    let id = resolve_live_process_or_wrong_type(eval, &args[0])?;
-    let proc = eval.processes.get(id).ok_or_else(|| {
+    let id = resolve_live_process_or_wrong_type_in_manager(processes, &args[0])?;
+    let proc = processes.get(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
