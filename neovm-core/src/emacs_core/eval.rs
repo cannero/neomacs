@@ -1355,6 +1355,10 @@ impl Evaluator {
         );
         obarray.set_symbol_value("load-path", Value::Nil);
         obarray.set_symbol_value("load-history", Value::Nil);
+        obarray.set_symbol_value(
+            "fontset-alias-alist",
+            super::builtins::symbols::fontset_alias_alist_startup_value(),
+        );
         // In official Emacs, load-suffixes is (".elc" ".el"), but neomacs
         // only supports .el by default today. Compiled-first lookup remains a
         // separate compatibility target until .elc bootstrap/runtime is ready.

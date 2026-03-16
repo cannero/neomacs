@@ -6,7 +6,7 @@ use super::*;
 
 pub(crate) fn builtin_fontset_list_all(args: Vec<Value>) -> EvalResult {
     expect_args("fontset-list-all", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(super::symbols::fontset_list_value())
 }
 
 // =========================================================================
@@ -1429,7 +1429,6 @@ pub(crate) fn builtin_gnutls_symmetric_encrypt(args: Vec<Value>) -> EvalResult {
 }
 
 pub(super) const FACE_ATTRIBUTES_VECTOR_LEN: usize = 20;
-const DEFAULT_FONTSET_NAME: &str = "-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default";
 
 pub(crate) fn builtin_font_get_system_font(args: Vec<Value>) -> EvalResult {
     expect_args("font-get-system-font", &args, 0)?;
@@ -1623,7 +1622,7 @@ pub(crate) fn builtin_fontset_info(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_fontset_list(args: Vec<Value>) -> EvalResult {
     expect_args("fontset-list", &args, 0)?;
-    Ok(Value::list(vec![Value::string(DEFAULT_FONTSET_NAME)]))
+    Ok(super::symbols::fontset_list_value())
 }
 
 fn expect_window_live_or_nil(value: &Value) -> Result<(), Flow> {

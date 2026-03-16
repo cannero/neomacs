@@ -1011,6 +1011,27 @@ fn bootstrap_runtime_seeds_gnu_per_buffer_frame_display_vars() {
 }
 
 #[test]
+fn bootstrap_runtime_standard_fontset_spec_creates_named_fontset() {
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
+    let parsed = parse_forms(
+        r#"(let ((name (create-fontset-from-fontset-spec standard-fontset-spec t)))
+             (list name (query-fontset "fontset-standard")))"#,
+    )
+    .expect("parse fontset creation form");
+    let result = eval
+        .eval_expr(&parsed[0])
+        .expect("standard fontset creation should evaluate");
+    assert_eq!(
+        list_to_vec(&result),
+        Some(vec![
+            Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
+            Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
+        ])
+    );
+}
+
+#[test]
 fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");

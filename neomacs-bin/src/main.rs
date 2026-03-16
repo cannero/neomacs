@@ -436,6 +436,7 @@ mod tests {
     use neovm_core::emacs_core::Evaluator;
     use neovm_core::emacs_core::Value;
     use neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features;
+    use neovm_core::emacs_core::parse_forms;
     use neovm_core::window::FrameId;
 
     #[test]
@@ -502,5 +503,30 @@ mod tests {
             .current_buffer()
             .expect("current buffer after startup");
         assert_eq!(current.name, "*scratch*");
+    }
+
+    #[test]
+    fn gnu_startup_preserves_default_fontset_alias() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms =
+            parse_forms("(query-fontset \"fontset-default\")").expect("parse fontset query");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("fontset query should evaluate");
+        assert_eq!(
+            result,
+            Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default")
+        );
     }
 }

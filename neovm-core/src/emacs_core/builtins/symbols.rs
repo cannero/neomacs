@@ -2886,13 +2886,167 @@ pub(crate) fn builtin_native_elisp_load(args: Vec<Value>) -> EvalResult {
     ))
 }
 
+const DEFAULT_FONTSET_NAME: &str = "-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default";
+const DEFAULT_FONTSET_ALIAS: &str = "fontset-default";
+
+#[derive(Clone)]
+struct FontsetRegistry {
+    ordered_names: Vec<String>,
+    alias_to_name: HashMap<String, String>,
+}
+
+impl FontsetRegistry {
+    fn with_defaults() -> Self {
+        let ordered_names = vec![DEFAULT_FONTSET_NAME.to_string()];
+        let mut alias_to_name = HashMap::new();
+        alias_to_name.insert(
+            DEFAULT_FONTSET_ALIAS.to_string(),
+            DEFAULT_FONTSET_NAME.to_string(),
+        );
+        Self {
+            ordered_names,
+            alias_to_name,
+        }
+    }
+
+    fn resolve_literal(&self, name: &str) -> Option<String> {
+        if self.ordered_names.iter().any(|candidate| candidate == name) {
+            Some(name.to_string())
+        } else {
+            self.alias_to_name.get(name).cloned()
+        }
+    }
+
+    fn register_fontset(&mut self, name: String, alias: Option<String>) -> String {
+        if !self
+            .ordered_names
+            .iter()
+            .any(|candidate| candidate == &name)
+        {
+            self.ordered_names.push(name.clone());
+        }
+        if let Some(alias_name) = alias {
+            self.alias_to_name.insert(alias_name, name.clone());
+        }
+        name
+    }
+
+    fn list_value(&self) -> Value {
+        Value::list(
+            self.ordered_names
+                .iter()
+                .cloned()
+                .map(Value::string)
+                .collect(),
+        )
+    }
+
+    fn alias_alist_value(&self) -> Value {
+        let mut entries = Vec::new();
+        for name in &self.ordered_names {
+            for (alias, canonical) in &self.alias_to_name {
+                if canonical == name {
+                    entries.push(Value::cons(
+                        Value::string(name.clone()),
+                        Value::string(alias),
+                    ));
+                }
+            }
+        }
+        Value::list(entries)
+    }
+}
+
+fn normalize_fontset_name(name: &str) -> String {
+    name.to_ascii_lowercase()
+}
+
+fn fontset_registry_alias_from_xlfd(name: &str) -> Option<String> {
+    let parts: Vec<&str> = name.split('-').collect();
+    if parts.len() < 15 || parts.first().copied() != Some("") {
+        return None;
+    }
+    let registry = parts.get(parts.len() - 2)?;
+    let encoding = parts.last()?;
+    let alias = format!(
+        "{}-{}",
+        registry.to_ascii_lowercase(),
+        encoding.to_ascii_lowercase()
+    );
+    if alias.starts_with("fontset-") && alias.len() >= 9 {
+        Some(alias)
+    } else {
+        None
+    }
+}
+
+fn wildcard_fontset_pattern_to_regex(pattern: &str) -> Option<Regex> {
+    let escaped = ::regex::escape(pattern);
+    let wildcard = escaped.replace(r"\*", ".*").replace(r"\?", ".");
+    Regex::new(&format!("^{wildcard}$")).ok()
+}
+
+fn query_fontset_registry(pattern: &str, regexpp: bool) -> Option<String> {
+    let pattern = normalize_fontset_name(pattern);
+    FONTSET_REGISTRY.with(|slot| {
+        let registry = slot.borrow();
+        if regexpp {
+            let regex = Regex::new(&pattern).ok()?;
+            for name in &registry.ordered_names {
+                if regex.is_match(name) {
+                    return Some(name.clone());
+                }
+            }
+            for (alias, name) in &registry.alias_to_name {
+                if regex.is_match(alias) {
+                    return Some(name.clone());
+                }
+            }
+            return None;
+        }
+
+        if !pattern.contains('*') && !pattern.contains('?') {
+            return registry.resolve_literal(&pattern);
+        }
+
+        let regex = wildcard_fontset_pattern_to_regex(&pattern)?;
+        for name in &registry.ordered_names {
+            if regex.is_match(name) {
+                return Some(name.clone());
+            }
+        }
+        for (alias, name) in &registry.alias_to_name {
+            if regex.is_match(alias) {
+                return Some(name.clone());
+            }
+        }
+        None
+    })
+}
+
+pub(crate) fn fontset_alias_alist_startup_value() -> Value {
+    FONTSET_REGISTRY.with(|slot| slot.borrow().alias_alist_value())
+}
+
+pub(super) fn fontset_list_value() -> Value {
+    FONTSET_REGISTRY.with(|slot| slot.borrow().list_value())
+}
+
 pub(crate) fn builtin_new_fontset(args: Vec<Value>) -> EvalResult {
     expect_args("new-fontset", &args, 2)?;
-    let _ = expect_strict_string(&args[0])?;
-    Err(signal(
-        "error",
-        vec![Value::string("Fontset name must be in XLFD format")],
-    ))
+    let name = normalize_fontset_name(&expect_strict_string(&args[0])?);
+    if let Some(existing) = query_fontset_registry(&name, false) {
+        return Ok(Value::string(existing));
+    }
+    let Some(alias) = fontset_registry_alias_from_xlfd(&name) else {
+        return Err(signal(
+            "error",
+            vec![Value::string("Fontset name must be in XLFD format")],
+        ));
+    };
+    let registered =
+        FONTSET_REGISTRY.with(|slot| slot.borrow_mut().register_fontset(name, Some(alias)));
+    Ok(Value::string(registered))
 }
 
 pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
@@ -3045,7 +3199,12 @@ pub(crate) fn builtin_query_font(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_query_fontset(args: Vec<Value>) -> EvalResult {
     expect_range_args("query-fontset", &args, 1, 2)?;
-    Ok(Value::Nil)
+    let pattern = expect_strict_string(&args[0])?;
+    if pattern.is_empty() {
+        return Ok(Value::Nil);
+    }
+    let regexpp = args.get(1).is_some_and(Value::is_truthy);
+    Ok(query_fontset_registry(&pattern, regexpp).map_or(Value::Nil, Value::string))
 }
 
 pub(crate) fn builtin_read_positioning_symbols(args: Vec<Value>) -> EvalResult {
@@ -3909,10 +4068,12 @@ pub(crate) fn builtin_lock_file(args: Vec<Value>) -> EvalResult {
 }
 
 thread_local! {
+    static FONTSET_REGISTRY: RefCell<FontsetRegistry> = RefCell::new(FontsetRegistry::with_defaults());
     static LOSSAGE_SIZE: RefCell<i64> = RefCell::new(300);
 }
 
 pub(super) fn reset_symbols_thread_locals() {
+    FONTSET_REGISTRY.with(|slot| *slot.borrow_mut() = FontsetRegistry::with_defaults());
     LOSSAGE_SIZE.with(|slot| *slot.borrow_mut() = 300);
 }
 

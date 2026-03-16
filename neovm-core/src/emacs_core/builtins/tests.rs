@@ -4159,6 +4159,7 @@ fn pure_dispatch_native_comp_placeholders_match_compat_contracts() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
+    super::symbols::reset_symbols_thread_locals();
     let new_fontset =
         dispatch_builtin_pure("new-fontset", vec![Value::string("x"), Value::string("y")])
             .expect("builtin new-fontset should resolve")
@@ -4317,10 +4318,15 @@ fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
         .expect("builtin query-font should evaluate");
     assert!(query_font.is_nil());
 
-    let query_fontset = dispatch_builtin_pure("query-fontset", vec![Value::Nil])
-        .expect("builtin query-fontset should resolve")
-        .expect("builtin query-fontset should evaluate");
-    assert!(query_fontset.is_nil());
+    super::symbols::reset_symbols_thread_locals();
+    let query_fontset =
+        dispatch_builtin_pure("query-fontset", vec![Value::string("fontset-default")])
+            .expect("builtin query-fontset should resolve")
+            .expect("builtin query-fontset should evaluate");
+    assert_eq!(
+        query_fontset,
+        Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default")
+    );
 
     let read_pos = dispatch_builtin_pure("read-positioning-symbols", vec![])
         .expect("builtin read-positioning-symbols should resolve")
@@ -4407,7 +4413,11 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
 
     let set_fontset = dispatch_builtin_pure(
         "set-fontset-font",
-        vec![Value::symbol("name"), Value::symbol("target"), Value::Nil],
+        vec![
+            Value::string("fontset-default"),
+            Value::symbol("target"),
+            Value::Nil,
+        ],
     )
     .expect("builtin set-fontset-font should resolve")
     .expect("builtin set-fontset-font should evaluate");
@@ -6856,6 +6866,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_fontset_placeholders() {
+    super::symbols::reset_symbols_thread_locals();
     let system = dispatch_builtin_pure("font-get-system-font", vec![])
         .expect("font-get-system-font should resolve")
         .expect("font-get-system-font should evaluate");
@@ -6890,6 +6901,40 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
         Value::list(vec![Value::string(
             "-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default"
         )])
+    );
+
+    let created = dispatch_builtin_pure(
+        "new-fontset",
+        vec![
+            Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
+            Value::list(vec![]),
+        ],
+    )
+    .expect("new-fontset should resolve")
+    .expect("new-fontset should evaluate");
+    assert_eq!(
+        created,
+        Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard")
+    );
+
+    let query_alias =
+        dispatch_builtin_pure("query-fontset", vec![Value::string("fontset-standard")])
+            .expect("query-fontset should resolve")
+            .expect("query-fontset should evaluate");
+    assert_eq!(
+        query_alias,
+        Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard")
+    );
+
+    let updated_list = dispatch_builtin_pure("fontset-list", vec![])
+        .expect("fontset-list should resolve")
+        .expect("fontset-list should evaluate");
+    assert_eq!(
+        updated_list,
+        Value::list(vec![
+            Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default"),
+            Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
+        ])
     );
 
     let fontset_err = dispatch_builtin_pure(
