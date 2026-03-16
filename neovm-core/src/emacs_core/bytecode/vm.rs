@@ -6694,89 +6694,125 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_thread_join_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_thread_join)
+        crate::emacs_core::threads::builtin_thread_join_in_state(self.shared.threads, args.to_vec())
     }
 
     fn builtin_thread_yield_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_thread_yield)
+        crate::emacs_core::threads::builtin_thread_yield_in_state(args.to_vec())
     }
 
     fn builtin_thread_name_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_thread_name)
+        crate::emacs_core::threads::builtin_thread_name_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_thread_live_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_thread_live_p)
+        crate::emacs_core::threads::builtin_thread_live_p_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_threadp_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_threadp)
+        crate::emacs_core::threads::builtin_threadp_in_state(&*self.shared.threads, args.to_vec())
     }
 
     fn builtin_thread_signal_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_thread_signal)
+        crate::emacs_core::threads::builtin_thread_signal_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_current_thread_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_current_thread)
+        crate::emacs_core::threads::builtin_current_thread_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_all_threads_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_all_threads)
+        crate::emacs_core::threads::builtin_all_threads_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_thread_last_error_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_thread_last_error)
+        crate::emacs_core::threads::builtin_thread_last_error_in_state(
+            self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_make_mutex_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_make_mutex)
+        crate::emacs_core::threads::builtin_make_mutex_in_state(self.shared.threads, args.to_vec())
     }
 
     fn builtin_mutex_name_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_mutex_name)
+        crate::emacs_core::threads::builtin_mutex_name_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_mutex_lock_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_mutex_lock)
+        crate::emacs_core::threads::builtin_mutex_lock_in_state(self.shared.threads, args.to_vec())
     }
 
     fn builtin_mutex_unlock_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_mutex_unlock)
+        crate::emacs_core::threads::builtin_mutex_unlock_in_state(
+            self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_mutexp_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_mutexp)
+        crate::emacs_core::threads::builtin_mutexp_in_state(&*self.shared.threads, args.to_vec())
     }
 
     fn builtin_make_condition_variable_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::threads::builtin_make_condition_variable,
+        crate::emacs_core::threads::builtin_make_condition_variable_in_state(
+            self.shared.threads,
+            args.to_vec(),
         )
     }
 
     fn builtin_condition_variable_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::threads::builtin_condition_variable_p,
+        crate::emacs_core::threads::builtin_condition_variable_p_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
         )
     }
 
     fn builtin_condition_name_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_condition_name)
+        crate::emacs_core::threads::builtin_condition_name_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_condition_mutex_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_condition_mutex)
+        crate::emacs_core::threads::builtin_condition_mutex_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_condition_wait_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_condition_wait)
+        crate::emacs_core::threads::builtin_condition_wait_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_condition_notify_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::threads::builtin_condition_notify)
+        crate::emacs_core::threads::builtin_condition_notify_in_state(
+            &*self.shared.threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_princ_shared(&mut self, args: &[Value]) -> EvalResult {

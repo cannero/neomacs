@@ -591,97 +591,126 @@ pub(crate) fn builtin_make_thread(
 ///
 /// Since all threads run synchronously at creation time, they are already
 /// finished by the time anyone can call join.  Returns the thread's result.
-pub(crate) fn builtin_thread_join(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_thread_join_in_state(
+    threads: &mut ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("thread-join", &args, 1)?;
-    let id = expect_thread_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_thread(id) {
+    let id = expect_thread_id(threads, &args[0])?;
+    if !threads.is_thread(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("threadp"), args[0]],
         ));
     }
-    if id == eval.threads.current_thread_id() {
+    if id == threads.current_thread_id() {
         return Err(signal(
             "error",
             vec![Value::string("Cannot join current thread")],
         ));
     }
-    if let Some(error) = eval.threads.join_thread(id) {
+    if let Some(error) = threads.join_thread(id) {
         // Emacs publishes joined-thread terminal errors through thread-last-error.
-        eval.threads.record_last_error(error);
+        threads.record_last_error(error);
     }
-    Ok(eval.threads.thread_result(id))
+    Ok(threads.thread_result(id))
+}
+
+pub(crate) fn builtin_thread_join(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_thread_join_in_state(&mut eval.threads, args)
 }
 
 /// `(thread-yield)` -- yield the current thread.
 ///
 /// No-op in our single-threaded simulation.
-pub(crate) fn builtin_thread_yield(
-    _eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_thread_yield_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("thread-yield", &args, 0)?;
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_thread_yield(
+    _eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_thread_yield_in_state(args)
+}
+
 /// `(thread-name THREAD)` -- return the thread's name or nil.
-pub(crate) fn builtin_thread_name(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_thread_name_in_state(
+    threads: &ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("thread-name", &args, 1)?;
-    let id = expect_thread_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_thread(id) {
+    let id = expect_thread_id(threads, &args[0])?;
+    if !threads.is_thread(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("threadp"), args[0]],
         ));
     }
-    match eval.threads.thread_name(id) {
+    match threads.thread_name(id) {
         Some(name) => Ok(Value::string(name)),
         None => Ok(Value::Nil),
     }
 }
 
-/// `(thread-live-p THREAD)` -- check if the thread is alive.
-pub(crate) fn builtin_thread_live_p(
+pub(crate) fn builtin_thread_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_thread_name_in_state(&eval.threads, args)
+}
+
+/// `(thread-live-p THREAD)` -- check if the thread is alive.
+pub(crate) fn builtin_thread_live_p_in_state(
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("thread-live-p", &args, 1)?;
-    let id = expect_thread_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_thread(id) {
+    let id = expect_thread_id(threads, &args[0])?;
+    if !threads.is_thread(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("threadp"), args[0]],
         ));
     }
-    Ok(Value::bool(eval.threads.thread_alive_p(id)))
+    Ok(Value::bool(threads.thread_alive_p(id)))
+}
+
+pub(crate) fn builtin_thread_live_p(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_thread_live_p_in_state(&eval.threads, args)
 }
 
 /// `(threadp OBJ)` -- type predicate.
 ///
 /// Returns t if OBJ is a known thread object.
-pub(crate) fn builtin_threadp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_threadp_in_state(threads: &ThreadManager, args: Vec<Value>) -> EvalResult {
     expect_args("threadp", &args, 1)?;
     Ok(Value::bool(
-        eval.threads.thread_id_from_handle(&args[0]).is_some(),
+        threads.thread_id_from_handle(&args[0]).is_some(),
     ))
+}
+
+pub(crate) fn builtin_threadp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_threadp_in_state(&eval.threads, args)
 }
 
 /// `(thread-signal THREAD ERROR-SYMBOL DATA)` -- send a signal to a thread.
 ///
 /// In our simulation this simply records the error on the target thread.
-pub(crate) fn builtin_thread_signal(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_thread_signal_in_state(
+    threads: &ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("thread-signal", &args, 3)?;
-    let id = expect_thread_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_thread(id) {
+    let id = expect_thread_id(threads, &args[0])?;
+    if !threads.is_thread(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("threadp"), args[0]],
@@ -695,37 +724,50 @@ pub(crate) fn builtin_thread_signal(
         ));
     };
     let data = args[2];
-    if id == eval.threads.current_thread_id() {
+    if id == threads.current_thread_id() {
         return Err(signal_with_data(error_name, data));
     }
     Ok(Value::Nil)
 }
 
-/// `(current-thread)` -- return the current thread object.
-pub(crate) fn builtin_current_thread(
+pub(crate) fn builtin_thread_signal(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_thread_signal_in_state(&eval.threads, args)
+}
+
+/// `(current-thread)` -- return the current thread object.
+pub(crate) fn builtin_current_thread_in_state(
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("current-thread", &args, 0)?;
-    let id = eval.threads.current_thread_id();
-    Ok(eval
-        .threads
+    let id = threads.current_thread_id();
+    Ok(threads
         .thread_handle(id)
         .unwrap_or_else(|| tagged_object_value("thread", id)))
 }
 
-/// `(all-threads)` -- return a list of all thread objects.
-pub(crate) fn builtin_all_threads(
+pub(crate) fn builtin_current_thread(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_current_thread_in_state(&eval.threads, args)
+}
+
+/// `(all-threads)` -- return a list of all thread objects.
+pub(crate) fn builtin_all_threads_in_state(
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("all-threads", &args, 0)?;
-    let mut ids = eval.threads.all_thread_ids();
+    let mut ids = threads.all_thread_ids();
     ids.sort_unstable();
     let objects: Vec<Value> = ids
         .into_iter()
         .map(|id| {
-            eval.threads
+            threads
                 .thread_handle(id)
                 .unwrap_or_else(|| tagged_object_value("thread", id))
         })
@@ -733,11 +775,18 @@ pub(crate) fn builtin_all_threads(
     Ok(Value::list(objects))
 }
 
+pub(crate) fn builtin_all_threads(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_all_threads_in_state(&eval.threads, args)
+}
+
 /// `(thread-last-error &optional CLEANUP)` -- return the last error.
 ///
 /// If CLEANUP is non-nil, clear the stored error after returning it.
-pub(crate) fn builtin_thread_last_error(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_thread_last_error_in_state(
+    threads: &mut ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {
@@ -750,7 +799,14 @@ pub(crate) fn builtin_thread_last_error(
         ));
     }
     let cleanup = args.first().is_some_and(|v| v.is_truthy());
-    Ok(eval.threads.last_error(cleanup))
+    Ok(threads.last_error(cleanup))
+}
+
+pub(crate) fn builtin_thread_last_error(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_thread_last_error_in_state(&mut eval.threads, args)
 }
 
 // ===========================================================================
@@ -758,8 +814,8 @@ pub(crate) fn builtin_thread_last_error(
 // ===========================================================================
 
 /// `(make-mutex &optional NAME)` -- create a mutex.
-pub(crate) fn builtin_make_mutex(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_make_mutex_in_state(
+    threads: &mut ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {
@@ -782,74 +838,102 @@ pub(crate) fn builtin_make_mutex(
     } else {
         None
     };
-    let id = eval.threads.create_mutex(name);
-    Ok(eval
-        .threads
+    let id = threads.create_mutex(name);
+    Ok(threads
         .mutex_handle(id)
         .unwrap_or_else(|| tagged_object_value("mutex", id)))
 }
 
-/// `(mutexp OBJ)` -- type predicate for mutexes.
-pub(crate) fn builtin_mutexp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_args("mutexp", &args, 1)?;
-    Ok(Value::bool(
-        eval.threads.mutex_id_from_handle(&args[0]).is_some(),
-    ))
-}
-
-/// `(mutex-name MUTEX)` -- return the mutex's name or nil.
-pub(crate) fn builtin_mutex_name(
+pub(crate) fn builtin_make_mutex(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_make_mutex_in_state(&mut eval.threads, args)
+}
+
+/// `(mutexp OBJ)` -- type predicate for mutexes.
+pub(crate) fn builtin_mutexp_in_state(threads: &ThreadManager, args: Vec<Value>) -> EvalResult {
+    expect_args("mutexp", &args, 1)?;
+    Ok(Value::bool(
+        threads.mutex_id_from_handle(&args[0]).is_some(),
+    ))
+}
+
+pub(crate) fn builtin_mutexp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_mutexp_in_state(&eval.threads, args)
+}
+
+/// `(mutex-name MUTEX)` -- return the mutex's name or nil.
+pub(crate) fn builtin_mutex_name_in_state(threads: &ThreadManager, args: Vec<Value>) -> EvalResult {
     expect_args("mutex-name", &args, 1)?;
-    let id = expect_mutex_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_mutex(id) {
+    let id = expect_mutex_id(threads, &args[0])?;
+    if !threads.is_mutex(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("mutexp"), args[0]],
         ));
     }
-    match eval.threads.mutex_name(id) {
+    match threads.mutex_name(id) {
         Some(name) => Ok(Value::string(name)),
         None => Ok(Value::Nil),
     }
 }
 
+pub(crate) fn builtin_mutex_name(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_mutex_name_in_state(&eval.threads, args)
+}
+
 /// `(mutex-lock MUTEX)` -- lock a mutex.
 ///
 /// In single-threaded mode, this always succeeds immediately.
+pub(crate) fn builtin_mutex_lock_in_state(
+    threads: &mut ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("mutex-lock", &args, 1)?;
+    let id = expect_mutex_id(threads, &args[0])?;
+    if !threads.is_mutex(id) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("mutexp"), args[0]],
+        ));
+    }
+    threads.mutex_lock(id);
+    Ok(Value::Nil)
+}
+
 pub(crate) fn builtin_mutex_lock(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("mutex-lock", &args, 1)?;
-    let id = expect_mutex_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_mutex(id) {
+    builtin_mutex_lock_in_state(&mut eval.threads, args)
+}
+
+/// `(mutex-unlock MUTEX)` -- unlock a mutex.
+pub(crate) fn builtin_mutex_unlock_in_state(
+    threads: &mut ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("mutex-unlock", &args, 1)?;
+    let id = expect_mutex_id(threads, &args[0])?;
+    if !threads.is_mutex(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("mutexp"), args[0]],
         ));
     }
-    eval.threads.mutex_lock(id);
+    threads.mutex_unlock(id);
     Ok(Value::Nil)
 }
 
-/// `(mutex-unlock MUTEX)` -- unlock a mutex.
 pub(crate) fn builtin_mutex_unlock(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("mutex-unlock", &args, 1)?;
-    let id = expect_mutex_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_mutex(id) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("mutexp"), args[0]],
-        ));
-    }
-    eval.threads.mutex_unlock(id);
-    Ok(Value::Nil)
+    builtin_mutex_unlock_in_state(&mut eval.threads, args)
 }
 
 // ===========================================================================
@@ -857,8 +941,8 @@ pub(crate) fn builtin_mutex_unlock(
 // ===========================================================================
 
 /// `(make-condition-variable MUTEX &optional NAME)` -- create a condition variable.
-pub(crate) fn builtin_make_condition_variable(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_make_condition_variable_in_state(
+    threads: &mut ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("make-condition-variable", &args, 1)?;
@@ -871,8 +955,8 @@ pub(crate) fn builtin_make_condition_variable(
             ],
         ));
     }
-    let mutex_id = expect_mutex_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_mutex(mutex_id) {
+    let mutex_id = expect_mutex_id(threads, &args[0])?;
+    if !threads.is_mutex(mutex_id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("mutexp"), args[0]],
@@ -892,9 +976,8 @@ pub(crate) fn builtin_make_condition_variable(
     } else {
         None
     };
-    match eval.threads.create_condition_variable(mutex_id, name) {
-        Some(id) => Ok(eval
-            .threads
+    match threads.create_condition_variable(mutex_id, name) {
+        Some(id) => Ok(threads
             .condition_variable_handle(id)
             .unwrap_or_else(|| tagged_object_value("condition-variable", id))),
         None => Err(signal(
@@ -904,58 +987,79 @@ pub(crate) fn builtin_make_condition_variable(
     }
 }
 
-/// `(condition-variable-p OBJ)` -- type predicate.
-pub(crate) fn builtin_condition_variable_p(
+pub(crate) fn builtin_make_condition_variable(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_make_condition_variable_in_state(&mut eval.threads, args)
+}
+
+/// `(condition-variable-p OBJ)` -- type predicate.
+pub(crate) fn builtin_condition_variable_p_in_state(
+    threads: &ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("condition-variable-p", &args, 1)?;
     Ok(Value::bool(
-        eval.threads
+        threads
             .condition_variable_id_from_handle(&args[0])
             .is_some(),
     ))
 }
 
-/// `(condition-name COND)` -- return COND's name string, or nil when unnamed.
-pub(crate) fn builtin_condition_name(
+pub(crate) fn builtin_condition_variable_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_condition_variable_p_in_state(&eval.threads, args)
+}
+
+/// `(condition-name COND)` -- return COND's name string, or nil when unnamed.
+pub(crate) fn builtin_condition_name_in_state(
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("condition-name", &args, 1)?;
-    let id = expect_cv_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_condition_variable(id) {
+    let id = expect_cv_id(threads, &args[0])?;
+    if !threads.is_condition_variable(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
         ));
     }
-    match eval.threads.condition_variable_name(id) {
+    match threads.condition_variable_name(id) {
         Some(name) => Ok(Value::string(name)),
         None => Ok(Value::Nil),
     }
 }
 
-/// `(condition-mutex COND)` -- return COND's associated mutex object.
-pub(crate) fn builtin_condition_mutex(
+pub(crate) fn builtin_condition_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_condition_name_in_state(&eval.threads, args)
+}
+
+/// `(condition-mutex COND)` -- return COND's associated mutex object.
+pub(crate) fn builtin_condition_mutex_in_state(
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("condition-mutex", &args, 1)?;
-    let id = expect_cv_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_condition_variable(id) {
+    let id = expect_cv_id(threads, &args[0])?;
+    if !threads.is_condition_variable(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
         ));
     }
-    let Some(mutex_id) = eval.threads.condition_variable_mutex(id) else {
+    let Some(mutex_id) = threads.condition_variable_mutex(id) else {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
         ));
     };
-    eval.threads.mutex_handle(mutex_id).ok_or_else(|| {
+    threads.mutex_handle(mutex_id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
@@ -963,28 +1067,35 @@ pub(crate) fn builtin_condition_mutex(
     })
 }
 
-/// `(condition-wait COND)` -- wait on a condition variable.
-///
-/// In single-threaded mode this is a no-op.
-pub(crate) fn builtin_condition_wait(
+pub(crate) fn builtin_condition_mutex(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_condition_mutex_in_state(&eval.threads, args)
+}
+
+/// `(condition-wait COND)` -- wait on a condition variable.
+///
+/// In single-threaded mode this is a no-op.
+pub(crate) fn builtin_condition_wait_in_state(
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("condition-wait", &args, 1)?;
-    let id = expect_cv_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_condition_variable(id) {
+    let id = expect_cv_id(threads, &args[0])?;
+    if !threads.is_condition_variable(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
         ));
     }
-    let Some(mutex_id) = eval.threads.condition_variable_mutex(id) else {
+    let Some(mutex_id) = threads.condition_variable_mutex(id) else {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
         ));
     };
-    if !eval.threads.mutex_owned_by_current_thread(mutex_id) {
+    if !threads.mutex_owned_by_current_thread(mutex_id) {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -992,16 +1103,21 @@ pub(crate) fn builtin_condition_wait(
             )],
         ));
     }
-    // No-op: in a single-threaded VM, waiting would deadlock.
-    // Return nil for compatibility.
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_condition_wait(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_condition_wait_in_state(&eval.threads, args)
 }
 
 /// `(condition-notify COND &optional ALL)` -- notify on a condition variable.
 ///
 /// No-op in single-threaded mode.
-pub(crate) fn builtin_condition_notify(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_condition_notify_in_state(
+    threads: &ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("condition-notify", &args, 1)?;
@@ -1014,20 +1130,20 @@ pub(crate) fn builtin_condition_notify(
             ],
         ));
     }
-    let id = expect_cv_id(&eval.threads, &args[0])?;
-    if !eval.threads.is_condition_variable(id) {
+    let id = expect_cv_id(threads, &args[0])?;
+    if !threads.is_condition_variable(id) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
         ));
     }
-    let Some(mutex_id) = eval.threads.condition_variable_mutex(id) else {
+    let Some(mutex_id) = threads.condition_variable_mutex(id) else {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("condition-variable-p"), args[0]],
         ));
     };
-    if !eval.threads.mutex_owned_by_current_thread(mutex_id) {
+    if !threads.mutex_owned_by_current_thread(mutex_id) {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -1035,8 +1151,14 @@ pub(crate) fn builtin_condition_notify(
             )],
         ));
     }
-    // No-op
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_condition_notify(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_condition_notify_in_state(&eval.threads, args)
 }
 
 // ===========================================================================
