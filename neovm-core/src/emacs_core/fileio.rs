@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 #[cfg(unix)]
 use std::ffi::{CStr, CString};
 use std::fs;
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -548,15 +548,40 @@ pub fn read_file_contents(filename: &str) -> std::io::Result<String> {
 
 /// Write CONTENT to FILENAME, optionally appending.
 pub fn write_string_to_file(content: &str, filename: &str, append: bool) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut file = if append {
-        fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(filename)?
+    let mode = if append {
+        FileWriteMode::Append
     } else {
-        fs::File::create(filename)?
+        FileWriteMode::Truncate
     };
+    write_string_to_file_with_mode(content, filename, mode)
+}
+
+enum FileWriteMode {
+    Truncate,
+    Append,
+    Seek(u64),
+}
+
+fn write_string_to_file_with_mode(
+    content: &str,
+    filename: &str,
+    mode: FileWriteMode,
+) -> std::io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true);
+    match mode {
+        FileWriteMode::Truncate => {
+            options.truncate(true);
+        }
+        FileWriteMode::Append => {
+            options.append(true);
+        }
+        FileWriteMode::Seek(_) => {}
+    }
+    let mut file = options.open(filename)?;
+    if let FileWriteMode::Seek(offset) = mode {
+        file.seek(SeekFrom::Start(offset))?;
+    }
     file.write_all(content.as_bytes())
 }
 
@@ -2900,21 +2925,152 @@ fn expect_file_offset(value: &Value) -> Result<i64, Flow> {
     Ok(offset)
 }
 
-/// (insert-file-contents FILENAME &optional VISIT BEG END REPLACE) -> (FILENAME LENGTH)
-///
-/// Read file FILENAME and insert its contents into the current buffer at point.
-/// Returns a list of the absolute filename and the number of characters inserted.
-pub(crate) fn builtin_insert_file_contents(
-    eval: &mut super::eval::Evaluator,
+fn current_buffer_id_or_error(
+    buffers: &crate::buffer::BufferManager,
+) -> Result<crate::buffer::BufferId, Flow> {
+    buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))
+}
+
+fn replace_accessible_portion_in_current_buffer(
+    buffers: &mut crate::buffer::BufferManager,
+    current_id: crate::buffer::BufferId,
+    text: &str,
+) -> Result<(), Flow> {
+    let (start, end, old_point) = {
+        let buf = buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        (buf.point_min_byte(), buf.point_max_byte(), buf.point_byte())
+    };
+    if start < end {
+        buffers
+            .delete_buffer_region(current_id, start, end)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    }
+    buffers
+        .goto_buffer_byte(current_id, start)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if !text.is_empty() {
+        buffers
+            .insert_into_buffer(current_id, text)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    }
+    let replacement_end = start + text.len();
+    let restored_point = if old_point <= start {
+        old_point
+    } else {
+        replacement_end.min(start + (old_point - start))
+    };
+    buffers
+        .goto_buffer_byte(current_id, restored_point)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    Ok(())
+}
+
+fn insert_file_contents_into_current_buffer_in_state(
+    buffers: &mut crate::buffer::BufferManager,
+    current_id: crate::buffer::BufferId,
+    contents: &str,
+    replace_requested: bool,
+) -> Result<(), Flow> {
+    if replace_requested {
+        replace_accessible_portion_in_current_buffer(buffers, current_id, contents)
+    } else {
+        buffers
+            .insert_into_buffer(current_id, contents)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        Ok(())
+    }
+}
+
+fn write_region_content_in_state(
+    buffers: &crate::buffer::BufferManager,
+    current_id: crate::buffer::BufferId,
+    start: &Value,
+    end: Option<&Value>,
+) -> Result<String, Flow> {
+    if let Value::Str(_) = start {
+        return expect_string_strict(start);
+    }
+
+    let buf = buffers
+        .get(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+
+    if start.is_nil() {
+        return Ok(buf.buffer_string());
+    }
+
+    let end = end.unwrap_or(&Value::Nil);
+    let start = expect_int(start)?;
+    let end = expect_int(end)?;
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+    if start < point_min || start > point_max || end < point_min || end > point_max {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
+        ));
+    }
+    let (char_start, char_end) = if start <= end {
+        (start as usize - 1, end as usize - 1)
+    } else {
+        (end as usize - 1, start as usize - 1)
+    };
+    let byte_start = buf.text.char_to_byte(char_start.min(buf.text.char_count()));
+    let byte_end = buf.text.char_to_byte(char_end.min(buf.text.char_count()));
+    Ok(buf.buffer_substring(byte_start, byte_end))
+}
+
+pub(crate) fn builtin_insert_file_contents_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("insert-file-contents", &args, 1)?;
     expect_max_args("insert-file-contents", &args, 5)?;
-    let filename = expect_string(&args[0])?;
-    let resolved = resolve_filename_for_eval(eval, &filename);
+    let filename = expect_string_strict(&args[0])?;
+    let resolved = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let visit = args.get(1).is_some_and(|v| v.is_truthy());
+    let replace_requested = args.get(4).is_some_and(|v| !v.is_nil());
+    let current_id = current_buffer_id_or_error(buffers)?;
 
-    // Read file contents
+    {
+        let buf = buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        if visit
+            && (!args.get(2).is_none_or(Value::is_nil) || !args.get(3).is_none_or(Value::is_nil))
+        {
+            return Err(signal(
+                "error",
+                vec![Value::string("Attempt to visit less than an entire file")],
+            ));
+        }
+        if visit && buf.base_buffer.is_some() {
+            return Err(signal(
+                "error",
+                vec![Value::string(
+                    "Cannot do file visiting in an indirect buffer",
+                )],
+            ));
+        }
+        if visit && !replace_requested && !buf.text.is_empty() {
+            return Err(signal(
+                "error",
+                vec![Value::string(
+                    "Cannot do file visiting in a non-empty buffer",
+                )],
+            ));
+        }
+        if crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
+            return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+        }
+    }
+
     let contents_bytes =
         fs::read(&resolved).map_err(|e| signal_file_io_path(e, "Opening input file", &resolved))?;
     let file_len = contents_bytes.len() as i64;
@@ -2949,27 +3105,96 @@ pub(crate) fn builtin_insert_file_contents(
 
     let slice = &contents_bytes[begin as usize..end as usize];
     let contents = String::from_utf8_lossy(slice).to_string();
-
     let char_count = contents.chars().count() as i64;
 
-    // Insert into current buffer
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.insert_into_buffer(current_id, &contents);
+    insert_file_contents_into_current_buffer_in_state(
+        buffers,
+        current_id,
+        &contents,
+        replace_requested,
+    )?;
 
     if visit {
-        let _ = eval
-            .buffers
-            .set_buffer_file_name(current_id, Some(resolved.clone()));
-        let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
+        let _ = buffers.set_buffer_file_name(current_id, Some(resolved.clone()));
+        let _ = buffers.set_buffer_modified_flag(current_id, false);
     }
 
     Ok(Value::list(vec![
         Value::string(resolved),
         Value::Int(char_count),
     ]))
+}
+
+/// (insert-file-contents FILENAME &optional VISIT BEG END REPLACE) -> (FILENAME LENGTH)
+///
+/// Read file FILENAME and insert its contents into the current buffer at point.
+/// Returns a list of the absolute filename and the number of characters inserted.
+pub(crate) fn builtin_insert_file_contents(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_insert_file_contents_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &mut eval.buffers,
+        args,
+    )
+}
+
+pub(crate) fn builtin_write_region_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("write-region", &args, 3)?;
+    expect_max_args("write-region", &args, 7)?;
+    let filename = expect_string_strict(&args[2])?;
+    let resolved = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let append_mode = match args.get(3) {
+        Some(value) if matches!(value, Value::Int(_) | Value::Char(_)) => {
+            FileWriteMode::Seek(expect_file_offset(value)? as u64)
+        }
+        Some(value) if value.is_truthy() => FileWriteMode::Append,
+        _ => FileWriteMode::Truncate,
+    };
+    let visit_path = match args.get(4) {
+        Some(Value::True) => Some(resolved.clone()),
+        Some(Value::Str(_)) => Some(resolve_filename_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            &expect_string_strict(args.get(4).expect("checked above"))?,
+        )),
+        _ => None,
+    };
+    let current_id = current_buffer_id_or_error(buffers)?;
+
+    if visit_path.is_some() {
+        let buf = buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        if buf.base_buffer.is_some() {
+            return Err(signal(
+                "error",
+                vec![Value::string(
+                    "Cannot do file visiting in an indirect buffer",
+                )],
+            ));
+        }
+    }
+
+    let content = write_region_content_in_state(buffers, current_id, &args[0], args.get(1))?;
+
+    write_string_to_file_with_mode(&content, &resolved, append_mode)
+        .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
+
+    if let Some(visit_path) = visit_path {
+        let _ = buffers.set_buffer_file_name(current_id, Some(visit_path));
+        let _ = buffers.set_buffer_modified_flag(current_id, false);
+    }
+
+    Ok(Value::Nil)
 }
 
 /// (write-region START END FILENAME &optional APPEND VISIT) -> nil
@@ -2980,58 +3205,12 @@ pub(crate) fn builtin_write_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("write-region", &args, 3)?;
-    expect_max_args("write-region", &args, 7)?;
-    let filename = expect_string(&args[2])?;
-    let resolved = resolve_filename_for_eval(eval, &filename);
-    let append = args.get(3).is_some_and(|v| v.is_truthy());
-    let visit = args.get(4).is_some_and(|v| v.is_truthy());
-
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-
-    // Extract the text region
-    let content = if args[0].is_nil() && args[1].is_nil() {
-        // Write entire buffer
-        buf.buffer_string()
-    } else {
-        let start = expect_int(&args[0])?;
-        let end = expect_int(&args[1])?;
-        let point_min = buf.point_min_char() as i64 + 1;
-        let point_max = buf.point_max_char() as i64 + 1;
-        if start < point_min || start > point_max || end < point_min || end > point_max {
-            return Err(signal(
-                "args-out-of-range",
-                vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
-            ));
-        }
-        let (char_start, char_end) = if start <= end {
-            (start as usize - 1, end as usize - 1)
-        } else {
-            (end as usize - 1, start as usize - 1)
-        };
-        let byte_start = buf.text.char_to_byte(char_start.min(buf.text.char_count()));
-        let byte_end = buf.text.char_to_byte(char_end.min(buf.text.char_count()));
-        buf.buffer_substring(byte_start, byte_end)
-    };
-
-    write_string_to_file(&content, &resolved, append)
-        .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
-
-    if visit {
-        let current_id = eval
-            .buffers
-            .current_buffer_id()
-            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        let _ = eval
-            .buffers
-            .set_buffer_file_name(current_id, Some(resolved));
-        let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
-    }
-
-    Ok(Value::Nil)
+    builtin_write_region_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &mut eval.buffers,
+        args,
+    )
 }
 
 /// (find-file-noselect FILENAME &optional NOWARN RAWFILE) -> buffer

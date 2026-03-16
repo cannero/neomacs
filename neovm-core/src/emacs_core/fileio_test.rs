@@ -1973,6 +1973,62 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
 }
 
 #[test]
+fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
+    use super::super::eval::Evaluator;
+
+    let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_visit_errors");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join("visit.txt");
+    let path_str = path.to_string_lossy().to_string();
+    write_string_to_file("visited text", &path_str, false).unwrap();
+
+    let mut eval_partial = Evaluator::new();
+    let partial = builtin_insert_file_contents(
+        &mut eval_partial,
+        vec![Value::string(&path_str), Value::True, Value::Int(0)],
+    )
+    .expect_err("visit with BEG should reject");
+    match partial {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(
+                sig.data,
+                vec![Value::string("Attempt to visit less than an entire file")]
+            );
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+
+    let mut eval_nonempty = Evaluator::new();
+    eval_nonempty
+        .buffers
+        .current_buffer_mut()
+        .expect("current buffer")
+        .insert("x");
+    let nonempty = builtin_insert_file_contents(
+        &mut eval_nonempty,
+        vec![Value::string(&path_str), Value::True],
+    )
+    .expect_err("visit in non-empty buffer without replace should reject");
+    match nonempty {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(
+                sig.data,
+                vec![Value::string(
+                    "Cannot do file visiting in a non-empty buffer"
+                )]
+            );
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_insert_file_contents_beg_end_semantics() {
     use super::super::eval::Evaluator;
 
@@ -2340,6 +2396,47 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
     assert_eq!(buf.file_name.as_deref(), Some(out_str.as_str()));
     assert!(!buf.is_modified());
     assert_eq!(read_file_contents(&out_str).unwrap(), "neo");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
+    use super::super::eval::Evaluator;
+
+    let dir = std::env::temp_dir().join("neovm_eval_write_region_string_append");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let out_path = dir.join("out.txt");
+    let out_str = out_path.to_string_lossy().to_string();
+    let visit_path = dir.join("visit.txt");
+    let visit_str = visit_path.to_string_lossy().to_string();
+    write_string_to_file("abcde", &out_str, false).unwrap();
+
+    let mut eval = Evaluator::new();
+    eval.buffers
+        .current_buffer_mut()
+        .unwrap()
+        .insert("buffer text");
+    assert!(eval.buffers.current_buffer().unwrap().is_modified());
+
+    builtin_write_region(
+        &mut eval,
+        vec![
+            Value::string("XY"),
+            Value::Nil,
+            Value::string(&out_str),
+            Value::Int(2),
+            Value::string(&visit_str),
+        ],
+    )
+    .expect("write-region string start with numeric append should succeed");
+
+    assert_eq!(read_file_contents(&out_str).unwrap(), "abXYe");
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.file_name.as_deref(), Some(visit_str.as_str()));
+    assert!(!buf.is_modified());
 
     let _ = fs::remove_dir_all(&dir);
 }

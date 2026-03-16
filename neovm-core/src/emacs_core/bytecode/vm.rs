@@ -5237,6 +5237,20 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "insert-file-contents" => Some(
+                crate::emacs_core::fileio::builtin_insert_file_contents_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &mut *self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "write-region" => Some(crate::emacs_core::fileio::builtin_write_region_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &mut *self.shared.buffers,
+                args.to_vec(),
+            )),
             "delete-file-internal" => Some(
                 crate::emacs_core::fileio::builtin_delete_file_internal_in_state(
                     &*self.shared.obarray,

@@ -2869,6 +2869,67 @@ fn vm_fileio_mutation_builtins_use_shared_default_directory_state() {
 }
 
 #[test]
+fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
+    let base = std::env::temp_dir().join(format!(
+        "neovm-vm-fileio-insert-write-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).expect("create base");
+    std::fs::write(base.join("alpha.txt"), b"abcdef").expect("write alpha");
+    std::fs::write(base.join("out.txt"), b"abcde").expect("write out");
+    let base_str = format!("{}/", base.to_string_lossy());
+    let alpha = base.join("alpha.txt").to_string_lossy().to_string();
+    let out = base.join("out.txt").to_string_lossy().to_string();
+    let visit = base.join("visit.txt").to_string_lossy().to_string();
+
+    let mut eval = Evaluator::new_vm_harness();
+    eval.obarray
+        .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+        .expect("buffer local default-directory should set");
+
+    let insert_forms = parse_forms(r#"(insert-file-contents "alpha.txt" t)"#).expect("parse");
+    let mut compiler = Compiler::new(false);
+    let insert_func = compiler.compile_toplevel(&insert_forms[0]);
+    let insert_result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&insert_func, vec![])
+            .expect("compiled insert-file-contents should execute")
+    };
+
+    let insert_parts =
+        crate::emacs_core::value::list_to_vec(&insert_result).expect("insert return list");
+    assert_eq!(insert_parts[0].as_str(), Some(alpha.as_str()));
+    assert_eq!(insert_parts[1], Value::Int(6));
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "abcdef");
+    assert_eq!(buf.file_name.as_deref(), Some(alpha.as_str()));
+    assert!(!buf.is_modified());
+
+    let write_forms = parse_forms(&format!(
+        r#"(write-region "XY" nil "out.txt" 2 "{}")"#,
+        visit
+    ))
+    .expect("parse");
+    let write_func = compiler.compile_toplevel(&write_forms[0]);
+    {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&write_func, vec![])
+            .expect("compiled write-region should execute");
+    }
+
+    assert_eq!(std::fs::read_to_string(&out).expect("read out"), "abXYe");
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.file_name.as_deref(), Some(visit.as_str()));
+    assert!(!buf.is_modified());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(
