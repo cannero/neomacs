@@ -185,8 +185,8 @@ fn autoload_type_of(value: &Value) -> Option<super::autoload::AutoloadType> {
     Some(super::autoload::AutoloadType::from_value(&type_value))
 }
 
-pub(crate) fn builtin_functionp_eval(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_functionp_in_obarray(
+    obarray: &crate::emacs_core::symbol::Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("functionp", &args, 1)?;
@@ -196,26 +196,13 @@ pub(crate) fn builtin_functionp_eval(
         Value::Symbol(id) | Value::Keyword(id) => Some(*id),
         _ => None,
     } {
-        if super::is_canonical_symbol_id(symbol) {
-            if let Some(function) =
-                startup_virtual_autoload_function_cell(eval, resolve_sym(symbol))
-            {
-                if let Some(autoload_type) = autoload_type_of(&function) {
-                    return Ok(Value::bool(matches!(
-                        autoload_type,
-                        super::autoload::AutoloadType::Function
-                    )));
-                }
-                return Ok(Value::bool(is_runtime_function_object(&function)));
-            }
-        }
-
-        if let Some(function) = resolve_indirect_symbol_by_id(eval, symbol).map(|(_, value)| value)
+        if let Some(function) =
+            resolve_indirect_symbol_by_id_in_obarray(obarray, symbol).map(|(_, value)| value)
         {
             if let Some(autoload_type) = autoload_type_of(&function) {
                 matches!(autoload_type, super::autoload::AutoloadType::Function)
             } else {
-                is_runtime_function_object(&function)
+                is_runtime_function_object(&function) || is_lambda_form_list(&function)
             }
         } else {
             false
@@ -230,6 +217,13 @@ pub(crate) fn builtin_functionp_eval(
         }
     };
     Ok(Value::bool(is_function))
+}
+
+pub(crate) fn builtin_functionp_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_functionp_in_obarray(eval.obarray(), args)
 }
 
 pub(crate) fn builtin_keywordp(args: Vec<Value>) -> EvalResult {

@@ -129,7 +129,7 @@ fn symbol_raw_plist_value(eval: &super::eval::Evaluator, symbol: SymId) -> Optio
     symbol_raw_plist_value_in_obarray(eval.obarray(), symbol)
 }
 
-fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol: SymId) -> Value {
+pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol: SymId) -> Value {
     let Some(sym) = obarray.get_by_id(symbol) else {
         return Value::Nil;
     };
@@ -481,20 +481,26 @@ pub(crate) fn builtin_symbol_function(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_symbol_function_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_symbol_function_in_obarray(
+    obarray: &Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("symbol-function", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
     let name = resolve_sym(symbol);
-    if eval.obarray().is_function_unbound_id(symbol) {
+    if obarray.is_function_unbound_id(symbol) {
         return Ok(Value::Nil);
     }
 
-    if let Some(function) = eval.obarray().symbol_function_id(symbol) {
+    if let Some(function) = obarray.symbol_function_id(symbol) {
         // GNU Emacs exposes this symbol as autoload-shaped in startup state,
         // then subr-shaped after first invocation triggers autoload materialization.
         if name == "kmacro-name-last-macro"
             && matches!(function, Value::Subr(subr) if resolve_sym(*subr) == "kmacro-name-last-macro")
-            && eval
-                .obarray()
+            && obarray
                 .get_property_id(symbol, intern("neovm--kmacro-autoload-promoted"))
                 .is_none()
         {
@@ -513,32 +519,7 @@ pub(crate) fn builtin_symbol_function(
         return Ok(Value::Nil);
     }
 
-    if let Some(function) = startup_virtual_autoload_function_cell(eval, name) {
-        return Ok(function);
-    }
-
-    if let Some(function) = super::subr_info::fallback_macro_value(name) {
-        return Ok(function);
-    }
-
-    if name == "inline" {
-        // GNU Emacs startup exposes `inline` as an alias to `progn`.
-        return Ok(Value::symbol("progn"));
-    }
-
-    if let Some(alias_target) = pure_builtin_symbol_alias_target(name) {
-        return Ok(Value::symbol(alias_target));
-    }
-
-    if super::subr_info::is_special_form(name)
-        || super::subr_info::is_evaluator_callable_name(name)
-        || super::builtin_registry::is_dispatch_builtin_name(name)
-        || name.parse::<PureBuiltinId>().is_ok()
-    {
-        return Ok(Value::Subr(intern(name)));
-    }
-
-    Ok(Value::Nil)
+    Ok(symbol_function_cell_in_obarray(obarray, symbol).unwrap_or(Value::Nil))
 }
 
 pub(crate) fn builtin_func_arity_eval(
@@ -766,27 +747,16 @@ pub(crate) fn builtin_symbol_plist_fn(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_symbol_plist_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_symbol_plist_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("symbol-plist", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    if let Some(raw) = symbol_raw_plist_value(eval, symbol) {
+    if let Some(raw) = symbol_raw_plist_value_in_obarray(obarray, symbol) {
         return Ok(raw);
     }
-    let Some(sym) = eval.obarray().get_by_id(symbol) else {
-        return Ok(Value::Nil);
-    };
-    let mut items = Vec::new();
-    for (key, value) in &sym.plist {
-        if is_internal_symbol_plist_property(resolve_sym(*key)) {
-            continue;
-        }
-        items.push(value_from_symbol_id(*key));
-        items.push(*value);
-    }
-    if items.is_empty() {
-        Ok(Value::Nil)
-    } else {
-        Ok(Value::list(items))
-    }
+    Ok(visible_symbol_plist_snapshot_in_obarray(obarray, symbol))
 }
 
 pub(super) fn builtin_register_code_conversion_map_eval(
@@ -1934,19 +1904,19 @@ pub(crate) fn builtin_indirect_function(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_indirect_function_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_indirect_function_in_obarray(
+    obarray: &Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("indirect-function", &args, 1)?;
     expect_max_args("indirect-function", &args, 2)?;
-    let _noerror = args.get(1).is_some_and(|value| value.is_truthy());
 
     if let Some(symbol) = symbol_id(&args[0]) {
-        if is_canonical_symbol_id(symbol) {
-            if let Some(function) =
-                startup_virtual_autoload_function_cell(eval, resolve_sym(symbol))
-            {
-                return Ok(function);
-            }
-        }
-        if let Some(function) = resolve_indirect_symbol_by_id(eval, symbol).map(|(_, value)| value)
+        if let Some(function) =
+            resolve_indirect_symbol_by_id_in_obarray(obarray, symbol).map(|(_, value)| value)
         {
             return Ok(function);
         }

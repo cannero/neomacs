@@ -2956,6 +2956,28 @@ impl<'a> Vm<'a> {
                 Ok(value)
                 })())
             }
+            "symbol-function" => Some(
+                crate::emacs_core::builtins::symbols::builtin_symbol_function_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "symbol-plist" => Some(
+                crate::emacs_core::builtins::symbols::builtin_symbol_plist_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "indirect-function" => Some(
+                crate::emacs_core::builtins::symbols::builtin_indirect_function_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "functionp" => Some(crate::emacs_core::builtins::builtin_functionp_in_obarray(
+                &*self.shared.obarray,
+                args.to_vec(),
+            )),
             "default-toplevel-value" => Some(
                 crate::emacs_core::builtins::symbols::builtin_default_toplevel_value_in_obarray(
                     self.shared.obarray,

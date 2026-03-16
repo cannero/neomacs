@@ -1767,6 +1767,14 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
         other => panic!("unexpected error: {other:?}"),
     });
 
+    with_vm_eval("(symbol-plist 1)", false, |result| match result {
+        Err(EvalError::Signal { symbol, data }) => {
+            assert_eq!(resolve_sym(symbol), "wrong-type-argument");
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+        }
+        other => panic!("unexpected error: {other:?}"),
+    });
+
     with_vm_eval("(symbol-function 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
@@ -1774,6 +1782,31 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
         }
         other => panic!("unexpected error: {other:?}"),
     });
+}
+
+#[test]
+fn vm_symbol_introspection_builtins_use_shared_symbol_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (fset 'vm-sym-target '(lambda (x) x))
+                 (fset 'vm-sym-a 'vm-sym-b)
+                 (fset 'vm-sym-b 'vm-sym-target)
+                 (put 'vm-sym-a 'vm-prop 17)
+                 (autoload 'vm-sym-auto "vm-sym-file")
+                 (autoload 'vm-sym-macro "vm-sym-file" nil nil 'macro)
+                 (list
+                  (symbol-function 'vm-sym-a)
+                  (indirect-function 'vm-sym-a)
+                  (functionp 'vm-sym-a)
+                  (symbol-plist 'vm-sym-a)
+                  (symbol-function 'vm-sym-auto)
+                  (indirect-function 'vm-sym-auto)
+                  (functionp 'vm-sym-auto)
+                  (functionp 'vm-sym-macro)))"#
+        ),
+        r#"OK (vm-sym-b (lambda (x) x) t (vm-prop 17) (autoload "vm-sym-file" nil nil nil) (autoload "vm-sym-file" nil nil nil) t nil)"#
+    );
 }
 
 #[test]

@@ -8098,6 +8098,15 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         .expect("functionp should accept quoted lambda list");
     assert!(lambda_result.is_truthy());
 
+    builtin_fset(
+        &mut eval,
+        vec![Value::symbol("vm-functionp-alias"), quoted_lambda],
+    )
+    .expect("fset should accept lambda definition");
+    let alias_result = builtin_functionp_eval(&mut eval, vec![Value::symbol("vm-functionp-alias")])
+        .expect("functionp should resolve symbol alias to lambda list");
+    assert!(alias_result.is_truthy());
+
     let improper_lambda = Value::cons(Value::symbol("lambda"), Value::Int(1));
     let improper_result = builtin_functionp_eval(&mut eval, vec![improper_lambda])
         .expect("functionp should accept improper lambda forms");
