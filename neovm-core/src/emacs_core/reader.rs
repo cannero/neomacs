@@ -209,6 +209,13 @@ fn signal_invalid_read_syntax_in_buffer(
     )
 }
 
+fn stdin_end_of_file_error() -> Flow {
+    signal(
+        "end-of-file",
+        vec![Value::string("Error reading from stdin")],
+    )
+}
+
 // ---------------------------------------------------------------------------
 // 1. read-from-string
 // ---------------------------------------------------------------------------
@@ -638,29 +645,27 @@ pub(crate) fn builtin_read_from_minibuffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("read-from-minibuffer", &args, 1)?;
-    expect_max_args("read-from-minibuffer", &args, 7)?;
+    builtin_read_from_minibuffer_in_runtime(eval, &args)?;
     let prompt = expect_string(&args[0])?;
+    read_from_minibuffer_interactive(eval, &prompt, &args)
+}
+
+pub(crate) fn builtin_read_from_minibuffer_in_runtime(
+    runtime: &impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<(), Flow> {
+    expect_min_args("read-from-minibuffer", args, 1)?;
+    expect_max_args("read-from-minibuffer", args, 7)?;
+    let _prompt = expect_string(&args[0])?;
     if let Some(initial) = args.get(1) {
         expect_initial_input_stringish(initial)?;
     }
 
-    // Interactive mode: use the minibuffer with recursive edit
-    if eval.input_rx.is_some() {
-        return read_from_minibuffer_interactive(eval, &prompt, &args);
+    if runtime.has_input_receiver() {
+        Ok(())
+    } else {
+        Err(stdin_end_of_file_error())
     }
-
-    // Batch mode: signal end-of-file
-    if eval.peek_unread_command_event().is_some() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    Err(signal(
-        "end-of-file",
-        vec![Value::string("Error reading from stdin")],
-    ))
 }
 
 /// Interactive read-from-minibuffer implementation.
@@ -848,12 +853,8 @@ pub(crate) fn builtin_read_string(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("read-string", &args, 1)?;
-    expect_max_args("read-string", &args, 5)?;
+    builtin_read_string_in_runtime(eval, &args)?;
     let prompt = args[0];
-    if let Some(initial) = args.get(1) {
-        expect_initial_input_stringish(initial)?;
-    }
 
     // Build args for read-from-minibuffer:
     // (read-from-minibuffer PROMPT INITIAL nil nil HIST DEFAULT INHERIT-INPUT-METHOD)
@@ -874,6 +875,33 @@ pub(crate) fn builtin_read_string(
             inherit,
         ],
     )
+}
+
+pub(crate) fn builtin_read_string_in_runtime(
+    runtime: &impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<(), Flow> {
+    expect_min_args("read-string", args, 1)?;
+    expect_max_args("read-string", args, 5)?;
+    let prompt = args[0];
+    if let Some(initial) = args.get(1) {
+        expect_initial_input_stringish(initial)?;
+    }
+
+    let initial = args.get(1).copied().unwrap_or(Value::Nil);
+    let history = args.get(2).copied().unwrap_or(Value::Nil);
+    let default = args.get(3).copied().unwrap_or(Value::Nil);
+    let inherit = args.get(4).copied().unwrap_or(Value::Nil);
+    let minibuffer_args = [
+        prompt,
+        initial,
+        Value::Nil,
+        Value::Nil,
+        history,
+        default,
+        inherit,
+    ];
+    builtin_read_from_minibuffer_in_runtime(runtime, &minibuffer_args)
 }
 
 // ---------------------------------------------------------------------------
@@ -950,72 +978,67 @@ pub(crate) fn builtin_completing_read(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("completing-read", &args, 2)?;
-    expect_max_args("completing-read", &args, 8)?;
+    builtin_completing_read_in_runtime(eval, &args)?;
+    let prompt = args[0];
+    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    let initial_input = args.get(4).copied().unwrap_or(Value::Nil);
+    let hist = args.get(5).copied().unwrap_or(Value::Nil);
+    let default_val = args.get(6).copied().unwrap_or(Value::Nil);
+    let inherit = args.get(7).copied().unwrap_or(Value::Nil);
+
+    let keymap = if !require_match.is_nil() {
+        eval.obarray()
+            .symbol_value("minibuffer-local-must-match-map")
+            .copied()
+            .unwrap_or(Value::Nil)
+    } else {
+        eval.obarray()
+            .symbol_value("minibuffer-local-completion-map")
+            .copied()
+            .unwrap_or(Value::Nil)
+    };
+
+    let collection = args[1];
+    eval.assign("minibuffer-completion-table", collection);
+    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    eval.assign("minibuffer-completion-predicate", predicate);
+
+    let result = builtin_read_from_minibuffer(
+        eval,
+        vec![
+            prompt,
+            initial_input,
+            keymap,
+            Value::Nil,
+            hist,
+            default_val,
+            inherit,
+        ],
+    );
+
+    eval.assign("minibuffer-completion-table", Value::Nil);
+    eval.assign("minibuffer-completion-predicate", Value::Nil);
+
+    result
+}
+
+pub(crate) fn builtin_completing_read_in_runtime(
+    runtime: &impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<(), Flow> {
+    expect_min_args("completing-read", args, 2)?;
+    expect_max_args("completing-read", args, 8)?;
     let prompt = args[0];
     expect_string(&prompt)?;
     if let Some(initial) = args.get(4) {
         expect_completing_read_initial_input(initial)?;
     }
 
-    // Interactive mode: use read-from-minibuffer with completion keymap
-    if eval.input_rx.is_some() {
-        let require_match = args.get(3).copied().unwrap_or(Value::Nil);
-        let initial_input = args.get(4).copied().unwrap_or(Value::Nil);
-        let hist = args.get(5).copied().unwrap_or(Value::Nil);
-        let default_val = args.get(6).copied().unwrap_or(Value::Nil);
-        let inherit = args.get(7).copied().unwrap_or(Value::Nil);
-
-        // Choose keymap: must-match or completion
-        let keymap = if !require_match.is_nil() {
-            eval.obarray()
-                .symbol_value("minibuffer-local-must-match-map")
-                .copied()
-                .unwrap_or(Value::Nil)
-        } else {
-            eval.obarray()
-                .symbol_value("minibuffer-local-completion-map")
-                .copied()
-                .unwrap_or(Value::Nil)
-        };
-
-        // Store completion table for TAB completion (minibuffer-completion-table)
-        let collection = args[1];
-        eval.assign("minibuffer-completion-table", collection);
-        let predicate = args.get(2).copied().unwrap_or(Value::Nil);
-        eval.assign("minibuffer-completion-predicate", predicate);
-
-        let result = builtin_read_from_minibuffer(
-            eval,
-            vec![
-                prompt,
-                initial_input,
-                keymap,
-                Value::Nil,
-                hist,
-                default_val,
-                inherit,
-            ],
-        );
-
-        // Clean up completion state
-        eval.assign("minibuffer-completion-table", Value::Nil);
-        eval.assign("minibuffer-completion-predicate", Value::Nil);
-
-        return result;
+    if runtime.has_input_receiver() {
+        Ok(())
+    } else {
+        Err(stdin_end_of_file_error())
     }
-
-    // Batch mode
-    if eval.peek_unread_command_event().is_some() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
-    }
-    Err(signal(
-        "end-of-file",
-        vec![Value::string("Error reading from stdin")],
-    ))
 }
 
 fn event_to_int(event: &Value) -> Option<i64> {
@@ -1486,7 +1509,31 @@ pub(crate) fn builtin_yes_or_no_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("yes-or-no-p", &args, 1)?;
+    builtin_yes_or_no_p_in_runtime(eval, &args)?;
+    let prompt_str = if let Value::Str(id) = &args[0] {
+        super::value::with_heap(|h| h.get_string(*id).to_owned())
+    } else {
+        String::new()
+    };
+    loop {
+        let full_prompt = format!("{} (yes or no) ", prompt_str);
+        let result = builtin_read_from_minibuffer(eval, vec![Value::string(&full_prompt)])?;
+        if let Value::Str(id) = result {
+            let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
+            match answer.trim() {
+                "yes" => return Ok(Value::True),
+                "no" => return Ok(Value::Nil),
+                _ => continue,
+            }
+        }
+    }
+}
+
+pub(crate) fn builtin_yes_or_no_p_in_runtime(
+    runtime: &impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<(), Flow> {
+    expect_args("yes-or-no-p", args, 1)?;
     if !matches!(args[0], Value::Str(_)) {
         return Err(signal(
             "wrong-type-argument",
@@ -1494,31 +1541,11 @@ pub(crate) fn builtin_yes_or_no_p(
         ));
     }
 
-    // Interactive mode: read "yes" or "no" from minibuffer
-    if eval.input_rx.is_some() {
-        let prompt_str = if let Value::Str(id) = &args[0] {
-            super::value::with_heap(|h| h.get_string(*id).to_owned())
-        } else {
-            String::new()
-        };
-        loop {
-            let full_prompt = format!("{} (yes or no) ", prompt_str);
-            let result = builtin_read_from_minibuffer(eval, vec![Value::string(&full_prompt)])?;
-            if let Value::Str(id) = result {
-                let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
-                match answer.trim() {
-                    "yes" => return Ok(Value::True),
-                    "no" => return Ok(Value::Nil),
-                    _ => continue, // Ask again
-                }
-            }
-        }
+    if runtime.has_input_receiver() {
+        Ok(())
+    } else {
+        Err(stdin_end_of_file_error())
     }
-
-    Err(signal(
-        "end-of-file",
-        vec![Value::string("Error reading from stdin")],
-    ))
 }
 
 // ---------------------------------------------------------------------------

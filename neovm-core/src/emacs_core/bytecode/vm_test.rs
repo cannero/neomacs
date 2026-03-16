@@ -2062,6 +2062,44 @@ fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_minibuffer_reader_frontends_use_shared_runtime_batch_eof_path() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((unread-command-events (list 97)))
+                   (condition-case err
+                       (read-from-minibuffer "Prompt: ")
+                     (end-of-file (list (car err) unread-command-events))))
+                 (let ((unread-command-events (list 98)))
+                   (condition-case err
+                       (read-string "Prompt: ")
+                     (end-of-file (list (car err) unread-command-events))))
+                 (let ((unread-command-events (list 99)))
+                   (condition-case err
+                       (completing-read "Prompt: " '("alpha"))
+                     (end-of-file (list (car err) unread-command-events))))
+                 (let ((unread-command-events (list 100)))
+                   (condition-case err
+                       (read-buffer "Buffer: ")
+                     (end-of-file (list (car err) unread-command-events))))
+                 (let ((unread-command-events (list 101)))
+                   (condition-case err
+                       (read-command "Command: ")
+                     (end-of-file (list (car err) unread-command-events))))
+                 (let ((unread-command-events (list 102)))
+                   (condition-case err
+                       (read-variable "Variable: ")
+                     (end-of-file (list (car err) unread-command-events))))
+                 (let ((unread-command-events (list 103)))
+                   (condition-case err
+                       (yes-or-no-p "Confirm?")
+                     (end-of-file (list (car err) unread-command-events)))))"#
+        ),
+        "OK ((end-of-file (97)) (end-of-file (98)) (end-of-file (99)) (end-of-file (100)) (end-of-file (101)) (end-of-file (102)) (end-of-file (103)))"
+    );
+}
+
+#[test]
 fn vm_printer_builtins_use_shared_runtime_entry() {
     assert_eq!(
         vm_eval_str(

@@ -6467,6 +6467,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::reader::builtin_read_from_minibuffer_in_runtime(&self.shared, args)?;
         self.call_eval_builtin_shared(
             args,
             crate::emacs_core::reader::builtin_read_from_minibuffer,
@@ -6474,14 +6475,17 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_string_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::reader::builtin_read_string_in_runtime(&self.shared, args)?;
         self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_string)
     }
 
     fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::reader::builtin_completing_read_in_runtime(&self.shared, args)?;
         self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_completing_read)
     }
 
     fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::minibuffer::builtin_read_buffer_in_runtime(&self.shared, args)?;
         self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_buffer)
     }
 
@@ -6511,10 +6515,12 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_command_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::minibuffer::builtin_read_command_in_runtime(&self.shared, args)?;
         self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_command)
     }
 
     fn builtin_read_variable_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::minibuffer::builtin_read_variable_in_runtime(&self.shared, args)?;
         self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_variable)
     }
 
@@ -6987,6 +6993,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_yes_or_no_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::reader::builtin_yes_or_no_p_in_runtime(&self.shared, args)?;
         self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_yes_or_no_p)
     }
 
