@@ -429,6 +429,49 @@ fn casify_region_in_state(
     replace_current_buffer_region_in_buffers(buffers, beg, end, &replacement, true)
 }
 
+fn casify_word_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+    name: &str,
+    transform: impl FnOnce(&str) -> String,
+) -> EvalResult {
+    expect_args(name, &args, 1)?;
+    let n = expect_int(&args[0])?;
+
+    let (beg, end, text, buffer_name, read_only) = {
+        let buf = buffers
+            .current_buffer()
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let table = buf.syntax_table.clone();
+        let pt = buf.point();
+        let target = forward_word(buf, &table, n);
+        let (beg, end) = if target >= pt {
+            (pt, target)
+        } else {
+            (target, pt)
+        };
+        (
+            beg,
+            end,
+            buf.buffer_substring(beg, end),
+            buf.name.clone(),
+            super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf),
+        )
+    };
+
+    let replacement = transform(&text);
+    if replacement == text {
+        return Ok(Value::Nil);
+    }
+    if read_only {
+        return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
+    }
+
+    replace_current_buffer_region_in_buffers(buffers, beg, end, &replacement, false)
+}
+
 // ---------------------------------------------------------------------------
 // Pure builtins
 // ---------------------------------------------------------------------------
@@ -671,102 +714,69 @@ pub(crate) fn builtin_downcase_word(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("downcase-word", &args, 1)?;
-    let n = expect_int(&args[0])?;
+    builtin_downcase_word_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
-    let pt = buf.point();
-    let target = forward_word(buf, &table, n);
-    let (beg, end) = if target >= pt {
-        (pt, target)
-    } else {
-        (target, pt)
-    };
-    let text = buf.buffer_substring(beg, end);
-    let lower = downcase_case_string_emacs_compat(&text);
-    if text == lower {
-        return Ok(Value::Nil);
-    }
-    if region_case_read_only(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    replace_current_buffer_region(eval, beg, end, &lower, false)
+pub(crate) fn builtin_downcase_word_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    casify_word_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args,
+        "downcase-word",
+        downcase_case_string_emacs_compat,
+    )
 }
 
 pub(crate) fn builtin_upcase_word(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("upcase-word", &args, 1)?;
-    let n = expect_int(&args[0])?;
+    builtin_upcase_word_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
-    let pt = buf.point();
-    let target = forward_word(buf, &table, n);
-    let (beg, end) = if target >= pt {
-        (pt, target)
-    } else {
-        (target, pt)
-    };
-    let text = buf.buffer_substring(beg, end);
-    let upper = upcase_case_string_emacs_compat(&text);
-    if text == upper {
-        return Ok(Value::Nil);
-    }
-    if region_case_read_only(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    replace_current_buffer_region(eval, beg, end, &upper, false)
+pub(crate) fn builtin_upcase_word_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    casify_word_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args,
+        "upcase-word",
+        upcase_case_string_emacs_compat,
+    )
 }
 
 pub(crate) fn builtin_capitalize_word(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("capitalize-word", &args, 1)?;
-    let n = expect_int(&args[0])?;
+    builtin_capitalize_word_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
-    let pt = buf.point();
-    let target = forward_word(buf, &table, n);
-    let (beg, end) = if target >= pt {
-        (pt, target)
-    } else {
-        (target, pt)
-    };
-    let text = buf.buffer_substring(beg, end);
-    let result = capitalize_string(&text);
-    if text == result {
-        return Ok(Value::Nil);
-    }
-    if region_case_read_only(eval, buf) {
-        return Err(signal(
-            "buffer-read-only",
-            vec![Value::string(buf.name.clone())],
-        ));
-    }
-
-    replace_current_buffer_region(eval, beg, end, &result, false)
+pub(crate) fn builtin_capitalize_word_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    casify_word_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args,
+        "capitalize-word",
+        capitalize_string,
+    )
 }
 
 /// `(char-resolve-modifiers CHAR)` -- resolve modifier bits in character.

@@ -3820,6 +3820,26 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "downcase-word" => Some(crate::emacs_core::casefiddle::builtin_downcase_word_in_state(
+                &self.shared.obarray,
+                &self.shared.dynamic,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "upcase-word" => Some(crate::emacs_core::casefiddle::builtin_upcase_word_in_state(
+                &self.shared.obarray,
+                &self.shared.dynamic,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "capitalize-word" => Some(
+                crate::emacs_core::casefiddle::builtin_capitalize_word_in_state(
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "buffer-enable-undo" => Some(self.builtin_buffer_enable_undo_shared(args)),
             "buffer-disable-undo" => Some(self.builtin_buffer_disable_undo_shared(args)),
             "kill-all-local-variables" => Some(self.builtin_kill_all_local_variables_shared(args)),

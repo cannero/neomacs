@@ -1644,6 +1644,30 @@ fn vm_casefiddle_region_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_casefiddle_word_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "heLLo woRLD")
+                 (list
+                  (progn
+                    (goto-char 1)
+                    (downcase-word 1)
+                    (buffer-string))
+                  (progn
+                    (goto-char 7)
+                    (upcase-word 1)
+                    (buffer-string))
+                  (progn
+                    (goto-char 1)
+                    (capitalize-word 2)
+                    (buffer-string))))"#
+        ),
+        r#"OK ("hello woRLD" "hello WORLD" "Hello World")"#
+    );
+}
+
+#[test]
 fn vm_buffer_substring_copy_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
