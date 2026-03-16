@@ -1,6 +1,8 @@
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{format_eval_result, parse_forms};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn eval_one(src: &str) -> String {
     let mut ev = Evaluator::new();
@@ -250,6 +252,48 @@ fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
         format_eval_result(&result),
         "OK (2 5 (1 7) 2 5 (2 5) (1 7))"
     );
+}
+
+#[test]
+fn redisplay_restores_current_innermost_labeled_restriction_after_callback_mutation() {
+    let mut eval = Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("redisplay-labeled");
+    eval.buffers.set_current(buffer_id);
+    let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
+    let _ = eval
+        .buffers
+        .internal_labeled_narrow_to_region(buffer_id, 1, 5, Value::symbol("outer"));
+    let _ = eval
+        .buffers
+        .internal_labeled_narrow_to_region(buffer_id, 2, 4, Value::symbol("inner"));
+
+    let observed = Rc::new(RefCell::new(Vec::new()));
+    let observed_in_callback = observed.clone();
+    eval.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        let buf = ev
+            .buffers
+            .get(buffer_id)
+            .expect("buffer visible during redisplay");
+        observed_in_callback
+            .borrow_mut()
+            .push((buf.point_min(), buf.point_max()));
+        let _ = ev
+            .buffers
+            .internal_labeled_widen(buffer_id, &Value::symbol("inner"));
+        let buf = ev
+            .buffers
+            .get(buffer_id)
+            .expect("buffer after labeled widen");
+        observed_in_callback
+            .borrow_mut()
+            .push((buf.point_min(), buf.point_max()));
+    }));
+
+    eval.redisplay();
+
+    assert_eq!(*observed.borrow(), vec![(0, 6), (1, 5)]);
+    let buf = eval.buffers.get(buffer_id).expect("buffer after redisplay");
+    assert_eq!((buf.point_min(), buf.point_max()), (1, 5));
 }
 
 #[test]

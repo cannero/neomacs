@@ -87,6 +87,11 @@ impl SavedRestrictionState {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OutermostRestrictionResetState {
+    pub affected_buffers: Vec<BufferId>,
+}
+
 // ---------------------------------------------------------------------------
 // Buffer
 // ---------------------------------------------------------------------------
@@ -1484,6 +1489,44 @@ impl BufferManager {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
+    pub fn reset_outermost_restrictions(&mut self) -> OutermostRestrictionResetState {
+        let mut affected_buffers: Vec<BufferId> =
+            self.labeled_restrictions.keys().copied().collect();
+        affected_buffers.sort_by_key(|buffer_id| buffer_id.0);
+
+        let mut retained_buffers = Vec::with_capacity(affected_buffers.len());
+        for buffer_id in affected_buffers {
+            let Some((begv, zv)) = self.labeled_restriction_bounds(buffer_id, true) else {
+                self.replace_labeled_restrictions(buffer_id, None);
+                continue;
+            };
+            if self
+                .restore_buffer_restriction(buffer_id, begv, zv)
+                .is_some()
+            {
+                retained_buffers.push(buffer_id);
+            } else {
+                self.replace_labeled_restrictions(buffer_id, None);
+            }
+        }
+
+        OutermostRestrictionResetState {
+            affected_buffers: retained_buffers,
+        }
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, state))]
+    pub fn restore_outermost_restrictions(&mut self, state: OutermostRestrictionResetState) {
+        for buffer_id in state.affected_buffers {
+            if let Some((begv, zv)) = self.current_labeled_restriction_bounds(buffer_id) {
+                let _ = self.restore_buffer_restriction(buffer_id, begv, zv);
+            } else {
+                self.replace_labeled_restrictions(buffer_id, None);
+            }
+        }
+    }
+
     pub fn restore_saved_restriction_state(&mut self, saved: SavedRestrictionState) {
         let buffer_id = saved.buffer_id;
         if self.buffers.get(&buffer_id).is_none() {
@@ -2584,6 +2627,36 @@ mod tests {
         assert_eq!(buf.point_max(), 5);
 
         let _ = mgr.widen_buffer(id);
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 1);
+        assert_eq!(buf.point_max(), 5);
+    }
+
+    #[test]
+    fn manager_reset_outermost_restrictions_restores_current_innermost_after_mutation() {
+        let mut mgr = BufferManager::new();
+        let id = mgr.create_buffer("redisplay-labeled");
+        mgr.set_current(id);
+        mgr.get_mut(id).unwrap().insert("abcdef");
+
+        let _ = mgr.internal_labeled_narrow_to_region(id, 1, 5, Value::symbol("outer"));
+        let _ = mgr.internal_labeled_narrow_to_region(id, 2, 4, Value::symbol("inner"));
+
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 2);
+        assert_eq!(buf.point_max(), 4);
+
+        let saved = mgr.reset_outermost_restrictions();
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 0);
+        assert_eq!(buf.point_max(), 6);
+
+        let _ = mgr.internal_labeled_widen(id, &Value::symbol("inner"));
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 1);
+        assert_eq!(buf.point_max(), 5);
+
+        mgr.restore_outermost_restrictions(saved);
         let buf = mgr.get(id).unwrap();
         assert_eq!(buf.point_min(), 1);
         assert_eq!(buf.point_max(), 5);

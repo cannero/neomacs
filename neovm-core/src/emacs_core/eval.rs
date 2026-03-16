@@ -3184,7 +3184,9 @@ impl Evaluator {
         // the callback receives &mut self, but we can't call a closure
         // stored in &mut self while &mut self is borrowed.
         if let Some(mut f) = self.redisplay_fn.take() {
+            let saved = self.buffers.reset_outermost_restrictions();
             f(self);
+            self.buffers.restore_outermost_restrictions(saved);
             self.redisplay_fn = Some(f);
         }
     }
