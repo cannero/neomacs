@@ -2041,6 +2041,28 @@ fn vm_syntax_table_accessors_use_shared_current_buffer_state() {
 }
 
 #[test]
+fn vm_syntax_motion_builtins_use_shared_point_and_syntax_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (set-syntax-table (copy-syntax-table (standard-syntax-table)))
+                 (modify-syntax-entry ?\; "<")
+                 (modify-syntax-entry ?\n ">")
+                 (modify-syntax-entry ?' ". p")
+                 (erase-buffer)
+                 (insert "  ;c\n''foo bar")
+                 (list
+                  (progn (goto-char 1) (list (forward-comment 1) (point)))
+                  (progn (goto-char 8) (backward-prefix-chars) (point))
+                  (progn (goto-char 8) (forward-word) (point))
+                  (progn (goto-char 1) (list (skip-syntax-forward " ") (point)))
+                  (progn (goto-char 11) (list (skip-syntax-backward "w") (point)))))"#
+        ),
+        "OK ((t 6) 6 11 (2 3) (-3 8))"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

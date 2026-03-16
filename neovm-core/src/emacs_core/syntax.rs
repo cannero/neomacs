@@ -1714,6 +1714,13 @@ pub(crate) fn builtin_forward_comment(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_forward_comment_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_forward_comment_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -1734,12 +1741,10 @@ pub(crate) fn builtin_forward_comment(
         }
     };
 
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -2221,6 +2226,13 @@ pub(crate) fn builtin_backward_prefix_chars(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_backward_prefix_chars_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_backward_prefix_chars_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if !args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2231,12 +2243,10 @@ pub(crate) fn builtin_backward_prefix_chars(
         ));
     }
 
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -2267,6 +2277,13 @@ pub(crate) fn builtin_forward_word(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_forward_word_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_forward_word_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     let count = if args.is_empty() || args[0].is_nil() {
         1
     } else {
@@ -2283,18 +2300,16 @@ pub(crate) fn builtin_forward_word(
 
     // We need to read the syntax table first, then call forward_word, then write point.
     // To satisfy the borrow checker, clone the syntax table.
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
     let new_pos = forward_word(buf, &table, count);
 
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
+    let _ = buffers.goto_buffer_byte(current_id, new_pos);
     Ok(Value::Nil)
 }
 
@@ -2699,6 +2714,13 @@ pub(crate) fn builtin_skip_syntax_forward(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_skip_syntax_forward_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_skip_syntax_forward_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2728,29 +2750,25 @@ pub(crate) fn builtin_skip_syntax_forward(
         None
     };
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
     let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
     let new_pos = skip_syntax_forward(buf, &table, &syntax_chars, limit);
 
-    let old_pt = eval
-        .buffers
+    let old_pt = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .point();
 
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
+    let _ = buffers.goto_buffer_byte(current_id, new_pos);
 
     // Return number of characters skipped (Emacs convention).
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let chars_moved = if new_pos >= old_pt {
@@ -2765,6 +2783,13 @@ pub(crate) fn builtin_skip_syntax_forward(
 /// matching the given syntax classes.
 pub(crate) fn builtin_skip_syntax_backward(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_skip_syntax_backward_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_skip_syntax_backward_in_buffers(
+    buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() {
@@ -2796,29 +2821,25 @@ pub(crate) fn builtin_skip_syntax_backward(
         None
     };
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
     let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
     let new_pos = skip_syntax_backward(buf, &table, &syntax_chars, limit);
 
-    let old_pt = eval
-        .buffers
+    let old_pt = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .point();
 
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
+    let _ = buffers.goto_buffer_byte(current_id, new_pos);
 
     // Return negative number of characters skipped.
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let chars_moved = if old_pt >= new_pos {

@@ -2936,6 +2936,34 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "forward-comment" => Some(
+                crate::emacs_core::syntax::builtin_forward_comment_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "backward-prefix-chars" => Some(
+                crate::emacs_core::syntax::builtin_backward_prefix_chars_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "forward-word" => Some(crate::emacs_core::syntax::builtin_forward_word_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "skip-syntax-forward" => Some(
+                crate::emacs_core::syntax::builtin_skip_syntax_forward_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "skip-syntax-backward" => Some(
+                crate::emacs_core::syntax::builtin_skip_syntax_backward_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "decode-char" => Some(crate::emacs_core::charset::builtin_decode_char(args.to_vec())),
             "encode-char" => Some(crate::emacs_core::charset::builtin_encode_char(args.to_vec())),
             "set-char-table-range" => Some(
