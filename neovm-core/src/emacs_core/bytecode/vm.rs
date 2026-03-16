@@ -4289,6 +4289,83 @@ impl<'a> Vm<'a> {
             "frame-list" => Some(self.builtin_frame_list_fast(args)),
             "framep" => Some(self.builtin_framep_fast(args)),
             "frame-parameter" => Some(self.builtin_frame_parameter_fast(args)),
+            "frame-char-height" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_char_height_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-char-width" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_char_width_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-native-height" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_native_height_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-native-width" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_native_width_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-text-cols" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_text_cols_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-text-lines" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_text_lines_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-text-width" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_text_width_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-text-height" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_text_height_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-total-cols" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_total_cols_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-total-lines" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_total_lines_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-position" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_position_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "selected-frame" => Some(
                 crate::emacs_core::window_cmds::builtin_selected_frame_in_state(
                     self.shared.frames,

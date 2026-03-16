@@ -465,7 +465,7 @@ fn resolve_frame_id(
     resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, arg, predicate)
 }
 
-fn resolve_frame_id_in_state(
+pub(crate) fn resolve_frame_id_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
     arg: Option<&Value>,
@@ -3776,6 +3776,14 @@ fn frame_total_cols(frame: &crate::window::Frame) -> i64 {
         .unwrap_or(frame.columns() as i64)
 }
 
+fn frame_text_cols(frame: &crate::window::Frame) -> i64 {
+    frame_total_cols(frame)
+}
+
+fn frame_uses_window_system_pixels(frame: &crate::window::Frame) -> bool {
+    frame.parameters.contains_key("window-system")
+}
+
 fn frame_total_lines(frame: &crate::window::Frame) -> i64 {
     frame
         .parameters
@@ -4357,13 +4365,17 @@ pub(crate) fn builtin_frame_char_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_char_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_char_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-char-height", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let ch = eval
-        .frames
-        .get(fid)
-        .map(|f| f.char_height as i64)
-        .unwrap_or(16);
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let ch = frames.get(fid).map(|f| f.char_height as i64).unwrap_or(16);
     Ok(Value::Int(ch))
 }
 
@@ -4374,13 +4386,17 @@ pub(crate) fn builtin_frame_char_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_char_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_char_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-char-width", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let cw = eval
-        .frames
-        .get(fid)
-        .map(|f| f.char_width as i64)
-        .unwrap_or(8);
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let cw = frames.get(fid).map(|f| f.char_width as i64).unwrap_or(8);
     Ok(Value::Int(cw))
 }
 
@@ -4389,13 +4405,24 @@ pub(crate) fn builtin_frame_native_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_native_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_native_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-native-height", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame_total_lines(frame)))
+    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+        frame.height as i64
+    } else {
+        frame_total_lines(frame)
+    }))
 }
 
 /// `(frame-native-width &optional FRAME)` -> integer.
@@ -4403,13 +4430,24 @@ pub(crate) fn builtin_frame_native_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_native_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_native_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-native-width", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame_total_cols(frame)))
+    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+        frame.width as i64
+    } else {
+        frame_total_cols(frame)
+    }))
 }
 
 /// `(frame-text-cols &optional FRAME)` -> integer.
@@ -4417,10 +4455,17 @@ pub(crate) fn builtin_frame_text_cols(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_text_cols_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_text_cols_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-text-cols", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::Int(frame_total_cols(frame)))
@@ -4431,10 +4476,17 @@ pub(crate) fn builtin_frame_text_lines(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_text_lines_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_text_lines_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-text-lines", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::Int(frame_text_lines(frame)))
@@ -4447,13 +4499,24 @@ pub(crate) fn builtin_frame_text_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_text_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_text_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-text-width", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame.width as i64))
+    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+        frame.width as i64
+    } else {
+        frame_text_cols(frame)
+    }))
 }
 
 /// `(frame-text-height &optional FRAME)` -> integer.
@@ -4463,13 +4526,24 @@ pub(crate) fn builtin_frame_text_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_text_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_text_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-text-height", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame.height as i64))
+    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+        frame.height as i64
+    } else {
+        frame_text_lines(frame)
+    }))
 }
 
 /// `(frame-total-cols &optional FRAME)` -> integer.
@@ -4477,10 +4551,17 @@ pub(crate) fn builtin_frame_total_cols(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_total_cols_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_total_cols_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-total-cols", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::Int(frame_total_cols(frame)))
@@ -4491,10 +4572,17 @@ pub(crate) fn builtin_frame_total_lines(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_total_lines_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_total_lines_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-total-lines", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::Int(frame_total_lines(frame)))
@@ -4505,8 +4593,16 @@ pub(crate) fn builtin_frame_position(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_position_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_position_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-position", &args, 1)?;
-    let _ = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let _ = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
     Ok(Value::cons(Value::Int(0), Value::Int(0)))
 }
 

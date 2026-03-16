@@ -741,6 +741,34 @@ fn vm_window_and_frame_selection_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_frame_query_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list (frame-char-height)
+                     (frame-char-width)
+                     (frame-native-height)
+                     (frame-native-width)
+                     (frame-text-cols)
+                     (frame-text-lines)
+                     (frame-text-width)
+                     (frame-text-height)
+                     (frame-total-cols)
+                     (frame-total-lines)
+                     (frame-position))"#
+        ),
+        "OK (1 1 25 80 80 25 80 25 80 25 (0 . 0))"
+    );
+    assert_eq!(
+        vm_eval_str(
+            r#"(condition-case err
+                   (frame-char-height 999999)
+                 (error err))"#
+        ),
+        "OK (wrong-type-argument framep 999999)"
+    );
+}
+
+#[test]
 fn vm_window_state_accessors_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

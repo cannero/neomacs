@@ -2063,6 +2063,61 @@ fn frame_designator_errors_use_emacs_predicates() {
 }
 
 #[test]
+fn frame_query_builtins_match_gnu_batch_startup_geometry() {
+    let mut ev = Evaluator::new();
+    let forms = parse_forms(
+        r#"(list (frame-char-height)
+                 (frame-char-width)
+                 (frame-native-height)
+                 (frame-native-width)
+                 (frame-text-cols)
+                 (frame-text-lines)
+                 (frame-text-width)
+                 (frame-text-height)
+                 (frame-total-cols)
+                 (frame-total-lines)
+                 (frame-position))"#,
+    )
+    .expect("parse");
+    let out = ev
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(out[0], "OK (1 1 25 80 80 25 80 25 80 25 (0 . 0))");
+}
+
+#[test]
+fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("gui", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("gui frame");
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("neomacs"));
+    }
+
+    assert_eq!(
+        super::builtin_frame_native_width(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
+        Value::Int(800)
+    );
+    assert_eq!(
+        super::builtin_frame_native_height(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
+        Value::Int(600)
+    );
+    assert_eq!(
+        super::builtin_frame_text_width(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
+        Value::Int(800)
+    );
+    assert_eq!(
+        super::builtin_frame_text_height(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
+        Value::Int(600)
+    );
+}
+
+#[test]
 fn select_frame_arity_designators_and_selection() {
     let mut ev = Evaluator::new();
     let forms = parse_forms(
