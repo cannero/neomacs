@@ -835,7 +835,7 @@ fn checked_buffer_slice_for_char_region(
     Ok(buf.buffer_substring(from_byte, to_byte))
 }
 
-fn resolve_buffer_designator_allow_nil_current_in_manager(
+pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
     buffers: &BufferManager,
     arg: &Value,
 ) -> Result<Option<BufferId>, Flow> {
@@ -976,15 +976,22 @@ pub(crate) fn builtin_buffer_line_statistics(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_line_statistics_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_line_statistics_in_state(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-line-statistics", &args, 1)?;
     let buffer_id = if args.is_empty() {
-        resolve_buffer_designator_allow_nil_current(eval, &Value::Nil)?
+        resolve_buffer_designator_allow_nil_current_in_manager(buffers, &Value::Nil)?
     } else {
-        resolve_buffer_designator_allow_nil_current(eval, &args[0])?
+        resolve_buffer_designator_allow_nil_current_in_manager(buffers, &args[0])?
     };
 
     let text = buffer_id
-        .and_then(|id| eval.buffers.get(id).map(|buf| buf.buffer_string()))
+        .and_then(|id| buffers.get(id).map(|buf| buf.buffer_string()))
         .unwrap_or_default();
 
     if text.is_empty() {
@@ -1000,7 +1007,7 @@ pub(crate) fn builtin_buffer_line_statistics(
     let mut total_len = 0usize;
     for line in text.lines() {
         line_count += 1;
-        let width = line.chars().count();
+        let width = line.len();
         max_len = max_len.max(width);
         total_len += width;
     }
@@ -1096,14 +1103,20 @@ pub(crate) fn builtin_buffer_swap_text(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_swap_text_in_state(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_swap_text_in_state(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("buffer-swap-text", &args, 1)?;
     let other_id = expect_buffer_id(&args[0])?;
-    if eval.buffers.get(other_id).is_none() {
+    if buffers.get(other_id).is_none() {
         return Ok(Value::Nil);
     }
 
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .id;
@@ -1112,23 +1125,17 @@ pub(crate) fn builtin_buffer_swap_text(
         return Ok(Value::Nil);
     }
 
-    let current_text = eval
-        .buffers
+    let current_text = buffers
         .get(current_id)
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();
-    let other_text = eval
-        .buffers
+    let other_text = buffers
         .get(other_id)
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();
 
-    let _ = eval
-        .buffers
-        .replace_buffer_contents(current_id, &other_text);
-    let _ = eval
-        .buffers
-        .replace_buffer_contents(other_id, &current_text);
+    let _ = buffers.replace_buffer_contents(current_id, &other_text);
+    let _ = buffers.replace_buffer_contents(other_id, &current_text);
 
     Ok(Value::Nil)
 }
@@ -1463,12 +1470,19 @@ pub(crate) fn builtin_buffer_text_pixel_size(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_text_pixel_size_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_text_pixel_size_in_state(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("buffer-text-pixel-size", &args, 0, 4)?;
 
     let buffer_id = if args.is_empty() {
-        resolve_buffer_designator_allow_nil_current(eval, &Value::Nil)?
+        resolve_buffer_designator_allow_nil_current_in_manager(buffers, &Value::Nil)?
     } else {
-        resolve_buffer_designator_allow_nil_current(eval, &args[0])?
+        resolve_buffer_designator_allow_nil_current_in_manager(buffers, &args[0])?
     };
 
     if args.len() > 1 {
@@ -1504,10 +1518,8 @@ pub(crate) fn builtin_buffer_text_pixel_size(
     };
 
     let text = if let Some(id) = buffer_id {
-        if let Some(buf) = eval.buffers.get(id) {
-            let default_from = 1i64;
-            let default_to = buf.text.char_count() as i64 + 1;
-            buffer_slice_for_char_region(eval, Some(id), default_from, default_to)
+        if let Some(buf) = buffers.get(id) {
+            buf.buffer_string()
         } else {
             String::new()
         }

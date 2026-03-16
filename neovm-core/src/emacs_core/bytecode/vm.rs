@@ -3678,6 +3678,22 @@ impl<'a> Vm<'a> {
                 Some(self.builtin_insert_before_markers_and_inherit_shared(args))
             }
             "buffer-string" => Some(self.builtin_buffer_string_shared(args)),
+            "buffer-line-statistics" => Some(
+                crate::emacs_core::builtins::builtin_buffer_line_statistics_in_state(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "buffer-text-pixel-size" => Some(
+                crate::emacs_core::builtins::builtin_buffer_text_pixel_size_in_state(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "buffer-hash" => Some(crate::emacs_core::fns::builtin_buffer_hash_in_state(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
             "buffer-substring" => Some(self.builtin_buffer_substring_shared(args)),
             "point" => Some(self.builtin_point_shared(args)),
             "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
@@ -3764,6 +3780,12 @@ impl<'a> Vm<'a> {
             "delete-and-extract-region" => {
                 Some(self.builtin_delete_and_extract_region_shared(args))
             }
+            "buffer-swap-text" => Some(
+                crate::emacs_core::builtins::builtin_buffer_swap_text_in_state(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "compare-buffer-substrings" => {
                 Some(self.builtin_compare_buffer_substrings_shared(args))
             }

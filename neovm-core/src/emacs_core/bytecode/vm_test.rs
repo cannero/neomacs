@@ -1672,6 +1672,35 @@ fn vm_compare_buffer_substrings_uses_shared_case_fold_state() {
 }
 
 #[test]
+fn vm_buffer_metrics_and_swap_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((left (get-buffer-create "*vm-buf-metrics-left*"))
+                     (right (get-buffer-create "*vm-buf-metrics-right*")))
+                 (set-buffer left)
+                 (erase-buffer)
+                 (insert "A\né\n")
+                 (let ((left-hash (buffer-hash))
+                       (left-stats (buffer-line-statistics))
+                       (left-pixels (buffer-text-pixel-size nil nil t)))
+                   (set-buffer right)
+                   (erase-buffer)
+                   (insert "xyz")
+                   (let ((right-hash (buffer-hash)))
+                     (buffer-swap-text left)
+                     (list left-stats
+                           left-pixels
+                           (progn (set-buffer left) (buffer-string))
+                           (progn (set-buffer right) (buffer-string))
+                           (equal (progn (set-buffer left) (buffer-hash)) right-hash)
+                           (equal (progn (set-buffer right) (buffer-hash)) left-hash)
+                           (progn (set-buffer right) (buffer-line-statistics))))))"#
+        ),
+        "OK ((2 2 1.5) (1 . 2) \"xyz\" \"A\né\n\" t t (2 2 1.5))"
+    );
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));

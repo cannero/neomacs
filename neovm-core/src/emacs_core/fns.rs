@@ -12,6 +12,7 @@ use super::string_escape::{
     storage_char_len, storage_substring,
 };
 use super::value::*;
+use crate::buffer::BufferManager;
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
@@ -845,10 +846,17 @@ pub(crate) fn builtin_buffer_hash_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_hash_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_hash_in_state(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("buffer-hash", &args, 0, 1)?;
 
     let buffer_id = if args.is_empty() || args[0].is_nil() {
-        eval.buffers
+        buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
             .id
@@ -857,7 +865,7 @@ pub(crate) fn builtin_buffer_hash_eval(
             Value::Buffer(id) => *id,
             Value::Str(id) => {
                 let name = with_heap(|h| h.get_string(*id).to_owned());
-                eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
+                buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
                         "error",
                         vec![Value::string(format!("No buffer named {name}"))],
@@ -874,8 +882,7 @@ pub(crate) fn builtin_buffer_hash_eval(
     };
 
     // GNU Emacs accepts killed buffer objects and hashes as empty content.
-    let text = eval
-        .buffers
+    let text = buffers
         .get(buffer_id)
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();
