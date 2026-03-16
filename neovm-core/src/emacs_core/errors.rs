@@ -196,6 +196,18 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
         "Invalid coding system",
         &["error"],
     );
+    register_simple(
+        obarray,
+        "cyclic-function-indirection",
+        "Symbol's chain of function indirections contains a loop",
+        &["error"],
+    );
+    register_simple(
+        obarray,
+        "cyclic-variable-indirection",
+        "Symbol's chain of variable indirections contains a loop",
+        &["error"],
+    );
     register_simple(obarray, "invalid-function", "Invalid function", &["error"]);
     register_simple(
         obarray,

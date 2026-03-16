@@ -5773,40 +5773,21 @@ impl Evaluator {
     }
 
     pub(crate) fn defalias_value(&mut self, sym: Value, def: Value) -> EvalResult {
-        let symbol = match sym {
-            Value::Nil => intern("nil"),
-            Value::True => intern("t"),
-            Value::Symbol(id) | Value::Keyword(id) => id,
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("symbolp"), sym],
-                ));
+        let plan = builtins::plan_defalias_in_obarray(self.obarray(), &[sym, def])?;
+        let builtins::DefaliasPlan { action, result, .. } = plan;
+        match action {
+            builtins::DefaliasAction::SetFunction { symbol, definition } => {
+                self.obarray.set_symbol_function_id(symbol, definition);
             }
-        };
-        if symbol == intern("nil") {
-            return Err(signal("setting-constant", vec![Value::symbol("nil")]));
+            builtins::DefaliasAction::CallHook {
+                hook,
+                symbol_value,
+                definition,
+            } => {
+                self.apply(hook, vec![symbol_value, definition])?;
+            }
         }
-        if builtins::would_create_function_alias_cycle(self, symbol, &def) {
-            return Err(signal("cyclic-function-indirection", vec![sym]));
-        }
-        let symbol_value = match sym {
-            Value::Nil => Value::Nil,
-            Value::True => Value::True,
-            Value::Keyword(_) => sym,
-            _ => Value::Symbol(symbol),
-        };
-        let hook = self
-            .obarray()
-            .get_property_id(symbol, intern("defalias-fset-function"))
-            .cloned()
-            .unwrap_or(Value::Nil);
-        if hook.is_nil() {
-            self.obarray.set_symbol_function_id(symbol, def);
-        } else {
-            self.apply(hook, vec![symbol_value, def])?;
-        }
-        Ok(sym)
+        Ok(result)
     }
 
     #[tracing::instrument(level = "info", skip(self, subfeatures))]

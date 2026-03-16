@@ -165,6 +165,26 @@ fn obarray_file_missing_conditions() {
 }
 
 #[test]
+fn obarray_cyclic_indirection_conditions() {
+    let mut ob = Obarray::new();
+    init_standard_errors(&mut ob);
+
+    let function_conds = ob
+        .get_property("cyclic-function-indirection", "error-conditions")
+        .unwrap();
+    let function_items = iter_symbol_list(function_conds);
+    assert!(function_items.contains(&"cyclic-function-indirection".to_string()));
+    assert!(function_items.contains(&"error".to_string()));
+
+    let variable_conds = ob
+        .get_property("cyclic-variable-indirection", "error-conditions")
+        .unwrap();
+    let variable_items = iter_symbol_list(variable_conds);
+    assert!(variable_items.contains(&"cyclic-variable-indirection".to_string()));
+    assert!(variable_items.contains(&"error".to_string()));
+}
+
+#[test]
 fn obarray_hierarchical_match() {
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);

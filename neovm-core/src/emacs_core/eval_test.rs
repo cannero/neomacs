@@ -1771,6 +1771,20 @@ fn defalias_stores_function_documentation_property() {
 }
 
 #[test]
+fn fset_inside_lambda_uses_argument_definition() {
+    assert_eq!(
+        eval_one(
+            "((lambda (sym def)
+                (fset sym def)
+                (list sym def (symbol-function sym)))
+              'vm-eval-hook-lambda
+              'car)"
+        ),
+        "OK (vm-eval-hook-lambda car car)"
+    );
+}
+
+#[test]
 fn compiled_literal_reader_form_is_not_callable() {
     let result = eval_one(
         "(condition-case err

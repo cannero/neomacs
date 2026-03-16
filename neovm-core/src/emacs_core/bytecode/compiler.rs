@@ -132,10 +132,8 @@ impl Compiler {
         } else {
             for (i, form) in body.iter().enumerate() {
                 let is_last = i == body.len() - 1;
-                self.compile_expr(&mut func, form, is_last);
-                if !is_last {
-                    self.emit_tracked(&mut func, Op::Pop);
-                }
+                let need_value = is_last;
+                self.compile_expr(&mut func, form, need_value);
             }
         }
         self.emit_tracked(&mut func, Op::Return);

@@ -1804,6 +1804,62 @@ impl<'a> Vm<'a> {
         Ok(Value::Nil)
     }
 
+    fn builtin_defalias_shared(&mut self, args: &[Value]) -> EvalResult {
+        let plan =
+            crate::emacs_core::builtins::plan_defalias_in_obarray(&*self.shared.obarray, args)?;
+        let crate::emacs_core::builtins::DefaliasPlan {
+            action,
+            docstring,
+            result,
+        } = plan;
+        match action {
+            crate::emacs_core::builtins::DefaliasAction::SetFunction { symbol, definition } => {
+                self.shared
+                    .obarray
+                    .set_symbol_function_id(symbol, definition);
+            }
+            crate::emacs_core::builtins::DefaliasAction::CallHook {
+                hook,
+                symbol_value,
+                definition,
+            } => {
+                let _ = self.call_function_with_roots(hook, &[symbol_value, definition])?;
+            }
+        }
+        if let Some(docstring) = docstring {
+            crate::emacs_core::builtins::symbols::builtin_put_in_obarray(
+                self.shared.obarray,
+                vec![result, Value::symbol("function-documentation"), docstring],
+            )?;
+        }
+        Ok(result)
+    }
+
+    fn builtin_defvaralias_shared(&mut self, args: &[Value]) -> EvalResult {
+        let state_change = crate::emacs_core::builtins::symbols::builtin_defvaralias_in_state(
+            self.shared.obarray,
+            args.to_vec(),
+        )?;
+        self.run_variable_watchers(
+            &state_change.previous_target,
+            &state_change.base_variable,
+            &Value::Nil,
+            "defvaralias",
+        )?;
+        self.shared
+            .watchers
+            .clear_watchers(&state_change.alias_name);
+        crate::emacs_core::builtins::symbols::builtin_put_in_obarray(
+            self.shared.obarray,
+            vec![
+                args[0],
+                Value::symbol("variable-documentation"),
+                state_change.docstring,
+            ],
+        )?;
+        Ok(state_change.result)
+    }
+
     fn builtin_makunbound_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("makunbound", args, 1)?;
         let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
@@ -4088,6 +4144,7 @@ impl<'a> Vm<'a> {
                 &*self.shared.obarray,
                 args.to_vec(),
             )),
+            "defalias" => Some(self.builtin_defalias_shared(args)),
             "fset" => Some(crate::emacs_core::builtins::symbols::builtin_fset_in_obarray(
                 self.shared.obarray,
                 args.to_vec(),
@@ -4119,6 +4176,7 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "defvaralias" => Some(self.builtin_defvaralias_shared(args)),
             "set-default-toplevel-value" => {
                 Some(self.builtin_set_default_toplevel_value_shared(args))
             }
@@ -5032,7 +5090,9 @@ impl<'a> Vm<'a> {
         extra_roots: &[Value],
         f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator) -> T,
     ) -> T {
-        use crate::emacs_core::intern::with_saved_interner;
+        use crate::emacs_core::intern::{
+            current_interner_ptr, set_current_interner, with_saved_interner,
+        };
         use crate::emacs_core::value::{current_heap_ptr, set_current_heap, with_saved_heap};
         // Evaluator::new() overwrites the thread-local heap/interner pointers.
         // Save and restore them so ObjIds/SymIds from the caller remain valid.
@@ -5050,6 +5110,11 @@ impl<'a> Vm<'a> {
             !original_heap_ptr.is_null(),
             "dispatch_vm_builtin_eval: no current heap"
         );
+        let original_interner_ptr = current_interner_ptr();
+        assert!(
+            !original_interner_ptr.is_null(),
+            "dispatch_vm_builtin_eval: no current interner"
+        );
         // Safety: original_heap_ptr was set by the parent Evaluator's
         // setup_thread_locals() and points to a valid, exclusively-owned
         // LispHeap inside the parent's Box<LispHeap>.  The parent Evaluator
@@ -5058,8 +5123,15 @@ impl<'a> Vm<'a> {
         unsafe {
             std::mem::swap(&mut *eval.heap, &mut *original_heap_ptr);
         }
+        // Safety: original_interner_ptr was set by the parent Evaluator's
+        // setup_thread_locals() and points to the active append-only interner
+        // that all live SymIds in shared VM state refer to.
+        unsafe {
+            std::mem::swap(&mut *eval.interner, &mut *original_interner_ptr);
+        }
         // Point thread-local at eval.heap which now holds the real data.
         set_current_heap(&mut eval.heap);
+        set_current_interner(&mut eval.interner);
 
         self.shared.swap_with_evaluator(&mut eval);
         let saved_temp_roots = eval.save_temp_roots();
@@ -5081,9 +5153,13 @@ impl<'a> Vm<'a> {
         unsafe {
             std::mem::swap(&mut *eval.heap, &mut *original_heap_ptr);
         }
+        unsafe {
+            std::mem::swap(&mut *eval.interner, &mut *original_interner_ptr);
+        }
         // Restore thread-local to the original location.
         unsafe {
             set_current_heap(&mut *original_heap_ptr);
+            set_current_interner(&mut *original_interner_ptr);
         }
 
         result

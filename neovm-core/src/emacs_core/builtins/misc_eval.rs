@@ -357,15 +357,100 @@ pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
 }
 
 pub(crate) fn builtin_defalias(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_range_args("defalias", &args, 2, 3)?;
-    let result = eval.defalias_value(args[0], args[1])?;
-    if let Some(docstring) = args.get(2).filter(|value| !value.is_nil()) {
-        super::symbols::builtin_put(
-            eval,
-            vec![args[0], Value::symbol("function-documentation"), *docstring],
+    let plan = plan_defalias_in_obarray(eval.obarray(), &args)?;
+    let DefaliasPlan {
+        action,
+        docstring,
+        result,
+    } = plan;
+    match action {
+        DefaliasAction::SetFunction { symbol, definition } => {
+            eval.obarray_mut()
+                .set_symbol_function_id(symbol, definition);
+        }
+        DefaliasAction::CallHook {
+            hook,
+            symbol_value,
+            definition,
+        } => {
+            eval.apply(hook, vec![symbol_value, definition])?;
+        }
+    }
+    if let Some(docstring) = docstring {
+        super::symbols::builtin_put_in_obarray(
+            eval.obarray_mut(),
+            vec![result, Value::symbol("function-documentation"), docstring],
         )?;
     }
     Ok(result)
+}
+
+pub(crate) enum DefaliasAction {
+    SetFunction {
+        symbol: SymId,
+        definition: Value,
+    },
+    CallHook {
+        hook: Value,
+        symbol_value: Value,
+        definition: Value,
+    },
+}
+
+pub(crate) struct DefaliasPlan {
+    pub(crate) action: DefaliasAction,
+    pub(crate) docstring: Option<Value>,
+    pub(crate) result: Value,
+}
+
+pub(crate) fn plan_defalias_in_obarray(
+    obarray: &Obarray,
+    args: &[Value],
+) -> Result<DefaliasPlan, Flow> {
+    expect_range_args("defalias", args, 2, 3)?;
+    let symbol = match args[0] {
+        Value::Nil => intern("nil"),
+        Value::True => intern("t"),
+        Value::Symbol(id) | Value::Keyword(id) => id,
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            ));
+        }
+    };
+    if symbol == intern("nil") {
+        return Err(signal("setting-constant", vec![Value::symbol("nil")]));
+    }
+    let definition = args[1];
+    if super::symbols::would_create_function_alias_cycle_in_obarray(obarray, symbol, &definition) {
+        return Err(signal("cyclic-function-indirection", vec![args[0]]));
+    }
+    let result = match args[0] {
+        Value::Nil => Value::Nil,
+        Value::True => Value::True,
+        Value::Keyword(_) => args[0],
+        _ => Value::Symbol(symbol),
+    };
+    let hook = obarray
+        .get_property_id(symbol, intern("defalias-fset-function"))
+        .cloned()
+        .unwrap_or(Value::Nil);
+    let action = if hook.is_nil() {
+        DefaliasAction::SetFunction { symbol, definition }
+    } else {
+        DefaliasAction::CallHook {
+            hook,
+            symbol_value: result,
+            definition,
+        }
+    };
+    let docstring = args.get(2).copied().filter(|value| !value.is_nil());
+    Ok(DefaliasPlan {
+        action,
+        docstring,
+        result,
+    })
 }
 
 pub(crate) fn builtin_provide(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {

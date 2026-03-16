@@ -2706,6 +2706,72 @@ fn vm_function_mutator_builtins_use_shared_function_state() {
 }
 
 #[test]
+fn vm_defalias_uses_shared_runtime_state_and_gnu_cycle_errors() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq vm-da-hook-log nil)
+                 (put 'vm-da-hooked 'defalias-fset-function
+                      (lambda (sym def)
+                        (setq vm-da-hook-log (list sym def))
+                        (fset sym def)))
+                 (list
+                  (defalias 'vm-da-hooked 'car "vm doc")
+                  vm-da-hook-log
+                  (symbol-function 'vm-da-hooked)
+                  (get 'vm-da-hooked 'function-documentation)
+                  (condition-case err
+                      (defalias 'vm-da-self 'vm-da-self)
+                    (error err))))"#
+        ),
+        r#"OK (vm-da-hooked (vm-da-hooked car) car "vm doc" (cyclic-function-indirection vm-da-self))"#
+    );
+}
+
+#[test]
+fn vm_fset_inside_lambda_uses_argument_definition() {
+    assert_eq!(
+        vm_eval_str(
+            r#"((lambda (sym def)
+                  (fset sym def)
+                  (list sym def (symbol-function sym)))
+                'vm-da-hook-lambda
+                'car)"#
+        ),
+        "OK (vm-da-hook-lambda car car)"
+    );
+}
+
+#[test]
+fn vm_lambda_argument_stack_slots_start_correct() {
+    assert_eq!(
+        vm_eval_str(
+            r#"((lambda (sym def)
+                  (list sym def))
+                'vm-da-hook-lambda
+                'car)"#
+        ),
+        "OK (vm-da-hook-lambda car)"
+    );
+}
+
+#[test]
+fn vm_fset_inside_lambda_preserves_argument_identity() {
+    assert_eq!(
+        vm_eval_str(
+            r#"((lambda (sym def)
+                  (fset sym def)
+                  (list (eq sym 'vm-da-hook-lambda)
+                        (eq def 'car)
+                        (eq (symbol-function sym) 'car)))
+                'vm-da-hook-lambda
+                'car)"#
+        ),
+        "OK (t t t)"
+    );
+}
+
+#[test]
 fn vm_set_builtin_uses_shared_runtime_without_touching_lexicals() {
     assert_eq!(
         vm_eval_lexical_str(
@@ -2717,6 +2783,34 @@ fn vm_set_builtin_uses_shared_runtime_without_touching_lexicals() {
                          (symbol-value 'vm-lex-set))))"#
         ),
         "OK (20 10 20)"
+    );
+}
+
+#[test]
+fn vm_defvaralias_uses_shared_runtime_state_and_gnu_cycle_errors() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq vm-dva-events nil)
+                 (fset 'vm-dva-rec
+                       (lambda (symbol newval operation where)
+                         (setq vm-dva-events
+                               (cons (list symbol newval operation where)
+                                     vm-dva-events))))
+                 (defvaralias 'vm-dva-alias 'vm-dva-old)
+                 (add-variable-watcher 'vm-dva-old 'vm-dva-rec)
+                 (list
+                  (defvaralias 'vm-dva-alias 'vm-dva-new "vm variable doc")
+                  vm-dva-events
+                  (indirect-variable 'vm-dva-alias)
+                  (get 'vm-dva-alias 'variable-documentation)
+                  (condition-case err
+                      (progn
+                        (defvaralias 'vm-dva-a 'vm-dva-b)
+                        (defvaralias 'vm-dva-b 'vm-dva-a))
+                    (error err))))"#
+        ),
+        r#"OK (vm-dva-new ((vm-dva-old vm-dva-new defvaralias nil)) vm-dva-new "vm variable doc" (cyclic-variable-indirection vm-dva-a))"#
     );
 }
 

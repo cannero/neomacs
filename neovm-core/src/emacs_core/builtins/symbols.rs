@@ -115,23 +115,29 @@ pub(crate) fn resolve_variable_alias_name_in_obarray(
 }
 
 fn would_create_variable_alias_cycle(eval: &super::eval::Evaluator, new: &str, old: &str) -> bool {
-    let mut current = intern(old);
-    let new = intern(new);
+    would_create_variable_alias_cycle_in_obarray(eval.obarray(), intern(new), intern(old))
+}
+
+pub(crate) fn would_create_variable_alias_cycle_in_obarray(
+    obarray: &Obarray,
+    new_symbol: SymId,
+    old_symbol: SymId,
+) -> bool {
+    let mut current = old_symbol;
     let mut seen = HashSet::new();
 
     loop {
-        if current == new {
+        if current == new_symbol {
             return true;
         }
         if !seen.insert(current) {
             return true;
         }
-        let next = eval
-            .obarray()
+        let next = obarray
             .get_property_id(current, intern(VARIABLE_ALIAS_PROPERTY))
             .and_then(symbol_id);
         match next {
-            Some(next_name) => current = next_name,
+            Some(next_id) => current = next_id,
             None => return false,
         }
     }
@@ -407,12 +413,45 @@ pub(crate) fn builtin_defvaralias_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let state_change = builtin_defvaralias_in_state(eval.obarray_mut(), args.clone())?;
+    eval.run_variable_watchers(
+        &state_change.previous_target,
+        &state_change.base_variable,
+        &Value::Nil,
+        "defvaralias",
+    )?;
+    eval.watchers.clear_watchers(&state_change.alias_name);
+    // GNU Emacs updates `variable-documentation` through plist machinery after
+    // installing alias state, so malformed raw plists still raise
+    // `(wrong-type-argument plistp ...)` with the alias edge retained.
+    builtin_put_in_obarray(
+        eval.obarray_mut(),
+        vec![
+            args[0],
+            Value::symbol("variable-documentation"),
+            state_change.docstring,
+        ],
+    )?;
+    Ok(state_change.result)
+}
+
+pub(crate) struct DefvaraliasStateChange {
+    pub(crate) alias_name: String,
+    pub(crate) previous_target: String,
+    pub(crate) base_variable: Value,
+    pub(crate) docstring: Value,
+    pub(crate) result: Value,
+}
+
+pub(crate) fn builtin_defvaralias_in_state(
+    obarray: &mut Obarray,
+    args: Vec<Value>,
+) -> Result<DefvaraliasStateChange, Flow> {
     expect_range_args("defvaralias", &args, 2, 3)?;
     let new_symbol = expect_symbol_id(&args[0])?;
     let old_symbol = expect_symbol_id(&args[1])?;
-    let new_name = resolve_sym(new_symbol);
-    let old_name = resolve_sym(old_symbol);
-    if eval.obarray().is_constant_id(new_symbol) {
+    let new_name = resolve_sym(new_symbol).to_string();
+    if obarray.is_constant_id(new_symbol) {
         return Err(signal(
             "error",
             vec![Value::string(format!(
@@ -420,28 +459,25 @@ pub(crate) fn builtin_defvaralias_eval(
             ))],
         ));
     }
-    if would_create_variable_alias_cycle(eval, new_name, old_name) {
+    if would_create_variable_alias_cycle_in_obarray(obarray, new_symbol, old_symbol) {
         return Err(signal("cyclic-variable-indirection", vec![args[1]]));
     }
-    let previous_target = resolve_variable_alias_name(eval, new_name)?;
+    let previous_target = resolve_variable_alias_name_in_obarray(obarray, &new_name)?;
     {
-        let sym = eval.obarray_mut().ensure_symbol_id(new_symbol);
+        let sym = obarray.ensure_symbol_id(new_symbol);
         sym.special = true;
         sym.plist.insert(intern(VARIABLE_ALIAS_PROPERTY), args[1]);
     }
-    eval.obarray_mut().make_special_id(old_symbol);
-    preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
-    eval.run_variable_watchers(&previous_target, &args[1], &Value::Nil, "defvaralias")?;
-    eval.watchers.clear_watchers(new_name);
-    // GNU Emacs updates `variable-documentation` through plist machinery after
-    // installing alias state, so malformed raw plists still raise
-    // `(wrong-type-argument plistp ...)` with the alias edge retained.
+    obarray.make_special_id(old_symbol);
+    preflight_symbol_plist_put_in_obarray(obarray, new_symbol, "variable-documentation")?;
     let docstring = args.get(2).cloned().unwrap_or(Value::Nil);
-    builtin_put(
-        eval,
-        vec![args[0], Value::symbol("variable-documentation"), docstring],
-    )?;
-    Ok(args[1])
+    Ok(DefvaraliasStateChange {
+        alias_name: new_name,
+        previous_target,
+        base_variable: args[1],
+        docstring,
+        result: args[1],
+    })
 }
 
 pub(crate) fn builtin_indirect_variable_eval(
@@ -827,16 +863,20 @@ pub(crate) fn builtin_get(eval: &mut super::eval::Evaluator, args: Vec<Value>) -
 }
 
 pub(crate) fn builtin_put(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_put_in_obarray(eval.obarray_mut(), args)
+}
+
+pub(crate) fn builtin_put_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("put", &args, 3)?;
     let sym = expect_symbol_id(&args[0])?;
     let prop = expect_symbol_id(&args[1])?;
     let value = args[2];
-    let current_plist = symbol_raw_plist_value(eval, sym)
-        .unwrap_or_else(|| visible_symbol_plist_snapshot_in_obarray(eval.obarray(), sym));
+    let current_plist = symbol_raw_plist_value_in_obarray(obarray, sym)
+        .unwrap_or_else(|| visible_symbol_plist_snapshot_in_obarray(obarray, sym));
     let plist = builtin_plist_put(vec![current_plist, args[1], value])?;
-    set_symbol_raw_plist(eval, sym, plist);
+    set_symbol_raw_plist_in_obarray(obarray, sym, plist);
     // Keep direct property lookups in sync with the Lisp-visible plist.
-    eval.obarray_mut().put_property_id(sym, prop, value);
+    obarray.put_property_id(sym, prop, value);
     Ok(value)
 }
 
@@ -964,7 +1004,15 @@ fn preflight_symbol_plist_put(
     let Some(id) = symbol_id(symbol) else {
         return Ok(());
     };
-    let Some(raw) = symbol_raw_plist_value(eval, id) else {
+    preflight_symbol_plist_put_in_obarray(eval.obarray(), id, property)
+}
+
+fn preflight_symbol_plist_put_in_obarray(
+    obarray: &Obarray,
+    symbol: SymId,
+    property: &str,
+) -> Result<(), Flow> {
+    let Some(raw) = symbol_raw_plist_value_in_obarray(obarray, symbol) else {
         return Ok(());
     };
     let _ = builtin_plist_put(vec![raw, Value::symbol(property), Value::Nil])?;
