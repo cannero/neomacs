@@ -658,6 +658,14 @@ fn window_width_cols(w: &Window, char_width: f32) -> i64 {
     }
 }
 
+fn window_height_pixels(w: &Window) -> i64 {
+    w.bounds().height.max(0.0) as i64
+}
+
+fn window_width_pixels(w: &Window) -> i64 {
+    w.bounds().width.max(0.0) as i64
+}
+
 fn is_minibuffer_window(frames: &FrameManager, fid: FrameId, wid: WindowId) -> bool {
     frames
         .get(fid)
@@ -699,6 +707,16 @@ fn window_edges_cols_lines(w: &Window, char_width: f32, char_height: f32) -> (i6
     (left, top, right, bottom)
 }
 
+fn window_edges_pixels(w: &Window) -> (i64, i64, i64, i64) {
+    let b = w.bounds();
+    (
+        b.x.max(0.0) as i64,
+        b.y.max(0.0) as i64,
+        (b.x + b.width).max(0.0) as i64,
+        (b.y + b.height).max(0.0) as i64,
+    )
+}
+
 fn window_body_edges_cols_lines(
     frames: &FrameManager,
     fid: FrameId,
@@ -714,6 +732,24 @@ fn window_body_edges_cols_lines(
         bottom.saturating_sub(1)
     };
     (left, top, right, body_bottom)
+}
+
+fn window_body_edges_pixels(
+    frames: &FrameManager,
+    fid: FrameId,
+    wid: WindowId,
+    w: &Window,
+) -> (i64, i64, i64, i64) {
+    let (left, top, right, bottom) = window_edges_pixels(w);
+    let mode_line_height = if is_minibuffer_window(frames, fid, wid) {
+        0
+    } else {
+        frames
+            .get(fid)
+            .map(|frame| frame.char_height.max(0.0) as i64)
+            .unwrap_or(0)
+    };
+    (left, top, right, bottom.saturating_sub(mode_line_height))
 }
 
 // ===========================================================================
@@ -2475,8 +2511,7 @@ pub(crate) fn builtin_window_pixel_height_in_state(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
-    let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
-    Ok(Value::Int(window_height_lines(w, ch)))
+    Ok(Value::Int(window_height_pixels(w)))
 }
 
 /// `(window-pixel-width &optional WINDOW)` -> integer.
@@ -2499,8 +2534,7 @@ pub(crate) fn builtin_window_pixel_width_in_state(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
-    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    Ok(Value::Int(window_width_cols(w, cw)))
+    Ok(Value::Int(window_width_pixels(w)))
 }
 
 /// `(window-body-height &optional WINDOW PIXELWISE)` -> integer.
@@ -2527,7 +2561,17 @@ pub(crate) fn builtin_window_body_height_in_state(
     let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        Ok(Value::Int(window_body_height_lines(frames, fid, wid, w)))
+        let total = window_height_pixels(w);
+        let body = if is_minibuffer_window(frames, fid, wid) {
+            total
+        } else {
+            let mode_line_height = frames
+                .get(fid)
+                .map(|frame| frame.char_height.max(0.0) as i64)
+                .unwrap_or(0);
+            total.saturating_sub(mode_line_height)
+        };
+        Ok(Value::Int(body))
     } else {
         let body_lines = window_body_height_lines(frames, fid, wid, w);
         Ok(Value::Int(body_lines))
@@ -2557,8 +2601,7 @@ pub(crate) fn builtin_window_body_width_in_state(
     let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-        Ok(Value::Int(window_width_cols(w, cw)))
+        Ok(Value::Int(window_width_pixels(w)))
     } else {
         let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
         Ok(Value::Int(window_width_cols(w, cw)))
@@ -2583,8 +2626,22 @@ pub(crate) fn builtin_window_text_height_in_state(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    let _pixelwise = args.get(1);
-    Ok(Value::Int(window_body_height_lines(frames, fid, wid, w)))
+    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    if pixelwise {
+        let total = window_height_pixels(w);
+        let body = if is_minibuffer_window(frames, fid, wid) {
+            total
+        } else {
+            let mode_line_height = frames
+                .get(fid)
+                .map(|frame| frame.char_height.max(0.0) as i64)
+                .unwrap_or(0);
+            total.saturating_sub(mode_line_height)
+        };
+        Ok(Value::Int(body))
+    } else {
+        Ok(Value::Int(window_body_height_lines(frames, fid, wid, w)))
+    }
 }
 
 /// `(window-text-width &optional WINDOW PIXELWISE)` -> integer.
@@ -2605,9 +2662,13 @@ pub(crate) fn builtin_window_text_width_in_state(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    let _pixelwise = args.get(1);
-    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    Ok(Value::Int(window_width_cols(w, cw)))
+    let pixelwise = args.get(1).is_some_and(Value::is_truthy);
+    if pixelwise {
+        Ok(Value::Int(window_width_pixels(w)))
+    } else {
+        let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+        Ok(Value::Int(window_width_cols(w, cw)))
+    }
 }
 
 /// `(window-edges &optional WINDOW BODY ABSOLUTE PIXELWISE)`.
@@ -2643,9 +2704,9 @@ pub(crate) fn builtin_window_edges_in_state(
 
     if pixelwise {
         let (left, top, right, bottom) = if body {
-            window_body_edges_cols_lines(frames, fid, wid, w, frame.char_width, frame.char_height)
+            window_body_edges_pixels(frames, fid, wid, w)
         } else {
-            window_edges_cols_lines(w, frame.char_width, frame.char_height)
+            window_edges_pixels(w)
         };
         return Ok(Value::list(vec![
             Value::Int(left),

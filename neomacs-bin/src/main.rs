@@ -591,4 +591,111 @@ mod tests {
             .expect("startup mode-line probe should evaluate");
         assert_eq!(result, Value::string("*scratch*"));
     }
+
+    #[test]
+    fn gnu_startup_split_window_right_succeeds_on_opening_frame() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(list
+                 (window-total-width)
+                 (window-total-height)
+                 (window-min-size nil t)
+                 (window-min-size nil nil)
+                 (window-size-fixed-p (selected-window))
+                 (window-size-fixed-p (selected-window) t)
+                 (condition-case err
+                     (progn (split-window-right) 'ok)
+                   (error (list 'error (error-message-string err)))))"#,
+        )
+        .expect("parse startup split-window probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup split-window probe should evaluate");
+        assert_eq!(
+            print_value_with_eval(&mut eval, &result),
+            "(120 38 10 4 nil nil ok)"
+        );
+    }
+
+    #[test]
+    fn gnu_startup_split_window_below_succeeds_on_opening_frame() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(list
+                 (window-total-width)
+                 (window-total-height)
+                 (window-min-size nil t)
+                 (window-min-size nil nil)
+                 (window-size-fixed-p (selected-window))
+                 (window-size-fixed-p (selected-window) t)
+                 (condition-case err
+                     (progn (split-window-below) 'ok)
+                   (error (list 'error (error-message-string err)))))"#,
+        )
+        .expect("parse startup split-window probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup split-window probe should evaluate");
+        assert_eq!(
+            print_value_with_eval(&mut eval, &result),
+            "(120 38 10 4 nil nil ok)"
+        );
+    }
+
+    #[test]
+    fn gnu_startup_window_pixel_queries_use_live_frame_pixels() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(list
+                 (window-pixel-width)
+                 (window-pixel-height)
+                 (window-body-width nil t)
+                 (window-body-height nil t)
+                 (window-text-width nil t)
+                 (window-text-height nil t)
+                 (window-edges nil nil nil t)
+                 (window-edges nil t nil t))"#,
+        )
+        .expect("parse startup pixel probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup pixel probe should evaluate");
+        assert_eq!(
+            print_value_with_eval(&mut eval, &result),
+            "(960 608 960 592 960 592 (0 0 960 608) (0 0 960 592))"
+        );
+    }
 }
