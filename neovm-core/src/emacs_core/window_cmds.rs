@@ -3092,7 +3092,16 @@ pub(crate) fn split_window_internal_impl(
     window: Value,
     side: Value,
 ) -> EvalResult {
-    let (fid, wid) = resolve_window_id_or_error(eval, Some(&window))?;
+    split_window_internal_impl_in_state(&mut eval.frames, &mut eval.buffers, window, side)
+}
+
+pub(crate) fn split_window_internal_impl_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    window: Value,
+    side: Value,
+) -> EvalResult {
+    let (fid, wid) = resolve_window_id_or_error_in_state(frames, buffers, Some(&window))?;
 
     // Determine split direction from SIDE argument.
     let direction = match side {
@@ -3104,12 +3113,11 @@ pub(crate) fn split_window_internal_impl(
 
     // Use the same buffer as the window being split.
     let buf_id = {
-        let w = get_leaf(&eval.frames, fid, wid)?;
+        let w = get_leaf(frames, fid, wid)?;
         w.buffer_id().unwrap_or(BufferId(0))
     };
 
-    let new_wid = eval
-        .frames
+    let new_wid = frames
         .split_window(fid, wid, direction, buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
     Ok(window_value(new_wid))
@@ -4028,10 +4036,17 @@ pub(crate) fn builtin_iconify_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_iconify_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_iconify_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("iconify-frame", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.visible = false;
@@ -4043,10 +4058,17 @@ pub(crate) fn builtin_make_frame_visible(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_make_frame_visible_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_make_frame_visible_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("make-frame-visible", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.visible = true;
@@ -4080,12 +4102,20 @@ pub(crate) fn builtin_select_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_select_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_select_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("select-frame", &args, 1)?;
     expect_max_args("select-frame", &args, 2)?;
     let fid = match &args[0] {
         Value::Int(n) => {
             let fid = FrameId(*n as u64);
-            if eval.frames.get(fid).is_none() {
+            if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("frame-live-p"), Value::Int(*n)],
@@ -4095,7 +4125,7 @@ pub(crate) fn builtin_select_frame(
         }
         Value::Frame(id) => {
             let fid = FrameId(*id);
-            if eval.frames.get(fid).is_none() {
+            if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("frame-live-p"), Value::Frame(*id)],
@@ -4110,24 +4140,23 @@ pub(crate) fn builtin_select_frame(
             ));
         }
     };
-    if !eval.frames.select_frame(fid) {
+    if !frames.select_frame(fid) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[0]],
         ));
     }
     if args.get(1).is_none_or(Value::is_nil) {
-        if let Some(selected_wid) = eval.frames.get(fid).map(|f| f.selected_window) {
-            let _ = eval.frames.note_window_selected(selected_wid);
+        if let Some(selected_wid) = frames.get(fid).map(|f| f.selected_window) {
+            let _ = frames.note_window_selected(selected_wid);
         }
     }
-    if let Some(buf_id) = eval
-        .frames
+    if let Some(buf_id) = frames
         .get(fid)
         .and_then(|f| f.find_window(f.selected_window))
         .and_then(|w| w.buffer_id())
     {
-        eval.buffers.set_current(buf_id);
+        buffers.set_current(buf_id);
     }
     Ok(Value::Frame(fid.0))
 }
@@ -4137,12 +4166,20 @@ pub(crate) fn builtin_select_frame_set_input_focus(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_select_frame_set_input_focus_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_select_frame_set_input_focus_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("select-frame-set-input-focus", &args, 1)?;
     expect_max_args("select-frame-set-input-focus", &args, 2)?;
     let fid = match &args[0] {
         Value::Int(n) => {
             let fid = FrameId(*n as u64);
-            if eval.frames.get(fid).is_none() {
+            if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("frame-live-p"), Value::Int(*n)],
@@ -4152,7 +4189,7 @@ pub(crate) fn builtin_select_frame_set_input_focus(
         }
         Value::Frame(id) => {
             let fid = FrameId(*id);
-            if eval.frames.get(fid).is_none() {
+            if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("frame-live-p"), Value::Frame(*id)],
@@ -4167,24 +4204,23 @@ pub(crate) fn builtin_select_frame_set_input_focus(
             ));
         }
     };
-    if !eval.frames.select_frame(fid) {
+    if !frames.select_frame(fid) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[0]],
         ));
     }
     if args.get(1).is_none_or(Value::is_nil) {
-        if let Some(selected_wid) = eval.frames.get(fid).map(|f| f.selected_window) {
-            let _ = eval.frames.note_window_selected(selected_wid);
+        if let Some(selected_wid) = frames.get(fid).map(|f| f.selected_window) {
+            let _ = frames.note_window_selected(selected_wid);
         }
     }
-    if let Some(buf_id) = eval
-        .frames
+    if let Some(buf_id) = frames
         .get(fid)
         .and_then(|f| f.find_window(f.selected_window))
         .and_then(|w| w.buffer_id())
     {
-        eval.buffers.set_current(buf_id);
+        buffers.set_current(buf_id);
     }
     Ok(Value::Nil)
 }
@@ -4194,10 +4230,17 @@ pub(crate) fn builtin_frame_list(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_list_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_list_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("frame-list", &args, 0)?;
-    let _ = ensure_selected_frame_id(eval);
-    let ids: Vec<Value> = eval
-        .frames
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let ids: Vec<Value> = frames
         .frame_list()
         .into_iter()
         .map(|fid| Value::Frame(fid.0))
@@ -4210,13 +4253,21 @@ pub(crate) fn builtin_visible_frame_list(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_visible_frame_list_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_visible_frame_list_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("visible-frame-list", &args, 0)?;
-    let _ = ensure_selected_frame_id(eval);
-    let mut frame_ids = eval.frames.frame_list();
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let mut frame_ids = frames.frame_list();
     frame_ids.sort_by_key(|fid| fid.0);
     let visible = frame_ids
         .into_iter()
-        .filter(|fid| eval.frames.get(*fid).is_some_and(|frame| frame.visible))
+        .filter(|fid| frames.get(*fid).is_some_and(|frame| frame.visible))
         .map(|fid| Value::Frame(fid.0))
         .collect::<Vec<_>>();
     Ok(Value::list(visible))

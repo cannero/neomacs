@@ -3976,6 +3976,13 @@ impl<'a> Vm<'a> {
                 &*self.shared.frames,
                 args.to_vec(),
             )),
+            "split-window-internal" => Some(
+                crate::emacs_core::builtins::builtin_split_window_internal_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "window-valid-p" => Some(
                 crate::emacs_core::window_cmds::builtin_window_valid_p_in_state(
                     &*self.shared.frames,
@@ -4505,6 +4512,41 @@ impl<'a> Vm<'a> {
             "frame-visible-p" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_visible_p_in_state(
                     &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "select-frame" => Some(
+                crate::emacs_core::window_cmds::builtin_select_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "select-frame-set-input-focus" => Some(
+                crate::emacs_core::window_cmds::builtin_select_frame_set_input_focus_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "visible-frame-list" => Some(
+                crate::emacs_core::window_cmds::builtin_visible_frame_list_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "make-frame-visible" => Some(
+                crate::emacs_core::window_cmds::builtin_make_frame_visible_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "iconify-frame" => Some(
+                crate::emacs_core::window_cmds::builtin_iconify_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
                     args.to_vec(),
                 ),
             ),

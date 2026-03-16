@@ -1026,6 +1026,30 @@ fn vm_window_deletion_and_frame_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_split_window_and_frame_selection_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((f1 (selected-frame))
+                      (w1 (selected-window))
+                      (w2 (split-window-internal w1 nil 'right nil))
+                      (f2 (make-frame '((name . "vm-frame-sel")))))
+                 (list (windowp w2)
+                       (length (window-list))
+                       (eq (select-frame f2) f2)
+                       (eq (selected-frame) f2)
+                       (eq (make-frame-visible f2) f2)
+                       (length (frame-list))
+                       (length (visible-frame-list))
+                       (progn (iconify-frame f2) (frame-visible-p f2))
+                       (length (visible-frame-list))
+                       (progn (select-frame-set-input-focus f1)
+                              (eq (selected-frame) f1))))"#
+        ),
+        "OK (t 2 t t t 2 2 nil 1 t)"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),

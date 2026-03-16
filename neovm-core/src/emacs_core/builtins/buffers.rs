@@ -1431,6 +1431,14 @@ pub(crate) fn builtin_split_window_internal(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_split_window_internal_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_split_window_internal_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("split-window-internal", &args, 4, 5)?;
     if !args[1].is_nil() {
         let _ = expect_fixnum(&args[1])?;
@@ -1447,7 +1455,7 @@ pub(crate) fn builtin_split_window_internal(
     if let Some(refer) = args.get(4) {
         let _ = refer;
     }
-    super::window_cmds::split_window_internal_impl(eval, args[0], args[2])
+    super::window_cmds::split_window_internal_impl_in_state(frames, buffers, args[0], args[2])
 }
 
 /// `(buffer-text-pixel-size &optional BUFFER WINDOW X-LIMIT Y-LIMIT)` -> (WIDTH . HEIGHT)

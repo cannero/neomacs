@@ -930,6 +930,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "send-string-to-terminal",
     "serial-process-configure",
     "select-frame",
+    "select-frame-set-input-focus",
     "select-window",
     "selected-frame",
     "selected-window",
