@@ -1221,6 +1221,45 @@ fn vm_window_geometry_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_interactive_minibuffer_query_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list
+                 (this-command-keys)
+                 (this-command-keys-vector)
+                 (progn
+                   (clear-this-command-keys t)
+                   (list (this-command-keys) (recent-keys)))
+                 (funcall-interactively (lambda (x) x) 42)
+                 (windowp (minibuffer-window))
+                 (eq (minibuffer-window) (active-minibuffer-window))
+                 (equal (all-completions "ap" '("app" "ape" "bee")) '("app" "ape"))
+                 (null (cancel-kbd-macro-events)))"#,
+            |eval| {
+                let fid = crate::emacs_core::window_cmds::ensure_selected_frame_id_in_state(
+                    &mut eval.frames,
+                    &mut eval.buffers,
+                );
+                let minibuffer_buffer_id = {
+                    let frame = eval.frames.get(fid).expect("selected frame");
+                    let minibuffer_wid = frame.minibuffer_window.expect("minibuffer window");
+                    frame
+                        .find_window(minibuffer_wid)
+                        .and_then(|window| window.buffer_id())
+                        .expect("minibuffer buffer")
+                };
+                eval.minibuffers
+                    .read_from_minibuffer(minibuffer_buffer_id, "M-x ", None, None)
+                    .expect("active minibuffer state");
+                eval.record_input_event(Value::Int(97));
+                eval.set_read_command_keys(vec![Value::Int(97)]);
+            },
+        ),
+        "OK (\"a\" [97] (\"\" [97]) 42 t t t t)"
+    );
+}
+
+#[test]
 fn vm_window_metadata_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

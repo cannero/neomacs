@@ -40,6 +40,32 @@ fn bootstrap_eval_one_with_frame(src: &str) -> String {
         .expect("result")
 }
 
+#[test]
+fn active_minibuffer_window_tracks_live_minibuffer_state() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.frames.create_frame("F1", 800, 600, buf);
+
+    let fid = super::ensure_selected_frame_id_in_state(&mut ev.frames, &mut ev.buffers);
+    let minibuffer_buffer_id = {
+        let frame = ev.frames.get(fid).expect("selected frame");
+        let minibuffer_wid = frame.minibuffer_window.expect("minibuffer window");
+        frame
+            .find_window(minibuffer_wid)
+            .and_then(|window| window.buffer_id())
+            .expect("minibuffer buffer")
+    };
+    ev.minibuffers
+        .read_from_minibuffer(minibuffer_buffer_id, "M-x ", None, None)
+        .expect("active minibuffer state");
+
+    let minibuffer_window = super::builtin_minibuffer_window(&mut ev, vec![]).unwrap();
+    let active_minibuffer_window =
+        super::builtin_active_minibuffer_window_eval(&mut ev, vec![]).unwrap();
+    assert_eq!(active_minibuffer_window, minibuffer_window);
+    assert!(!active_minibuffer_window.is_nil());
+}
+
 #[derive(Clone, Default)]
 struct RecordingDisplayHost {
     requests: Rc<RefCell<Vec<GuiFrameHostRequest>>>,

@@ -2287,16 +2287,23 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Evaluator, args: Vec<Value>) 
 
 /// `(this-command-keys)` -> string of keys that invoked current command.
 pub(crate) fn builtin_this_command_keys(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_this_command_keys_in_state(eval.read_command_keys(), &eval.interactive, args)
+}
+
+pub(crate) fn builtin_this_command_keys_in_state(
+    read_command_keys: &[Value],
+    interactive: &InteractiveRegistry,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("this-command-keys", &args, 0)?;
-    let read_keys = eval.read_command_keys();
-    if !read_keys.is_empty() {
-        if let Some(rendered) = command_key_events_to_string(read_keys) {
+    if !read_command_keys.is_empty() {
+        if let Some(rendered) = command_key_events_to_string(read_command_keys) {
             return Ok(Value::string(rendered));
         }
-        return Ok(Value::vector(read_keys.to_vec()));
+        return Ok(Value::vector(read_command_keys.to_vec()));
     }
 
-    let keys = eval.interactive.this_command_keys();
+    let keys = interactive.this_command_keys();
     Ok(Value::string(keys.join(" ")))
 }
 
@@ -2305,13 +2312,20 @@ pub(crate) fn builtin_this_command_keys_vector(
     eval: &mut Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_this_command_keys_vector_in_state(eval.read_command_keys(), &eval.interactive, args)
+}
+
+pub(crate) fn builtin_this_command_keys_vector_in_state(
+    read_command_keys: &[Value],
+    interactive: &InteractiveRegistry,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("this-command-keys-vector", &args, 0)?;
-    let read_keys = eval.read_command_keys();
-    if !read_keys.is_empty() {
-        return Ok(Value::vector(read_keys.to_vec()));
+    if !read_command_keys.is_empty() {
+        return Ok(Value::vector(read_command_keys.to_vec()));
     }
 
-    let keys = eval.interactive.this_command_keys();
+    let keys = interactive.this_command_keys();
     let vals: Vec<Value> = keys.iter().map(|k| Value::string(k.clone())).collect();
     Ok(Value::vector(vals))
 }
@@ -2397,14 +2411,7 @@ pub(crate) fn builtin_clear_this_command_keys(
     eval: &mut Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("clear-this-command-keys", &args, 1)?;
-    let keep_record = args.first().is_some_and(|arg| arg.is_truthy());
-    eval.clear_read_command_keys();
-    eval.interactive.set_this_command_keys(Vec::new());
-    if !keep_record {
-        eval.clear_recent_input_events();
-    }
-    Ok(Value::Nil)
+    builtin_clear_this_command_keys_in_runtime(eval, args)
 }
 
 fn command_key_events_to_string(events: &[Value]) -> Option<String> {
@@ -2418,6 +2425,41 @@ fn command_key_events_to_string(events: &[Value]) -> Option<String> {
         out.push(ch);
     }
     Some(out)
+}
+
+pub(crate) trait CommandKeyRuntime {
+    fn read_command_keys(&self) -> &[Value];
+    fn clear_command_key_state(&mut self, keep_record: bool);
+}
+
+impl CommandKeyRuntime for Evaluator {
+    fn read_command_keys(&self) -> &[Value] {
+        Evaluator::read_command_keys(self)
+    }
+
+    fn clear_command_key_state(&mut self, keep_record: bool) {
+        Evaluator::clear_command_key_state(self, keep_record);
+    }
+}
+
+impl CommandKeyRuntime for super::eval::VmSharedState<'_> {
+    fn read_command_keys(&self) -> &[Value] {
+        super::eval::VmSharedState::read_command_keys(self)
+    }
+
+    fn clear_command_key_state(&mut self, keep_record: bool) {
+        super::eval::VmSharedState::clear_command_key_state(self, keep_record);
+    }
+}
+
+pub(crate) fn builtin_clear_this_command_keys_in_runtime(
+    runtime: &mut impl CommandKeyRuntime,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("clear-this-command-keys", &args, 1)?;
+    let keep_record = args.first().is_some_and(|arg| arg.is_truthy());
+    runtime.clear_command_key_state(keep_record);
+    Ok(Value::Nil)
 }
 
 // ---------------------------------------------------------------------------

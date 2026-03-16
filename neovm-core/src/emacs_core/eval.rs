@@ -547,6 +547,14 @@ impl<'a> VmSharedState<'a> {
         self.read_command_keys.clear();
     }
 
+    pub(crate) fn clear_command_key_state(&mut self, keep_record: bool) {
+        self.clear_read_command_keys();
+        self.interactive.set_this_command_keys(Vec::new());
+        if !keep_record {
+            self.recent_input_events.clear();
+        }
+    }
+
     pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {
         let name_id = intern("unread-command-events");
         let current = lookup_runtime_binding(self.dynamic.as_slice(), name_id)
@@ -3430,6 +3438,14 @@ impl Evaluator {
 
     pub(crate) fn read_command_keys(&self) -> &[Value] {
         &self.read_command_keys
+    }
+
+    pub(crate) fn clear_command_key_state(&mut self, keep_record: bool) {
+        self.clear_read_command_keys();
+        self.interactive.set_this_command_keys(Vec::new());
+        if !keep_record {
+            self.clear_recent_input_events();
+        }
     }
 
     pub(crate) fn current_input_mode_tuple(&self) -> (bool, bool, bool, i64) {

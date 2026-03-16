@@ -3450,6 +3450,18 @@ impl<'a> Vm<'a> {
                 call_args.extend(spread);
                 return self.call_function(func, call_args);
             }
+            "funcall-interactively" => {
+                if args.is_empty() {
+                    return Err(signal(
+                        "wrong-number-of-arguments",
+                        vec![
+                            Value::symbol("funcall-interactively"),
+                            Value::Int(args.len() as i64),
+                        ],
+                    ));
+                }
+                return self.call_function(args[0], args[1..].to_vec());
+            }
             "%%defvar" => {
                 // args: [init_value, symbol_name]
                 if args.len() >= 2 {
@@ -3675,6 +3687,9 @@ impl<'a> Vm<'a> {
             "read-buffer" => Some(self.builtin_read_buffer_shared(args)),
             "read-command" => Some(self.builtin_read_command_shared(args)),
             "read-variable" => Some(self.builtin_read_variable_shared(args)),
+            "all-completions" => Some(crate::emacs_core::minibuffer::builtin_all_completions(
+                args.to_vec(),
+            )),
             "input-pending-p" => Some(self.builtin_input_pending_p_shared(args)),
             "discard-input" => Some(self.builtin_discard_input_shared(args)),
             "current-input-mode" => Some(self.builtin_current_input_mode_shared(args)),
@@ -4223,6 +4238,29 @@ impl<'a> Vm<'a> {
                     self.shared.read_command_keys(),
                     args.to_vec(),
                 ),
+            ),
+            "this-command-keys" => Some(
+                crate::emacs_core::interactive::builtin_this_command_keys_in_state(
+                    self.shared.read_command_keys(),
+                    &*self.shared.interactive,
+                    args.to_vec(),
+                ),
+            ),
+            "this-command-keys-vector" => Some(
+                crate::emacs_core::interactive::builtin_this_command_keys_vector_in_state(
+                    self.shared.read_command_keys(),
+                    &*self.shared.interactive,
+                    args.to_vec(),
+                ),
+            ),
+            "clear-this-command-keys" => Some(
+                crate::emacs_core::interactive::builtin_clear_this_command_keys_in_runtime(
+                    &mut self.shared,
+                    args.to_vec(),
+                ),
+            ),
+            "cancel-kbd-macro-events" => Some(
+                crate::emacs_core::builtins::builtin_cancel_kbd_macro_events(args.to_vec()),
             ),
             "run-hooks" => Some(self.builtin_run_hooks_shared(args)),
             "run-hook-with-args" => Some(self.builtin_run_hook_with_args_shared(args)),
@@ -5525,6 +5563,20 @@ impl<'a> Vm<'a> {
                 crate::emacs_core::window_cmds::builtin_window_parameter_in_state(
                     self.shared.frames,
                     self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "minibuffer-window" => Some(
+                crate::emacs_core::window_cmds::builtin_minibuffer_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "active-minibuffer-window" => Some(
+                crate::emacs_core::window_cmds::builtin_active_minibuffer_window_in_state(
+                    &*self.shared.minibuffers,
+                    &*self.shared.frames,
                     args.to_vec(),
                 ),
             ),

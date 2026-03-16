@@ -9,6 +9,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
+use super::minibuffer::MinibufferManager;
 use super::value::{Value, list_to_vec, next_float_id, read_cons, with_heap};
 use crate::buffer::{BufferId, BufferManager};
 use crate::window::{
@@ -950,10 +951,17 @@ pub(crate) fn builtin_minibuffer_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_minibuffer_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_minibuffer_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("minibuffer-window", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     match frame.minibuffer_window {
@@ -983,8 +991,35 @@ pub(crate) fn builtin_minibuffer_selected_window(args: Vec<Value>) -> EvalResult
 }
 
 /// `(active-minibuffer-window)` -> nil in batch.
-pub(crate) fn builtin_active_minibuffer_window(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_active_minibuffer_window_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_active_minibuffer_window_in_state(&eval.minibuffers, &eval.frames, args)
+}
+
+pub(crate) fn builtin_active_minibuffer_window_in_state(
+    minibuffers: &MinibufferManager,
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("active-minibuffer-window", &args, 0)?;
+    let Some(state) = minibuffers.current() else {
+        return Ok(Value::Nil);
+    };
+
+    for frame_id in frames.frame_list() {
+        let Some(frame) = frames.get(frame_id) else {
+            continue;
+        };
+        if let Some(minibuffer_wid) = frame.minibuffer_window
+            && let Some(window) = frame.find_window(minibuffer_wid)
+            && window.buffer_id() == Some(state.buffer_id)
+        {
+            return Ok(window_value(minibuffer_wid));
+        }
+    }
+
     Ok(Value::Nil)
 }
 

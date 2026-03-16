@@ -1601,7 +1601,9 @@ pub(crate) fn dispatch_builtin(
             return Some(super::window_cmds::builtin_old_selected_window(eval, args));
         }
         "active-minibuffer-window" => {
-            return Some(super::window_cmds::builtin_active_minibuffer_window(args));
+            return Some(super::window_cmds::builtin_active_minibuffer_window_eval(
+                eval, args,
+            ));
         }
         "minibuffer-window" => {
             return Some(super::window_cmds::builtin_minibuffer_window(eval, args));
