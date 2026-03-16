@@ -247,7 +247,7 @@ pub(crate) struct VmSharedState<'a> {
     bookmarks: &'a mut BookmarkManager,
     abbrevs: &'a mut AbbrevManager,
     rectangle: &'a mut RectangleState,
-    interactive: &'a mut InteractiveRegistry,
+    pub(crate) interactive: &'a mut InteractiveRegistry,
     recent_input_events: &'a mut Vec<Value>,
     read_command_keys: &'a mut Vec<Value>,
     input_mode_interrupt: &'a mut bool,

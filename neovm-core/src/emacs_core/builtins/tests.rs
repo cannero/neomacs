@@ -4749,6 +4749,65 @@ fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
 }
 
 #[test]
+fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let target = Value::list(vec![Value::symbol("lambda"), Value::Nil, Value::Int(1)]);
+    eval.obarray_mut()
+        .set_symbol_function("vm-interactive-form-property-target", target);
+    eval.obarray_mut().set_symbol_function(
+        "vm-interactive-form-property-alias",
+        Value::symbol("vm-interactive-form-property-target"),
+    );
+    builtin_put(
+        &mut eval,
+        vec![
+            Value::symbol("vm-interactive-form-property-alias"),
+            Value::symbol("interactive-form"),
+            Value::list(vec![Value::symbol("interactive"), Value::string("P")]),
+        ],
+    )
+    .expect("put should install interactive-form symbol property");
+
+    assert_eq!(
+        builtin_interactive_form_eval(
+            &mut eval,
+            vec![Value::symbol("vm-interactive-form-property-alias")]
+        )
+        .expect("interactive-form should consult symbol property chain"),
+        Value::list(vec![Value::symbol("interactive"), Value::string("P")])
+    );
+    assert!(
+        builtin_interactive_form_eval(
+            &mut eval,
+            vec![Value::symbol("vm-interactive-form-property-target")]
+        )
+        .expect("interactive-form should evaluate target symbol")
+        .is_nil()
+    );
+    assert_eq!(
+        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("forward-char")])
+            .expect("interactive-form should expose builtin subr spec"),
+        Value::list(vec![Value::symbol("interactive"), Value::string("^p")])
+    );
+    assert_eq!(
+        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("goto-char")])
+            .expect("interactive-form should expose computed builtin form"),
+        Value::list(vec![
+            Value::symbol("interactive"),
+            Value::list(vec![
+                Value::symbol("goto-char--read-natnum-interactive"),
+                Value::string("Go to char: "),
+            ]),
+        ])
+    );
+    assert!(
+        builtin_interactive_form_eval(&mut eval, vec![Value::symbol("car")])
+            .expect("interactive-form should evaluate")
+            .is_nil()
+    );
+}
+
+#[test]
 fn interactive_form_eval_skips_docstring_before_interactive_spec() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
     let lambda_with_doc = Value::list(vec![

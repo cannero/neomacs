@@ -1965,8 +1965,42 @@ fn pure_builtin_symbol_alias_target(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn resolve_indirect_symbol_by_id(
-    eval: &super::eval::Evaluator,
+fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) -> Option<Value> {
+    if obarray.is_function_unbound_id(symbol) {
+        return None;
+    }
+
+    if let Some(function) = obarray.symbol_function_id(symbol) {
+        return Some(*function);
+    }
+
+    if !is_canonical_symbol_id(symbol) {
+        return None;
+    }
+
+    let current_name = resolve_sym(symbol);
+
+    if let Some(function) = super::subr_info::fallback_macro_value(current_name) {
+        return Some(function);
+    }
+
+    if let Some(alias_target) = pure_builtin_symbol_alias_target(current_name) {
+        return Some(Value::symbol(alias_target));
+    }
+
+    if super::subr_info::is_special_form(current_name)
+        || super::subr_info::is_evaluator_callable_name(current_name)
+        || super::builtin_registry::is_dispatch_builtin_name(current_name)
+        || current_name.parse::<PureBuiltinId>().is_ok()
+    {
+        return Some(Value::Subr(symbol));
+    }
+
+    None
+}
+
+pub(crate) fn resolve_indirect_symbol_by_id_in_obarray(
+    obarray: &Obarray,
     symbol: SymId,
 ) -> Option<(SymId, Value)> {
     let mut current = symbol;
@@ -1977,46 +2011,23 @@ pub(crate) fn resolve_indirect_symbol_by_id(
             return None;
         }
 
-        if eval.obarray().is_function_unbound_id(current) {
-            return None;
-        }
-
-        if let Some(function) = eval.obarray().symbol_function_id(current) {
-            if let Some(next) = symbol_id(function) {
-                if next == intern("nil") {
-                    return Some((next, Value::Nil));
-                }
-                current = next;
-                continue;
+        let function = symbol_function_cell_in_obarray(obarray, current)?;
+        if let Some(next) = symbol_id(&function) {
+            if next == intern("nil") {
+                return Some((next, Value::Nil));
             }
-            return Some((current, *function));
-        }
-
-        if !is_canonical_symbol_id(current) {
-            return None;
-        }
-
-        let current_name = resolve_sym(current);
-
-        if let Some(function) = super::subr_info::fallback_macro_value(current_name) {
-            return Some((current, function));
-        }
-
-        if let Some(alias_target) = pure_builtin_symbol_alias_target(current_name) {
-            current = intern(alias_target);
+            current = next;
             continue;
         }
-
-        if super::subr_info::is_special_form(current_name)
-            || super::subr_info::is_evaluator_callable_name(current_name)
-            || super::builtin_registry::is_dispatch_builtin_name(current_name)
-            || current_name.parse::<PureBuiltinId>().is_ok()
-        {
-            return Some((current, Value::Subr(current)));
-        }
-
-        return None;
+        return Some((current, function));
     }
+}
+
+pub(crate) fn resolve_indirect_symbol_by_id(
+    eval: &super::eval::Evaluator,
+    symbol: SymId,
+) -> Option<(SymId, Value)> {
+    resolve_indirect_symbol_by_id_in_obarray(eval.obarray(), symbol)
 }
 
 fn resolve_indirect_symbol_with_name(
@@ -3442,27 +3453,41 @@ pub(crate) fn builtin_interactive_form(args: Vec<Value>) -> EvalResult {
 }
 
 fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> {
-    let mut body_iter = body.iter();
-    let first = match body_iter.next() {
-        Some(super::expr::Expr::Str(_)) => body_iter.next(),
-        other => other,
-    };
+    fn expr_is_declare_form(expr: &super::expr::Expr) -> bool {
+        matches!(
+            expr,
+            super::expr::Expr::List(items)
+                if matches!(items.first(), Some(super::expr::Expr::Symbol(head_id)) if resolve_sym(*head_id) == "declare")
+        )
+    }
 
-    let super::expr::Expr::List(items) = first? else {
-        return None;
-    };
-    let super::expr::Expr::Symbol(head_id) = items.first()? else {
-        return None;
-    };
-    if resolve_sym(*head_id) != "interactive" {
-        return None;
+    let mut index = 0;
+    if matches!(body.first(), Some(super::expr::Expr::Str(_))) {
+        index = 1;
     }
-    let mut interactive = vec![Value::symbol("interactive")];
-    match items.get(1).map(super::eval::quote_to_value) {
-        Some(spec) => interactive.push(spec),
-        None => interactive.push(Value::Nil),
+    while body.get(index).is_some_and(expr_is_declare_form) {
+        index += 1;
     }
-    Some(Value::list(interactive))
+
+    for expr in &body[index..] {
+        let super::expr::Expr::List(items) = expr else {
+            continue;
+        };
+        let super::expr::Expr::Symbol(head_id) = items.first()? else {
+            continue;
+        };
+        if resolve_sym(*head_id) != "interactive" {
+            continue;
+        }
+        let mut interactive = vec![Value::symbol("interactive")];
+        match items.get(1).map(super::eval::quote_to_value) {
+            Some(spec) => interactive.push(spec),
+            None => interactive.push(Value::Nil),
+        }
+        return Some(Value::list(interactive));
+    }
+
+    None
 }
 
 fn interactive_form_from_quoted_interactive_form(form: &Value) -> Result<Option<Value>, Flow> {
@@ -3536,56 +3561,122 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
     }
 }
 
+fn interactive_form_from_bytecode_value(function: Value) -> Option<Value> {
+    let Value::ByteCode(id) = function else {
+        return None;
+    };
+    let spec = with_heap(|h| h.get_bytecode(id).interactive);
+    spec.map(|s| {
+        let spec_val = if let Value::Vector(vid) = s {
+            with_heap(|h| {
+                if h.vector_len(vid) > 0 {
+                    h.vector_ref(vid, 0)
+                } else {
+                    s
+                }
+            })
+        } else {
+            s
+        };
+        Value::list(vec![Value::symbol("interactive"), spec_val])
+    })
+}
+
+pub(crate) enum InteractiveFormPlan {
+    Return(Value),
+    Autoload { fundef: Value, funname: Value },
+}
+
+pub(crate) fn plan_interactive_form_in_state(
+    obarray: &Obarray,
+    interactive: &crate::emacs_core::interactive::InteractiveRegistry,
+    cmd: Value,
+) -> Result<InteractiveFormPlan, Flow> {
+    let mut function = cmd;
+
+    if let Some(mut current) = symbol_id(&cmd) {
+        let Some((_, indirect_function)) =
+            resolve_indirect_symbol_by_id_in_obarray(obarray, current)
+        else {
+            return Ok(InteractiveFormPlan::Return(Value::Nil));
+        };
+        if indirect_function.is_nil() {
+            return Ok(InteractiveFormPlan::Return(Value::Nil));
+        }
+
+        loop {
+            if let Some(property) = obarray
+                .get_property_id(current, intern("interactive-form"))
+                .copied()
+                .filter(|value| !value.is_nil())
+            {
+                return Ok(InteractiveFormPlan::Return(property));
+            }
+            let Some(next_function) = symbol_function_cell_in_obarray(obarray, current) else {
+                return Ok(InteractiveFormPlan::Return(Value::Nil));
+            };
+            function = next_function;
+            let Some(next_symbol) = symbol_id(&function) else {
+                break;
+            };
+            current = next_symbol;
+        }
+    }
+
+    match function {
+        Value::Subr(id) => {
+            let name = resolve_sym(id);
+            Ok(InteractiveFormPlan::Return(
+                crate::emacs_core::interactive::registry_interactive_form(interactive, name)
+                    .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
+                    .unwrap_or(Value::Nil),
+            ))
+        }
+        Value::Lambda(id) | Value::Macro(id) => {
+            let body = with_heap(|h| h.get_lambda(id).body.clone());
+            Ok(InteractiveFormPlan::Return(
+                interactive_form_from_expr_body(&body).unwrap_or(Value::Nil),
+            ))
+        }
+        Value::ByteCode(_) => Ok(InteractiveFormPlan::Return(
+            interactive_form_from_bytecode_value(function).unwrap_or(Value::Nil),
+        )),
+        Value::Cons(_) if super::autoload::is_autoload_value(&function) => {
+            Ok(InteractiveFormPlan::Autoload {
+                fundef: function,
+                funname: if symbol_id(&cmd).is_some() {
+                    cmd
+                } else {
+                    Value::Nil
+                },
+            })
+        }
+        Value::Cons(_) => Ok(InteractiveFormPlan::Return(
+            interactive_form_from_quoted_lambda(&function)?.unwrap_or(Value::Nil),
+        )),
+        _ => Ok(InteractiveFormPlan::Return(Value::Nil)),
+    }
+}
+
 pub(crate) fn builtin_interactive_form_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("interactive-form", &args, 1)?;
-    if args[0].as_symbol_name() == Some("ignore") {
-        return Ok(Value::list(vec![Value::symbol("interactive"), Value::Nil]));
-    }
-
-    let function = match &args[0] {
-        Value::Symbol(id) => {
-            let Some((resolved_id, function)) = resolve_indirect_symbol_by_id(eval, *id) else {
-                return Ok(Value::Nil);
-            };
-            if resolve_sym(resolved_id) == "ignore" {
-                return Ok(Value::list(vec![Value::symbol("interactive"), Value::Nil]));
+    let mut target = args[0];
+    loop {
+        let plan = plan_interactive_form_in_state(&eval.obarray, &eval.interactive, target)?;
+        match plan {
+            InteractiveFormPlan::Return(value) => return Ok(value),
+            InteractiveFormPlan::Autoload { fundef, funname } => {
+                let mut load_args = vec![fundef];
+                if !funname.is_nil() {
+                    load_args.push(funname);
+                }
+                target = super::autoload::builtin_autoload_do_load(eval, load_args)?;
             }
-            function
         }
-        other => *other,
-    };
-
-    let interactive = match &function {
-        Value::Lambda(id) | Value::Macro(id) => {
-            let body = with_heap(|h| h.get_lambda(*id).body.clone());
-            Ok(interactive_form_from_expr_body(&body))
-        }
-        Value::ByteCode(id) => {
-            // GNU closure slot 5 (CLOSURE_INTERACTIVE)
-            let spec = with_heap(|h| h.get_bytecode(*id).interactive);
-            Ok(spec.map(|s| {
-                // If it's a vector [spec, modes], extract just the spec
-                let spec_val = if let Value::Vector(vid) = s {
-                    with_heap(|h| {
-                        if h.vector_len(vid) > 0 {
-                            h.vector_ref(vid, 0)
-                        } else {
-                            s
-                        }
-                    })
-                } else {
-                    s
-                };
-                Value::list(vec![Value::symbol("interactive"), spec_val])
-            }))
-        }
-        Value::Cons(_) => interactive_form_from_quoted_lambda(&function),
-        _ => Ok(None),
-    }?;
-    Ok(interactive.unwrap_or(Value::Nil))
+    }
 }
 
 pub(crate) fn builtin_local_variable_if_set_p(args: Vec<Value>) -> EvalResult {

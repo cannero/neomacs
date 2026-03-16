@@ -2086,3 +2086,59 @@ fn vm_compiled_load_respects_loads_in_progress_guard() {
         "compiled load should skip re-entering a file already being loaded"
     );
 }
+
+#[test]
+fn vm_interactive_form_uses_shared_symbol_property_and_builtin_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (fset 'vm-if-shared-target (lambda () 1))
+               (fset 'vm-if-shared-alias 'vm-if-shared-target)
+               (put 'vm-if-shared-alias 'interactive-form '(interactive \"P\"))
+               (list
+                 (interactive-form 'vm-if-shared-alias)
+                 (interactive-form 'vm-if-shared-target)
+                 (interactive-form 'forward-char)
+                 (interactive-form 'goto-char)
+                 (interactive-form 'car)))"
+        ),
+        "OK ((interactive \"P\") nil (interactive \"^p\") (interactive (goto-char--read-natnum-interactive \"Go to char: \")) nil)"
+    );
+}
+
+#[test]
+fn vm_interactive_form_uses_shared_autoload_load_bridge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let fixture = dir.path().join("vm-interactive-form-auto.el");
+    std::fs::write(
+        &fixture,
+        "(fset 'vm-interactive-form-auto
+           '(lambda () (interactive \"P\") t))\n",
+    )
+    .expect("write interactive-form autoload fixture");
+
+    let mut eval = Evaluator::new_vm_harness();
+    let forms = parse_forms(
+        "(progn
+           (autoload 'vm-interactive-form-auto \"vm-interactive-form-auto\")
+           (interactive-form 'vm-interactive-form-auto))",
+    )
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+    eval.obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled interactive-form should use shared autoload bridge")
+    };
+
+    assert_eq!(
+        result,
+        Value::list(vec![Value::symbol("interactive"), Value::string("P")])
+    );
+}

@@ -146,6 +146,71 @@ impl Default for InteractiveRegistry {
     }
 }
 
+fn interactive_form_from_spec_value(spec: Value) -> Value {
+    Value::list(vec![Value::symbol("interactive"), spec])
+}
+
+fn interactive_form_from_string_spec(code: &str) -> Value {
+    interactive_form_from_spec_value(if code.is_empty() {
+        Value::Nil
+    } else {
+        Value::string(code)
+    })
+}
+
+pub(crate) fn registry_interactive_form(
+    registry: &InteractiveRegistry,
+    name: &str,
+) -> Option<Value> {
+    registry
+        .get_spec(name)
+        .map(|spec| interactive_form_from_string_spec(&spec.code))
+}
+
+pub(crate) fn builtin_subr_interactive_form(name: &str) -> Option<Value> {
+    match name {
+        "ignore" => Some(interactive_form_from_spec_value(Value::Nil)),
+        "forward-char"
+        | "backward-char"
+        | "beginning-of-line"
+        | "end-of-line"
+        | "move-beginning-of-line"
+        | "move-end-of-line"
+        | "forward-word"
+        | "backward-word" => Some(interactive_form_from_string_spec("^p")),
+        "forward-sexp" | "backward-sexp" => Some(interactive_form_from_string_spec("^p\nd")),
+        "delete-char" => Some(interactive_form_from_string_spec("p\nP")),
+        "kill-word" | "backward-kill-word" | "upcase-word" | "downcase-word"
+        | "capitalize-word" => Some(interactive_form_from_string_spec("p")),
+        "transpose-lines"
+        | "transpose-words"
+        | "transpose-sentences"
+        | "transpose-paragraphs"
+        | "open-line"
+        | "just-one-space" => Some(interactive_form_from_string_spec("*p")),
+        "transpose-sexps" => Some(interactive_form_from_string_spec("*p\nd")),
+        "delete-horizontal-space" => Some(interactive_form_from_string_spec("*P")),
+        "scroll-up-command" | "scroll-down-command" => {
+            Some(interactive_form_from_string_spec("^P"))
+        }
+        "set-mark-command" => Some(interactive_form_from_string_spec("P")),
+        "move-to-column" => Some(interactive_form_from_string_spec("NMove to column: ")),
+        "goto-char" => Some(interactive_form_from_spec_value(Value::list(vec![
+            Value::symbol("goto-char--read-natnum-interactive"),
+            Value::string("Go to char: "),
+        ]))),
+        "self-insert-command" => Some(interactive_form_from_spec_value(Value::list(vec![
+            Value::symbol("list"),
+            Value::list(vec![
+                Value::symbol("prefix-numeric-value"),
+                Value::symbol("current-prefix-arg"),
+            ]),
+            Value::symbol("last-command-event"),
+        ]))),
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Expect helpers (local to this module)
 // ---------------------------------------------------------------------------

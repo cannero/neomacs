@@ -2158,6 +2158,36 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_interactive_form_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("interactive-form", args, 1)?;
+        let mut target = args[0];
+        loop {
+            match crate::emacs_core::builtins::symbols::plan_interactive_form_in_state(
+                &*self.shared.obarray,
+                &*self.shared.interactive,
+                target,
+            )? {
+                crate::emacs_core::builtins::symbols::InteractiveFormPlan::Return(value) => {
+                    return Ok(value);
+                }
+                crate::emacs_core::builtins::symbols::InteractiveFormPlan::Autoload {
+                    fundef,
+                    funname,
+                } => {
+                    let mut load_args = vec![fundef];
+                    if !funname.is_nil() {
+                        load_args.push(funname);
+                    }
+                    let mut extra_roots = Vec::with_capacity(args.len() + load_args.len() + 1);
+                    extra_roots.push(target);
+                    extra_roots.extend(args.iter().copied());
+                    extra_roots.extend(load_args.iter().copied());
+                    target = self.autoload_do_load_with_vm_bridge(load_args, &extra_roots)?;
+                }
+            }
+        }
+    }
+
     fn builtin_skip_chars_forward_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::navigation::builtin_skip_chars_forward_in_manager(
             &mut *self.shared.buffers,
@@ -2821,6 +2851,7 @@ impl<'a> Vm<'a> {
                 self.shared.autoloads,
                 args,
             )),
+            "interactive-form" => Some(self.builtin_interactive_form_shared(args)),
             "eval" => Some(self.eval_with_vm_bridge(args.to_vec(), args)),
             "load" => Some(self.load_with_vm_bridge(args.to_vec(), args)),
             "autoload-do-load" => Some(self.autoload_do_load_with_vm_bridge(
