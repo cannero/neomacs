@@ -90,7 +90,7 @@ fn main() {
 
     // 6. Run initial layout and send first frame
     let mut frame_glyphs = FrameGlyphBuffer::with_size(width as f32, height as f32);
-    run_layout(&mut evaluator, frame_id, &mut frame_glyphs);
+    run_layout(&mut evaluator, &mut frame_glyphs);
     let _ = emacs_comms.frame_tx.try_send(frame_glyphs.clone());
     tracing::info!("Initial frame sent ({} glyphs)", frame_glyphs.glyphs.len());
 
@@ -118,7 +118,7 @@ fn main() {
     let frame_tx = emacs_comms.frame_tx;
     evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Evaluator| {
         eval.setup_thread_locals();
-        run_layout(eval, frame_id, &mut frame_glyphs);
+        run_layout(eval, &mut frame_glyphs);
         let _ = frame_tx.try_send(frame_glyphs.clone());
     }));
 
@@ -362,9 +362,21 @@ fn ensure_dir_string(path: &Path) -> String {
     dir
 }
 
-/// Run the layout engine on the current frame state.
-fn run_layout(evaluator: &mut Evaluator, frame_id: FrameId, frame_glyphs: &mut FrameGlyphBuffer) {
+fn current_layout_frame_id(evaluator: &Evaluator) -> Option<FrameId> {
+    evaluator
+        .frame_manager()
+        .selected_frame()
+        .map(|frame| frame.id)
+}
+
+/// Run the layout engine on the selected live frame.
+fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
     use neomacs_display_runtime::layout::LayoutEngine;
+
+    let Some(frame_id) = current_layout_frame_id(evaluator) else {
+        tracing::warn!("run_layout: no selected live frame");
+        return;
+    };
 
     thread_local! {
         static ENGINE: std::cell::RefCell<LayoutEngine> = std::cell::RefCell::new(LayoutEngine::new());
@@ -375,4 +387,36 @@ fn run_layout(evaluator: &mut Evaluator, frame_id: FrameId, frame_glyphs: &mut F
             .borrow_mut()
             .layout_frame_rust(evaluator, frame_id, frame_glyphs);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::current_layout_frame_id;
+    use neovm_core::emacs_core::Evaluator;
+
+    #[test]
+    fn current_layout_frame_follows_selected_frame() {
+        let mut eval = Evaluator::new();
+        let b1 = eval.buffer_manager_mut().create_buffer("*one*");
+        let b2 = eval.buffer_manager_mut().create_buffer("*two*");
+        let f1 = eval.frame_manager_mut().create_frame("F1", 80, 24, b1);
+        let f2 = eval.frame_manager_mut().create_frame("F2", 80, 24, b2);
+
+        assert_eq!(current_layout_frame_id(&eval), Some(f1));
+        assert!(eval.frame_manager_mut().select_frame(f2));
+        assert_eq!(current_layout_frame_id(&eval), Some(f2));
+    }
+
+    #[test]
+    fn current_layout_frame_tracks_surrogate_after_bootstrap_frame_deletion() {
+        let mut eval = Evaluator::new();
+        let b1 = eval.buffer_manager_mut().create_buffer("*one*");
+        let b2 = eval.buffer_manager_mut().create_buffer("*two*");
+        let f1 = eval.frame_manager_mut().create_frame("F1", 80, 24, b1);
+        let f2 = eval.frame_manager_mut().create_frame("F2", 80, 24, b2);
+
+        assert_eq!(current_layout_frame_id(&eval), Some(f1));
+        assert!(eval.frame_manager_mut().delete_frame(f1));
+        assert_eq!(current_layout_frame_id(&eval), Some(f2));
+    }
 }
