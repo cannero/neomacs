@@ -24,6 +24,7 @@ use super::intern::{
 };
 use super::keymap::{list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap};
 use super::kmacro::KmacroManager;
+use super::minibuffer::MinibufferManager;
 use super::mode::ModeRegistry;
 use super::process::ProcessManager;
 use super::rect::RectangleState;
@@ -248,6 +249,7 @@ pub(crate) struct VmSharedState<'a> {
     abbrevs: &'a mut AbbrevManager,
     rectangle: &'a mut RectangleState,
     pub(crate) interactive: &'a mut InteractiveRegistry,
+    pub(crate) minibuffers: &'a mut MinibufferManager,
     recent_input_events: &'a mut Vec<Value>,
     read_command_keys: &'a mut Vec<Value>,
     input_mode_interrupt: &'a mut bool,
@@ -301,6 +303,7 @@ impl<'a> VmSharedState<'a> {
         custom: &'a mut CustomManager,
         rectangle: &'a mut RectangleState,
         interactive: &'a mut InteractiveRegistry,
+        minibuffers: &'a mut MinibufferManager,
         recent_input_events: &'a mut Vec<Value>,
         read_command_keys: &'a mut Vec<Value>,
         input_mode_interrupt: &'a mut bool,
@@ -360,6 +363,7 @@ impl<'a> VmSharedState<'a> {
             custom,
             rectangle,
             interactive,
+            minibuffers,
             recent_input_events,
             read_command_keys,
             input_mode_interrupt,
@@ -425,6 +429,7 @@ impl<'a> VmSharedState<'a> {
             &mut eval.custom,
             &mut eval.rectangle,
             &mut eval.interactive,
+            &mut eval.minibuffers,
             &mut eval.recent_input_events,
             &mut eval.read_command_keys,
             &mut eval.input_mode_interrupt,
@@ -709,6 +714,8 @@ pub struct Evaluator {
     pub(crate) rectangle: RectangleState,
     /// Interactive command registry — tracks interactive commands.
     pub(crate) interactive: InteractiveRegistry,
+    /// Minibuffer runtime state — active minibuffer stack, prompt metadata, and history.
+    pub(crate) minibuffers: MinibufferManager,
     /// Input events consumed by read* APIs, used by `recent-keys`.
     recent_input_events: Vec<Value>,
     /// Last key sequence captured by read-key/read-key-sequence/read-event paths.
@@ -2262,6 +2269,7 @@ impl Evaluator {
             custom,
             rectangle: RectangleState::new(),
             interactive: InteractiveRegistry::new(),
+            minibuffers: MinibufferManager::new(),
             recent_input_events: Vec::new(),
             read_command_keys: Vec::new(),
             current_message: None,
@@ -2363,6 +2371,7 @@ impl Evaluator {
             custom,
             rectangle,
             interactive,
+            minibuffers: MinibufferManager::new(),
             recent_input_events: Vec::new(),
             read_command_keys: Vec::new(),
             current_message: None,

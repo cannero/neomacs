@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::buffer::BufferManager;
+use crate::buffer::{BufferId, BufferManager};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
@@ -170,7 +170,9 @@ pub struct CompletionResult {
 
 /// Tracks one active minibuffer interaction (possibly recursive).
 pub struct MinibufferState {
+    pub buffer_id: BufferId,
     pub prompt: String,
+    pub prompt_end: usize,
     pub initial_input: String,
     pub history: Vec<String>,
     pub history_position: Option<usize>,
@@ -185,11 +187,13 @@ pub struct MinibufferState {
 }
 
 impl MinibufferState {
-    #[cfg(test)]
-    fn new(prompt: String, initial: String, depth: usize) -> Self {
+    fn new(buffer_id: BufferId, prompt: String, initial: String, depth: usize) -> Self {
         let cursor_pos = initial.len();
+        let prompt_end = prompt.len();
         Self {
+            buffer_id,
             prompt,
+            prompt_end,
             initial_input: initial.clone(),
             history: Vec::new(),
             history_position: None,
@@ -277,14 +281,15 @@ impl MinibufferManager {
     ///
     /// Returns a fresh `MinibufferState` that has been pushed onto the stack.
     /// The caller can further configure it (completion table, require-match, default).
-    #[cfg(test)]
     pub(crate) fn read_from_minibuffer(
         &mut self,
+        buffer_id: BufferId,
         prompt: &str,
         initial: Option<&str>,
         history_name: Option<&str>,
     ) -> Result<&mut MinibufferState, Flow> {
         let new_depth = self.state_stack.len() + 1;
+        #[cfg(test)]
         if new_depth > self.max_depth {
             return Err(signal(
                 "error",
@@ -303,7 +308,7 @@ impl MinibufferManager {
         }
 
         let initial_str = initial.unwrap_or("").to_string();
-        let mut state = MinibufferState::new(prompt.to_string(), initial_str, new_depth);
+        let mut state = MinibufferState::new(buffer_id, prompt.to_string(), initial_str, new_depth);
 
         // Pre-populate history from the named list.
         if let Some(name) = history_name {
@@ -453,6 +458,12 @@ impl MinibufferManager {
     /// Whether any minibuffer is currently active.
     pub fn is_active(&self) -> bool {
         self.state_stack.last().is_some_and(|s| s.active)
+    }
+
+    pub fn has_buffer(&self, buffer_id: BufferId) -> bool {
+        self.state_stack
+            .iter()
+            .any(|state| state.buffer_id == buffer_id)
     }
 
     /// Set the completion style.
@@ -863,6 +874,24 @@ pub(crate) fn builtin_minibuffer_prompt(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_minibuffer_prompt_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_minibuffer_prompt_in_state(&eval.minibuffers, args)
+}
+
+pub(crate) fn builtin_minibuffer_prompt_in_state(
+    minibuffers: &MinibufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("minibuffer-prompt", &args, 0)?;
+    Ok(minibuffers
+        .current()
+        .map(|state| Value::string(&state.prompt))
+        .unwrap_or(Value::Nil))
+}
+
 /// `(minibuffer-contents)` — returns the current minibuffer contents.
 ///
 /// In non-interactive batch mode, Emacs exposes current buffer contents.
@@ -870,18 +899,16 @@ pub(crate) fn builtin_minibuffer_contents(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_minibuffer_contents_in_state(&eval.buffers, args)
+    builtin_minibuffer_contents_in_state(&eval.minibuffers, &eval.buffers, args)
 }
 
 pub(crate) fn builtin_minibuffer_contents_in_state(
+    minibuffers: &MinibufferManager,
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-contents", &args, 0)?;
-    let text = buffers
-        .current_buffer()
-        .map(|buf| buf.buffer_string())
-        .unwrap_or_default();
+    let text = minibuffer_contents_string(minibuffers, buffers);
     Ok(Value::string(text))
 }
 
@@ -894,18 +921,16 @@ pub(crate) fn builtin_minibuffer_contents_no_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_minibuffer_contents_no_properties_in_state(&eval.buffers, args)
+    builtin_minibuffer_contents_no_properties_in_state(&eval.minibuffers, &eval.buffers, args)
 }
 
 pub(crate) fn builtin_minibuffer_contents_no_properties_in_state(
+    minibuffers: &MinibufferManager,
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-contents-no-properties", &args, 0)?;
-    let text = buffers
-        .current_buffer()
-        .map(|buf| buf.buffer_string())
-        .unwrap_or_default();
+    let text = minibuffer_contents_string(minibuffers, buffers);
     Ok(Value::string(text))
 }
 
@@ -917,11 +942,56 @@ pub(crate) fn builtin_minibuffer_depth(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(0))
 }
 
+pub(crate) fn builtin_minibuffer_depth_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_minibuffer_depth_in_state(&eval.minibuffers, args)
+}
+
+pub(crate) fn builtin_minibuffer_depth_in_state(
+    minibuffers: &MinibufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("minibuffer-depth", &args, 0)?;
+    Ok(Value::Int(minibuffers.depth() as i64))
+}
+
 /// `(minibufferp &optional BUFFER)` — returns t if BUFFER is a minibuffer.
 ///
 /// Batch-compatible behavior: accepts 0..=2 args, validates BUFFER-like first
 /// arg shape, and returns nil (no active minibuffer).
 pub(crate) fn builtin_minibufferp(args: Vec<Value>) -> EvalResult {
+    validate_minibufferp_args(&args)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_minibufferp_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_minibufferp_in_state(&eval.minibuffers, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_minibufferp_in_state(
+    minibuffers: &MinibufferManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    validate_minibufferp_args(&args)?;
+    let live_only = args.get(1).is_some_and(Value::is_truthy);
+    let Some(buffer_id) = resolve_minibuffer_buffer_arg(buffers, args.first())? else {
+        return Ok(Value::Nil);
+    };
+    let is_live = minibuffers.has_buffer(buffer_id);
+    let is_minibuffer = is_live
+        || buffers
+            .get(buffer_id)
+            .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name));
+    Ok(Value::bool(if live_only { is_live } else { is_minibuffer }))
+}
+
+fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -939,7 +1009,7 @@ pub(crate) fn builtin_minibufferp(args: Vec<Value>) -> EvalResult {
             }
         }
     }
-    Ok(Value::Nil)
+    Ok(())
 }
 
 /// `(recursive-edit)` — enter a recursive edit.
@@ -1018,6 +1088,64 @@ pub(crate) fn builtin_exit_minibuffer(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_abort_minibuffers(args: Vec<Value>) -> EvalResult {
     expect_args("abort-minibuffers", &args, 0)?;
     Err(signal("error", vec![Value::string("Not in a minibuffer")]))
+}
+
+pub(crate) fn builtin_abort_minibuffers_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_abort_minibuffers_in_state(&eval.minibuffers, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_abort_minibuffers_in_state(
+    minibuffers: &MinibufferManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("abort-minibuffers", &args, 0)?;
+    let in_active_minibuffer = buffers
+        .current_buffer_id()
+        .is_some_and(|buffer_id| minibuffers.has_buffer(buffer_id));
+    if !in_active_minibuffer {
+        return Err(signal("error", vec![Value::string("Not in a minibuffer")]));
+    }
+    Err(Flow::Throw {
+        tag: Value::symbol("exit"),
+        value: Value::True,
+    })
+}
+
+fn minibuffer_contents_string(minibuffers: &MinibufferManager, buffers: &BufferManager) -> String {
+    let Some(buffer) = buffers.current_buffer() else {
+        return String::new();
+    };
+    if let Some(state) = minibuffers.current()
+        && state.buffer_id == buffer.id
+    {
+        return buffer.buffer_substring(state.prompt_end.min(buffer.text.len()), buffer.text.len());
+    }
+    buffer.buffer_string()
+}
+
+fn resolve_minibuffer_buffer_arg(
+    buffers: &BufferManager,
+    bufferish: Option<&Value>,
+) -> Result<Option<BufferId>, Flow> {
+    match bufferish {
+        None | Some(Value::Nil) => Ok(buffers.current_buffer_id()),
+        Some(Value::Buffer(id)) => Ok(Some(*id)),
+        Some(Value::Str(_)) => Ok(bufferish
+            .and_then(Value::as_str)
+            .and_then(|name| buffers.find_buffer_by_name(name))),
+        Some(other) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("bufferp"), *other],
+        )),
+    }
+}
+
+fn is_minibuffer_buffer_name(name: &str) -> bool {
+    name.starts_with(" *Minibuf-") && name.ends_with('*')
 }
 
 /// `(abort-recursive-edit)` — abort the innermost recursive edit.

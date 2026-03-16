@@ -3631,29 +3631,43 @@ impl<'a> Vm<'a> {
                 args.to_vec(),
             )),
             "buffer-substring" => Some(self.builtin_buffer_substring_shared(args)),
-            "minibufferp" => Some(crate::emacs_core::minibuffer::builtin_minibufferp(
+            "minibufferp" => Some(crate::emacs_core::minibuffer::builtin_minibufferp_in_state(
+                &*self.shared.minibuffers,
+                &*self.shared.buffers,
                 args.to_vec(),
             )),
-            "minibuffer-prompt" => Some(crate::emacs_core::minibuffer::builtin_minibuffer_prompt(
-                args.to_vec(),
-            )),
+            "minibuffer-prompt" => Some(
+                crate::emacs_core::minibuffer::builtin_minibuffer_prompt_in_state(
+                    &*self.shared.minibuffers,
+                    args.to_vec(),
+                ),
+            ),
             "minibuffer-contents" => Some(
                 crate::emacs_core::minibuffer::builtin_minibuffer_contents_in_state(
+                    &*self.shared.minibuffers,
                     &*self.shared.buffers,
                     args.to_vec(),
                 ),
             ),
             "minibuffer-contents-no-properties" => Some(
                 crate::emacs_core::minibuffer::builtin_minibuffer_contents_no_properties_in_state(
+                    &*self.shared.minibuffers,
                     &*self.shared.buffers,
                     args.to_vec(),
                 ),
             ),
-            "minibuffer-depth" => Some(crate::emacs_core::minibuffer::builtin_minibuffer_depth(
-                args.to_vec(),
-            )),
+            "minibuffer-depth" => Some(
+                crate::emacs_core::minibuffer::builtin_minibuffer_depth_in_state(
+                    &*self.shared.minibuffers,
+                    args.to_vec(),
+                ),
+            ),
             "abort-minibuffers" => Some(
-                crate::emacs_core::minibuffer::builtin_abort_minibuffers(args.to_vec()),
+                crate::emacs_core::minibuffer::builtin_abort_minibuffers_in_state(
+                    &*self.shared.minibuffers,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
             ),
             "read-from-minibuffer" => Some(self.builtin_read_from_minibuffer_shared(args)),
             "read-string" => Some(self.builtin_read_string_shared(args)),

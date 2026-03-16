@@ -1912,21 +1912,31 @@ fn vm_buffer_metrics_and_swap_builtins_use_shared_runtime_state() {
 #[test]
 fn vm_minibuffer_builtins_use_shared_runtime_state() {
     assert_eq!(
-        vm_eval_str(
+        vm_eval_with_init_str(
             r#"(progn
-                 (insert "vm-mini")
                  (list
                   (minibuffer-contents)
                   (minibuffer-contents-no-properties)
                   (minibuffer-depth)
                   (minibuffer-prompt)
                   (minibufferp)
+                  (minibufferp nil t)
                   (minibufferp "x" nil)
-                  (condition-case err
-                      (abort-minibuffers)
-                    (error (car err)))))"#
+                  (catch 'exit (abort-minibuffers))))"#,
+            |eval| {
+                let minibuf_id = eval.buffers.create_buffer(" *Minibuf-1*");
+                {
+                    let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
+                    buf.text.insert_str(0, "Prompt: vm-mini");
+                    buf.goto_byte(buf.text.len());
+                }
+                eval.buffers.set_current(minibuf_id);
+                eval.minibuffers
+                    .read_from_minibuffer(minibuf_id, "Prompt: ", Some("vm-mini"), None)
+                    .expect("enter minibuffer");
+            },
         ),
-        r#"OK ("vm-mini" "vm-mini" 0 nil nil nil error)"#
+        r#"OK ("vm-mini" "vm-mini" 1 "Prompt: " t t nil t)"#
     );
 }
 

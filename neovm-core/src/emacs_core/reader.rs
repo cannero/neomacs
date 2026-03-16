@@ -579,6 +579,7 @@ fn read_from_minibuffer_interactive(
     });
     let keymap_arg = args.get(2).copied().unwrap_or(Value::Nil);
     let read_arg = args.get(3).copied().unwrap_or(Value::Nil);
+    let history_name = minibuffer_history_name(args.get(4));
     let default_val = args.get(5).copied().unwrap_or(Value::Nil);
 
     // Save state
@@ -614,6 +615,20 @@ fn read_from_minibuffer_interactive(
     // Switch to minibuffer buffer
     eval.buffer_manager_mut().set_current(minibuf_id);
 
+    let enable_recursive = eval
+        .obarray()
+        .symbol_value("enable-recursive-minibuffers")
+        .copied()
+        .unwrap_or(Value::Nil)
+        .is_truthy();
+    eval.minibuffers.set_enable_recursive(enable_recursive);
+    let _ = eval.minibuffers.read_from_minibuffer(
+        minibuf_id,
+        prompt,
+        initial_input.as_deref(),
+        history_name.as_deref(),
+    )?;
+
     // Set local keymap: use KEYMAP arg if provided, otherwise minibuffer-local-map
     let minibuf_keymap = if !keymap_arg.is_nil() {
         keymap_arg
@@ -627,12 +642,10 @@ fn read_from_minibuffer_interactive(
 
     // Set minibuffer-related variables
     eval.assign("minibuffer-prompt", Value::string(prompt));
-    let prev_depth = eval
-        .obarray()
-        .symbol_value("minibuffer-depth")
-        .copied()
-        .unwrap_or(Value::Int(0));
-    eval.assign("minibuffer-depth", Value::Int(depth as i64));
+    eval.assign(
+        "minibuffer-depth",
+        Value::Int(eval.minibuffers.depth() as i64),
+    );
 
     // Enter recursive edit — the command loop runs until exit-minibuffer throws 'exit
     let edit_result = eval.recursive_edit_inner();
@@ -649,12 +662,31 @@ fn read_from_minibuffer_interactive(
         String::new()
     };
 
+    match &edit_result {
+        Ok(_) => {
+            let _ = eval.minibuffers.exit_minibuffer();
+        }
+        Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") => {
+            if value.is_truthy() {
+                eval.minibuffers.abort_minibuffer();
+            } else {
+                let _ = eval.minibuffers.exit_minibuffer();
+            }
+        }
+        Err(_) => {
+            eval.minibuffers.abort_minibuffer();
+        }
+    }
+
     // Restore state
     eval.current_local_map = saved_local_map;
     if let Some(buf_id) = saved_buffer_id {
         eval.buffer_manager_mut().set_current(buf_id);
     }
-    eval.assign("minibuffer-depth", prev_depth);
+    eval.assign(
+        "minibuffer-depth",
+        Value::Int(eval.minibuffers.depth() as i64),
+    );
 
     // Handle the recursive edit result
     match edit_result {
@@ -682,6 +714,14 @@ fn read_from_minibuffer_interactive(
             Ok(Value::string(result_string))
         }
         Err(flow) => Err(flow),
+    }
+}
+
+fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
+    match hist_arg.copied().unwrap_or(Value::Nil) {
+        Value::Symbol(id) => Some(resolve_sym(id).to_string()),
+        Value::Cons(id) => read_cons(id).car.as_symbol_name().map(str::to_string),
+        _ => None,
     }
 }
 

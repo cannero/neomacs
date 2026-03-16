@@ -1,4 +1,5 @@
 use super::*;
+use crate::buffer::BufferId;
 
 // -- Completion matching --------------------------------------------------
 
@@ -172,7 +173,7 @@ fn history_navigation() {
     mgr.add_to_history("test-history", "third");
 
     // Enter minibuffer with history.
-    mgr.read_from_minibuffer("prompt: ", None, Some("test-history"))
+    mgr.read_from_minibuffer(BufferId(1), "prompt: ", None, Some("test-history"))
         .unwrap();
 
     // Go back in history: should get "third" (most recent).
@@ -221,11 +222,13 @@ fn recursive_depth() {
     assert_eq!(mgr.depth(), 0);
     assert!(!mgr.is_active());
 
-    mgr.read_from_minibuffer("1: ", None, None).unwrap();
+    mgr.read_from_minibuffer(BufferId(1), "1: ", None, None)
+        .unwrap();
     assert_eq!(mgr.depth(), 1);
     assert!(mgr.is_active());
 
-    mgr.read_from_minibuffer("2: ", None, None).unwrap();
+    mgr.read_from_minibuffer(BufferId(2), "2: ", None, None)
+        .unwrap();
     assert_eq!(mgr.depth(), 2);
 
     mgr.exit_minibuffer();
@@ -241,9 +244,11 @@ fn recursive_depth_limit() {
     let mut mgr = MinibufferManager::new();
     mgr.max_depth = 2;
 
-    mgr.read_from_minibuffer("1: ", None, None).unwrap();
-    mgr.read_from_minibuffer("2: ", None, None).unwrap();
-    let result = mgr.read_from_minibuffer("3: ", None, None);
+    mgr.read_from_minibuffer(BufferId(1), "1: ", None, None)
+        .unwrap();
+    mgr.read_from_minibuffer(BufferId(2), "2: ", None, None)
+        .unwrap();
+    let result = mgr.read_from_minibuffer(BufferId(3), "3: ", None, None);
     assert!(result.is_err());
 }
 
@@ -252,8 +257,9 @@ fn recursive_disabled() {
     let mut mgr = MinibufferManager::new();
     mgr.set_enable_recursive(false);
 
-    mgr.read_from_minibuffer("1: ", None, None).unwrap();
-    let result = mgr.read_from_minibuffer("2: ", None, None);
+    mgr.read_from_minibuffer(BufferId(1), "1: ", None, None)
+        .unwrap();
+    let result = mgr.read_from_minibuffer(BufferId(2), "2: ", None, None);
     assert!(result.is_err());
 }
 
@@ -265,7 +271,7 @@ fn enter_exit_lifecycle() {
 
     {
         let state = mgr
-            .read_from_minibuffer("Enter: ", Some("init"), None)
+            .read_from_minibuffer(BufferId(1), "Enter: ", Some("init"), None)
             .unwrap();
         assert_eq!(state.prompt, "Enter: ");
         assert_eq!(state.content, "init");
@@ -288,7 +294,9 @@ fn enter_exit_lifecycle() {
 fn exit_with_default() {
     let mut mgr = MinibufferManager::new();
     {
-        let state = mgr.read_from_minibuffer("Enter: ", None, None).unwrap();
+        let state = mgr
+            .read_from_minibuffer(BufferId(1), "Enter: ", None, None)
+            .unwrap();
         state.default_value = Some("fallback".to_string());
         // Content is empty, so default should be used.
     }
@@ -299,7 +307,8 @@ fn exit_with_default() {
 #[test]
 fn abort_minibuffer_clears_state() {
     let mut mgr = MinibufferManager::new();
-    mgr.read_from_minibuffer("Enter: ", None, None).unwrap();
+    mgr.read_from_minibuffer(BufferId(1), "Enter: ", None, None)
+        .unwrap();
     assert_eq!(mgr.depth(), 1);
     mgr.abort_minibuffer();
     assert_eq!(mgr.depth(), 0);
@@ -319,7 +328,7 @@ fn try_complete_with_table() {
     let mut mgr = MinibufferManager::new();
     {
         let state = mgr
-            .read_from_minibuffer("M-x ", Some("find"), None)
+            .read_from_minibuffer(BufferId(1), "M-x ", Some("find"), None)
             .unwrap();
         state.completion_table = Some(CompletionTable::List(vec![
             "find-file".into(),
@@ -512,6 +521,50 @@ fn builtin_minibuffer_depth_returns_zero() {
 fn builtin_minibufferp_returns_nil() {
     let result = builtin_minibufferp(vec![]).unwrap();
     assert!(matches!(result, Value::Nil));
+}
+
+#[test]
+fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let minibuf_id = eval.buffers.create_buffer(" *Minibuf-1*");
+    {
+        let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
+        buf.text.insert_str(0, "Prompt: value");
+        buf.goto_byte(buf.text.len());
+    }
+    eval.buffers.set_current(minibuf_id);
+    eval.minibuffers
+        .read_from_minibuffer(minibuf_id, "Prompt: ", Some("value"), None)
+        .expect("enter minibuffer");
+
+    assert_eq!(
+        builtin_minibuffer_prompt_eval(&mut eval, vec![]).unwrap(),
+        Value::string("Prompt: ")
+    );
+    assert_eq!(
+        builtin_minibuffer_contents(&mut eval, vec![]).unwrap(),
+        Value::string("value")
+    );
+    assert_eq!(
+        builtin_minibuffer_contents_no_properties(&mut eval, vec![]).unwrap(),
+        Value::string("value")
+    );
+    assert_eq!(
+        builtin_minibuffer_depth_eval(&mut eval, vec![]).unwrap(),
+        Value::Int(1)
+    );
+    assert_eq!(
+        builtin_minibufferp_eval(&mut eval, vec![]).unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        builtin_minibufferp_eval(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
+        Value::True
+    );
+    assert!(matches!(
+        builtin_abort_minibuffers_eval(&mut eval, vec![]),
+        Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") && value == Value::True
+    ));
 }
 
 #[test]

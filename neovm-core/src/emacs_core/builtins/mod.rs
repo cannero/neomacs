@@ -2200,15 +2200,21 @@ pub(crate) fn dispatch_builtin(
             return Some(super::reader::builtin_read_key_sequence_vector(eval, args));
         }
         "recent-keys" => return Some(builtin_recent_keys(eval, args)),
-        "minibufferp" => return Some(super::minibuffer::builtin_minibufferp(args)),
-        "minibuffer-prompt" => return Some(super::minibuffer::builtin_minibuffer_prompt(args)),
+        "minibufferp" => return Some(super::minibuffer::builtin_minibufferp_eval(eval, args)),
+        "minibuffer-prompt" => {
+            return Some(super::minibuffer::builtin_minibuffer_prompt_eval(
+                eval, args,
+            ));
+        }
         "minibuffer-contents" => {
             return Some(super::minibuffer::builtin_minibuffer_contents(eval, args));
         }
         "minibuffer-contents-no-properties" => {
             return Some(super::minibuffer::builtin_minibuffer_contents_no_properties(eval, args));
         }
-        "minibuffer-depth" => return Some(super::minibuffer::builtin_minibuffer_depth(args)),
+        "minibuffer-depth" => {
+            return Some(super::minibuffer::builtin_minibuffer_depth_eval(eval, args));
+        }
         "princ" => return Some(builtin_princ_eval(eval, args)),
         "prin1" => return Some(builtin_prin1_eval(eval, args)),
         "prin1-to-string" => return Some(builtin_prin1_to_string_eval(eval, args)),
@@ -2240,7 +2246,11 @@ pub(crate) fn dispatch_builtin(
         "abort-recursive-edit" => {
             return Some(super::minibuffer::builtin_abort_recursive_edit(eval, args));
         }
-        "abort-minibuffers" => return Some(super::minibuffer::builtin_abort_minibuffers(args)),
+        "abort-minibuffers" => {
+            return Some(super::minibuffer::builtin_abort_minibuffers_eval(
+                eval, args,
+            ));
+        }
 
         // Threading (evaluator-dependent)
         "make-thread" => return Some(super::threads::builtin_make_thread(eval, args)),
