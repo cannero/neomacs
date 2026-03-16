@@ -2971,6 +2971,45 @@ fn vm_dired_builtins_use_shared_default_directory_state() {
 }
 
 #[test]
+fn vm_file_metadata_builtins_use_shared_runtime_state() {
+    let base = std::env::temp_dir().join(format!("neovm-vm-file-metadata-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).expect("create base");
+    let alpha = base.join("alpha.txt");
+    let beta = base.join("beta.txt");
+    std::fs::write(&alpha, b"alpha").expect("write alpha");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&beta, b"beta").expect("write beta");
+    let base_str = format!("{}/", base.to_string_lossy());
+    let alpha_abs = alpha.to_string_lossy().to_string();
+
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (integerp (file-modes "alpha.txt"))
+             (progn (set-file-modes "alpha.txt" #o600) (file-modes "alpha.txt"))
+             (progn (set-file-times "alpha.txt" 0)
+                    (file-newer-than-file-p "beta.txt" "alpha.txt"))
+             (verify-visited-file-modtime)
+             (set-visited-file-modtime nil))"#,
+        |eval| {
+            eval.obarray
+                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            eval.buffers
+                .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+                .expect("buffer local default-directory should set");
+            eval.buffers
+                .set_buffer_file_name(current, Some(alpha_abs.clone()))
+                .expect("buffer file name should set");
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(result, r#"OK (t 384 t t nil)"#);
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

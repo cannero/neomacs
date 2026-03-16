@@ -1854,6 +1854,37 @@ fn test_set_file_times_eval_respects_default_directory() {
 }
 
 #[test]
+fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
+    let mut eval = Evaluator::new();
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+
+    assert_eq!(
+        builtin_verify_visited_file_modtime(&mut eval, vec![Value::Buffer(current)])
+            .expect("verify-visited-file-modtime"),
+        Value::True
+    );
+
+    let missing = builtin_set_visited_file_modtime(&mut eval, vec![Value::Nil])
+        .expect_err("missing visited file should signal");
+    match missing {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Nil]);
+        }
+        other => panic!("unexpected flow: {other:?}"),
+    }
+
+    eval.buffers
+        .set_buffer_file_name(current, Some("/tmp/neovm-visited-file.txt".to_string()))
+        .expect("buffer file name should set");
+    assert_eq!(
+        builtin_set_visited_file_modtime(&mut eval, vec![Value::Nil])
+            .expect("set-visited-file-modtime"),
+        Value::Nil
+    );
+}
+
+#[test]
 fn test_default_file_modes_round_trip() {
     let original = builtin_default_file_modes(vec![])
         .expect("default-file-modes")

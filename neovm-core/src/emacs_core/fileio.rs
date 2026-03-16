@@ -2066,9 +2066,12 @@ pub(crate) fn builtin_file_modes(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Evaluator-aware variant of `file-modes` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_modes_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_modes_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("file-modes", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -2077,11 +2080,17 @@ pub(crate) fn builtin_file_modes_eval(eval: &Evaluator, args: Vec<Value>) -> Eva
         ));
     }
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     match file_modes(&filename) {
         Some(mode) => Ok(Value::Int(mode as i64)),
         None => Ok(Value::Nil),
     }
+}
+
+/// Evaluator-aware variant of `file-modes` that resolves relative paths
+/// against dynamic/default `default-directory`.
+pub(crate) fn builtin_file_modes_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_modes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (set-file-modes FILENAME MODE &optional FLAG) -> nil
@@ -2118,9 +2127,12 @@ pub(crate) fn builtin_set_file_modes(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `set-file-modes` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_set_file_modes_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_file_modes_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-file-modes", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2132,7 +2144,7 @@ pub(crate) fn builtin_set_file_modes_eval(eval: &Evaluator, args: Vec<Value>) ->
         ));
     }
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let mode = expect_fixnum(&args[1])?;
     #[cfg(unix)]
     {
@@ -2152,6 +2164,12 @@ pub(crate) fn builtin_set_file_modes_eval(eval: &Evaluator, args: Vec<Value>) ->
             .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?;
     }
     Ok(Value::Nil)
+}
+
+/// Evaluator-aware variant of `set-file-modes` that resolves relative paths
+/// against dynamic/default `default-directory`.
+pub(crate) fn builtin_set_file_modes_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_set_file_modes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (set-file-times FILENAME &optional TIMESTAMP FLAG) -> t
@@ -2179,9 +2197,12 @@ pub(crate) fn builtin_set_file_times(args: Vec<Value>) -> EvalResult {
     Ok(Value::True)
 }
 
-/// Evaluator-aware variant of `set-file-times` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_set_file_times_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_file_times_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-file-times", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2193,25 +2214,32 @@ pub(crate) fn builtin_set_file_times_eval(eval: &Evaluator, args: Vec<Value>) ->
         ));
     }
     let filename = expect_string_strict(&args[0])?;
-    let default_dir = default_directory_for_eval(eval);
-    let filename = expand_file_name(&filename, default_dir.as_deref());
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let timestamp = if args.len() > 1 && !args[1].is_nil() {
         Some(parse_timestamp_arg(&args[1])?)
     } else {
         None
     };
-    // Emacs currently treats all non-nil values like `nofollow`.
     let nofollow = args.get(2).is_some_and(|flag| !flag.is_nil());
     set_file_times_compat(&filename, timestamp, nofollow)?;
     Ok(Value::True)
 }
 
-fn validate_optional_buffer_arg(eval: &Evaluator, arg: Option<&Value>) -> Result<(), Flow> {
+/// Evaluator-aware variant of `set-file-times` that resolves relative paths
+/// against dynamic/default `default-directory`.
+pub(crate) fn builtin_set_file_times_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_set_file_times_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+}
+
+fn validate_optional_buffer_arg_in_state(
+    buffers: &crate::buffer::BufferManager,
+    arg: Option<&Value>,
+) -> Result<(), Flow> {
     if let Some(bufferish) = arg {
         match bufferish {
             Value::Nil => Ok(()),
             Value::Buffer(id) => {
-                if eval.buffers.get(*id).is_some() {
+                if buffers.get(*id).is_some() {
                     Ok(())
                 } else {
                     Err(signal(
@@ -2258,14 +2286,28 @@ pub(crate) fn builtin_verify_visited_file_modtime(
     eval: &mut Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("verify-visited-file-modtime", &args, 1)?;
-    validate_optional_buffer_arg(eval, args.first())?;
-    Ok(Value::True)
+    builtin_verify_visited_file_modtime_in_state(&eval.buffers, args)
 }
 
 /// (set-visited-file-modtime &optional TIME-LIST) -> nil
 pub(crate) fn builtin_set_visited_file_modtime(
     eval: &mut Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_set_visited_file_modtime_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_verify_visited_file_modtime_in_state(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("verify-visited-file-modtime", &args, 1)?;
+    validate_optional_buffer_arg_in_state(buffers, args.first())?;
+    Ok(Value::True)
+}
+
+pub(crate) fn builtin_set_visited_file_modtime_in_state(
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("set-visited-file-modtime", &args, 1)?;
@@ -2276,8 +2318,7 @@ pub(crate) fn builtin_set_visited_file_modtime(
         }
     }
 
-    let file_name = eval
-        .buffers
+    let file_name = buffers
         .current_buffer()
         .and_then(|buf| buf.file_name.clone());
     if file_name.is_none() {

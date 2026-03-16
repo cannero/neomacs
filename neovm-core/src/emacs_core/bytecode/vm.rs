@@ -5237,6 +5237,38 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "file-modes" => Some(crate::emacs_core::fileio::builtin_file_modes_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "set-file-modes" => Some(
+                crate::emacs_core::fileio::builtin_set_file_modes_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-file-times" => Some(crate::emacs_core::fileio::builtin_set_file_times_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "verify-visited-file-modtime" => Some(
+                crate::emacs_core::fileio::builtin_verify_visited_file_modtime_in_state(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-visited-file-modtime" => Some(
+                crate::emacs_core::fileio::builtin_set_visited_file_modtime_in_state(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "insert-file-contents" => Some(
                 crate::emacs_core::fileio::builtin_insert_file_contents_in_state(
                     &*self.shared.obarray,
