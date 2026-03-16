@@ -302,6 +302,14 @@ fn resolve_window_id(
     resolve_window_id_with_pred(eval, arg, "window-live-p")
 }
 
+fn resolve_window_id_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+) -> Result<(FrameId, WindowId), Flow> {
+    resolve_window_id_with_pred_in_state(frames, buffers, arg, "window-live-p")
+}
+
 /// Resolve an optional window designator that may be stale (window object).
 ///
 /// - nil/omitted => selected live window
@@ -1141,10 +1149,19 @@ pub(crate) fn builtin_window_parent(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_parent_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_parent_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-parent", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let Some(frame) = eval.frames.get(fid) else {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
     Ok(window_parent_id(frame, wid).map_or(Value::Nil, window_value))
@@ -1155,10 +1172,19 @@ pub(crate) fn builtin_window_top_child(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_top_child_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_top_child_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-top-child", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let Some(frame) = eval.frames.get(fid) else {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
     Ok(
@@ -1172,10 +1198,19 @@ pub(crate) fn builtin_window_left_child(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_left_child_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_left_child_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-left-child", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let Some(frame) = eval.frames.get(fid) else {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
     Ok(
@@ -1189,10 +1224,19 @@ pub(crate) fn builtin_window_next_sibling(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_next_sibling_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_next_sibling_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-next-sibling", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let Some(frame) = eval.frames.get(fid) else {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
     Ok(window_next_sibling_id(frame, wid).map_or(Value::Nil, window_value))
@@ -1203,10 +1247,19 @@ pub(crate) fn builtin_window_prev_sibling(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_prev_sibling_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_prev_sibling_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-prev-sibling", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let Some(frame) = eval.frames.get(fid) else {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
     Ok(window_prev_sibling_id(frame, wid).map_or(Value::Nil, window_value))
@@ -2630,8 +2683,16 @@ pub(crate) fn builtin_window_list(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_list_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_list_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-list", &args, 3)?;
-    let selected_fid = ensure_selected_frame_id(eval);
+    let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
     // GNU Emacs validates ALL-FRAMES before FRAME mismatch checks.
     let all_frames_fid = match args.get(2) {
         None | Some(Value::Nil) => None,
@@ -2642,9 +2703,9 @@ pub(crate) fn builtin_window_list(
                     vec![Value::symbol("windowp"), *arg],
                 ));
             };
-            if let Some(fid) = eval.frames.find_window_frame_id(wid) {
+            if let Some(fid) = frames.find_window_frame_id(wid) {
                 Some(fid)
-            } else if eval.frames.is_window_object_id(wid) {
+            } else if frames.is_window_object_id(wid) {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("window-live-p"), *arg],
@@ -2661,7 +2722,7 @@ pub(crate) fn builtin_window_list(
         None | Some(Value::Nil) => selected_fid,
         Some(Value::Int(n)) => {
             let fid = FrameId(*n as u64);
-            if eval.frames.get(fid).is_some() {
+            if frames.get(fid).is_some() {
                 fid
             } else {
                 return Err(signal(
@@ -2672,7 +2733,7 @@ pub(crate) fn builtin_window_list(
         }
         Some(Value::Frame(id)) => {
             let fid = FrameId(*id);
-            if eval.frames.get(fid).is_some() {
+            if frames.get(fid).is_some() {
                 fid
             } else {
                 return Err(signal(
@@ -2692,8 +2753,7 @@ pub(crate) fn builtin_window_list(
         fid = all_frames_fid;
     }
     let include_minibuffer = matches!(args.get(1), Some(Value::True));
-    let frame = eval
-        .frames
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let mut ids: Vec<Value> = frame.window_list().into_iter().map(window_value).collect();
@@ -2710,13 +2770,23 @@ pub(crate) fn builtin_window_list_1(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_list_1_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_list_1_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-list-1", &args, 3)?;
-    let _ = ensure_selected_frame_id(eval);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (fid, start_wid) = match args.first() {
-        None | Some(Value::Nil) => resolve_window_id_with_pred(eval, None, "window-live-p")?,
+        None | Some(Value::Nil) => {
+            resolve_window_id_with_pred_in_state(frames, buffers, None, "window-live-p")?
+        }
         Some(Value::Window(id)) => {
             let wid = WindowId(*id);
-            if let Some(fid) = eval.frames.find_window_frame_id(wid) {
+            if let Some(fid) = frames.find_window_frame_id(wid) {
                 (fid, wid)
             } else {
                 return Err(signal(
@@ -2739,35 +2809,27 @@ pub(crate) fn builtin_window_list_1(
     let mut frame_ids: Vec<FrameId> = match args.get(2) {
         None | Some(Value::Nil) => vec![fid],
         Some(Value::True) => {
-            let mut ids = eval.frames.frame_list();
+            let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids
         }
         Some(Value::Symbol(sym)) if resolve_sym(*sym) == "visible" => {
-            let mut ids = eval.frames.frame_list();
+            let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids.into_iter()
-                .filter(|frame_id| {
-                    eval.frames
-                        .get(*frame_id)
-                        .is_some_and(|frame| frame.visible)
-                })
+                .filter(|frame_id| frames.get(*frame_id).is_some_and(|frame| frame.visible))
                 .collect()
         }
         Some(Value::Int(0)) => {
-            let mut ids = eval.frames.frame_list();
+            let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids.into_iter()
-                .filter(|frame_id| {
-                    eval.frames
-                        .get(*frame_id)
-                        .is_some_and(|frame| frame.visible)
-                })
+                .filter(|frame_id| frames.get(*frame_id).is_some_and(|frame| frame.visible))
                 .collect()
         }
         Some(Value::Frame(frame_raw_id)) => {
             let frame_id = FrameId(*frame_raw_id);
-            if eval.frames.get(frame_id).is_none() {
+            if frames.get(frame_id).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("frame-live-p"), args[2]],
@@ -2790,7 +2852,7 @@ pub(crate) fn builtin_window_list_1(
     let mut windows: Vec<Value> = Vec::new();
 
     for frame_id in frame_ids {
-        let Some(frame) = eval.frames.get(frame_id) else {
+        let Some(frame) = frames.get(frame_id) else {
             continue;
         };
 
@@ -2974,13 +3036,20 @@ pub(crate) fn builtin_window_live_p_in_state(
 
 /// `(window-at X Y &optional FRAME)` -> window object or nil.
 pub(crate) fn builtin_window_at(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_window_at_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_at_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("window-at", &args, 2)?;
     expect_max_args("window-at", &args, 3)?;
     let x = expect_number(&args[0])?;
     let y = expect_number(&args[1])?;
-    let fid = resolve_frame_id(eval, args.get(2), "frame-live-p")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.get(2), "frame-live-p")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let total_cols = frame_total_cols(frame) as f64;
@@ -3178,9 +3247,17 @@ pub(crate) fn builtin_select_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_select_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_select_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("select-window", &args, 1)?;
     expect_max_args("select-window", &args, 2)?;
-    let fid = ensure_selected_frame_id(eval);
+    let fid = ensure_selected_frame_id_in_state(frames, buffers);
     let wid = match args.first().and_then(window_id_from_designator) {
         Some(wid) => wid,
         None => {
@@ -3192,8 +3269,7 @@ pub(crate) fn builtin_select_window(
     };
     let record_selection = args.get(1).is_none_or(Value::is_nil);
     let selected_buffer = {
-        let frame = eval
-            .frames
+        let frame = frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
         if !frame.select_window(wid) {
@@ -3205,10 +3281,10 @@ pub(crate) fn builtin_select_window(
         frame.find_window(wid).and_then(|w| w.buffer_id())
     };
     if record_selection {
-        let _ = eval.frames.note_window_selected(wid);
+        let _ = frames.note_window_selected(wid);
     }
     if let Some(buffer_id) = selected_buffer {
-        eval.buffers.set_current(buffer_id);
+        buffers.set_current(buffer_id);
     }
     Ok(window_value(wid))
 }
@@ -3220,13 +3296,22 @@ pub(crate) fn builtin_other_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_other_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_other_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("other-window", &args, 1)?;
     expect_max_args("other-window", &args, 3)?;
     let count = expect_number_or_marker_count(&args[0])?;
-    let Some(fid) = eval.frames.selected_frame().map(|f| f.id) else {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let Some(fid) = frames.selected_frame().map(|f| f.id) else {
         return Ok(Value::Nil);
     };
-    let Some(frame) = eval.frames.get(fid) else {
+    let Some(frame) = frames.get(fid) else {
         return Ok(Value::Nil);
     };
     let list = frame.window_list();
@@ -3238,7 +3323,7 @@ pub(crate) fn builtin_other_window(
     let len = list.len() as i64;
     let new_idx = ((cur_idx as i64 + count) % len + len) % len;
     let new_wid = list[new_idx as usize];
-    let (selected_buffer, switched) = if let Some(frame) = eval.frames.get_mut(fid) {
+    let (selected_buffer, switched) = if let Some(frame) = frames.get_mut(fid) {
         let switched = frame.select_window(new_wid);
         (
             frame.find_window(new_wid).and_then(|w| w.buffer_id()),
@@ -3248,10 +3333,10 @@ pub(crate) fn builtin_other_window(
         (None, false)
     };
     if switched {
-        let _ = eval.frames.note_window_selected(new_wid);
+        let _ = frames.note_window_selected(new_wid);
     };
     if let Some(buffer_id) = selected_buffer {
-        eval.buffers.set_current(buffer_id);
+        buffers.set_current(buffer_id);
     }
     Ok(Value::Nil)
 }
@@ -3261,10 +3346,17 @@ pub(crate) fn builtin_other_window_for_scrolling(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_other_window_for_scrolling_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_other_window_for_scrolling_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("other-window-for-scrolling", &args, 0)?;
-    let fid = ensure_selected_frame_id(eval);
-    let frame = eval
-        .frames
+    let fid = ensure_selected_frame_id_in_state(frames, buffers);
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     let windows = frame.window_list();
@@ -3287,10 +3379,17 @@ pub(crate) fn builtin_next_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_next_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_next_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("next-window", &args, 3)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let frame = eval
-        .frames
+    let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let list = frame.window_list();
@@ -3307,10 +3406,17 @@ pub(crate) fn builtin_previous_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_previous_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_previous_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("previous-window", &args, 3)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let frame = eval
-        .frames
+    let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let list = frame.window_list();
@@ -3327,12 +3433,20 @@ pub(crate) fn builtin_set_window_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_buffer_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-window-buffer", &args, 2)?;
     expect_max_args("set-window-buffer", &args, 3)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
+    let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
     let buf_id = match &args[1] {
         Value::Buffer(id) => {
-            if eval.buffers.get(*id).is_none() {
+            if buffers.get(*id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Attempt to display deleted buffer")],
@@ -3342,7 +3456,7 @@ pub(crate) fn builtin_set_window_buffer(
         }
         Value::Str(_) => {
             let name_s = args[1].as_str().unwrap();
-            match eval.buffers.find_buffer_by_name(name_s) {
+            match buffers.find_buffer_by_name(name_s) {
                 Some(id) => id,
                 None => {
                     return Err(signal(
@@ -3361,8 +3475,7 @@ pub(crate) fn builtin_set_window_buffer(
     };
 
     let keep_margins = args.get(2).is_some_and(|arg| !arg.is_nil());
-    let target_point = eval
-        .buffers
+    let target_point = buffers
         .get(buf_id)
         .map(|buf| buf.point_char().saturating_add(1))
         .unwrap_or(1)
@@ -3374,18 +3487,14 @@ pub(crate) fn builtin_set_window_buffer(
         window_start,
         point,
         ..
-    }) = eval
-        .frames
-        .get_mut(fid)
-        .and_then(|f| f.find_window_mut(wid))
+    }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
     {
         old_state = Some((*buffer_id, *window_start, *point));
     }
     if let Some((old_buffer_id, old_window_start, old_point)) = old_state {
-        eval.frames
-            .set_window_buffer_position(wid, old_buffer_id, old_window_start, old_point);
+        frames.set_window_buffer_position(wid, old_buffer_id, old_window_start, old_point);
         if old_buffer_id != buf_id {
-            let prev_raw = eval.frames.window_prev_buffers(wid);
+            let prev_raw = frames.window_prev_buffers(wid);
             let prev_entries = list_to_vec(&prev_raw).ok_or_else(|| {
                 signal(
                     "wrong-type-argument",
@@ -3393,7 +3502,7 @@ pub(crate) fn builtin_set_window_buffer(
                 )
             })?;
             let old_buffer_value = Value::Buffer(old_buffer_id);
-            let marker_buffer_name = eval.buffers.get(old_buffer_id).map(|buf| buf.name.clone());
+            let marker_buffer_name = buffers.get(old_buffer_id).map(|buf| buf.name.clone());
             let old_window_start_pos = old_window_start.max(1) as i64;
             let old_point_pos = old_point.max(1) as i64;
             let history_entry = Value::list(vec![
@@ -3421,14 +3530,12 @@ pub(crate) fn builtin_set_window_buffer(
             let mut next_prev = Vec::with_capacity(filtered_prev.len() + 1);
             next_prev.push(history_entry);
             next_prev.extend(filtered_prev);
-            eval.frames
-                .set_window_prev_buffers(wid, Value::list(next_prev));
-            eval.frames.set_window_next_buffers(wid, Value::Nil);
+            frames.set_window_prev_buffers(wid, Value::list(next_prev));
+            frames.set_window_next_buffers(wid, Value::Nil);
         }
     }
 
-    let (next_window_start, next_point) = eval
-        .frames
+    let (next_window_start, next_point) = frames
         .window_buffer_position(wid, buf_id)
         .unwrap_or((1, target_point));
     if let Some(Window::Leaf {
@@ -3437,10 +3544,7 @@ pub(crate) fn builtin_set_window_buffer(
         point,
         margins,
         ..
-    }) = eval
-        .frames
-        .get_mut(fid)
-        .and_then(|f| f.find_window_mut(wid))
+    }) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid))
     {
         *buffer_id = buf_id;
         *window_start = next_window_start.max(1);
@@ -4668,10 +4772,19 @@ pub(crate) fn builtin_window_combination_limit(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_combination_limit_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_combination_limit_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("window-combination-limit", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
     match w.combination_limit() {
         Some(true) => Ok(Value::True),
         Some(false) => Ok(Value::Nil),
@@ -4692,12 +4805,20 @@ pub(crate) fn builtin_set_window_combination_limit(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_combination_limit_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_combination_limit_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-combination-limit", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let limit = args[1].is_truthy();
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let w = frame

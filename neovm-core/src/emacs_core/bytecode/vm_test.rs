@@ -3,6 +3,7 @@ use crate::emacs_core::bytecode::compiler::Compiler;
 use crate::emacs_core::eval::{Evaluator, VmSharedState};
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
+use crate::window::SplitDirection;
 use std::path::PathBuf;
 
 fn new_vm(eval: &mut Evaluator) -> Vm<'_> {
@@ -898,6 +899,94 @@ fn vm_window_metadata_builtins_use_shared_runtime_state() {
                        (window-cursor-type m)))"#
         ),
         "OK (nil t t nil nil t bar bar t nil t t t t t t t bar bar t t nil nil)"
+    );
+}
+
+#[test]
+fn vm_window_tree_and_list_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(let* ((left (selected-window))
+                      (right (next-window left))
+                      (bottom (next-window right))
+                      (root (frame-root-window))
+                      (vparent (window-parent right)))
+                 (list (window-valid-p root)
+                       (window-live-p root)
+                       (eq (window-parent left) root)
+                       (eq (window-next-sibling left) vparent)
+                       (eq (window-left-child root) left)
+                       (window-valid-p (window-top-child root))
+                       (eq (window-parent right) vparent)
+                       (eq (window-parent bottom) vparent)
+                       (eq (window-top-child vparent) right)
+                       (null (window-left-child vparent))
+                       (eq (window-next-sibling right) bottom)
+                       (eq (window-prev-sibling bottom) right)
+                       (length (window-list))
+                       (length (window-list nil t))
+                       (not (null (memq bottom (window-list-1 left nil nil))))
+                       (windowp (window-at 0 0))
+                       (windowp (window-at 79 0))
+                       (let ((m (window-at 0 24))) (and m (window-minibuffer-p m)))
+                       (window-combination-limit root)
+                       (set-window-combination-limit root t)
+                       (window-combination-limit root)))"#,
+            |eval| {
+                let fid = crate::emacs_core::window_cmds::ensure_selected_frame_id(eval);
+                let left = eval.frames.get(fid).expect("frame").selected_window;
+                let buffer_id = eval.buffers.current_buffer().expect("buffer").id;
+                let right = eval
+                    .frames
+                    .split_window(fid, left, SplitDirection::Horizontal, buffer_id)
+                    .expect("horizontal split");
+                let _bottom = eval
+                    .frames
+                    .split_window(fid, right, SplitDirection::Vertical, buffer_id)
+                    .expect("vertical split");
+            }
+        ),
+        "OK (t nil t t t nil t t t t t t 3 4 t t t t nil t t)"
+    );
+}
+
+#[test]
+fn vm_window_selection_and_buffer_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(let* ((w1 (selected-window))
+                      (w2 (next-window w1))
+                      (b1 (get-buffer-create "vm-wsel-1"))
+                      (b2 (get-buffer-create "vm-wsel-2")))
+                 (set-window-buffer w1 b1)
+                 (set-window-buffer w2 b2)
+                 (select-window w2)
+                 (list (eq (selected-window) w2)
+                       (eq (current-buffer) b2)
+                       (eq (window-buffer w1) b1)
+                       (eq (window-buffer w2) b2)
+                       (eq (next-window w1) w2)
+                       (eq (previous-window w1) w2)
+                       (eq (other-window-for-scrolling) w1)
+                       (other-window 1)
+                       (eq (selected-window) w1)
+                       (eq (current-buffer) b1)
+                       (eq (other-window-for-scrolling) w2)
+                       (window-valid-p (car (window-list)))
+                       (window-live-p (car (window-list-1 nil nil)))
+                       (condition-case err (set-window-combination-limit w1 t)
+                         (error (car err)))))"#,
+            |eval| {
+                let fid = crate::emacs_core::window_cmds::ensure_selected_frame_id(eval);
+                let w1 = eval.frames.get(fid).expect("frame").selected_window;
+                let buffer_id = eval.buffers.current_buffer().expect("buffer").id;
+                let _w2 = eval
+                    .frames
+                    .split_window(fid, w1, SplitDirection::Horizontal, buffer_id)
+                    .expect("horizontal split");
+            }
+        ),
+        "OK (t t t t t t t nil t t t t t error)"
     );
 }
 

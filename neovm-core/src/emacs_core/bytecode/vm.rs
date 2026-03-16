@@ -4051,6 +4051,41 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "window-parent" => Some(
+                crate::emacs_core::window_cmds::builtin_window_parent_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-top-child" => Some(
+                crate::emacs_core::window_cmds::builtin_window_top_child_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-left-child" => Some(
+                crate::emacs_core::window_cmds::builtin_window_left_child_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-next-sibling" => Some(
+                crate::emacs_core::window_cmds::builtin_window_next_sibling_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-prev-sibling" => Some(
+                crate::emacs_core::window_cmds::builtin_window_prev_sibling_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "window-dedicated-p" => Some(
                 crate::emacs_core::window_cmds::builtin_window_dedicated_p_in_state(
                     self.shared.frames,
@@ -4361,6 +4396,79 @@ impl<'a> Vm<'a> {
             ),
             "window-total-width" => Some(
                 crate::emacs_core::window_cmds::builtin_window_total_width_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-list" => Some(crate::emacs_core::window_cmds::builtin_window_list_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "window-list-1" => Some(
+                crate::emacs_core::window_cmds::builtin_window_list_1_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-at" => Some(crate::emacs_core::window_cmds::builtin_window_at_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "select-window" => Some(
+                crate::emacs_core::window_cmds::builtin_select_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "other-window" => Some(
+                crate::emacs_core::window_cmds::builtin_other_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "other-window-for-scrolling" => Some(
+                crate::emacs_core::window_cmds::builtin_other_window_for_scrolling_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "next-window" => Some(
+                crate::emacs_core::window_cmds::builtin_next_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "previous-window" => Some(
+                crate::emacs_core::window_cmds::builtin_previous_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-buffer" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_buffer_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-combination-limit" => Some(
+                crate::emacs_core::window_cmds::builtin_window_combination_limit_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-combination-limit" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_combination_limit_in_state(
                     self.shared.frames,
                     self.shared.buffers,
                     args.to_vec(),
