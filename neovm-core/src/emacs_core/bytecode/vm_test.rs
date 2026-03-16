@@ -2139,6 +2139,46 @@ fn vm_overlay_builtins_use_shared_current_buffer_state() {
 }
 
 #[test]
+fn vm_marker_builtins_use_shared_live_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "abcd")
+                 (goto-char 3)
+                 (let ((pm (point-marker))
+                       (cm (copy-marker 3 t))
+                       (minm (point-min-marker))
+                       (maxm (point-max-marker)))
+                   (goto-char 1)
+                   (insert "Q")
+                   (goto-char 4)
+                   (insert "Z")
+                   (list
+                    (marker-position pm)
+                    (marker-position minm)
+                    (marker-position maxm)
+                    (marker-position cm)
+                    (progn (set-marker pm 2) (marker-position pm))
+                    (progn (move-marker pm nil) (marker-position pm)))))"#
+        ),
+        "OK (4 1 7 5 2 nil)"
+    );
+}
+
+#[test]
+fn vm_mark_marker_uses_shared_buffer_mark_state() {
+    assert_eq!(
+        vm_eval_with_init_str("(marker-position (mark-marker))", |eval| {
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            let _ = eval.buffers.replace_buffer_contents(current, "abcd");
+            let _ = eval.buffers.set_buffer_mark(current, 2);
+        }),
+        "OK 3"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

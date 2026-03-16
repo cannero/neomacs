@@ -309,7 +309,7 @@ fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
     buf.lisp_pos_to_accessible_byte(lisp_pos)
 }
 
-fn marker_targets_current_mark(_eval: &super::eval::Evaluator, marker: &Value) -> bool {
+fn marker_targets_current_mark(marker: &Value) -> bool {
     is_mark_marker(marker)
 }
 
@@ -339,6 +339,13 @@ pub(crate) fn builtin_marker_position_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_marker_position_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_marker_position_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("marker-position", &args, 1)?;
     expect_marker("marker-position", &args[0])?;
 
@@ -346,8 +353,8 @@ pub(crate) fn builtin_marker_position_eval(
     if let Some(mid) = marker_id_value(&args[0]) {
         let buf_name_val = marker_buffer_value(&args[0]);
         if let Some(bname) = buf_name_val.as_str() {
-            if let Some(buf_id) = eval.buffers.find_buffer_by_name(bname) {
-                if let Some(buf) = eval.buffers.get(buf_id) {
+            if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
+                if let Some(buf) = buffers.get(buf_id) {
                     if let Some(marker_entry) = buf.markers.iter().find(|m| m.id == mid) {
                         let char_pos = marker_entry.char_pos as i64 + 1;
                         return Ok(Value::Int(char_pos));
@@ -436,6 +443,13 @@ pub(crate) fn builtin_copy_marker_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_copy_marker_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_copy_marker_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("copy-marker", &args, 1, 2)?;
     let insertion_type = if args.len() > 1 {
         args[1].is_truthy()
@@ -451,8 +465,8 @@ pub(crate) fn builtin_copy_marker_eval(
             // Read position from live mark markers and buffer-tracked markers.
             let position = if is_mark_marker(v) {
                 if let Some(ref bname) = buffer_name {
-                    if let Some(buf_id) = eval.buffers.find_buffer_by_name(bname) {
-                        if let Some(buf) = eval.buffers.get(buf_id) {
+                    if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
+                        if let Some(buf) = buffers.get(buf_id) {
                             buf.mark_char().map(|m| m as i64 + 1)
                         } else {
                             None
@@ -465,8 +479,8 @@ pub(crate) fn builtin_copy_marker_eval(
                 }
             } else if let Some(mid) = marker_id_value(v) {
                 if let Some(ref bname) = buffer_name {
-                    if let Some(buf_id) = eval.buffers.find_buffer_by_name(bname) {
-                        if let Some(buf) = eval.buffers.get(buf_id) {
+                    if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
+                        if let Some(buf) = buffers.get(buf_id) {
                             buf.markers
                                 .iter()
                                 .find(|m| m.id == mid)
@@ -489,14 +503,14 @@ pub(crate) fn builtin_copy_marker_eval(
 
             let marker = make_marker_value(buffer_name.as_deref(), position, insertion_type);
             // Register the new marker in the buffer
-            register_marker_in_buffer(eval, &marker, &buffer_name, position);
+            register_marker_in_buffers(buffers, &marker, &buffer_name, position);
             Ok(marker)
         }
         Value::Int(n) => {
             // Create marker at integer position in current buffer
-            let buffer_name = eval.buffers.current_buffer().map(|b| b.name.clone());
+            let buffer_name = buffers.current_buffer().map(|b| b.name.clone());
             let marker = make_marker_value(buffer_name.as_deref(), Some(*n), insertion_type);
-            register_marker_in_buffer(eval, &marker, &buffer_name, Some(*n));
+            register_marker_in_buffers(buffers, &marker, &buffer_name, Some(*n));
             Ok(marker)
         }
         Value::Nil => Ok(make_marker_value(None, None, insertion_type)),
@@ -520,16 +534,23 @@ pub(crate) fn builtin_set_marker(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_marker_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_marker_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("set-marker", &args, 2, 3)?;
     expect_marker("set-marker", &args[0])?;
 
-    let targets_current_mark = marker_targets_current_mark(eval, &args[0]);
+    let targets_current_mark = marker_targets_current_mark(&args[0]);
 
     // Resolve buffer (by name or Value::Buffer)
     let buffer_name: Option<String> = if args.len() > 2 && args[2].is_truthy() {
         match &args[2] {
             Value::Str(sid) => Some(with_heap(|h| h.get_string(*sid).to_owned())),
-            Value::Buffer(id) => eval.buffers.get(*id).map(|b| b.name.clone()),
+            Value::Buffer(id) => buffers.get(*id).map(|b| b.name.clone()),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -539,14 +560,14 @@ pub(crate) fn builtin_set_marker(
         }
     } else {
         // Default to current buffer
-        eval.buffers.current_buffer().map(|b| b.name.clone())
+        buffers.current_buffer().map(|b| b.name.clone())
     };
 
     // Resolve position
     let position: Option<i64> = match &args[1] {
         Value::Nil => None,
         Value::Int(n) => Some(*n),
-        v if is_marker(v) => marker_position_as_int_eval(eval, v).ok(),
+        v if is_marker(v) => marker_position_as_int_with_buffers(buffers, v).ok(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -556,7 +577,7 @@ pub(crate) fn builtin_set_marker(
     };
 
     // Register/update marker in buffer for automatic position tracking
-    register_marker_in_buffer(eval, &args[0], &buffer_name, position);
+    register_marker_in_buffers(buffers, &args[0], &buffer_name, position);
 
     // Mutate the marker vector in place
     match &args[0] {
@@ -580,21 +601,19 @@ pub(crate) fn builtin_set_marker(
     if targets_current_mark {
         let target_buf_id = buffer_name
             .as_ref()
-            .and_then(|name| eval.buffers.find_buffer_by_name(name))
-            .or_else(|| eval.buffers.current_buffer().map(|buf| buf.id));
+            .and_then(|name| buffers.find_buffer_by_name(name))
+            .or_else(|| buffers.current_buffer().map(|buf| buf.id));
         if let Some(buf_id) = target_buf_id {
             match position {
                 Some(pos) => {
-                    if let Some(byte_pos) = eval
-                        .buffers
-                        .get(buf_id)
-                        .map(|buf| lisp_pos_to_byte(buf, pos))
+                    if let Some(byte_pos) =
+                        buffers.get(buf_id).map(|buf| lisp_pos_to_byte(buf, pos))
                     {
-                        let _ = eval.buffers.set_buffer_mark(buf_id, byte_pos);
+                        let _ = buffers.set_buffer_mark(buf_id, byte_pos);
                     }
                 }
                 None => {
-                    let _ = eval.buffers.clear_buffer_mark(buf_id);
+                    let _ = buffers.clear_buffer_mark(buf_id);
                 }
             }
         }
@@ -612,13 +631,29 @@ pub(crate) fn builtin_move_marker(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_marker(eval, args)
+    builtin_move_marker_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_move_marker_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_set_marker_in_buffers(buffers, args)
 }
 
 /// Register a Lisp marker in the target buffer's marker list so that
 /// insert/delete operations automatically adjust its position.
 fn register_marker_in_buffer(
     eval: &mut super::eval::Evaluator,
+    marker: &Value,
+    buffer_name: &Option<String>,
+    position: Option<i64>,
+) {
+    register_marker_in_buffers(&mut eval.buffers, marker, buffer_name, position);
+}
+
+fn register_marker_in_buffers(
+    buffers: &mut BufferManager,
     marker: &Value,
     buffer_name: &Option<String>,
     position: Option<i64>,
@@ -640,23 +675,17 @@ fn register_marker_in_buffer(
 
     // Remove old registration from all buffers
     if let Some(mid) = existing_mid {
-        eval.buffers.remove_marker(mid);
+        buffers.remove_marker(mid);
     }
 
     // Register in the target buffer if we have a buffer name and position
     if let (Some(bname), Some(pos)) = (buffer_name, position) {
-        if let Some(buf_id) = eval.buffers.find_buffer_by_name(bname) {
-            let mid = existing_mid.unwrap_or_else(|| eval.buffers.allocate_marker_id());
+        if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
+            let mid = existing_mid.unwrap_or_else(|| buffers.allocate_marker_id());
             // Store the marker-id in the vector
             set_marker_id(marker, mid);
-            if let Some(byte_pos) = eval
-                .buffers
-                .get(buf_id)
-                .map(|buf| lisp_pos_to_byte(buf, pos))
-            {
-                let _ = eval
-                    .buffers
-                    .register_marker_id(buf_id, mid, byte_pos, ins_type);
+            if let Some(byte_pos) = buffers.get(buf_id).map(|buf| lisp_pos_to_byte(buf, pos)) {
+                let _ = buffers.register_marker_id(buf_id, mid, byte_pos, ins_type);
             }
         }
     }
@@ -667,15 +696,21 @@ pub(crate) fn builtin_point_marker(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_point_marker_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_point_marker_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("point-marker", &args, 0)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let pos = buf.point_char() as i64 + 1; // 1-based
     let name = buf.name.clone();
     let marker = make_marker_value(Some(&name), Some(pos), false);
-    register_marker_in_buffer(eval, &marker, &Some(name), Some(pos));
+    register_marker_in_buffers(buffers, &marker, &Some(name), Some(pos));
     Ok(marker)
 }
 
@@ -684,15 +719,21 @@ pub(crate) fn builtin_point_min_marker(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_point_min_marker_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_point_min_marker_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("point-min-marker", &args, 0)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let pos = buf.point_min_char() as i64 + 1; // 1-based
     let name = buf.name.clone();
     let marker = make_marker_value(Some(&name), Some(pos), false);
-    register_marker_in_buffer(eval, &marker, &Some(name), Some(pos));
+    register_marker_in_buffers(buffers, &marker, &Some(name), Some(pos));
     Ok(marker)
 }
 
@@ -701,15 +742,21 @@ pub(crate) fn builtin_point_max_marker(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_point_max_marker_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_point_max_marker_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("point-max-marker", &args, 0)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let pos = buf.point_max_char() as i64 + 1; // 1-based
     let name = buf.name.clone();
     let marker = make_marker_value(Some(&name), Some(pos), false);
-    register_marker_in_buffer(eval, &marker, &Some(name), Some(pos));
+    register_marker_in_buffers(buffers, &marker, &Some(name), Some(pos));
     Ok(marker)
 }
 
@@ -718,9 +765,15 @@ pub(crate) fn builtin_mark_marker(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_mark_marker_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_mark_marker_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("mark-marker", &args, 0)?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let name = buf.name.clone();

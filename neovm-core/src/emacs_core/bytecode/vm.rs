@@ -3115,6 +3115,44 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "marker-position" => Some(
+                crate::emacs_core::marker::builtin_marker_position_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "copy-marker" => Some(crate::emacs_core::marker::builtin_copy_marker_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "set-marker" => Some(crate::emacs_core::marker::builtin_set_marker_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "move-marker" => Some(crate::emacs_core::marker::builtin_move_marker_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "point-marker" => Some(crate::emacs_core::marker::builtin_point_marker_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "point-min-marker" => Some(
+                crate::emacs_core::marker::builtin_point_min_marker_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "point-max-marker" => Some(
+                crate::emacs_core::marker::builtin_point_max_marker_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "mark-marker" => Some(crate::emacs_core::marker::builtin_mark_marker_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),
