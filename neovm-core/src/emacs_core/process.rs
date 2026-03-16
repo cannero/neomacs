@@ -3910,13 +3910,34 @@ pub(crate) fn builtin_process_status(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_status_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_process_status_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-status", &args, 1)?;
-    let Some(id) = resolve_process_for_status(eval, &args[0])? else {
+    let Some(id) = (match &args[0] {
+        Value::Int(n) if *n >= 0 => {
+            let id = *n as ProcessId;
+            if processes.get_any(id).is_some() {
+                Some(id)
+            } else {
+                return Err(signal_wrong_type_processp(args[0]));
+            }
+        }
+        Value::Str(s) => {
+            let name = with_heap(|h| h.get_string(*s).to_owned());
+            processes.find_by_name(&name)
+        }
+        _ => return Err(signal_wrong_type_processp(args[0])),
+    }) else {
         return Ok(Value::Nil);
     };
     // Check if child process has exited since last check.
-    eval.processes.check_child_exit(id);
-    match eval.processes.get_any(id) {
+    processes.check_child_exit(id);
+    match processes.get_any(id) {
         Some(proc) => match proc.status {
             ProcessStatus::Run => match proc.kind {
                 ProcessKind::Network => Ok(Value::symbol("listen")),
@@ -3939,10 +3960,16 @@ pub(crate) fn builtin_process_exit_status(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_exit_status_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_exit_status_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-exit-status", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval
-        .processes
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes
         .get_any(id)
         .ok_or_else(|| signal_wrong_type_processp(args[0]))?;
     match proc.status {

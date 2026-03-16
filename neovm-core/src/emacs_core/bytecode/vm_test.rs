@@ -2001,6 +2001,92 @@ fn vm_stale_process_coding_and_tty_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_process_status_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (eq (process-status 1) 'run)
+             (eq (process-status 2) 'open)
+             (eq (process-status 3) 'listen)
+             (eq (process-status 4) 'stop)
+             (eq (process-status 5) 'signal)
+             (= (process-exit-status 5) 9)
+             (eq (process-status "vm-status-real") 'run)
+             (null (process-status "vm-status-missing"))
+             (process-kill-buffer-query-function))"#,
+        |eval| {
+            use crate::emacs_core::process::{ProcessKind, ProcessStatus};
+
+            let real = eval.processes.create_process(
+                "vm-status-real".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(real, 1);
+            let pipe = eval.processes.create_process_with_kind(
+                "vm-status-pipe".into(),
+                None,
+                String::new(),
+                vec![],
+                ProcessKind::Pipe,
+            );
+            assert_eq!(pipe, 2);
+            let network = eval.processes.create_process_with_kind(
+                "vm-status-network".into(),
+                None,
+                String::new(),
+                vec![],
+                ProcessKind::Network,
+            );
+            assert_eq!(network, 3);
+            let stopped = eval.processes.create_process(
+                "vm-status-stop".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(stopped, 4);
+            let signaled = eval.processes.create_process(
+                "vm-status-signal".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(signaled, 5);
+            eval.processes.get_any_mut(stopped).unwrap().status = ProcessStatus::Stop;
+            eval.processes.get_any_mut(signaled).unwrap().status = ProcessStatus::Signal(9);
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t t)");
+}
+
+#[test]
+fn vm_stale_process_status_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (eq (process-status p) 'signal)
+              (= (process-exit-status p) 9)
+              (null (process-status "vm-status-stale"))
+              (process-kill-buffer-query-function)))"#,
+        |eval| {
+            use crate::emacs_core::process::ProcessStatus;
+
+            let pid = eval.processes.create_process(
+                "vm-status-stale".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+            eval.processes.get_any_mut(pid).unwrap().status = ProcessStatus::Signal(9);
+            assert!(eval.processes.delete_process(pid));
+        },
+    );
+    assert_eq!(result, "OK (t t t t)");
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));

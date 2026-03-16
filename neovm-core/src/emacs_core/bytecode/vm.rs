@@ -4396,6 +4396,21 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "process-status" => Some(crate::emacs_core::process::builtin_process_status_in_state(
+                self.shared.processes,
+                args.to_vec(),
+            )),
+            "process-exit-status" => Some(
+                crate::emacs_core::process::builtin_process_exit_status_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-kill-buffer-query-function" => Some(
+                crate::emacs_core::process::builtin_process_kill_buffer_query_function(
+                    args.to_vec(),
+                ),
+            ),
             "run-hook-with-args-until-failure" => {
                 Some(self.builtin_run_hook_with_args_until_failure_shared(args))
             }
