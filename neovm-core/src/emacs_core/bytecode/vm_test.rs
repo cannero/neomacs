@@ -740,6 +740,42 @@ fn vm_window_and_frame_selection_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_state_accessors_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((w (selected-window)))
+                 (with-current-buffer (window-buffer w)
+                   (erase-buffer)
+                   (insert (make-string 200 ?x)))
+                 (set-window-start w 7)
+                 (set-window-point w 9)
+                 (list (window-start w)
+                       (window-group-start w)
+                       (window-point w)
+                       (integerp (window-use-time w))
+                       (window-old-point w)
+                       (window-old-buffer w)
+                       (window-prev-buffers w)
+                       (window-next-buffers w)))"#
+        ),
+        "OK (7 7 9 t 9 nil nil nil)"
+    );
+    assert_eq!(
+        vm_eval_str(
+            r#"(list (condition-case err (window-start 999999) (error err))
+                     (condition-case err (window-group-start 999999) (error err))
+                     (condition-case err (window-point 999999) (error err))
+                     (condition-case err (window-use-time 999999) (error err))
+                     (condition-case err (window-old-point 999999) (error err))
+                     (condition-case err (window-old-buffer 999999) (error err))
+                     (condition-case err (window-prev-buffers 999999) (error err))
+                     (condition-case err (window-next-buffers 999999) (error err)))"#
+        ),
+        "OK ((wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999))"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),

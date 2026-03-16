@@ -145,19 +145,26 @@ fn clamped_window_position(
     wid: WindowId,
     pos: i64,
 ) -> Option<usize> {
+    clamped_window_position_in_state(&eval.frames, &eval.buffers, fid, wid, pos)
+}
+
+fn clamped_window_position_in_state(
+    frames: &FrameManager,
+    buffers: &BufferManager,
+    fid: FrameId,
+    wid: WindowId,
+    pos: i64,
+) -> Option<usize> {
     if pos <= 0 {
         return None;
     }
     let requested = pos as usize;
-    let Some(Window::Leaf { buffer_id, .. }) = eval
-        .frames
-        .get(fid)
-        .and_then(|frame| frame.find_window(wid))
+    let Some(Window::Leaf { buffer_id, .. }) =
+        frames.get(fid).and_then(|frame| frame.find_window(wid))
     else {
         return Some(requested);
     };
-    let buffer_end = eval
-        .buffers
+    let buffer_end = buffers
         .get(*buffer_id)
         .map(|buf| buf.text.char_count().saturating_add(1))
         .unwrap_or(requested);
@@ -1159,9 +1166,18 @@ pub(crate) fn builtin_window_start(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_start_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_start_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-start", &args, 1)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     match w {
         Window::Leaf { window_start, .. } => Ok(Value::Int(*window_start as i64)),
         _ => Ok(Value::Int(0)),
@@ -1175,16 +1191,24 @@ pub(crate) fn builtin_window_group_start(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_group_start_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_group_start_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-group-start", &args, 1)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    if eval
-        .frames
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    if frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid))
     {
         return Ok(Value::Int(1));
     }
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let w = get_leaf(frames, fid, wid)?;
     match w {
         Window::Leaf { window_start, .. } => Ok(Value::Int(*window_start as i64)),
         _ => Ok(Value::Int(1)),
@@ -1257,9 +1281,18 @@ pub(crate) fn builtin_window_point(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_point_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_point_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-point", &args, 1)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     match w {
         Window::Leaf { point, .. } => Ok(Value::Int(*point as i64)),
         _ => Ok(Value::Int(0)),
@@ -1271,20 +1304,29 @@ pub(crate) fn builtin_set_window_start(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_start_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_start_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-window-start", &args, 2)?;
     expect_max_args("set-window-start", &args, 3)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let pos = parse_integer_or_marker_arg(&args[1])?;
-    let is_minibuffer = eval
-        .frames
+    let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
     match pos {
         IntegerOrMarkerArg::Int(pos) => {
             if !is_minibuffer {
-                if let Some(clamped) = clamped_window_position(eval, fid, wid, pos) {
-                    if let Some(Window::Leaf { window_start, .. }) = eval
-                        .frames
+                if let Some(clamped) =
+                    clamped_window_position_in_state(frames, buffers, fid, wid, pos)
+                {
+                    if let Some(Window::Leaf { window_start, .. }) = frames
                         .get_mut(fid)
                         .and_then(|frame| frame.find_window_mut(wid))
                     {
@@ -1297,9 +1339,10 @@ pub(crate) fn builtin_set_window_start(
         IntegerOrMarkerArg::Marker { raw, position } => {
             if !is_minibuffer {
                 if let Some(pos) = position {
-                    if let Some(clamped) = clamped_window_position(eval, fid, wid, pos) {
-                        if let Some(Window::Leaf { window_start, .. }) = eval
-                            .frames
+                    if let Some(clamped) =
+                        clamped_window_position_in_state(frames, buffers, fid, wid, pos)
+                    {
+                        if let Some(Window::Leaf { window_start, .. }) = frames
                             .get_mut(fid)
                             .and_then(|frame| frame.find_window_mut(wid))
                         {
@@ -1318,20 +1361,29 @@ pub(crate) fn builtin_set_window_group_start(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_group_start_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_group_start_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-window-group-start", &args, 2)?;
     expect_max_args("set-window-group-start", &args, 3)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let pos = parse_integer_or_marker_arg(&args[1])?;
-    let is_minibuffer = eval
-        .frames
+    let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
     match pos {
         IntegerOrMarkerArg::Int(pos) => {
             if !is_minibuffer {
-                if let Some(clamped) = clamped_window_position(eval, fid, wid, pos) {
-                    if let Some(Window::Leaf { window_start, .. }) = eval
-                        .frames
+                if let Some(clamped) =
+                    clamped_window_position_in_state(frames, buffers, fid, wid, pos)
+                {
+                    if let Some(Window::Leaf { window_start, .. }) = frames
                         .get_mut(fid)
                         .and_then(|frame| frame.find_window_mut(wid))
                     {
@@ -1344,13 +1396,14 @@ pub(crate) fn builtin_set_window_group_start(
         IntegerOrMarkerArg::Marker { raw, position } => {
             if !is_minibuffer {
                 if let Some(pos) = position {
-                    if let Some(clamped) = clamped_window_position(eval, fid, wid, pos) {
+                    if let Some(clamped) =
+                        clamped_window_position_in_state(frames, buffers, fid, wid, pos)
+                    {
                         if let Some(Window::Leaf {
                             window_start,
                             point,
                             ..
-                        }) = eval
-                            .frames
+                        }) = frames
                             .get_mut(fid)
                             .and_then(|frame| frame.find_window_mut(wid))
                         {
@@ -1370,19 +1423,28 @@ pub(crate) fn builtin_set_window_point(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_point_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_point_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-point", &args, 2)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let pos = parse_integer_or_marker_arg(&args[1])?;
-    let is_minibuffer = eval
-        .frames
+    let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
     match pos {
         IntegerOrMarkerArg::Int(pos) => {
             if !is_minibuffer {
-                if let Some(clamped) = clamped_window_position(eval, fid, wid, pos) {
-                    if let Some(Window::Leaf { point, .. }) = eval
-                        .frames
+                if let Some(clamped) =
+                    clamped_window_position_in_state(frames, buffers, fid, wid, pos)
+                {
+                    if let Some(Window::Leaf { point, .. }) = frames
                         .get_mut(fid)
                         .and_then(|frame| frame.find_window_mut(wid))
                     {
@@ -1402,9 +1464,9 @@ pub(crate) fn builtin_set_window_point(
                     vec![Value::string("Marker does not point anywhere")],
                 )
             })?;
-            if let Some(clamped) = clamped_window_position(eval, fid, wid, pos) {
-                if let Some(Window::Leaf { point, .. }) = eval
-                    .frames
+            if let Some(clamped) = clamped_window_position_in_state(frames, buffers, fid, wid, pos)
+            {
+                if let Some(Window::Leaf { point, .. }) = frames
                     .get_mut(fid)
                     .and_then(|frame| frame.find_window_mut(wid))
                 {
@@ -1449,10 +1511,19 @@ pub(crate) fn builtin_window_use_time(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_use_time_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_use_time_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-use-time", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
-    Ok(Value::Int(eval.frames.window_use_time(wid)))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(Value::Int(frames.window_use_time(wid)))
 }
 
 /// `(window-bump-use-time &optional WINDOW)` -> integer or nil.
@@ -1499,10 +1570,19 @@ pub(crate) fn builtin_window_old_point(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_old_point_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_old_point_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-old-point", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     match w {
         Window::Leaf { point, .. } => Ok(Value::Int((*point).max(1) as i64)),
         _ => Ok(Value::Int(1)),
@@ -1514,9 +1594,18 @@ pub(crate) fn builtin_window_old_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_old_buffer_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_old_buffer_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-old-buffer", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, _wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     Ok(Value::Nil)
 }
 
@@ -1525,10 +1614,19 @@ pub(crate) fn builtin_window_prev_buffers(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_prev_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_prev_buffers_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-prev-buffers", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
-    Ok(eval.frames.window_prev_buffers(wid))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(frames.window_prev_buffers(wid))
 }
 
 /// `(window-next-buffers &optional WINDOW)` -> next buffer list or nil.
@@ -1536,10 +1634,19 @@ pub(crate) fn builtin_window_next_buffers(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_next_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_next_buffers_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-next-buffers", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
-    Ok(eval.frames.window_next_buffers(wid))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(frames.window_next_buffers(wid))
 }
 
 /// `(set-window-prev-buffers WINDOW PREV-BUFFERS)` -> PREV-BUFFERS.

@@ -4002,6 +4002,83 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "window-start" => Some(
+                crate::emacs_core::window_cmds::builtin_window_start_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-group-start" => Some(
+                crate::emacs_core::window_cmds::builtin_window_group_start_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-point" => Some(
+                crate::emacs_core::window_cmds::builtin_window_point_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-use-time" => Some(
+                crate::emacs_core::window_cmds::builtin_window_use_time_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-old-point" => Some(
+                crate::emacs_core::window_cmds::builtin_window_old_point_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-old-buffer" => Some(
+                crate::emacs_core::window_cmds::builtin_window_old_buffer_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-prev-buffers" => Some(
+                crate::emacs_core::window_cmds::builtin_window_prev_buffers_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-next-buffers" => Some(
+                crate::emacs_core::window_cmds::builtin_window_next_buffers_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-start" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_start_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-group-start" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_group_start_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-point" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_point_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "frame-visible-p" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_visible_p_in_state(
                     &*self.shared.frames,
