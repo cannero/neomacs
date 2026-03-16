@@ -182,6 +182,33 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
 }
 
 #[test]
+fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
+    let other_id = eval.buffers.create_buffer("*mode-line-eval*");
+    eval.buffers
+        .set_buffer_local_property(other_id, "mode-name", Value::string("Neo"))
+        .expect("mode-name local should set");
+
+    let rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::list(vec![
+                Value::string("%b "),
+                Value::list(vec![Value::symbol(":eval"), Value::symbol("mode-name")]),
+            ]),
+            Value::Nil,
+            Value::Nil,
+            Value::Buffer(other_id),
+        ],
+    )
+    .expect("format-mode-line eval");
+
+    assert_eq!(rendered, Value::string("*mode-line-eval* Neo"));
+    assert_eq!(eval.buffers.current_buffer_id(), Some(saved_current));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {
