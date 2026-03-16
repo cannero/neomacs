@@ -6891,7 +6891,13 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_x_create_frame_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::window_cmds::builtin_x_create_frame)
+        let (frames, buffers, display_host) = self.shared.gui_frame_creation_state();
+        crate::emacs_core::window_cmds::builtin_x_create_frame_in_state(
+            frames,
+            buffers,
+            display_host,
+            args.to_vec(),
+        )
     }
 
     fn builtin_yes_or_no_p_shared(&mut self, args: &[Value]) -> EvalResult {

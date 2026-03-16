@@ -409,6 +409,26 @@ impl<'a> VmSharedState<'a> {
         self.read_command_keys.as_slice()
     }
 
+    pub(crate) fn display_host_mut(&mut self) -> &mut Option<Box<dyn DisplayHost>> {
+        self.display_host
+    }
+
+    pub(crate) fn gui_frame_creation_state(
+        &mut self,
+    ) -> (
+        &mut FrameManager,
+        &mut BufferManager,
+        &mut Option<Box<dyn DisplayHost>>,
+    ) {
+        let Self {
+            frames,
+            buffers,
+            display_host,
+            ..
+        } = self;
+        (frames, buffers, display_host)
+    }
+
     pub(crate) fn from_evaluator(eval: &'a mut Evaluator) -> Self {
         let parent_eval = std::ptr::NonNull::from(&mut *eval);
         Self::new(

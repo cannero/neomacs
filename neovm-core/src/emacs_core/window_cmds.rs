@@ -4965,7 +4965,11 @@ fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
 }
 
 fn current_gui_frame_metrics(eval: &super::eval::Evaluator) -> GuiFrameMetrics {
-    if let Some(frame) = eval.frames.selected_frame() {
+    current_gui_frame_metrics_in_state(&eval.frames)
+}
+
+fn current_gui_frame_metrics_in_state(frames: &FrameManager) -> GuiFrameMetrics {
+    if let Some(frame) = frames.selected_frame() {
         let minibuffer_height = frame
             .minibuffer_leaf
             .as_ref()
@@ -5001,10 +5005,24 @@ pub(crate) fn builtin_x_create_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_x_create_frame_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        &mut eval.display_host,
+        args,
+    )
+}
+
+pub(crate) fn builtin_x_create_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("x-create-frame", &args, 1)?;
 
     let parsed = parse_gui_frame_params(args.first());
-    let metrics = current_gui_frame_metrics(eval);
+    let metrics = current_gui_frame_metrics_in_state(frames);
     let width_px = parsed
         .width_columns
         .map(|cols| ((cols as f32 * metrics.char_width).round().max(1.0)) as u32)
@@ -5023,20 +5041,16 @@ pub(crate) fn builtin_x_create_frame(
         .or_else(|| parsed.name.clone())
         .unwrap_or_else(|| "Neomacs".to_string());
     let name = parsed.name.clone().unwrap_or_else(|| title.clone());
-    let current_buffer_id = eval
-        .buffers
+    let current_buffer_id = buffers
         .current_buffer()
         .map(|buffer| buffer.id)
-        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
-    let minibuffer_buffer_id = eval.buffers.find_buffer_by_name(" *Minibuf-0*");
-    let fid = eval
-        .frames
-        .create_frame(&name, width_px, height_px, current_buffer_id);
+        .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
+    let minibuffer_buffer_id = buffers.find_buffer_by_name(" *Minibuf-0*");
+    let fid = frames.create_frame(&name, width_px, height_px, current_buffer_id);
     let root_height = (height_px as f32 - metrics.minibuffer_height).max(metrics.char_height);
     let minibuffer_y = root_height;
     {
-        let frame = eval
-            .frames
+        let frame = frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         frame.name = name.clone();
@@ -5072,7 +5086,7 @@ pub(crate) fn builtin_x_create_frame(
             ));
         }
     }
-    if let Some(host) = eval.display_host.as_mut() {
+    if let Some(host) = display_host.as_mut() {
         host.realize_gui_frame(super::eval::GuiFrameHostRequest {
             frame_id: fid,
             width: width_px,
