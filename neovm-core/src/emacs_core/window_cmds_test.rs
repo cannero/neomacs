@@ -2366,6 +2366,38 @@ fn frame_old_selected_window_matches_batch_and_arity_semantics() {
 }
 
 #[test]
+fn frame_old_selected_window_direct_wrapper_matches_batch_nil_semantics() {
+    let mut ev = Evaluator::new();
+    let fid = super::ensure_selected_frame_id(&mut ev);
+
+    assert_eq!(
+        super::builtin_frame_old_selected_window(&mut ev, vec![]).unwrap(),
+        Value::Nil
+    );
+    assert_eq!(
+        super::builtin_frame_old_selected_window(&mut ev, vec![Value::Nil]).unwrap(),
+        Value::Nil
+    );
+    assert_eq!(
+        super::builtin_frame_old_selected_window(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
+        Value::Nil
+    );
+
+    let err = super::builtin_frame_old_selected_window(&mut ev, vec![Value::Int(999999)])
+        .expect_err("invalid frame should signal");
+    match err {
+        crate::emacs_core::error::Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(
+                sig.data,
+                vec![Value::symbol("frame-live-p"), Value::Int(999999)]
+            );
+        }
+        other => panic!("expected wrong-type-argument, got {other:?}"),
+    }
+}
+
+#[test]
 fn selected_frame_returns_frame_handle() {
     let r = eval_one_with_frame(
         "(let ((f (selected-frame)))

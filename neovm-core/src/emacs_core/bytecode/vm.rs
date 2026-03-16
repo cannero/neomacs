@@ -4493,6 +4493,20 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "frame-old-selected-window" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_old_selected_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-frame-selected-window" => Some(
+                crate::emacs_core::window_cmds::builtin_set_frame_selected_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "frame-first-window" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_first_window_in_state(
                     self.shared.frames,

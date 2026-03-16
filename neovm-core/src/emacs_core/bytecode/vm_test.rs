@@ -829,6 +829,25 @@ fn vm_frame_parameter_and_resize_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_frame_selected_window_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w1 (selected-window))
+                      (w2 (split-window-internal (selected-window) nil nil nil)))
+                 (prog1
+                     (list (eq (frame-old-selected-window) nil)
+                           (eq (set-frame-selected-window nil w2) w2)
+                           (eq (selected-window) w2)
+                           (eq (set-frame-selected-window nil w1 t) w1)
+                           (eq (selected-window) w1))
+                   (select-window w1)
+                   (delete-window w2)))"#
+        ),
+        "OK (t t t t t)"
+    );
+}
+
+#[test]
 fn vm_window_state_accessors_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

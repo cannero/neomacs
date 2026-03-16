@@ -787,8 +787,16 @@ pub(crate) fn builtin_frame_old_selected_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_old_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_old_selected_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-old-selected-window", &args, 1)?;
-    let _ = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let _ = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
     Ok(Value::Nil)
 }
 
@@ -797,12 +805,20 @@ pub(crate) fn builtin_set_frame_selected_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_frame_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_frame_selected_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-frame-selected-window", &args, 2)?;
     expect_max_args("set-frame-selected-window", &args, 3)?;
-    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
     let wid = match window_id_from_designator(&args[1]) {
         Some(wid) => {
-            if eval.frames.find_window_frame_id(wid).is_none() {
+            if frames.find_window_frame_id(wid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("window-live-p"), args[1]],
@@ -817,8 +833,7 @@ pub(crate) fn builtin_set_frame_selected_window(
             ));
         }
     };
-    let window_fid = eval
-        .frames
+    let window_fid = frames
         .find_window_frame_id(wid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     if window_fid != fid {
@@ -829,17 +844,16 @@ pub(crate) fn builtin_set_frame_selected_window(
             )],
         ));
     }
-    let selected_fid = ensure_selected_frame_id(eval);
+    let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
     if fid == selected_fid {
         let mut select_args = vec![window_value(wid)];
         if let Some(norecord) = args.get(2) {
             select_args.push(*norecord);
         }
-        return builtin_select_window(eval, select_args);
+        return builtin_select_window_in_state(frames, buffers, select_args);
     }
 
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.selected_window = wid;
