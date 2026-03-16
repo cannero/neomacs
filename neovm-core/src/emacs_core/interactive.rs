@@ -18,9 +18,9 @@ use super::eval::{Evaluator, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{
-    KeyEvent, format_key_event, format_key_sequence, is_list_keymap, key_event_to_emacs_event,
-    list_keymap_for_each_binding, list_keymap_lookup_one, list_keymap_lookup_seq, make_list_keymap,
-    make_sparse_list_keymap,
+    KeyEvent, expand_meta_prefix_char_events_in_obarray, format_key_event, format_key_sequence,
+    is_list_keymap, key_event_to_emacs_event, list_keymap_for_each_binding, list_keymap_lookup_one,
+    list_keymap_lookup_seq, make_list_keymap, make_sparse_list_keymap,
 };
 use super::mode::{MajorMode, MinorMode};
 use super::symbol::Obarray;
@@ -1752,47 +1752,62 @@ pub(crate) fn builtin_key_binding_in_state(
 
     let emacs_events: Vec<Value> = events.iter().map(key_event_to_emacs_event).collect();
 
-    if let Some(value) =
-        key_binding_lookup_in_minor_mode_maps_in_state(obarray, dynamic, &emacs_events)
+    let lookup_binding = |emacs_events: &[Value]| -> Option<Value> {
+        if let Some(value) =
+            key_binding_lookup_in_minor_mode_maps_in_state(obarray, dynamic, emacs_events)
+        {
+            return Some(key_binding_apply_remap_in_state(
+                obarray,
+                dynamic,
+                current_local_map,
+                value,
+                no_remap,
+            ));
+        }
+
+        if !current_local_map.is_nil() {
+            if let Some(value) =
+                key_binding_lookup_in_keymap_in_obarray(obarray, &current_local_map, emacs_events)
+            {
+                return Some(key_binding_apply_remap_in_state(
+                    obarray,
+                    dynamic,
+                    current_local_map,
+                    value,
+                    no_remap,
+                ));
+            }
+        }
+
+        let global = get_global_keymap_in_obarray(obarray);
+        if !global.is_nil() {
+            if let Some(value) =
+                key_binding_lookup_in_keymap_in_obarray(obarray, &global, emacs_events)
+            {
+                return Some(key_binding_apply_remap_in_state(
+                    obarray,
+                    dynamic,
+                    current_local_map,
+                    value,
+                    no_remap,
+                ));
+            }
+        }
+
+        None
+    };
+
+    if let Some(value) = lookup_binding(&emacs_events) {
+        return Ok(value);
+    }
+
+    if let Some(expanded_events) = expand_meta_prefix_char_events_in_obarray(obarray, &emacs_events)
     {
-        return Ok(key_binding_apply_remap_in_state(
-            obarray,
-            dynamic,
-            current_local_map,
-            value,
-            no_remap,
-        ));
-    }
-
-    // Try local map first, then global.
-    if !current_local_map.is_nil() {
-        if let Some(value) =
-            key_binding_lookup_in_keymap_in_obarray(obarray, &current_local_map, &emacs_events)
-        {
-            return Ok(key_binding_apply_remap_in_state(
-                obarray,
-                dynamic,
-                current_local_map,
-                value,
-                no_remap,
-            ));
+        if let Some(value) = lookup_binding(&expanded_events) {
+            return Ok(value);
         }
     }
 
-    let global = get_global_keymap_in_obarray(obarray);
-    if !global.is_nil() {
-        if let Some(value) =
-            key_binding_lookup_in_keymap_in_obarray(obarray, &global, &emacs_events)
-        {
-            return Ok(key_binding_apply_remap_in_state(
-                obarray,
-                dynamic,
-                current_local_map,
-                value,
-                no_remap,
-            ));
-        }
-    }
     // Fallback: unbound printable chars default to self-insert-command
     if events.len() == 1 && is_plain_printable_char_event(&events[0]) {
         return Ok(Value::symbol("self-insert-command"));

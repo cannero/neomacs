@@ -5,9 +5,10 @@ use crate::emacs_core::symbol::Obarray;
 // Keymap builtins
 // ===========================================================================
 use super::keymap::{
-    KeyEvent, is_list_keymap, key_event_to_emacs_event, list_keymap_accessible, list_keymap_copy,
-    list_keymap_define_seq, list_keymap_lookup_one, list_keymap_parent, list_keymap_set_parent,
-    make_list_keymap, make_sparse_list_keymap,
+    KeyEvent, expand_meta_prefix_char_events_in_obarray, is_list_keymap, key_event_to_emacs_event,
+    list_keymap_accessible, list_keymap_copy, list_keymap_define_seq_in_obarray,
+    list_keymap_lookup_one, list_keymap_parent, list_keymap_set_parent, make_list_keymap,
+    make_sparse_list_keymap,
 };
 
 /// Validate that a value is a keymap, returning it if so.
@@ -257,7 +258,7 @@ pub(super) fn builtin_define_key(
     let keymap = expect_keymap(eval, &args[0])?;
     let events = expect_key_events(&args[1])?;
     let def = args[2];
-    list_keymap_define_seq(keymap, &events, def);
+    list_keymap_define_seq_in_obarray(eval.obarray(), keymap, &events, def);
     Ok(def)
 }
 
@@ -280,7 +281,17 @@ pub(crate) fn builtin_lookup_key_in_obarray(obarray: &Obarray, args: &[Value]) -
         return Ok(keymap);
     }
 
-    Ok(lookup_key_in_obarray(obarray, &keymap, &events))
+    let direct = lookup_key_in_obarray(obarray, &keymap, &events);
+    if direct.is_nil() || matches!(direct, Value::Int(_)) {
+        if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(obarray, &events) {
+            let expanded_result = lookup_key_in_obarray(obarray, &keymap, &expanded);
+            if !expanded_result.is_nil() {
+                return Ok(expanded_result);
+            }
+        }
+    }
+
+    Ok(direct)
 }
 
 fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value]) -> Value {
@@ -328,7 +339,7 @@ pub(super) fn builtin_global_set_key(
     let global = ensure_global_keymap(eval);
     let events = expect_key_events(&args[0])?;
     let def = args[1];
-    list_keymap_define_seq(global, &events, def);
+    list_keymap_define_seq_in_obarray(eval.obarray(), global, &events, def);
     Ok(def)
 }
 
@@ -347,7 +358,7 @@ pub(super) fn builtin_local_set_key(
     };
     let events = expect_key_events(&args[0])?;
     let def = args[1];
-    list_keymap_define_seq(local, &events, def);
+    list_keymap_define_seq_in_obarray(eval.obarray(), local, &events, def);
     Ok(def)
 }
 

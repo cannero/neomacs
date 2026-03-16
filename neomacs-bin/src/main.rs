@@ -437,6 +437,7 @@ mod tests {
     use neovm_core::emacs_core::Value;
     use neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features;
     use neovm_core::emacs_core::parse_forms;
+    use neovm_core::emacs_core::print_value_with_eval;
     use neovm_core::window::FrameId;
 
     #[test]
@@ -527,6 +528,39 @@ mod tests {
         assert_eq!(
             result,
             Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default")
+        );
+    }
+
+    #[test]
+    fn gnu_startup_restores_meta_and_ctl_x_bindings() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(list
+                 (key-binding (kbd "M-x"))
+                 (lookup-key (current-global-map) (kbd "M-x"))
+                 (key-binding (kbd "C-x 2"))
+                 (lookup-key (current-global-map) (kbd "C-x 2"))
+                 (key-binding (kbd "C-x 3"))
+                 (lookup-key (current-global-map) (kbd "C-x 3")))"#,
+        )
+        .expect("parse startup keybinding probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup keybinding probe should evaluate");
+        assert_eq!(
+            print_value_with_eval(&mut eval, &result),
+            "(execute-extended-command execute-extended-command split-window-below split-window-below split-window-right split-window-right)"
         );
     }
 }

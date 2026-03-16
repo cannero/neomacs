@@ -387,7 +387,11 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
             let ch = (keysym + 0x60) as u8 as char; // 0x18 → 'x'
             return Some(KeyEvent {
                 key: Key::Char(ch),
-                modifiers: Modifiers { ctrl: true, ..mods },
+                modifiers: Modifiers {
+                    ctrl: true,
+                    shift: false,
+                    ..mods
+                },
             });
         }
         // Printable ASCII
@@ -413,10 +417,15 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
         _ => return None,
     };
 
-    Some(KeyEvent {
-        key,
-        modifiers: mods,
-    })
+    let modifiers = match key {
+        Key::Char(_) => Modifiers {
+            shift: false,
+            ..mods
+        },
+        Key::Named(_) => mods,
+    };
+
+    Some(KeyEvent { key, modifiers })
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,5 +1128,20 @@ mod tests {
         let event = keysym_to_key_event(0x78, RENDER_CTRL_MASK).unwrap();
         assert_eq!(event.key, Key::Char('x'));
         assert!(event.modifiers.ctrl);
+    }
+
+    #[test]
+    fn keysym_shifted_uppercase_char_drops_shift_modifier() {
+        let event = keysym_to_key_event('A' as u32, RENDER_SHIFT_MASK).unwrap();
+        assert_eq!(event.key, Key::Char('A'));
+        assert!(!event.modifiers.shift);
+    }
+
+    #[test]
+    fn keysym_ctrl_shift_x_drops_shift_modifier() {
+        let event = keysym_to_key_event(0x18, RENDER_CTRL_MASK | RENDER_SHIFT_MASK).unwrap();
+        assert_eq!(event.key, Key::Char('x'));
+        assert!(event.modifiers.ctrl);
+        assert!(!event.modifiers.shift);
     }
 }

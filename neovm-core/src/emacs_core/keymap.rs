@@ -13,6 +13,7 @@ use super::intern::resolve_sym;
 use super::keyboard::pure::{
     KEY_CHAR_CODE_MASK, KEY_CHAR_CTRL, KEY_CHAR_META, KEY_CHAR_SHIFT, KEY_CHAR_SUPER,
 };
+use super::symbol::Obarray;
 use super::value::{Value, read_cons};
 
 // ---------------------------------------------------------------------------
@@ -505,6 +506,42 @@ fn events_match(a: &Value, b: &Value) -> bool {
     }
 }
 
+pub(crate) fn expand_meta_prefix_char_events_in_obarray(
+    obarray: &Obarray,
+    events: &[Value],
+) -> Option<Vec<Value>> {
+    let meta_prefix = match obarray.symbol_value("meta-prefix-char").copied() {
+        Some(Value::Int(code)) => code,
+        _ => return None,
+    };
+
+    let mut changed = false;
+    let mut expanded = Vec::with_capacity(events.len() + 1);
+    for event in events {
+        match event {
+            Value::Int(code) if (*code & KEY_CHAR_META) != 0 => {
+                changed = true;
+                expanded.push(Value::Int(meta_prefix));
+                expanded.push(Value::Int(*code & !KEY_CHAR_META));
+            }
+            _ => expanded.push(*event),
+        }
+    }
+
+    changed.then_some(expanded)
+}
+
+fn resolve_prefix_keymap_binding_in_obarray(obarray: &Obarray, binding: &Value) -> Option<Value> {
+    if is_list_keymap(binding) {
+        return Some(*binding);
+    }
+    let sym_name = binding.as_symbol_name()?;
+    obarray
+        .symbol_function(sym_name)
+        .copied()
+        .filter(is_list_keymap)
+}
+
 /// Define a binding in a keymap.
 ///
 /// For integer events without modifier bits in full keymaps: stores in char-table.
@@ -866,6 +903,39 @@ pub fn list_keymap_define_seq(keymap: Value, events: &[Value], def: Value) {
             current_map = binding;
         } else {
             // Create a new prefix keymap
+            let prefix_map = make_sparse_list_keymap();
+            list_keymap_define(current_map, *event, prefix_map);
+            current_map = prefix_map;
+        }
+    }
+}
+
+/// Define a key in a keymap, resolving symbol prefix bindings through the
+/// obarray before auto-creating nested prefix maps.
+pub fn list_keymap_define_seq_in_obarray(
+    obarray: &Obarray,
+    keymap: Value,
+    events: &[Value],
+    def: Value,
+) {
+    if events.is_empty() {
+        return;
+    }
+    if events.len() == 1 {
+        list_keymap_define(keymap, events[0], def);
+        return;
+    }
+
+    let mut current_map = keymap;
+    for (i, event) in events.iter().enumerate() {
+        if i == events.len() - 1 {
+            list_keymap_define(current_map, *event, def);
+            return;
+        }
+        let binding = list_keymap_lookup_one(&current_map, event);
+        if let Some(prefix_map) = resolve_prefix_keymap_binding_in_obarray(obarray, &binding) {
+            current_map = prefix_map;
+        } else {
             let prefix_map = make_sparse_list_keymap();
             list_keymap_define(current_map, *event, prefix_map);
             current_map = prefix_map;

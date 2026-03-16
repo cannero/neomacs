@@ -742,6 +742,27 @@ fn bootstrap_runtime_loads_gnu_subr_helpers() {
 }
 
 #[test]
+fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (lookup-key (current-global-map) "\e")
+             (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\C-x")
+             (lookup-key ctl-x-map "2")
+             (lookup-key ctl-x-map "3")
+             (lookup-key (current-global-map) "\e\e\e")
+             (lookup-key (current-global-map) "\C-x\C-z"))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (ESC-prefix execute-extended-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-emacs)"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_loads_gnu_window_split_entry_point() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(

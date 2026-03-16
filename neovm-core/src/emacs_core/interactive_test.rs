@@ -1408,6 +1408,73 @@ fn global_key_binding_bootstrap_wrong_arity_matches_lisp() {
 }
 
 #[test]
+fn key_binding_and_lookup_key_follow_meta_prefix_char() {
+    assert_eq!(
+        eval_one(
+            r#"(let ((g (make-sparse-keymap))
+                     (esc (make-sparse-keymap)))
+                 (define-key esc "x" 'execute-extended-command)
+                 (define-key g "\e" esc)
+                 (use-global-map g)
+                 (list (key-binding [134217848])
+                       (lookup-key g [134217848])))"#
+        ),
+        "OK (execute-extended-command execute-extended-command)"
+    );
+}
+
+#[test]
+fn key_binding_and_lookup_key_follow_ctl_x_prefix_map() {
+    assert_eq!(
+        eval_one(
+            r#"(let ((g (make-sparse-keymap))
+                     (ctlx (make-sparse-keymap)))
+                 (define-key ctlx "2" 'split-window-below)
+                 (define-key ctlx "3" 'split-window-right)
+                 (define-key g "\C-x" ctlx)
+                 (use-global-map g)
+                 (list (key-binding [24 50])
+                       (lookup-key g [24 50])
+                       (key-binding [24 51])
+                       (lookup-key g [24 51])))"#
+        ),
+        "OK (split-window-below split-window-below split-window-right split-window-right)"
+    );
+}
+
+#[test]
+fn define_key_sequence_preserves_gnu_prefix_symbol_bindings() {
+    assert_eq!(
+        eval_one(
+            r#"(let ((esc (make-keymap))
+                     (ctlx (make-keymap))
+                     (g (make-keymap)))
+                 (fset 'ESC-prefix esc)
+                 (fset 'Control-X-prefix ctlx)
+                 (define-key esc "x" 'execute-extended-command)
+                 (define-key ctlx "2" 'split-window-below)
+                 (define-key ctlx "3" 'split-window-right)
+                 (define-key g "\e" 'ESC-prefix)
+                 (define-key g "\C-x" 'Control-X-prefix)
+                 (define-key g "\e\e\e" 'keyboard-escape-quit)
+                 (define-key g "\C-x\C-z" 'suspend-emacs)
+                 (use-global-map g)
+                 (list (lookup-key g "\e")
+                       (lookup-key esc "x")
+                       (lookup-key g "\C-x")
+                       (lookup-key ctlx "2")
+                       (lookup-key ctlx "3")
+                       (lookup-key g "\e\e\e")
+                       (lookup-key g "\C-x\C-z")
+                       (key-binding [134217848])
+                       (key-binding [24 50])
+                       (key-binding [24 51])))"#
+        ),
+        "OK (ESC-prefix execute-extended-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-emacs execute-extended-command split-window-below split-window-right)"
+    );
+}
+
+#[test]
 fn local_key_binding_nil_when_no_local_map() {
     let mut ev = Evaluator::new();
     let result = builtin_local_key_binding(&mut ev, vec![Value::string("\x03")]).unwrap();

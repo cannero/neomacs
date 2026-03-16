@@ -4704,7 +4704,12 @@ impl<'a> Vm<'a> {
                     )?;
                 let events = crate::emacs_core::builtins::keymaps::expect_key_events(&args[1])?;
                 let def = args[2];
-                crate::emacs_core::keymap::list_keymap_define_seq(keymap, &events, def);
+                crate::emacs_core::keymap::list_keymap_define_seq_in_obarray(
+                    self.shared.obarray,
+                    keymap,
+                    &events,
+                    def,
+                );
                 Ok(def)
             })()),
             "get" => Some((|| -> EvalResult {

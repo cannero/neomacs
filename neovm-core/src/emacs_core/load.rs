@@ -5,6 +5,7 @@ use super::eval::{collect_opaque_values, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
+use super::keymap::{is_list_keymap, list_keymap_lookup_one};
 use super::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap, with_heap_mut};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -2687,12 +2688,161 @@ fn normalize_bootstrap_runtime_surface(
     Ok(())
 }
 
+fn eval_first_form_after_marker(
+    eval: &mut super::eval::Evaluator,
+    path: &Path,
+    source: &str,
+    marker: &str,
+) -> Result<(), EvalError> {
+    let start = source.find(marker).ok_or_else(|| EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![Value::string(format!(
+            "runtime prefix restore: missing GNU subr marker {marker}"
+        ))],
+    })?;
+    let forms = crate::emacs_core::parser::parse_forms(&source[start..]).map_err(|err| {
+        EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![Value::string(format!(
+                "runtime prefix restore: failed parsing {} from {marker}: {err:?}",
+                path.display()
+            ))],
+        }
+    })?;
+    let form = forms.first().ok_or_else(|| EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![Value::string(format!(
+            "runtime prefix restore: no GNU subr form after {marker}"
+        ))],
+    })?;
+    eval.eval_expr(form)?;
+    Ok(())
+}
+
+fn restore_runtime_prefix_keymaps_from_subr(
+    eval: &mut super::eval::Evaluator,
+    project_root: &Path,
+) -> Result<(), EvalError> {
+    let required_pairs = [
+        ("ESC-prefix", "esc-map"),
+        ("Control-X-prefix", "ctl-x-map"),
+        ("ctl-x-4-prefix", "ctl-x-4-map"),
+        ("ctl-x-5-prefix", "ctl-x-5-map"),
+    ];
+
+    let needs_restore = required_pairs.iter().any(|(alias, variable)| {
+        let alias_ok = eval
+            .obarray()
+            .symbol_function(alias)
+            .is_some_and(is_list_keymap);
+        let variable_ok = eval
+            .obarray()
+            .symbol_value(variable)
+            .is_some_and(is_list_keymap);
+        !(alias_ok && variable_ok)
+    });
+    if !needs_restore {
+        return Ok(());
+    }
+
+    let subr_path = project_root.join("lisp/subr.el");
+    let subr_source = fs::read_to_string(&subr_path).map_err(|err| EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![Value::string(format!(
+            "runtime prefix restore: failed reading {}: {err}",
+            subr_path.display()
+        ))],
+    })?;
+
+    for marker in [
+        "(defvar esc-map",
+        "(fset 'ESC-prefix esc-map)",
+        "(defvar ctl-x-4-map",
+        "(defalias 'ctl-x-4-prefix ctl-x-4-map)",
+        "(defvar ctl-x-5-map",
+        "(defalias 'ctl-x-5-prefix ctl-x-5-map)",
+        "(defvar ctl-x-map",
+        "(fset 'Control-X-prefix ctl-x-map)",
+        "(defvar global-map",
+        "(use-global-map global-map)",
+    ] {
+        eval_first_form_after_marker(eval, &subr_path, &subr_source, marker)?;
+    }
+
+    Ok(())
+}
+
+fn runtime_global_prefix_links_need_repair(eval: &super::eval::Evaluator) -> bool {
+    let global = eval
+        .obarray()
+        .symbol_value("global-map")
+        .copied()
+        .filter(is_list_keymap);
+    let Some(global) = global else {
+        return true;
+    };
+
+    let esc = list_keymap_lookup_one(&global, &Value::Int(27));
+    let ctl_x = list_keymap_lookup_one(&global, &Value::Int(24));
+    esc.as_symbol_name() != Some("ESC-prefix") || ctl_x.as_symbol_name() != Some("Control-X-prefix")
+}
+
+fn repair_runtime_global_prefix_links(
+    eval: &mut super::eval::Evaluator,
+    project_root: &Path,
+) -> Result<(), EvalError> {
+    if !runtime_global_prefix_links_need_repair(eval) {
+        return Ok(());
+    }
+
+    for rel_path in ["lisp/subr.el", "lisp/bindings.el"] {
+        let path = project_root.join(rel_path);
+        let source = fs::read_to_string(&path).map_err(|err| EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![Value::string(format!(
+                "runtime global prefix repair: failed reading {}: {err}",
+                path.display()
+            ))],
+        })?;
+        let forms =
+            crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "runtime global prefix repair: failed parsing {}: {err:?}",
+                    path.display()
+                ))],
+            })?;
+        for form in &forms {
+            let Expr::List(items) = form else {
+                continue;
+            };
+            let Some(Expr::Symbol(head_id)) = items.first() else {
+                continue;
+            };
+            if resolve_sym(*head_id) != "define-key" {
+                continue;
+            }
+            let Some(Expr::Symbol(map_id)) = items.get(1) else {
+                continue;
+            };
+            if resolve_sym(*map_id) != "global-map" {
+                continue;
+            }
+            eval.eval_expr(form)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn finalize_cached_bootstrap_eval(
     eval: &mut super::eval::Evaluator,
     project_root: &Path,
 ) -> Result<(), EvalError> {
     ensure_startup_compat_variables(eval, project_root);
     normalize_bootstrap_runtime_surface(eval, project_root)?;
+    restore_runtime_prefix_keymaps_from_subr(eval, project_root)?;
+    repair_runtime_global_prefix_links(eval, project_root)?;
 
     let lisp_dir = project_root.join("lisp");
     eval.set_variable(
