@@ -490,6 +490,7 @@ fn vm_prog1() {
 fn vm_quote() {
     assert_eq!(vm_eval_str("'foo"), "OK foo");
     assert_eq!(vm_eval_str("'(1 2 3)"), "OK (1 2 3)");
+    assert_eq!(vm_eval_str("[remap ignore]"), "OK [remap ignore]");
 }
 
 #[test]
@@ -792,6 +793,55 @@ fn vm_map_keymap_builtins_use_shared_state_and_narrow_callback_bridge() {
                     (reverse seen))))"#
         ),
         "OK ((child-binding parent-binding) (child-binding parent-binding))"
+    );
+}
+
+#[test]
+fn vm_key_lookup_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((g (make-sparse-keymap))
+                      (l (make-sparse-keymap))
+                      (m (make-sparse-keymap)))
+                 (use-global-map g)
+                 (use-local-map l)
+                 (define-key g "a" 'ignore)
+                 (define-key g [remap self-insert-command] 'delete-char)
+                 (define-key l "c" 'self-insert-command)
+                 (define-key m "b" 'forward-char)
+                 (setq minor-mode-map-alist (list (cons 'vm-demo-mode m)))
+                 (setq vm-demo-mode t)
+                 (list (key-binding "a")
+                       (key-binding "c")
+                       (key-binding "c" t t)
+                       (local-key-binding "c")
+                       (minor-mode-key-binding "b")
+                       (condition-case err
+                           (key-binding "a" t nil 0)
+                         (error (car err)))))"#
+        ),
+        "OK (ignore delete-char self-insert-command self-insert-command ((vm-demo-mode . forward-char)) args-out-of-range)"
+    );
+}
+
+#[test]
+fn vm_command_remapping_uses_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((g (make-sparse-keymap))
+                     (m (make-sparse-keymap)))
+                 (use-global-map g)
+                 (define-key g [remap ignore] 'forward-char)
+                 (define-key m [remap ignore] 'delete-char)
+                 (setq minor-mode-map-alist (list (cons 'vm-remap-mode m)))
+                 (setq vm-remap-mode t)
+                 (list (command-remapping 'ignore)
+                       (command-remapping 'ignore nil '(keymap (remap keymap (ignore . self-insert-command))))
+                       (condition-case err
+                           (command-remapping 'ignore 0)
+                         (error (car err)))) )"#
+        ),
+        "OK (delete-char self-insert-command args-out-of-range)"
     );
 }
 

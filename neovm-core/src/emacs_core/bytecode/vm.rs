@@ -2036,6 +2036,41 @@ impl<'a> Vm<'a> {
         }
     }
 
+    fn builtin_command_remapping_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::interactive::builtin_command_remapping_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            *self.shared.current_local_map,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_key_binding_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::interactive::builtin_key_binding_in_state(
+            &mut *self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            *self.shared.current_local_map,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_local_key_binding_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::interactive::builtin_local_key_binding_in_state(
+            *self.shared.current_local_map,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_minor_mode_key_binding_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::interactive::builtin_minor_mode_key_binding_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            args.to_vec(),
+        )
+    }
+
     fn builtin_set_buffer_multibyte_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_set_buffer_multibyte_in_manager(
             &mut *self.shared.buffers,
@@ -3565,6 +3600,10 @@ impl<'a> Vm<'a> {
             ),
             "map-keymap" => Some(self.builtin_map_keymap_shared(args, true)),
             "map-keymap-internal" => Some(self.builtin_map_keymap_shared(args, false)),
+            "command-remapping" => Some(self.builtin_command_remapping_shared(args)),
+            "key-binding" => Some(self.builtin_key_binding_shared(args)),
+            "local-key-binding" => Some(self.builtin_local_key_binding_shared(args)),
+            "minor-mode-key-binding" => Some(self.builtin_minor_mode_key_binding_shared(args)),
             "autoload" => Some(crate::emacs_core::autoload::register_autoload_in_state(
                 self.shared.obarray,
                 self.shared.autoloads,

@@ -204,22 +204,11 @@ impl Compiler {
             }
             Expr::Vector(items) => {
                 if for_value {
-                    // Compile each element, then wrap as vector constant
-                    // For now, if all elements are constants, emit a single constant.
-                    // Otherwise, fall back to runtime construction via builtin.
-                    let all_const = items.iter().all(is_literal);
-                    if all_const {
-                        let vals: Vec<Value> = items.iter().map(literal_to_value).collect();
-                        let idx = func.add_constant(Value::vector(vals));
-                        self.emit_tracked(func, Op::Constant(idx));
-                    } else {
-                        // Compile each element, then call `vector` builtin
-                        for item in items {
-                            self.compile_expr(func, item, true);
-                        }
-                        let name_idx = func.add_symbol("vector");
-                        self.emit_tracked(func, Op::CallBuiltin(name_idx, items.len() as u8));
-                    }
+                    // GNU Emacs treats vectors as self-evaluating objects, so
+                    // `[remap ignore]` is data, not `(vector remap ignore)`.
+                    let vals: Vec<Value> = items.iter().map(literal_to_value).collect();
+                    let idx = func.add_constant(Value::vector(vals));
+                    self.emit_tracked(func, Op::Constant(idx));
                 }
             }
             Expr::List(items) => {

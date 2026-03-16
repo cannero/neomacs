@@ -1172,13 +1172,13 @@ fn key_binding_prefers_minor_and_emulation_mode_maps() {
                      (l (make-sparse-keymap))
                      (m (make-sparse-keymap))
                      (minor-mode-map-alist nil)
-                     (demo-mode t))
+                 (demo-mode t))
                  (use-global-map g)
                  (use-local-map l)
-                 (define-key m (kbd "C-a") 'forward-char)
-                 (define-key l (kbd "C-a") 'self-insert-command)
+                 (define-key m "\x01" 'forward-char)
+                 (define-key l "\x01" 'self-insert-command)
                  (setq minor-mode-map-alist (list (cons 'demo-mode m)))
-                 (key-binding (kbd "C-a")))"#
+                 (key-binding "\x01"))"#
         ),
         "OK forward-char"
     );
@@ -1188,15 +1188,15 @@ fn key_binding_prefers_minor_and_emulation_mode_maps() {
                      (m-minor (make-sparse-keymap))
                      (m-emu (make-sparse-keymap))
                      (minor-mode-map-alist nil)
-                     (emulation-mode-map-alists nil)
-                     (minor-mode t)
-                     (emu-mode t))
+                 (emulation-mode-map-alists nil)
+                 (minor-mode t)
+                 (emu-mode t))
                  (use-global-map g)
-                 (define-key m-minor (kbd "C-a") 'self-insert-command)
-                 (define-key m-emu (kbd "C-a") 'forward-char)
+                 (define-key m-minor "\x01" 'self-insert-command)
+                 (define-key m-emu "\x01" 'forward-char)
                  (setq minor-mode-map-alist (list (cons 'minor-mode m-minor)))
                  (setq emulation-mode-map-alists (list (list (cons 'emu-mode m-emu))))
-                 (key-binding (kbd "C-a")))"#
+                 (key-binding "\x01"))"#
         ),
         "OK forward-char"
     );
@@ -1210,8 +1210,8 @@ fn key_binding_ignores_invalid_active_minor_emulation_entries() {
                      (minor-mode-map-alist '((demo-mode . 999999)))
                      (demo-mode t))
                  (use-global-map g)
-                 (define-key g (kbd "C-a") 'self-insert-command)
-                 (key-binding (kbd "C-a")))"#
+                 (define-key g "\x01" 'self-insert-command)
+                 (key-binding "\x01"))"#
         ),
         "OK self-insert-command"
     );
@@ -1221,8 +1221,8 @@ fn key_binding_ignores_invalid_active_minor_emulation_entries() {
                      (emulation-mode-map-alists (list (list (cons 'demo-mode 999999))))
                      (demo-mode t))
                  (use-global-map g)
-                 (define-key g (kbd "C-a") 'self-insert-command)
-                 (key-binding (kbd "C-a")))"#
+                 (define-key g "\x01" 'self-insert-command)
+                 (key-binding "\x01"))"#
         ),
         "OK self-insert-command"
     );
@@ -1234,11 +1234,11 @@ fn key_binding_applies_command_remapping_unless_no_remap() {
         eval_one(
             r#"(let ((g (make-sparse-keymap)))
                  (use-global-map g)
-                 (define-key g (kbd "a") 'self-insert-command)
+                 (define-key g "a" 'self-insert-command)
                  (define-key g [remap self-insert-command] 'forward-char)
-                 (list (key-binding (kbd "a"))
-                       (key-binding (kbd "a") t nil)
-                       (key-binding (kbd "a") t t)))"#
+                 (list (key-binding "a")
+                       (key-binding "a" t nil)
+                       (key-binding "a" t t)))"#
         ),
         "OK (forward-char forward-char self-insert-command)"
     );
@@ -1246,9 +1246,9 @@ fn key_binding_applies_command_remapping_unless_no_remap() {
         eval_one(
             r#"(let ((g (make-sparse-keymap)))
                  (use-global-map g)
-                 (define-key g (kbd "a") 'self-insert-command)
+                 (define-key g "a" 'self-insert-command)
                  (define-key g [remap self-insert-command] t)
-                 (key-binding (kbd "a")))"#
+                 (key-binding "a"))"#
         ),
         "OK self-insert-command"
     );
@@ -1304,9 +1304,9 @@ fn key_binding_integer_position_out_of_range_signals_args_out_of_range() {
             r#"(with-temp-buffer
                  (let ((g (make-sparse-keymap)))
                    (use-global-map g)
-                   (define-key g (kbd "a") 'forward-char)
+                   (define-key g "a" 'forward-char)
                    (let ((err (condition-case e
-                                  (key-binding (kbd "a") t nil 0)
+                                  (key-binding "a" t nil 0)
                                 (error e))))
                      (list (car err) (bufferp (nth 1 err)) (nth 2 err)))))"#
         ),
@@ -1317,9 +1317,9 @@ fn key_binding_integer_position_out_of_range_signals_args_out_of_range() {
             r#"(with-temp-buffer
                  (let ((g (make-sparse-keymap)))
                    (use-global-map g)
-                   (define-key g (kbd "a") 'forward-char)
+                   (define-key g "a" 'forward-char)
                    (let ((err (condition-case e
-                                  (key-binding (kbd "a") t nil 2)
+                                  (key-binding "a" t nil 2)
                                 (error e))))
                      (list (car err) (bufferp (nth 1 err)) (nth 2 err)))))"#
         ),
@@ -1334,16 +1334,16 @@ fn key_binding_non_integer_position_is_accepted_and_ignored() {
             r#"(with-temp-buffer
                  (let ((g (make-sparse-keymap)))
                    (use-global-map g)
-                   (define-key g (kbd "a") 'forward-char)
+                   (define-key g "a" 'forward-char)
                    (list
-                    (key-binding (kbd "a") t nil 1)
-                    (key-binding (kbd "a") t nil t)
-                    (key-binding (kbd "a") t nil 'foo)
-                    (key-binding (kbd "a") t nil "x")
-                    (key-binding (kbd "a") t nil [1])
-                    (key-binding (kbd "a") t nil '(1))
-                    (key-binding (kbd "a") t nil 1.5)
-                    (key-binding (kbd "a") t nil (copy-marker (point))))))"#
+                    (key-binding "a" t nil 1)
+                    (key-binding "a" t nil t)
+                    (key-binding "a" t nil 'foo)
+                    (key-binding "a" t nil "x")
+                    (key-binding "a" t nil [1])
+                    (key-binding "a" t nil '(1))
+                    (key-binding "a" t nil 1.5)
+                    (key-binding "a" t nil (copy-marker (point))))))"#
         ),
         "OK (forward-char forward-char forward-char forward-char forward-char forward-char forward-char forward-char)"
     );
@@ -1404,13 +1404,13 @@ fn minor_mode_key_binding_returns_first_matching_mode_binding() {
         eval_one(
             r#"(let* ((m1 (make-sparse-keymap))
                       (m2 (make-sparse-keymap)))
-                 (define-key m1 (kbd "C-a") 'ignore)
-                 (define-key m2 (kbd "C-a") 'forward-char)
+                 (define-key m1 "\x01" 'ignore)
+                 (define-key m2 "\x01" 'forward-char)
                  (let ((minor-mode-map-alist (list (cons 'mode1 m1)
                                                    (cons 'mode2 m2)))
                        (mode1 t)
                        (mode2 t))
-                   (minor-mode-key-binding (kbd "C-a"))))"#
+                   (minor-mode-key-binding "\x01")))"#
         ),
         "OK ((mode1 . ignore))"
     );
@@ -1423,7 +1423,7 @@ fn minor_mode_key_binding_invalid_keymap_id_errors_for_active_mode() {
             r#"(let ((minor-mode-map-alist '((demo-mode . 999999)))
                      (demo-mode t))
                  (condition-case err
-                     (minor-mode-key-binding (kbd "C-a"))
+                     (minor-mode-key-binding "\x01")
                    (error err)))"#
         ),
         "OK (wrong-type-argument keymapp 999999)"
@@ -1436,13 +1436,13 @@ fn minor_mode_key_binding_prefers_emulation_mode_maps() {
         eval_one(
             r#"(let* ((m-minor (make-sparse-keymap))
                       (m-emu (make-sparse-keymap)))
-                 (define-key m-minor (kbd "C-a") 'ignore)
-                 (define-key m-emu (kbd "C-a") 'forward-char)
+                 (define-key m-minor "\x01" 'ignore)
+                 (define-key m-emu "\x01" 'forward-char)
                  (let ((emulation-mode-map-alists (list (list (cons 'emu-mode m-emu))))
                        (minor-mode-map-alist (list (cons 'minor-mode m-minor)))
                        (emu-mode t)
                        (minor-mode t))
-                   (minor-mode-key-binding (kbd "C-a"))))"#
+                   (minor-mode-key-binding "\x01")))"#
         ),
         "OK ((emu-mode . forward-char))"
     );
@@ -1454,12 +1454,12 @@ fn minor_mode_key_binding_prefers_overriding_mode_maps() {
         eval_one(
             r#"(let* ((m-over (make-sparse-keymap))
                       (m-minor (make-sparse-keymap)))
-                 (define-key m-over (kbd "C-a") 'forward-char)
-                 (define-key m-minor (kbd "C-a") 'ignore)
+                 (define-key m-over "\x01" 'forward-char)
+                 (define-key m-minor "\x01" 'ignore)
                  (let ((minor-mode-overriding-map-alist (list (cons 'minor-mode m-over)))
                        (minor-mode-map-alist (list (cons 'minor-mode m-minor)))
                        (minor-mode t))
-                   (minor-mode-key-binding (kbd "C-a"))))"#
+                   (minor-mode-key-binding "\x01")))"#
         ),
         "OK ((minor-mode . forward-char))"
     );
@@ -1470,11 +1470,11 @@ fn minor_mode_key_binding_resolves_symbol_emulation_alists() {
     assert_eq!(
         eval_one(
             r#"(let* ((m (make-sparse-keymap)))
-                 (define-key m (kbd "C-a") 'ignore)
+                 (define-key m "\x01" 'ignore)
                  (let ((emu-alist (list (cons 'emu-mode m)))
                        (emulation-mode-map-alists '(emu-alist))
                        (emu-mode t))
-                   (minor-mode-key-binding (kbd "C-a"))))"#
+                   (minor-mode-key-binding "\x01")))"#
         ),
         "OK ((emu-mode . ignore))"
     );
@@ -1487,7 +1487,7 @@ fn minor_mode_key_binding_invalid_emulation_keymap_id_errors() {
             r#"(let ((emulation-mode-map-alists (list (list (cons 'emu-mode 999999))))
                      (emu-mode t))
                  (condition-case err
-                     (minor-mode-key-binding (kbd "C-a"))
+                     (minor-mode-key-binding "\x01")
                    (error err)))"#
         ),
         "OK (wrong-type-argument keymapp 999999)"
