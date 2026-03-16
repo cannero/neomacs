@@ -2429,6 +2429,75 @@ fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_make_process_builtin_uses_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((p (make-process
+                          :name "vm-make-process"
+                          :buffer "vm-make-process-buffer"
+                          :command '("cat")
+                          :filter 'ignore
+                          :sentinel 'ignore)))
+                 (unwind-protect
+                     (list
+                      (processp p)
+                      (equal (process-name p) "vm-make-process")
+                      (equal (process-command p) '("cat"))
+                      (let ((b (process-buffer p)))
+                        (and (bufferp b)
+                             (equal (buffer-name b) "vm-make-process-buffer")))
+                      (eq (process-filter p) 'ignore)
+                      (eq (process-sentinel p) 'ignore))
+                   (ignore-errors (delete-process p))))"#
+        ),
+        "OK (t t t t t t)"
+    );
+}
+
+#[test]
+fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
+    let result = vm_eval_with_init_str(
+        r#"(progn
+             (fset 'vm-accept-filter
+                   (lambda (_proc string) (setq vm-accept-filter-data string)))
+             (fset 'vm-accept-sentinel
+                   (lambda (_proc msg) (setq vm-accept-sentinel-data msg)))
+             (setq vm-accept-filter-data nil
+                   vm-accept-sentinel-data nil)
+             (set-process-filter 1 'vm-accept-filter)
+             (set-process-sentinel 1 'vm-accept-sentinel)
+             (let ((first (accept-process-output 1 0.1))
+                   (second (accept-process-output 1 0.1)))
+               (list first
+                     second
+                     vm-accept-filter-data
+                     vm-accept-sentinel-data
+                     (condition-case err
+                         (accept-process-output 99)
+                       (error (car err)))
+                     (condition-case err
+                         (accept-process-output nil "x")
+                       (error (car err))))))"#,
+        |eval| {
+            let pid = eval.processes.create_process(
+                "vm-accept-process".into(),
+                None,
+                "echo".into(),
+                vec!["out".into()],
+            );
+            assert_eq!(pid, 1);
+            eval.processes.spawn_child(pid).expect("spawn child");
+        },
+    );
+    assert_eq!(
+        result,
+        r#"OK (t nil "out
+" "finished
+" wrong-type-argument wrong-type-argument)"#
+    );
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));

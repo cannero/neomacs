@@ -3982,6 +3982,14 @@ pub(crate) fn builtin_make_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_make_process_in_state(&mut eval.processes, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_make_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::Nil);
     }
@@ -4011,7 +4019,9 @@ pub(crate) fn builtin_make_process(
                     ));
                 }
             },
-            Some(":buffer") => buffer_name = Some(parse_make_process_buffer(eval, &value)?),
+            Some(":buffer") => {
+                buffer_name = Some(parse_make_process_buffer_in_state(buffers, &value)?)
+            }
             Some(":command") => command = Some(parse_make_process_command(&value)?),
             Some(":filter") => filter = value,
             Some(":sentinel") => sentinel = value,
@@ -4033,24 +4043,22 @@ pub(crate) fn builtin_make_process(
     } else {
         (command[0].clone(), command[1..].to_vec())
     };
-    let id = eval
-        .processes
-        .create_process(name, buffer_name.unwrap_or(None), program, argv);
+    let id = processes.create_process(name, buffer_name.unwrap_or(None), program, argv);
 
     // Set filter and sentinel if provided.
     if !filter.is_nil() {
-        if let Some(proc) = eval.processes.get_mut(id) {
+        if let Some(proc) = processes.get_mut(id) {
             proc.filter = filter;
         }
     }
     if !sentinel.is_nil() {
-        if let Some(proc) = eval.processes.get_mut(id) {
+        if let Some(proc) = processes.get_mut(id) {
             proc.sentinel = sentinel;
         }
     }
 
     // Spawn the actual OS child process.
-    if let Err(e) = eval.processes.spawn_child(id) {
+    if let Err(e) = processes.spawn_child(id) {
         return Err(signal(
             "file-error",
             vec![Value::string("Searching for program"), Value::string(e)],
@@ -4058,6 +4066,171 @@ pub(crate) fn builtin_make_process(
     }
 
     Ok(Value::Int(id as i64))
+}
+
+pub(crate) fn builtin_accept_process_output_collect(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> Result<(Value, Vec<(Value, Vec<Value>)>), Flow> {
+    if args.len() > 4 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![
+                Value::symbol("accept-process-output"),
+                Value::Int(args.len() as i64),
+            ],
+        ));
+    }
+
+    if let Some(process) = args.first() {
+        if !process.is_nil()
+            && resolve_live_process_designator_in_manager(processes, process).is_none()
+        {
+            if is_stale_process_id_designator_in_manager(processes, process) {
+                return Ok((Value::Nil, Vec::new()));
+            }
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("processp"), *process],
+            ));
+        }
+    }
+
+    if let Some(seconds) = args.get(1) {
+        if let Some(milliseconds) = args.get(2) {
+            if !milliseconds.is_nil() && !matches!(milliseconds, Value::Int(_)) {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("fixnump"), *milliseconds],
+                ));
+            }
+            if milliseconds.is_nil() {
+                if !seconds.is_nil() && !seconds.is_number() {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("numberp"), *seconds],
+                    ));
+                }
+            } else if !seconds.is_nil() && !matches!(seconds, Value::Int(_)) {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("fixnump"), *seconds],
+                ));
+            }
+        } else if !seconds.is_nil() && !seconds.is_number() {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("numberp"), *seconds],
+            ));
+        }
+    }
+
+    let timeout_ms: Option<u64> = {
+        let secs = args.get(1).and_then(|v| match v {
+            Value::Int(n) if !v.is_nil() => Some(*n as f64),
+            Value::Float(f, _) => Some(*f),
+            _ => None,
+        });
+        let ms = args
+            .get(2)
+            .and_then(|v| match v {
+                Value::Int(n) if !v.is_nil() => Some(*n),
+                _ => None,
+            })
+            .unwrap_or(0);
+        match secs {
+            Some(s) => Some((s * 1000.0) as u64 + ms as u64),
+            None if ms > 0 => Some(ms as u64),
+            _ => Some(50),
+        }
+    };
+
+    let target_id = if let Some(process) = args.first() {
+        if !process.is_nil() {
+            resolve_live_process_designator_in_manager(processes, process)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let proc_ids: Vec<ProcessId> = if let Some(id) = target_id {
+        vec![id]
+    } else {
+        processes.live_process_ids()
+    };
+
+    let start = std::time::Instant::now();
+    let deadline = timeout_ms.map(std::time::Duration::from_millis);
+    let mut got_output = false;
+    let mut callbacks = Vec::new();
+
+    loop {
+        for &pid in &proc_ids {
+            let exited = processes.check_child_exit(pid);
+
+            if let Some(data) = processes.read_child_stdout(pid) {
+                if !data.is_empty() {
+                    got_output = true;
+                    let filter = processes.get(pid).map(|p| p.filter).unwrap_or(Value::Nil);
+                    if !filter.is_nil()
+                        && !filter.is_symbol_named(DEFAULT_PROCESS_FILTER_SYMBOL)
+                        && filter.is_truthy()
+                    {
+                        callbacks
+                            .push((filter, vec![Value::Int(pid as i64), Value::string(&data)]));
+                    }
+                }
+            }
+
+            if exited {
+                let sentinel = processes.get(pid).map(|p| p.sentinel).unwrap_or(Value::Nil);
+                let exit_msg = processes
+                    .get(pid)
+                    .map(|p| match &p.status {
+                        ProcessStatus::Exit(code) => {
+                            if *code == 0 {
+                                "finished\n".to_string()
+                            } else {
+                                format!("exited abnormally with code {}\n", code)
+                            }
+                        }
+                        ProcessStatus::Signal(sig) => format!("killed by signal {}\n", sig),
+                        _ => "finished\n".to_string(),
+                    })
+                    .unwrap_or_else(|| "finished\n".to_string());
+                if !sentinel.is_nil()
+                    && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
+                    && sentinel.is_truthy()
+                {
+                    callbacks.push((
+                        sentinel,
+                        vec![Value::Int(pid as i64), Value::string(&exit_msg)],
+                    ));
+                }
+            }
+        }
+
+        if got_output {
+            return Ok((Value::True, callbacks));
+        }
+
+        if let Some(d) = deadline {
+            if start.elapsed() >= d {
+                return Ok((Value::Nil, callbacks));
+            }
+        } else {
+            return Ok((Value::Nil, callbacks));
+        }
+
+        let elapsed = start.elapsed();
+        let remaining = deadline
+            .and_then(|d| d.checked_sub(elapsed))
+            .unwrap_or(std::time::Duration::from_millis(50));
+        let wait_time = remaining.min(std::time::Duration::from_millis(50));
+        let _ = processes.wait_for_output(wait_time);
+    }
 }
 
 /// (process-send-string PROCESS STRING) -> nil
@@ -4817,185 +4990,11 @@ pub(crate) fn builtin_accept_process_output(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    if args.len() > 4 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("accept-process-output"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
+    let (result, callbacks) = builtin_accept_process_output_collect(&mut eval.processes, args)?;
+    for (callback, callback_args) in callbacks {
+        let _ = eval.apply(callback, callback_args)?;
     }
-
-    if let Some(process) = args.first() {
-        if !process.is_nil() && resolve_live_process_designator(eval, process).is_none() {
-            if is_stale_process_id_designator(eval, process) {
-                return Ok(Value::Nil);
-            }
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("processp"), *process],
-            ));
-        }
-    }
-
-    if let Some(seconds) = args.get(1) {
-        if let Some(milliseconds) = args.get(2) {
-            if !milliseconds.is_nil() && !matches!(milliseconds, Value::Int(_)) {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("fixnump"), *milliseconds],
-                ));
-            }
-            if milliseconds.is_nil() {
-                if !seconds.is_nil() && !seconds.is_number() {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("numberp"), *seconds],
-                    ));
-                }
-            } else if !seconds.is_nil() && !matches!(seconds, Value::Int(_)) {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("fixnump"), *seconds],
-                ));
-            }
-        } else if !seconds.is_nil() && !seconds.is_number() {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("numberp"), *seconds],
-            ));
-        }
-    }
-
-    // Parse timeout.
-    let timeout_ms: Option<u64> = {
-        let secs = args.get(1).and_then(|v| match v {
-            Value::Int(n) if !v.is_nil() => Some(*n as f64),
-            Value::Float(f, _) => Some(*f),
-            _ => None,
-        });
-        let ms = args
-            .get(2)
-            .and_then(|v| match v {
-                Value::Int(n) if !v.is_nil() => Some(*n),
-                _ => None,
-            })
-            .unwrap_or(0);
-        match secs {
-            Some(s) => Some((s * 1000.0) as u64 + ms as u64),
-            None if ms > 0 => Some(ms as u64),
-            _ => Some(50), // Default: short poll
-        }
-    };
-
-    // Resolve target process (if specified).
-    let target_id = if let Some(process) = args.first() {
-        if !process.is_nil() {
-            resolve_live_process_designator(eval, process)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // Collect process IDs to check.
-    let proc_ids: Vec<ProcessId> = if let Some(id) = target_id {
-        vec![id]
-    } else {
-        eval.processes.live_process_ids()
-    };
-
-    // Poll for output with timeout.
-    let start = std::time::Instant::now();
-    let deadline = timeout_ms.map(|ms| std::time::Duration::from_millis(ms));
-    let mut got_output = false;
-
-    loop {
-        // Check each process for output and exit.
-        for &pid in &proc_ids {
-            // Check if child exited.
-            let exited = eval.processes.check_child_exit(pid);
-
-            // Read available stdout.
-            if let Some(data) = eval.processes.read_child_stdout(pid) {
-                if !data.is_empty() {
-                    got_output = true;
-                    // Call process filter if set.
-                    let filter = eval
-                        .processes
-                        .get(pid)
-                        .map(|p| p.filter)
-                        .unwrap_or(Value::Nil);
-                    if !filter.is_nil()
-                        && !filter.is_symbol_named(DEFAULT_PROCESS_FILTER_SYMBOL)
-                        && filter.is_truthy()
-                    {
-                        let proc_val = Value::Int(pid as i64);
-                        let output_val = Value::string(&data);
-                        eval.apply(filter, vec![proc_val, output_val])?;
-                    } else {
-                        // Default filter: output is accumulated in proc.stdout
-                        // (already done by read_child_stdout).
-                    }
-                }
-            }
-
-            // If process exited, call sentinel.
-            if exited {
-                let sentinel = eval
-                    .processes
-                    .get(pid)
-                    .map(|p| p.sentinel)
-                    .unwrap_or(Value::Nil);
-                let exit_msg = eval
-                    .processes
-                    .get(pid)
-                    .map(|p| match &p.status {
-                        ProcessStatus::Exit(code) => {
-                            if *code == 0 {
-                                "finished\n".to_string()
-                            } else {
-                                format!("exited abnormally with code {}\n", code)
-                            }
-                        }
-                        ProcessStatus::Signal(sig) => format!("killed by signal {}\n", sig),
-                        _ => "finished\n".to_string(),
-                    })
-                    .unwrap_or_else(|| "finished\n".to_string());
-                if !sentinel.is_nil()
-                    && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
-                    && sentinel.is_truthy()
-                {
-                    let proc_val = Value::Int(pid as i64);
-                    let msg_val = Value::string(&exit_msg);
-                    eval.apply(sentinel, vec![proc_val, msg_val])?;
-                }
-            }
-        }
-
-        if got_output {
-            return Ok(Value::True);
-        }
-
-        // Check timeout.
-        if let Some(d) = deadline {
-            if start.elapsed() >= d {
-                return Ok(Value::Nil);
-            }
-        } else {
-            return Ok(Value::Nil);
-        }
-
-        // Wait for output using efficient I/O multiplexing (epoll/kqueue/wepoll).
-        let elapsed = start.elapsed();
-        let remaining = deadline
-            .and_then(|d| d.checked_sub(elapsed))
-            .unwrap_or(std::time::Duration::from_millis(50));
-        let wait_time = remaining.min(std::time::Duration::from_millis(50));
-        let _ = eval.processes.wait_for_output(wait_time);
-    }
+    Ok(result)
 }
 
 /// (get-process NAME) -> process-or-nil

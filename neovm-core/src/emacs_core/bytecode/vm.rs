@@ -2351,6 +2351,18 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::builtin_point_in_manager(&*self.shared.buffers, args.to_vec())
     }
 
+    fn builtin_accept_process_output_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (result, callbacks) =
+            crate::emacs_core::process::builtin_accept_process_output_collect(
+                self.shared.processes,
+                args.to_vec(),
+            )?;
+        for (callback, callback_args) in callbacks {
+            let _ = self.call_function_with_roots(callback, &callback_args)?;
+        }
+        Ok(result)
+    }
+
     fn builtin_buffer_list_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_buffer_list_in_manager(
             &*self.shared.buffers,
@@ -4234,6 +4246,12 @@ impl<'a> Vm<'a> {
             "run-hook-with-args-until-success" => {
                 Some(self.builtin_run_hook_with_args_until_success_shared(args))
             }
+            "accept-process-output" => Some(self.builtin_accept_process_output_shared(args)),
+            "make-process" => Some(crate::emacs_core::process::builtin_make_process_in_state(
+                self.shared.processes,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
             "make-network-process" => Some(
                 crate::emacs_core::process::builtin_make_network_process_in_state(
                     self.shared.processes,
