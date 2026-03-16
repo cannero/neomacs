@@ -15,6 +15,21 @@ use neovm_core::window::{Frame, FrameId, Window};
 use super::types::{FrameParams, WindowParams};
 use neomacs_display_protocol::types::Rect;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DisplayLineNumbersMode {
+    Off,
+    Absolute,
+    Relative,
+    Visual,
+}
+
+pub(crate) fn buffer_local_value<'a>(buffer: &'a Buffer, name: &str) -> Option<&'a Value> {
+    buffer
+        .properties
+        .get(name)
+        .and_then(|binding| binding.as_ref())
+}
+
 /// Build `FrameParams` from a neovm-core `Frame`, reading default face
 /// colors from the face table.
 pub fn frame_params_from_neovm(frame: &Frame, face_table: &FaceTable) -> FrameParams {
@@ -47,7 +62,7 @@ pub fn frame_params_from_neovm(frame: &Frame, face_table: &FaceTable) -> FramePa
 
 /// Helper: extract an integer buffer-local variable.
 pub(crate) fn buffer_local_int(buffer: &Buffer, name: &str, default: i64) -> i64 {
-    match buffer.properties.get(name) {
+    match buffer_local_value(buffer, name) {
         Some(Value::Int(n)) => *n,
         _ => default,
     }
@@ -55,9 +70,44 @@ pub(crate) fn buffer_local_int(buffer: &Buffer, name: &str, default: i64) -> i64
 
 /// Helper: extract a boolean buffer-local variable (nil = false, anything else = true).
 pub(crate) fn buffer_local_bool(buffer: &Buffer, name: &str) -> bool {
-    match buffer.properties.get(name) {
+    match buffer_local_value(buffer, name) {
         Some(Value::Nil) | None => false,
         Some(_) => true,
+    }
+}
+
+pub(crate) fn buffer_local_bool_default(buffer: &Buffer, name: &str, default: bool) -> bool {
+    match buffer_local_value(buffer, name) {
+        Some(Value::Nil) => false,
+        Some(_) => true,
+        None => default,
+    }
+}
+
+pub(crate) fn buffer_local_string_owned(buffer: &Buffer, name: &str) -> Option<String> {
+    buffer_local_value(buffer, name).and_then(Value::as_str_owned)
+}
+
+pub(crate) fn buffer_local_list_values(buffer: &Buffer, name: &str) -> Vec<Value> {
+    buffer_local_value(buffer, name)
+        .and_then(list_to_vec)
+        .unwrap_or_default()
+}
+
+pub(crate) fn buffer_display_line_numbers_mode(buffer: &Buffer) -> DisplayLineNumbersMode {
+    match buffer_local_value(buffer, "display-line-numbers") {
+        Some(Value::True) => DisplayLineNumbersMode::Absolute,
+        Some(value) if value.is_symbol_named("relative") => DisplayLineNumbersMode::Relative,
+        Some(value) if value.is_symbol_named("visual") => DisplayLineNumbersMode::Visual,
+        _ => DisplayLineNumbersMode::Off,
+    }
+}
+
+pub(crate) fn buffer_selective_display(buffer: &Buffer) -> i32 {
+    match buffer_local_value(buffer, "selective-display") {
+        Some(Value::Int(n)) => *n as i32,
+        Some(Value::True) => i32::MAX,
+        _ => 0,
     }
 }
 
@@ -127,11 +177,8 @@ pub fn window_params_from_neovm(
     // hide cursor in non-selected minibuffer windows.
     let mini_nonselected_no_cursor = is_minibuffer && !is_selected;
     let cursor_type = if mini_nonselected_no_cursor { 4 } else { 0 };
-    let cursor_in_non_selected = match buffer.properties.get("cursor-in-non-selected-windows") {
-        Some(Value::Nil) => false,
-        Some(_) => true,
-        None => true, // Emacs default is t
-    };
+    let cursor_in_non_selected =
+        buffer_local_bool_default(buffer, "cursor-in-non-selected-windows", true);
 
     // Header-line: show if header-line-format is non-nil
     let header_line_height = if buffer_local_bool(buffer, "header-line-format") {
@@ -166,14 +213,10 @@ pub fn window_params_from_neovm(
         truncate_lines,
         word_wrap,
         tab_width,
-        tab_stop_list: match buffer.properties.get("tab-stop-list") {
-            Some(val) => list_to_vec(val)
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|v| v.as_int().map(|n| n as i32))
-                .collect(),
-            None => Vec::new(),
-        },
+        tab_stop_list: buffer_local_list_values(buffer, "tab-stop-list")
+            .iter()
+            .filter_map(|v| v.as_int().map(|n| n as i32))
+            .collect(),
         default_fg: 0x00000000, // black text (default face foreground)
         default_bg: 0x00FFFFFF, // white background (default face background)
         char_width,
@@ -196,17 +239,13 @@ pub fn window_params_from_neovm(
             as i32,
         fill_column_indicator_char: '|',
         fill_column_indicator_fg: 0,
-        extra_line_spacing: match buffer.properties.get("line-spacing") {
+        extra_line_spacing: match buffer_local_value(buffer, "line-spacing") {
             Some(Value::Int(n)) => *n as f32,
             Some(Value::Float(f, _)) => *f as f32,
             _ => 0.0,
         },
         cursor_in_non_selected,
-        selective_display: match buffer.properties.get("selective-display") {
-            Some(Value::Int(n)) => *n as i32,
-            Some(Value::True) => i32::MAX, // t => CR hides rest of line, no indent threshold
-            _ => 0,
-        },
+        selective_display: buffer_selective_display(buffer),
         escape_glyph_fg: 0,
         nobreak_char_display: 0,
         nobreak_char_fg: 0,

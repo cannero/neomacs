@@ -1505,11 +1505,11 @@ impl LayoutEngine {
         }
 
         // Line number configuration from buffer-local variables
-        let lnum_mode = match buffer.properties.get("display-line-numbers") {
-            Some(neovm_core::emacs_core::Value::True) => 1, // absolute
-            Some(v) if v.is_symbol_named("relative") => 2,
-            Some(v) if v.is_symbol_named("visual") => 3,
-            _ => 0, // off
+        let lnum_mode = match super::neovm_bridge::buffer_display_line_numbers_mode(buffer) {
+            super::neovm_bridge::DisplayLineNumbersMode::Off => 0,
+            super::neovm_bridge::DisplayLineNumbersMode::Absolute => 1,
+            super::neovm_bridge::DisplayLineNumbersMode::Relative => 2,
+            super::neovm_bridge::DisplayLineNumbersMode::Visual => 3,
         };
         let lnum_enabled = lnum_mode > 0;
         let lnum_offset =
@@ -1529,21 +1529,11 @@ impl LayoutEngine {
 
         // Selective display: integer N = hide lines with > N indent + CR hides rest of line;
         // t (True) = only CR hides rest of line (mapped to i32::MAX so indent check never triggers)
-        let selective_display: i32 = match buffer.properties.get("selective-display") {
-            Some(neovm_core::emacs_core::Value::Int(n)) => *n as i32,
-            Some(neovm_core::emacs_core::Value::True) => i32::MAX,
-            _ => 0,
-        };
+        let selective_display = super::neovm_bridge::buffer_selective_display(buffer);
 
         // Line/wrap prefix: read from buffer-local variables
-        let line_prefix_str: Option<String> = buffer
-            .properties
-            .get("line-prefix")
-            .and_then(|v| v.as_str_owned());
-        let wrap_prefix_str: Option<String> = buffer
-            .properties
-            .get("wrap-prefix")
-            .and_then(|v| v.as_str_owned());
+        let line_prefix_str = super::neovm_bridge::buffer_local_string_owned(buffer, "line-prefix");
+        let wrap_prefix_str = super::neovm_bridge::buffer_local_string_owned(buffer, "wrap-prefix");
         let has_prefix = line_prefix_str.is_some() || wrap_prefix_str.is_some();
 
         // Compute line number column width
