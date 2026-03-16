@@ -2197,6 +2197,37 @@ fn vm_text_property_change_queries_use_shared_live_marker_state() {
 }
 
 #[test]
+fn vm_property_query_builtins_use_shared_overlay_precedence_and_stickiness() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "abcd")
+                 (put-text-property 1 2 'carry 'before)
+                 (put-text-property 1 2 'rear-nonsticky '(carry))
+                 (put-text-property 2 3 'carry 'after)
+                 (put-text-property 2 3 'front-sticky '(carry))
+                 (put-text-property 2 3 'face 'text)
+                 (let ((ov-low (make-overlay 2 4 nil t nil))
+                       (ov-high (make-overlay 2 4 nil t nil)))
+                   (overlay-put ov-low 'face 'low)
+                   (overlay-put ov-low 'priority 1)
+                   (overlay-put ov-high 'face 'high)
+                   (overlay-put ov-high 'priority '(10 . 0))
+                   (let ((pair (get-char-property-and-overlay 2 'face)))
+                   (list
+                    (get-char-property 2 'face)
+                    (car pair)
+                    (overlay-get (cdr pair) 'face)
+                    (get-pos-property 2 'face)
+                    (get-pos-property 2 'carry)
+                    (get-pos-property 3 'face)))))"#
+        ),
+        "OK (high high high nil after high)"
+    );
+}
+
+#[test]
 fn vm_add_face_text_property_uses_shared_face_merge_state() {
     assert_eq!(
         vm_eval_str(

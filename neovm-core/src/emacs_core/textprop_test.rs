@@ -1,6 +1,8 @@
 use super::super::eval::Evaluator;
 use super::*;
-use crate::emacs_core::builtins::{builtin_current_buffer, builtin_make_indirect_buffer};
+use crate::emacs_core::builtins::{
+    builtin_current_buffer, builtin_get_pos_property, builtin_make_indirect_buffer,
+};
 
 /// Helper: create an evaluator with a buffer containing the given text.
 fn eval_with_text(text: &str) -> Evaluator {
@@ -161,6 +163,220 @@ fn get_char_property_and_overlay_shape() {
     assert!(matches!(value, Value::Symbol(id) if resolve_sym(id) == "bar"));
     let overlayp = builtin_overlayp(&mut eval, vec![overlay]).unwrap();
     assert!(matches!(overlayp, Value::True));
+}
+
+#[test]
+fn get_char_property_prefers_highest_priority_overlay() {
+    let mut eval = eval_with_text("abcd");
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(3),
+            Value::symbol("face"),
+            Value::symbol("text"),
+        ],
+    )
+    .unwrap();
+
+    let low = builtin_make_overlay(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(4),
+            Value::Nil,
+            Value::True,
+            Value::Nil,
+        ],
+    )
+    .unwrap();
+    let high = builtin_make_overlay(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(4),
+            Value::Nil,
+            Value::True,
+            Value::Nil,
+        ],
+    )
+    .unwrap();
+
+    builtin_overlay_put(
+        &mut eval,
+        vec![low, Value::symbol("face"), Value::symbol("low")],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![low, Value::symbol("priority"), Value::Int(1)],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![high, Value::symbol("face"), Value::symbol("high")],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![
+            high,
+            Value::symbol("priority"),
+            Value::cons(Value::Int(10), Value::Int(0)),
+        ],
+    )
+    .unwrap();
+
+    let char_prop =
+        builtin_get_char_property(&mut eval, vec![Value::Int(2), Value::symbol("face")]).unwrap();
+    assert_eq!(char_prop.as_symbol_name(), Some("high"));
+
+    let pair = builtin_get_char_property_and_overlay(
+        &mut eval,
+        vec![Value::Int(2), Value::symbol("face")],
+    )
+    .unwrap();
+    let Value::Cons(cell) = pair else {
+        panic!("expected cons");
+    };
+    let pair = read_cons(cell);
+    assert_eq!(pair.car.as_symbol_name(), Some("high"));
+    assert_eq!(pair.cdr, high);
+}
+
+#[test]
+fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
+    let mut eval = eval_with_text("abcd");
+
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::symbol("carry"),
+            Value::symbol("before"),
+        ],
+    )
+    .unwrap();
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::symbol("rear-nonsticky"),
+            Value::list(vec![Value::symbol("carry")]),
+        ],
+    )
+    .unwrap();
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(3),
+            Value::symbol("carry"),
+            Value::symbol("after"),
+        ],
+    )
+    .unwrap();
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(3),
+            Value::symbol("front-sticky"),
+            Value::list(vec![Value::symbol("carry")]),
+        ],
+    )
+    .unwrap();
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(3),
+            Value::symbol("face"),
+            Value::symbol("text"),
+        ],
+    )
+    .unwrap();
+
+    let low = builtin_make_overlay(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(4),
+            Value::Nil,
+            Value::True,
+            Value::Nil,
+        ],
+    )
+    .unwrap();
+    let high = builtin_make_overlay(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(4),
+            Value::Nil,
+            Value::True,
+            Value::Nil,
+        ],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![low, Value::symbol("face"), Value::symbol("low")],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![low, Value::symbol("priority"), Value::Int(1)],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![high, Value::symbol("face"), Value::symbol("high")],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![high, Value::symbol("priority"), Value::Int(10)],
+    )
+    .unwrap();
+
+    let start_face =
+        builtin_get_pos_property(&mut eval, vec![Value::Int(2), Value::symbol("face")]).unwrap();
+    assert!(start_face.is_nil());
+
+    let carry =
+        builtin_get_pos_property(&mut eval, vec![Value::Int(2), Value::symbol("carry")]).unwrap();
+    assert_eq!(carry.as_symbol_name(), Some("after"));
+
+    let inside_face =
+        builtin_get_pos_property(&mut eval, vec![Value::Int(3), Value::symbol("face")]).unwrap();
+    assert_eq!(inside_face.as_symbol_name(), Some("high"));
+}
+
+#[test]
+fn get_pos_property_on_string_delegates_to_text_property() {
+    let mut eval = Evaluator::new();
+    let string = Value::string("abcd");
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(4),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+            string,
+        ],
+    )
+    .unwrap();
+
+    let result = builtin_get_pos_property(
+        &mut eval,
+        vec![Value::Int(3), Value::symbol("face"), string],
+    )
+    .unwrap();
+    assert_eq!(result.as_symbol_name(), Some("bold"));
 }
 
 #[test]

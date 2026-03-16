@@ -4,39 +4,61 @@ pub(crate) fn builtin_get_pos_property(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_pos_property_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_pos_property_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("get-pos-property", &args, 2)?;
     expect_max_args("get-pos-property", &args, 3)?;
-    let pos = expect_integer_or_marker(&args[0])?;
-    let Some(prop) = args[1].as_symbol_name() else {
+    let pos = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let prop = super::textprop::expect_symbol_name(&args[1])?;
+
+    if let Some(str_id) = super::textprop::is_string_object(args.get(2)) {
+        let s = with_heap(|h| h.get_string(str_id).to_owned());
+        if let Some(table) = get_string_text_properties_table(str_id) {
+            let byte_pos = super::textprop::string_elisp_pos_to_byte(&s, pos);
+            if let Some(value) = table.get_property(byte_pos, &prop) {
+                return Ok(*value);
+            }
+        }
         return Ok(Value::Nil);
-    };
+    }
 
     let buf_id = match args.get(2) {
-        None | Some(Value::Nil) => eval
-            .buffers
+        None | Some(Value::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
         Some(Value::Buffer(id)) => Ok(*id),
-        Some(Value::Str(_)) => return Ok(Value::Nil),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), *other],
         )),
     }?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-
     let byte_pos = buf.lisp_pos_to_byte(pos);
-    for ov_id in buf.overlays.overlays_at(byte_pos) {
-        if let Some(value) = buf.overlays.overlay_get(ov_id, prop) {
-            return Ok(*value);
-        }
+
+    if let Some((value, _overlay_id)) =
+        super::textprop::buffer_overlay_property_for_inserted_char_at_byte_pos(buf, byte_pos, &prop)
+    {
+        return Ok(value);
     }
-    Ok(Value::Nil)
+
+    match text_property_stickiness_in_state(obarray, dynamic, buf, pos, &prop) {
+        1 => Ok(text_property_value_at_char_pos(buf, pos, &prop)),
+        -1 if pos > buf.point_min_char() as i64 + 1 => {
+            Ok(text_property_value_at_char_pos(buf, pos - 1, &prop))
+        }
+        _ => Ok(Value::Nil),
+    }
 }
 
 pub(crate) fn builtin_next_char_property_change(
@@ -437,13 +459,118 @@ pub(super) fn dynamic_or_global_symbol_value(
     eval: &super::eval::Evaluator,
     name: &str,
 ) -> Option<Value> {
+    dynamic_or_global_symbol_value_in_state(&eval.obarray, &eval.dynamic, name)
+}
+
+pub(super) fn dynamic_or_global_symbol_value_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    name: &str,
+) -> Option<Value> {
     let name_id = intern(name);
-    for frame in eval.dynamic.iter().rev() {
+    for frame in dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
             return Some(*value);
         }
     }
-    eval.obarray.symbol_value(name).cloned()
+    obarray.symbol_value(name).cloned()
+}
+
+fn text_property_stickiness_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buf: &crate::buffer::Buffer,
+    pos: i64,
+    prop: &str,
+) -> i8 {
+    let ignore_previous_character = pos <= buf.point_min_char() as i64 + 1;
+
+    let default_nonsticky = dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "text-property-default-nonsticky",
+    );
+
+    let mut rear_sticky = !(ignore_previous_character
+        || default_nonsticky
+            .and_then(|value| assq_cdr(&value, prop))
+            .is_some_and(|value| value.is_truthy()));
+
+    if rear_sticky && !ignore_previous_character {
+        let previous_props = text_property_value_at_char_pos(buf, pos - 1, "rear-nonsticky");
+        if matches_rear_nonsticky(previous_props, prop) {
+            rear_sticky = false;
+        }
+    }
+
+    let front_sticky = matches_front_sticky(
+        text_property_value_at_char_pos(buf, pos, "front-sticky"),
+        prop,
+    );
+
+    if rear_sticky && !front_sticky {
+        return -1;
+    }
+    if !rear_sticky && front_sticky {
+        return 1;
+    }
+    if !rear_sticky && !front_sticky {
+        return 0;
+    }
+
+    if ignore_previous_character || text_property_value_at_char_pos(buf, pos - 1, prop).is_nil() {
+        1
+    } else {
+        -1
+    }
+}
+
+fn text_property_value_at_char_pos(buf: &crate::buffer::Buffer, pos: i64, prop: &str) -> Value {
+    let byte_pos = buf.lisp_pos_to_byte(pos);
+    buf.text_props
+        .get_property(byte_pos, prop)
+        .copied()
+        .unwrap_or(Value::Nil)
+}
+
+fn matches_front_sticky(value: Value, prop: &str) -> bool {
+    value == Value::True || value_list_contains_symbol(&value, prop)
+}
+
+fn matches_rear_nonsticky(value: Value, prop: &str) -> bool {
+    if value.is_nil() {
+        return false;
+    }
+    if value.is_cons() {
+        return value_list_contains_symbol(&value, prop);
+    }
+    true
+}
+
+fn assq_cdr(list: &Value, prop: &str) -> Option<Value> {
+    let mut cursor = *list;
+    while let Value::Cons(_) = cursor {
+        let entry = cursor.cons_car();
+        if let Value::Cons(_) = entry
+            && entry.cons_car().as_symbol_name() == Some(prop)
+        {
+            return Some(entry.cons_cdr());
+        }
+        cursor = cursor.cons_cdr();
+    }
+    None
+}
+
+fn value_list_contains_symbol(list: &Value, prop: &str) -> bool {
+    let mut cursor = *list;
+    while let Value::Cons(_) = cursor {
+        let item = cursor.cons_car();
+        if item.as_symbol_name() == Some(prop) {
+            return true;
+        }
+        cursor = cursor.cons_cdr();
+    }
+    false
 }
 
 pub(super) fn buffer_read_only_active(

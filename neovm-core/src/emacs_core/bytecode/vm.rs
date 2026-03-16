@@ -3133,6 +3133,14 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "get-pos-property" => Some(
+                crate::emacs_core::builtins::builtin_get_pos_property_in_state(
+                    &*self.shared.obarray,
+                    &*self.shared.dynamic,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "add-text-properties" => Some(
                 crate::emacs_core::textprop::builtin_add_text_properties_in_buffers(
                     self.shared.buffers,

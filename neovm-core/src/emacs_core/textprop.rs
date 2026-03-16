@@ -120,7 +120,7 @@ fn expect_integer_or_marker_in_buffers(
 }
 
 /// Extract a symbol name (for property names).
-fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
+pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
     match value.as_symbol_name() {
         Some(s) => Ok(s.to_string()),
         None => match value {
@@ -357,6 +357,28 @@ pub(crate) fn builtin_get_text_property_in_buffers(
     }
 }
 
+pub(crate) fn buffer_overlay_property_at_byte_pos(
+    buf: &crate::buffer::buffer::Buffer,
+    byte_pos: usize,
+    prop: &str,
+) -> Option<(Value, u64)> {
+    let overlay_id = buf.overlays.highest_priority_overlay_at(byte_pos, prop)?;
+    let value = buf.overlays.overlay_get(overlay_id, prop).copied()?;
+    Some((value, overlay_id))
+}
+
+pub(crate) fn buffer_overlay_property_for_inserted_char_at_byte_pos(
+    buf: &crate::buffer::buffer::Buffer,
+    byte_pos: usize,
+    prop: &str,
+) -> Option<(Value, u64)> {
+    let overlay_id = buf
+        .overlays
+        .highest_priority_overlay_for_inserted_char(byte_pos, prop)?;
+    let value = buf.overlays.overlay_get(overlay_id, prop).copied()?;
+    Some((value, overlay_id))
+}
+
 /// (get-char-property POS PROP &optional OBJECT)
 /// For strings, same as get-text-property (no overlays).
 pub(crate) fn builtin_get_char_property(
@@ -372,9 +394,27 @@ pub(crate) fn builtin_get_char_property_in_buffers(
 ) -> EvalResult {
     expect_min_args("get-char-property", &args, 2)?;
     expect_max_args("get-char-property", &args, 3)?;
-    // For strings, delegate directly (no overlays).
-    // For buffers, also delegate (overlays not yet implemented here).
-    builtin_get_text_property_in_buffers(buffers, args)
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let prop = expect_symbol_name(&args[1])?;
+
+    if is_string_object(args.get(2)).is_some() {
+        return builtin_get_text_property_in_buffers(buffers, args);
+    }
+
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    let buf = buffers
+        .get(buf_id)
+        .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+    let byte_pos = elisp_pos_to_byte(buf, pos);
+
+    if let Some((value, _overlay_id)) = buffer_overlay_property_at_byte_pos(buf, byte_pos, &prop) {
+        return Ok(value);
+    }
+
+    match buf.text_props.get_property(byte_pos, &prop) {
+        Some(value) => Ok(*value),
+        None => Ok(Value::Nil),
+    }
 }
 
 /// (add-text-properties BEG END PROPS &optional OBJECT)
@@ -1201,12 +1241,9 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_buffers(
 
     if let Some(buf) = buffers.get(buf_id) {
         let byte_pos = elisp_pos_to_byte(buf, pos);
-        let overlay_ids = buf.overlays.overlays_at(byte_pos);
-        for ov_id in overlay_ids {
-            if let Some(val) = buf.overlays.overlay_get(ov_id, &prop) {
-                let overlay = make_overlay_value(ov_id, buf_id);
-                return Ok(Value::cons(*val, overlay));
-            }
+        if let Some((value, ov_id)) = buffer_overlay_property_at_byte_pos(buf, byte_pos, &prop) {
+            let overlay = make_overlay_value(ov_id, buf_id);
+            return Ok(Value::cons(value, overlay));
         }
     }
 

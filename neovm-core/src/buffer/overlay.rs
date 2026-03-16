@@ -5,6 +5,7 @@
 //! of properties, and flags controlling whether its endpoints advance when
 //! text is inserted at the boundary.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::emacs_core::value::Value;
@@ -138,6 +139,23 @@ impl OverlayList {
             .collect()
     }
 
+    pub fn highest_priority_overlay_at(&self, pos: usize, property: &str) -> Option<u64> {
+        self.best_overlay_for(property, |ov| ov.start <= pos && pos < ov.end)
+    }
+
+    pub fn highest_priority_overlay_for_inserted_char(
+        &self,
+        pos: usize,
+        property: &str,
+    ) -> Option<u64> {
+        self.best_overlay_for(property, |ov| {
+            !(ov.start == pos && ov.front_advance)
+                && !(ov.end == pos && !ov.rear_advance)
+                && ov.start <= pos
+                && pos <= ov.end
+        })
+    }
+
     /// Adjust all overlay positions after text is inserted at `pos` with
     /// `len` bytes.
     ///
@@ -253,6 +271,89 @@ impl OverlayList {
     }
     pub(crate) fn from_dump(overlays: Vec<Overlay>, next_id: u64) -> Self {
         Self { overlays, next_id }
+    }
+
+    fn best_overlay_for<F>(&self, property: &str, predicate: F) -> Option<u64>
+    where
+        F: Fn(&Overlay) -> bool,
+    {
+        let mut best: Option<&Overlay> = None;
+        for overlay in &self.overlays {
+            if !predicate(overlay) {
+                continue;
+            }
+            let Some(value) = overlay.properties.get(property) else {
+                continue;
+            };
+            if value.is_nil() {
+                continue;
+            }
+            match best {
+                None => best = Some(overlay),
+                Some(current) if compare_overlay_precedence(current, overlay) == Ordering::Less => {
+                    best = Some(overlay);
+                }
+                _ => {}
+            }
+        }
+        best.map(|overlay| overlay.id)
+    }
+}
+
+fn compare_overlay_precedence(left: &Overlay, right: &Overlay) -> Ordering {
+    let (left_priority, left_subpriority) = overlay_priority(left);
+    let (right_priority, right_subpriority) = overlay_priority(right);
+
+    if left_priority != right_priority {
+        return left_priority.cmp(&right_priority);
+    }
+    if left.start < right.start {
+        if left.end < right.end && left_subpriority > right_subpriority {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        }
+    } else if left.start > right.start {
+        if left.end > right.end && left_subpriority < right_subpriority {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    } else if left.end != right.end {
+        if right.end < left.end {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    } else if left_subpriority != right_subpriority {
+        left_subpriority.cmp(&right_subpriority)
+    } else if left.id == right.id {
+        Ordering::Equal
+    } else {
+        left.id.cmp(&right.id)
+    }
+}
+
+fn overlay_priority(overlay: &Overlay) -> (i64, i64) {
+    match overlay.properties.get("priority") {
+        None => (0, 0),
+        Some(value) => match value {
+            Value::Int(n) => (*n, 0),
+            Value::Char(c) => (*c as i64, 0),
+            Value::Cons(_) => (
+                priority_component(value.cons_car()),
+                priority_component(value.cons_cdr()),
+            ),
+            _ => (0, 0),
+        },
+    }
+}
+
+fn priority_component(value: Value) -> i64 {
+    match value {
+        Value::Int(n) => n,
+        Value::Char(c) => c as i64,
+        _ => 0,
     }
 }
 
