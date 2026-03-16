@@ -2014,6 +2014,33 @@ fn vm_kill_all_local_variables_uses_shared_runtime_defaults_and_clears_local_map
 }
 
 #[test]
+fn vm_syntax_table_accessors_use_shared_current_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((primary (current-buffer))
+                     (other (get-buffer-create "vm-syntax-other")))
+                 (set-syntax-table (copy-syntax-table (standard-syntax-table)))
+                 (modify-syntax-entry ?\; "<")
+                 (erase-buffer)
+                 (insert ";")
+                 (list (syntax-table-p (syntax-table))
+                       (= (char-syntax ?\;) ?<)
+                       (consp (syntax-after 1))
+                       (= (matching-paren ?\() ?\))
+                       (not (eq (syntax-table) (standard-syntax-table)))
+                       (progn
+                         (set-buffer other)
+                         (list (= (char-syntax ?\;) ?.)
+                               (eq (syntax-table) (standard-syntax-table))))
+                       (progn
+                         (set-buffer primary)
+                         (= (char-syntax ?\;) ?<))))"#
+        ),
+        "OK (t t t t t (t t) t)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

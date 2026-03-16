@@ -2912,6 +2912,30 @@ impl<'a> Vm<'a> {
             "modify-syntax-entry" => Some(
                 crate::emacs_core::syntax::modify_syntax_entry_in_buffers(self.shared.buffers, args),
             ),
+            "syntax-table" => Some(crate::emacs_core::syntax::builtin_syntax_table_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "set-syntax-table" => Some(
+                crate::emacs_core::syntax::builtin_set_syntax_table_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "char-syntax" => Some(crate::emacs_core::syntax::builtin_char_syntax_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "syntax-after" => Some(crate::emacs_core::syntax::builtin_syntax_after_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "matching-paren" => Some(
+                crate::emacs_core::syntax::builtin_matching_paren_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "decode-char" => Some(crate::emacs_core::charset::builtin_decode_char(args.to_vec())),
             "encode-char" => Some(crate::emacs_core::charset::builtin_encode_char(args.to_vec())),
             "set-char-table-range" => Some(

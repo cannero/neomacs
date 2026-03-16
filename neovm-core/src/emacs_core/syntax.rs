@@ -1338,6 +1338,13 @@ pub(crate) fn builtin_matching_paren_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_matching_paren_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_matching_paren_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -1365,7 +1372,7 @@ pub(crate) fn builtin_matching_paren_eval(
     };
 
     // Look up in the current buffer's syntax table
-    if let Some(buf) = eval.buffers.current_buffer() {
+    if let Some(buf) = buffers.current_buffer() {
         let entry = buf.syntax_table.get_entry(ch);
         if let Some(e) = entry {
             if matches!(e.class, SyntaxClass::Open | SyntaxClass::Close) {
@@ -1477,13 +1484,20 @@ pub(crate) fn builtin_syntax_table(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_syntax_table_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_syntax_table_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if !args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol("syntax-table"), Value::Int(args.len() as i64)],
         ));
     }
-    current_buffer_syntax_table_object(eval)
+    current_buffer_syntax_table_object_in_buffers(buffers)
 }
 
 /// `(set-syntax-table TABLE)` — install TABLE for current buffer and return it.
@@ -1492,6 +1506,13 @@ pub(crate) fn builtin_syntax_table(
 /// this installs the exposed syntax-table object for compatibility and returns it.
 pub(crate) fn builtin_set_syntax_table(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_set_syntax_table_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_syntax_table_in_buffers(
+    buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 1 {
@@ -1510,14 +1531,12 @@ pub(crate) fn builtin_set_syntax_table(
         ));
     }
     let table = args[0];
-    set_current_buffer_syntax_table_object(eval, table)?;
+    set_current_buffer_syntax_table_object_in_buffers(buffers, table)?;
     let compiled = syntax_table_from_chartable(table)?;
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     buf.syntax_table = compiled;
@@ -1601,6 +1620,13 @@ pub(crate) fn builtin_char_syntax(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_char_syntax_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_char_syntax_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -1623,8 +1649,7 @@ pub(crate) fn builtin_char_syntax(
         }
     };
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let class = buf.syntax_table.char_syntax(ch);
@@ -1634,6 +1659,13 @@ pub(crate) fn builtin_char_syntax(
 /// `(syntax-after POS)` — return syntax descriptor for char at POS.
 pub(crate) fn builtin_syntax_after(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_syntax_after_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_syntax_after_in_buffers(
+    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 1 {
@@ -1656,8 +1688,7 @@ pub(crate) fn builtin_syntax_after(
         return Ok(Value::Nil);
     }
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
