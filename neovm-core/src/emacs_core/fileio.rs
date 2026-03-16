@@ -16,7 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::error::{EvalResult, Flow, signal};
 use super::eval::Evaluator;
 use super::intern::{intern, resolve_sym};
-use super::value::{Value, list_to_vec, with_heap};
+use super::symbol::Obarray;
+use super::value::{OrderedRuntimeBindingMap, Value, list_to_vec, with_heap};
 
 // ===========================================================================
 // Path operations (pure, no evaluator needed)
@@ -1410,9 +1411,12 @@ pub(crate) fn builtin_substitute_in_file_name(args: Vec<Value>) -> EvalResult {
     Ok(Value::string(substitute_in_file_name(&filename)))
 }
 
-fn default_directory_for_eval(eval: &Evaluator) -> Option<String> {
+pub(crate) fn default_directory_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+) -> Option<String> {
     let name_id = intern("default-directory");
-    for frame in eval.dynamic.iter().rev() {
+    for frame in dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
             return match value {
                 Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
@@ -1420,18 +1424,30 @@ fn default_directory_for_eval(eval: &Evaluator) -> Option<String> {
             };
         }
     }
-    match eval.obarray.symbol_value("default-directory") {
+    match obarray.symbol_value("default-directory") {
         Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     }
 }
 
-pub(crate) fn resolve_filename_for_eval(eval: &Evaluator, filename: &str) -> String {
+fn default_directory_for_eval(eval: &Evaluator) -> Option<String> {
+    default_directory_in_state(&eval.obarray, eval.dynamic.as_slice())
+}
+
+pub(crate) fn resolve_filename_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    filename: &str,
+) -> String {
     if filename.is_empty() || Path::new(filename).is_absolute() {
         return filename.to_string();
     }
-    let default_dir = default_directory_for_eval(eval);
+    let default_dir = default_directory_in_state(obarray, dynamic);
     expand_file_name(filename, default_dir.as_deref())
+}
+
+pub(crate) fn resolve_filename_for_eval(eval: &Evaluator, filename: &str) -> String {
+    resolve_filename_in_state(&eval.obarray, eval.dynamic.as_slice(), filename)
 }
 
 fn file_error_symbol(kind: ErrorKind) -> &'static str {

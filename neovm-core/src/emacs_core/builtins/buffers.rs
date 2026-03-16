@@ -291,20 +291,29 @@ pub(crate) fn builtin_get_file_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_file_buffer_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_file_buffer_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("get-file-buffer", &args, 1)?;
     let filename = expect_string(&args[0])?;
-    let resolved = super::fileio::resolve_filename_for_eval(eval, &filename);
+    let resolved = super::fileio::resolve_filename_in_state(obarray, dynamic, &filename);
     let resolved_true = canonicalize_or_self(&resolved);
 
-    for id in eval.buffers.buffer_list() {
-        let Some(buf) = eval.buffers.get(id) else {
+    for id in buffers.buffer_list() {
+        let Some(buf) = buffers.get(id) else {
             continue;
         };
         let Some(file_name) = &buf.file_name else {
             continue;
         };
 
-        let candidate = super::fileio::resolve_filename_for_eval(eval, file_name);
+        let candidate = super::fileio::resolve_filename_in_state(obarray, dynamic, file_name);
         if candidate == resolved {
             return Ok(Value::Buffer(id));
         }
@@ -1366,13 +1375,19 @@ pub(crate) fn builtin_set_buffer_multibyte_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_buffer_multibyte_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_buffer_multibyte_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-buffer-multibyte", &args, 1)?;
     let flag = args[0].is_truthy();
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.set_buffer_multibyte_flag(current_id, flag);
+    let _ = buffers.set_buffer_multibyte_flag(current_id, flag);
     Ok(args[0])
 }
 

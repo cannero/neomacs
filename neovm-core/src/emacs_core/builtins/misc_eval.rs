@@ -670,9 +670,16 @@ pub(crate) fn builtin_bury_buffer_internal(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_bury_buffer_internal_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_bury_buffer_internal_in_state(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("bury-buffer-internal", &args, 1)?;
     let id = expect_buffer_id(&args[0])?;
-    let _ = eval.buffers.get(id);
+    let _ = buffers.get(id);
     Ok(Value::Nil)
 }
 

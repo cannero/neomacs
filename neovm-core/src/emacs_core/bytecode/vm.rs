@@ -1934,6 +1934,22 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_get_file_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_get_file_buffer_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_set_buffer_multibyte_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_set_buffer_multibyte_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_insert_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_insert_in_state(
             &*self.shared.obarray,
@@ -3078,6 +3094,7 @@ impl<'a> Vm<'a> {
             "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
             "other-buffer" => Some(self.builtin_other_buffer_shared(args)),
             "generate-new-buffer-name" => Some(self.builtin_generate_new_buffer_name_shared(args)),
+            "get-file-buffer" => Some(self.builtin_get_file_buffer_shared(args)),
             "point-min" => Some(self.builtin_point_min_shared(args)),
             "point-max" => Some(self.builtin_point_max_shared(args)),
             "goto-char" => Some(self.builtin_goto_char_shared(args)),
@@ -3539,6 +3556,19 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "rename-buffer" => Some(
+                crate::emacs_core::builtins::symbols::builtin_rename_buffer_in_manager(
+                    &mut *self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "bury-buffer-internal" => Some(
+                crate::emacs_core::builtins::builtin_bury_buffer_internal_in_state(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-buffer-multibyte" => Some(self.builtin_set_buffer_multibyte_shared(args)),
             "make-local-variable" => Some(self.builtin_make_local_variable_shared(args)),
             "local-variable-p" => Some(self.builtin_local_variable_p_shared(args)),
             "buffer-local-variables" => Some(self.builtin_buffer_local_variables_shared(args)),

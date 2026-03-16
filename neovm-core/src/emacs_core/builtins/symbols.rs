@@ -2510,6 +2510,13 @@ pub(crate) fn builtin_rename_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_rename_buffer_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_rename_buffer_in_manager(
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("rename-buffer", &args, 1, 2)?;
     let name = expect_strict_string(&args[0])?;
 
@@ -2520,7 +2527,7 @@ pub(crate) fn builtin_rename_buffer(
         ));
     }
 
-    let current_id = match eval.buffers.current_buffer() {
+    let current_id = match buffers.current_buffer() {
         Some(buf) => buf.id,
         None => {
             return Err(signal("error", vec![Value::string("No current buffer")]));
@@ -2529,7 +2536,7 @@ pub(crate) fn builtin_rename_buffer(
 
     let unique = args.get(1).copied().unwrap_or(Value::Nil);
 
-    let new_name = match eval.buffers.find_buffer_by_name(&name) {
+    let new_name = match buffers.find_buffer_by_name(&name) {
         Some(existing_id) if existing_id == current_id => {
             // Already has this name, just return it
             name
@@ -2542,7 +2549,7 @@ pub(crate) fn builtin_rename_buffer(
                     vec![Value::string(format!("Buffer name `{}' is in use", name))],
                 ));
             }
-            eval.buffers.generate_new_buffer_name(&name)
+            buffers.generate_new_buffer_name(&name)
         }
         None => {
             // Name is free
@@ -2550,7 +2557,7 @@ pub(crate) fn builtin_rename_buffer(
         }
     };
 
-    let _ = eval.buffers.set_buffer_name(current_id, new_name.clone());
+    let _ = buffers.set_buffer_name(current_id, new_name.clone());
 
     Ok(Value::string(new_name))
 }

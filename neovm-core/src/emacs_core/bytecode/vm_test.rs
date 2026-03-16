@@ -929,6 +929,61 @@ fn vm_compare_buffer_substrings_uses_shared_case_fold_state() {
 }
 
 #[test]
+fn vm_buffer_identity_builtins_use_shared_runtime_state() {
+    let path =
+        std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));
+    std::fs::write(&path, b"vm-gfb").expect("write test file");
+    let file = path.to_string_lossy().to_string();
+    let default_dir = format!("{}/", path.parent().unwrap().to_string_lossy());
+    let basename = path.file_name().unwrap().to_string_lossy().to_string();
+    let form = format!(
+        r#"(let ((default-directory {:?}))
+             (list
+              (buffer-name (get-file-buffer {:?}))
+              (progn
+                (rename-buffer "*vm-renamed-buffer*")
+                (buffer-name))
+              (condition-case err
+                  (bury-buffer-internal 'x)
+                (error (car err)))
+              (bury-buffer-internal (current-buffer))))"#,
+        default_dir, basename
+    );
+
+    let result = vm_eval_with_init_str(&form, |eval| {
+        let current = eval.buffers.current_buffer_id().expect("scratch buffer");
+        eval.buffers
+            .set_buffer_file_name(current, Some(file.clone()))
+            .expect("current buffer should accept file name");
+    });
+    let _ = std::fs::remove_file(path);
+
+    assert_eq!(
+        result,
+        r#"OK ("*scratch*" "*vm-renamed-buffer*" wrong-type-argument nil)"#
+    );
+}
+
+#[test]
+fn vm_set_buffer_multibyte_uses_shared_current_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (set-buffer-multibyte nil)
+                 (insert-byte 200 1)
+                 (let ((unibyte (append (buffer-string) nil)))
+                   (erase-buffer)
+                   (list unibyte
+                         (set-buffer-multibyte 'foo)
+                         (progn
+                           (insert-byte 200 1)
+                           (append (buffer-string) nil)))))"#
+        ),
+        r#"OK ((200) foo (4194248))"#
+    );
+}
+
+#[test]
 fn vm_field_builtins_use_shared_property_boundary_state() {
     assert_eq!(
         vm_eval_str(
