@@ -2774,6 +2774,41 @@ fn field_builtins_match_gnu_property_boundary_semantics() {
 }
 
 #[test]
+fn constrain_to_field_matches_gnu_boundary_and_capture_semantics() {
+    assert_eq!(
+        eval_one(
+            r#"(with-temp-buffer
+                 (list
+                  (progn
+                    (insert "abcdefg")
+                    (put-text-property 2 5 'field 'left)
+                    (put-text-property 5 8 'field 'right)
+                    (put-text-property 3 4 'capture t)
+                    (goto-char 7)
+                    (list
+                     (constrain-to-field 7 3)
+                     (constrain-to-field 7 5)
+                     (constrain-to-field 7 5 t)
+                     (progn
+                       (goto-char 7)
+                       (list (constrain-to-field nil 3) (point)))
+                     (constrain-to-field 7 3 nil nil 'capture)
+                     (constrain-to-field 7 2 nil nil 'capture)))
+                  (progn
+                    (erase-buffer)
+                    (insert "ab\ncd\nef")
+                    (put-text-property 1 4 'field 'top)
+                    (put-text-property 4 9 'field 'bottom)
+                    (list
+                     (constrain-to-field 6 2 nil t)
+                     (constrain-to-field 6 2 nil nil)
+                     (constrain-to-field 6 4 t nil)))))"#,
+        ),
+        r#"OK ((5 5 7 (5 5) 5 2) (4 4 6))"#
+    );
+}
+
+#[test]
 fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
     let results = eval_all(
         "(list

@@ -1900,6 +1900,15 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_constrain_to_field_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_constrain_to_field_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_point_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_point_in_manager(&*self.shared.buffers, args.to_vec())
     }
@@ -3069,6 +3078,7 @@ impl<'a> Vm<'a> {
             "field-string-no-properties" => {
                 Some(self.builtin_field_string_no_properties_shared(args))
             }
+            "constrain-to-field" => Some(self.builtin_constrain_to_field_shared(args)),
             "char-after" => Some(self.builtin_char_after_shared(args)),
             "char-before" => Some(self.builtin_char_before_shared(args)),
             "buffer-size" => Some(self.builtin_buffer_size_shared(args)),

@@ -1801,18 +1801,155 @@ pub(crate) fn builtin_constrain_to_field(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_constrain_to_field_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_constrain_to_field_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("constrain-to-field", &args, 2, 5)?;
-    let new_pos = if args[0].is_nil() {
-        let current = eval
-            .buffers
-            .current_buffer()
-            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        current.point_char() as i64 + 1
+    let current = buffers
+        .current_buffer()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let point_min = current.point_min_char() as i64 + 1;
+    let orig_point = if args[0].is_nil() {
+        Some(current.point_char() as i64 + 1)
     } else {
-        expect_integer_or_marker(&args[0])?
+        None
     };
-    let _ = expect_integer_or_marker(&args[1])?;
+    let mut new_pos = if let Some(point) = orig_point {
+        point
+    } else {
+        expect_integer_or_marker_in_buffers(buffers, &args[0])?
+    };
+    let old_pos = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let escape_from_edge = args.get(2).is_some_and(|value| value.is_truthy());
+    let only_in_line = args.get(3).is_some_and(|value| value.is_truthy());
+
+    let old_capture_allowed = if let Some(capture_prop) =
+        args.get(4).filter(|value| !value.is_nil())
+    {
+        let old_capture =
+            crate::emacs_core::builtins::misc_eval::builtin_get_pos_property_in_state(
+                obarray,
+                dynamic,
+                buffers,
+                vec![Value::Int(old_pos), *capture_prop],
+            )?;
+        old_capture.is_nil()
+            && (old_pos <= point_min
+                || char_property_in_current_buffer(buffers, old_pos, *capture_prop)?.is_nil()
+                || char_property_in_current_buffer(buffers, old_pos - 1, *capture_prop)?.is_nil())
+    } else {
+        true
+    };
+
+    let field_boundaries_present =
+        !char_property_in_current_buffer(buffers, new_pos, Value::symbol("field"))?.is_nil()
+            || !char_property_in_current_buffer(buffers, old_pos, Value::symbol("field"))?.is_nil()
+            || (new_pos > point_min
+                && !char_property_in_current_buffer(buffers, new_pos - 1, Value::symbol("field"))?
+                    .is_nil())
+            || (old_pos > point_min
+                && !char_property_in_current_buffer(buffers, old_pos - 1, Value::symbol("field"))?
+                    .is_nil());
+
+    let inhibit_field_text_motion = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "inhibit-field-text-motion",
+    )
+    .is_some_and(|value| !value.is_nil());
+
+    if !inhibit_field_text_motion
+        && new_pos != old_pos
+        && field_boundaries_present
+        && old_capture_allowed
+    {
+        let forward = new_pos > old_pos;
+        let field_bound = if forward {
+            expect_int(&builtin_field_end_in_state(
+                obarray,
+                dynamic,
+                buffers,
+                vec![
+                    Value::Int(old_pos),
+                    Value::bool(escape_from_edge),
+                    Value::Int(new_pos),
+                ],
+            )?)?
+        } else {
+            expect_int(&builtin_field_beginning_in_state(
+                obarray,
+                dynamic,
+                buffers,
+                vec![
+                    Value::Int(old_pos),
+                    Value::bool(escape_from_edge),
+                    Value::Int(new_pos),
+                ],
+            )?)?
+        };
+
+        let should_constrain = if field_bound < new_pos {
+            forward
+        } else {
+            !forward
+        };
+        let same_line = !only_in_line
+            || !current_buffer_has_newline_between_positions(buffers, new_pos, field_bound)?;
+        if should_constrain && same_line {
+            new_pos = field_bound;
+        }
+    }
+
+    if let Some(orig_point) = orig_point
+        && new_pos != orig_point
+    {
+        let current_id = buffers
+            .current_buffer_id()
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let buf = buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let byte_pos = super::editfns::lisp_pos_to_byte(buf, new_pos);
+        let _ = buffers.goto_buffer_byte(current_id, byte_pos);
+    }
+
     Ok(Value::Int(new_pos))
+}
+
+fn char_property_in_current_buffer(
+    buffers: &BufferManager,
+    pos: i64,
+    property: Value,
+) -> Result<Value, Flow> {
+    crate::emacs_core::textprop::builtin_get_char_property_in_buffers(
+        buffers,
+        vec![Value::Int(pos), property],
+    )
+}
+
+fn current_buffer_has_newline_between_positions(
+    buffers: &BufferManager,
+    left: i64,
+    right: i64,
+) -> Result<bool, Flow> {
+    let Some(current_id) = buffers.current_buffer_id() else {
+        return Err(signal("error", vec![Value::string("No current buffer")]));
+    };
+    let text = checked_buffer_slice_for_char_region_in_manager(
+        buffers,
+        Some(current_id),
+        left.min(right),
+        left.max(right),
+        Value::Int(left.min(right)),
+        Value::Int(left.max(right)),
+    )?;
+    Ok(text.contains('\n'))
 }
 
 fn resolve_field_position_in_buffers(
