@@ -646,6 +646,13 @@ pub(crate) fn builtin_read_from_minibuffer(
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_from_minibuffer_in_runtime(eval, &args)?;
+    finish_read_from_minibuffer_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_from_minibuffer_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     let prompt = expect_string(&args[0])?;
     read_from_minibuffer_interactive(eval, &prompt, &args)
 }
@@ -854,6 +861,13 @@ pub(crate) fn builtin_read_string(
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_string_in_runtime(eval, &args)?;
+    finish_read_string_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_string_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     let prompt = args[0];
 
     // Build args for read-from-minibuffer:
@@ -863,18 +877,16 @@ pub(crate) fn builtin_read_string(
     let default = args.get(3).copied().unwrap_or(Value::Nil);
     let inherit = args.get(4).copied().unwrap_or(Value::Nil);
 
-    builtin_read_from_minibuffer(
-        eval,
-        vec![
-            prompt,
-            initial,
-            Value::Nil,
-            Value::Nil,
-            history,
-            default,
-            inherit,
-        ],
-    )
+    let minibuffer_args = [
+        prompt,
+        initial,
+        Value::Nil,
+        Value::Nil,
+        history,
+        default,
+        inherit,
+    ];
+    finish_read_from_minibuffer_in_eval(eval, &minibuffer_args)
 }
 
 pub(crate) fn builtin_read_string_in_runtime(
@@ -979,6 +991,13 @@ pub(crate) fn builtin_completing_read(
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_completing_read_in_runtime(eval, &args)?;
+    finish_completing_read_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_completing_read_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     let prompt = args[0];
     let require_match = args.get(3).copied().unwrap_or(Value::Nil);
     let initial_input = args.get(4).copied().unwrap_or(Value::Nil);
@@ -1003,18 +1022,16 @@ pub(crate) fn builtin_completing_read(
     let predicate = args.get(2).copied().unwrap_or(Value::Nil);
     eval.assign("minibuffer-completion-predicate", predicate);
 
-    let result = builtin_read_from_minibuffer(
-        eval,
-        vec![
-            prompt,
-            initial_input,
-            keymap,
-            Value::Nil,
-            hist,
-            default_val,
-            inherit,
-        ],
-    );
+    let minibuffer_args = [
+        prompt,
+        initial_input,
+        keymap,
+        Value::Nil,
+        hist,
+        default_val,
+        inherit,
+    ];
+    let result = finish_read_from_minibuffer_in_eval(eval, &minibuffer_args);
 
     eval.assign("minibuffer-completion-table", Value::Nil);
     eval.assign("minibuffer-completion-predicate", Value::Nil);

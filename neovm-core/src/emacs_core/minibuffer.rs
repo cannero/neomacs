@@ -687,6 +687,13 @@ pub(crate) fn builtin_read_buffer(
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_buffer_in_runtime(eval, &args)?;
+    finish_read_buffer_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_buffer_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     let prompt = args[0];
     let default = normalize_buffer_reader_default(
         eval.buffer_manager(),
@@ -703,18 +710,16 @@ pub(crate) fn builtin_read_buffer(
         .collect();
     let collection = Value::list(buffer_names);
 
-    super::reader::builtin_completing_read(
-        eval,
-        vec![
-            prompt,
-            collection,
-            predicate,
-            require_match,
-            Value::Nil,
-            Value::Nil,
-            default,
-        ],
-    )
+    let completing_args = [
+        prompt,
+        collection,
+        predicate,
+        require_match,
+        Value::Nil,
+        Value::Nil,
+        default,
+    ];
+    super::reader::finish_completing_read_in_eval(eval, &completing_args)
 }
 
 pub(crate) fn builtin_read_buffer_in_runtime(
@@ -740,20 +745,25 @@ pub(crate) fn builtin_read_command(
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_command_in_runtime(eval, &args)?;
+    finish_read_command_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_command_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     let prompt = args[0];
     let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
 
-    let result = super::reader::builtin_read_from_minibuffer(
-        eval,
-        vec![
-            prompt,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            default,
-        ],
-    )?;
+    let minibuffer_args = [
+        prompt,
+        Value::Nil,
+        Value::Nil,
+        Value::Nil,
+        Value::Nil,
+        default,
+    ];
+    let result = super::reader::finish_read_from_minibuffer_in_eval(eval, &minibuffer_args)?;
     if let Value::Str(id) = result {
         let name = super::value::with_heap(|h| h.get_string(id).to_owned());
         return Ok(Value::symbol(&name));
@@ -784,20 +794,25 @@ pub(crate) fn builtin_read_variable(
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_variable_in_runtime(eval, &args)?;
+    finish_read_variable_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_variable_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     let prompt = args[0];
     let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
 
-    let result = super::reader::builtin_read_from_minibuffer(
-        eval,
-        vec![
-            prompt,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            default,
-        ],
-    )?;
+    let minibuffer_args = [
+        prompt,
+        Value::Nil,
+        Value::Nil,
+        Value::Nil,
+        Value::Nil,
+        default,
+    ];
+    let result = super::reader::finish_read_from_minibuffer_in_eval(eval, &minibuffer_args)?;
     if let Value::Str(id) = result {
         let name = super::value::with_heap(|h| h.get_string(id).to_owned());
         return Ok(Value::symbol(&name));
