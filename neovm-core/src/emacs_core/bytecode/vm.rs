@@ -6656,15 +6656,12 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_key_sequence_vector_shared(&mut self, args: &[Value]) -> EvalResult {
-        if let Some(value) = crate::emacs_core::reader::builtin_read_key_sequence_vector_in_runtime(
-            &mut self.shared,
-            args,
-        )? {
-            return Ok(value);
-        }
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::reader::builtin_read_key_sequence_vector,
+        Ok(
+            crate::emacs_core::reader::builtin_read_key_sequence_vector_in_runtime(
+                &mut self.shared,
+                args,
+            )?
+            .expect("read-key-sequence-vector runtime path should always produce a value"),
         )
     }
 
