@@ -223,7 +223,7 @@ impl InterpretedClosureTrimCacheEntry {
 /// stale runtime state.
 pub(crate) struct VmSharedState<'a> {
     pub(crate) obarray: &'a mut Obarray,
-    pub(crate) dynamic: &'a mut Vec<OrderedSymMap>,
+    pub(crate) dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
     pub(crate) lexenv: &'a mut Value,
     pub(crate) features: &'a mut Vec<SymId>,
     pub(crate) require_stack: &'a mut Vec<SymId>,
@@ -280,7 +280,7 @@ pub(crate) struct VmSharedState<'a> {
 impl<'a> VmSharedState<'a> {
     fn new(
         obarray: &'a mut Obarray,
-        dynamic: &'a mut Vec<OrderedSymMap>,
+        dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
         lexenv: &'a mut Value,
         features: &'a mut Vec<SymId>,
         require_stack: &'a mut Vec<SymId>,
@@ -620,7 +620,7 @@ pub struct Evaluator {
     /// The obarray — unified symbol table with value cells, function cells, plists.
     pub(crate) obarray: Obarray,
     /// Dynamic binding stack (each frame is one `let`/function call scope).
-    pub(crate) dynamic: Vec<OrderedSymMap>,
+    pub(crate) dynamic: Vec<OrderedRuntimeBindingMap>,
     /// Lexical environment: flat cons alist mirroring GNU Emacs's
     /// `Vinternal_interpreter_environment`.
     pub(crate) lexenv: Value,
@@ -901,7 +901,7 @@ fn bind_lexical_value_rooted_in_state(
 
 fn begin_lambda_call_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut Vec<OrderedSymMap>,
+    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
     temp_roots: &mut Vec<Value>,
@@ -961,7 +961,7 @@ fn begin_lambda_call_in_state(
             bind_lexical_value_rooted_in_state(lexenv, temp_roots, rest_name, rest_value);
         }
     } else {
-        let mut frame = OrderedSymMap::new();
+        let mut frame = OrderedRuntimeBindingMap::new();
         let mut arg_idx = 0;
         for param in &params.required {
             frame.insert(*param, args[arg_idx]);
@@ -1000,7 +1000,7 @@ fn begin_lambda_call_in_state(
 
 fn finish_lambda_call_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut Vec<OrderedSymMap>,
+    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
     temp_roots: &mut Vec<Value>,
@@ -2252,7 +2252,7 @@ impl Evaluator {
         interner: Box<StringInterner>,
         heap: Box<LispHeap>,
         obarray: Obarray,
-        dynamic: Vec<OrderedSymMap>,
+        dynamic: Vec<OrderedRuntimeBindingMap>,
         lexenv: Value,
         features: Vec<SymId>,
         require_stack: Vec<SymId>,
@@ -3592,7 +3592,7 @@ impl Evaluator {
     /// Look up a symbol by its SymId. Uses the SymId directly for lexenv
     /// lookup (preserving uninterned symbol identity, like Emacs's EQ-based
     /// Fassq on Vinternal_interpreter_environment).
-    fn eval_symbol_by_id(&self, sym_id: SymId) -> EvalResult {
+    pub(crate) fn eval_symbol_by_id(&self, sym_id: SymId) -> EvalResult {
         let symbol = resolve_sym(sym_id);
         let symbol_is_canonical =
             lookup_interned(symbol).is_some_and(|canonical| canonical == sym_id);
@@ -3626,15 +3626,17 @@ impl Evaluator {
         }
 
         // Dynamic scope lookup (inner to outer)
-        for frame in self.dynamic.iter().rev() {
-            if let Some(value) = frame.get(&sym_id) {
-                return Ok(*value);
-            }
-            if resolved != sym_id {
-                if let Some(value) = frame.get(&resolved) {
-                    return Ok(*value);
-                }
-            }
+        if let Some(binding) = lookup_runtime_binding(&self.dynamic, sym_id) {
+            return binding
+                .as_value()
+                .ok_or_else(|| signal("void-variable", vec![value_from_symbol_id(sym_id)]));
+        }
+        if resolved != sym_id
+            && let Some(binding) = lookup_runtime_binding(&self.dynamic, resolved)
+        {
+            return binding
+                .as_value()
+                .ok_or_else(|| signal("void-variable", vec![value_from_symbol_id(sym_id)]));
         }
 
         if symbol_is_canonical && symbol == "nil" {
@@ -3658,11 +3660,12 @@ impl Evaluator {
 
         // Buffer-local bindings are name-based and must not intercept
         // uninterned symbols that merely share the same print name.
-        if resolved_is_canonical
-            && let Some(buf) = self.buffers.current_buffer()
-            && let Some(value) = buf.buffer_local_value(resolved_name)
-        {
-            return Ok(value);
+        if resolved_is_canonical && let Some(buf) = self.buffers.current_buffer() {
+            if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
+                return binding
+                    .as_value()
+                    .ok_or_else(|| signal("void-variable", vec![value_from_symbol_id(sym_id)]));
+            }
         }
 
         // Obarray value cell
@@ -4109,7 +4112,9 @@ impl Evaluator {
             && let Some(buf) = self.buffers.get_mut(current_id)
         {
             for value in buf.properties.values_mut() {
-                Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+                if let RuntimeBindingValue::Bound(value) = value {
+                    Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+                }
             }
         }
 
@@ -4321,7 +4326,7 @@ impl Evaluator {
         }
 
         let mut lexical_bindings: Vec<(SymId, Value)> = Vec::new();
-        let mut dynamic_bindings = OrderedSymMap::new();
+        let mut dynamic_bindings = OrderedRuntimeBindingMap::new();
         let mut watcher_bindings: Vec<(String, Value, Value)> = Vec::new();
         let use_lexical = self.lexical_binding();
         let mut constant_binding_error: Option<String> = None;
@@ -4497,7 +4502,7 @@ impl Evaluator {
         let pushed_dyn = true; // Always push a dynamic frame too (for special vars or dynamic mode)
         let mut watcher_bindings: Vec<(String, Value, Value)> = Vec::new();
 
-        self.dynamic.push(OrderedSymMap::new());
+        self.dynamic.push(OrderedRuntimeBindingMap::new());
         let saved_lexenv = if use_lexical {
             let saved = self.lexenv;
             self.saved_lexenvs.push(saved);
@@ -5351,7 +5356,7 @@ impl Evaluator {
                             && !is_runtime_dynamically_special(&self.obarray, var)
                             && !lexenv_declares_special(self.lexenv, var);
 
-                        let mut frame = OrderedSymMap::new();
+                        let mut frame = OrderedRuntimeBindingMap::new();
                         let pushed_lexenv = if use_lexical_binding {
                             let saved = self.lexenv;
                             self.saved_lexenvs.push(saved);
@@ -5947,7 +5952,7 @@ impl Evaluator {
     }
 
     fn sf_with_local_quit(&mut self, tail: &[Expr]) -> EvalResult {
-        let mut frame = OrderedSymMap::new();
+        let mut frame = OrderedRuntimeBindingMap::new();
         frame.insert(intern("inhibit-quit"), Value::Nil);
         self.dynamic.push(frame);
         let result = self.sf_progn(tail);
@@ -6075,7 +6080,7 @@ impl Evaluator {
             }
         };
 
-        self.dynamic.push(OrderedSymMap::new());
+        self.dynamic.push(OrderedRuntimeBindingMap::new());
         for i in 0..count {
             if let Some(frame) = self.dynamic.last_mut() {
                 frame.insert(var_id, Value::Int(i));
@@ -6119,7 +6124,7 @@ impl Evaluator {
         let list_val = self.eval(&spec[1])?;
         let items = list_to_vec(&list_val).unwrap_or_default();
 
-        self.dynamic.push(OrderedSymMap::new());
+        self.dynamic.push(OrderedRuntimeBindingMap::new());
         for item in items {
             if let Some(frame) = self.dynamic.last_mut() {
                 frame.insert(var_id, item);
@@ -7042,7 +7047,7 @@ impl Evaluator {
 
 pub(crate) fn set_runtime_binding_in_state(
     obarray: &mut Obarray,
-    dynamic: &mut [OrderedSymMap],
+    dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     custom: &CustomManager,
     sym_id: SymId,
@@ -7066,7 +7071,7 @@ pub(crate) fn set_runtime_binding_in_state(
             let _ = buffers.configure_buffer_undo_list(current_id, value);
             return;
         }
-        if buf.get_buffer_local(name).is_some() {
+        if buf.has_buffer_local(name) {
             let _ = buffers.set_buffer_local_property(current_id, name, value);
             return;
         }
@@ -7080,6 +7085,42 @@ pub(crate) fn set_runtime_binding_in_state(
     }
 
     obarray.set_symbol_value_id(sym_id, value);
+}
+
+pub(crate) fn makunbound_runtime_binding_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut [OrderedRuntimeBindingMap],
+    buffers: &mut BufferManager,
+    custom: &CustomManager,
+    sym_id: SymId,
+) {
+    let name = resolve_sym(sym_id);
+    let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
+
+    for frame in dynamic.iter_mut().rev() {
+        if frame.contains_key(&sym_id) {
+            frame.set_void(sym_id);
+            return;
+        }
+    }
+
+    if symbol_is_canonical
+        && let Some(current_id) = buffers.current_buffer_id()
+        && let Some(buf) = buffers.get(current_id)
+        && buf.has_buffer_local(name)
+    {
+        let _ = buffers.set_buffer_local_void_property(current_id, name);
+        return;
+    }
+
+    if symbol_is_canonical && custom.is_auto_buffer_local(name) {
+        if let Some(current_id) = buffers.current_buffer_id() {
+            let _ = buffers.set_buffer_local_void_property(current_id, name);
+            return;
+        }
+    }
+
+    obarray.makunbound_id(sym_id);
 }
 
 impl Evaluator {
@@ -7124,6 +7165,16 @@ impl Evaluator {
         );
     }
 
+    pub(crate) fn makunbound_runtime_binding_by_id(&mut self, sym_id: SymId) {
+        makunbound_runtime_binding_in_state(
+            &mut self.obarray,
+            self.dynamic.as_mut_slice(),
+            &mut self.buffers,
+            &self.custom,
+            sym_id,
+        );
+    }
+
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {
         lexenv_assq(self.lexenv, sym_id).is_some()
             || self
@@ -7141,14 +7192,12 @@ impl Evaluator {
         {
             return value;
         }
-        for frame in self.dynamic.iter().rev() {
-            if let Some(value) = frame.get(&name_id) {
-                return *value;
-            }
+        if let Some(binding) = lookup_runtime_binding(&self.dynamic, name_id) {
+            return binding.as_value().unwrap_or(Value::Nil);
         }
         if let Some(buffer) = self.buffers.current_buffer() {
-            if let Some(value) = buffer.buffer_local_value(name) {
-                return value;
+            if let Some(binding) = buffer.get_buffer_local_binding(name) {
+                return binding.as_value().unwrap_or(Value::Nil);
             }
         }
         if let Some(value) = self.obarray.symbol_value(name).cloned() {

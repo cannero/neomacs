@@ -1839,7 +1839,7 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>
 
 pub(crate) fn builtin_insert_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1855,7 +1855,7 @@ pub(crate) fn builtin_insert_in_state(
 
 pub(crate) fn builtin_insert_and_inherit_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1871,7 +1871,7 @@ pub(crate) fn builtin_insert_and_inherit_in_state(
 
 pub(crate) fn builtin_insert_before_markers_and_inherit_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -1887,7 +1887,7 @@ pub(crate) fn builtin_insert_before_markers_and_inherit_in_state(
 
 fn insert_pieces_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     pieces: Vec<InsertPiece>,
     before_markers: bool,
@@ -1952,7 +1952,7 @@ pub(crate) fn builtin_insert_char(
 
 pub(crate) fn builtin_insert_char_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2005,7 +2005,7 @@ pub(crate) fn builtin_insert_byte(
 
 pub(crate) fn builtin_insert_byte_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2091,7 +2091,7 @@ pub(crate) fn builtin_subst_char_in_region(
 
 pub(crate) fn builtin_subst_char_in_region_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -2893,8 +2893,15 @@ pub(crate) fn builtin_buffer_local_value_in_state(
     let buf = buffers
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?;
-    match buf.buffer_local_value(&resolved) {
-        Some(v) => Ok(v),
+    match buf.get_buffer_local_binding(&resolved) {
+        Some(binding) => binding
+            .as_value()
+            .or_else(|| {
+                (resolved == "buffer-undo-list")
+                    .then(|| buf.buffer_local_value(&resolved))
+                    .flatten()
+            })
+            .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)])),
         None if resolved == "nil" => Ok(Value::Nil),
         None if resolved == "t" => Ok(Value::True),
         None if resolved.starts_with(':') => Ok(Value::symbol(resolved)),

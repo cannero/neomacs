@@ -522,6 +522,24 @@ fn make_local_variable_captures_dynamic_value_in_new_local_binding() {
 }
 
 #[test]
+fn make_local_variable_on_void_symbol_creates_local_void_binding() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (makunbound 'vm-mlv-void)
+             (make-local-variable 'vm-mlv-void)
+             (list (local-variable-p 'vm-mlv-void (current-buffer))
+                   (buffer-local-boundp 'vm-mlv-void (current-buffer))
+                   (condition-case err (symbol-value 'vm-mlv-void) (error (car err)))
+                   (condition-case err
+                       (buffer-local-value 'vm-mlv-void (current-buffer))
+                     (error (car err)))
+                   (not (null (memq 'vm-mlv-void (buffer-local-variables))))
+                   (assoc 'vm-mlv-void (buffer-local-variables))))"#,
+    );
+    assert_eq!(result[0], "OK (t nil void-variable void-variable t nil)");
+}
+
+#[test]
 fn make_local_variable_constant_and_keyword_payloads_match_oracle() {
     let result = eval_all(
         r#"(list

@@ -327,18 +327,25 @@ pub(crate) fn builtin_make_local_variable(
     if eval.obarray().is_constant(&resolved) {
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
-    // Set the current value as buffer-local if a buffer is current.
-    let value = eval.visible_variable_value_or_nil(&resolved);
     if let Some(current_id) = eval.buffers.current_buffer_id() {
         if eval
             .buffers
             .get(current_id)
-            .and_then(|buf| buf.get_buffer_local(&resolved))
-            .is_none()
+            .is_some_and(|buf| !buf.has_buffer_local(&resolved))
         {
-            let _ = eval
-                .buffers
-                .set_buffer_local_property(current_id, &resolved, value);
+            match eval.eval_symbol_by_id(intern(&resolved)) {
+                Ok(value) => {
+                    let _ = eval
+                        .buffers
+                        .set_buffer_local_property(current_id, &resolved, value);
+                }
+                Err(Flow::Signal(sig)) if sig.symbol_name() == "void-variable" => {
+                    let _ = eval
+                        .buffers
+                        .set_buffer_local_void_property(current_id, &resolved);
+                }
+                Err(flow) => return Err(flow),
+            }
         }
     }
     Ok(args[0])
@@ -375,7 +382,7 @@ pub(crate) fn builtin_local_variable_p(
     };
 
     match buf {
-        Some(b) => Ok(Value::bool(b.get_buffer_local(&resolved).is_some())),
+        Some(b) => Ok(Value::bool(b.has_buffer_local(&resolved))),
         None => Ok(Value::Nil),
     }
 }
@@ -407,16 +414,19 @@ pub(crate) fn builtin_buffer_local_variables(
         .get(id)
         .ok_or_else(|| signal("error", vec![Value::string("No such live buffer")]))?;
 
-    let mut locals: Vec<(String, Value)> = buf
+    let mut locals: Vec<(String, Option<Value>)> = buf
         .properties
         .iter()
-        .map(|(name, value)| (name.clone(), *value))
+        .map(|(name, value)| (name.clone(), value.as_value()))
         .collect();
     locals.sort_by(|a, b| a.0.cmp(&b.0));
 
     let entries: Vec<Value> = locals
         .into_iter()
-        .map(|(name, value)| Value::cons(Value::symbol(name), value))
+        .map(|(name, value)| match value {
+            Some(value) => Value::cons(Value::symbol(name), value),
+            None => Value::symbol(name),
+        })
         .collect();
     Ok(Value::list(entries))
 }
@@ -479,6 +489,18 @@ pub(crate) fn builtin_default_value(
     };
     let resolved = super::builtins::resolve_variable_alias_id(eval, symbol)?;
     let resolved_name = resolve_sym(resolved);
+    if let Some(binding) = lookup_runtime_binding(eval.dynamic.as_slice(), symbol) {
+        return binding
+            .as_value()
+            .ok_or_else(|| signal("void-variable", vec![args[0]]));
+    }
+    if resolved != symbol
+        && let Some(binding) = lookup_runtime_binding(eval.dynamic.as_slice(), resolved)
+    {
+        return binding
+            .as_value()
+            .ok_or_else(|| signal("void-variable", vec![args[0]]));
+    }
     match eval.obarray.symbol_value_id(resolved) {
         Some(v) => Ok(*v),
         None if super::builtins::is_canonical_symbol_id(resolved)

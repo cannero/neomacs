@@ -72,7 +72,7 @@ pub(crate) fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> us
 
 fn dynamic_buffer_or_global_symbol_value(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buf: Option<&Buffer>,
     name: &str,
 ) -> Option<Value> {
@@ -94,7 +94,7 @@ fn dynamic_buffer_or_global_symbol_value(
 
 pub(crate) fn buffer_read_only_active_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buf: &Buffer,
 ) -> bool {
     let inhibit_name_id = intern("inhibit-read-only");
@@ -133,7 +133,7 @@ fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::B
 
 pub(crate) fn ensure_current_buffer_writable_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &BufferManager,
 ) -> Result<(), Flow> {
     if let Some(buf) = buffers.current_buffer()
@@ -254,7 +254,7 @@ pub(crate) fn builtin_insert_before_markers(
 
 pub(crate) fn builtin_insert_before_markers_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -276,7 +276,7 @@ pub(crate) fn builtin_delete_char(
 
 pub(crate) fn builtin_delete_char_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -334,7 +334,7 @@ pub(crate) fn builtin_delete_char_in_state(
 /// `(delete-region START END)` — delete text in the accessible current buffer.
 pub(crate) fn builtin_delete_region_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -365,7 +365,7 @@ pub(crate) fn builtin_delete_region_in_state(
 /// `(delete-and-extract-region START END)` — delete text and return it.
 pub(crate) fn builtin_delete_and_extract_region_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -399,7 +399,7 @@ pub(crate) fn builtin_delete_and_extract_region_in_state(
 /// `(erase-buffer)` — delete all text and remove any narrowing restriction.
 pub(crate) fn builtin_erase_buffer_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {

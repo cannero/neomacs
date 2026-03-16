@@ -101,6 +101,128 @@ impl OrderedSymMap {
         Self { entries }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RuntimeBindingValue {
+    Bound(Value),
+    Void,
+}
+
+impl RuntimeBindingValue {
+    pub fn bound(value: Value) -> Self {
+        Self::Bound(value)
+    }
+
+    pub fn as_value(self) -> Option<Value> {
+        match self {
+            Self::Bound(value) => Some(value),
+            Self::Void => None,
+        }
+    }
+
+    pub fn as_ref(&self) -> Option<&Value> {
+        match self {
+            Self::Bound(value) => Some(value),
+            Self::Void => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderedRuntimeBindingMap {
+    entries: Vec<(SymId, RuntimeBindingValue)>,
+}
+
+impl PartialEq for OrderedRuntimeBindingMap {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+
+impl OrderedRuntimeBindingMap {
+    pub fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            entries: Vec::with_capacity(cap),
+        }
+    }
+
+    pub fn get(&self, key: &SymId) -> Option<&Value> {
+        self.get_binding(key).and_then(RuntimeBindingValue::as_ref)
+    }
+
+    pub fn get_binding(&self, key: &SymId) -> Option<&RuntimeBindingValue> {
+        self.entries
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v)
+    }
+
+    pub fn insert(&mut self, key: SymId, value: Value) {
+        self.insert_binding(key, RuntimeBindingValue::Bound(value));
+    }
+
+    pub fn insert_binding(&mut self, key: SymId, value: RuntimeBindingValue) {
+        if let Some(entry) = self.entries.iter_mut().rev().find(|(k, _)| *k == key) {
+            entry.1 = value;
+        } else {
+            self.entries.push((key, value));
+        }
+    }
+
+    pub fn set_void(&mut self, key: SymId) {
+        self.insert_binding(key, RuntimeBindingValue::Void);
+    }
+
+    pub fn contains_key(&self, key: &SymId) -> bool {
+        self.entries.iter().any(|(k, _)| k == key)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Value> {
+        self.entries.iter().filter_map(|(_, v)| v.as_ref())
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Value> {
+        self.entries.iter_mut().filter_map(|(_, v)| match v {
+            RuntimeBindingValue::Bound(value) => Some(value),
+            RuntimeBindingValue::Void => None,
+        })
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&SymId, &RuntimeBindingValue)> {
+        self.entries.iter().map(|(k, v)| (k, v))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub(crate) fn from_entries(entries: Vec<(SymId, RuntimeBindingValue)>) -> Self {
+        Self { entries }
+    }
+}
+
+pub fn lookup_runtime_binding(
+    dynamic: &[OrderedRuntimeBindingMap],
+    key: SymId,
+) -> Option<RuntimeBindingValue> {
+    for frame in dynamic.iter().rev() {
+        if let Some(value) = frame.get_binding(&key) {
+            return Some(*value);
+        }
+    }
+    None
+}
 use crate::gc::heap::LispHeap;
 use crate::gc::types::ObjId;
 

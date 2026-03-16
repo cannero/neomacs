@@ -74,7 +74,7 @@ fn expect_wholenump(val: &Value) -> Result<usize, Flow> {
 
 fn dynamic_buffer_or_global_symbol_value(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buf: Option<&Buffer>,
     name: &str,
 ) -> Option<Value> {
@@ -92,7 +92,11 @@ fn dynamic_buffer_or_global_symbol_value(
     obarray.symbol_value(name).copied()
 }
 
-fn tab_width_in_state(obarray: &Obarray, dynamic: &[OrderedSymMap], buf: Option<&Buffer>) -> usize {
+fn tab_width_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buf: Option<&Buffer>,
+) -> usize {
     match dynamic_buffer_or_global_symbol_value(obarray, dynamic, buf, "tab-width") {
         Some(Value::Int(n)) if n > 0 => n as usize,
         Some(Value::Char(c)) if (c as u32) > 0 => c as usize,
@@ -102,7 +106,7 @@ fn tab_width_in_state(obarray: &Obarray, dynamic: &[OrderedSymMap], buf: Option<
 
 fn indent_tabs_mode_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buf: Option<&Buffer>,
 ) -> bool {
     dynamic_buffer_or_global_symbol_value(obarray, dynamic, buf, "indent-tabs-mode")
@@ -111,7 +115,7 @@ fn indent_tabs_mode_in_state(
 
 fn buffer_read_only_active_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buf: &Buffer,
 ) -> bool {
     if buf.read_only {
@@ -242,7 +246,7 @@ fn delete_horizontal_space_at_point(
 
 pub(crate) fn builtin_current_indentation_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -269,7 +273,7 @@ pub(crate) fn builtin_current_indentation_in_state(
 
 pub(crate) fn builtin_current_column_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -289,7 +293,7 @@ pub(crate) fn builtin_current_column_in_state(
 
 pub(crate) fn builtin_move_to_column_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -375,7 +379,7 @@ pub(crate) fn builtin_move_to_column_in_state(
 
 pub(crate) fn builtin_indent_to_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {

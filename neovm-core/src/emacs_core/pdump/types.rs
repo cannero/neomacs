@@ -317,8 +317,14 @@ pub struct DumpLispHeap {
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum DumpRuntimeBindingValue {
+    Bound(DumpValue),
+    Void,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpOrderedSymMap {
-    pub entries: Vec<(DumpSymId, DumpValue)>,
+    pub entries: Vec<(DumpSymId, DumpRuntimeBindingValue)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -473,7 +479,7 @@ pub struct DumpBuffer {
     pub multibyte: bool,
     pub file_name: Option<String>,
     pub markers: Vec<DumpMarkerEntry>,
-    pub properties: Vec<(String, DumpValue)>,
+    pub properties: Vec<(String, DumpRuntimeBindingValue)>,
     pub text_props: DumpTextPropertyTable,
     pub overlays: DumpOverlayList,
     pub syntax_table: DumpSyntaxTable,

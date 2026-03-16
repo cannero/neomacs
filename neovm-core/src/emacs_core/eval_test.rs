@@ -976,6 +976,51 @@ fn setq_follows_variable_alias_resolution() {
 }
 
 #[test]
+fn makunbound_ignores_lexical_bindings_and_unbinds_runtime_cell() {
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    let forms = parse_forms(
+        "(setq vm-lex-makunbound 30)
+         (let ((vm-lex-makunbound 10))
+           (list (makunbound 'vm-lex-makunbound)
+                 vm-lex-makunbound
+                 (condition-case err
+                     (symbol-value 'vm-lex-makunbound)
+                   (error (car err)))))
+         (condition-case err
+             (symbol-value 'vm-lex-makunbound)
+           (error (car err)))",
+    )
+    .expect("parse");
+    let results = ev.eval_forms(&forms);
+    assert_eq!(
+        format_eval_result(&results[1]),
+        "OK (vm-lex-makunbound 10 void-variable)"
+    );
+    assert_eq!(format_eval_result(&results[2]), "OK void-variable");
+}
+
+#[test]
+fn makunbound_marks_dynamic_binding_void_without_falling_back_to_global() {
+    let results = eval_all(
+        "(defvar vm-mku-dyn 'global)
+         (let ((vm-mku-dyn 'dyn))
+           (list (makunbound 'vm-mku-dyn)
+                 (condition-case err vm-mku-dyn (error (car err)))
+                 (condition-case err (default-value 'vm-mku-dyn) (error (car err)))
+                 (boundp 'vm-mku-dyn)))
+         vm-mku-dyn
+         (default-value 'vm-mku-dyn)",
+    );
+    assert_eq!(
+        results[1],
+        "OK (vm-mku-dyn void-variable void-variable nil)"
+    );
+    assert_eq!(results[2], "OK global");
+    assert_eq!(results[3], "OK global");
+}
+
+#[test]
 fn setq_alias_triggers_single_watcher_callback_on_resolved_target() {
     let results = eval_all(
         "(setq vm-setq-watch-events nil)

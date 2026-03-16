@@ -1920,6 +1920,27 @@ fn vm_varset_and_set_resolve_aliases_and_reject_constants_like_gnu() {
 }
 
 #[test]
+fn vm_makunbound_uses_shared_runtime_void_bindings() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (defvar vm-mku-dyn 'global)
+                 (list
+                  (let ((vm-mku-dyn 'dyn))
+                    (list (makunbound 'vm-mku-dyn)
+                          (condition-case err vm-mku-dyn (error (car err)))
+                          (condition-case err
+                              (default-value 'vm-mku-dyn)
+                            (error (car err)))
+                          (boundp 'vm-mku-dyn)))
+                  vm-mku-dyn
+                  (default-value 'vm-mku-dyn)))"#
+        ),
+        "OK ((vm-mku-dyn void-variable void-variable nil) global global)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

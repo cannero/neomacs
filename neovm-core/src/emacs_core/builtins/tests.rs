@@ -8817,7 +8817,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
 
     eval.obarray_mut().make_special_id(intern("vm-bound-dyn"));
-    let mut frame = OrderedSymMap::new();
+    let mut frame = OrderedRuntimeBindingMap::new();
     frame.insert(intern("vm-bound-dyn"), Value::Int(9));
     eval.dynamic.push(frame);
 

@@ -11,7 +11,7 @@ use super::overlay::OverlayList;
 use super::text_props::TextPropertyTable;
 use super::undo::{UndoList, UndoRecord};
 use crate::emacs_core::syntax::SyntaxTable;
-use crate::emacs_core::value::Value;
+use crate::emacs_core::value::{RuntimeBindingValue, Value};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------
@@ -94,8 +94,8 @@ pub struct Buffer {
     pub file_name: Option<String>,
     /// Active markers that track positions across edits.
     pub markers: Vec<MarkerEntry>,
-    /// Buffer-local variables (name -> Lisp value).
-    pub properties: HashMap<String, Value>,
+    /// Buffer-local variables (name -> runtime binding state).
+    pub properties: HashMap<String, RuntimeBindingValue>,
     /// Text properties attached to ranges of text.
     pub text_props: TextPropertyTable,
     /// Overlays attached to the buffer.
@@ -112,10 +112,22 @@ impl Buffer {
     /// Create a new, empty buffer.
     pub fn new(id: BufferId, name: String) -> Self {
         let mut properties = HashMap::new();
-        properties.insert("buffer-read-only".to_string(), Value::Nil);
-        properties.insert("buffer-undo-list".to_string(), Value::Nil);
-        properties.insert("major-mode".to_string(), Value::symbol("fundamental-mode"));
-        properties.insert("mode-name".to_string(), Value::string("Fundamental"));
+        properties.insert(
+            "buffer-read-only".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "buffer-undo-list".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "major-mode".to_string(),
+            RuntimeBindingValue::Bound(Value::symbol("fundamental-mode")),
+        );
+        properties.insert(
+            "mode-name".to_string(),
+            RuntimeBindingValue::Bound(Value::string("Fundamental")),
+        );
 
         Self {
             id,
@@ -588,21 +600,58 @@ impl Buffer {
     // -- Buffer-local variables ----------------------------------------------
 
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
-        self.properties.insert(name.to_string(), value);
+        self.properties
+            .insert(name.to_string(), RuntimeBindingValue::Bound(value));
+    }
+
+    pub fn set_buffer_local_void(&mut self, name: &str) {
+        self.properties
+            .insert(name.to_string(), RuntimeBindingValue::Void);
     }
 
     pub fn get_buffer_local(&self, name: &str) -> Option<&Value> {
-        self.properties.get(name)
+        self.properties
+            .get(name)
+            .and_then(RuntimeBindingValue::as_ref)
+    }
+
+    pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
+        self.properties.get(name).copied()
+    }
+
+    pub fn has_buffer_local(&self, name: &str) -> bool {
+        self.properties.contains_key(name)
     }
 
     pub fn buffer_local_value(&self, name: &str) -> Option<Value> {
         match name {
-            "buffer-undo-list" => match self.properties.get(name).copied() {
-                Some(Value::True) => Some(Value::True),
-                _ => Some(self.undo_list.to_value()),
+            "buffer-undo-list" => match self.get_buffer_local_binding(name) {
+                Some(RuntimeBindingValue::Bound(Value::True)) => Some(Value::True),
+                Some(RuntimeBindingValue::Bound(_)) => Some(self.undo_list.to_value()),
+                Some(RuntimeBindingValue::Void) => None,
+                None => None,
             },
-            _ => self.properties.get(name).copied(),
+            _ => match self.get_buffer_local_binding(name) {
+                Some(RuntimeBindingValue::Bound(value)) => Some(value),
+                Some(RuntimeBindingValue::Void) | None => None,
+            },
         }
+    }
+}
+
+impl Buffer {
+    pub fn buffer_local_bound_p(&self, name: &str) -> bool {
+        matches!(
+            self.get_buffer_local_binding(name),
+            Some(RuntimeBindingValue::Bound(_))
+        )
+    }
+
+    pub fn buffer_local_void_p(&self, name: &str) -> bool {
+        matches!(
+            self.get_buffer_local_binding(name),
+            Some(RuntimeBindingValue::Void)
+        )
     }
 }
 
@@ -1016,8 +1065,10 @@ impl BufferManager {
     pub fn clear_buffer_local_properties(&mut self, id: BufferId) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
         buf.properties.clear();
-        buf.properties
-            .insert("buffer-read-only".to_string(), Value::Nil);
+        buf.properties.insert(
+            "buffer-read-only".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
         Some(())
     }
 
@@ -1139,11 +1190,16 @@ impl BufferManager {
         Some(())
     }
 
+    pub fn set_buffer_local_void_property(&mut self, id: BufferId, name: &str) -> Option<()> {
+        self.buffers.get_mut(&id)?.set_buffer_local_void(name);
+        Some(())
+    }
+
     pub fn remove_buffer_local_property(
         &mut self,
         id: BufferId,
         name: &str,
-    ) -> Option<Option<Value>> {
+    ) -> Option<Option<RuntimeBindingValue>> {
         Some(self.buffers.get_mut(&id)?.properties.remove(name))
     }
 
@@ -1412,7 +1468,9 @@ impl GcTrace for BufferManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for buffer in self.buffers.values() {
             for value in buffer.properties.values() {
-                roots.push(*value);
+                if let RuntimeBindingValue::Bound(value) = value {
+                    roots.push(*value);
+                }
             }
             buffer.text_props.trace_roots(roots);
             buffer.overlays.trace_roots(roots);

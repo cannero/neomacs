@@ -793,7 +793,7 @@ fn with_default_directory_binding<T>(
     directory: &str,
     f: impl FnOnce(&mut Evaluator) -> Result<T, Flow>,
 ) -> Result<T, Flow> {
-    let mut frame = OrderedSymMap::new();
+    let mut frame = OrderedRuntimeBindingMap::new();
     frame.insert(intern("default-directory"), Value::string(directory));
     eval.dynamic.push(frame);
     let result = f(eval);

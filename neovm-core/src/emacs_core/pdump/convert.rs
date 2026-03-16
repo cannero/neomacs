@@ -33,7 +33,7 @@ use crate::emacs_core::symbol::{Obarray, SymbolData};
 use crate::emacs_core::syntax::{SyntaxClass, SyntaxEntry, SyntaxFlags, SyntaxTable};
 use crate::emacs_core::value::{
     HashKey, HashTableTest, HashTableWeakness, LambdaData, LambdaParams, LispHashTable,
-    OrderedSymMap, StringTextPropertyRun, Value,
+    OrderedRuntimeBindingMap, OrderedSymMap, RuntimeBindingValue, StringTextPropertyRun, Value,
 };
 use crate::face::{
     BoxBorder, BoxStyle, Color, Face, FaceHeight, FaceTable, FontSlant, FontWeight, Underline,
@@ -378,11 +378,25 @@ pub(crate) fn dump_obarray(ob: &Obarray) -> DumpObarray {
 
 // --- OrderedSymMap ---
 
-pub(crate) fn dump_ordered_sym_map(m: &OrderedSymMap) -> DumpOrderedSymMap {
+fn dump_runtime_binding_value(value: &RuntimeBindingValue) -> DumpRuntimeBindingValue {
+    match value {
+        RuntimeBindingValue::Bound(value) => DumpRuntimeBindingValue::Bound(dump_value(value)),
+        RuntimeBindingValue::Void => DumpRuntimeBindingValue::Void,
+    }
+}
+
+fn load_runtime_binding_value(value: &DumpRuntimeBindingValue) -> RuntimeBindingValue {
+    match value {
+        DumpRuntimeBindingValue::Bound(value) => RuntimeBindingValue::Bound(load_value(value)),
+        DumpRuntimeBindingValue::Void => RuntimeBindingValue::Void,
+    }
+}
+
+pub(crate) fn dump_ordered_sym_map(m: &OrderedRuntimeBindingMap) -> DumpOrderedSymMap {
     DumpOrderedSymMap {
         entries: m
             .iter()
-            .map(|(k, v)| (dump_sym_id(*k), dump_value(v)))
+            .map(|(k, v)| (dump_sym_id(*k), dump_runtime_binding_value(v)))
             .collect(),
     }
 }
@@ -558,7 +572,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         properties: buf
             .properties
             .iter()
-            .map(|(k, v)| (k.clone(), dump_value(v)))
+            .map(|(k, v)| (k.clone(), dump_runtime_binding_value(v)))
             .collect(),
         text_props: dump_text_property_table(&buf.text_props),
         overlays: dump_overlay_list(&buf.overlays),
@@ -1735,7 +1749,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         properties: db
             .properties
             .iter()
-            .map(|(k, v)| (k.clone(), load_value(v)))
+            .map(|(k, v)| (k.clone(), load_runtime_binding_value(v)))
             .collect(),
         text_props: TextPropertyTable::from_dump(
             db.text_props

@@ -281,7 +281,7 @@ impl<'a> Vm<'a> {
         // closures and VarRef lookups can find parameters by name.
         let has_named_params = nonrest > 0 || has_rest;
         if has_named_params {
-            let mut frame = OrderedSymMap::new();
+            let mut frame = OrderedRuntimeBindingMap::new();
             let mut arg_idx = 0;
             for param in &func.params.required {
                 frame.insert(
@@ -324,7 +324,9 @@ impl<'a> Vm<'a> {
                     *self.shared.lexenv
                 };
                 for (sym_id, val) in frame.iter() {
-                    *self.shared.lexenv = lexenv_prepend(*self.shared.lexenv, *sym_id, *val);
+                    if let Some(val) = val.as_value() {
+                        *self.shared.lexenv = lexenv_prepend(*self.shared.lexenv, *sym_id, val);
+                    }
                 }
                 let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
                 *self.shared.lexenv = saved_lexenv;
@@ -476,7 +478,7 @@ impl<'a> Vm<'a> {
                             old_lexenv,
                         });
                     } else {
-                        let mut frame = OrderedSymMap::new();
+                        let mut frame = OrderedRuntimeBindingMap::new();
                         frame.insert(name_id, val);
                         self.shared.dynamic.push(frame);
                         specpdl.push(VmUnwindEntry::DynamicBinding {
@@ -1250,7 +1252,9 @@ impl<'a> Vm<'a> {
             && let Some(buf) = self.shared.buffers.get_mut(current_id)
         {
             for value in buf.properties.values_mut() {
-                Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+                if let RuntimeBindingValue::Bound(value) = value {
+                    Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+                }
             }
         }
 
@@ -1383,23 +1387,33 @@ impl<'a> Vm<'a> {
         }
 
         // Check dynamic
-        for frame in self.shared.dynamic.iter().rev() {
-            if let Some(val) = frame.get(&name_id) {
-                return Ok(*val);
-            }
-            if resolved != name_id
-                && let Some(val) = frame.get(&resolved)
-            {
-                return Ok(*val);
-            }
+        if let Some(binding) = lookup_runtime_binding(&self.shared.dynamic, name_id) {
+            return binding
+                .as_value()
+                .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)]));
+        }
+        if resolved != name_id
+            && let Some(binding) = lookup_runtime_binding(&self.shared.dynamic, resolved)
+        {
+            return binding
+                .as_value()
+                .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)]));
         }
 
         // Current buffer-local binding.
         if crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
             && let Some(buf) = self.shared.buffers.current_buffer()
-            && let Some(value) = buf.buffer_local_value(resolved_name)
         {
-            return Ok(value);
+            if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
+                return binding
+                    .as_value()
+                    .or_else(|| {
+                        (resolved_name == "buffer-undo-list")
+                            .then(|| buf.buffer_local_value(resolved_name))
+                            .flatten()
+                    })
+                    .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)]));
+            }
         }
 
         // Obarray
@@ -1537,6 +1551,32 @@ impl<'a> Vm<'a> {
         );
         self.run_variable_watchers(resolve_sym(resolved), &value, &Value::Nil, "set")?;
         Ok(value)
+    }
+
+    fn builtin_makunbound_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("makunbound", args, 1)?;
+        let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &*self.shared.obarray,
+            symbol,
+        )?;
+        if self.shared.obarray.is_constant_id(resolved) {
+            return Err(signal("setting-constant", vec![args[0]]));
+        }
+        crate::emacs_core::eval::makunbound_runtime_binding_in_state(
+            self.shared.obarray,
+            self.shared.dynamic.as_mut_slice(),
+            self.shared.buffers,
+            &*self.shared.custom,
+            resolved,
+        );
+        self.run_variable_watchers(
+            resolve_sym(resolved),
+            &Value::Nil,
+            &Value::Nil,
+            "makunbound",
+        )?;
+        Ok(args[0])
     }
 
     fn ensure_selected_frame_id(&mut self) -> FrameId {
@@ -2920,6 +2960,7 @@ impl<'a> Vm<'a> {
                 args.to_vec(),
             )),
             "set" => Some(self.builtin_set_shared(args)),
+            "makunbound" => Some(self.builtin_makunbound_shared(args)),
             "default-boundp" => Some(
                 crate::emacs_core::builtins::symbols::builtin_default_boundp_in_obarray(
                     &*self.shared.obarray,

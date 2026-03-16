@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{Value, read_cons, with_heap};
+use super::value::{RuntimeBindingValue, Value, read_cons, with_heap};
 use crate::buffer::{Buffer, BufferManager};
 
 thread_local! {
@@ -1126,14 +1126,18 @@ fn current_buffer_syntax_table_object_in_buffers(
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(value) = buf.properties.get(SYNTAX_TABLE_OBJECT_PROPERTY) {
+    if let Some(RuntimeBindingValue::Bound(value)) =
+        buf.properties.get(SYNTAX_TABLE_OBJECT_PROPERTY)
+    {
         if builtin_syntax_table_p(vec![*value])?.is_truthy() {
             return Ok(*value);
         }
     }
 
-    buf.properties
-        .insert(SYNTAX_TABLE_OBJECT_PROPERTY.to_string(), fallback);
+    buf.properties.insert(
+        SYNTAX_TABLE_OBJECT_PROPERTY.to_string(),
+        RuntimeBindingValue::Bound(fallback),
+    );
     Ok(fallback)
 }
 
@@ -1151,8 +1155,10 @@ fn set_current_buffer_syntax_table_object_in_buffers(
     let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.properties
-        .insert(SYNTAX_TABLE_OBJECT_PROPERTY.to_string(), table);
+    buf.properties.insert(
+        SYNTAX_TABLE_OBJECT_PROPERTY.to_string(),
+        RuntimeBindingValue::Bound(table),
+    );
     Ok(())
 }
 

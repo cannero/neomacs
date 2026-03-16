@@ -190,10 +190,24 @@ fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpErr
         .dynamic
         .iter()
         .map(|m| {
-            crate::emacs_core::value::OrderedSymMap::from_entries(
+            crate::emacs_core::value::OrderedRuntimeBindingMap::from_entries(
                 m.entries
                     .iter()
-                    .map(|(k, v)| (load_sym_id(k), load_value(v)))
+                    .map(|(k, v)| {
+                        (
+                            load_sym_id(k),
+                            match v {
+                                crate::emacs_core::pdump::types::DumpRuntimeBindingValue::Bound(
+                                    value,
+                                ) => crate::emacs_core::value::RuntimeBindingValue::Bound(
+                                    load_value(value),
+                                ),
+                                crate::emacs_core::pdump::types::DumpRuntimeBindingValue::Void => {
+                                    crate::emacs_core::value::RuntimeBindingValue::Void
+                                }
+                            },
+                        )
+                    })
                     .collect(),
             )
         })

@@ -472,7 +472,7 @@ pub(crate) fn builtin_barf_if_buffer_read_only(
 
 pub(crate) fn builtin_barf_if_buffer_read_only_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {

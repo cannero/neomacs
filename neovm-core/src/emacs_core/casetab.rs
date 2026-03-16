@@ -456,7 +456,8 @@ fn current_case_table_for_buffer(eval: &mut super::eval::Evaluator) -> Result<Va
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(value) = buf.properties.get(CURRENT_CASE_TABLE_PROPERTY) {
+    if let Some(RuntimeBindingValue::Bound(value)) = buf.properties.get(CURRENT_CASE_TABLE_PROPERTY)
+    {
         if is_case_table(value) {
             return Ok(*value);
         }

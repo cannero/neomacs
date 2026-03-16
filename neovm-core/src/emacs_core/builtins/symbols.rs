@@ -261,22 +261,20 @@ pub(crate) fn builtin_boundp(eval: &mut super::eval::Evaluator, args: Vec<Value>
 
 pub(crate) fn builtin_boundp_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("boundp", &args, 1)?;
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
-    for frame in dynamic.iter().rev() {
-        if frame.get(&resolved).is_some() {
-            return Ok(Value::True);
-        }
+    if let Some(binding) = lookup_runtime_binding(dynamic, resolved) {
+        return Ok(Value::bool(binding.as_value().is_some()));
     }
     let resolved_name = resolve_sym(resolved);
-    if let Some(buf) = buffers.current_buffer()
-        && buf.get_buffer_local(resolved_name).is_some()
-    {
-        return Ok(Value::True);
+    if let Some(buf) = buffers.current_buffer() {
+        if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
+            return Ok(Value::bool(binding.as_value().is_some()));
+        }
     }
     Ok(Value::bool(
         obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
@@ -501,7 +499,7 @@ pub(crate) fn builtin_symbol_value(
 
 pub(crate) fn builtin_symbol_value_in_state(
     obarray: &Obarray,
-    dynamic: &[OrderedSymMap],
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -511,17 +509,18 @@ pub(crate) fn builtin_symbol_value_in_state(
     let resolved_name = resolve_sym(resolved);
     let resolved_is_canonical = is_canonical_symbol_id(resolved);
     // Check dynamic bindings first
-    for frame in dynamic.iter().rev() {
-        if let Some(value) = frame.get(&resolved) {
-            return Ok(*value);
-        }
+    if let Some(binding) = lookup_runtime_binding(dynamic, resolved) {
+        return binding
+            .as_value()
+            .ok_or_else(|| signal("void-variable", vec![args[0]]));
     }
     // Buffer-local bindings are keyed by canonical symbol names only.
-    if resolved_is_canonical
-        && let Some(buf) = buffers.current_buffer()
-        && let Some(value) = buf.get_buffer_local(resolved_name)
-    {
-        return Ok(*value);
+    if resolved_is_canonical && let Some(buf) = buffers.current_buffer() {
+        if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
+            return binding
+                .as_value()
+                .ok_or_else(|| signal("void-variable", vec![args[0]]));
+        }
     }
     match obarray.symbol_value_id(resolved).cloned() {
         Some(value) => Ok(value),
@@ -725,7 +724,7 @@ pub(crate) fn builtin_makunbound(
     if eval.obarray().is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![args[0]]));
     }
-    eval.obarray_mut().makunbound_id(resolved);
+    eval.makunbound_runtime_binding_by_id(resolved);
     eval.run_variable_watchers(
         resolve_sym(resolved),
         &Value::Nil,
@@ -3460,7 +3459,7 @@ pub(crate) fn builtin_variable_binding_locus_in_state(
         return Ok(Value::Nil);
     }
     if let Some(buf) = buffers.current_buffer() {
-        if buf.get_buffer_local(&resolved).is_some() {
+        if buf.has_buffer_local(&resolved) {
             return Ok(Value::Buffer(buf.id));
         }
     }

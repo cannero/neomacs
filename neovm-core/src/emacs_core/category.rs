@@ -329,7 +329,7 @@ fn current_buffer_category_table(eval: &mut super::eval::Evaluator) -> Result<Va
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    if let Some(table) = buf.properties.get(CATEGORY_TABLE_PROPERTY) {
+    if let Some(RuntimeBindingValue::Bound(table)) = buf.properties.get(CATEGORY_TABLE_PROPERTY) {
         if is_category_table_value(table)? {
             return Ok(*table);
         }
