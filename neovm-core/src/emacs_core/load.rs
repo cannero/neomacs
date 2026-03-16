@@ -2354,65 +2354,25 @@ fn expr_runtime_value(expr: &Expr) -> Option<Value> {
     }
 }
 
-fn collect_compile_only_function_names(
-    expr: &Expr,
-    names: &mut std::collections::BTreeSet<String>,
-) {
-    let Expr::List(items) = expr else {
-        return;
-    };
-    let Some(Expr::Symbol(head_id)) = items.first() else {
-        return;
-    };
-    match resolve_sym(*head_id) {
-        "progn" | "eval-and-compile" | "eval-when-compile" => {
-            for item in &items[1..] {
-                collect_compile_only_function_names(item, names);
-            }
-        }
-        "defun"
-        | "defmacro"
-        | "defsubst"
-        | "define-inline"
-        | "defalias"
-        | "fset"
-        | "cl-defun"
-        | "cl-defmacro"
-        | "cl-defsubst"
-        | "cl-define-compiler-macro" => {
-            if let Some(name_expr) = items.get(1)
-                && let Some(name) =
-                    expr_symbol_name(name_expr).or_else(|| expr_quoted_symbol_name(name_expr))
-            {
-                names.insert(name);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn compile_only_bootstrap_function_names(
-    project_root: &Path,
-) -> std::collections::BTreeSet<String> {
-    let mut names = std::collections::BTreeSet::new();
-    // Keep all functions at runtime — GNU Emacs doesn't strip them.
-    // They're available via autoload or pre-loaded during startup.
-    let compile_only_files: [&str; 0] = [];
-    for relative in compile_only_files {
-        let path = project_root.join(relative);
-        let Ok(source) = fs::read_to_string(&path) else {
-            tracing::warn!("bootstrap cleanup: failed reading {}", path.display());
-            continue;
-        };
-        let Ok(forms) = crate::emacs_core::parser::parse_forms(&source) else {
-            tracing::warn!("bootstrap cleanup: failed parsing {}", path.display());
-            continue;
-        };
-        for form in &forms {
-            collect_compile_only_function_names(form, &mut names);
-        }
-    }
-    names
+fn hidden_cl_runtime_entry_points() -> std::collections::BTreeSet<String> {
+    // GNU Emacs -Q does not expose these cl-loaddefs entry points until
+    // cl-lib/eieio explicitly restore them via the real Lisp load path.
+    // Source bootstrap currently leaks just this small surface via
+    // eval-when-compile; hide only the proven leaked names here instead of
+    // stripping whole cl-* files out of the runtime image.
+    [
+        "cl--block-throw",
+        "cl--block-wrapper",
+        "cl-every",
+        "cl-defstruct",
+        "cl-reduce",
+        "cl-subseq",
+        "gv-get",
+        "setf",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 const SUBR_POST_GV_EAGER_REPLAY_FORMS: &[&str] = &[
@@ -2669,15 +2629,15 @@ fn normalize_bootstrap_runtime_surface(
     eval: &mut super::eval::Evaluator,
     project_root: &Path,
 ) -> Result<(), EvalError> {
-    // GNU Emacs keeps cl-lib/cl-macs/cl-extra/cl-seq/gv functions
-    // available at runtime (loaded during startup, autoloaded on demand).
-    // Don't strip any features — stripping breaks runtime code that calls
-    // these functions (e.g., cl-replace, cl-subseq, gv-define-setter).
-    let compile_only_features: [&str; 0] = [];
-    let runtime_autoload_files: [&str; 0] = [];
+    // GNU -Q does not leave these features present in the default runtime
+    // surface even though source bootstrap can transiently load them.
+    let compile_only_features = ["cl-lib", "cl-macs", "cl-seq", "cl-extra", "gv"];
+    // GNU keeps gv entry points available via ldefs-boot autoloads even after
+    // the gv feature itself is no longer present at -Q runtime startup.
+    let runtime_autoload_files = ["gv"];
     let (restore_autoload_args, restore_property_forms) =
         runtime_loaddefs_restore_state(project_root, &runtime_autoload_files)?;
-    let mut compile_only_names = compile_only_bootstrap_function_names(project_root);
+    let mut compile_only_names = hidden_cl_runtime_entry_points();
     // The current dumped nadvice bytecode still dereferences gv refs via this
     // runtime helper. Stripping it here leaves the cached bootstrap image
     // internally inconsistent even though `featurep 'gv` remains nil.
@@ -3214,30 +3174,6 @@ pub fn create_bootstrap_evaluator_with_features(
         }
 
         tracing::info!("\n=== LOADUP BOOTSTRAP COMPLETE ===");
-
-        // After bootstrap loading completes, compile critical files to .neobc
-        // so that subsequent loads (via require) use the compiled version
-        // where eval-when-compile is folded to constants.
-        // This fixes eieio-core.el's (eval-when-compile (cl-declaim (optimize (safety 0))))
-        // which otherwise leaks safety=0 into struct accessor generation.
-        //
-        // Use a CLONED evaluator for compilation so compile-time side effects
-        // (re-evaluating defuns, requires, etc.) don't corrupt the main state.
-        let critical_compile_files = ["emacs-lisp/eieio-core", "emacs-lisp/eieio"];
-        if let Ok(mut compile_eval) = super::pdump::clone_evaluator(&eval) {
-            for name in &critical_compile_files {
-                if let Some(path) = find_file_in_load_path(name, &load_path) {
-                    match super::file_compile::compile_el_to_neobc(&mut compile_eval, &path) {
-                        Ok(()) => tracing::info!("Compiled {} to .neobc", name),
-                        Err(e) => {
-                            tracing::warn!("Failed to compile {} to .neobc: {}", name, e);
-                        }
-                    }
-                }
-            }
-        } else {
-            tracing::warn!("Could not clone evaluator for .neobc compilation");
-        }
 
         // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
         // and interactive evaluation. Match this for oracle test parity.

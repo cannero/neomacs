@@ -447,6 +447,8 @@ fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
                (autoloadp (symbol-function 'cl-defstruct))
                (fboundp 'cl-reduce)
                (autoloadp (symbol-function 'cl-reduce))
+               (fboundp 'cl-subseq)
+               (autoloadp (symbol-function 'cl-subseq))
                (fboundp 'gv-get)
                (autoloadp (symbol-function 'gv-get))
                (fboundp 'setf)
@@ -456,7 +458,8 @@ fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
                (functionp (symbol-function 'emacs-lisp-mode)))",
     );
     assert_eq!(
-        rendered, "OK (nil nil nil nil nil t t nil nil nil nil nil nil nil nil t t t t t nil t)",
+        rendered,
+        "OK (nil nil nil nil nil t t nil nil nil nil nil nil nil nil nil nil t t t t t nil t)",
         "bootstrap runtime should match GNU -Q startup visibility for cl preload and loaddefs"
     );
 }
@@ -615,7 +618,9 @@ fn bootstrap_runtime_loaded_bytecode_preserves_wrong_arity_shape() {
 #[test]
 fn bootstrap_runtime_keeps_cl_loaddefs_out_of_default_q_surface() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("runtime startup state: {}", format_eval_error(&eval, &err));
+    });
     let rendered = eval_rendered(
         &mut eval,
         r#"(list
@@ -661,6 +666,26 @@ fn bootstrap_runtime_require_cl_lib_works() {
              (error err))"#,
     );
     assert_eq!(rendered, "OK (t t t t t)");
+}
+
+#[test]
+fn bootstrap_runtime_require_eieio_restores_cl_loaddefs_surface() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (require 'eieio)
+                 (list (featurep 'eieio)
+                       (featurep 'eieio-core)
+                       (autoloadp (symbol-function 'cl-every))
+                       (autoloadp (symbol-function 'cl-defstruct))
+                       (autoloadp (symbol-function 'cl-reduce))
+                       (autoloadp (symbol-function 'cl-subseq))))
+             (error err))"#,
+    );
+    assert_eq!(rendered, "OK (t t t nil t t)");
 }
 
 #[test]
@@ -1082,6 +1107,20 @@ fn bootstrap_runtime_describe_variable_autoloads_help_fns() {
     );
 
     assert_eq!(rendered, "OK (t t nil t)");
+}
+
+#[test]
+fn bootstrap_runtime_eieio_core_starts_as_gnu_autoload_state() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (featurep 'eieio-core)
+             (autoloadp (symbol-function 'eieio-defclass-autoload)))"#,
+    );
+
+    assert_eq!(rendered, "OK (nil t)");
 }
 
 #[test]
