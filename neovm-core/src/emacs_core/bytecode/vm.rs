@@ -2101,6 +2101,94 @@ impl<'a> Vm<'a> {
         out
     }
 
+    fn builtin_sort_fast(&mut self, args: &[Value]) -> EvalResult {
+        let options = crate::emacs_core::builtins::higher_order::parse_sort_options(args)?;
+        let sequence = args[0];
+        let saved_roots = self.gc_roots.len();
+        self.gc_roots.push(sequence);
+        self.gc_roots.push(options.key_fn);
+        self.gc_roots.push(options.lessp_fn);
+
+        let out = match sequence {
+            Value::Nil => Ok(Value::Nil),
+            Value::Cons(_) => {
+                let mut cons_cells = Vec::new();
+                let mut values = Vec::new();
+                let mut cursor = sequence;
+                loop {
+                    match cursor {
+                        Value::Nil => break,
+                        Value::Cons(cell) => {
+                            values.push(with_heap(|h| h.cons_car(cell)));
+                            cons_cells.push(cell);
+                            cursor = with_heap(|h| h.cons_cdr(cell));
+                        }
+                        tail => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("listp"), tail],
+                            ));
+                        }
+                    }
+                }
+                for value in &values {
+                    self.gc_roots.push(*value);
+                }
+                let mut sorted_values =
+                    crate::emacs_core::builtins::higher_order::stable_sort_values_with(
+                        self,
+                        &values,
+                        options.key_fn,
+                        options.lessp_fn,
+                        options.reverse,
+                    )?;
+                if options.in_place {
+                    for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
+                        with_heap_mut(|h| h.set_car(*cell, value));
+                    }
+                    Ok(sequence)
+                } else {
+                    Ok(Value::list(std::mem::take(&mut sorted_values)))
+                }
+            }
+            Value::Vector(v) | Value::Record(v) => {
+                let values = with_heap(|h| h.get_vector(v).clone());
+                for value in &values {
+                    self.gc_roots.push(*value);
+                }
+                let sorted_values =
+                    crate::emacs_core::builtins::higher_order::stable_sort_values_with(
+                        self,
+                        &values,
+                        options.key_fn,
+                        options.lessp_fn,
+                        options.reverse,
+                    )?;
+
+                if options.in_place {
+                    with_heap_mut(|h| *h.get_vector_mut(v) = sorted_values);
+                    Ok(sequence)
+                } else {
+                    match sequence {
+                        Value::Vector(_) => Ok(Value::vector(sorted_values)),
+                        Value::Record(_) => {
+                            let id = with_heap_mut(|h| h.alloc_vector(sorted_values));
+                            Ok(Value::Record(id))
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            other => Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("list-or-vector-p"), other],
+            )),
+        };
+
+        self.gc_roots.truncate(saved_roots);
+        out
+    }
+
     fn builtin_frame_list_fast(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("frame-list", args, 0)?;
         let _ = self.ensure_selected_frame_id();
@@ -4393,6 +4481,7 @@ impl<'a> Vm<'a> {
             "mapc" => Some(self.builtin_mapc_fast(args)),
             "mapcan" => Some(self.builtin_mapcan_fast(args)),
             "mapconcat" => Some(self.builtin_mapconcat_fast(args)),
+            "sort" => Some(self.builtin_sort_fast(args)),
             "fboundp" => Some(self.builtin_fboundp_fast(args)),
             "frame-list" => Some(self.builtin_frame_list_fast(args)),
             "framep" => Some(self.builtin_framep_fast(args)),
@@ -5528,6 +5617,17 @@ fn merge_result_with_cleanup(result: EvalResult, cleanup: Result<(), Flow>) -> E
         (Err(error), _) => Err(error),
         (Ok(_), Err(error)) => Err(error),
         (Ok(value), Ok(())) => Ok(value),
+    }
+}
+
+impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
+    fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow> {
+        let roots = args.clone();
+        self.with_extra_roots(&roots, |vm| vm.call_function(function, args))
+    }
+
+    fn root_sort_value(&mut self, value: Value) {
+        self.gc_roots.push(value);
     }
 }
 

@@ -131,6 +131,33 @@ fn vm_mapc_mapcan_and_mapconcat_use_shared_runtime_callbacks() {
     assert_eq!(vm_eval_str("(mapconcat #'identity nil \",\")"), "OK \"\"");
 }
 
+#[test]
+fn vm_sort_uses_shared_runtime_callbacks_and_semantics() {
+    assert_eq!(
+        vm_eval_str(
+            "(let* ((xs '((1 . a) (1 . b) (0 . c)))
+                    (ys (sort xs :key #'car)))
+               (list xs ys (eq xs ys)))"
+        ),
+        "OK (((1 . a) (1 . b) (0 . c)) ((0 . c) (1 . a) (1 . b)) nil)"
+    );
+    assert_eq!(
+        vm_eval_str(
+            "(let* ((xs '((1 . a) (0 . b)))
+                    (ys (sort xs (lambda (a b) (< (car a) (car b))))))
+               (list xs ys (eq xs ys)))"
+        ),
+        "OK (((0 . b) (1 . a)) ((0 . b) (1 . a)) t)"
+    );
+    assert_eq!(
+        vm_eval_str(
+            "(let ((v [3 1 2]))
+               (list (sort v #'<) v))"
+        ),
+        "OK ([1 2 3] [1 2 3])"
+    );
+}
+
 fn execute_manual_vm<T>(
     mut func: ByteCodeFunction,
     init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,
