@@ -985,17 +985,35 @@ fn replace_region_contents_type_predicate() -> Value {
     ])
 }
 
-fn replace_region_source_text(
-    eval: &super::eval::Evaluator,
+fn replace_region_source_value_in_state(
+    buffers: &BufferManager,
     source: &Value,
-) -> Result<String, Flow> {
+    current_id: BufferId,
+) -> Result<Value, Flow> {
     match source {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
-        Value::Buffer(id) => Ok(eval
-            .buffers
-            .get(*id)
-            .map(|buf| buf.buffer_string())
-            .unwrap_or_default()),
+        Value::Str(_) => Ok(*source),
+        Value::Buffer(id) => {
+            if *id == current_id {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Cannot replace a buffer with itself")],
+                ));
+            }
+            let Some(buf) = buffers.get(*id) else {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Selecting deleted buffer")],
+                ));
+            };
+            checked_buffer_substring_for_char_region_in_manager(
+                buffers,
+                Some(*id),
+                buf.point_min_char() as i64 + 1,
+                buf.point_max_char() as i64 + 1,
+                Value::Int(buf.point_min_char() as i64 + 1),
+                Value::Int(buf.point_max_char() as i64 + 1),
+            )
+        }
         Value::Vector(id) => {
             let items = with_heap(|h| h.get_vector(*id).clone());
             if items.len() != 3 {
@@ -1005,14 +1023,22 @@ fn replace_region_source_text(
                 ));
             }
             let buffer_id = expect_buffer_id(&items[0])?;
-            let start = expect_integer_or_marker(&items[1])?;
-            let end = expect_integer_or_marker(&items[2])?;
-            Ok(buffer_slice_for_char_region(
-                eval,
+            if buffer_id == current_id {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Cannot replace a buffer with itself")],
+                ));
+            }
+            let start = expect_integer_or_marker_in_buffers(buffers, &items[1])?;
+            let end = expect_integer_or_marker_in_buffers(buffers, &items[2])?;
+            checked_buffer_substring_for_char_region_in_manager(
+                buffers,
                 Some(buffer_id),
                 start,
                 end,
-            ))
+                items[1],
+                items[2],
+            )
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -1286,13 +1312,25 @@ pub(crate) fn builtin_replace_region_contents_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("replace-region-contents", &args, 3, 6)?;
-    let start = expect_integer_or_marker(&args[0])?;
-    let end = expect_integer_or_marker(&args[1])?;
-    let source_text = replace_region_source_text(eval, &args[2])?;
+    builtin_replace_region_contents_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
 
-    let read_only_buffer_name = eval.buffers.current_buffer().and_then(|buf| {
-        if buffer_read_only_active(eval, buf) {
+pub(crate) fn builtin_replace_region_contents_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("replace-region-contents", &args, 3, 6)?;
+    let current_id = buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let start = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let source_value = replace_region_source_value_in_state(buffers, &args[2], current_id)?;
+
+    let read_only_buffer_name = buffers.current_buffer().and_then(|buf| {
+        if super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
             Some(buf.name.clone())
         } else {
             None
@@ -1302,12 +1340,7 @@ pub(crate) fn builtin_replace_region_contents_eval(
         return Err(signal("buffer-read-only", vec![Value::string(name)]));
     }
 
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let start_byte = super::editfns::lisp_pos_to_byte(buf, start);
@@ -1317,10 +1350,12 @@ pub(crate) fn builtin_replace_region_contents_eval(
     } else {
         (end_byte, start_byte)
     };
-    let _ = eval.buffers.delete_buffer_region(current_id, lo, hi);
-    let _ = eval.buffers.goto_buffer_byte(current_id, lo);
-    if !source_text.is_empty() {
-        let _ = eval.buffers.insert_into_buffer(current_id, &source_text);
+    let _ = buffers.delete_buffer_region(current_id, lo, hi);
+    let _ = buffers.goto_buffer_byte(current_id, lo);
+    if args.get(5).is_some_and(|value| value.is_truthy()) {
+        builtin_insert_and_inherit_in_state(obarray, dynamic, buffers, vec![source_value])?;
+    } else {
+        builtin_insert_in_state(obarray, dynamic, buffers, vec![source_value])?;
     }
 
     Ok(Value::True)

@@ -2150,6 +2150,15 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_replace_region_contents_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_replace_region_contents_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_delete_char_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::editfns::builtin_delete_char_in_state(
             &*self.shared.obarray,
@@ -3117,6 +3126,7 @@ impl<'a> Vm<'a> {
             "compare-buffer-substrings" => {
                 Some(self.builtin_compare_buffer_substrings_shared(args))
             }
+            "replace-region-contents" => Some(self.builtin_replace_region_contents_shared(args)),
             "delete-field" => Some(self.builtin_delete_field_shared(args)),
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
             "buffer-enable-undo" => Some(self.builtin_buffer_enable_undo_shared(args)),

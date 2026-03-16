@@ -2809,6 +2809,41 @@ fn constrain_to_field_matches_gnu_boundary_and_capture_semantics() {
 }
 
 #[test]
+fn replace_region_contents_preserves_source_properties_and_rejects_self_buffer() {
+    assert_eq!(
+        eval_one(
+            r#"(with-temp-buffer
+                 (let ((src (get-buffer-create "*rrc-src*"))
+                       (s (propertize "CD" 'face 'bold)))
+                   (with-current-buffer src
+                     (erase-buffer)
+                     (insert "1234")
+                     (put-text-property 2 4 'face 'italic))
+                   (list
+                    (progn
+                      (erase-buffer)
+                      (insert "abZZef")
+                      (replace-region-contents 3 5 s)
+                      (list
+                       (buffer-substring-no-properties 1 (point-max))
+                       (get-text-property 3 'face)))
+                    (progn
+                      (erase-buffer)
+                      (insert "abZZef")
+                      (replace-region-contents 3 5 (vector src 2 4))
+                      (list
+                       (buffer-substring-no-properties 1 (point-max))
+                       (get-text-property 3 'face)
+                       (get-text-property 4 'face)))
+                    (condition-case err
+                        (replace-region-contents 3 5 (current-buffer))
+                      (error (list (car err) (car (cdr err))))))))"#,
+        ),
+        r#"OK (("abCDef" bold) ("ab23ef" italic italic) (error "Cannot replace a buffer with itself"))"#
+    );
+}
+
+#[test]
 fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
     let results = eval_all(
         "(list
