@@ -2122,6 +2122,16 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
+        "this-single-command-keys" => {
+            return Some(super::interactive::builtin_this_single_command_keys(
+                eval, args,
+            ));
+        }
+        "this-single-command-raw-keys" => {
+            return Some(super::interactive::builtin_this_single_command_raw_keys(
+                eval, args,
+            ));
+        }
         "clear-this-command-keys" => {
             return Some(super::interactive::builtin_clear_this_command_keys(
                 eval, args,

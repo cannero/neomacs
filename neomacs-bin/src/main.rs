@@ -430,9 +430,12 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 
 #[cfg(test)]
 mod tests {
-    use super::{configure_gnu_startup_state, current_layout_frame_id};
+    use super::{
+        bootstrap_buffers, configure_gnu_startup_state, current_layout_frame_id, run_gnu_startup,
+    };
     use neovm_core::emacs_core::Evaluator;
     use neovm_core::emacs_core::Value;
+    use neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features;
     use neovm_core::window::FrameId;
 
     #[test]
@@ -478,5 +481,26 @@ mod tests {
             eval.obarray().symbol_value("default-minibuffer-frame"),
             Some(&Value::Nil)
         );
+    }
+
+    #[test]
+    fn gnu_startup_keeps_scratch_selected_under_q_startup() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let current = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer after startup");
+        assert_eq!(current.name, "*scratch*");
     }
 }

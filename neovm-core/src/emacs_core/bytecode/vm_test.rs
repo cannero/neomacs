@@ -3541,6 +3541,24 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
 }
 
 #[test]
+fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
+    let mut eval = Evaluator::new_vm_harness();
+    eval.set_read_command_keys(vec![Value::Int(97)]);
+
+    let forms = parse_forms("(this-single-command-keys)").expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled this-single-command-keys should execute")
+    };
+
+    assert_eq!(result, Value::vector(vec![Value::Int(97)]));
+}
+
+#[test]
 fn vm_compiled_require_respects_recursive_require_guard() {
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-rec.el");

@@ -109,9 +109,7 @@ pub struct Buffer {
 impl Buffer {
     // -- Construction --------------------------------------------------------
 
-    /// Create a new, empty buffer.
-    pub fn new(id: BufferId, name: String) -> Self {
-        let mut properties = HashMap::new();
+    fn seed_builtin_buffer_local_defaults(properties: &mut HashMap<String, RuntimeBindingValue>) {
         properties.insert(
             "buffer-read-only".to_string(),
             RuntimeBindingValue::Bound(Value::Nil),
@@ -128,6 +126,50 @@ impl Buffer {
             "mode-name".to_string(),
             RuntimeBindingValue::Bound(Value::string("Fundamental")),
         );
+
+        // GNU C-owned per-buffer display vars used during frame/window startup.
+        properties.insert(
+            "left-margin-width".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "right-margin-width".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "left-fringe-width".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "right-fringe-width".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "fringes-outside-margins".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "scroll-bar-width".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "scroll-bar-height".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "vertical-scroll-bar".to_string(),
+            RuntimeBindingValue::Bound(Value::True),
+        );
+        properties.insert(
+            "horizontal-scroll-bar".to_string(),
+            RuntimeBindingValue::Bound(Value::True),
+        );
+    }
+
+    /// Create a new, empty buffer.
+    pub fn new(id: BufferId, name: String) -> Self {
+        let mut properties = HashMap::new();
+        Self::seed_builtin_buffer_local_defaults(&mut properties);
 
         Self {
             id,
@@ -1065,10 +1107,7 @@ impl BufferManager {
     pub fn clear_buffer_local_properties(&mut self, id: BufferId) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
         buf.properties.clear();
-        buf.properties.insert(
-            "buffer-read-only".to_string(),
-            RuntimeBindingValue::Bound(Value::Nil),
-        );
+        Buffer::seed_builtin_buffer_local_defaults(&mut buf.properties);
         Some(())
     }
 

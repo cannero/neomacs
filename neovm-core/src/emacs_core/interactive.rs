@@ -2301,6 +2301,78 @@ pub(crate) fn builtin_this_command_keys_vector(
     Ok(Value::vector(vals))
 }
 
+fn single_command_key_vector_in_state(
+    read_command_keys: &[Value],
+    interactive: &InteractiveRegistry,
+) -> Value {
+    if !read_command_keys.is_empty() {
+        return Value::vector(read_command_keys.to_vec());
+    }
+
+    let joined = interactive.this_command_keys().join(" ");
+    if joined.is_empty() {
+        return Value::vector(Vec::<Value>::new());
+    }
+
+    match super::kbd::parse_kbd_string(&joined) {
+        Ok(Value::Str(id)) => {
+            let text = super::value::with_heap(|h| h.get_string(id).to_owned());
+            Value::vector(
+                text.chars()
+                    .map(|ch| Value::Int(ch as i64))
+                    .collect::<Vec<_>>(),
+            )
+        }
+        Ok(vector @ Value::Vector(_)) => vector,
+        Ok(other) => Value::vector(vec![other]),
+        Err(_) => Value::vector(Vec::<Value>::new()),
+    }
+}
+
+fn single_command_key_vector(eval: &Evaluator) -> Value {
+    single_command_key_vector_in_state(eval.read_command_keys(), &eval.interactive)
+}
+
+pub(crate) fn builtin_this_single_command_keys_in_state(
+    interactive: &InteractiveRegistry,
+    read_command_keys: &[Value],
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("this-single-command-keys", &args, 0)?;
+    Ok(single_command_key_vector_in_state(
+        read_command_keys,
+        interactive,
+    ))
+}
+
+pub(crate) fn builtin_this_single_command_raw_keys_in_state(
+    interactive: &InteractiveRegistry,
+    read_command_keys: &[Value],
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("this-single-command-raw-keys", &args, 0)?;
+    Ok(single_command_key_vector_in_state(
+        read_command_keys,
+        interactive,
+    ))
+}
+
+/// `(this-single-command-keys)` -> vector of keys that invoked current command.
+pub(crate) fn builtin_this_single_command_keys(
+    eval: &mut Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_this_single_command_keys_in_state(&eval.interactive, eval.read_command_keys(), args)
+}
+
+/// `(this-single-command-raw-keys)` -> vector of raw keys for current command.
+pub(crate) fn builtin_this_single_command_raw_keys(
+    eval: &mut Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_this_single_command_raw_keys_in_state(&eval.interactive, eval.read_command_keys(), args)
+}
+
 /// `(clear-this-command-keys &optional KEEP-RECORD)` -> nil.
 ///
 /// Clears current command-key context used by `this-command-keys*`.

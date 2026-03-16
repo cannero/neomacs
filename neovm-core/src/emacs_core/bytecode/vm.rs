@@ -3933,6 +3933,20 @@ impl<'a> Vm<'a> {
             "key-binding" => Some(self.builtin_key_binding_shared(args)),
             "local-key-binding" => Some(self.builtin_local_key_binding_shared(args)),
             "minor-mode-key-binding" => Some(self.builtin_minor_mode_key_binding_shared(args)),
+            "this-single-command-keys" => Some(
+                crate::emacs_core::interactive::builtin_this_single_command_keys_in_state(
+                    &*self.shared.interactive,
+                    self.shared.read_command_keys(),
+                    args.to_vec(),
+                ),
+            ),
+            "this-single-command-raw-keys" => Some(
+                crate::emacs_core::interactive::builtin_this_single_command_raw_keys_in_state(
+                    &*self.shared.interactive,
+                    self.shared.read_command_keys(),
+                    args.to_vec(),
+                ),
+            ),
             "run-hooks" => Some(self.builtin_run_hooks_shared(args)),
             "run-hook-with-args" => Some(self.builtin_run_hook_with_args_shared(args)),
             "run-hook-with-args-until-success" => {

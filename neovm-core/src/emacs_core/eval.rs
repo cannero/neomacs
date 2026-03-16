@@ -395,6 +395,10 @@ impl<'a> VmSharedState<'a> {
         }
     }
 
+    pub(crate) fn read_command_keys(&self) -> &[Value] {
+        self.read_command_keys.as_slice()
+    }
+
     pub(crate) fn from_evaluator(eval: &'a mut Evaluator) -> Self {
         Self::new(
             &mut eval.obarray,
@@ -1441,6 +1445,15 @@ impl Evaluator {
         obarray.set_symbol_value("text-quoting-style", Value::Nil);
         obarray.set_symbol_value("standard-output", Value::True);
         obarray.set_symbol_value("buffer-read-only", Value::Nil);
+        obarray.set_symbol_value("left-margin-width", Value::Nil);
+        obarray.set_symbol_value("right-margin-width", Value::Nil);
+        obarray.set_symbol_value("left-fringe-width", Value::Nil);
+        obarray.set_symbol_value("right-fringe-width", Value::Nil);
+        obarray.set_symbol_value("fringes-outside-margins", Value::Nil);
+        obarray.set_symbol_value("scroll-bar-width", Value::Nil);
+        obarray.set_symbol_value("scroll-bar-height", Value::Nil);
+        obarray.set_symbol_value("vertical-scroll-bar", Value::True);
+        obarray.set_symbol_value("horizontal-scroll-bar", Value::True);
         obarray.set_symbol_value("kill-ring", Value::Nil);
         obarray.set_symbol_value("kill-ring-yank-pointer", Value::Nil);
         obarray.set_symbol_value("last-command", Value::Nil);

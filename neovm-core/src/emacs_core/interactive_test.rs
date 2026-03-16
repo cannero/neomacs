@@ -1070,6 +1070,37 @@ fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
 }
 
 #[test]
+fn this_single_command_keys_prefers_read_command_key_vector() {
+    let mut ev = Evaluator::new();
+    ev.set_read_command_keys(vec![Value::Int(97)]);
+
+    let result = builtin_this_single_command_keys(&mut ev, vec![]).unwrap();
+    match result {
+        Value::Vector(v) => {
+            let items = with_heap(|h| h.get_vector(v).clone());
+            assert_eq!(items.as_slice(), &[Value::Int(97)]);
+        }
+        other => panic!("expected vector, got {other:?}"),
+    }
+}
+
+#[test]
+fn this_single_command_keys_falls_back_to_interactive_descriptions() {
+    let mut ev = Evaluator::new();
+    ev.interactive
+        .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
+
+    let result = builtin_this_single_command_keys(&mut ev, vec![]).unwrap();
+    match result {
+        Value::Vector(v) => {
+            let items = with_heap(|h| h.get_vector(v).clone());
+            assert_eq!(items.as_slice(), &[Value::Int(24), Value::Int(6)]);
+        }
+        other => panic!("expected vector, got {other:?}"),
+    }
+}
+
+#[test]
 fn clear_this_command_keys_clears_read_key_context() {
     let mut ev = Evaluator::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);

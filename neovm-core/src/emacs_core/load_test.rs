@@ -990,6 +990,27 @@ fn bootstrap_condition_case_lexical_handler_binding_restores_outer_let() {
 }
 
 #[test]
+fn bootstrap_runtime_seeds_gnu_per_buffer_frame_display_vars() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list left-margin-width
+                 right-margin-width
+                 left-fringe-width
+                 right-fringe-width
+                 fringes-outside-margins
+                 scroll-bar-width
+                 scroll-bar-height
+                 vertical-scroll-bar
+                 horizontal-scroll-bar)"#,
+    );
+
+    assert_eq!(rendered, "OK (nil nil nil nil nil nil nil t t)");
+}
+
+#[test]
 fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
