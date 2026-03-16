@@ -2509,6 +2509,32 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
 }
 
 #[test]
+fn vm_process_network_and_signal_builtins_use_direct_runtime_paths() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((interfaces (network-interface-list))
+                      (first (car interfaces))
+                      (ifname (car first))
+                      (info (network-interface-info ifname)))
+                 (list
+                  (listp interfaces)
+                  (stringp ifname)
+                  (vectorp (cdr first))
+                  (and (listp info) (= (length info) 5))
+                  (consp (network-lookup-address-info "localhost"))
+                  (consp (member "HUP" (signal-names)))
+                  (listp (list-system-processes))
+                  (integerp (num-processors))
+                  (> (num-processors) 0)
+                  (condition-case err
+                      (network-interface-list nil 'bogus)
+                    (error (car err)))) )"#
+        ),
+        "OK (t t t t t t t t t error)"
+    );
+}
+
+#[test]
 fn vm_call_process_builtins_use_shared_buffer_state() {
     let echo = find_bin("echo");
     let form = format!(

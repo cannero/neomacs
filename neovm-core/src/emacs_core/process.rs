@@ -2576,6 +2576,10 @@ pub(crate) fn builtin_network_interface_list(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_network_interface_list_in_state(args)
+}
+
+pub(crate) fn builtin_network_interface_list_in_state(args: Vec<Value>) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2645,6 +2649,10 @@ pub(crate) fn builtin_network_interface_info(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_network_interface_info_in_state(args)
+}
+
+pub(crate) fn builtin_network_interface_info_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("network-interface-info", &args, 1)?;
     let ifname_raw = expect_string_strict(&args[0])?;
     // Match C-string interface-name handling: embedded NUL truncates lookup.
@@ -2703,6 +2711,10 @@ pub(crate) fn builtin_network_lookup_address_info(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_network_lookup_address_info_in_state(args)
+}
+
+pub(crate) fn builtin_network_lookup_address_info_in_state(args: Vec<Value>) -> EvalResult {
     expect_min_args("network-lookup-address-info", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2742,6 +2754,10 @@ pub(crate) fn builtin_signal_names(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_signal_names_in_state(args)
+}
+
+pub(crate) fn builtin_signal_names_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("signal-names", &args, 0)?;
     let names = vec![
         "RTMAX", "RTMAX-1", "RTMAX-2", "RTMAX-3", "RTMAX-4", "RTMAX-5", "RTMAX-6", "RTMAX-7",
@@ -2762,6 +2778,10 @@ pub(crate) fn builtin_list_system_processes(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_list_system_processes_in_state(args)
+}
+
+pub(crate) fn builtin_list_system_processes_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("list-system-processes", &args, 0)?;
 
     let mut pids: Vec<i64> = std::fs::read_dir("/proc")
@@ -2779,6 +2799,10 @@ pub(crate) fn builtin_num_processors(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_num_processors_in_state(args)
+}
+
+pub(crate) fn builtin_num_processors_in_state(args: Vec<Value>) -> EvalResult {
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",

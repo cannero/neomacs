@@ -4246,6 +4246,26 @@ impl<'a> Vm<'a> {
             "run-hook-with-args-until-success" => {
                 Some(self.builtin_run_hook_with_args_until_success_shared(args))
             }
+            "network-interface-list" => Some(
+                crate::emacs_core::process::builtin_network_interface_list_in_state(args.to_vec()),
+            ),
+            "network-interface-info" => Some(
+                crate::emacs_core::process::builtin_network_interface_info_in_state(args.to_vec()),
+            ),
+            "network-lookup-address-info" => Some(
+                crate::emacs_core::process::builtin_network_lookup_address_info_in_state(
+                    args.to_vec(),
+                ),
+            ),
+            "signal-names" => {
+                Some(crate::emacs_core::process::builtin_signal_names_in_state(args.to_vec()))
+            }
+            "list-system-processes" => Some(
+                crate::emacs_core::process::builtin_list_system_processes_in_state(args.to_vec()),
+            ),
+            "num-processors" => Some(
+                crate::emacs_core::process::builtin_num_processors_in_state(args.to_vec()),
+            ),
             "call-process" => Some(crate::emacs_core::process::builtin_call_process_in_state(
                 self.shared.buffers,
                 args.to_vec(),
