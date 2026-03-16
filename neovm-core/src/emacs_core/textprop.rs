@@ -447,10 +447,17 @@ pub(crate) fn builtin_add_face_text_property(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_add_face_text_property_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_add_face_text_property_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("add-face-text-property", &args, 3)?;
     expect_max_args("add-face-text-property", &args, 5)?;
-    let beg = expect_integer_or_marker_eval(eval, &args[0])?;
-    let end = expect_integer_or_marker_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let new_face = args[2];
     let append = args.get(3).is_some_and(Value::is_truthy);
 
@@ -469,8 +476,7 @@ pub(crate) fn builtin_add_face_text_property(
     }
 
     let buf_id = match object {
-        None | Some(Value::Nil) => eval
-            .buffers
+        None | Some(Value::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
@@ -481,17 +487,14 @@ pub(crate) fn builtin_add_face_text_property(
         )),
     }?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
     let existing = buf.text_props.get_property(byte_beg, "face").cloned();
     let merged = merge_face_property(existing, new_face, append);
-    let _ = eval
-        .buffers
-        .put_buffer_text_property(buf_id, byte_beg, byte_end, "face", merged);
+    let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, "face", merged);
     Ok(Value::Nil)
 }
 

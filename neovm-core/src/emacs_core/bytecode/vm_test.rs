@@ -2197,6 +2197,24 @@ fn vm_text_property_change_queries_use_shared_live_marker_state() {
 }
 
 #[test]
+fn vm_add_face_text_property_uses_shared_face_merge_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "abcd")
+                 (put-text-property 1 3 'face 'italic)
+                 (add-face-text-property 1 3 'bold)
+                 (add-face-text-property 1 3 'underline t)
+                 (list
+                  (get-text-property 1 'face)
+                  (get-text-property 3 'face)))"#
+        ),
+        "OK ((bold italic underline) nil)"
+    );
+}
+
+#[test]
 fn vm_marker_builtins_use_shared_live_buffer_state() {
     assert_eq!(
         vm_eval_str(

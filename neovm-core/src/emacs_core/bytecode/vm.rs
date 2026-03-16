@@ -3139,6 +3139,12 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "add-face-text-property" => Some(
+                crate::emacs_core::textprop::builtin_add_face_text_property_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "remove-text-properties" => Some(
                 crate::emacs_core::textprop::builtin_remove_text_properties_in_buffers(
                     self.shared.buffers,
