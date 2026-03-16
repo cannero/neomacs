@@ -95,6 +95,14 @@ pub(crate) fn terminal_designator_eval_p(
     terminal_designator_p(value) || crate::emacs_core::display::live_frame_designator_p(eval, value)
 }
 
+pub(crate) fn terminal_designator_in_state_p(
+    frames: &crate::window::FrameManager,
+    value: &Value,
+) -> bool {
+    terminal_designator_p(value)
+        || crate::emacs_core::display::live_frame_designator_p_in_state(frames, value)
+}
+
 pub(crate) fn expect_terminal_designator(value: &Value) -> Result<(), Flow> {
     if terminal_designator_p(value) {
         Ok(())
@@ -111,6 +119,20 @@ pub(crate) fn expect_terminal_designator_eval(
     value: &Value,
 ) -> Result<(), Flow> {
     if terminal_designator_eval_p(eval, value) {
+        Ok(())
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("terminal-live-p"), *value],
+        ))
+    }
+}
+
+pub(crate) fn expect_terminal_designator_in_state(
+    frames: &crate::window::FrameManager,
+    value: &Value,
+) -> Result<(), Flow> {
+    if terminal_designator_in_state_p(frames, value) {
         Ok(())
     } else {
         Err(signal(
@@ -450,6 +472,17 @@ pub(crate) fn builtin_tty_type_eval(
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_tty_type_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("tty-type", &args, 1)?;
+    if let Some(terminal) = args.first() {
+        expect_terminal_designator_in_state(frames, terminal)?;
+    }
+    Ok(Value::Nil)
+}
+
 /// (tty-top-frame &optional TERMINAL) -> nil
 pub(crate) fn builtin_tty_top_frame(args: Vec<Value>) -> EvalResult {
     expect_max_args("tty-top-frame", &args, 1)?;
@@ -586,6 +619,22 @@ pub(crate) fn builtin_suspend_tty_eval(
     ))
 }
 
+pub(crate) fn builtin_suspend_tty_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("suspend-tty", &args, 1)?;
+    if let Some(terminal) = args.first() {
+        expect_terminal_designator_in_state(frames, terminal)?;
+    }
+    Err(signal(
+        "error",
+        vec![Value::string(
+            "Attempt to suspend a non-text terminal device",
+        )],
+    ))
+}
+
 /// (resume-tty &optional TTY) -> error in GUI/non-text terminal context.
 pub(crate) fn builtin_resume_tty(args: Vec<Value>) -> EvalResult {
     expect_max_args("resume-tty", &args, 1)?;
@@ -608,6 +657,22 @@ pub(crate) fn builtin_resume_tty_eval(
     expect_max_args("resume-tty", &args, 1)?;
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
+    }
+    Err(signal(
+        "error",
+        vec![Value::string(
+            "Attempt to resume a non-text terminal device",
+        )],
+    ))
+}
+
+pub(crate) fn builtin_resume_tty_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("resume-tty", &args, 1)?;
+    if let Some(terminal) = args.first() {
+        expect_terminal_designator_in_state(frames, terminal)?;
     }
     Err(signal(
         "error",

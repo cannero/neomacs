@@ -1006,15 +1006,17 @@ fn vm_terminal_and_display_entrypoints_use_shared_runtime() {
                  (list
                   (null (redraw-frame frame))
                   (null (tty-type frame))
-                  (condition-case err (tty-type (selected-window)) (error (car err)))
-                  (condition-case err (suspend-tty frame) (error (car err)))
-                  (condition-case err (resume-tty frame) (error (car err)))
+                 (condition-case err (tty-type (selected-window)) (error (car err)))
+                 (condition-case err (suspend-tty frame) (error (car err)))
+                 (condition-case err (resume-tty frame) (error (car err)))
+                  (condition-case err (x-get-resource "Xft.dpi" "Xft.Dpi") (error (car err)))
+                  (condition-case err (x-list-fonts "*") (error (car err)))
                   (condition-case err (x-server-vendor frame) (error (car err)))
                   (framep created)
                   (= (length (frame-list)) (1+ before))
                   (equal (frame-parameter created 'name) "vm-x-frame")))"#,
         ),
-        "OK (t t wrong-type-argument error error error neomacs t t)"
+        "OK (t t wrong-type-argument error error error error error neomacs t t)"
     );
 }
 

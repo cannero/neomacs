@@ -6843,48 +6843,50 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_redraw_frame_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::dispnew::pure::builtin_redraw_frame_eval,
-        )
+        crate::emacs_core::dispnew::pure::builtin_redraw_frame(args.to_vec())
     }
 
     fn builtin_x_get_resource_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::display::builtin_x_get_resource_eval,
+        crate::emacs_core::display::builtin_x_get_resource_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            args.to_vec(),
         )
     }
 
     fn builtin_x_list_fonts_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::display::builtin_x_list_fonts_eval)
+        crate::emacs_core::display::builtin_x_list_fonts_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            args.to_vec(),
+        )
     }
 
     fn builtin_x_server_vendor_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::display::builtin_x_server_vendor_eval,
+        crate::emacs_core::display::builtin_x_server_vendor_in_state(
+            &*self.shared.frames,
+            args.to_vec(),
         )
     }
 
     fn builtin_tty_type_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::terminal::pure::builtin_tty_type_eval,
+        crate::emacs_core::terminal::pure::builtin_tty_type_in_state(
+            &*self.shared.frames,
+            args.to_vec(),
         )
     }
 
     fn builtin_suspend_tty_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::terminal::pure::builtin_suspend_tty_eval,
+        crate::emacs_core::terminal::pure::builtin_suspend_tty_in_state(
+            &*self.shared.frames,
+            args.to_vec(),
         )
     }
 
     fn builtin_resume_tty_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::terminal::pure::builtin_resume_tty_eval,
+        crate::emacs_core::terminal::pure::builtin_resume_tty_in_state(
+            &*self.shared.frames,
+            args.to_vec(),
         )
     }
 

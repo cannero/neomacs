@@ -88,6 +88,17 @@ fn dynamic_or_global_symbol_value_in_state(
     obarray.symbol_value(name).cloned()
 }
 
+pub(crate) fn live_frame_designator_p_in_state(
+    frames: &crate::window::FrameManager,
+    value: &Value,
+) -> bool {
+    match value {
+        Value::Int(id) if *id >= 0 => frames.get(FrameId(*id as u64)).is_some(),
+        Value::Frame(id) => frames.get(FrameId(*id)).is_some(),
+        _ => false,
+    }
+}
+
 fn frame_window_system_symbol(
     eval: &mut super::eval::Evaluator,
     frame: Option<&Value>,
@@ -191,11 +202,7 @@ fn expect_display_designator(value: &Value) -> Result<(), Flow> {
 }
 
 pub(crate) fn live_frame_designator_p(eval: &mut super::eval::Evaluator, value: &Value) -> bool {
-    match value {
-        Value::Int(id) if *id >= 0 => eval.frames.get(FrameId(*id as u64)).is_some(),
-        Value::Frame(id) => eval.frames.get(FrameId(*id)).is_some(),
-        _ => false,
-    }
+    live_frame_designator_p_in_state(&eval.frames, value)
 }
 
 fn expect_display_designator_eval(
@@ -304,6 +311,16 @@ fn window_system_not_initialized_error() -> Flow {
 fn neomacs_window_system_active(eval: &super::eval::Evaluator) -> bool {
     let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
         .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
+    host_window_system == Some(Value::symbol("neomacs"))
+}
+
+pub(crate) fn neomacs_window_system_active_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+) -> bool {
+    let host_window_system =
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "initial-window-system")
+            .or_else(|| dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system"));
     host_window_system == Some(Value::symbol("neomacs"))
 }
 
@@ -482,6 +499,20 @@ fn x_optional_display_query_error_eval(
     expect_max_args(name, &args, 1)?;
     if let Some(display) = args.first() {
         if live_frame_designator_p(eval, display) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    x_optional_display_query_error(name, &args)
+}
+
+pub(crate) fn x_optional_display_query_error_in_state(
+    frames: &crate::window::FrameManager,
+    name: &str,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args(name, &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p_in_state(frames, display) {
             return Err(x_window_system_frame_error());
         }
     }
@@ -1301,6 +1332,18 @@ pub(crate) fn builtin_x_get_resource_eval(
     Err(window_system_not_initialized_error())
 }
 
+pub(crate) fn builtin_x_get_resource_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-get-resource", &args, 2, 4)?;
+    if neomacs_window_system_active_in_state(obarray, dynamic) {
+        return Ok(Value::Nil);
+    }
+    Err(window_system_not_initialized_error())
+}
+
 /// (x-apply-session-resources) -> error in batch/no-X context.
 pub(crate) fn builtin_x_apply_session_resources(args: Vec<Value>) -> EvalResult {
     expect_args("x-apply-session-resources", &args, 0)?;
@@ -1330,6 +1373,18 @@ pub(crate) fn builtin_x_list_fonts_eval(
 ) -> EvalResult {
     expect_range_args("x-list-fonts", &args, 1, 5)?;
     if neomacs_window_system_active(eval) {
+        return Ok(Value::Nil);
+    }
+    Err(window_system_not_initialized_error())
+}
+
+pub(crate) fn builtin_x_list_fonts_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-list-fonts", &args, 1, 5)?;
+    if neomacs_window_system_active_in_state(obarray, dynamic) {
         return Ok(Value::Nil);
     }
     Err(window_system_not_initialized_error())
@@ -1667,6 +1722,13 @@ pub(crate) fn builtin_x_server_vendor_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-vendor", args)
+}
+
+pub(crate) fn builtin_x_server_vendor_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-server-vendor", args)
 }
 
 /// (x-display-set-last-user-time DISPLAY USER-TIME) -> error in batch/no-X context.
