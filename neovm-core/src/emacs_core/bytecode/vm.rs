@@ -4288,6 +4288,66 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "process-live-p" => Some(
+                crate::emacs_core::process::builtin_process_live_p_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-id" => Some(crate::emacs_core::process::builtin_process_id_in_state(
+                &*self.shared.processes,
+                args.to_vec(),
+            )),
+            "process-mark" => Some(crate::emacs_core::process::builtin_process_mark_in_state(
+                &*self.shared.processes,
+                args.to_vec(),
+            )),
+            "process-type" => Some(crate::emacs_core::process::builtin_process_type_in_state(
+                &*self.shared.processes,
+                args.to_vec(),
+            )),
+            "process-thread" => Some(
+                crate::emacs_core::process::builtin_process_thread_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-filter" => Some(
+                crate::emacs_core::process::builtin_process_filter_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-filter" => Some(
+                crate::emacs_core::process::builtin_set_process_filter_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-sentinel" => Some(
+                crate::emacs_core::process::builtin_process_sentinel_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-sentinel" => Some(
+                crate::emacs_core::process::builtin_set_process_sentinel_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-plist" => Some(
+                crate::emacs_core::process::builtin_process_plist_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-plist" => Some(
+                crate::emacs_core::process::builtin_set_process_plist_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
             "run-hook-with-args-until-failure" => {
                 Some(self.builtin_run_hook_with_args_until_failure_shared(args))
             }

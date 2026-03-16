@@ -4327,9 +4327,16 @@ pub(crate) fn builtin_process_mark(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_mark_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_mark_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-mark", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4347,9 +4354,16 @@ pub(crate) fn builtin_process_type(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_type_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_type_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-type", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4368,9 +4382,16 @@ pub(crate) fn builtin_process_thread(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_thread_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_thread_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-thread", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4735,11 +4756,24 @@ pub(crate) fn builtin_process_live_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_live_p_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_live_p_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-live-p", &args, 1)?;
-    let Some(id) = resolve_live_process_designator(eval, &args[0]) else {
+    let Some(id) = (match &args[0] {
+        Value::Int(n) if *n >= 0 => {
+            let id = *n as ProcessId;
+            processes.get(id).map(|_| id)
+        }
+        _ => None,
+    }) else {
         return Ok(Value::Nil);
     };
-    let proc = eval.processes.get(id).ok_or_else(|| {
+    let proc = processes.get(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4753,11 +4787,18 @@ pub(crate) fn builtin_process_id(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_id_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_id_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-id", &args, 1)?;
     let id = match &args[0] {
         Value::Int(n) if *n >= 0 => {
             let id = *n as ProcessId;
-            if eval.processes.get_any(id).is_some() {
+            if processes.get_any(id).is_some() {
                 id
             } else {
                 return Err(signal_wrong_type_processp(args[0]));
@@ -4765,8 +4806,7 @@ pub(crate) fn builtin_process_id(
         }
         _ => return Err(signal_wrong_type_processp(args[0])),
     };
-    let proc = eval
-        .processes
+    let proc = processes
         .get_any(id)
         .ok_or_else(|| signal_wrong_type_processp(args[0]))?;
     if proc.kind == ProcessKind::Real {
@@ -4937,9 +4977,16 @@ pub(crate) fn builtin_process_filter(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_filter_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_filter_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-filter", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4953,14 +5000,21 @@ pub(crate) fn builtin_set_process_filter(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_filter_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_filter_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-filter", &args, 2)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     let stored = if args[1].is_nil() {
         Value::symbol(DEFAULT_PROCESS_FILTER_SYMBOL)
     } else {
         args[1]
     };
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4975,9 +5029,16 @@ pub(crate) fn builtin_process_sentinel(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_sentinel_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_sentinel_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-sentinel", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4991,14 +5052,21 @@ pub(crate) fn builtin_set_process_sentinel(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_sentinel_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_sentinel_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-sentinel", &args, 2)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     let stored = if args[1].is_nil() {
         Value::symbol(DEFAULT_PROCESS_SENTINEL_SYMBOL)
     } else {
         args[1]
     };
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -5013,9 +5081,16 @@ pub(crate) fn builtin_process_plist(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_plist_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_plist_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-plist", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -5029,6 +5104,13 @@ pub(crate) fn builtin_set_process_plist(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_plist_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_plist_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-plist", &args, 2)?;
     if !args[1].is_list() {
         return Err(signal(
@@ -5036,8 +5118,8 @@ pub(crate) fn builtin_set_process_plist(
             vec![Value::symbol("listp"), args[1]],
         ));
     }
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],

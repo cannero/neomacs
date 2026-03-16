@@ -1846,6 +1846,72 @@ fn vm_stale_process_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_process_introspection_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (equal (process-live-p p) '(run open listen connect stop))
+              (integerp (process-id p))
+              (eq (process-type p) 'real)
+              (markerp (process-mark p))
+              (null (marker-buffer (process-mark p)))
+              (null (marker-position (process-mark p)))
+              (null (process-thread p))
+              (eq (process-filter p) 'internal-default-process-filter)
+              (eq (set-process-filter p nil) 'internal-default-process-filter)
+              (eq (set-process-filter p 'ignore) 'ignore)
+              (eq (process-filter p) 'ignore)
+              (eq (process-sentinel p) 'internal-default-process-sentinel)
+              (eq (set-process-sentinel p nil) 'internal-default-process-sentinel)
+              (eq (set-process-sentinel p 'ignore) 'ignore)
+              (eq (process-sentinel p) 'ignore)
+              (equal (set-process-plist p '(a 1)) '(a 1))
+              (equal (process-plist p) '(a 1))
+              (equal (set-process-plist p '(a 1 k 2)) '(a 1 k 2))
+              (equal (process-plist p) '(a 1 k 2))))"#,
+        |eval| {
+            let pid = eval.processes.create_process(
+                "vm-proc-introspect".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t t t t t t t t t t t t)");
+}
+
+#[test]
+fn vm_stale_process_introspection_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (null (process-live-p p))
+              (integerp (process-id p))
+              (eq (process-type p) 'real)
+              (eq (set-process-filter p 'ignore) 'ignore)
+              (eq (process-filter p) 'ignore)
+              (eq (set-process-sentinel p 'ignore) 'ignore)
+              (eq (process-sentinel p) 'ignore)
+              (equal (set-process-plist p '(a 1)) '(a 1))
+              (equal (process-plist p) '(a 1))
+              (null (process-thread p))))"#,
+        |eval| {
+            let pid = eval.processes.create_process(
+                "vm-proc-stale-introspect".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+            assert!(eval.processes.delete_process(pid));
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t t t)");
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));
