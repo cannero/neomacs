@@ -182,6 +182,26 @@ fn vm_reader_and_minibuffer_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_internal_labeled_restriction_builtins_use_shared_buffer_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (narrow-to-region 2 5)
+                 (internal--labeled-narrow-to-region 0 99 'vm-tag)
+                 (list (point-min) (point-max)
+                       (progn (internal--labeled-widen 'vm-tag)
+                              (list (point-min) (point-max)))))"#,
+            |eval| {
+                let buffer_id = eval.buffers.create_buffer("vm-labeled-restriction");
+                eval.buffers.set_current(buffer_id);
+                let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
+            },
+        ),
+        "OK (2 5 (1 7))"
+    );
+}
+
+#[test]
 fn vm_sort_uses_shared_runtime_callbacks_and_semantics() {
     assert_eq!(
         vm_eval_str(

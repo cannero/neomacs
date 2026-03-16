@@ -3791,6 +3791,18 @@ impl<'a> Vm<'a> {
             "get-byte" => Some(self.builtin_get_byte_shared(args)),
             "narrow-to-region" => Some(self.builtin_narrow_to_region_shared(args)),
             "widen" => Some(self.builtin_widen_shared(args)),
+            "internal--labeled-narrow-to-region" => Some(
+                crate::emacs_core::builtins::builtin_internal_labeled_narrow_to_region_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "internal--labeled-widen" => Some(
+                crate::emacs_core::builtins::builtin_internal_labeled_widen_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "buffer-modified-p" => Some(self.builtin_buffer_modified_p_shared(args)),
             "set-buffer-modified-p" => Some(self.builtin_set_buffer_modified_p_shared(args)),
             "buffer-modified-tick" => Some(self.builtin_buffer_modified_tick_shared(args)),

@@ -1,4 +1,5 @@
 use super::*;
+use crate::buffer::BufferManager;
 
 // =========================================================================
 // fontset.c gap-fill stubs
@@ -797,15 +798,20 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_internal_labeled_narrow_to_region_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_internal_labeled_narrow_to_region_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal--labeled-narrow-to-region", &args, 3)?;
-    let start = expect_integer_or_marker(&args[0])?;
-    let end = expect_integer_or_marker(&args[1])?;
-    let current_id = eval
-        .buffers
+    let start = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = buf.point_min_char() as i64 + 1;
@@ -827,9 +833,7 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_eval(
     };
     let byte_start = buf.text.char_to_byte(s);
     let byte_end = buf.text.char_to_byte(e);
-    let _ = eval
-        .buffers
-        .narrow_buffer_to_region(current_id, byte_start, byte_end);
+    let _ = buffers.narrow_buffer_to_region(current_id, byte_start, byte_end);
     Ok(Value::Nil)
 }
 
@@ -837,9 +841,16 @@ pub(crate) fn builtin_internal_labeled_widen_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_internal_labeled_widen_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_internal_labeled_widen_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal--labeled-widen", &args, 1)?;
     // LABEL is currently metadata-only; runtime behavior mirrors widen.
-    builtin_widen(eval, vec![])
+    super::buffers::builtin_widen_in_manager(buffers, vec![])
 }
 
 pub(crate) fn builtin_internal_obarray_buckets(args: Vec<Value>) -> EvalResult {
