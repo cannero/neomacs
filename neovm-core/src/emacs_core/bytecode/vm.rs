@@ -5079,6 +5079,20 @@ impl<'a> Vm<'a> {
                 self.shared.buffers,
                 args.to_vec(),
             )),
+            "list-fonts" => Some(crate::emacs_core::font::builtin_list_fonts_in_state(
+                &*self.shared.frames,
+                args.to_vec(),
+            )),
+            "find-font" => Some(crate::emacs_core::font::builtin_find_font_in_state(
+                &*self.shared.frames,
+                args.to_vec(),
+            )),
+            "font-family-list" => Some(
+                crate::emacs_core::font::builtin_font_family_list_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "format-mode-line" => Some(self.builtin_format_mode_line_shared(args)),
             "window-text-pixel-size" => Some(
                 crate::emacs_core::xdisp::builtin_window_text_pixel_size_in_state(

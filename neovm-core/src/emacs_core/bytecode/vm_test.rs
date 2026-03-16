@@ -3010,6 +3010,19 @@ fn vm_file_metadata_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_font_builtins_accept_live_frame_designators_on_shared_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (list (list-fonts (font-spec) f)
+                       (find-font (font-spec) f)
+                       (font-family-list f)))"#
+        ),
+        "OK (nil nil nil)"
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

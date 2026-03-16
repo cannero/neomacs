@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::value::*;
-use crate::window::{FRAME_ID_BASE, FrameId};
+use crate::window::{FRAME_ID_BASE, FrameId, FrameManager};
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local to this module)
@@ -59,20 +59,20 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     }
 }
 
-fn live_frame_designator_p(eval: &mut super::eval::Evaluator, value: &Value) -> bool {
+fn live_frame_designator_in_state(frames: &FrameManager, value: &Value) -> bool {
     match value {
-        Value::Int(id) if *id >= 0 => eval.frames.get(FrameId(*id as u64)).is_some(),
-        Value::Frame(id) => eval.frames.get(FrameId(*id)).is_some(),
+        Value::Int(id) if *id >= 0 => frames.get(FrameId(*id as u64)).is_some(),
+        Value::Frame(id) => frames.get(FrameId(*id)).is_some(),
         _ => false,
     }
 }
 
-fn expect_optional_frame_designator_eval(
-    eval: &mut super::eval::Evaluator,
+fn expect_optional_frame_designator_in_state(
+    frames: &FrameManager,
     value: Option<&Value>,
 ) -> Result<(), Flow> {
     if let Some(frame) = value {
-        if !frame.is_nil() && !live_frame_designator_p(eval, frame) {
+        if !frame.is_nil() && !live_frame_designator_in_state(frames, frame) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -487,13 +487,7 @@ pub(crate) fn builtin_list_fonts(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `list-fonts`.
-///
-/// Accepts live frame designators in the optional FRAME slot.
-pub(crate) fn builtin_list_fonts_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_list_fonts_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
     expect_min_args("list-fonts", &args, 1)?;
     expect_max_args("list-fonts", &args, 4)?;
     if !is_font_spec(&args[0]) {
@@ -502,8 +496,18 @@ pub(crate) fn builtin_list_fonts_eval(
             vec![Value::symbol("font-spec"), args[0]],
         ));
     }
-    expect_optional_frame_designator_eval(eval, args.get(1))?;
+    expect_optional_frame_designator_in_state(frames, args.get(1))?;
     Ok(Value::Nil)
+}
+
+/// Evaluator-aware variant of `list-fonts`.
+///
+/// Accepts live frame designators in the optional FRAME slot.
+pub(crate) fn builtin_list_fonts_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_list_fonts_in_state(&eval.frames, args)
 }
 
 /// `(find-font FONT-SPEC &optional FRAME)` -- returns nil in
@@ -520,13 +524,7 @@ pub(crate) fn builtin_find_font(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `find-font`.
-///
-/// Accepts live frame designators in the optional FRAME slot.
-pub(crate) fn builtin_find_font_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_find_font_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
     expect_min_args("find-font", &args, 1)?;
     expect_max_args("find-font", &args, 2)?;
     if !is_font_spec(&args[0]) {
@@ -535,8 +533,18 @@ pub(crate) fn builtin_find_font_eval(
             vec![Value::symbol("font-spec"), args[0]],
         ));
     }
-    expect_optional_frame_designator_eval(eval, args.get(1))?;
+    expect_optional_frame_designator_in_state(frames, args.get(1))?;
     Ok(Value::Nil)
+}
+
+/// Evaluator-aware variant of `find-font`.
+///
+/// Accepts live frame designators in the optional FRAME slot.
+pub(crate) fn builtin_find_font_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_find_font_in_state(&eval.frames, args)
 }
 
 /// `(clear-font-cache)` -- reset internal font/face caches and return nil.
@@ -560,6 +568,15 @@ pub(crate) fn builtin_font_family_list(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_font_family_list_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("font-family-list", &args, 1)?;
+    expect_optional_frame_designator_in_state(frames, args.first())?;
+    Ok(Value::Nil)
+}
+
 /// Evaluator-aware variant of `font-family-list`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
@@ -567,9 +584,7 @@ pub(crate) fn builtin_font_family_list_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("font-family-list", &args, 1)?;
-    expect_optional_frame_designator_eval(eval, args.first())?;
-    Ok(Value::Nil)
+    builtin_font_family_list_in_state(&eval.frames, args)
 }
 
 /// `(font-xlfd-name FONT &optional FOLD-WILDCARDS)` -- render font-spec fields
