@@ -1531,10 +1531,17 @@ pub(crate) fn builtin_window_bump_use_time(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_bump_use_time_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_bump_use_time_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-bump-use-time", &args, 1)?;
-    let selected_fid = ensure_selected_frame_id(eval);
-    let selected_wid = eval
-        .frames
+    let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
+    let selected_wid = frames
         .get(selected_fid)
         .map(|frame| frame.selected_window)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
@@ -1542,7 +1549,7 @@ pub(crate) fn builtin_window_bump_use_time(
         None | Some(Value::Nil) => selected_wid,
         Some(Value::Window(id)) => {
             let wid = WindowId(*id);
-            if eval.frames.find_window_frame_id(wid).is_none() {
+            if frames.find_window_frame_id(wid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("window-live-p"), Value::Window(*id)],
@@ -1558,7 +1565,7 @@ pub(crate) fn builtin_window_bump_use_time(
         }
     };
     Ok(
-        match eval.frames.bump_window_use_time(selected_wid, target_wid) {
+        match frames.bump_window_use_time(selected_wid, target_wid) {
             Some(use_time) => Value::Int(use_time),
             None => Value::Nil,
         },
@@ -1654,11 +1661,20 @@ pub(crate) fn builtin_set_window_prev_buffers(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_prev_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_prev_buffers_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-prev-buffers", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let value = args[1];
-    eval.frames.set_window_prev_buffers(wid, value);
+    frames.set_window_prev_buffers(wid, value);
     Ok(value)
 }
 
@@ -1667,11 +1683,20 @@ pub(crate) fn builtin_set_window_next_buffers(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_next_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_next_buffers_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-next-buffers", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let value = args[1];
-    eval.frames.set_window_next_buffers(wid, value);
+    frames.set_window_next_buffers(wid, value);
     Ok(value)
 }
 
@@ -1744,10 +1769,19 @@ pub(crate) fn builtin_window_hscroll(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_hscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_hscroll_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-hscroll", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     match w {
         Window::Leaf { hscroll, .. } => Ok(Value::Int(*hscroll as i64)),
         _ => Ok(Value::Int(0)),
@@ -1759,11 +1793,19 @@ pub(crate) fn builtin_set_window_hscroll(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_hscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_hscroll_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-hscroll", &args, 2)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let cols = expect_fixnum(&args[1])?.max(0) as usize;
-    if let Some(Window::Leaf { hscroll, .. }) = eval
-        .frames
+    if let Some(Window::Leaf { hscroll, .. }) = frames
         .get_mut(fid)
         .and_then(|frame| frame.find_window_mut(wid))
     {
@@ -1889,9 +1931,18 @@ pub(crate) fn builtin_window_vscroll(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_vscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_vscroll_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-vscroll", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, _wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     Ok(Value::Int(0))
 }
 
@@ -1904,9 +1955,18 @@ pub(crate) fn builtin_set_window_vscroll(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_vscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_vscroll_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-window-vscroll", &args, 2)?;
     expect_max_args("set-window-vscroll", &args, 4)?;
-    let (_fid, _wid) = resolve_window_id(eval, args.first())?;
+    let (_fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     match &args[1] {
         Value::Int(_) | Value::Float(_, _) | Value::Char(_) => Ok(Value::Int(0)),
         other => Err(signal(
@@ -1921,9 +1981,18 @@ pub(crate) fn builtin_set_window_margins(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_margins_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_margins_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-window-margins", &args, 2)?;
     expect_max_args("set-window-margins", &args, 3)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let left = expect_margin_width(&args[1])?;
     let right = if let Some(arg) = args.get(2) {
         expect_margin_width(arg)?
@@ -1931,8 +2000,7 @@ pub(crate) fn builtin_set_window_margins(
         0
     };
 
-    if let Some(Window::Leaf { margins, .. }) = eval
-        .frames
+    if let Some(Window::Leaf { margins, .. }) = frames
         .get_mut(fid)
         .and_then(|frame| frame.find_window_mut(wid))
     {
@@ -1950,10 +2018,19 @@ pub(crate) fn builtin_window_margins(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_margins_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_margins_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-margins", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     let (left, right) = match w {
         Window::Leaf { margins, .. } => *margins,
         _ => (0, 0),
@@ -1976,9 +2053,18 @@ pub(crate) fn builtin_window_fringes(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_fringes_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_fringes_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-fringes", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, _wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     // Batch GNU Emacs startup reports zero-width fringes.
     Ok(Value::list(vec![
         Value::Int(0),
@@ -1993,9 +2079,18 @@ pub(crate) fn builtin_set_window_fringes(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_fringes_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_fringes_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-window-fringes", &args, 2)?;
     expect_max_args("set-window-fringes", &args, 5)?;
-    let (_fid, _wid) = resolve_window_id(eval, args.first())?;
+    let (_fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     Ok(Value::Nil)
 }
 
@@ -2004,9 +2099,18 @@ pub(crate) fn builtin_window_scroll_bars(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_scroll_bars_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_scroll_bars_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-scroll-bars", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, _wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     // Batch GNU Emacs startup reports no scroll-bars with default sizing payload.
     Ok(Value::list(vec![
         Value::Nil,
@@ -2024,9 +2128,18 @@ pub(crate) fn builtin_set_window_scroll_bars(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_scroll_bars_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_scroll_bars_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-window-scroll-bars", &args, 1)?;
     expect_max_args("set-window-scroll-bars", &args, 6)?;
-    let (_fid, _wid) = resolve_window_id(eval, args.first())?;
+    let (_fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     Ok(Value::Nil)
 }
 

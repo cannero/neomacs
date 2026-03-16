@@ -4058,6 +4058,13 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "window-bump-use-time" => Some(
+                crate::emacs_core::window_cmds::builtin_window_bump_use_time_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "set-window-start" => Some(
                 crate::emacs_core::window_cmds::builtin_set_window_start_in_state(
                     self.shared.frames,
@@ -4074,6 +4081,90 @@ impl<'a> Vm<'a> {
             ),
             "set-window-point" => Some(
                 crate::emacs_core::window_cmds::builtin_set_window_point_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-prev-buffers" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_prev_buffers_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-next-buffers" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_next_buffers_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-hscroll" => Some(
+                crate::emacs_core::window_cmds::builtin_window_hscroll_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-hscroll" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_hscroll_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-vscroll" => Some(
+                crate::emacs_core::window_cmds::builtin_window_vscroll_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-vscroll" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_vscroll_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-margins" => Some(
+                crate::emacs_core::window_cmds::builtin_window_margins_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-margins" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_margins_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-fringes" => Some(
+                crate::emacs_core::window_cmds::builtin_window_fringes_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-fringes" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_fringes_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-scroll-bars" => Some(
+                crate::emacs_core::window_cmds::builtin_window_scroll_bars_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-scroll-bars" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_scroll_bars_in_state(
                     self.shared.frames,
                     self.shared.buffers,
                     args.to_vec(),

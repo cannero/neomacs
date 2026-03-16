@@ -1304,6 +1304,34 @@ fn window_bump_use_time_tracks_second_most_recent_window() {
 }
 
 #[test]
+fn window_bump_use_time_shared_state_smoke() {
+    let mut ev = Evaluator::new();
+    let forms = parse_forms(
+        "(let* ((w1 (selected-window))
+                (w2 (split-window-internal (selected-window) nil nil nil)))
+           (list (window-use-time w1)
+                 (window-use-time w2)
+                 (window-bump-use-time w2)
+                 (window-use-time w1)
+                 (window-use-time w2)
+                 (window-bump-use-time w1)))
+         (list (condition-case err (window-bump-use-time 1) (error err))
+               (condition-case err (window-bump-use-time nil nil) (error err)))",
+    )
+    .expect("parse");
+    let out = ev
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(out[0], "OK (1 0 1 2 1 nil)");
+    assert_eq!(
+        out[1],
+        "OK ((wrong-type-argument window-live-p 1) (wrong-number-of-arguments window-bump-use-time 2))"
+    );
+}
+
+#[test]
 fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
     let mut ev = Evaluator::new();
     let forms = parse_forms(
@@ -1343,6 +1371,62 @@ fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
         "OK ((wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p foo) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p foo) (wrong-type-argument numberp foo) (wrong-number-of-arguments window-vscroll 3) (wrong-number-of-arguments set-window-vscroll 5))"
     );
     assert_eq!(out[2], "OK (wrong-type-argument wrong-type-argument)");
+}
+
+#[test]
+fn window_scroll_state_shared_state_smoke() {
+    let mut ev = Evaluator::new();
+    let forms = parse_forms(
+        "(let* ((w (selected-window))
+                (m (minibuffer-window)))
+           (list (window-vscroll w)
+                 (window-vscroll m)
+                 (window-vscroll w t)
+                 (window-vscroll m t)
+                 (set-window-vscroll w 1)
+                 (set-window-vscroll w 2 t)
+                 (set-window-vscroll w 3 t t)
+                 (set-window-vscroll nil 1.5)
+                 (window-vscroll w)
+                 (window-vscroll w t)
+                 (window-hscroll w)
+                 (set-window-hscroll w 3)
+                 (window-hscroll w)
+                 (set-window-hscroll w -1)
+                 (window-hscroll w)
+                 (set-window-hscroll w ?a)
+                 (window-hscroll w)
+                 (window-margins w)
+                 (set-window-margins w 1 2)
+                 (window-margins w)
+                 (set-window-margins w 1 2)
+                 (set-window-margins w nil nil)
+                 (window-margins w)
+                 (set-window-margins w 3)
+                 (window-margins w)
+                 (set-window-margins w 3)
+                 (window-fringes w)
+                 (window-fringes m)
+                 (set-window-fringes w 0 0)
+                 (set-window-fringes w 1 2)
+                 (set-window-fringes w nil nil)
+                 (window-fringes w)
+                 (window-scroll-bars w)
+                 (window-scroll-bars m)
+                 (set-window-scroll-bars w nil nil nil nil)
+                 (set-window-scroll-bars w 'left)
+                 (window-scroll-bars w)))",
+    )
+    .expect("parse");
+    let out = ev
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        out[0],
+        "OK (0 0 0 0 0 0 0 0 0 0 0 3 3 0 0 97 97 (nil) t (1 . 2) nil t (nil) t (3) nil (0 0 nil nil) (0 0 nil nil) nil nil nil (0 0 nil nil) (nil 0 t nil 0 t nil) (nil 0 t nil 0 t nil) nil nil (nil 0 t nil 0 t nil))"
+    );
 }
 
 #[test]

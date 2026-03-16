@@ -776,6 +776,57 @@ fn vm_window_state_accessors_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_scroll_and_history_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((w (selected-window)))
+                 (list (window-hscroll w)
+                       (set-window-hscroll w 3)
+                       (window-hscroll w)
+                       (set-window-hscroll w -1)
+                       (window-hscroll w)
+                       (set-window-hscroll w ?a)
+                       (window-hscroll w)
+                       (window-margins w)
+                       (set-window-margins w 1 2)
+                       (window-margins w)
+                       (set-window-margins w 1 2)
+                       (set-window-margins w nil nil)
+                       (window-margins w)
+                       (set-window-margins w 3)
+                       (window-margins w)
+                       (set-window-margins w 3)
+                       (window-vscroll w)
+                       (set-window-vscroll w 1)
+                       (window-vscroll w)
+                       (window-fringes w)
+                       (set-window-fringes w 1 2)
+                       (window-scroll-bars w)
+                       (set-window-scroll-bars w 'left)
+                       (window-scroll-bars w)
+                       (set-window-prev-buffers w nil)
+                       (window-prev-buffers w)
+                       (set-window-next-buffers w nil)
+                       (window-next-buffers w)))"#
+        ),
+        "OK (0 3 3 0 0 97 97 (nil) t (1 . 2) nil t (nil) t (3) nil 0 0 0 (0 0 nil nil) nil (nil 0 t nil 0 t nil) nil (nil 0 t nil 0 t nil) nil nil nil nil)"
+    );
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w1 (selected-window))
+                      (w2 (split-window-internal (selected-window) nil nil nil)))
+                 (list (window-use-time w1)
+                       (window-use-time w2)
+                       (window-bump-use-time w2)
+                       (window-use-time w1)
+                       (window-use-time w2)
+                       (window-bump-use-time w1)))"#
+        ),
+        "OK (1 0 1 2 1 nil)"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),
