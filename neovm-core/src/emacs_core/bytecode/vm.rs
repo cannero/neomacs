@@ -5237,6 +5237,66 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "delete-file-internal" => Some(
+                crate::emacs_core::fileio::builtin_delete_file_internal_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "delete-directory-internal" => Some(
+                crate::emacs_core::fileio::builtin_delete_directory_internal_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "rename-file" => Some(crate::emacs_core::fileio::builtin_rename_file_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "copy-file" => Some(crate::emacs_core::fileio::builtin_copy_file_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "add-name-to-file" => Some(
+                crate::emacs_core::fileio::builtin_add_name_to_file_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "make-symbolic-link" => Some(
+                crate::emacs_core::fileio::builtin_make_symbolic_link_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "make-directory-internal" => Some(
+                crate::emacs_core::fileio::builtin_make_directory_internal_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "directory-files" => Some(
+                crate::emacs_core::fileio::builtin_directory_files_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "selected-frame" => Some(
                 crate::emacs_core::window_cmds::builtin_selected_frame_in_state(
                     self.shared.frames,

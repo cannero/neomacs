@@ -2327,12 +2327,26 @@ pub(crate) fn builtin_delete_file_internal(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `delete-file-internal` that resolves relative
 /// paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_file_internal_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_delete_file_internal_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("delete-file-internal", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     delete_file_compat(&filename)?;
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_delete_file_internal_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_delete_file_internal_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// (delete-directory DIRECTORY &optional RECURSIVE TRASH) -> nil
@@ -2369,16 +2383,30 @@ pub(crate) fn builtin_delete_directory_internal(args: Vec<Value>) -> EvalResult 
 
 /// Evaluator-aware variant of `delete-directory-internal` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_directory_internal_eval(
-    eval: &Evaluator,
+pub(crate) fn builtin_delete_directory_internal_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("delete-directory-internal", &args, 1)?;
     let directory = expect_string_strict(&args[0])?;
-    let directory = resolve_filename_for_eval(eval, &directory);
+    let directory = resolve_filename_in_state(obarray, dynamic, buffers, &directory);
     fs::remove_dir(&directory)
         .map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_delete_directory_internal_eval(
+    eval: &Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_delete_directory_internal_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// Evaluator-aware variant of `delete-directory` that resolves relative paths
@@ -2447,7 +2475,12 @@ pub(crate) fn builtin_make_symbolic_link(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `make-symbolic-link` that resolves relative
 /// target/link paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_make_symbolic_link_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_make_symbolic_link_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("make-symbolic-link", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2458,8 +2491,10 @@ pub(crate) fn builtin_make_symbolic_link_eval(eval: &Evaluator, args: Vec<Value>
             ],
         ));
     }
-    let target = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let linkname = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
+    let target =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
+    let linkname =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
 
     #[cfg(unix)]
@@ -2483,6 +2518,10 @@ pub(crate) fn builtin_make_symbolic_link_eval(eval: &Evaluator, args: Vec<Value>
             )],
         ))
     }
+}
+
+pub(crate) fn builtin_make_symbolic_link_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_make_symbolic_link_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (rename-file FROM TO) -> nil
@@ -2518,7 +2557,12 @@ pub(crate) fn builtin_rename_file(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `rename-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_rename_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_rename_file_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("rename-file", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2526,8 +2570,9 @@ pub(crate) fn builtin_rename_file_eval(eval: &Evaluator, args: Vec<Value>) -> Ev
             vec![Value::symbol("rename-file"), Value::Int(args.len() as i64)],
         ));
     }
-    let from = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let to = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
+    let from =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
+    let to = resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
     if fs::symlink_metadata(&to).is_ok() {
         if ok_if_exists {
@@ -2546,6 +2591,10 @@ pub(crate) fn builtin_rename_file_eval(eval: &Evaluator, args: Vec<Value>) -> Ev
     }
     rename_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Renaming", &from, &to))?;
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_rename_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_rename_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (copy-file FROM TO) -> nil
@@ -2577,7 +2626,12 @@ pub(crate) fn builtin_copy_file(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `copy-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_copy_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_copy_file_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("copy-file", &args, 2)?;
     if args.len() > 6 {
         return Err(signal(
@@ -2585,8 +2639,9 @@ pub(crate) fn builtin_copy_file_eval(eval: &Evaluator, args: Vec<Value>) -> Eval
             vec![Value::symbol("copy-file"), Value::Int(args.len() as i64)],
         ));
     }
-    let from = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let to = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
+    let from =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
+    let to = resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
     if fs::symlink_metadata(&to).is_ok() && !ok_if_exists {
         return Err(signal(
@@ -2601,6 +2656,10 @@ pub(crate) fn builtin_copy_file_eval(eval: &Evaluator, args: Vec<Value>) -> Eval
     }
     copy_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Copying", &from, &to))?;
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_copy_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_copy_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (add-name-to-file OLDNAME NEWNAME &optional OK-IF-ALREADY-EXISTS) -> nil
@@ -2629,7 +2688,12 @@ pub(crate) fn builtin_add_name_to_file(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `add-name-to-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_add_name_to_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_add_name_to_file_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("add-name-to-file", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2640,8 +2704,10 @@ pub(crate) fn builtin_add_name_to_file_eval(eval: &Evaluator, args: Vec<Value>) 
             ],
         ));
     }
-    let oldname = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let newname = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
+    let oldname =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
+    let newname =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
     if ok_if_exists && fs::symlink_metadata(&newname).is_ok() {
         fs::remove_file(&newname)
@@ -2650,6 +2716,10 @@ pub(crate) fn builtin_add_name_to_file_eval(eval: &Evaluator, args: Vec<Value>) 
     add_name_to_file(&oldname, &newname)
         .map_err(|err| signal_file_io_paths(err, "Adding new name", &oldname, &newname))?;
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_add_name_to_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_add_name_to_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (make-directory-internal DIR) -> nil
@@ -2662,15 +2732,29 @@ pub(crate) fn builtin_make_directory_internal(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `make-directory-internal` that resolves relative
 /// paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_make_directory_internal_eval(
-    eval: &Evaluator,
+pub(crate) fn builtin_make_directory_internal_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("make-directory-internal", &args, 1)?;
     let dir = expect_string_strict(&args[0])?;
-    let dir = resolve_filename_for_eval(eval, &dir);
+    let dir = resolve_filename_in_state(obarray, dynamic, buffers, &dir);
     make_directory(&dir, false).map_err(|e| signal_file_io_path(e, "Creating directory", &dir))?;
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_make_directory_internal_eval(
+    eval: &Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_make_directory_internal_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// (find-file-name-handler FILENAME OPERATION) -> handler or nil
@@ -2738,7 +2822,12 @@ pub(crate) fn builtin_directory_files(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `directory-files` that resolves relative DIR
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_directory_files_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_directory_files_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("directory-files", &args, 1)?;
     if args.len() > 5 {
         return Err(signal(
@@ -2749,7 +2838,8 @@ pub(crate) fn builtin_directory_files_eval(eval: &Evaluator, args: Vec<Value>) -
             ],
         ));
     }
-    let dir = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
+    let dir =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
     let full = args.get(1).is_some_and(|v| v.is_truthy());
     let match_pattern = if let Some(val) = args.get(2) {
         if val.is_truthy() {
@@ -2778,6 +2868,10 @@ pub(crate) fn builtin_directory_files_eval(eval: &Evaluator, args: Vec<Value>) -
     let files = directory_files(&dir, full, match_pattern.as_deref(), nosort, count)
         .map_err(|e| signal_directory_files_error(e, &dir))?;
     Ok(Value::list(files.into_iter().map(Value::string).collect()))
+}
+
+pub(crate) fn builtin_directory_files_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_directory_files_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 // ===========================================================================

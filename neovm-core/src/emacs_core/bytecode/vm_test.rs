@@ -2832,6 +2832,43 @@ fn vm_fileio_builtins_use_shared_default_directory_state() {
 }
 
 #[test]
+fn vm_fileio_mutation_builtins_use_shared_default_directory_state() {
+    let base =
+        std::env::temp_dir().join(format!("neovm-vm-fileio-mutation-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).expect("create base");
+    std::fs::write(base.join("alpha.txt"), b"alpha").expect("write alpha");
+    let base_str = format!("{}/", base.to_string_lossy());
+
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (progn (make-directory-internal "made") (file-directory-p "made"))
+             (progn (copy-file "alpha.txt" "beta.txt" t) (file-exists-p "beta.txt"))
+             (progn (rename-file "beta.txt" "gamma.txt" t) (file-exists-p "gamma.txt"))
+             (progn (add-name-to-file "gamma.txt" "delta.txt" t) (file-exists-p "delta.txt"))
+             (directory-files "." nil "\\.txt$")
+             (progn (delete-file-internal "delta.txt") (file-exists-p "delta.txt"))
+             (progn (delete-file-internal "gamma.txt") (file-exists-p "gamma.txt"))
+             (progn (delete-directory-internal "made") (file-directory-p "made")))"#,
+        |eval| {
+            eval.obarray
+                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            eval.buffers
+                .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+                .expect("buffer local default-directory should set");
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(
+        result,
+        r#"OK (t t t t ("alpha.txt" "delta.txt" "gamma.txt") nil nil nil)"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(
