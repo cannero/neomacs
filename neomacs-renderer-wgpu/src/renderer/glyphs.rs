@@ -161,7 +161,7 @@ impl WgpuRenderer {
                                 .as_ref()
                                 .map(|c| format!("({:.3},{:.3},{:.3})", c.r, c.g, c.b))
                                 .unwrap_or("None".to_string());
-                            tracing::debug!(
+                            tracing::trace!(
                                 "frame_glyph[{}]: Char '{}' face={} pos=({:.1},{:.1}) size=({:.1},{:.1}) ascent={:.1} fg=({:.3},{:.3},{:.3}) bg={} font_sz={:.1} role={:?}",
                                 i,
                                 *ch as u8 as char,
@@ -191,7 +191,7 @@ impl WgpuRenderer {
                         ..
                     } => {
                         if *y < 32.0 && *y + *height > 24.0 {
-                            tracing::debug!(
+                            tracing::trace!(
                                 "frame_glyph[{}]: Stretch pos=({:.1},{:.1}) size=({:.1},{:.1}) bg=({:.3},{:.3},{:.3}) role={:?}",
                                 i,
                                 x,
@@ -208,7 +208,7 @@ impl WgpuRenderer {
                     }
                     FrameGlyph::Background { bounds, color } => {
                         if bounds.y < 32.0 && bounds.y + bounds.height > 24.0 {
-                            tracing::debug!(
+                            tracing::trace!(
                                 "frame_glyph[{}]: Background pos=({:.1},{:.1}) size=({:.1},{:.1}) color=({:.3},{:.3},{:.3})",
                                 i,
                                 bounds.x,
@@ -231,7 +231,7 @@ impl WgpuRenderer {
                         ..
                     } => {
                         if *y < 32.0 && *y + *height > 24.0 {
-                            tracing::debug!(
+                            tracing::trace!(
                                 "frame_glyph[{}]: Border pos=({:.1},{:.1}) size=({:.1},{:.1}) color=({:.3},{:.3},{:.3})",
                                 i,
                                 x,
@@ -1464,7 +1464,7 @@ impl WgpuRenderer {
                             // Debug: log glyphs near y≈27 (where gray line appears in screenshot)
                             // and first few header glyphs (y < 5) to see row start
                             if !want_overlay && (glyph_y + glyph_h > 24.0 && glyph_y < 32.0) {
-                                tracing::debug!(
+                                tracing::trace!(
                                     "glyph_near_y27: char='{}' face={} pos=({:.1},{:.1}) size=({:.1},{:.1}) ascent={:.1} bottom={:.1} fg=({:.3},{:.3},{:.3},{:.3}) is_color={} cell=({:.1},{:.1},{:.1})",
                                     if let Some(text) = composed {
                                         text.to_string()
@@ -1489,7 +1489,7 @@ impl WgpuRenderer {
                                 );
                             }
                             if !want_overlay && *y < 1.0 {
-                                tracing::debug!(
+                                tracing::trace!(
                                     "first_row_glyph: char='{}' face={} cell=({:.1},{:.1},{:.1}) glyph_pos=({:.1},{:.1}) glyph_size=({:.1},{:.1}) ascent={:.1} fg=({:.3},{:.3},{:.3})",
                                     if let Some(text) = composed {
                                         text.to_string()
@@ -1640,7 +1640,7 @@ impl WgpuRenderer {
                     for (i, (key, verts)) in mask_data.iter().take(3).enumerate() {
                         let p0 = verts[0].position;
                         let c0 = verts[0].color;
-                        tracing::debug!(
+                        tracing::trace!(
                             "  glyph[{}]: charcode={} pos=({:.1},{:.1}) color=({:.3},{:.3},{:.3},{:.3}) logical_w={:.1}",
                             i,
                             key.charcode,
