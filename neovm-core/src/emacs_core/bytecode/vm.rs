@@ -3687,9 +3687,11 @@ impl<'a> Vm<'a> {
             "read-buffer" => Some(self.builtin_read_buffer_shared(args)),
             "read-command" => Some(self.builtin_read_command_shared(args)),
             "read-variable" => Some(self.builtin_read_variable_shared(args)),
+            "try-completion" => Some(self.builtin_try_completion_shared(args)),
             "all-completions" => Some(crate::emacs_core::minibuffer::builtin_all_completions(
                 args.to_vec(),
             )),
+            "test-completion" => Some(self.builtin_test_completion_shared(args)),
             "input-pending-p" => Some(self.builtin_input_pending_p_shared(args)),
             "discard-input" => Some(self.builtin_discard_input_shared(args)),
             "current-input-mode" => Some(self.builtin_current_input_mode_shared(args)),
@@ -3712,6 +3714,8 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "read-from-string" => Some(self.builtin_read_from_string_shared(args)),
+            "read" => Some(self.builtin_read_shared(args)),
             "read-event" => Some(self.builtin_read_event_shared(args)),
             "read-char-exclusive" => Some(self.builtin_read_char_exclusive_shared(args)),
             "read-char" => Some(self.builtin_read_char_shared(args)),
@@ -3721,6 +3725,12 @@ impl<'a> Vm<'a> {
             }
             "recent-keys" => Some(self.builtin_recent_keys_shared(args)),
             "yes-or-no-p" => Some(self.builtin_yes_or_no_p_shared(args)),
+            "current-message" => Some(self.builtin_current_message_shared(args)),
+            "format" => Some(self.builtin_format_shared(args)),
+            "format-message" => Some(self.builtin_format_message_shared(args)),
+            "message" => Some(self.builtin_message_shared(args)),
+            "message-box" => Some(self.builtin_message_box_shared(args)),
+            "message-or-box" => Some(self.builtin_message_or_box_shared(args)),
             "point" => Some(self.builtin_point_shared(args)),
             "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
             "other-buffer" => Some(self.builtin_other_buffer_shared(args)),
@@ -6424,6 +6434,10 @@ impl<'a> Vm<'a> {
         self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_buffer)
     }
 
+    fn builtin_try_completion_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::minibuffer::builtin_try_completion(args.to_vec())
+    }
+
     fn builtin_file_name_completion_shared(&mut self, args: &[Value]) -> EvalResult {
         let needs_eval_predicate = matches!(
             args.get(2),
@@ -6451,6 +6465,10 @@ impl<'a> Vm<'a> {
 
     fn builtin_read_variable_shared(&mut self, args: &[Value]) -> EvalResult {
         self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_variable)
+    }
+
+    fn builtin_test_completion_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::minibuffer::builtin_test_completion(args.to_vec())
     }
 
     fn builtin_input_pending_p_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -6501,6 +6519,14 @@ impl<'a> Vm<'a> {
         self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_char)
     }
 
+    fn builtin_read_from_string_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_from_string)
+    }
+
+    fn builtin_read_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read)
+    }
+
     fn builtin_read_event_shared(&mut self, args: &[Value]) -> EvalResult {
         if let Some(value) =
             crate::emacs_core::lread::builtin_read_event_in_runtime(&mut self.shared, args)?
@@ -6546,6 +6572,39 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::keymaps::builtin_recent_keys_in_state(
             self.shared.recent_input_events.as_slice(),
             args.to_vec(),
+        )
+    }
+
+    fn builtin_current_message_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::builtins::builtin_current_message_eval,
+        )
+    }
+
+    fn builtin_format_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_format_eval)
+    }
+
+    fn builtin_format_message_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::builtins::builtin_format_message_eval,
+        )
+    }
+
+    fn builtin_message_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_message_eval)
+    }
+
+    fn builtin_message_box_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_message_box_eval)
+    }
+
+    fn builtin_message_or_box_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::builtins::builtin_message_or_box_eval,
         )
     }
 
