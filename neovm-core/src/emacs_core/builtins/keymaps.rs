@@ -1036,6 +1036,13 @@ pub(crate) fn builtin_recent_keys(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_recent_keys_in_state(eval.recent_input_events(), args)
+}
+
+pub(crate) fn builtin_recent_keys_in_state(
+    recent_input_events: &[Value],
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("recent-keys", &args, 1)?;
-    Ok(Value::vector(eval.recent_input_events().to_vec()))
+    Ok(Value::vector(recent_input_events.to_vec()))
 }

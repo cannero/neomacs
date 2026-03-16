@@ -6397,25 +6397,41 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_input_pending_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_input_pending_p)
+        crate::emacs_core::reader::builtin_input_pending_p_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            args.to_vec(),
+        )
     }
 
     fn builtin_discard_input_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_discard_input)
+        crate::emacs_core::reader::builtin_discard_input_in_state(
+            self.shared.obarray,
+            self.shared.dynamic.as_mut_slice(),
+            self.shared.buffers,
+            &*self.shared.custom,
+            args.to_vec(),
+        )
     }
 
     fn builtin_current_input_mode_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_current_input_mode)
+        crate::emacs_core::reader::builtin_current_input_mode_in_state(
+            *self.shared.input_mode_interrupt,
+            args.to_vec(),
+        )
     }
 
     fn builtin_set_input_mode_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_set_input_mode)
+        crate::emacs_core::reader::builtin_set_input_mode_in_state(
+            self.shared.input_mode_interrupt,
+            args.to_vec(),
+        )
     }
 
     fn builtin_set_input_interrupt_mode_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::reader::builtin_set_input_interrupt_mode,
+        crate::emacs_core::reader::builtin_set_input_interrupt_mode_in_state(
+            self.shared.input_mode_interrupt,
+            args.to_vec(),
         )
     }
 
@@ -6435,9 +6451,9 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_recent_keys_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::builtins::keymaps::builtin_recent_keys,
+        crate::emacs_core::builtins::keymaps::builtin_recent_keys_in_state(
+            self.shared.recent_input_events.as_slice(),
+            args.to_vec(),
         )
     }
 

@@ -1,9 +1,11 @@
 //! Reader/printer builtins: read-from-string, read, prin1-to-string (enhanced),
 //! format-spec, and various interactive-input stubs.
 
+use super::custom::CustomManager;
 use super::error::{EvalResult, Flow, signal};
 use super::expr::Expr;
 use super::intern::{SymId, intern, resolve_sym};
+use super::symbol::Obarray;
 use super::value::*;
 
 // ---------------------------------------------------------------------------
@@ -948,8 +950,18 @@ pub(crate) fn builtin_input_pending_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_input_pending_p_in_state(&eval.obarray, eval.dynamic.as_slice(), args)
+}
+
+pub(crate) fn builtin_input_pending_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("input-pending-p", &args, 1)?;
-    Ok(Value::bool(eval.peek_unread_command_event().is_some()))
+    Ok(Value::bool(
+        peek_unread_command_event_in_state(obarray, dynamic).is_some(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -963,8 +975,31 @@ pub(crate) fn builtin_discard_input(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_discard_input_in_state(
+        &mut eval.obarray,
+        eval.dynamic.as_mut_slice(),
+        &mut eval.buffers,
+        &eval.custom,
+        args,
+    )
+}
+
+pub(crate) fn builtin_discard_input_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut [OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    custom: &CustomManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("discard-input", &args, 0)?;
-    eval.assign("unread-command-events", Value::Nil);
+    super::eval::set_runtime_binding_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        custom,
+        intern("unread-command-events"),
+        Value::Nil,
+    );
     Ok(Value::Nil)
 }
 
@@ -977,13 +1012,20 @@ pub(crate) fn builtin_current_input_mode(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let (interrupt, _flow, _meta, _quit) = eval.current_input_mode_tuple();
+    builtin_current_input_mode_in_state(interrupt, args)
+}
+
+pub(crate) fn builtin_current_input_mode_in_state(
+    input_mode_interrupt: bool,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("current-input-mode", &args, 0)?;
-    let (interrupt, flow, meta, quit) = eval.current_input_mode_tuple();
     Ok(Value::list(vec![
-        Value::bool(interrupt),
-        Value::bool(flow),
-        Value::bool(meta),
-        Value::Int(quit),
+        Value::bool(input_mode_interrupt),
+        Value::Nil,
+        Value::True,
+        Value::Int(7),
     ]))
 }
 
@@ -1001,6 +1043,16 @@ pub(crate) fn builtin_set_input_mode(
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_set_input_mode_in_state(
+    input_mode_interrupt: &mut bool,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("set-input-mode", &args, 3)?;
+    expect_max_args("set-input-mode", &args, 4)?;
+    *input_mode_interrupt = args[0].is_truthy();
+    Ok(Value::Nil)
+}
+
 // ---------------------------------------------------------------------------
 // 13. input mode helper setters
 // ---------------------------------------------------------------------------
@@ -1013,6 +1065,31 @@ pub(crate) fn builtin_set_input_interrupt_mode(
     expect_args("set-input-interrupt-mode", &args, 1)?;
     eval.set_input_mode_interrupt(args[0].is_truthy());
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_set_input_interrupt_mode_in_state(
+    input_mode_interrupt: &mut bool,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-input-interrupt-mode", &args, 1)?;
+    *input_mode_interrupt = args[0].is_truthy();
+    Ok(Value::Nil)
+}
+
+fn peek_unread_command_event_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+) -> Option<Value> {
+    let name_id = intern("unread-command-events");
+    let unread = dynamic
+        .iter()
+        .rev()
+        .find_map(|frame| frame.get(&name_id).copied())
+        .or_else(|| obarray.symbol_value("unread-command-events").copied());
+    match unread {
+        Some(Value::Cons(cell)) => Some(read_cons(cell).car),
+        _ => None,
+    }
 }
 
 /// `(set-input-meta-mode META)`
