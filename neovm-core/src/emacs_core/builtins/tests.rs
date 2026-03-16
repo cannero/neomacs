@@ -2160,7 +2160,11 @@ fn kill_all_local_variables_clears_buffer_locals() {
         let buf = eval.buffers.current_buffer_mut().unwrap();
         buf.set_buffer_local("tab-width", Value::Int(8));
         buf.set_buffer_local("fill-column", Value::Int(80));
+        buf.set_buffer_local("major-mode", Value::symbol("neo-mode"));
+        buf.set_buffer_local("mode-name", Value::string("Neo"));
+        buf.set_buffer_local("buffer-undo-list", Value::True);
     }
+    eval.current_local_map = crate::emacs_core::keymap::make_sparse_list_keymap();
 
     assert_eq!(
         builtin_kill_all_local_variables(&mut eval, vec![]).unwrap(),
@@ -2171,6 +2175,16 @@ fn kill_all_local_variables_clears_buffer_locals() {
     assert!(buf.get_buffer_local("tab-width").is_none());
     assert!(buf.get_buffer_local("fill-column").is_none());
     assert_eq!(buf.get_buffer_local("buffer-read-only"), Some(&Value::Nil));
+    assert_eq!(
+        buf.get_buffer_local("major-mode"),
+        Some(&Value::symbol("fundamental-mode"))
+    );
+    assert_eq!(
+        buf.get_buffer_local("mode-name"),
+        Some(&Value::string("Fundamental"))
+    );
+    assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(&Value::Nil));
+    assert!(eval.current_local_map.is_nil());
 }
 
 #[test]

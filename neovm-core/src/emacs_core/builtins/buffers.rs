@@ -910,12 +910,49 @@ pub(crate) fn builtin_kill_all_local_variables(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_kill_all_local_variables_in_state(
+        &eval.obarray,
+        &mut eval.buffers,
+        &mut eval.current_local_map,
+        args,
+    )
+}
+
+pub(crate) fn builtin_kill_all_local_variables_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &mut BufferManager,
+    current_local_map: &mut Value,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("kill-all-local-variables", &args, 0, 1)?;
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.clear_buffer_local_properties(current_id);
+    let _kill_permanent = args.first().copied().unwrap_or(Value::Nil);
+
+    let buffer_read_only = obarray
+        .symbol_value("buffer-read-only")
+        .copied()
+        .unwrap_or(Value::Nil);
+    let major_mode = obarray
+        .symbol_value("major-mode")
+        .copied()
+        .unwrap_or_else(|| Value::symbol("fundamental-mode"));
+    let mode_name = obarray
+        .symbol_value("mode-name")
+        .copied()
+        .unwrap_or_else(|| Value::string("Fundamental"));
+    let buffer_undo_list = obarray
+        .symbol_value("buffer-undo-list")
+        .copied()
+        .unwrap_or(Value::Nil);
+
+    let _ = buffers.clear_buffer_local_properties(current_id);
+    let _ = buffers.set_buffer_local_property(current_id, "buffer-read-only", buffer_read_only);
+    let _ = buffers.set_buffer_local_property(current_id, "major-mode", major_mode);
+    let _ = buffers.set_buffer_local_property(current_id, "mode-name", mode_name);
+    let _ = buffers.configure_buffer_undo_list(current_id, buffer_undo_list);
+    *current_local_map = Value::Nil;
     Ok(Value::Nil)
 }
 

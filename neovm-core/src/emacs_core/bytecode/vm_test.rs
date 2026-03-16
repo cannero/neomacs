@@ -1988,6 +1988,32 @@ fn vm_kill_local_variable_uses_shared_runtime_and_buffer_where_watchers() {
 }
 
 #[test]
+fn vm_kill_all_local_variables_uses_shared_runtime_defaults_and_clears_local_map() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq fill-column 70)
+                 (use-local-map (make-sparse-keymap))
+                 (make-local-variable 'fill-column)
+                 (setq fill-column 80)
+                 (setq major-mode 'neo-mode)
+                 (setq mode-name "Neo")
+                 (setq buffer-undo-list t)
+                 (kill-all-local-variables)
+                 (list fill-column
+                       (current-local-map)
+                       major-mode
+                       mode-name
+                       buffer-undo-list
+                       (local-variable-p 'major-mode)
+                       (local-variable-p 'mode-name)
+                       (local-variable-p 'buffer-undo-list)))"#
+        ),
+        "OK (70 nil fundamental-mode \"Fundamental\" nil t t t)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {
