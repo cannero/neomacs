@@ -497,9 +497,12 @@ impl Compiler {
                 self.compile_dolist(func, tail, for_value);
                 true
             }
-            "save-excursion" | "save-restriction" => {
-                // Stub: just compile as progn
-                self.compile_progn(func, tail, for_value);
+            "save-excursion" => {
+                self.compile_simple_unwind_form(func, Op::SaveExcursion, tail, for_value);
+                true
+            }
+            "save-restriction" => {
+                self.compile_simple_unwind_form(func, Op::SaveRestriction, tail, for_value);
                 true
             }
             "with-current-buffer" => {
@@ -1489,6 +1492,18 @@ impl Compiler {
 
         let end = func.current_offset();
         func.patch_jump(skip_cleanup, end);
+    }
+
+    fn compile_simple_unwind_form(
+        &mut self,
+        func: &mut ByteCodeFunction,
+        setup: Op,
+        tail: &[Expr],
+        for_value: bool,
+    ) {
+        self.emit_tracked(func, setup);
+        self.compile_progn(func, tail, for_value);
+        self.emit_tracked(func, Op::Unbind(1));
     }
 
     fn compile_condition_case(

@@ -227,6 +227,32 @@ fn eval_of_generated_lambda_preserves_uninterned_symbol_identity() {
 }
 
 #[test]
+fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
+    let mut eval = Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("eval-labeled-restriction");
+    eval.buffers.set_current(buffer_id);
+    let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
+    let forms = parse_forms(
+        r#"(progn
+             (internal--labeled-narrow-to-region 2 5 'tag)
+             (list (point-min) (point-max)
+                   (save-restriction
+                     (internal--labeled-widen 'tag)
+                     (list (point-min) (point-max)))
+                   (point-min) (point-max)
+                   (progn (widen) (list (point-min) (point-max)))
+                   (progn (internal--labeled-widen 'tag)
+                          (list (point-min) (point-max)))))"#,
+    )
+    .expect("parse");
+    let result = eval.eval_expr(&forms[0]);
+    assert_eq!(
+        format_eval_result(&result),
+        "OK (2 5 (1 7) 2 5 (2 5) (1 7))"
+    );
+}
+
+#[test]
 fn simple_defvar_declares_local_dynamic_scope_in_lexical_environment() {
     let mut ev = Evaluator::new();
     ev.set_lexical_binding(true);

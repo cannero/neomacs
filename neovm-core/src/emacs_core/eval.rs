@@ -5896,60 +5896,16 @@ impl Evaluator {
     }
 
     fn sf_save_restriction(&mut self, tail: &[Expr]) -> EvalResult {
-        // Mirror the VM path: full-buffer restrictions restore against the
-        // post-body buffer length, while narrowed bounds track edits via markers.
-        let saved = self
-            .buffers
-            .current_buffer()
-            .map(|buffer| (buffer.id, buffer.begv, buffer.zv, buffer.text.len()));
-        let saved = match saved {
-            Some((buffer_id, begv, zv, len)) if begv == 0 && zv == len => {
-                Some((buffer_id, None, None))
-            }
-            Some((buffer_id, begv, zv, _len)) => {
-                let beg_marker = self
-                    .buffers
-                    .create_marker(buffer_id, begv, InsertionType::Before);
-                let end_marker = self
-                    .buffers
-                    .create_marker(buffer_id, zv, InsertionType::After);
-                Some((buffer_id, Some(beg_marker), Some(end_marker)))
-            }
-            None => None,
-        };
-        let result = self.sf_progn(tail);
-        if let Some((buffer_id, beg_marker, end_marker)) = saved {
-            match (beg_marker, end_marker) {
-                (None, None) => {
-                    if let Some(len) = self.buffers.get(buffer_id).map(|buffer| buffer.text.len()) {
-                        let _ = self.buffers.restore_buffer_restriction(buffer_id, 0, len);
-                    }
-                }
-                (Some(beg_marker), Some(end_marker)) => {
-                    let beg = self.buffers.marker_position(buffer_id, beg_marker);
-                    let end = self.buffers.marker_position(buffer_id, end_marker);
-                    if let (Some(begv), Some(zv), Some(len)) = (
-                        beg,
-                        end,
-                        self.buffers.get(buffer_id).map(|buffer| buffer.text.len()),
-                    ) {
-                        let mut restored_begv = begv.min(len);
-                        let mut restored_zv = zv.min(len);
-                        if restored_begv > restored_zv {
-                            std::mem::swap(&mut restored_begv, &mut restored_zv);
-                        }
-                        let _ = self.buffers.restore_buffer_restriction(
-                            buffer_id,
-                            restored_begv,
-                            restored_zv,
-                        );
-                    }
-                    self.buffers.remove_marker(beg_marker);
-                    self.buffers.remove_marker(end_marker);
-                }
-                _ => {}
-            }
+        let saved = self.buffers.save_current_restriction_state();
+        let saved_roots_len = self.temp_roots.len();
+        if let Some(saved) = &saved {
+            saved.trace_roots(&mut self.temp_roots);
         }
+        let result = self.sf_progn(tail);
+        if let Some(saved) = saved {
+            self.buffers.restore_saved_restriction_state(saved);
+        }
+        self.temp_roots.truncate(saved_roots_len);
         result
     }
 

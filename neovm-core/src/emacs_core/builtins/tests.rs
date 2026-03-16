@@ -6430,12 +6430,18 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
     let buf_id = eval.buffers.create_buffer(" *vm-labeled-narrow*");
     eval.buffers.set_current(buf_id);
     let _ = eval.buffers.insert_into_buffer(buf_id, "abcdef");
-    let _ = eval.buffers.narrow_buffer_to_region(buf_id, 1, 4);
+    dispatch_builtin(
+        &mut eval,
+        "internal--labeled-narrow-to-region",
+        vec![Value::Int(2), Value::Int(5), Value::symbol("outer-tag")],
+    )
+    .expect("outer internal--labeled-narrow-to-region should resolve")
+    .expect("outer internal--labeled-narrow-to-region should evaluate");
 
     let narrowed = dispatch_builtin(
         &mut eval,
         "internal--labeled-narrow-to-region",
-        vec![Value::Int(0), Value::Int(99), Value::symbol("vm-tag")],
+        vec![Value::Int(1), Value::Int(7), Value::symbol("inner-tag")],
     )
     .expect("internal--labeled-narrow-to-region should resolve")
     .expect("internal--labeled-narrow-to-region should evaluate");

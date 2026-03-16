@@ -808,32 +808,13 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_in_buffers(
     expect_args("internal--labeled-narrow-to-region", &args, 3)?;
     let start = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let end = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let label = args[2];
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = buffers
-        .get(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.point_min_char() as i64 + 1;
-    let point_max = buf.point_max_char() as i64 + 1;
-    let mut clamped_start = start.clamp(point_min, point_max);
-    let mut clamped_end = end.clamp(point_min, point_max);
-    if clamped_start > clamped_end {
-        std::mem::swap(&mut clamped_start, &mut clamped_end);
-    }
-    let s = if clamped_start > 0 {
-        clamped_start as usize - 1
-    } else {
-        0
-    };
-    let e = if clamped_end > 0 {
-        clamped_end as usize - 1
-    } else {
-        0
-    };
-    let byte_start = buf.text.char_to_byte(s);
-    let byte_end = buf.text.char_to_byte(e);
-    let _ = buffers.narrow_buffer_to_region(current_id, byte_start, byte_end);
+    let (byte_start, byte_end) =
+        super::buffers::normalize_narrow_region_in_buffers(buffers, current_id, start, end)?;
+    let _ = buffers.internal_labeled_narrow_to_region(current_id, byte_start, byte_end, label);
     Ok(Value::Nil)
 }
 
@@ -849,8 +830,11 @@ pub(crate) fn builtin_internal_labeled_widen_in_buffers(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal--labeled-widen", &args, 1)?;
-    // LABEL is currently metadata-only; runtime behavior mirrors widen.
-    super::buffers::builtin_widen_in_manager(buffers, vec![])
+    let current_id = buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let _ = buffers.internal_labeled_widen(current_id, &args[0]);
+    Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_internal_obarray_buckets(args: Vec<Value>) -> EvalResult {

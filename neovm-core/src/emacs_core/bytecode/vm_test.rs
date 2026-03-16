@@ -186,10 +186,12 @@ fn vm_internal_labeled_restriction_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
-                 (narrow-to-region 2 5)
-                 (internal--labeled-narrow-to-region 0 99 'vm-tag)
+                 (internal--labeled-narrow-to-region 2 5 'outer-tag)
+                 (internal--labeled-narrow-to-region 1 7 'inner-tag)
                  (list (point-min) (point-max)
-                       (progn (internal--labeled-widen 'vm-tag)
+                       (progn (internal--labeled-widen 'inner-tag)
+                              (list (point-min) (point-max)))
+                       (progn (internal--labeled-widen 'outer-tag)
                               (list (point-min) (point-max)))))"#,
             |eval| {
                 let buffer_id = eval.buffers.create_buffer("vm-labeled-restriction");
@@ -197,7 +199,50 @@ fn vm_internal_labeled_restriction_builtins_use_shared_buffer_state() {
                 let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
             },
         ),
-        "OK (2 5 (1 7))"
+        "OK (2 5 (2 5) (1 7))"
+    );
+}
+
+#[test]
+fn vm_save_restriction_restores_labeled_restrictions_and_widen_semantics() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (internal--labeled-narrow-to-region 2 5 'tag)
+                 (list (point-min) (point-max)
+                       (save-restriction
+                         (internal--labeled-widen 'tag)
+                         (list (point-min) (point-max)))
+                       (point-min) (point-max)
+                       (progn (widen) (list (point-min) (point-max)))
+                       (progn (internal--labeled-widen 'tag)
+                              (list (point-min) (point-max)))))"#,
+            |eval| {
+                let buffer_id = eval.buffers.create_buffer("vm-saved-labeled-restriction");
+                eval.buffers.set_current(buffer_id);
+                let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
+            },
+        ),
+        "OK (2 5 (1 7) 2 5 (2 5) (1 7))"
+    );
+}
+
+#[test]
+fn vm_save_excursion_restores_point_on_normal_exit() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (goto-char 3)
+                 (save-excursion
+                   (goto-char 6))
+                 (point))"#,
+            |eval| {
+                let buffer_id = eval.buffers.create_buffer("vm-save-excursion");
+                eval.buffers.set_current(buffer_id);
+                let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
+            },
+        ),
+        "OK 3"
     );
 }
 

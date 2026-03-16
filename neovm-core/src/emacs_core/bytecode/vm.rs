@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
-use crate::buffer::{BufferId, BufferManager, InsertionType};
+use crate::buffer::{BufferId, BufferManager, InsertionType, SavedRestrictionState};
 use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
 use crate::emacs_core::category::CategoryManager;
@@ -43,18 +43,6 @@ enum Handler {
 }
 
 #[derive(Clone, Debug)]
-enum SavedRestriction {
-    None {
-        buffer_id: BufferId,
-    },
-    Markers {
-        buffer_id: BufferId,
-        beg_marker: u64,
-        end_marker: u64,
-    },
-}
-
-#[derive(Clone, Debug)]
 enum VmUnwindEntry {
     DynamicBinding {
         name: String,
@@ -75,7 +63,7 @@ enum VmUnwindEntry {
         buffer_id: BufferId,
         marker_id: u64,
     },
-    Restriction(SavedRestriction),
+    Restriction(SavedRestrictionState),
 }
 
 /// The bytecode VM execution engine.
@@ -162,9 +150,8 @@ impl<'a> Vm<'a> {
                     out.push(*old_lexenv);
                 }
                 VmUnwindEntry::Cleanup { cleanup } => out.push(*cleanup),
-                VmUnwindEntry::CurrentBuffer { .. }
-                | VmUnwindEntry::Excursion { .. }
-                | VmUnwindEntry::Restriction(_) => {}
+                VmUnwindEntry::CurrentBuffer { .. } | VmUnwindEntry::Excursion { .. } => {}
+                VmUnwindEntry::Restriction(saved) => saved.trace_roots(out),
             }
         }
     }
@@ -684,32 +671,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::SaveRestriction => {
-                    if let Some((buffer_id, begv, zv, len)) = self
-                        .shared
-                        .buffers
-                        .current_buffer()
-                        .map(|buffer| (buffer.id, buffer.begv, buffer.zv, buffer.text.len()))
-                    {
-                        let entry = if begv == 0 && zv == len {
-                            VmUnwindEntry::Restriction(SavedRestriction::None { buffer_id })
-                        } else {
-                            let beg_marker = self.shared.buffers.create_marker(
-                                buffer_id,
-                                begv,
-                                InsertionType::Before,
-                            );
-                            let end_marker = self.shared.buffers.create_marker(
-                                buffer_id,
-                                zv,
-                                InsertionType::After,
-                            );
-                            VmUnwindEntry::Restriction(SavedRestriction::Markers {
-                                buffer_id,
-                                beg_marker,
-                                end_marker,
-                            })
-                        };
-                        specpdl.push(entry);
+                    if let Some(saved) = self.shared.buffers.save_current_restriction_state() {
+                        specpdl.push(VmUnwindEntry::Restriction(saved));
                     }
                 }
 
@@ -3444,51 +3407,8 @@ impl<'a> Vm<'a> {
         Ok(())
     }
 
-    fn restore_saved_restriction(&mut self, saved: SavedRestriction) {
-        match saved {
-            SavedRestriction::None { buffer_id } => {
-                if let Some(len) = self
-                    .shared
-                    .buffers
-                    .get(buffer_id)
-                    .map(|buffer| buffer.text.len())
-                {
-                    let _ = self
-                        .shared
-                        .buffers
-                        .restore_buffer_restriction(buffer_id, 0, len);
-                }
-            }
-            SavedRestriction::Markers {
-                buffer_id,
-                beg_marker,
-                end_marker,
-            } => {
-                let beg = self.shared.buffers.marker_position(buffer_id, beg_marker);
-                let end = self.shared.buffers.marker_position(buffer_id, end_marker);
-                if let (Some(begv), Some(zv), Some(len)) = (
-                    beg,
-                    end,
-                    self.shared
-                        .buffers
-                        .get(buffer_id)
-                        .map(|buffer| buffer.text.len()),
-                ) {
-                    let mut restored_begv = begv.min(len);
-                    let mut restored_zv = zv.min(len);
-                    if restored_begv > restored_zv {
-                        std::mem::swap(&mut restored_begv, &mut restored_zv);
-                    }
-                    let _ = self.shared.buffers.restore_buffer_restriction(
-                        buffer_id,
-                        restored_begv,
-                        restored_zv,
-                    );
-                }
-                self.shared.buffers.remove_marker(beg_marker);
-                self.shared.buffers.remove_marker(end_marker);
-            }
-        }
+    fn restore_saved_restriction(&mut self, saved: SavedRestrictionState) {
+        self.shared.buffers.restore_saved_restriction_state(saved);
     }
 
     /// Dispatch to builtin functions from the VM.

@@ -29,6 +29,43 @@ fn point_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
     buf.text.byte_to_char(byte_pos) as i64 + 1
 }
 
+pub(crate) fn normalize_narrow_region_in_buffers(
+    buffers: &BufferManager,
+    current_id: BufferId,
+    start: i64,
+    end: i64,
+) -> Result<(usize, usize), Flow> {
+    let buf = buffers
+        .get(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let mut s = start;
+    let mut e = end;
+    if e < s {
+        std::mem::swap(&mut s, &mut e);
+    }
+    let full_min = 1_i64;
+    let full_max = buf.total_chars() as i64 + 1;
+    if s < full_min || s > full_max || e < full_min || e > full_max {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Int(start), Value::Int(end)],
+        ));
+    }
+    if let Some((begv_char, zv_char)) = buffers.current_labeled_restriction_char_bounds(current_id)
+    {
+        let labeled_min = begv_char as i64 + 1;
+        let labeled_max = zv_char as i64 + 1;
+        s = s.clamp(labeled_min, labeled_max);
+        e = e.clamp(labeled_min, labeled_max);
+    }
+    let start_char = if s > 0 { s as usize - 1 } else { 0 };
+    let end_char = if e > 0 { e as usize - 1 } else { 0 };
+    Ok((
+        buf.text.char_to_byte(start_char),
+        buf.text.char_to_byte(end_char),
+    ))
+}
+
 pub(crate) fn expect_integer_or_marker_in_buffers(
     buffers: &BufferManager,
     value: &Value,
@@ -3041,23 +3078,8 @@ pub(crate) fn builtin_narrow_to_region_in_manager(
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = buffers
-        .get(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let point_min = buf.point_min_char() as i64 + 1;
-    let point_max = buf.point_max_char() as i64 + 1;
-    if start < point_min || start > point_max || end < point_min || end > point_max {
-        return Err(signal(
-            "args-out-of-range",
-            vec![Value::Int(start), Value::Int(end)],
-        ));
-    }
-    let start = start as usize;
-    let end = end as usize;
-    let s = if start > 0 { start - 1 } else { 0 };
-    let e = if end > 0 { end - 1 } else { 0 };
-    let byte_start = buf.text.char_to_byte(s);
-    let byte_end = buf.text.char_to_byte(e);
+    let (byte_start, byte_end) =
+        normalize_narrow_region_in_buffers(buffers, current_id, start, end)?;
     let _ = buffers.narrow_buffer_to_region(current_id, byte_start, byte_end);
     Ok(Value::Nil)
 }

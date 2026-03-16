@@ -712,6 +712,8 @@ mod keymap_comprehensive_patterns;
 mod keymap_operations_extended;
 #[path = "keymap-prompt-patterns.rs"]
 mod keymap_prompt_patterns;
+#[path = "labeled-restriction.rs"]
+mod labeled_restriction;
 #[path = "lambda-anonymous.rs"]
 mod lambda_anonymous;
 #[path = "lambda-anonymous-advanced.rs"]

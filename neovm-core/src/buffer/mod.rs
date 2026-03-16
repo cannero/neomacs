@@ -6,7 +6,10 @@ pub mod overlay;
 pub mod text_props;
 pub mod undo;
 
-pub use buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
+pub use buffer::{
+    Buffer, BufferId, BufferManager, InsertionType, LabeledRestriction, LabeledRestrictionLabel,
+    MarkerEntry, SavedRestrictionKind, SavedRestrictionState,
+};
 pub use buffer_text::BufferText;
 pub use marker::Marker;
 pub use overlay::{Overlay, OverlayList};

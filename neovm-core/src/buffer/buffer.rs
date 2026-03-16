@@ -49,6 +49,44 @@ pub struct MarkerEntry {
     pub insertion_type: InsertionType,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LabeledRestrictionLabel {
+    Outermost,
+    User(Value),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LabeledRestriction {
+    pub label: LabeledRestrictionLabel,
+    pub beg_marker: u64,
+    pub end_marker: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SavedRestrictionKind {
+    None,
+    Markers { beg_marker: u64, end_marker: u64 },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SavedRestrictionState {
+    pub buffer_id: BufferId,
+    pub restriction: SavedRestrictionKind,
+    pub labeled_restrictions: Option<Vec<LabeledRestriction>>,
+}
+
+impl SavedRestrictionState {
+    pub fn trace_roots(&self, roots: &mut Vec<Value>) {
+        if let Some(restrictions) = &self.labeled_restrictions {
+            for restriction in restrictions {
+                if let LabeledRestrictionLabel::User(label) = restriction.label {
+                    roots.push(label);
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Buffer
 // ---------------------------------------------------------------------------
@@ -708,6 +746,7 @@ pub struct BufferManager {
     current: Option<BufferId>,
     next_id: u64,
     next_marker_id: u64,
+    labeled_restrictions: HashMap<BufferId, Vec<LabeledRestriction>>,
     dead_buffer_last_names: HashMap<BufferId, String>,
 }
 
@@ -727,6 +766,7 @@ impl BufferManager {
             current: None,
             next_id: 1,
             next_marker_id: 1,
+            labeled_restrictions: HashMap::new(),
             dead_buffer_last_names: HashMap::new(),
         };
         let scratch = mgr.create_buffer("*scratch*");
@@ -844,6 +884,7 @@ impl BufferManager {
     /// If the killed buffer was current, `current` is set to `None`.
     pub fn kill_buffer(&mut self, id: BufferId) -> bool {
         if let Some(buf) = self.buffers.remove(&id) {
+            self.replace_labeled_restrictions(id, None);
             self.dead_buffer_last_names.insert(id, buf.name);
             if self.current == Some(id) {
                 self.current = None;
@@ -869,6 +910,154 @@ impl BufferManager {
     fn shared_text_root_id(&self, id: BufferId) -> Option<BufferId> {
         let buf = self.buffers.get(&id)?;
         Some(buf.base_buffer.unwrap_or(buf.id))
+    }
+
+    fn full_buffer_bounds(&self, id: BufferId) -> Option<(usize, usize)> {
+        let buf = self.buffers.get(&id)?;
+        Some((0, buf.text.len()))
+    }
+
+    fn labeled_restriction_at(&self, id: BufferId, outermost: bool) -> Option<&LabeledRestriction> {
+        let restrictions = self.labeled_restrictions.get(&id)?;
+        if outermost {
+            restrictions.first()
+        } else {
+            restrictions.last()
+        }
+    }
+
+    fn labeled_restriction_bounds(&self, id: BufferId, outermost: bool) -> Option<(usize, usize)> {
+        let restriction = self.labeled_restriction_at(id, outermost)?;
+        let beg = self.marker_position(id, restriction.beg_marker)?;
+        let end = self.marker_position(id, restriction.end_marker)?;
+        Some((beg, end))
+    }
+
+    pub fn current_labeled_restriction_bounds(&self, id: BufferId) -> Option<(usize, usize)> {
+        self.labeled_restriction_bounds(id, false)
+    }
+
+    pub fn current_labeled_restriction_char_bounds(&self, id: BufferId) -> Option<(usize, usize)> {
+        let restriction = self.labeled_restriction_at(id, false)?;
+        let beg = self.marker_char_position(id, restriction.beg_marker)?;
+        let end = self.marker_char_position(id, restriction.end_marker)?;
+        Some((beg, end))
+    }
+
+    pub fn current_labeled_restriction_matches_label(&self, id: BufferId, label: &Value) -> bool {
+        let Some(restriction) = self.labeled_restriction_at(id, false) else {
+            return false;
+        };
+        match restriction.label {
+            LabeledRestrictionLabel::User(current) => {
+                crate::emacs_core::value::eq_value(&current, label)
+            }
+            LabeledRestrictionLabel::Outermost => false,
+        }
+    }
+
+    fn clone_marker_in_buffer(&mut self, buffer_id: BufferId, marker_id: u64) -> Option<u64> {
+        let (pos, insertion_type) = {
+            let buf = self.buffers.get(&buffer_id)?;
+            let marker = buf.markers.iter().find(|marker| marker.id == marker_id)?;
+            (marker.byte_pos, marker.insertion_type)
+        };
+        Some(self.create_marker(buffer_id, pos, insertion_type))
+    }
+
+    fn clone_labeled_restrictions(
+        &mut self,
+        buffer_id: BufferId,
+    ) -> Option<Option<Vec<LabeledRestriction>>> {
+        let restrictions = self.labeled_restrictions.get(&buffer_id)?.clone();
+        let mut cloned = Vec::with_capacity(restrictions.len());
+        for restriction in restrictions {
+            let beg_marker = self.clone_marker_in_buffer(buffer_id, restriction.beg_marker)?;
+            let end_marker = self.clone_marker_in_buffer(buffer_id, restriction.end_marker)?;
+            cloned.push(LabeledRestriction {
+                label: restriction.label,
+                beg_marker,
+                end_marker,
+            });
+        }
+        Some(Some(cloned))
+    }
+
+    fn replace_labeled_restrictions(
+        &mut self,
+        buffer_id: BufferId,
+        restrictions: Option<Vec<LabeledRestriction>>,
+    ) {
+        let mut live_marker_ids = std::collections::HashSet::new();
+        if let Some(ref restrictions) = restrictions {
+            for restriction in restrictions {
+                live_marker_ids.insert(restriction.beg_marker);
+                live_marker_ids.insert(restriction.end_marker);
+            }
+        }
+
+        if let Some(old) = self.labeled_restrictions.remove(&buffer_id) {
+            for restriction in old {
+                if !live_marker_ids.contains(&restriction.beg_marker) {
+                    self.remove_marker(restriction.beg_marker);
+                }
+                if !live_marker_ids.contains(&restriction.end_marker) {
+                    self.remove_marker(restriction.end_marker);
+                }
+            }
+        }
+
+        if self.buffers.contains_key(&buffer_id) {
+            if let Some(restrictions) = restrictions.filter(|restrictions| !restrictions.is_empty())
+            {
+                self.labeled_restrictions.insert(buffer_id, restrictions);
+            }
+        }
+    }
+
+    pub fn clear_buffer_labeled_restrictions(&mut self, buffer_id: BufferId) -> Option<()> {
+        self.buffers.get(&buffer_id)?;
+        self.replace_labeled_restrictions(buffer_id, None);
+        Some(())
+    }
+
+    fn push_labeled_restriction_for_current_bounds(
+        &mut self,
+        buffer_id: BufferId,
+        label: LabeledRestrictionLabel,
+    ) -> Option<()> {
+        let (begv, zv) = {
+            let buf = self.buffers.get(&buffer_id)?;
+            (buf.begv, buf.zv)
+        };
+        let beg_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
+        let end_marker = self.create_marker(buffer_id, zv, InsertionType::After);
+        self.labeled_restrictions
+            .entry(buffer_id)
+            .or_default()
+            .push(LabeledRestriction {
+                label,
+                beg_marker,
+                end_marker,
+            });
+        Some(())
+    }
+
+    fn pop_labeled_restriction(&mut self, buffer_id: BufferId) -> Option<LabeledRestriction> {
+        let restrictions = self.labeled_restrictions.get_mut(&buffer_id)?;
+        let restriction = restrictions.pop()?;
+        let remove_entry = restrictions.is_empty();
+        if remove_entry {
+            self.labeled_restrictions.remove(&buffer_id);
+        }
+        self.remove_marker(restriction.beg_marker);
+        self.remove_marker(restriction.end_marker);
+        Some(restriction)
+    }
+
+    fn widen_buffer_fully(&mut self, id: BufferId) -> Option<()> {
+        let (begv, zv) = self.full_buffer_bounds(id)?;
+        self.restore_buffer_restriction(id, begv, zv)
     }
 
     fn buffers_sharing_root_ids(&self, root_id: BufferId) -> Vec<BufferId> {
@@ -1083,7 +1272,18 @@ impl BufferManager {
     }
 
     pub fn widen_buffer(&mut self, id: BufferId) -> Option<()> {
-        self.buffers.get_mut(&id)?.widen();
+        self.buffers.get(&id)?;
+        let Some(restriction) = self.labeled_restriction_at(id, false).copied() else {
+            return self.widen_buffer_fully(id);
+        };
+        let Some((begv, zv)) = self.labeled_restriction_bounds(id, false) else {
+            self.replace_labeled_restrictions(id, None);
+            return self.widen_buffer_fully(id);
+        };
+        self.restore_buffer_restriction(id, begv, zv)?;
+        if matches!(restriction.label, LabeledRestrictionLabel::Outermost) {
+            let _ = self.pop_labeled_restriction(id);
+        }
         Some(())
     }
 
@@ -1258,6 +1458,95 @@ impl BufferManager {
         let buf = self.buffers.get_mut(&id)?;
         buf.narrow_to_byte_region(begv, zv);
         Some(())
+    }
+
+    pub fn save_current_restriction_state(&mut self) -> Option<SavedRestrictionState> {
+        let buffer_id = self.current_buffer_id()?;
+        let (begv, zv, len) = {
+            let buffer = self.get(buffer_id)?;
+            (buffer.begv, buffer.zv, buffer.text.len())
+        };
+        let restriction = if begv == 0 && zv == len {
+            SavedRestrictionKind::None
+        } else {
+            let beg_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
+            let end_marker = self.create_marker(buffer_id, zv, InsertionType::After);
+            SavedRestrictionKind::Markers {
+                beg_marker,
+                end_marker,
+            }
+        };
+        let labeled_restrictions = self.clone_labeled_restrictions(buffer_id).unwrap_or(None);
+        Some(SavedRestrictionState {
+            buffer_id,
+            restriction,
+            labeled_restrictions,
+        })
+    }
+
+    pub fn restore_saved_restriction_state(&mut self, saved: SavedRestrictionState) {
+        let buffer_id = saved.buffer_id;
+        if self.buffers.get(&buffer_id).is_none() {
+            self.replace_labeled_restrictions(buffer_id, None);
+            return;
+        }
+        self.replace_labeled_restrictions(buffer_id, saved.labeled_restrictions);
+        match saved.restriction {
+            SavedRestrictionKind::None => {
+                let _ = self.widen_buffer_fully(buffer_id);
+            }
+            SavedRestrictionKind::Markers {
+                beg_marker,
+                end_marker,
+            } => {
+                let beg = self.marker_position(buffer_id, beg_marker);
+                let end = self.marker_position(buffer_id, end_marker);
+                if let (Some(begv), Some(zv), Some(len)) = (
+                    beg,
+                    end,
+                    self.buffers.get(&buffer_id).map(|buffer| buffer.text.len()),
+                ) {
+                    let mut restored_begv = begv.min(len);
+                    let mut restored_zv = zv.min(len);
+                    if restored_begv > restored_zv {
+                        std::mem::swap(&mut restored_begv, &mut restored_zv);
+                    }
+                    let _ = self.restore_buffer_restriction(buffer_id, restored_begv, restored_zv);
+                }
+                self.remove_marker(beg_marker);
+                self.remove_marker(end_marker);
+            }
+        }
+    }
+
+    pub fn internal_labeled_narrow_to_region(
+        &mut self,
+        buffer_id: BufferId,
+        start: usize,
+        end: usize,
+        label: Value,
+    ) -> Option<()> {
+        self.buffers.get(&buffer_id)?;
+        if self.labeled_restriction_at(buffer_id, false).is_none() {
+            self.push_labeled_restriction_for_current_bounds(
+                buffer_id,
+                LabeledRestrictionLabel::Outermost,
+            )?;
+        }
+        self.restore_buffer_restriction(buffer_id, start, end)?;
+        self.push_labeled_restriction_for_current_bounds(
+            buffer_id,
+            LabeledRestrictionLabel::User(label),
+        )?;
+        Some(())
+    }
+
+    pub fn internal_labeled_widen(&mut self, buffer_id: BufferId, label: &Value) -> Option<()> {
+        self.buffers.get(&buffer_id)?;
+        if self.current_labeled_restriction_matches_label(buffer_id, label) {
+            let _ = self.pop_labeled_restriction(buffer_id);
+        }
+        self.widen_buffer(buffer_id)
     }
 
     pub fn configure_buffer_undo_list(&mut self, id: BufferId, value: Value) -> Option<()> {
@@ -1492,6 +1781,7 @@ impl BufferManager {
             current,
             next_id,
             next_marker_id,
+            labeled_restrictions: HashMap::new(),
             dead_buffer_last_names: HashMap::new(),
         }
     }
@@ -1514,6 +1804,13 @@ impl GcTrace for BufferManager {
             buffer.text_props.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
             buffer.undo_list.trace_roots(roots);
+        }
+        for restrictions in self.labeled_restrictions.values() {
+            for restriction in restrictions {
+                if let LabeledRestrictionLabel::User(label) = restriction.label {
+                    roots.push(label);
+                }
+            }
         }
     }
 }
@@ -2242,6 +2539,54 @@ mod tests {
         let mgr = BufferManager::new();
         let pos = mgr.marker_position(BufferId(9999), 1);
         assert_eq!(pos, None);
+    }
+
+    #[test]
+    fn manager_labeled_widen_uses_innermost_and_without_restriction_reaches_full_buffer() {
+        let mut mgr = BufferManager::new();
+        let id = mgr.create_buffer("labeled");
+        mgr.set_current(id);
+        mgr.get_mut(id).unwrap().insert("abcdef");
+
+        let _ = mgr.internal_labeled_narrow_to_region(id, 1, 4, Value::symbol("tag"));
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 1);
+        assert_eq!(buf.point_max(), 4);
+
+        let _ = mgr.widen_buffer(id);
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 1);
+        assert_eq!(buf.point_max(), 4);
+
+        let _ = mgr.internal_labeled_widen(id, &Value::symbol("tag"));
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 0);
+        assert_eq!(buf.point_max(), 6);
+    }
+
+    #[test]
+    fn manager_save_restriction_state_restores_labeled_stack() {
+        let mut mgr = BufferManager::new();
+        let id = mgr.create_buffer("saved-labeled");
+        mgr.set_current(id);
+        mgr.get_mut(id).unwrap().insert("abcdefgh");
+        let _ = mgr.internal_labeled_narrow_to_region(id, 1, 5, Value::symbol("tag"));
+
+        let saved = mgr
+            .save_current_restriction_state()
+            .expect("restriction state should save");
+        let _ = mgr.internal_labeled_widen(id, &Value::symbol("tag"));
+        let _ = mgr.narrow_buffer_to_region(id, 2, 3);
+        mgr.restore_saved_restriction_state(saved);
+
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 1);
+        assert_eq!(buf.point_max(), 5);
+
+        let _ = mgr.widen_buffer(id);
+        let buf = mgr.get(id).unwrap();
+        assert_eq!(buf.point_min(), 1);
+        assert_eq!(buf.point_max(), 5);
     }
 
     // -----------------------------------------------------------------------
