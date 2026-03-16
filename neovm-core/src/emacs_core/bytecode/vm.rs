@@ -3145,6 +3145,50 @@ impl<'a> Vm<'a> {
                     args,
                 ),
             ),
+            "get-buffer-create" => Some(
+                crate::emacs_core::builtins::builtin_get_buffer_create_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "get-buffer" => Some(crate::emacs_core::builtins::builtin_get_buffer_in_manager(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "find-buffer" => Some(crate::emacs_core::builtins::builtin_find_buffer_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "buffer-live-p" => Some(
+                crate::emacs_core::builtins::builtin_buffer_live_p_in_manager(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "buffer-name" => Some(crate::emacs_core::builtins::builtin_buffer_name_in_manager(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "buffer-file-name" => Some(
+                crate::emacs_core::builtins::builtin_buffer_file_name_in_manager(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "buffer-base-buffer" => Some(
+                crate::emacs_core::builtins::builtin_buffer_base_buffer_in_manager(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "buffer-last-name" => Some(
+                crate::emacs_core::builtins::builtin_buffer_last_name_in_manager(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "make-local-variable" => Some(self.builtin_make_local_variable_shared(args)),
             "local-variable-p" => Some(self.builtin_local_variable_p_shared(args)),
             "buffer-local-variables" => Some(self.builtin_buffer_local_variables_shared(args)),

@@ -48,13 +48,20 @@ pub(crate) fn builtin_get_buffer_create(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_buffer_create_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_buffer_create_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("get-buffer-create", &args, 1)?;
     expect_max_args("get-buffer-create", &args, 2)?;
     let name = expect_string(&args[0])?;
-    if let Some(id) = eval.buffers.find_buffer_by_name(&name) {
+    if let Some(id) = buffers.find_buffer_by_name(&name) {
         Ok(Value::Buffer(id))
     } else {
-        let id = eval.buffers.create_buffer(&name);
+        let id = buffers.create_buffer(&name);
         Ok(Value::Buffer(id))
     }
 }
@@ -141,12 +148,19 @@ pub(crate) fn builtin_get_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_buffer_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_buffer_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("get-buffer", &args, 1)?;
     match &args[0] {
         Value::Buffer(_) => Ok(args[0]),
         Value::Str(id) => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
-            if let Some(buf_id) = eval.buffers.find_buffer_by_name(&s) {
+            if let Some(buf_id) = buffers.find_buffer_by_name(&s) {
                 Ok(Value::Buffer(buf_id))
             } else {
                 Ok(Value::Nil)
@@ -168,6 +182,15 @@ pub(crate) fn builtin_find_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_find_buffer_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
+}
+
+pub(crate) fn builtin_find_buffer_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("find-buffer", &args, 2)?;
     let name = args[0].as_symbol_name().ok_or_else(|| {
         signal(
@@ -178,27 +201,26 @@ pub(crate) fn builtin_find_buffer(
     let target_value = args[1];
 
     let name_id = intern(name);
-    let fallback_value = eval
-        .dynamic
+    let fallback_value = dynamic
         .iter()
         .rev()
         .find_map(|frame| frame.get(&name_id).cloned())
-        .or_else(|| eval.obarray().symbol_value(name).cloned())
+        .or_else(|| obarray.symbol_value(name).cloned())
         .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)]))?;
 
     let mut scan_order = Vec::new();
-    let current_id = eval.buffers.current_buffer().map(|buf| buf.id);
+    let current_id = buffers.current_buffer().map(|buf| buf.id);
     if let Some(id) = current_id {
         scan_order.push(id);
     }
-    for id in eval.buffers.buffer_list() {
+    for id in buffers.buffer_list() {
         if Some(id) != current_id {
             scan_order.push(id);
         }
     }
 
     for id in scan_order {
-        let Some(buf) = eval.buffers.get(id) else {
+        let Some(buf) = buffers.get(id) else {
             continue;
         };
         let observed = buf
@@ -243,9 +265,16 @@ pub(crate) fn builtin_buffer_live_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_live_p_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_live_p_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("buffer-live-p", &args, 1)?;
     match &args[0] {
-        Value::Buffer(id) => Ok(Value::bool(eval.buffers.get(*id).is_some())),
+        Value::Buffer(id) => Ok(Value::bool(buffers.get(*id).is_some())),
         _ => Ok(Value::Nil),
     }
 }
@@ -420,16 +449,23 @@ pub(crate) fn builtin_buffer_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_name_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_name_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-name", &args, 1)?;
     let id = if args.is_empty() || matches!(args[0], Value::Nil) {
-        match eval.buffers.current_buffer() {
+        match buffers.current_buffer() {
             Some(b) => b.id,
             None => return Ok(Value::Nil),
         }
     } else {
         expect_buffer_id(&args[0])?
     };
-    match eval.buffers.get(id) {
+    match buffers.get(id) {
         Some(buf) => Ok(Value::string(&buf.name)),
         None => Ok(Value::Nil),
     }
@@ -440,16 +476,23 @@ pub(crate) fn builtin_buffer_file_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_file_name_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_file_name_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-file-name", &args, 1)?;
     let id = if args.is_empty() || matches!(args[0], Value::Nil) {
-        match eval.buffers.current_buffer() {
+        match buffers.current_buffer() {
             Some(b) => b.id,
             None => return Ok(Value::Nil),
         }
     } else {
         expect_buffer_id(&args[0])?
     };
-    match eval.buffers.get(id) {
+    match buffers.get(id) {
         Some(buf) => match &buf.file_name {
             Some(f) => Ok(Value::string(f)),
             None => Ok(Value::Nil),
@@ -463,9 +506,16 @@ pub(crate) fn builtin_buffer_base_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_base_buffer_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_base_buffer_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-base-buffer", &args, 1)?;
     let target = if args.is_empty() || matches!(args[0], Value::Nil) {
-        match eval.buffers.current_buffer() {
+        match buffers.current_buffer() {
             Some(buf) => buf.id,
             None => return Ok(Value::Nil),
         }
@@ -473,8 +523,7 @@ pub(crate) fn builtin_buffer_base_buffer(
         expect_buffer_id(&args[0])?
     };
 
-    Ok(eval
-        .buffers
+    Ok(buffers
         .get(target)
         .and_then(|buf| buf.base_buffer)
         .map(Value::Buffer)
@@ -486,9 +535,16 @@ pub(crate) fn builtin_buffer_last_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_buffer_last_name_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_buffer_last_name_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("buffer-last-name", &args, 1)?;
     let target = if args.is_empty() || matches!(args[0], Value::Nil) {
-        match eval.buffers.current_buffer() {
+        match buffers.current_buffer() {
             Some(buf) => buf.id,
             None => return Ok(Value::Nil),
         }
@@ -496,13 +552,13 @@ pub(crate) fn builtin_buffer_last_name(
         expect_buffer_id(&args[0])?
     };
 
-    if let Some(buf) = eval.buffers.get(target) {
+    if let Some(buf) = buffers.get(target) {
         if buf.name == "*scratch*" {
             return Ok(Value::Nil);
         }
         return Ok(Value::string(&buf.name));
     }
-    if let Some(name) = eval.buffers.dead_buffer_last_name(target) {
+    if let Some(name) = buffers.dead_buffer_last_name(target) {
         return Ok(Value::string(name));
     }
     Ok(Value::Nil)

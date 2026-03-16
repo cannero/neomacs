@@ -2063,6 +2063,28 @@ fn vm_syntax_motion_builtins_use_shared_point_and_syntax_state() {
 }
 
 #[test]
+fn vm_buffer_metadata_builtins_use_shared_manager_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((base (get-buffer-create "vm-meta-base"))
+                     (indirect (make-indirect-buffer base "vm-meta-ind" t)))
+                 (set-default 'vm-find-target 10)
+                 (set-buffer indirect)
+                 (make-local-variable 'vm-find-target)
+                 (setq vm-find-target 88)
+                 (list (buffer-live-p indirect)
+                       (eq (get-buffer indirect) indirect)
+                       (eq (find-buffer 'vm-find-target 88) indirect)
+                       (equal (buffer-name indirect) "vm-meta-ind")
+                       (equal (buffer-last-name indirect) "vm-meta-ind")
+                       (eq (buffer-base-buffer indirect) base)
+                       (buffer-file-name indirect)))"#
+        ),
+        "OK (t t t t t t nil)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {
