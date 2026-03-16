@@ -1761,6 +1761,49 @@ impl<'a> Vm<'a> {
         Ok(value)
     }
 
+    fn builtin_set_default_shared(&mut self, args: &[Value]) -> EvalResult {
+        let result = crate::emacs_core::custom::builtin_set_default_in_obarray(
+            self.shared.obarray,
+            args.to_vec(),
+        )?;
+        let symbol = match args[0] {
+            Value::Nil => intern("nil"),
+            Value::True => intern("t"),
+            Value::Symbol(id) | Value::Keyword(id) => id,
+            _ => unreachable!("validated by builtin_set_default_in_obarray"),
+        };
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &*self.shared.obarray,
+            symbol,
+        )?;
+        let resolved_name = resolve_sym(resolved);
+        let value = args[1];
+        self.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        if resolved != symbol {
+            self.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        }
+        Ok(result)
+    }
+
+    fn builtin_set_default_toplevel_value_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::symbols::builtin_set_default_toplevel_value_in_obarray(
+            self.shared.obarray,
+            args.to_vec(),
+        )?;
+        let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &*self.shared.obarray,
+            symbol,
+        )?;
+        let resolved_name = resolve_sym(resolved);
+        let value = args[1];
+        self.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        if resolved != symbol {
+            self.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        }
+        Ok(Value::Nil)
+    }
+
     fn builtin_makunbound_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("makunbound", args, 1)?;
         let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
@@ -4077,27 +4120,7 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "set-default-toplevel-value" => {
-                let symbol = args
-                    .first()
-                    .copied()
-                    .and_then(|value| crate::emacs_core::builtins::symbols::expect_symbol_id(&value).ok());
-                let resolved_name = symbol.and_then(|symbol| {
-                    crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-                        self.shared.obarray,
-                        symbol,
-                    )
-                    .ok()
-                    .map(resolve_sym)
-                });
-                if resolved_name.is_some_and(|name| self.shared.watchers.has_watchers(name)) {
-                    return None;
-                }
-                Some(
-                    crate::emacs_core::builtins::symbols::builtin_set_default_toplevel_value_in_obarray(
-                        self.shared.obarray,
-                        args.to_vec(),
-                    ),
-                )
+                Some(self.builtin_set_default_toplevel_value_shared(args))
             }
             "internal--define-uninitialized-variable" => Some(
                 crate::emacs_core::builtins::symbols::builtin_internal_define_uninitialized_variable_in_obarray(
@@ -4105,29 +4128,7 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
-            "set-default" => {
-                let symbol = args.first().copied().and_then(|value| match value {
-                    Value::Nil => Some(intern("nil")),
-                    Value::True => Some(intern("t")),
-                    Value::Symbol(id) | Value::Keyword(id) => Some(id),
-                    _ => None,
-                });
-                let resolved_name = symbol.and_then(|symbol| {
-                    crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
-                        self.shared.obarray,
-                        symbol,
-                    )
-                    .ok()
-                    .map(resolve_sym)
-                });
-                if resolved_name.is_some_and(|name| self.shared.watchers.has_watchers(name)) {
-                    return None;
-                }
-                Some(crate::emacs_core::custom::builtin_set_default_in_obarray(
-                    self.shared.obarray,
-                    args.to_vec(),
-                ))
-            }
+            "set-default" => Some(self.builtin_set_default_shared(args)),
             "make-variable-buffer-local" => Some(
                 crate::emacs_core::custom::builtin_make_variable_buffer_local_with_state(
                     self.shared.obarray,

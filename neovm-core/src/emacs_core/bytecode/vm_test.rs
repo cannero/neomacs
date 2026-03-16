@@ -1222,6 +1222,27 @@ fn vm_feature_and_symbol_table_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_default_value_watcher_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let (log)
+                 (fset 'vm-default-watch
+                       (lambda (_sym new op where)
+                         (setq log (cons (list new op where) log))))
+                 (add-variable-watcher 'vm-default-target 'vm-default-watch)
+                 (add-variable-watcher 'vm-default-top 'vm-default-watch)
+                 (list
+                  (set-default 'vm-default-target 23)
+                  (default-value 'vm-default-target)
+                  (set-default-toplevel-value 'vm-default-top 42)
+                  (default-toplevel-value 'vm-default-top)
+                  (reverse log)))"#
+        ),
+        "OK (23 23 nil 42 ((23 set nil) (42 set nil)))"
+    );
+}
+
+#[test]
 fn vm_key_lookup_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
