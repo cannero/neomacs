@@ -1,5 +1,6 @@
 //! Input translation and window chrome hit-testing.
 
+use crate::backend::wgpu::{NEOMACS_CTRL_MASK, NEOMACS_META_MASK, NEOMACS_SUPER_MASK};
 use winit::keyboard::{Key, NamedKey};
 
 use super::RenderApp;
@@ -49,6 +50,29 @@ impl RenderApp {
             },
             Key::Character(c) => c.chars().next().map(|ch| ch as u32).unwrap_or(0),
             _ => 0,
+        }
+    }
+
+    /// Prefer committed text over logical-key fallback for printable input
+    /// when no command modifiers are active.
+    pub(super) fn translate_committed_text(text: &str, modifiers: u32) -> Option<Vec<u32>> {
+        let command_modifiers_active =
+            modifiers & (NEOMACS_CTRL_MASK | NEOMACS_META_MASK | NEOMACS_SUPER_MASK) != 0;
+        if command_modifiers_active {
+            return None;
+        }
+
+        let keysyms: Vec<u32> = text
+            .chars()
+            .filter(|ch| !ch.is_control())
+            .map(|ch| ch as u32)
+            .filter(|keysym| *keysym != 0)
+            .collect();
+
+        if keysyms.is_empty() {
+            None
+        } else {
+            Some(keysyms)
         }
     }
 
@@ -452,6 +476,44 @@ mod tests {
     fn translate_key_unidentified_returns_zero() {
         let key = Key::Unidentified(winit::keyboard::NativeKey::Unidentified);
         assert_eq!(RenderApp::translate_key(&key), 0);
+    }
+
+    #[test]
+    fn translate_committed_text_prefers_uppercase_ascii_without_command_modifiers() {
+        assert_eq!(
+            RenderApp::translate_committed_text("A", 0),
+            Some(vec!['A' as u32])
+        );
+    }
+
+    #[test]
+    fn translate_committed_text_prefers_shifted_punctuation_without_command_modifiers() {
+        assert_eq!(
+            RenderApp::translate_committed_text("!", 0),
+            Some(vec!['!' as u32])
+        );
+    }
+
+    #[test]
+    fn translate_committed_text_ignores_control_only_text() {
+        assert_eq!(RenderApp::translate_committed_text("\u{8}", 0), None);
+        assert_eq!(RenderApp::translate_committed_text("\r", 0), None);
+    }
+
+    #[test]
+    fn translate_committed_text_skips_command_modified_input() {
+        assert_eq!(
+            RenderApp::translate_committed_text("x", NEOMACS_META_MASK),
+            None
+        );
+        assert_eq!(
+            RenderApp::translate_committed_text("x", NEOMACS_CTRL_MASK),
+            None
+        );
+        assert_eq!(
+            RenderApp::translate_committed_text("x", NEOMACS_SUPER_MASK),
+            None
+        );
     }
 
     // ===================================================================

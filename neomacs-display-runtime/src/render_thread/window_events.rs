@@ -193,17 +193,25 @@ impl RenderApp {
                     if state == ElementState::Pressed {
                         if let Some(ref txt) = text {
                             let s = txt.as_str();
-                            if !s.is_empty() && (s.len() > 1 || s.as_bytes()[0] > 0x7f) {
-                                tracing::info!("KeyboardInput text field (IME fallback): '{}'", s);
-                                for ch in s.chars() {
-                                    let keysym = ch as u32;
-                                    if keysym != 0 {
-                                        self.comms.send_input(InputEvent::Key {
-                                            keysym,
-                                            modifiers: self.modifiers,
-                                            pressed: true,
-                                        });
-                                    }
+                            if let Some(keysyms) = Self::translate_committed_text(s, self.modifiers)
+                            {
+                                tracing::debug!(
+                                    "KeyboardInput committed text path: text={:?} keysyms={:?} mods=0x{:x}",
+                                    s,
+                                    keysyms,
+                                    self.modifiers
+                                );
+                                for keysym in keysyms {
+                                    tracing::debug!(
+                                        "Queueing text key event: keysym=0x{:04x} mods=0x{:x}",
+                                        keysym,
+                                        self.modifiers
+                                    );
+                                    self.comms.send_input(InputEvent::Key {
+                                        keysym,
+                                        modifiers: self.modifiers,
+                                        pressed: true,
+                                    });
                                 }
                                 handled_via_text = true;
                             }
@@ -220,6 +228,14 @@ impl RenderApp {
                             };
                         }
                         if keysym != 0 {
+                            tracing::debug!(
+                                "KeyboardInput translated path: logical_key={:?} physical_key={:?} keysym=0x{:04x} mods=0x{:x} pressed={}",
+                                logical_key,
+                                physical_key,
+                                keysym,
+                                self.modifiers,
+                                state == ElementState::Pressed
+                            );
                             if state == ElementState::Pressed && !self.mouse_hidden_for_typing {
                                 if let Some(ref window) = self.window {
                                     window.set_cursor_visible(false);
@@ -237,6 +253,14 @@ impl RenderApp {
                                 modifiers: self.modifiers,
                                 pressed: state == ElementState::Pressed,
                             });
+                        } else if state == ElementState::Pressed {
+                            tracing::debug!(
+                                "KeyboardInput dropped after translation: logical_key={:?} physical_key={:?} text={:?} mods=0x{:x}",
+                                logical_key,
+                                physical_key,
+                                text,
+                                self.modifiers
+                            );
                         }
                     }
                 }
@@ -260,6 +284,7 @@ impl RenderApp {
             }
 
             WindowEvent::ModifiersChanged(mods) => {
+                let old_modifiers = self.modifiers;
                 let state = mods.state();
                 self.modifiers = 0;
                 if state.shift_key() {
@@ -274,6 +299,15 @@ impl RenderApp {
                 if state.super_key() {
                     self.modifiers |= NEOMACS_SUPER_MASK;
                 }
+                tracing::debug!(
+                    "ModifiersChanged: old=0x{:x} new=0x{:x} shift={} ctrl={} alt={} super={}",
+                    old_modifiers,
+                    self.modifiers,
+                    state.shift_key(),
+                    state.control_key(),
+                    state.alt_key(),
+                    state.super_key()
+                );
             }
 
             WindowEvent::Ime(ime_event) => match ime_event {
