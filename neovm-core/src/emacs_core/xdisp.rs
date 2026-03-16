@@ -617,8 +617,19 @@ pub(crate) fn builtin_tool_bar_height_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_tool_bar_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_tool_bar_height_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args_range("tool-bar-height", &args, 0, 2)?;
-    validate_optional_frame_designator(eval, args.first())?;
+    if let Some(frame) = args.first().filter(|frame| !frame.is_nil()) {
+        let _ =
+            super::window_cmds::resolve_frame_id_in_state(frames, buffers, Some(frame), "framep")?;
+    }
     Ok(Value::Int(0))
 }
 
@@ -638,8 +649,19 @@ pub(crate) fn builtin_tab_bar_height_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_tab_bar_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_tab_bar_height_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args_range("tab-bar-height", &args, 0, 2)?;
-    validate_optional_frame_designator(eval, args.first())?;
+    if let Some(frame) = args.first().filter(|frame| !frame.is_nil()) {
+        let _ =
+            super::window_cmds::resolve_frame_id_in_state(frames, buffers, Some(frame), "framep")?;
+    }
     Ok(Value::Int(0))
 }
 

@@ -4289,6 +4289,18 @@ impl<'a> Vm<'a> {
             "frame-list" => Some(self.builtin_frame_list_fast(args)),
             "framep" => Some(self.builtin_framep_fast(args)),
             "frame-parameter" => Some(self.builtin_frame_parameter_fast(args)),
+            "frame-id" => Some(crate::emacs_core::builtins::builtin_frame_id_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "frame-root-frame" => Some(
+                crate::emacs_core::builtins::builtin_frame_root_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "frame-char-height" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_char_height_in_state(
                     self.shared.frames,
@@ -4366,6 +4378,58 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "next-frame" => Some(
+                crate::emacs_core::builtins::symbols::builtin_next_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "previous-frame" => Some(
+                crate::emacs_core::builtins::symbols::builtin_previous_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "old-selected-frame" => Some(
+                crate::emacs_core::builtins::symbols::builtin_old_selected_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "mouse-pixel-position" => Some(
+                crate::emacs_core::builtins::symbols::builtin_mouse_pixel_position_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "mouse-position" => Some(
+                crate::emacs_core::builtins::symbols::builtin_mouse_position_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-system" => Some(crate::emacs_core::display::builtin_window_system_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "tool-bar-height" => Some(crate::emacs_core::xdisp::builtin_tool_bar_height_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "tab-bar-height" => Some(crate::emacs_core::xdisp::builtin_tab_bar_height_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
             "selected-frame" => Some(
                 crate::emacs_core::window_cmds::builtin_selected_frame_in_state(
                     self.shared.frames,

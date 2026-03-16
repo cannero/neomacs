@@ -2389,16 +2389,26 @@ pub(crate) fn builtin_next_frame_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_next_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_next_frame_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("next-frame", &args, 0, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *frame],
-            ));
+        if !frame.is_nil() {
+            let _ = super::window_cmds::resolve_frame_id_in_state(
+                frames,
+                buffers,
+                Some(frame),
+                "frame-live-p",
+            )?;
         }
     }
-    super::window_cmds::builtin_selected_frame(eval, Vec::new())
+    super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())
 }
 
 pub(crate) fn builtin_previous_frame(args: Vec<Value>) -> EvalResult {
@@ -2410,16 +2420,26 @@ pub(crate) fn builtin_previous_frame_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_previous_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_previous_frame_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("previous-frame", &args, 0, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *frame],
-            ));
+        if !frame.is_nil() {
+            let _ = super::window_cmds::resolve_frame_id_in_state(
+                frames,
+                buffers,
+                Some(frame),
+                "frame-live-p",
+            )?;
         }
     }
-    super::window_cmds::builtin_selected_frame(eval, Vec::new())
+    super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())
 }
 
 pub(crate) fn builtin_raise_frame(args: Vec<Value>) -> EvalResult {
@@ -2722,8 +2742,16 @@ pub(crate) fn builtin_old_selected_frame_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_old_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_old_selected_frame_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("old-selected-frame", &args, 0)?;
-    super::window_cmds::builtin_selected_frame(eval, Vec::new())
+    super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())
 }
 
 pub(crate) fn builtin_make_frame_invisible(args: Vec<Value>) -> EvalResult {
@@ -2767,8 +2795,16 @@ pub(crate) fn builtin_mouse_pixel_position_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_mouse_pixel_position_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_mouse_pixel_position_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("mouse-pixel-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame(eval, Vec::new())?;
+    let frame = super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())?;
     Ok(Value::list(vec![frame, Value::Nil]))
 }
 
@@ -2781,8 +2817,16 @@ pub(crate) fn builtin_mouse_position_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_mouse_position_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_mouse_position_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("mouse-position", &args, 0)?;
-    let frame = super::window_cmds::builtin_selected_frame(eval, Vec::new())?;
+    let frame = super::window_cmds::builtin_selected_frame_in_state(frames, buffers, Vec::new())?;
     Ok(Value::list(vec![frame, Value::Nil]))
 }
 

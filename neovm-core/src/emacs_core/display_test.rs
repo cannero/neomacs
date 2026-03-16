@@ -2543,6 +2543,47 @@ fn eval_display_queries_accept_live_frame_designator() {
 }
 
 #[test]
+fn window_system_prefers_selected_frame_then_global_fallback() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+
+    assert_eq!(
+        builtin_window_system_eval(&mut eval, vec![]).unwrap(),
+        Value::Nil
+    );
+
+    eval.set_variable("window-system", Value::symbol("tty"));
+    assert_eq!(
+        builtin_window_system_eval(&mut eval, vec![]).unwrap(),
+        Value::symbol("tty")
+    );
+
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    eval.frames
+        .get_mut(frame_id)
+        .expect("selected frame")
+        .parameters
+        .insert("window-system".to_string(), Value::symbol("neomacs"));
+
+    assert_eq!(
+        builtin_window_system_eval(&mut eval, vec![]).unwrap(),
+        Value::symbol("neomacs")
+    );
+    assert_eq!(
+        builtin_window_system_eval(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap(),
+        Value::symbol("neomacs")
+    );
+
+    let err = builtin_window_system_eval(&mut eval, vec![Value::string("x")]).unwrap_err();
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data, vec![Value::symbol("framep"), Value::string("x")]);
+        }
+        other => panic!("expected wrong-type-argument, got {other:?}"),
+    }
+}
+
+#[test]
 fn eval_display_queries_reject_invalid_frame_designator() {
     let mut eval = crate::emacs_core::Evaluator::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);

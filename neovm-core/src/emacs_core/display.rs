@@ -71,44 +71,37 @@ pub(crate) fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
 }
 
 fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+    dynamic_or_global_symbol_value_in_state(&eval.obarray, &eval.dynamic, name)
+}
+
+fn dynamic_or_global_symbol_value_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    name: &str,
+) -> Option<Value> {
     let name_id = intern(name);
-    for frame in eval.dynamic.iter().rev() {
+    for frame in dynamic.iter().rev() {
         if let Some(v) = frame.get(&name_id) {
             return Some(*v);
         }
     }
-    eval.obarray.symbol_value(name).cloned()
+    obarray.symbol_value(name).cloned()
 }
 
 fn frame_window_system_symbol(
     eval: &mut super::eval::Evaluator,
     frame: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
-    let frame_id = if let Some(frame) = frame {
-        if !frame.is_nil() && !live_frame_designator_p(eval, frame) {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("framep"), *frame],
-            ));
-        }
-        if frame.is_nil() {
-            eval.frames.selected_frame().map(|selected| selected.id)
-        } else {
-            match frame {
-                Value::Frame(id) => Some(FrameId(*id)),
-                Value::Int(n) => Some(FrameId(*n as u64)),
-                _ => None,
-            }
-        }
-    } else {
-        eval.frames.selected_frame().map(|frame| frame.id)
-    };
+    frame_window_system_symbol_in_state(&mut eval.frames, &mut eval.buffers, frame)
+}
 
-    let Some(frame_id) = frame_id else {
-        return Ok(None);
-    };
-    Ok(eval
-        .frames
+fn frame_window_system_symbol_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    frame: Option<&Value>,
+) -> Result<Option<Value>, Flow> {
+    let frame_id = super::window_cmds::resolve_frame_id_in_state(frames, buffers, frame, "framep")?;
+    Ok(frames
         .get(frame_id)
         .and_then(|frame| frame.parameters.get("window-system").copied()))
 }
@@ -790,11 +783,31 @@ pub(crate) fn builtin_window_system_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_system_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.frames,
+        &mut eval.buffers,
+        args,
+    )
+}
+
+pub(crate) fn builtin_window_system_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-system", &args, 1)?;
-    if let Some(window_system) = frame_window_system_symbol(eval, args.first())? {
+    if let Some(window_system) = frame_window_system_symbol_in_state(frames, buffers, args.first())?
+    {
         return Ok(window_system);
     }
-    Ok(dynamic_or_global_symbol_value(eval, "window-system").unwrap_or(Value::Nil))
+    Ok(
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system")
+            .unwrap_or(Value::Nil),
+    )
 }
 
 /// (frame-edges &optional FRAME TYPE) -> `(0 0 80 25)` in batch-style vm context.

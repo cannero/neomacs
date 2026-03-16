@@ -769,6 +769,38 @@ fn vm_frame_query_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_frame_identity_and_display_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((mouse (mouse-position))
+                     (pixel (mouse-pixel-position)))
+                 (list (frame-id)
+                       (eq (frame-root-frame) (selected-frame))
+                       (eq (next-frame) (selected-frame))
+                       (eq (previous-frame) (selected-frame))
+                       (eq (old-selected-frame) (selected-frame))
+                       (eq (car mouse) (selected-frame))
+                       (cdr mouse)
+                       (eq (car pixel) (selected-frame))
+                       (cdr pixel)
+                       (window-system)
+                       (tool-bar-height)
+                       (tab-bar-height)))"#
+        ),
+        "OK (1 t t t t t (nil) t (nil) nil 0 0)"
+    );
+    assert_eq!(
+        vm_eval_str(
+            r#"(list (condition-case err (frame-id "x") (error err))
+                     (condition-case err (window-system "x") (error err))
+                     (condition-case err (tool-bar-height "x") (error err))
+                     (condition-case err (next-frame "x") (error err)))"#
+        ),
+        "OK ((wrong-type-argument frame-live-p \"x\") (wrong-type-argument framep \"x\") (wrong-type-argument framep \"x\") (wrong-type-argument frame-live-p \"x\"))"
+    );
+}
+
+#[test]
 fn vm_window_state_accessors_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

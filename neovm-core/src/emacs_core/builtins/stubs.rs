@@ -1125,23 +1125,27 @@ pub(crate) fn builtin_frame_id_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_id_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("frame-id", &args, 0, 1)?;
-    let frame = if let Some(f) = args.first() {
-        if f.is_nil() {
-            super::window_cmds::builtin_selected_frame(eval, Vec::new())?
-        } else {
-            *f
-        }
+    let fid = super::window_cmds::resolve_frame_id_in_state(
+        frames,
+        buffers,
+        args.first(),
+        "frame-live-p",
+    )?;
+    let public_id = if fid.0 >= crate::window::FRAME_ID_BASE {
+        fid.0 - crate::window::FRAME_ID_BASE + 1
     } else {
-        super::window_cmds::builtin_selected_frame(eval, Vec::new())?
+        fid.0
     };
-    match frame {
-        Value::Frame(id) => Ok(Value::Int(id as i64)),
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("frame-live-p"), frame],
-        )),
-    }
+    Ok(Value::Int(public_id as i64))
 }
 
 /// `(frame-root-frame &optional FRAME)` — walk parent chain to root frame.
@@ -1169,23 +1173,22 @@ pub(crate) fn builtin_frame_root_frame_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_root_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_root_frame_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("frame-root-frame", &args, 0, 1)?;
-    let frame = if let Some(f) = args.first() {
-        if f.is_nil() {
-            super::window_cmds::builtin_selected_frame(eval, Vec::new())?
-        } else {
-            *f
-        }
-    } else {
-        super::window_cmds::builtin_selected_frame(eval, Vec::new())?
-    };
-    match frame {
-        Value::Frame(_) => Ok(frame),
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("frame-live-p"), frame],
-        )),
-    }
+    let fid = super::window_cmds::resolve_frame_id_in_state(
+        frames,
+        buffers,
+        args.first(),
+        "frame-live-p",
+    )?;
+    Ok(Value::Frame(fid.0))
 }
 
 /// `(set-frame-size-and-position-pixelwise FRAME WIDTH HEIGHT LEFT TOP &optional GRAVITY)`

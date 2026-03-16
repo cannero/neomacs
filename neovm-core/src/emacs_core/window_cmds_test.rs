@@ -2088,6 +2088,31 @@ fn frame_query_builtins_match_gnu_batch_startup_geometry() {
 }
 
 #[test]
+fn frame_identity_builtins_match_gnu_batch_startup_defaults() {
+    let mut ev = Evaluator::new();
+    let forms = parse_forms(
+        r#"(let ((mouse (mouse-position))
+                 (pixel (mouse-pixel-position)))
+             (list (frame-id)
+                   (eq (frame-root-frame) (selected-frame))
+                   (eq (next-frame) (selected-frame))
+                   (eq (previous-frame) (selected-frame))
+                   (eq (old-selected-frame) (selected-frame))
+                   (eq (car mouse) (selected-frame))
+                   (cdr mouse)
+                   (eq (car pixel) (selected-frame))
+                   (cdr pixel)))"#,
+    )
+    .expect("parse");
+    let out = ev
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(out[0], "OK (1 t t t t t (nil) t (nil))");
+}
+
+#[test]
 fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
     let mut ev = Evaluator::new();
     let buf = ev.buffers.create_buffer("*scratch*");
