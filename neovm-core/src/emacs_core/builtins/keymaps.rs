@@ -1032,7 +1032,7 @@ pub(crate) fn builtin_key_description(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(recent-keys &optional INCLUDE-CMDS)` -> vector of recent input events.
-pub(super) fn builtin_recent_keys(
+pub(crate) fn builtin_recent_keys(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {

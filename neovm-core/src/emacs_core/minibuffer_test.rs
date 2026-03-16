@@ -3,6 +3,39 @@ use super::*;
 // -- Completion matching --------------------------------------------------
 
 #[test]
+fn normalize_symbol_reader_default_uses_list_head_and_symbol_name() {
+    assert_eq!(
+        normalize_symbol_reader_default(Value::list(vec![
+            Value::symbol("forward-char"),
+            Value::symbol("backward-char"),
+        ])),
+        Value::string("forward-char")
+    );
+    assert_eq!(
+        normalize_symbol_reader_default(Value::symbol("fill-column")),
+        Value::string("fill-column")
+    );
+}
+
+#[test]
+fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let buf_id = eval.buffers.create_buffer(" minibuffer-default ");
+
+    assert_eq!(
+        normalize_buffer_reader_default(
+            &eval.buffers,
+            Value::list(vec![Value::Buffer(buf_id), Value::string("fallback")]),
+        ),
+        Value::string(" minibuffer-default ")
+    );
+    assert_eq!(
+        normalize_buffer_reader_default(&eval.buffers, Value::Buffer(buf_id)),
+        Value::string(" minibuffer-default ")
+    );
+}
+
+#[test]
 fn prefix_match_basic() {
     let candidates = vec![
         "apple".into(),

@@ -143,6 +143,45 @@ fn vm_mapc_mapcan_and_mapconcat_use_shared_runtime_callbacks() {
 }
 
 #[test]
+fn vm_reader_and_minibuffer_builtins_use_shared_runtime_entry() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((unread-command-events (list 97)))
+                   (list (input-pending-p)
+                         (read-char)
+                         unread-command-events
+                         (recent-keys)))
+                 (let ((unread-command-events (list 97)))
+                   (read-key-sequence "key: "))
+                 (let ((unread-command-events (list 'foo)))
+                   (read-key-sequence-vector "key: "))
+                 (progn
+                   (set-input-mode t nil nil 7)
+                   (current-input-mode))
+                 (progn
+                   (set-input-interrupt-mode nil)
+                   (current-input-mode))
+                 (progn
+                   (discard-input)
+                   (input-pending-p))
+                 (set-input-meta-mode t)
+                 (set-output-flow-control t)
+                 (set-quit-char 7)
+                 (waiting-for-user-input-p)
+                 (condition-case err (read-from-minibuffer 1) (error (car err)))
+                 (condition-case err (read-string 1) (error (car err)))
+                 (condition-case err (completing-read 1 '("a")) (error (car err)))
+                 (condition-case err (read-buffer 1) (error (car err)))
+                 (condition-case err (read-command 1) (error (car err)))
+                 (condition-case err (read-variable 1) (error (car err)))
+                 (condition-case err (yes-or-no-p 1) (error (car err))))"#
+        ),
+        "OK ((t 97 nil [97]) \"a\" [foo] (t nil t 7) (nil nil t 7) nil nil nil nil nil wrong-type-argument wrong-type-argument wrong-type-argument wrong-type-argument wrong-type-argument wrong-type-argument wrong-type-argument)"
+    );
+}
+
+#[test]
 fn vm_sort_uses_shared_runtime_callbacks_and_semantics() {
     assert_eq!(
         vm_eval_str(

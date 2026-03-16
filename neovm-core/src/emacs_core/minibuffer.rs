@@ -8,6 +8,8 @@
 
 use std::collections::HashMap;
 
+use crate::buffer::BufferManager;
+
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::{Value, read_cons, with_heap};
@@ -56,6 +58,30 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
         )),
+    }
+}
+
+fn first_default_value(default: Value) -> Value {
+    match default {
+        Value::Cons(cell) => read_cons(cell).car,
+        other => other,
+    }
+}
+
+fn normalize_symbol_reader_default(default: Value) -> Value {
+    match first_default_value(default) {
+        Value::Symbol(id) => Value::string(resolve_sym(id)),
+        other => other,
+    }
+}
+
+fn normalize_buffer_reader_default(buffers: &BufferManager, default: Value) -> Value {
+    match first_default_value(default) {
+        Value::Buffer(id) => buffers
+            .get(id)
+            .map(|buffer| Value::string(&buffer.name))
+            .unwrap_or(Value::Buffer(id)),
+        other => other,
     }
 }
 
@@ -655,7 +681,10 @@ pub(crate) fn builtin_read_buffer(
     // Interactive mode: use completing-read with buffer names
     if eval.input_rx.is_some() {
         let prompt = args[0];
-        let default = args.get(1).copied().unwrap_or(Value::Nil);
+        let default = normalize_buffer_reader_default(
+            eval.buffer_manager(),
+            args.get(1).copied().unwrap_or(Value::Nil),
+        );
         let require_match = args.get(2).copied().unwrap_or(Value::Nil);
         let predicate = args.get(3).copied().unwrap_or(Value::Nil);
 
@@ -700,7 +729,7 @@ pub(crate) fn builtin_read_command(
     // Interactive mode: read a string and intern it as a symbol
     if eval.input_rx.is_some() {
         let prompt = args[0];
-        let default = args.get(1).copied().unwrap_or(Value::Nil);
+        let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
 
         let result = super::reader::builtin_read_from_minibuffer(
             eval,
@@ -739,7 +768,7 @@ pub(crate) fn builtin_read_variable(
     // Interactive mode: read a string and intern it as a symbol
     if eval.input_rx.is_some() {
         let prompt = args[0];
-        let default = args.get(1).copied().unwrap_or(Value::Nil);
+        let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
 
         let result = super::reader::builtin_read_from_minibuffer(
             eval,

@@ -3735,6 +3735,38 @@ impl<'a> Vm<'a> {
             "abort-minibuffers" => Some(
                 crate::emacs_core::minibuffer::builtin_abort_minibuffers(args.to_vec()),
             ),
+            "read-from-minibuffer" => Some(self.builtin_read_from_minibuffer_shared(args)),
+            "read-string" => Some(self.builtin_read_string_shared(args)),
+            "completing-read" => Some(self.builtin_completing_read_shared(args)),
+            "read-buffer" => Some(self.builtin_read_buffer_shared(args)),
+            "read-command" => Some(self.builtin_read_command_shared(args)),
+            "read-variable" => Some(self.builtin_read_variable_shared(args)),
+            "input-pending-p" => Some(self.builtin_input_pending_p_shared(args)),
+            "discard-input" => Some(self.builtin_discard_input_shared(args)),
+            "current-input-mode" => Some(self.builtin_current_input_mode_shared(args)),
+            "set-input-mode" => Some(self.builtin_set_input_mode_shared(args)),
+            "set-input-interrupt-mode" => {
+                Some(self.builtin_set_input_interrupt_mode_shared(args))
+            }
+            "set-input-meta-mode" => Some(crate::emacs_core::reader::builtin_set_input_meta_mode(
+                args.to_vec(),
+            )),
+            "set-output-flow-control" => Some(
+                crate::emacs_core::reader::builtin_set_output_flow_control(args.to_vec()),
+            ),
+            "set-quit-char" => {
+                Some(crate::emacs_core::reader::builtin_set_quit_char(args.to_vec()))
+            }
+            "waiting-for-user-input-p" => Some(
+                crate::emacs_core::reader::builtin_waiting_for_user_input_p(args.to_vec()),
+            ),
+            "read-char" => Some(self.builtin_read_char_shared(args)),
+            "read-key-sequence" => Some(self.builtin_read_key_sequence_shared(args)),
+            "read-key-sequence-vector" => {
+                Some(self.builtin_read_key_sequence_vector_shared(args))
+            }
+            "recent-keys" => Some(self.builtin_recent_keys_shared(args)),
+            "yes-or-no-p" => Some(self.builtin_yes_or_no_p_shared(args)),
             "point" => Some(self.builtin_point_shared(args)),
             "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
             "other-buffer" => Some(self.builtin_other_buffer_shared(args)),
@@ -6066,12 +6098,97 @@ impl<'a> Vm<'a> {
         })
     }
 
-    fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
+    fn call_eval_builtin_shared(
+        &mut self,
+        args: &[Value],
+        f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator, Vec<Value>) -> EvalResult,
+    ) -> EvalResult {
         let extra_roots = args.to_vec();
         let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::xdisp::builtin_format_mode_line_eval(eval, call_args)
-        })
+        self.with_shared_evaluator(&extra_roots, move |eval| f(eval, call_args))
+    }
+
+    fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::xdisp::builtin_format_mode_line_eval,
+        )
+    }
+
+    fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::reader::builtin_read_from_minibuffer,
+        )
+    }
+
+    fn builtin_read_string_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_string)
+    }
+
+    fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_completing_read)
+    }
+
+    fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_buffer)
+    }
+
+    fn builtin_read_command_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_command)
+    }
+
+    fn builtin_read_variable_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_variable)
+    }
+
+    fn builtin_input_pending_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_input_pending_p)
+    }
+
+    fn builtin_discard_input_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_discard_input)
+    }
+
+    fn builtin_current_input_mode_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_current_input_mode)
+    }
+
+    fn builtin_set_input_mode_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_set_input_mode)
+    }
+
+    fn builtin_set_input_interrupt_mode_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::reader::builtin_set_input_interrupt_mode,
+        )
+    }
+
+    fn builtin_read_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_char)
+    }
+
+    fn builtin_read_key_sequence_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_key_sequence)
+    }
+
+    fn builtin_read_key_sequence_vector_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::reader::builtin_read_key_sequence_vector,
+        )
+    }
+
+    fn builtin_recent_keys_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::builtins::keymaps::builtin_recent_keys,
+        )
+    }
+
+    fn builtin_yes_or_no_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_yes_or_no_p)
     }
 
     /// Dispatch builtins that still require evaluator entry on the shared
