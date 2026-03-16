@@ -4289,6 +4289,20 @@ impl<'a> Vm<'a> {
             "frame-list" => Some(self.builtin_frame_list_fast(args)),
             "framep" => Some(self.builtin_framep_fast(args)),
             "frame-parameter" => Some(self.builtin_frame_parameter_fast(args)),
+            "frame-parameters" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_parameters_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "modify-frame-parameters" => Some(
+                crate::emacs_core::window_cmds::builtin_modify_frame_parameters_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "frame-id" => Some(crate::emacs_core::builtins::builtin_frame_id_in_state(
                 self.shared.frames,
                 self.shared.buffers,
@@ -4373,6 +4387,34 @@ impl<'a> Vm<'a> {
             ),
             "frame-position" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_position_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-frame-height" => Some(
+                crate::emacs_core::window_cmds::builtin_set_frame_height_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-frame-width" => Some(
+                crate::emacs_core::window_cmds::builtin_set_frame_width_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-frame-size" => Some(
+                crate::emacs_core::window_cmds::builtin_set_frame_size_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-frame-position" => Some(
+                crate::emacs_core::window_cmds::builtin_set_frame_position_in_state(
                     self.shared.frames,
                     self.shared.buffers,
                     args.to_vec(),

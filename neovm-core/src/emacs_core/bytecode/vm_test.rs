@@ -801,6 +801,34 @@ fn vm_frame_identity_and_display_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_frame_parameter_and_resize_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (modify-frame-parameters
+                  f
+                  '((name . "vm-frame")
+                    (title . "vm-title")
+                    (visibility . nil)
+                    (vm-param . 7)))
+                 (set-frame-width f 90)
+                 (set-frame-height f 30)
+                 (set-frame-size f 100 35)
+                 (list (frame-parameter f 'name)
+                       (frame-parameter f 'title)
+                       (frame-parameter f 'visibility)
+                       (frame-parameter f 'vm-param)
+                       (cdr (assq 'vm-param (frame-parameters f)))
+                       (frame-parameter f 'width)
+                       (frame-parameter f 'height)
+                       (frame-position f)
+                       (set-frame-position f 3 4)))"#
+        ),
+        "OK (\"vm-frame\" \"vm-title\" nil 7 7 100 36 (0 . 0) t)"
+    );
+}
+
+#[test]
 fn vm_window_state_accessors_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

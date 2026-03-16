@@ -4611,20 +4611,26 @@ pub(crate) fn builtin_set_frame_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_frame_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_frame_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-frame-height", &args, 2)?;
     expect_max_args("set-frame-height", &args, 4)?;
-    let fid = resolve_frame_id(eval, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
     let text_lines = expect_int(&args[1])?;
 
     let cols = {
-        let frame = eval
-            .frames
+        let frame = frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         frame_total_cols(frame)
     };
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     set_frame_text_size(frame, cols, text_lines);
@@ -4636,20 +4642,26 @@ pub(crate) fn builtin_set_frame_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_frame_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_frame_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-frame-width", &args, 2)?;
     expect_max_args("set-frame-width", &args, 4)?;
-    let fid = resolve_frame_id(eval, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
     let cols = expect_int(&args[1])?;
 
     let text_lines = {
-        let frame = eval
-            .frames
+        let frame = frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         frame_text_lines(frame)
     };
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     set_frame_text_size(frame, cols, text_lines);
@@ -4661,14 +4673,21 @@ pub(crate) fn builtin_set_frame_size(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_frame_size_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_frame_size_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-frame-size", &args, 3)?;
     expect_max_args("set-frame-size", &args, 4)?;
-    let fid = resolve_frame_id(eval, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
     let cols = expect_int(&args[1])?;
     let text_lines = expect_int(&args[2])?;
 
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     set_frame_text_size(frame, cols, text_lines);
@@ -4680,8 +4699,16 @@ pub(crate) fn builtin_set_frame_position(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_frame_position_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_frame_position_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-frame-position", &args, 3)?;
-    let _ = resolve_frame_id(eval, Some(&args[0]), "frame-live-p")?;
+    let _ = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
     let _ = expect_int(&args[1])?;
     let _ = expect_int(&args[2])?;
     Ok(Value::True)
@@ -5018,10 +5045,17 @@ pub(crate) fn builtin_frame_parameters(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_parameters_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_parameters_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-parameters", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let mut pairs: Vec<Value> = Vec::new();
@@ -5062,13 +5096,20 @@ pub(crate) fn builtin_modify_frame_parameters(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_modify_frame_parameters_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_modify_frame_parameters_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("modify-frame-parameters", &args, 2)?;
     expect_max_args("modify-frame-parameters", &args, 2)?;
-    let fid = resolve_frame_id(eval, Some(&args[0]), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
     let items = super::value::list_to_vec(&args[1]).unwrap_or_default();
 
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
