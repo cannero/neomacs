@@ -2060,6 +2060,44 @@ fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_printer_builtins_use_shared_runtime_entry() {
+    assert_eq!(
+        vm_eval_str(
+            r##"(let* ((live (get-buffer-create "vm-print-live"))
+                      (out (get-buffer-create "*vm-print-out*")))
+                 (set-buffer out)
+                 (erase-buffer)
+                 (list
+                  (equal (prin1-to-string live) "#<buffer vm-print-live>")
+                  (progn
+                    (princ live out)
+                    (set-buffer out)
+                    (equal (buffer-string) "vm-print-live"))
+                  (progn
+                    (erase-buffer)
+                    (prin1 live out)
+                    (set-buffer out)
+                    (equal (buffer-string) "#<buffer vm-print-live>"))
+                  (progn
+                    (erase-buffer)
+                    (print live out)
+                    (set-buffer out)
+                    (equal (buffer-string) "
+#<buffer vm-print-live>
+"))
+                  (progn
+                    (erase-buffer)
+                    (write-char 65 out)
+                    (terpri out)
+                    (set-buffer out)
+                    (equal (buffer-string) "A
+"))))"##
+        ),
+        "OK (t t t t t)"
+    );
+}
+
+#[test]
 fn vm_case_table_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_str(

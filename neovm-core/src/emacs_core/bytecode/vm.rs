@@ -3738,6 +3738,12 @@ impl<'a> Vm<'a> {
             "message" => Some(self.builtin_message_shared(args)),
             "message-box" => Some(self.builtin_message_box_shared(args)),
             "message-or-box" => Some(self.builtin_message_or_box_shared(args)),
+            "princ" => Some(self.builtin_princ_shared(args)),
+            "prin1" => Some(self.builtin_prin1_shared(args)),
+            "prin1-to-string" => Some(self.builtin_prin1_to_string_shared(args)),
+            "print" => Some(self.builtin_print_shared(args)),
+            "terpri" => Some(self.builtin_terpri_shared(args)),
+            "write-char" => Some(self.builtin_write_char_shared(args)),
             "point" => Some(self.builtin_point_shared(args)),
             "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
             "other-buffer" => Some(self.builtin_other_buffer_shared(args)),
@@ -6660,6 +6666,33 @@ impl<'a> Vm<'a> {
             args,
             crate::emacs_core::builtins::builtin_message_or_box_eval,
         )
+    }
+
+    fn builtin_princ_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_princ_eval)
+    }
+
+    fn builtin_prin1_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_prin1_eval)
+    }
+
+    fn builtin_prin1_to_string_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(
+            args,
+            crate::emacs_core::builtins::builtin_prin1_to_string_eval,
+        )
+    }
+
+    fn builtin_print_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_print_eval)
+    }
+
+    fn builtin_terpri_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_terpri_eval)
+    }
+
+    fn builtin_write_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_write_char_eval)
     }
 
     fn builtin_redraw_frame_shared(&mut self, args: &[Value]) -> EvalResult {
