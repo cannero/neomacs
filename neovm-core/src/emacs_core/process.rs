@@ -1080,8 +1080,11 @@ fn signal_process_does_not_exist(name: &str) -> Flow {
 }
 
 fn signal_process_not_active(eval: &super::eval::Evaluator, id: ProcessId) -> Flow {
-    let name = eval
-        .processes
+    signal_process_not_active_in_manager(&eval.processes, id)
+}
+
+fn signal_process_not_active_in_manager(processes: &ProcessManager, id: ProcessId) -> Flow {
+    let name = processes
         .get_any(id)
         .map(|proc| proc.name.clone())
         .unwrap_or_else(|| id.to_string());
@@ -1101,8 +1104,11 @@ fn stale_process_not_running_reason(status: &ProcessStatus) -> &'static str {
 }
 
 fn signal_process_not_running(eval: &super::eval::Evaluator, id: ProcessId) -> Flow {
-    let (name, reason) = eval
-        .processes
+    signal_process_not_running_in_manager(&eval.processes, id)
+}
+
+fn signal_process_not_running_in_manager(processes: &ProcessManager, id: ProcessId) -> Flow {
+    let (name, reason) = processes
         .get_any(id)
         .map(|proc| {
             (
@@ -1192,14 +1198,21 @@ fn resolve_process_or_missing_error(
     eval: &super::eval::Evaluator,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
+    resolve_process_or_missing_error_in_manager(&eval.processes, value)
+}
+
+fn resolve_process_or_missing_error_in_manager(
+    processes: &ProcessManager,
+    value: &Value,
+) -> Result<ProcessId, Flow> {
     match value {
         Value::Str(s) => {
             let name = with_heap(|h| h.get_string(*s).to_owned());
-            eval.processes
+            processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
         }
-        _ => resolve_process_or_wrong_type(eval, value),
+        _ => resolve_process_or_wrong_type_any_in_manager(processes, value),
     }
 }
 
@@ -1293,11 +1306,15 @@ fn resolve_live_process_or_wrong_type(
 }
 
 fn is_stale_process_id_designator(eval: &super::eval::Evaluator, value: &Value) -> bool {
+    is_stale_process_id_designator_in_manager(&eval.processes, value)
+}
+
+fn is_stale_process_id_designator_in_manager(processes: &ProcessManager, value: &Value) -> bool {
     match value {
         Value::Int(n) if *n > 0 => {
             let id = *n as ProcessId;
-            eval.processes.get(id).is_none()
-                && (eval.processes.get_any(id).is_some() || eval.processes.was_issued_id(id))
+            processes.get(id).is_none()
+                && (processes.get_any(id).is_some() || processes.was_issued_id(id))
         }
         _ => false,
     }
@@ -1307,19 +1324,26 @@ fn resolve_optional_process_or_current_buffer(
     eval: &super::eval::Evaluator,
     value: Option<&Value>,
 ) -> Result<ProcessId, Flow> {
+    resolve_optional_process_or_current_buffer_in_state(&eval.processes, &eval.buffers, value)
+}
+
+fn resolve_optional_process_or_current_buffer_in_state(
+    processes: &ProcessManager,
+    buffers: &BufferManager,
+    value: Option<&Value>,
+) -> Result<ProcessId, Flow> {
     if let Some(v) = value {
         if !v.is_nil() {
-            return resolve_process_or_missing_error(eval, v);
+            return resolve_process_or_missing_error_in_manager(processes, v);
         }
     }
 
-    let current_buffer_name = eval
-        .buffers
+    let current_buffer_name = buffers
         .current_buffer()
         .map(|buffer| buffer.name.clone())
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
-    eval.processes
+    processes
         .find_by_buffer_name(&current_buffer_name)
         .ok_or_else(|| {
             signal(
@@ -1395,20 +1419,31 @@ fn resolve_optional_process_with_explicit_return(
     eval: &super::eval::Evaluator,
     value: Option<&Value>,
 ) -> Result<(ProcessId, Value), Flow> {
+    resolve_optional_process_with_explicit_return_in_state(&eval.processes, &eval.buffers, value)
+}
+
+fn resolve_optional_process_with_explicit_return_in_state(
+    processes: &ProcessManager,
+    buffers: &BufferManager,
+    value: Option<&Value>,
+) -> Result<(ProcessId, Value), Flow> {
     if let Some(v) = value {
-        if !v.is_nil() && is_stale_process_id_designator(eval, v) {
+        if !v.is_nil() && is_stale_process_id_designator_in_manager(processes, v) {
             if let Value::Int(n) = v {
-                return Err(signal_process_not_active(eval, *n as ProcessId));
+                return Err(signal_process_not_active_in_manager(
+                    processes,
+                    *n as ProcessId,
+                ));
             }
         }
     }
     if let Some(v) = value {
         if !v.is_nil() {
-            let id = resolve_process_or_missing_error(eval, v)?;
+            let id = resolve_process_or_missing_error_in_manager(processes, v)?;
             return Ok((id, *v));
         }
     }
-    let id = resolve_optional_process_or_current_buffer(eval, value)?;
+    let id = resolve_optional_process_or_current_buffer_in_state(processes, buffers, value)?;
     Ok((id, Value::Nil))
 }
 
@@ -1422,19 +1457,27 @@ fn resolve_signal_process_target(
     eval: &super::eval::Evaluator,
     value: Option<&Value>,
 ) -> Result<SignalProcessTarget, Flow> {
+    resolve_signal_process_target_in_state(&eval.processes, &eval.buffers, value)
+}
+
+fn resolve_signal_process_target_in_state(
+    processes: &ProcessManager,
+    buffers: &BufferManager,
+    value: Option<&Value>,
+) -> Result<SignalProcessTarget, Flow> {
     if let Some(v) = value {
         if !v.is_nil() {
             return match v {
                 Value::Str(name) => {
                     let name_str = with_heap(|h| h.get_string(*name).to_owned());
-                    Ok(match eval.processes.find_by_name(&name_str) {
+                    Ok(match processes.find_by_name(&name_str) {
                         Some(id) => SignalProcessTarget::Process(id),
                         None => SignalProcessTarget::MissingNamedProcess,
                     })
                 }
                 Value::Int(pid) if *pid >= 0 => {
                     let id = *pid as ProcessId;
-                    if eval.processes.get(id).is_some() {
+                    if processes.get(id).is_some() {
                         Ok(SignalProcessTarget::Process(id))
                     } else {
                         Ok(SignalProcessTarget::Pid(*pid))
@@ -1445,7 +1488,7 @@ fn resolve_signal_process_target(
         }
     }
 
-    let id = resolve_optional_process_or_current_buffer(eval, value)?;
+    let id = resolve_optional_process_or_current_buffer_in_state(processes, buffers, value)?;
     Ok(SignalProcessTarget::Process(id))
 }
 
@@ -3480,6 +3523,14 @@ pub(crate) fn builtin_continue_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_continue_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_continue_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -3489,8 +3540,9 @@ pub(crate) fn builtin_continue_process(
             ],
         ));
     }
-    let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
-    if let Some(proc) = eval.processes.get_mut(id) {
+    let (id, ret) =
+        resolve_optional_process_with_explicit_return_in_state(processes, buffers, args.first())?;
+    if let Some(proc) = processes.get_mut(id) {
         // Send SIGCONT to resume the child process.
         #[cfg(unix)]
         if let Some(ref child) = proc.child {
@@ -3508,6 +3560,14 @@ pub(crate) fn builtin_interrupt_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_interrupt_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_interrupt_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -3517,8 +3577,9 @@ pub(crate) fn builtin_interrupt_process(
             ],
         ));
     }
-    let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
-    if let Some(proc) = eval.processes.get_mut(id) {
+    let (id, ret) =
+        resolve_optional_process_with_explicit_return_in_state(processes, buffers, args.first())?;
+    if let Some(proc) = processes.get_mut(id) {
         // Send SIGINT to actual child process.
         #[cfg(unix)]
         if let Some(ref child) = proc.child {
@@ -3536,14 +3597,23 @@ pub(crate) fn builtin_kill_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_kill_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_kill_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol("kill-process"), Value::Int(args.len() as i64)],
         ));
     }
-    let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
-    if let Some(proc) = eval.processes.get_mut(id) {
+    let (id, ret) =
+        resolve_optional_process_with_explicit_return_in_state(processes, buffers, args.first())?;
+    if let Some(proc) = processes.get_mut(id) {
         // Kill the actual child process.
         if let Some(child) = proc.child.as_mut() {
             let _ = child.kill();
@@ -3558,6 +3628,14 @@ pub(crate) fn builtin_signal_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_signal_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_signal_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("signal-process", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -3570,15 +3648,15 @@ pub(crate) fn builtin_signal_process(
     }
 
     if let Some(process) = args.first() {
-        if !process.is_nil() && is_stale_process_id_designator(eval, process) {
+        if !process.is_nil() && is_stale_process_id_designator_in_manager(processes, process) {
             return Ok(Value::Int(-1));
         }
     }
 
     let signal_num = parse_signal_number(&args[1])?;
-    match resolve_signal_process_target(eval, args.first())? {
+    match resolve_signal_process_target_in_state(processes, buffers, args.first())? {
         SignalProcessTarget::Process(id) => {
-            if let Some(proc) = eval.processes.get_mut(id) {
+            if let Some(proc) = processes.get_mut(id) {
                 // Send actual OS signal to child process.
                 #[cfg(unix)]
                 if let Some(ref child) = proc.child {
@@ -3611,14 +3689,23 @@ pub(crate) fn builtin_stop_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_stop_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_stop_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol("stop-process"), Value::Int(args.len() as i64)],
         ));
     }
-    let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
-    if let Some(proc) = eval.processes.get_mut(id) {
+    let (id, ret) =
+        resolve_optional_process_with_explicit_return_in_state(processes, buffers, args.first())?;
+    if let Some(proc) = processes.get_mut(id) {
         // Send SIGTSTP to stop the child process.
         #[cfg(unix)]
         if let Some(ref child) = proc.child {
@@ -3636,14 +3723,23 @@ pub(crate) fn builtin_quit_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_quit_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_quit_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol("quit-process"), Value::Int(args.len() as i64)],
         ));
     }
-    let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
-    if let Some(proc) = eval.processes.get_mut(id) {
+    let (id, ret) =
+        resolve_optional_process_with_explicit_return_in_state(processes, buffers, args.first())?;
+    if let Some(proc) = processes.get_mut(id) {
         // Send SIGQUIT to the child process.
         #[cfg(unix)]
         if let Some(ref child) = proc.child {
@@ -3891,15 +3987,25 @@ pub(crate) fn builtin_process_send_string(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_send_string_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_process_send_string_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-send-string", &args, 2)?;
     let input = expect_string_strict(&args[1])?;
     if let Value::Int(n) = args[0] {
-        if n >= 0 && is_stale_process_id_designator(eval, &args[0]) {
-            return Err(signal_process_not_running(eval, n as ProcessId));
+        if n >= 0 && is_stale_process_id_designator_in_manager(processes, &args[0]) {
+            return Err(signal_process_not_running_in_manager(
+                processes,
+                n as ProcessId,
+            ));
         }
     }
-    let id = resolve_process_or_missing_error(eval, &args[0])?;
-    if !eval.processes.send_input(id, &input) {
+    let id = resolve_process_or_missing_error_in_manager(processes, &args[0])?;
+    if !processes.send_input(id, &input) {
         return Err(signal("error", vec![Value::string("Process not found")]));
     }
     Ok(Value::Nil)
@@ -4488,30 +4594,41 @@ pub(crate) fn builtin_process_send_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_send_region_in_state(&mut eval.processes, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_process_send_region_in_state(
+    processes: &mut ProcessManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-send-region", &args, 3)?;
 
     if let Value::Int(n) = args[0] {
-        if n >= 0 && is_stale_process_id_designator(eval, &args[0]) {
+        if n >= 0 && is_stale_process_id_designator_in_manager(processes, &args[0]) {
             let _ = expect_int_or_marker(&args[1])?;
             let _ = expect_int_or_marker(&args[2])?;
-            return Err(signal_process_not_running(eval, n as ProcessId));
+            return Err(signal_process_not_running_in_manager(
+                processes,
+                n as ProcessId,
+            ));
         }
     }
 
-    let id = resolve_optional_process_or_current_buffer(eval, Some(&args[0]))?;
+    let id =
+        resolve_optional_process_or_current_buffer_in_state(processes, buffers, Some(&args[0]))?;
     let start = expect_int_or_marker(&args[1])?;
     let end = expect_int_or_marker(&args[2])?;
 
     let region_text = {
-        let buf = eval
-            .buffers
+        let buf = buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let (region_beg, region_end) = checked_region_bytes(buf, start, end)?;
         buf.text.text_range(region_beg, region_end)
     };
 
-    if !eval.processes.send_input(id, &region_text) {
+    if !processes.send_input(id, &region_text) {
         return Err(signal("error", vec![Value::string("Process not found")]));
     }
     Ok(Value::Nil)
@@ -4520,6 +4637,14 @@ pub(crate) fn builtin_process_send_region(
 /// (process-send-eof &optional PROCESS) -> process-or-nil
 pub(crate) fn builtin_process_send_eof(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_process_send_eof_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_process_send_eof_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {
@@ -4534,13 +4659,16 @@ pub(crate) fn builtin_process_send_eof(
     if let Some(process) = args.first() {
         if !process.is_nil() {
             if let Value::Int(n) = process {
-                if *n >= 0 && is_stale_process_id_designator(eval, process) {
-                    return Err(signal_process_not_running(eval, *n as ProcessId));
+                if *n >= 0 && is_stale_process_id_designator_in_manager(processes, process) {
+                    return Err(signal_process_not_running_in_manager(
+                        processes,
+                        *n as ProcessId,
+                    ));
                 }
             }
-            let id = resolve_process_or_missing_error(eval, process)?;
+            let id = resolve_process_or_missing_error_in_manager(processes, process)?;
             // Close stdin to send EOF to the child process.
-            if let Some(proc) = eval.processes.get_mut(id) {
+            if let Some(proc) = processes.get_mut(id) {
                 if let Some(ref mut child) = proc.child {
                     // Drop stdin to close the pipe, sending EOF.
                     drop(child.stdin.take());
@@ -4549,9 +4677,9 @@ pub(crate) fn builtin_process_send_eof(
             return Ok(*process);
         }
     }
-    let id = resolve_optional_process_or_current_buffer(eval, args.first())?;
+    let id = resolve_optional_process_or_current_buffer_in_state(processes, buffers, args.first())?;
     // Close stdin to send EOF.
-    if let Some(proc) = eval.processes.get_mut(id) {
+    if let Some(proc) = processes.get_mut(id) {
         if let Some(ref mut child) = proc.child {
             drop(child.stdin.take());
         }
@@ -4562,6 +4690,14 @@ pub(crate) fn builtin_process_send_eof(
 /// (process-running-child-p &optional PROCESS) -> bool
 pub(crate) fn builtin_process_running_child_p(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_process_running_child_p_in_state(&eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_process_running_child_p_in_state(
+    processes: &ProcessManager,
+    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {
@@ -4575,12 +4711,16 @@ pub(crate) fn builtin_process_running_child_p(
     }
     if let Some(process) = args.first() {
         if let Value::Int(n) = process {
-            if *n >= 0 && is_stale_process_id_designator(eval, process) {
-                return Err(signal_process_not_active(eval, *n as ProcessId));
+            if *n >= 0 && is_stale_process_id_designator_in_manager(processes, process) {
+                return Err(signal_process_not_active_in_manager(
+                    processes,
+                    *n as ProcessId,
+                ));
             }
         }
     }
-    let _id = resolve_optional_process_or_current_buffer(eval, args.first())?;
+    let _id =
+        resolve_optional_process_or_current_buffer_in_state(processes, buffers, args.first())?;
     Ok(Value::Nil)
 }
 

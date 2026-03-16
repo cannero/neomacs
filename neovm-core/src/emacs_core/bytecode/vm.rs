@@ -4411,6 +4411,69 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "continue-process" => Some(
+                crate::emacs_core::process::builtin_continue_process_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "interrupt-process" => Some(
+                crate::emacs_core::process::builtin_interrupt_process_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "kill-process" => Some(crate::emacs_core::process::builtin_kill_process_in_state(
+                self.shared.processes,
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "signal-process" => Some(
+                crate::emacs_core::process::builtin_signal_process_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "stop-process" => Some(crate::emacs_core::process::builtin_stop_process_in_state(
+                self.shared.processes,
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "quit-process" => Some(crate::emacs_core::process::builtin_quit_process_in_state(
+                self.shared.processes,
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "process-send-string" => Some(
+                crate::emacs_core::process::builtin_process_send_string_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-send-region" => Some(
+                crate::emacs_core::process::builtin_process_send_region_in_state(
+                    self.shared.processes,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "process-send-eof" => Some(
+                crate::emacs_core::process::builtin_process_send_eof_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "process-running-child-p" => Some(
+                crate::emacs_core::process::builtin_process_running_child_p_in_state(
+                    &*self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "run-hook-with-args-until-failure" => {
                 Some(self.builtin_run_hook_with_args_until_failure_shared(args))
             }

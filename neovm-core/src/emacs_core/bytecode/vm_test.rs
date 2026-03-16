@@ -2087,6 +2087,149 @@ fn vm_stale_process_status_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
+    use crate::emacs_core::process::ProcessStatus;
+
+    let mut eval = Evaluator::new_vm_harness();
+
+    let buffer_id = eval.buffers.create_buffer("*vm-proc-control*");
+    eval.buffers.set_current(buffer_id);
+    eval.buffers
+        .current_buffer_mut()
+        .expect("current buffer")
+        .insert("abc");
+
+    let current_id = eval.processes.create_process(
+        "vm-proc-current".into(),
+        Some("*vm-proc-control*".into()),
+        "/bin/cat".into(),
+        vec![],
+    );
+    assert_eq!(current_id, 1);
+    eval.processes
+        .get_mut(current_id)
+        .expect("current process")
+        .status = ProcessStatus::Stop;
+
+    for expected in 2..=7 {
+        let id = eval.processes.create_process(
+            format!("vm-proc-{expected}"),
+            None,
+            "/bin/cat".into(),
+            vec![],
+        );
+        assert_eq!(id, expected);
+    }
+
+    let forms = parse_forms(
+        r#"(list
+             (null (continue-process))
+             (eq (process-status 1) 'run)
+             (eq (interrupt-process 2) 2)
+             (eq (process-status 2) 'signal)
+             (= (process-exit-status 2) 2)
+             (eq (kill-process 3) 3)
+             (= (process-exit-status 3) 9)
+             (eq (stop-process 4) 4)
+             (eq (process-status 4) 'stop)
+             (eq (quit-process 5) 5)
+             (eq (process-status 5) 'run)
+             (eq (signal-process 6 15) 0)
+             (= (process-exit-status 6) 15)
+             (null (process-send-string 7 "hello"))
+             (null (process-send-region 7 (point-min) (point-max)))
+             (eq (process-send-eof 7) 7)
+             (null (process-running-child-p 7)))"#,
+    )
+    .expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&forms[0]);
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled process control/send builtins should execute")
+    };
+
+    assert_eq!(
+        crate::emacs_core::error::format_eval_result(&Ok(result)),
+        "OK (t t t t t t t t t t t t t t t t t)"
+    );
+    assert_eq!(
+        eval.processes
+            .get(7)
+            .expect("send target process")
+            .stdin_queue,
+        "helloabc"
+    );
+    assert_eq!(
+        eval.processes.get_any(1).expect("current process").status,
+        ProcessStatus::Run
+    );
+    assert_eq!(
+        eval.processes.get_any(2).expect("interrupt process").status,
+        ProcessStatus::Signal(2)
+    );
+    assert_eq!(
+        eval.processes.get_any(3).expect("kill process").status,
+        ProcessStatus::Signal(9)
+    );
+    assert_eq!(
+        eval.processes.get_any(4).expect("stop process").status,
+        ProcessStatus::Stop
+    );
+    assert_eq!(
+        eval.processes.get_any(5).expect("quit process").status,
+        ProcessStatus::Run
+    );
+    assert_eq!(
+        eval.processes.get_any(6).expect("signal process").status,
+        ProcessStatus::Signal(15)
+    );
+}
+
+#[test]
+fn vm_stale_process_control_and_send_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (condition-case err (continue-process p) (error (car err)))
+              (condition-case err (interrupt-process p) (error (car err)))
+              (condition-case err (kill-process p) (error (car err)))
+              (condition-case err (stop-process p) (error (car err)))
+              (condition-case err (quit-process p) (error (car err)))
+              (let ((rv (signal-process p 0)))
+                (or (eq rv 0) (eq rv -1)))
+              (condition-case err (process-send-string p "hello") (error (car err)))
+              (condition-case err
+                  (process-send-region p (point-min) (point-max))
+                (error (car err)))
+              (condition-case err (process-send-eof p) (error (car err)))
+              (condition-case err (process-running-child-p p) (error (car err)))))"#,
+        |eval| {
+            let buffer_id = eval.buffers.create_buffer("*vm-stale-proc-control*");
+            eval.buffers.set_current(buffer_id);
+            eval.buffers
+                .current_buffer_mut()
+                .expect("current buffer")
+                .insert("abc");
+            let pid = eval.processes.create_process(
+                "vm-stale-proc-control".into(),
+                Some("*vm-stale-proc-control*".into()),
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+            assert!(eval.processes.delete_process(pid));
+        },
+    );
+    assert_eq!(
+        result,
+        "OK (error error error error error t error error error error)"
+    );
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));
