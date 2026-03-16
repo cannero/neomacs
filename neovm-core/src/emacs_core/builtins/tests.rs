@@ -8331,6 +8331,30 @@ fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
 }
 
 #[test]
+fn fset_nil_nil_is_allowed_and_fmakunbound_rejects_constants() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+
+    let fset_nil = builtin_fset(&mut eval, vec![Value::Nil, Value::Nil])
+        .expect("fset nil nil should match GNU");
+    assert!(fset_nil.is_nil());
+    let nil_fn = builtin_symbol_function(&mut eval, vec![Value::Nil])
+        .expect("symbol-function should read nil function cell");
+    assert!(nil_fn.is_nil());
+
+    for constant in [Value::Nil, Value::True] {
+        let err = builtin_fmakunbound(&mut eval, vec![constant])
+            .expect_err("fmakunbound should reject constants");
+        match err {
+            Flow::Signal(sig) => {
+                assert_eq!(sig.symbol_name(), "setting-constant");
+                assert_eq!(sig.data, vec![constant]);
+            }
+            other => panic!("unexpected flow: {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
 

@@ -638,16 +638,20 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Evaluator, args: Vec<Value>) -
 }
 
 pub(crate) fn builtin_fset(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_fset_in_obarray(eval.obarray_mut(), args)
+}
+
+pub(crate) fn builtin_fset_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("fset", &args, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
-    if symbol == intern("nil") {
+    if symbol == intern("nil") && !args[1].is_nil() {
         return Err(signal("setting-constant", vec![Value::symbol("nil")]));
     }
     let def = args[1];
-    if would_create_function_alias_cycle(eval, symbol, &def) {
+    if would_create_function_alias_cycle_in_obarray(obarray, symbol, &def) {
         return Err(signal("cyclic-function-indirection", vec![args[0]]));
     }
-    eval.obarray_mut().set_symbol_function_id(symbol, def);
+    obarray.set_symbol_function_id(symbol, def);
     Ok(def)
 }
 
@@ -656,7 +660,16 @@ pub(crate) fn would_create_function_alias_cycle(
     target_symbol: SymId,
     def: &Value,
 ) -> bool {
+    would_create_function_alias_cycle_in_obarray(eval.obarray(), target_symbol, def)
+}
+
+pub(crate) fn would_create_function_alias_cycle_in_obarray(
+    obarray: &Obarray,
+    target_symbol: SymId,
+    def: &Value,
+) -> bool {
     let mut current = match symbol_id(def) {
+        Some(id) if id == intern("nil") => return false,
         Some(id) => id,
         None => return false,
     };
@@ -670,7 +683,7 @@ pub(crate) fn would_create_function_alias_cycle(
             return true;
         }
 
-        let next = match eval.obarray().symbol_function_id(current) {
+        let next = match obarray.symbol_function_id(current) {
             Some(function) => match symbol_id(function) {
                 Some(id) => id,
                 None => return false,
@@ -751,9 +764,19 @@ pub(crate) fn builtin_fmakunbound(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_fmakunbound_in_obarray(eval.obarray_mut(), args)
+}
+
+pub(crate) fn builtin_fmakunbound_in_obarray(
+    obarray: &mut Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("fmakunbound", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    eval.obarray_mut().fmakunbound_id(symbol);
+    if symbol == intern("nil") || symbol == intern("t") {
+        return Err(signal("setting-constant", vec![args[0]]));
+    }
+    obarray.fmakunbound_id(symbol);
     Ok(args[0])
 }
 

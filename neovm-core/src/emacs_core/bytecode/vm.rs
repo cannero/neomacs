@@ -3010,6 +3010,16 @@ impl<'a> Vm<'a> {
                 &*self.shared.obarray,
                 args.to_vec(),
             )),
+            "fset" => Some(crate::emacs_core::builtins::symbols::builtin_fset_in_obarray(
+                self.shared.obarray,
+                args.to_vec(),
+            )),
+            "fmakunbound" => Some(
+                crate::emacs_core::builtins::symbols::builtin_fmakunbound_in_obarray(
+                    self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
             "func-arity" => Some(
                 crate::emacs_core::builtins::symbols::builtin_func_arity_in_obarray(
                     &*self.shared.obarray,

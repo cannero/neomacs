@@ -1855,6 +1855,28 @@ fn vm_func_arity_and_obarray_queries_use_shared_obarray_state() {
 }
 
 #[test]
+fn vm_function_mutator_builtins_use_shared_function_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (fset 'vm-fset-target 'car)
+                 (list
+                  (funcall 'vm-fset-target '(4 . 5))
+                  (progn
+                    (fmakunbound 'vm-fset-target)
+                    (fboundp 'vm-fset-target))
+                  (condition-case err
+                      (fmakunbound nil)
+                    (error (car err)))
+                  (progn
+                    (fset nil nil)
+                    (symbol-function nil))))"#
+        ),
+        "OK (4 nil setting-constant nil)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {
