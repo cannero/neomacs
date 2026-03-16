@@ -12,7 +12,7 @@ use super::intern::resolve_sym;
 use super::value::{Value, list_to_vec, next_float_id, read_cons, with_heap};
 use crate::buffer::{BufferId, BufferManager};
 use crate::window::{
-    FrameId, FrameManager, SplitDirection, Window, WindowId, window_first_child_id,
+    FrameId, FrameManager, Rect, SplitDirection, Window, WindowId, window_first_child_id,
     window_next_sibling_id, window_parent_id, window_prev_sibling_id,
 };
 use std::collections::HashSet;
@@ -372,8 +372,28 @@ fn resolve_window_id_or_window_error(
     arg: Option<&Value>,
     live_only: bool,
 ) -> Result<(FrameId, WindowId), Flow> {
+    resolve_window_id_or_window_error_in_state(&mut eval.frames, &mut eval.buffers, arg, live_only)
+}
+
+fn format_window_designator_for_error_in_state(frames: &FrameManager, value: &Value) -> String {
+    if let Some(wid) = window_id_from_designator(value) {
+        if frames.is_window_object_id(wid) || matches!(value, Value::Window(_)) {
+            return format!("#<window {}>", wid.0);
+        }
+    }
+    super::print::print_value(value)
+}
+
+fn resolve_window_id_or_window_error_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+    live_only: bool,
+) -> Result<(FrameId, WindowId), Flow> {
     match arg {
-        None | Some(Value::Nil) => resolve_window_id(eval, arg),
+        None | Some(Value::Nil) => {
+            resolve_window_id_with_pred_in_state(frames, buffers, arg, "window-live-p")
+        }
         Some(val) => {
             let Some(wid) = window_id_from_designator(val) else {
                 let window_kind = if live_only { "live" } else { "valid" };
@@ -381,15 +401,15 @@ fn resolve_window_id_or_window_error(
                     "error",
                     vec![Value::string(format!(
                         "{} is not a {} window",
-                        format_window_designator_for_error(eval, val),
+                        format_window_designator_for_error_in_state(frames, val),
                         window_kind
                     ))],
                 ));
             };
             let frame_id = if live_only {
-                eval.frames.find_window_frame_id(wid)
+                frames.find_window_frame_id(wid)
             } else {
-                eval.frames.find_valid_window_frame_id(wid)
+                frames.find_valid_window_frame_id(wid)
             };
             if let Some(fid) = frame_id {
                 Ok((fid, wid))
@@ -399,7 +419,7 @@ fn resolve_window_id_or_window_error(
                     "error",
                     vec![Value::string(format!(
                         "{} is not a {} window",
-                        format_window_designator_for_error(eval, val),
+                        format_window_designator_for_error_in_state(frames, val),
                         window_kind
                     ))],
                 ))
@@ -559,14 +579,17 @@ pub(crate) fn ensure_selected_frame_id_in_state(
         .current_buffer()
         .map(|b| b.id)
         .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
-    // Batch GNU Emacs startup exposes an initial ~80x24 text window plus
-    // a minibuffer line; frame parameters report 80x25.
-    // With our default 8x16 char metrics the text area corresponds to 640x384.
-    let fid = frames.create_frame("F1", 640, 384, buf_id);
+    // GNU batch startup exposes an 80x24 text window plus a 1-line minibuffer.
+    // Keep the synthetic startup frame in character-cell units so the GNU
+    // `window.el` geometry helpers behave the same way in batch mode.
+    let fid = frames.create_frame("F1", 80, 24, buf_id);
     let minibuffer_buf_id = buffers
         .find_buffer_by_name(" *Minibuf-0*")
         .unwrap_or_else(|| buffers.create_buffer(" *Minibuf-0*"));
     if let Some(frame) = frames.get_mut(fid) {
+        frame.char_width = 1.0;
+        frame.char_height = 1.0;
+        frame.font_pixel_size = 1.0;
         frame.parameters.insert("width".to_string(), Value::Int(80));
         frame
             .parameters
@@ -584,6 +607,7 @@ pub(crate) fn ensure_selected_frame_id_in_state(
         if let Some(minibuffer_leaf) = frame.minibuffer_leaf.as_mut() {
             // Keep minibuffer window accessors aligned with GNU Emacs batch startup.
             minibuffer_leaf.set_buffer(minibuffer_buf_id);
+            minibuffer_leaf.set_bounds(Rect::new(0.0, 24.0, 80.0, 1.0));
         }
     }
     fid
@@ -1124,11 +1148,20 @@ pub(crate) fn builtin_window_normal_size(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_normal_size_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_normal_size_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-normal-size", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let horizontal = args.get(1).is_some_and(Value::is_truthy);
-    let Some(frame) = eval.frames.get(fid) else {
+    let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
     let window = frame
@@ -1223,9 +1256,18 @@ pub(crate) fn builtin_window_end(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_end_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_end_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-end", &args, 2)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     match w {
         Window::Leaf {
             window_start,
@@ -1233,8 +1275,8 @@ pub(crate) fn builtin_window_end(
             buffer_id,
             ..
         } => {
-            let frame = eval.frames.get(fid).unwrap();
-            let body_lines = if is_minibuffer_window(&eval.frames, fid, wid) {
+            let frame = frames.get(fid).unwrap();
+            let body_lines = if is_minibuffer_window(frames, fid, wid) {
                 (bounds.height / frame.char_height) as usize
             } else {
                 ((bounds.height / frame.char_height) as usize).saturating_sub(1)
@@ -1242,7 +1284,7 @@ pub(crate) fn builtin_window_end(
 
             // Scan the buffer text to find where body_lines newlines occur
             // after window_start, giving a line-based estimate of window-end.
-            let buf = eval.buffers.get(*buffer_id);
+            let buf = buffers.get(*buffer_id);
             let buffer_end = buf
                 .map(|b| b.text.char_count().saturating_add(1))
                 .unwrap_or(*window_start);
@@ -1485,11 +1527,20 @@ pub(crate) fn builtin_window_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-height", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
     Ok(Value::Int(window_height_lines(w, ch)))
 }
 
@@ -1498,11 +1549,20 @@ pub(crate) fn builtin_window_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-width", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
     Ok(Value::Int(window_width_cols(w, cw)))
 }
 
@@ -1705,11 +1765,20 @@ pub(crate) fn builtin_window_left_column(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_left_column_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_left_column_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-left-column", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
     let left = if cw > 0.0 {
         (w.bounds().x / cw) as i64
     } else {
@@ -1723,11 +1792,20 @@ pub(crate) fn builtin_window_top_line(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_top_line_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_top_line_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-top-line", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
     let top = if ch > 0.0 {
         (w.bounds().y / ch) as i64
     } else {
@@ -1738,30 +1816,60 @@ pub(crate) fn builtin_window_top_line(
 
 /// `(window-pixel-left &optional WINDOW)` -> integer.
 ///
-/// GNU Emacs returns `w->pixel_left` — the left pixel edge of the window.
+/// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_left(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_pixel_left_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_pixel_left_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-pixel-left", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    Ok(Value::Int(w.bounds().x as i64))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+    let left = if cw > 0.0 {
+        (w.bounds().x / cw) as i64
+    } else {
+        0
+    };
+    Ok(Value::Int(left))
 }
 
 /// `(window-pixel-top &optional WINDOW)` -> integer.
 ///
-/// GNU Emacs returns `w->pixel_top` — the top pixel edge of the window.
+/// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_top(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_pixel_top_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_pixel_top_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-pixel-top", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    Ok(Value::Int(w.bounds().y as i64))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
+    let top = if ch > 0.0 {
+        (w.bounds().y / ch) as i64
+    } else {
+        0
+    };
+    Ok(Value::Int(top))
 }
 
 /// `(window-hscroll &optional WINDOW)` -> integer.
@@ -2148,10 +2256,19 @@ pub(crate) fn builtin_window_mode_line_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_mode_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_mode_line_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-mode-line-height", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let height = if is_minibuffer_window(&eval.frames, fid, wid) {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let height = if is_minibuffer_window(frames, fid, wid) {
         0
     } else {
         1
@@ -2164,38 +2281,66 @@ pub(crate) fn builtin_window_header_line_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_header_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_header_line_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-header-line-height", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let _ = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let _ = resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     Ok(Value::Int(0))
 }
 
 /// `(window-pixel-height &optional WINDOW)` -> integer.
 ///
-/// GNU Emacs returns `w->pixel_height` — actual pixel height of the window.
+/// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_pixel_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_pixel_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-pixel-height", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    Ok(Value::Int(w.bounds().height as i64))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
+    Ok(Value::Int(window_height_lines(w, ch)))
 }
 
 /// `(window-pixel-width &optional WINDOW)` -> integer.
 ///
-/// GNU Emacs returns `w->pixel_width` — actual pixel width of the window.
+/// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_pixel_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_pixel_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-pixel-width", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    Ok(Value::Int(w.bounds().width as i64))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+    Ok(Value::Int(window_width_cols(w, cw)))
 }
 
 /// `(window-body-height &optional WINDOW PIXELWISE)` -> integer.
@@ -2207,21 +2352,24 @@ pub(crate) fn builtin_window_body_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_body_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_body_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-body-height", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
-        let body_px = if is_minibuffer_window(&eval.frames, fid, wid) {
-            w.bounds().height as i64
-        } else {
-            (w.bounds().height - ch).max(0.0) as i64
-        };
-        Ok(Value::Int(body_px))
+        Ok(Value::Int(window_body_height_lines(frames, fid, wid, w)))
     } else {
-        let body_lines = window_body_height_lines(&eval.frames, fid, wid, w);
+        let body_lines = window_body_height_lines(frames, fid, wid, w);
         Ok(Value::Int(body_lines))
     }
 }
@@ -2234,15 +2382,25 @@ pub(crate) fn builtin_window_body_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_body_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_body_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-body-width", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        Ok(Value::Int(w.bounds().width as i64))
+        let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+        Ok(Value::Int(window_width_cols(w, cw)))
     } else {
-        let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+        let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
         Ok(Value::Int(window_width_cols(w, cw)))
     }
 }
@@ -2252,17 +2410,21 @@ pub(crate) fn builtin_window_text_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_text_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_text_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-text-height", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     let _pixelwise = args.get(1);
-    Ok(Value::Int(window_body_height_lines(
-        &eval.frames,
-        fid,
-        wid,
-        w,
-    )))
+    Ok(Value::Int(window_body_height_lines(frames, fid, wid, w)))
 }
 
 /// `(window-text-width &optional WINDOW PIXELWISE)` -> integer.
@@ -2270,12 +2432,21 @@ pub(crate) fn builtin_window_text_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_text_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_text_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-text-width", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     let _pixelwise = args.get(1);
-    let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
     Ok(Value::Int(window_width_cols(w, cw)))
 }
 
@@ -2289,53 +2460,52 @@ pub(crate) fn builtin_window_edges(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_edges_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_edges_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-edges", &args, 4)?;
-    let _ = ensure_selected_frame_id(eval);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let body = args.get(1).is_some_and(Value::is_truthy);
     let _absolute = args.get(2).is_some_and(Value::is_truthy);
     let pixelwise = args.get(3).is_some_and(Value::is_truthy);
     let live_only = body;
-    let (fid, wid) = resolve_window_id_or_window_error(eval, args.first(), live_only)?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    let frame = eval
-        .frames
+    let (fid, wid) =
+        resolve_window_id_or_window_error_in_state(frames, buffers, args.first(), live_only)?;
+    let w = get_window(frames, fid, wid)?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
     if pixelwise {
-        let b = w.bounds();
-        let (left, top, right) = (b.x as i64, b.y as i64, (b.x + b.width) as i64);
-        let bottom = if body && !is_minibuffer_window(&eval.frames, fid, wid) {
-            (b.y + b.height) as i64 - frame.char_height as i64
-        } else {
-            (b.y + b.height) as i64
-        };
-        Ok(Value::list(vec![
-            Value::Int(left),
-            Value::Int(top),
-            Value::Int(right),
-            Value::Int(bottom),
-        ]))
-    } else {
         let (left, top, right, bottom) = if body {
-            window_body_edges_cols_lines(
-                &eval.frames,
-                fid,
-                wid,
-                w,
-                frame.char_width,
-                frame.char_height,
-            )
+            window_body_edges_cols_lines(frames, fid, wid, w, frame.char_width, frame.char_height)
         } else {
             window_edges_cols_lines(w, frame.char_width, frame.char_height)
         };
-        Ok(Value::list(vec![
+        return Ok(Value::list(vec![
             Value::Int(left),
             Value::Int(top),
             Value::Int(right),
             Value::Int(bottom),
-        ]))
+        ]));
     }
+
+    let (left, top, right, bottom) = if body {
+        window_body_edges_cols_lines(frames, fid, wid, w, frame.char_width, frame.char_height)
+    } else {
+        window_edges_cols_lines(w, frame.char_width, frame.char_height)
+    };
+    Ok(Value::list(vec![
+        Value::Int(left),
+        Value::Int(top),
+        Value::Int(right),
+        Value::Int(bottom),
+    ]))
 }
 
 /// `(window-total-height &optional WINDOW ROUND)` -> integer.
@@ -2345,11 +2515,20 @@ pub(crate) fn builtin_window_total_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_total_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_total_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-total-height", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    let ch = eval.frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
     Ok(Value::Int(window_height_lines(w, ch)))
 }
 
@@ -2360,11 +2539,20 @@ pub(crate) fn builtin_window_total_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_total_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_total_width_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-total-width", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let w = get_window(&eval.frames, fid, wid)?;
-    let cw = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let w = get_window(frames, fid, wid)?;
+    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
     Ok(Value::Int(window_width_cols(w, cw)))
 }
 

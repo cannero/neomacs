@@ -827,6 +827,46 @@ fn vm_window_scroll_and_history_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_geometry_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (m (minibuffer-window)))
+                 (with-current-buffer (window-buffer w)
+                   (erase-buffer)
+                   (insert (make-string 200 ?x)))
+                 (list (window-height w)
+                       (window-width w)
+                       (window-body-height w)
+                       (window-body-width w)
+                       (window-total-height w)
+                       (window-total-width w)
+                       (window-left-column w)
+                       (window-top-line m)
+                       (window-pixel-left w)
+                       (window-pixel-top m)
+                       (> (window-end w) (window-start w))
+                       (window-mode-line-height w)
+                       (window-mode-line-height m)
+                       (window-header-line-height w)
+                       (window-pixel-height w)
+                       (window-pixel-height m)
+                       (window-pixel-width w)
+                       (window-pixel-width m)
+                       (window-text-height w)
+                       (window-text-height m)
+                       (window-text-width w)
+                       (window-text-width m)
+                       (window-edges w)
+                       (window-edges m)
+                       (window-edges w t)
+                       (window-edges m t)))"#
+        ),
+        "OK (24 80 23 80 24 80 0 24 0 24 t 1 0 0 24 1 80 80 23 1 80 80 (0 0 80 24) (0 24 80 25) (0 0 80 23) (0 24 80 25))"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),

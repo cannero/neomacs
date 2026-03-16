@@ -2781,6 +2781,16 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Evaluator) -> Result<
             _ => None,
         });
     eval.set_interpreted_closure_filter_fn(filter_fn);
+
+    // GNU batch startup reports frame/window geometry in character-cell units.
+    // Keeping the runtime startup frame at 1x1 char metrics preserves the GNU
+    // shape for `window.el` geometry helpers layered on top of the C/Rust
+    // primitives.
+    if let Some(frame) = eval.frames.selected_frame_mut() {
+        frame.char_width = 1.0;
+        frame.char_height = 1.0;
+        frame.font_pixel_size = 1.0;
+    }
     Ok(())
 }
 
