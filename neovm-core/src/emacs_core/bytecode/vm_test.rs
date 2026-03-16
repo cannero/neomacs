@@ -10,6 +10,17 @@ fn new_vm(eval: &mut Evaluator) -> Vm<'_> {
     Vm::new(VmSharedState::from_evaluator(eval))
 }
 
+fn find_bin(name: &str) -> String {
+    let path = std::env::var_os("PATH").expect("PATH should be set");
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+    panic!("binary {name} not found on PATH");
+}
+
 fn with_vm_eval<R>(src: &str, lexical: bool, f: impl FnOnce(Result<Value, EvalError>) -> R) -> R {
     let mut eval = Evaluator::new_vm_harness();
     eval.set_lexical_binding(lexical);
@@ -2494,6 +2505,80 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
         r#"OK (t nil "out
 " "finished
 " wrong-type-argument wrong-type-argument)"#
+    );
+}
+
+#[test]
+fn vm_call_process_builtins_use_shared_buffer_state() {
+    let echo = find_bin("echo");
+    let form = format!(
+        r#"(let ((src (get-buffer-create "vm-cp-src"))
+                 (dst (get-buffer-create "vm-cp-dst")))
+             (set-buffer src)
+             (erase-buffer)
+             (set-buffer dst)
+             (erase-buffer)
+             (set-buffer src)
+             (list
+               (call-process "{echo}" nil t nil "hello")
+               (buffer-string)
+               (call-process "{echo}" nil "vm-cp-dst" nil "other")
+               (progn (set-buffer dst) (buffer-string))
+               (progn
+                 (set-buffer src)
+                 (call-process "{echo}" nil nil nil "drop"))
+               (buffer-string)))"#
+    );
+    let result = vm_eval_str(&form);
+
+    assert_eq!(
+        result,
+        r#"OK (0 "hello
+" 0 "other
+" 0 "hello
+")"#
+    );
+}
+
+#[test]
+fn vm_call_process_region_builtins_use_shared_buffer_state() {
+    let cat = find_bin("cat");
+    assert_eq!(
+        vm_eval_str(&format!(
+            r#"(let ((b1 (get-buffer-create "vm-cpr-1"))
+                     (b2 (get-buffer-create "vm-cpr-2"))
+                     (b3 (get-buffer-create "vm-cpr-3"))
+                     (b4 (get-buffer-create "vm-cpr-4")))
+                 (list
+                   (progn
+                     (set-buffer b1)
+                     (erase-buffer)
+                     (insert "abc")
+                     (list (call-process-region "xyz" nil "{cat}" nil t nil)
+                           (buffer-string)))
+                   (progn
+                     (set-buffer b2)
+                     (erase-buffer)
+                     (insert "abcdef")
+                     (goto-char 3)
+                     (let ((m (copy-marker (point))))
+                       (list (call-process-region m (point-max) "{cat}" nil t nil)
+                             (buffer-string))))
+                   (progn
+                     (set-buffer b3)
+                     (erase-buffer)
+                     (insert "abcde")
+                     (narrow-to-region 2 4)
+                     (list (call-process-region nil nil "{cat}" nil t nil)
+                           (buffer-string)))
+                   (progn
+                     (set-buffer b4)
+                     (erase-buffer)
+                     (insert "abc")
+                     (list (call-process-region (point-max) (point-min) "{cat}" t t nil)
+                           (buffer-string)))))"#
+        )),
+        r#"OK ((0 "abcxyz") (0 "abcdefcdef") (0 "bcabcde") (0 "abc"))"#
     );
 }
 

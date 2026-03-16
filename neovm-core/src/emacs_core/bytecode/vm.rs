@@ -4246,6 +4246,16 @@ impl<'a> Vm<'a> {
             "run-hook-with-args-until-success" => {
                 Some(self.builtin_run_hook_with_args_until_success_shared(args))
             }
+            "call-process" => Some(crate::emacs_core::process::builtin_call_process_in_state(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "call-process-region" => Some(
+                crate::emacs_core::process::builtin_call_process_region_in_state(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "accept-process-output" => Some(self.builtin_accept_process_output_shared(args)),
             "make-process" => Some(crate::emacs_core::process::builtin_make_process_in_state(
                 self.shared.processes,

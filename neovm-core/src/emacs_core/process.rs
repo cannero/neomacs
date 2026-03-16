@@ -745,8 +745,8 @@ fn parse_file_target(items: &[Value]) -> Result<OutputTarget, Flow> {
     Ok(OutputTarget::File(file))
 }
 
-fn parse_real_buffer_destination(
-    eval: &super::eval::Evaluator,
+fn parse_real_buffer_destination_in_state(
+    buffers: &BufferManager,
     value: &Value,
 ) -> Result<(OutputTarget, bool), Flow> {
     match value {
@@ -754,7 +754,7 @@ fn parse_real_buffer_destination(
         Value::Nil => Ok((OutputTarget::Discard, false)),
         Value::True | Value::Str(_) => Ok((OutputTarget::Buffer(*value), false)),
         Value::Buffer(id) => {
-            if eval.buffers.get(*id).is_none() {
+            if buffers.get(*id).is_none() {
                 Err(signal(
                     "error",
                     vec![Value::string("Selecting deleted buffer")],
@@ -789,7 +789,7 @@ fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<Strin
 }
 
 fn parse_call_process_destination(
-    eval: &super::eval::Evaluator,
+    buffers: &BufferManager,
     destination: &Value,
 ) -> Result<DestinationSpec, Flow> {
     if let Value::Cons(_) = destination {
@@ -806,7 +806,7 @@ fn parse_call_process_destination(
             });
         }
         let second = items.get(1).cloned().unwrap_or(Value::Nil);
-        let (stdout, no_wait) = parse_real_buffer_destination(eval, &first)?;
+        let (stdout, no_wait) = parse_real_buffer_destination_in_state(buffers, &first)?;
         let (stderr, stderr_file) = parse_stderr_destination(&second)?;
         return Ok(DestinationSpec {
             stdout,
@@ -816,7 +816,7 @@ fn parse_call_process_destination(
         });
     }
 
-    let (stdout, no_wait) = parse_real_buffer_destination(eval, destination)?;
+    let (stdout, no_wait) = parse_real_buffer_destination_in_state(buffers, destination)?;
     let stderr = match destination {
         Value::Nil | Value::Int(_) => StderrTarget::Discard,
         _ => StderrTarget::ToStdoutTarget,
@@ -829,19 +829,18 @@ fn parse_call_process_destination(
     })
 }
 
-fn insert_process_output(
-    eval: &mut super::eval::Evaluator,
+fn insert_process_output_in_state(
+    buffers: &mut BufferManager,
     destination: &Value,
     output: &str,
 ) -> Result<(), Flow> {
     match destination {
         Value::Str(name) => {
             let name_str = with_heap(|h| h.get_string(*name).to_owned());
-            let id = eval
-                .buffers
+            let id = buffers
                 .find_buffer_by_name(&name_str)
-                .unwrap_or_else(|| eval.buffers.create_buffer(&name_str));
-            eval.buffers.insert_into_buffer(id, output).ok_or_else(|| {
+                .unwrap_or_else(|| buffers.create_buffer(&name_str));
+            buffers.insert_into_buffer(id, output).ok_or_else(|| {
                 signal(
                     "error",
                     vec![Value::string("No such live buffer for process output")],
@@ -850,22 +849,22 @@ fn insert_process_output(
             Ok(())
         }
         Value::Buffer(id) => {
-            eval.buffers
+            buffers
                 .insert_into_buffer(*id, output)
                 .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
             Ok(())
         }
         _ => {
-            if let Some(current_id) = eval.buffers.current_buffer_id() {
-                let _ = eval.buffers.insert_into_buffer(current_id, output);
+            if let Some(current_id) = buffers.current_buffer_id() {
+                let _ = buffers.insert_into_buffer(current_id, output);
             }
             Ok(())
         }
     }
 }
 
-fn write_output_target(
-    eval: &mut super::eval::Evaluator,
+fn write_output_target_in_state(
+    buffers: &mut BufferManager,
     target: &OutputTarget,
     output: &[u8],
     append: bool,
@@ -874,7 +873,7 @@ fn write_output_target(
         OutputTarget::Discard => Ok(()),
         OutputTarget::Buffer(destination) => {
             let text = String::from_utf8_lossy(output).into_owned();
-            insert_process_output(eval, destination, &text)
+            insert_process_output_in_state(buffers, destination, &text)
         }
         OutputTarget::File(path) => {
             if append {
@@ -894,17 +893,17 @@ fn write_output_target(
     }
 }
 
-fn route_captured_output(
-    eval: &mut super::eval::Evaluator,
+fn route_captured_output_in_state(
+    buffers: &mut BufferManager,
     destination: &DestinationSpec,
     stdout: &[u8],
     stderr: &[u8],
 ) -> Result<(), Flow> {
-    write_output_target(eval, &destination.stdout, stdout, false)?;
+    write_output_target_in_state(buffers, &destination.stdout, stdout, false)?;
     match destination.stderr {
         StderrTarget::Discard => Ok(()),
         StderrTarget::ToStdoutTarget => {
-            write_output_target(eval, &destination.stdout, stderr, true)
+            write_output_target_in_state(buffers, &destination.stdout, stderr, true)
         }
         StderrTarget::File => {
             let path = destination
@@ -912,7 +911,7 @@ fn route_captured_output(
                 .as_ref()
                 .ok_or_else(|| signal("error", vec![Value::string("Missing stderr file target")]))?
                 .clone();
-            write_output_target(eval, &OutputTarget::File(path), stderr, false)
+            write_output_target_in_state(buffers, &OutputTarget::File(path), stderr, false)
         }
     }
 }
@@ -932,14 +931,14 @@ fn configure_call_process_stdin(command: &mut Command, infile: Option<&str>) -> 
     }
 }
 
-fn run_process_command(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn run_process_command_in_state(
+    buffers: &mut BufferManager,
     program: &str,
     infile: Option<String>,
     destination: &Value,
     cmd_args: &[String],
 ) -> EvalResult {
-    let destination_spec = parse_call_process_destination(eval, destination)?;
+    let destination_spec = parse_call_process_destination(buffers, destination)?;
 
     if destination_spec.no_wait {
         let mut command = Command::new(program);
@@ -983,7 +982,7 @@ fn run_process_command(
         .map_err(|e| signal_process_io("Searching for program", Some(program), e))?;
 
     let exit_code = output.status.code().unwrap_or(-1);
-    route_captured_output(eval, &destination_spec, &output.stdout, &output.stderr)?;
+    route_captured_output_in_state(buffers, &destination_spec, &output.stdout, &output.stderr)?;
     Ok(Value::Int(exit_code as i64))
 }
 
@@ -3284,6 +3283,13 @@ pub(crate) fn builtin_call_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_call_process_in_state(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_call_process_in_state(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("call-process", &args, 1)?;
     let program = expect_string_strict(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
@@ -3295,7 +3301,7 @@ pub(crate) fn builtin_call_process(
     };
 
     // DISPLAY (arg index 3): ignored in this implementation.
-    run_process_command(eval, &program, infile, destination, &cmd_args)
+    run_process_command_in_state(buffers, &program, infile, destination, &cmd_args)
 }
 
 /// (call-process-shell-command COMMAND &optional INFILE DESTINATION DISPLAY &rest ARGS)
@@ -3316,7 +3322,7 @@ pub(crate) fn builtin_call_process_shell_command(
     let shell_args = vec!["-c".to_string(), shell_command];
 
     // DISPLAY (arg index 3): ignored in this implementation.
-    run_process_command(eval, "sh", infile, destination, &shell_args)
+    run_process_command_in_state(&mut eval.buffers, "sh", infile, destination, &shell_args)
 }
 
 /// (process-file PROGRAM &optional INFILE DESTINATION DISPLAY &rest ARGS)
@@ -3333,7 +3339,7 @@ pub(crate) fn builtin_process_file(
     } else {
         Vec::new()
     };
-    run_process_command(eval, &program, infile, destination, &cmd_args)
+    run_process_command_in_state(&mut eval.buffers, &program, infile, destination, &cmd_args)
 }
 
 /// (process-file-shell-command COMMAND &optional INFILE DESTINATION DISPLAY &rest ARGS)
@@ -3354,7 +3360,7 @@ pub(crate) fn builtin_process_file_shell_command(
     let shell_args = vec!["-c".to_string(), shell_command];
 
     // DISPLAY (arg index 3): ignored in this implementation.
-    run_process_command(eval, "sh", infile, destination, &shell_args)
+    run_process_command_in_state(&mut eval.buffers, "sh", infile, destination, &shell_args)
 }
 
 /// (process-lines PROGRAM &rest ARGS) -> list of lines
@@ -3412,6 +3418,13 @@ pub(crate) fn builtin_call_process_region(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_call_process_region_in_state(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_call_process_region_in_state(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("call-process-region", &args, 3)?;
     let program = expect_string_strict(&args[2])?;
 
@@ -3421,7 +3434,7 @@ pub(crate) fn builtin_call_process_region(
     } else {
         &Value::Nil
     };
-    let destination_spec = parse_call_process_destination(eval, destination)?;
+    let destination_spec = parse_call_process_destination(buffers, destination)?;
     // DISPLAY (arg index 5): ignored.
 
     let cmd_args = if args.len() > 6 {
@@ -3437,19 +3450,17 @@ pub(crate) fn builtin_call_process_region(
     let region_text = match &args[0] {
         Value::Nil => {
             let (text, maybe_delete_range) = {
-                let buf = eval
-                    .buffers
+                let buf = buffers
                     .current_buffer()
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
                 let len = buf.text.len();
                 (buf.text.text_range(0, len), (0usize, len))
             };
             if delete {
-                let current_id = eval
-                    .buffers
+                let current_id = buffers
                     .current_buffer_id()
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-                let _ = eval.buffers.delete_buffer_region(
+                let _ = buffers.delete_buffer_region(
                     current_id,
                     maybe_delete_range.0,
                     maybe_delete_range.1,
@@ -3470,8 +3481,7 @@ pub(crate) fn builtin_call_process_region(
             let start = expect_int_or_marker(&args[0])?;
             let end = expect_int_or_marker(&args[1])?;
             let (text, region_beg, region_end) = {
-                let buf = eval
-                    .buffers
+                let buf = buffers
                     .current_buffer()
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
                 let (region_beg, region_end) = checked_region_bytes(buf, start, end)?;
@@ -3483,13 +3493,10 @@ pub(crate) fn builtin_call_process_region(
             };
 
             if delete {
-                let current_id = eval
-                    .buffers
+                let current_id = buffers
                     .current_buffer_id()
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-                let _ = eval
-                    .buffers
-                    .delete_buffer_region(current_id, region_beg, region_end);
+                let _ = buffers.delete_buffer_region(current_id, region_beg, region_end);
             }
 
             text
@@ -3553,7 +3560,7 @@ pub(crate) fn builtin_call_process_region(
         .map_err(|e| signal_process_io("Process error", None, e))?;
 
     let exit_code = output.status.code().unwrap_or(-1);
-    route_captured_output(eval, &destination_spec, &output.stdout, &output.stderr)?;
+    route_captured_output_in_state(buffers, &destination_spec, &output.stdout, &output.stderr)?;
     Ok(Value::Int(exit_code as i64))
 }
 
