@@ -3115,6 +3115,66 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "put-text-property" => Some(
+                crate::emacs_core::textprop::builtin_put_text_property_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "get-text-property" => Some(
+                crate::emacs_core::textprop::builtin_get_text_property_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "get-char-property" => Some(
+                crate::emacs_core::textprop::builtin_get_char_property_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "add-text-properties" => Some(
+                crate::emacs_core::textprop::builtin_add_text_properties_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "remove-text-properties" => Some(
+                crate::emacs_core::textprop::builtin_remove_text_properties_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-text-properties" => Some(
+                crate::emacs_core::textprop::builtin_set_text_properties_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "remove-list-of-text-properties" => Some(
+                crate::emacs_core::textprop::builtin_remove_list_of_text_properties_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "text-properties-at" => Some(
+                crate::emacs_core::textprop::builtin_text_properties_at_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "get-char-property-and-overlay" => Some(
+                crate::emacs_core::textprop::builtin_get_char_property_and_overlay_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "get-display-property" => Some(
+                crate::emacs_core::textprop::builtin_get_display_property_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "marker-position" => Some(
                 crate::emacs_core::marker::builtin_marker_position_in_buffers(
                     &*self.shared.buffers,

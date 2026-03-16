@@ -279,10 +279,17 @@ pub(crate) fn builtin_put_text_property(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_put_text_property_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_put_text_property_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("put-text-property", &args, 4)?;
     expect_max_args("put-text-property", &args, 5)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let prop = expect_symbol_name(&args[2])?;
     let val = args[3];
 
@@ -296,17 +303,14 @@ pub(crate) fn builtin_put_text_property(
         return Ok(Value::Nil);
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(4))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let _ = eval
-        .buffers
-        .put_buffer_text_property(buf_id, byte_beg, byte_end, &prop, val);
+    let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, &prop, val);
     Ok(Value::Nil)
 }
 
@@ -315,9 +319,16 @@ pub(crate) fn builtin_get_text_property(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_text_property_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_text_property_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("get-text-property", &args, 2)?;
     expect_max_args("get-text-property", &args, 3)?;
-    let pos = expect_int_eval(eval, &args[0])?;
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
@@ -331,9 +342,8 @@ pub(crate) fn builtin_get_text_property(
         return Ok(Value::Nil);
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(2))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -353,11 +363,18 @@ pub(crate) fn builtin_get_char_property(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_char_property_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_char_property_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("get-char-property", &args, 2)?;
     expect_max_args("get-char-property", &args, 3)?;
     // For strings, delegate directly (no overlays).
     // For buffers, also delegate (overlays not yet implemented here).
-    builtin_get_text_property(eval, args)
+    builtin_get_text_property_in_buffers(buffers, args)
 }
 
 /// (add-text-properties BEG END PROPS &optional OBJECT)
@@ -365,10 +382,17 @@ pub(crate) fn builtin_add_text_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_add_text_properties_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_add_text_properties_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("add-text-properties", &args, 3)?;
     expect_max_args("add-text-properties", &args, 4)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_id) = is_string_object(args.get(3)) {
@@ -383,18 +407,15 @@ pub(crate) fn builtin_add_text_properties(
         return Ok(Value::True);
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(3))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
     for (name, val) in pairs {
-        let _ = eval
-            .buffers
-            .put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
+        let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
     }
     Ok(Value::True)
 }
@@ -479,10 +500,17 @@ pub(crate) fn builtin_remove_text_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_remove_text_properties_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_remove_text_properties_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("remove-text-properties", &args, 3)?;
     expect_max_args("remove-text-properties", &args, 4)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let pairs = plist_pairs(&args[2])?;
 
     if let Some(str_id) = is_string_object(args.get(3)) {
@@ -500,9 +528,8 @@ pub(crate) fn builtin_remove_text_properties(
         return Ok(if any_removed { Value::True } else { Value::Nil });
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(3))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -510,8 +537,7 @@ pub(crate) fn builtin_remove_text_properties(
     let byte_end = elisp_pos_to_byte(buf, end);
     let mut any_removed = false;
     for (name, _val) in pairs {
-        if eval
-            .buffers
+        if buffers
             .remove_buffer_text_property(buf_id, byte_beg, byte_end, &name)
             .unwrap_or(false)
         {
@@ -526,10 +552,17 @@ pub(crate) fn builtin_set_text_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_text_properties_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_text_properties_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("set-text-properties", &args, 3)?;
     expect_max_args("set-text-properties", &args, 4)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     // set-text-properties accepts nil for PROPS (= remove all)
     let pairs = if args[2].is_nil() {
         Vec::new()
@@ -550,21 +583,16 @@ pub(crate) fn builtin_set_text_properties(
         return Ok(Value::True);
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(3))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let _ = eval
-        .buffers
-        .clear_buffer_text_properties(buf_id, byte_beg, byte_end);
+    let _ = buffers.clear_buffer_text_properties(buf_id, byte_beg, byte_end);
     for (name, val) in pairs {
-        let _ = eval
-            .buffers
-            .put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
+        let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
     }
     Ok(Value::True)
 }
@@ -574,10 +602,17 @@ pub(crate) fn builtin_remove_list_of_text_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_remove_list_of_text_properties_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("remove-list-of-text-properties", &args, 3)?;
     expect_max_args("remove-list-of-text-properties", &args, 4)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let names = list_to_vec(&args[2])
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[2]]))?;
 
@@ -598,10 +633,9 @@ pub(crate) fn builtin_remove_list_of_text_properties(
         return Ok(if changed { Value::True } else { Value::Nil });
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(3))?;
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
     let (byte_beg, byte_end) = {
-        let buf = eval
-            .buffers
+        let buf = buffers
             .get(buf_id)
             .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
         (elisp_pos_to_byte(buf, beg), elisp_pos_to_byte(buf, end))
@@ -612,7 +646,7 @@ pub(crate) fn builtin_remove_list_of_text_properties(
         let name = expect_symbol_name(&name_val)?;
         let mut cursor = byte_beg;
         while cursor < byte_end {
-            let Some(buf) = eval.buffers.get(buf_id) else {
+            let Some(buf) = buffers.get(buf_id) else {
                 break;
             };
             if buf.text_props.get_property(cursor, &name).is_some() {
@@ -624,9 +658,7 @@ pub(crate) fn builtin_remove_list_of_text_properties(
                 _ => break,
             }
         }
-        let _ = eval
-            .buffers
-            .remove_buffer_text_property(buf_id, byte_beg, byte_end, &name);
+        let _ = buffers.remove_buffer_text_property(buf_id, byte_beg, byte_end, &name);
     }
     Ok(if changed { Value::True } else { Value::Nil })
 }
@@ -636,9 +668,16 @@ pub(crate) fn builtin_text_properties_at(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_text_properties_at_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_text_properties_at_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("text-properties-at", &args, 1)?;
     expect_max_args("text-properties-at", &args, 2)?;
-    let pos = expect_int_eval(eval, &args[0])?;
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
     if let Some(str_id) = is_string_object(args.get(1)) {
         let s = with_heap(|h| h.get_string(str_id).to_owned());
@@ -650,9 +689,8 @@ pub(crate) fn builtin_text_properties_at(
         return Ok(Value::Nil);
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(1))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(1))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1108,37 +1146,51 @@ pub(crate) fn builtin_get_char_property_and_overlay(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_char_property_and_overlay_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_char_property_and_overlay_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("get-char-property-and-overlay", &args, 2)?;
     expect_max_args("get-char-property-and-overlay", &args, 3)?;
-    let pos = expect_int_eval(eval, &args[0])?;
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     // For strings, no overlays — just return (text-prop-value . nil)
     if is_string_object(args.get(2)).is_some() {
-        let value = builtin_get_text_property(eval, args)?;
+        let value = builtin_get_text_property_in_buffers(buffers, args)?;
         return Ok(Value::cons(value, Value::Nil));
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(2))?;
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
 
-    if let Some(buf) = eval.buffers.get(buf_id) {
+    if let Some(buf) = buffers.get(buf_id) {
         let byte_pos = elisp_pos_to_byte(buf, pos);
         let overlay_ids = buf.overlays.overlays_at(byte_pos);
         for ov_id in overlay_ids {
             if let Some(val) = buf.overlays.overlay_get(ov_id, &prop) {
-                let overlay = Value::cons(Value::Int(ov_id as i64), Value::Buffer(buf_id));
+                let overlay = make_overlay_value(ov_id, buf_id);
                 return Ok(Value::cons(*val, overlay));
             }
         }
     }
 
-    let value = builtin_get_char_property(eval, args)?;
+    let value = builtin_get_char_property_in_buffers(buffers, args)?;
     Ok(Value::cons(value, Value::Nil))
 }
 
 /// (get-display-property POS PROP &optional OBJECT PROPERTIES)
 pub(crate) fn builtin_get_display_property(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_get_display_property_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_get_display_property_in_buffers(
+    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("get-display-property", &args, 2)?;
@@ -1151,7 +1203,7 @@ pub(crate) fn builtin_get_display_property(
     if let Some(object) = args.get(2) {
         forwarded.push(*object);
     }
-    builtin_get_char_property(eval, forwarded)
+    builtin_get_char_property_in_buffers(buffers, forwarded)
 }
 
 // ===========================================================================

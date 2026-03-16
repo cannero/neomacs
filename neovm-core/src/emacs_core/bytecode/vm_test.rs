@@ -2139,6 +2139,36 @@ fn vm_overlay_builtins_use_shared_current_buffer_state() {
 }
 
 #[test]
+fn vm_text_property_builtins_use_shared_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "abcd")
+                 (put-text-property 1 3 'face 'bold)
+                 (add-text-properties 2 5 '(mouse-face highlight display "D"))
+                 (list
+                  (get-text-property 2 'face)
+                  (get-char-property 3 'mouse-face)
+                  (plist-get (text-properties-at 2) 'face)
+                  (car (get-char-property-and-overlay 2 'face))
+                  (cdr (get-char-property-and-overlay 2 'face))
+                  (get-display-property 2 'display)
+                  (progn
+                    (remove-text-properties 2 5 '(mouse-face highlight))
+                    (get-text-property 3 'mouse-face))
+                  (progn
+                    (set-text-properties 3 5 '(rear-nonsticky t))
+                    (get-text-property 4 'rear-nonsticky))
+                  (progn
+                    (remove-list-of-text-properties 1 3 '(face))
+                    (get-text-property 2 'face))))"#
+        ),
+        "OK (bold highlight bold bold nil \"D\" nil t nil)"
+    );
+}
+
+#[test]
 fn vm_marker_builtins_use_shared_live_buffer_state() {
     assert_eq!(
         vm_eval_str(
