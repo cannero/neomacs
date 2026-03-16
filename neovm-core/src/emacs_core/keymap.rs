@@ -57,10 +57,21 @@ impl From<crate::keyboard::KeyEvent> for KeyEvent {
                 super_: ke.modifiers.super_,
             },
             Key::Named(named) => {
+                if matches!(named, NamedKey::Escape) {
+                    return KeyEvent::Char {
+                        code: '\u{1b}',
+                        ctrl: ke.modifiers.ctrl,
+                        meta: ke.modifiers.meta,
+                        shift: false,
+                        super_: ke.modifiers.super_,
+                    };
+                }
                 let name = match named {
+                    NamedKey::Escape => {
+                        unreachable!("escape is handled above as a literal ESC char")
+                    }
                     NamedKey::Return => "return",
                     NamedKey::Tab => "tab",
-                    NamedKey::Escape => "escape",
                     NamedKey::Backspace => "backspace",
                     NamedKey::Delete => "delete",
                     NamedKey::Insert => "insert",
@@ -180,8 +191,8 @@ pub fn parse_single_key(token: &str) -> Result<KeyEvent, String> {
             shift,
             super_,
         }),
-        "ESC" | "escape" => Ok(KeyEvent::Function {
-            name: "escape".to_string(),
+        "ESC" | "escape" => Ok(KeyEvent::Char {
+            code: '\u{1b}',
             ctrl,
             meta,
             shift,
@@ -333,6 +344,9 @@ pub fn format_key_event(event: &KeyEvent) -> String {
     match event {
         KeyEvent::Char { code: ' ', .. } => {
             parts.push_str("SPC");
+        }
+        KeyEvent::Char { code: '\u{1b}', .. } => {
+            parts.push_str("ESC");
         }
         KeyEvent::Char { code, .. } => {
             parts.push(*code);
@@ -752,11 +766,11 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
                         let c = char::from_u32((base + 0x60) as u32)?;
                         (c, true)
                     }
-                    27 => ('[', true),  // ESC → C-[
-                    28 => ('\\', true), // C-\
-                    29 => (']', true),  // C-]
-                    30 => ('^', true),  // C-^
-                    31 => ('_', true),  // C-_
+                    27 => ('\u{1b}', false), // ESC → literal escape prefix char
+                    28 => ('\\', true),      // C-\
+                    29 => (']', true),       // C-]
+                    30 => ('^', true),       // C-^
+                    31 => ('_', true),       // C-_
                     _ => unreachable!(),
                 };
                 Some(KeyEvent::Char {

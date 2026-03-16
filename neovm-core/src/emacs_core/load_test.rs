@@ -763,6 +763,42 @@ fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
 }
 
 #[test]
+fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    eval.command_loop
+        .unread_events
+        .push_back(crate::keyboard::KeyEvent::named(
+            crate::keyboard::NamedKey::Escape,
+        ));
+    eval.command_loop
+        .unread_events
+        .push_back(crate::keyboard::KeyEvent::char('x'));
+
+    let (keys, binding) = eval.read_key_sequence().expect("read ESC x sequence");
+    assert_eq!(keys, vec![Value::Int(27), Value::Int('x' as i64)]);
+    assert_eq!(binding, Value::symbol("execute-extended-command"));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    eval.command_loop
+        .unread_events
+        .push_back(crate::keyboard::KeyEvent::char_with_mods(
+            'x',
+            crate::keyboard::Modifiers::meta(),
+        ));
+
+    let (keys, binding) = eval.read_key_sequence().expect("read M-x sequence");
+    assert_eq!(keys, vec![Value::Int(134_217_848)]);
+    assert_eq!(binding, Value::symbol("execute-extended-command"));
+}
+
+#[test]
 fn bootstrap_runtime_loads_gnu_window_split_entry_point() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(

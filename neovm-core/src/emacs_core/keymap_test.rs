@@ -109,6 +109,22 @@ fn parse_tab() {
 }
 
 #[test]
+fn parse_esc_as_literal_escape_char() {
+    let keys = parse_key_description("ESC").unwrap();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(
+        keys[0],
+        KeyEvent::Char {
+            code: '\u{1b}',
+            ctrl: false,
+            meta: false,
+            shift: false,
+            super_: false,
+        }
+    );
+}
+
+#[test]
 fn parse_spc() {
     let keys = parse_key_description("SPC").unwrap();
     assert_eq!(keys.len(), 1);
@@ -185,7 +201,7 @@ fn parse_error_unknown_name() {
 #[test]
 fn format_key_event_roundtrip() {
     let cases = vec![
-        "C-x", "M-x", "C-M-s", "a", "SPC", "RET", "TAB", "f1", "C-f12",
+        "C-x", "M-x", "C-M-s", "a", "SPC", "RET", "TAB", "ESC", "f1", "C-f12",
     ];
     for desc in cases {
         let keys = parse_key_description(desc).unwrap();
@@ -198,6 +214,18 @@ fn format_key_event_roundtrip() {
             desc, formatted, reparsed[0]
         );
     }
+}
+
+#[test]
+fn keyboard_escape_encodes_to_emacs_escape_prefix_char() {
+    let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
+        crate::keyboard::NamedKey::Escape,
+    ));
+    assert_eq!(
+        key_event_to_emacs_event(&event),
+        Value::Int(27),
+        "physical Escape should enter GNU ESC-prefix through event 27"
+    );
 }
 
 #[test]
