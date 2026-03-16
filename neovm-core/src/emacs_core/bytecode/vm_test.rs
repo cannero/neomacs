@@ -2930,6 +2930,47 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_dired_builtins_use_shared_default_directory_state() {
+    let base =
+        std::env::temp_dir().join(format!("neovm-vm-dired-default-dir-{}", std::process::id()));
+    let fixture = base.join("fixtures");
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&fixture).expect("create fixture dir");
+    std::fs::create_dir(fixture.join("adir")).expect("create adir");
+    std::fs::create_dir(fixture.join("subdir")).expect("create subdir");
+    std::fs::write(fixture.join("alpha.txt"), b"").expect("write alpha");
+    std::fs::write(fixture.join("beta.el"), b"").expect("write beta");
+    let base_str = format!("{}/", base.to_string_lossy());
+
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (mapcar #'car (directory-files-and-attributes "fixtures" nil "\\.el$"))
+             (file-name-all-completions "sub" "fixtures/")
+             (file-name-completion "a" "fixtures/" 'file-directory-p)
+             (file-name-completion "a" "fixtures/"
+                                   (lambda (path) (file-directory-p path)))
+             (let ((attrs (file-attributes "fixtures/alpha.txt")))
+               (nth 7 attrs))
+             (find-file-name-handler "fixtures/alpha.txt" 'insert-file-contents))"#,
+        |eval| {
+            eval.obarray
+                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            eval.buffers
+                .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+                .expect("buffer local default-directory should set");
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(
+        result,
+        r#"OK (("beta.el") ("subdir/") "adir/" "adir/" 0 nil)"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

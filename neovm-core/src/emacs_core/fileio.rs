@@ -2790,16 +2790,30 @@ pub(crate) fn builtin_find_file_name_handler(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_find_file_name_handler_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("find-file-name-handler", &args, 2)?;
+    let filename = expect_string_strict(&args[0])?;
+    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let _operation = &args[1];
+    Ok(Value::Nil)
+}
+
 /// Evaluator-aware variant of `find-file-name-handler`.
 pub(crate) fn builtin_find_file_name_handler_eval(
     eval: &Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("find-file-name-handler", &args, 2)?;
-    let filename = expect_string_strict(&args[0])?;
-    let _filename = resolve_filename_for_eval(eval, &filename);
-    let _operation = &args[1];
-    Ok(Value::Nil)
+    builtin_find_file_name_handler_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// (directory-files DIR &optional FULL MATCH NOSORT COUNT) -> list of strings

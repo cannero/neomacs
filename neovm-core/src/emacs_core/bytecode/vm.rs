@@ -5311,6 +5311,37 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "directory-files-and-attributes" => Some(
+                crate::emacs_core::dired::builtin_directory_files_and_attributes_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-name-completion" => Some(self.builtin_file_name_completion_shared(args)),
+            "file-name-all-completions" => Some(
+                crate::emacs_core::dired::builtin_file_name_all_completions_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-attributes" => Some(crate::emacs_core::dired::builtin_file_attributes_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "find-file-name-handler" => Some(
+                crate::emacs_core::fileio::builtin_find_file_name_handler_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "selected-frame" => Some(
                 crate::emacs_core::window_cmds::builtin_selected_frame_in_state(
                     self.shared.frames,
@@ -6264,6 +6295,27 @@ impl<'a> Vm<'a> {
 
     fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
         self.call_eval_builtin_shared(args, crate::emacs_core::minibuffer::builtin_read_buffer)
+    }
+
+    fn builtin_file_name_completion_shared(&mut self, args: &[Value]) -> EvalResult {
+        let needs_eval_predicate = matches!(
+            args.get(2),
+            Some(predicate)
+                if !predicate.is_nil()
+                    && !matches!(predicate, Value::Symbol(_) | Value::Subr(_))
+        );
+        if needs_eval_predicate {
+            return self.call_eval_builtin_shared(
+                args,
+                crate::emacs_core::dired::builtin_file_name_completion_eval,
+            );
+        }
+        crate::emacs_core::dired::builtin_file_name_completion_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
     }
 
     fn builtin_read_command_shared(&mut self, args: &[Value]) -> EvalResult {

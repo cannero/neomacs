@@ -458,18 +458,34 @@ pub(crate) fn builtin_directory_files_and_attributes(args: Vec<Value>) -> EvalRe
     directory_files_and_attributes_with_dir(&args, dir)
 }
 
+pub(crate) fn builtin_directory_files_and_attributes_in_state(
+    obarray: &super::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("directory-files-and-attributes", &args, 1, 6)?;
+    let dir = super::fileio::resolve_filename_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        &expect_string("directory-files-and-attributes", &args[0])?,
+    );
+    directory_files_and_attributes_with_dir(&args, dir)
+}
+
 /// Evaluator-backed variant of `directory-files-and-attributes`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
 pub(crate) fn builtin_directory_files_and_attributes_eval(
     eval: &Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("directory-files-and-attributes", &args, 1, 6)?;
-    let dir = super::fileio::resolve_filename_for_eval(
-        eval,
-        &expect_string("directory-files-and-attributes", &args[0])?,
-    );
-    directory_files_and_attributes_with_dir(&args, dir)
+    builtin_directory_files_and_attributes_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalResult {
@@ -564,6 +580,30 @@ pub(crate) fn builtin_file_name_completion(args: Vec<Value>) -> EvalResult {
     Ok(resolve_file_name_completion(&file, completions))
 }
 
+pub(crate) fn builtin_file_name_completion_in_state(
+    obarray: &super::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("file-name-completion", &args, 2, 3)?;
+
+    let file = expect_string("file-name-completion", &args[0])?;
+    let directory = super::fileio::resolve_filename_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        &expect_string("file-name-completion", &args[1])?,
+    );
+    let predicate = args.get(2);
+    if file.contains('/') {
+        return Ok(Value::Nil);
+    }
+    let completions = collect_file_name_completions(&file, &directory)?;
+    let completions = filter_completions_by_symbol_predicate(predicate, &directory, completions)?;
+    Ok(resolve_file_name_completion(&file, completions))
+}
+
 /// Evaluator-backed variant of `file-name-completion`.
 /// This supports arbitrary callable predicates and matches Emacs behavior of
 /// binding `default-directory` to DIRECTORY while predicate is invoked.
@@ -606,17 +646,19 @@ pub(crate) fn builtin_file_name_all_completions(args: Vec<Value>) -> EvalResult 
     ))
 }
 
-/// Evaluator-backed variant of `file-name-all-completions`.
-/// Resolves relative DIRECTORY against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_name_all_completions_eval(
-    eval: &Evaluator,
+pub(crate) fn builtin_file_name_all_completions_in_state(
+    obarray: &super::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("file-name-all-completions", &args, 2, 2)?;
 
     let file = expect_string("file-name-all-completions", &args[0])?;
-    let directory = super::fileio::resolve_filename_for_eval(
-        eval,
+    let directory = super::fileio::resolve_filename_in_state(
+        obarray,
+        dynamic,
+        buffers,
         &expect_string("file-name-all-completions", &args[1])?,
     );
     if file.contains('/') {
@@ -626,6 +668,20 @@ pub(crate) fn builtin_file_name_all_completions_eval(
     Ok(Value::list(
         completions.into_iter().map(Value::string).collect(),
     ))
+}
+
+/// Evaluator-backed variant of `file-name-all-completions`.
+/// Resolves relative DIRECTORY against dynamic/default `default-directory`.
+pub(crate) fn builtin_file_name_all_completions_eval(
+    eval: &Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_file_name_all_completions_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 fn collect_file_name_completions(file: &str, directory: &str) -> Result<Vec<String>, Flow> {
@@ -870,13 +926,18 @@ pub(crate) fn builtin_file_attributes(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Evaluator-backed variant of `file-attributes`.
-/// Resolves relative FILENAME against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_attributes_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_attributes_in_state(
+    obarray: &super::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("file-attributes", &args, 1, 2)?;
 
-    let filename = super::fileio::resolve_filename_for_eval(
-        eval,
+    let filename = super::fileio::resolve_filename_in_state(
+        obarray,
+        dynamic,
+        buffers,
         &expect_string("file-attributes", &args[0])?,
     );
     let id_format_string = args.get(1).is_some_and(|v| v.is_truthy());
@@ -885,6 +946,12 @@ pub(crate) fn builtin_file_attributes_eval(eval: &Evaluator, args: Vec<Value>) -
         Some(attrs) => Ok(attrs),
         None => Ok(Value::Nil),
     }
+}
+
+/// Evaluator-backed variant of `file-attributes`.
+/// Resolves relative FILENAME against dynamic/default `default-directory`.
+pub(crate) fn builtin_file_attributes_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_attributes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-attributes-lessp F1 F2)
