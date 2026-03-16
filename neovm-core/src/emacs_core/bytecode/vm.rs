@@ -3695,6 +3695,30 @@ impl<'a> Vm<'a> {
                 args.to_vec(),
             )),
             "buffer-substring" => Some(self.builtin_buffer_substring_shared(args)),
+            "minibufferp" => Some(crate::emacs_core::minibuffer::builtin_minibufferp(
+                args.to_vec(),
+            )),
+            "minibuffer-prompt" => Some(crate::emacs_core::minibuffer::builtin_minibuffer_prompt(
+                args.to_vec(),
+            )),
+            "minibuffer-contents" => Some(
+                crate::emacs_core::minibuffer::builtin_minibuffer_contents_in_state(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "minibuffer-contents-no-properties" => Some(
+                crate::emacs_core::minibuffer::builtin_minibuffer_contents_no_properties_in_state(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "minibuffer-depth" => Some(crate::emacs_core::minibuffer::builtin_minibuffer_depth(
+                args.to_vec(),
+            )),
+            "abort-minibuffers" => Some(
+                crate::emacs_core::minibuffer::builtin_abort_minibuffers(args.to_vec()),
+            ),
             "point" => Some(self.builtin_point_shared(args)),
             "buffer-list" => Some(self.builtin_buffer_list_shared(args)),
             "other-buffer" => Some(self.builtin_other_buffer_shared(args)),

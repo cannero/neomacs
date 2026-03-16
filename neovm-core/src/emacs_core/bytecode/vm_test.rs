@@ -1749,6 +1749,27 @@ fn vm_buffer_metrics_and_swap_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_minibuffer_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "vm-mini")
+                 (list
+                  (minibuffer-contents)
+                  (minibuffer-contents-no-properties)
+                  (minibuffer-depth)
+                  (minibuffer-prompt)
+                  (minibufferp)
+                  (minibufferp "x" nil)
+                  (condition-case err
+                      (abort-minibuffers)
+                    (error (car err)))))"#
+        ),
+        r#"OK ("vm-mini" "vm-mini" 0 nil nil nil error)"#
+    );
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));

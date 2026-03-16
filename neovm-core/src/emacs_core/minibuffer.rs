@@ -841,9 +841,15 @@ pub(crate) fn builtin_minibuffer_contents(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_minibuffer_contents_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_minibuffer_contents_in_state(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("minibuffer-contents", &args, 0)?;
-    let text = eval
-        .buffers
+    let text = buffers
         .current_buffer()
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();
@@ -859,9 +865,15 @@ pub(crate) fn builtin_minibuffer_contents_no_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_minibuffer_contents_no_properties_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_minibuffer_contents_no_properties_in_state(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("minibuffer-contents-no-properties", &args, 0)?;
-    let text = eval
-        .buffers
+    let text = buffers
         .current_buffer()
         .map(|buf| buf.buffer_string())
         .unwrap_or_default();
