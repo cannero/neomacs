@@ -4495,6 +4495,20 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "current-window-configuration" => Some(
+                crate::emacs_core::builtins::builtin_current_window_configuration_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-configuration" => Some(
+                crate::emacs_core::builtins::builtin_set_window_configuration_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "window-combination-limit" => Some(
                 crate::emacs_core::window_cmds::builtin_window_combination_limit_in_state(
                     self.shared.frames,

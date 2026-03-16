@@ -1050,6 +1050,33 @@ fn vm_split_window_and_frame_selection_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_configuration_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w1 (selected-window))
+                      (w2 (split-window-internal w1 nil 'right nil))
+                      (b1 (get-buffer-create "vm-wcfg-1"))
+                      (b2 (get-buffer-create "vm-wcfg-2")))
+                 (set-window-buffer w1 b1)
+                 (set-window-buffer w2 b2)
+                 (select-window w2)
+                 (let ((cfg (current-window-configuration)))
+                   (delete-window w2)
+                   (set-window-configuration cfg)
+                   (list (window-configuration-p cfg)
+                         (framep (window-configuration-frame cfg))
+                         (window-configuration-equal-p cfg cfg)
+                         (length (window-list))
+                         (eq (selected-window) w2)
+                         (eq (current-buffer) b2)
+                         (eq (window-buffer w1) b1)
+                         (eq (window-buffer w2) b2))))"#
+        ),
+        "OK (t t t 2 t t t t)"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),

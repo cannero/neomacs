@@ -227,11 +227,18 @@ fn expect_optional_live_frame_designator(
     value: &Value,
     eval: &super::eval::Evaluator,
 ) -> Result<(), Flow> {
+    expect_optional_live_frame_designator_in_state(value, &eval.frames)
+}
+
+fn expect_optional_live_frame_designator_in_state(
+    value: &Value,
+    frames: &crate::window::FrameManager,
+) -> Result<(), Flow> {
     if value.is_nil() {
         return Ok(());
     }
     if let Value::Frame(id) = value {
-        if eval.frames.get(crate::window::FrameId(*id)).is_some() {
+        if frames.get(crate::window::FrameId(*id)).is_some() {
             return Ok(());
         }
     }
@@ -350,17 +357,25 @@ pub(crate) fn builtin_current_window_configuration(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_current_window_configuration_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_current_window_configuration_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("current-window-configuration", &args, 1)?;
 
     let frame = if let Some(frame) = args.first() {
-        expect_optional_live_frame_designator(frame, eval)?;
+        expect_optional_live_frame_designator_in_state(frame, frames)?;
         if frame.is_nil() {
-            super::window_cmds::builtin_selected_frame(eval, vec![])?
+            super::window_cmds::builtin_selected_frame_in_state(frames, buffers, vec![])?
         } else {
             *frame
         }
     } else {
-        super::window_cmds::builtin_selected_frame(eval, vec![])?
+        super::window_cmds::builtin_selected_frame_in_state(frames, buffers, vec![])?
     };
 
     let Value::Frame(frame_raw_id) = frame else {
@@ -370,7 +385,7 @@ pub(crate) fn builtin_current_window_configuration(
         ));
     };
     let frame_id = crate::window::FrameId(frame_raw_id);
-    if let Some(frame_state) = eval.frames.get(frame_id) {
+    if let Some(frame_state) = frames.get(frame_id) {
         let snapshot = WindowConfigurationSnapshot {
             frame_id,
             root_window: frame_state.root_window.clone(),
@@ -401,6 +416,14 @@ pub(crate) fn builtin_set_window_configuration(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_configuration_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_configuration_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("set-window-configuration", &args, 1, 3)?;
     let Some((_frame, serial)) = window_configuration_parts_from_value(&args[0]) else {
         return Err(signal(
@@ -412,7 +435,7 @@ pub(crate) fn builtin_set_window_configuration(
     let snapshot = WINDOW_CONFIGURATION_SNAPSHOTS.with(|slot| slot.borrow().get(&serial).cloned());
 
     if let Some(snapshot) = snapshot {
-        let selected_buffer = if let Some(frame) = eval.frames.get_mut(snapshot.frame_id) {
+        let selected_buffer = if let Some(frame) = frames.get_mut(snapshot.frame_id) {
             frame.root_window = snapshot.root_window;
             frame.selected_window = snapshot.selected_window;
             frame.minibuffer_window = snapshot.minibuffer_window;
@@ -424,7 +447,7 @@ pub(crate) fn builtin_set_window_configuration(
             None
         };
         if let Some(buffer_id) = selected_buffer {
-            eval.buffers.set_current(buffer_id);
+            buffers.set_current(buffer_id);
         }
     }
 
