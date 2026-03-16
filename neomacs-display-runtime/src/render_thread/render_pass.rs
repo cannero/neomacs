@@ -229,7 +229,7 @@ impl RenderApp {
         }
 
         // Render custom title bar when decorations are disabled (not in fullscreen)
-        tracing::debug!(
+        tracing::trace!(
             "CSD state: decorations_enabled={} is_fullscreen={} titlebar_height={}",
             self.chrome.decorations_enabled,
             self.chrome.is_fullscreen,

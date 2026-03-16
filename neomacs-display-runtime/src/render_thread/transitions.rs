@@ -342,14 +342,12 @@ impl RenderApp {
 
     /// Apply producer-emitted transition/effect hints.
     pub(super) fn detect_transitions(&mut self) {
-        let frame = match self.current_frame.as_ref() {
-            Some(f) => f,
+        let (transition_hints, effect_hints) = match self.current_frame.as_mut() {
+            Some(frame) => frame.take_runtime_hints(),
             None => return,
         };
 
         let now = std::time::Instant::now();
-        let transition_hints = frame.transition_hints.clone();
-        let effect_hints = frame.effect_hints.clone();
 
         for hint in &transition_hints {
             self.apply_transition_hint(hint, now);

@@ -585,6 +585,14 @@ impl FrameGlyphBuffer {
         self.current_clip_rect = None;
     }
 
+    /// Drain producer-emitted transition and effect hints exactly once.
+    pub fn take_runtime_hints(&mut self) -> (Vec<WindowTransitionHint>, Vec<WindowEffectHint>) {
+        (
+            std::mem::take(&mut self.transition_hints),
+            std::mem::take(&mut self.effect_hints),
+        )
+    }
+
     /// Set frame identity for child frame support.
     /// Called after begin_frame, before glyphs are added.
     pub fn set_frame_identity(
@@ -1374,6 +1382,28 @@ mod tests {
         assert_eq!(buf.effect_hints.len(), 1);
 
         buf.begin_frame(800.0, 600.0, Color::BLACK);
+        assert!(buf.transition_hints.is_empty());
+        assert!(buf.effect_hints.is_empty());
+    }
+
+    #[test]
+    fn take_runtime_hints_drains_transition_and_effect_hints() {
+        let mut buf = FrameGlyphBuffer::new();
+        buf.add_transition_hint(WindowTransitionHint {
+            window_id: 1,
+            bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+            kind: WindowTransitionKind::Crossfade,
+            effect: None,
+            easing: None,
+        });
+        buf.add_effect_hint(WindowEffectHint::TextFadeIn {
+            window_id: 1,
+            bounds: Rect::new(0.0, 0.0, 100.0, 100.0),
+        });
+
+        let (transition_hints, effect_hints) = buf.take_runtime_hints();
+        assert_eq!(transition_hints.len(), 1);
+        assert_eq!(effect_hints.len(), 1);
         assert!(buf.transition_hints.is_empty());
         assert!(buf.effect_hints.is_empty());
     }

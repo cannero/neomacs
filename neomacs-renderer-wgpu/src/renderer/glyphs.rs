@@ -102,7 +102,7 @@ impl WgpuRenderer {
         mouse_pos: (f32, f32),
         background_gradient: Option<((f32, f32, f32), (f32, f32, f32))>,
     ) {
-        tracing::debug!(
+        tracing::trace!(
             "render_frame_glyphs: frame={}x{} surface={}x{}, {} glyphs, {} faces",
             frame_glyphs.width,
             frame_glyphs.height,
