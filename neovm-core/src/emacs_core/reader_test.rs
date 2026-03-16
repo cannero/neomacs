@@ -405,6 +405,65 @@ fn read_from_minibuffer_rejects_more_than_seven_args() {
 }
 
 #[test]
+fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
+    let mut ev = Evaluator::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut ev);
+    let minibuffer_window = ev
+        .frame_manager()
+        .get(frame_id)
+        .and_then(|frame| frame.minibuffer_window)
+        .expect("initial frame minibuffer window");
+    let previous_selected_window = ev
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    let previous_minibuffer_buffer = ev
+        .frame_manager()
+        .get(frame_id)
+        .and_then(|frame| frame.find_window(minibuffer_window))
+        .and_then(|window| window.buffer_id())
+        .expect("inactive minibuffer buffer");
+
+    let active_buffer = ev.buffer_manager_mut().create_buffer(" *Minibuf-1*");
+    let saved = activate_minibuffer_window(&mut ev, active_buffer).expect("activate minibuffer");
+
+    let frame = ev
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame should stay live");
+    assert_eq!(frame.selected_window, minibuffer_window);
+    assert_eq!(
+        frame
+            .find_window(minibuffer_window)
+            .and_then(|window| window.buffer_id()),
+        Some(active_buffer)
+    );
+    assert_eq!(ev.buffer_manager().current_buffer_id(), Some(active_buffer));
+    assert_eq!(ev.active_minibuffer_window, Some(minibuffer_window));
+    assert_eq!(
+        ev.minibuffer_selected_window,
+        Some(previous_selected_window)
+    );
+
+    restore_minibuffer_window(&mut ev, saved);
+
+    let frame = ev
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame should stay live");
+    assert_eq!(frame.selected_window, previous_selected_window);
+    assert_eq!(
+        frame
+            .find_window(minibuffer_window)
+            .and_then(|window| window.buffer_id()),
+        Some(previous_minibuffer_buffer)
+    );
+    assert_eq!(ev.active_minibuffer_window, None);
+    assert_eq!(ev.minibuffer_selected_window, None);
+}
+
+#[test]
 fn read_string_signals_end_of_file() {
     let mut ev = Evaluator::new();
     let result = builtin_read_string(&mut ev, vec![Value::string("Prompt: ")]);

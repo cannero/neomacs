@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 neomacs-display-runtime = { workspace = true, default-features = false }
+neomacs-layout-engine.workspace = true
 neovm-core.workspace = true
 
 # Utilities

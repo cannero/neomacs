@@ -418,7 +418,7 @@ impl Frame {
 
     /// Select a window by ID.
     pub fn select_window(&mut self, id: WindowId) -> bool {
-        if self.root_window.find(id).is_some() {
+        if self.find_window(id).is_some() {
             self.selected_window = id;
             true
         } else {

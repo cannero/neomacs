@@ -1106,6 +1106,9 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
+        "window-line-height" => {
+            return Some(super::xdisp::builtin_window_line_height_eval(eval, args));
+        }
         "coordinates-in-window-p" => return Some(builtin_coordinates_in_window_p(eval, args)),
         "tool-bar-height" => return Some(super::xdisp::builtin_tool_bar_height_eval(eval, args)),
         "tab-bar-height" => return Some(super::xdisp::builtin_tab_bar_height_eval(eval, args)),
@@ -1609,7 +1612,9 @@ pub(crate) fn dispatch_builtin(
             return Some(super::window_cmds::builtin_minibuffer_window(eval, args));
         }
         "minibuffer-selected-window" => {
-            return Some(super::window_cmds::builtin_minibuffer_selected_window(args));
+            return Some(super::window_cmds::builtin_minibuffer_selected_window(
+                eval, args,
+            ));
         }
         "window-parameter" => {
             return Some(super::window_cmds::builtin_window_parameter(eval, args));
@@ -2240,6 +2245,7 @@ pub(crate) fn dispatch_builtin(
         }
         "recursion-depth" => return Some(super::misc::builtin_recursion_depth(eval, args)),
         "top-level" => return Some(super::minibuffer::builtin_top_level(args)),
+        "kill-emacs" => return Some(builtin_kill_emacs_eval(eval, args)),
         "recursive-edit" => {
             tracing::info!("dispatch_builtin: recursive-edit called");
             return Some(super::minibuffer::builtin_recursive_edit_eval(eval, args));
@@ -3085,7 +3091,7 @@ pub(crate) fn dispatch_builtin(
         "iso-charset" => builtin_iso_charset(args),
         "keymap--get-keyelt" => builtin_keymap_get_keyelt(args),
         "keymap-prompt" => builtin_keymap_prompt(args),
-        "kill-emacs" => builtin_kill_emacs(args),
+        "kill-emacs" => return None,
         "lower-frame" => builtin_lower_frame(args),
         "lread--substitute-object-in-subtree" => builtin_lread_substitute_object_in_subtree(args),
         "malloc-info" => builtin_malloc_info(args),
@@ -3901,7 +3907,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "iso-charset" => builtin_iso_charset(args),
         "keymap--get-keyelt" => builtin_keymap_get_keyelt(args),
         "keymap-prompt" => builtin_keymap_prompt(args),
-        "kill-emacs" => builtin_kill_emacs(args),
+        "kill-emacs" => return None,
         "lower-frame" => builtin_lower_frame(args),
         "lread--substitute-object-in-subtree" => builtin_lread_substitute_object_in_subtree(args),
         "malloc-info" => builtin_malloc_info(args),

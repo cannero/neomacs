@@ -111,6 +111,89 @@ fn expect_completing_read_initial_input(value: &Value) -> Result<(), Flow> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ActiveMinibufferWindowState {
+    frame_id: crate::window::FrameId,
+    minibuffer_window_id: crate::window::WindowId,
+    previous_selected_window: crate::window::WindowId,
+    previous_minibuffer_buffer: Option<crate::buffer::BufferId>,
+    previous_minibuffer_window_start: usize,
+    previous_minibuffer_point: usize,
+    previous_minibuffer_selected_window: Option<crate::window::WindowId>,
+    previous_active_minibuffer_window: Option<crate::window::WindowId>,
+}
+
+fn activate_minibuffer_window(
+    eval: &mut super::eval::Evaluator,
+    minibuf_id: crate::buffer::BufferId,
+) -> Option<ActiveMinibufferWindowState> {
+    let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
+    let frame = eval.frame_manager().get(frame_id)?;
+    let minibuffer_window_id = frame.minibuffer_window?;
+    let previous_selected_window = frame.selected_window;
+    let mut previous_minibuffer_buffer = None;
+    let mut previous_minibuffer_window_start = 1;
+    let mut previous_minibuffer_point = 1;
+    if let Some(crate::window::Window::Leaf {
+        buffer_id,
+        window_start,
+        point,
+        ..
+    }) = frame.find_window(minibuffer_window_id)
+    {
+        previous_minibuffer_buffer = Some(*buffer_id);
+        previous_minibuffer_window_start = *window_start;
+        previous_minibuffer_point = *point;
+    }
+
+    let saved = ActiveMinibufferWindowState {
+        frame_id,
+        minibuffer_window_id,
+        previous_selected_window,
+        previous_minibuffer_buffer,
+        previous_minibuffer_window_start,
+        previous_minibuffer_point,
+        previous_minibuffer_selected_window: eval.minibuffer_selected_window,
+        previous_active_minibuffer_window: eval.active_minibuffer_window,
+    };
+
+    if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
+        if let Some(window) = frame.find_window_mut(minibuffer_window_id) {
+            window.set_buffer(minibuf_id);
+        }
+        let _ = frame.select_window(minibuffer_window_id);
+    }
+    eval.buffer_manager_mut().set_current(minibuf_id);
+    eval.minibuffer_selected_window = Some(previous_selected_window);
+    eval.active_minibuffer_window = Some(minibuffer_window_id);
+    Some(saved)
+}
+
+fn restore_minibuffer_window(
+    eval: &mut super::eval::Evaluator,
+    saved: ActiveMinibufferWindowState,
+) {
+    if let Some(frame) = eval.frame_manager_mut().get_mut(saved.frame_id) {
+        if let Some(window) = frame.find_window_mut(saved.minibuffer_window_id) {
+            if let Some(prev_buffer_id) = saved.previous_minibuffer_buffer {
+                window.set_buffer(prev_buffer_id);
+                if let crate::window::Window::Leaf {
+                    window_start,
+                    point,
+                    ..
+                } = window
+                {
+                    *window_start = saved.previous_minibuffer_window_start.max(1);
+                    *point = saved.previous_minibuffer_point.max(1);
+                }
+            }
+        }
+        let _ = frame.select_window(saved.previous_selected_window);
+    }
+    eval.minibuffer_selected_window = saved.previous_minibuffer_selected_window;
+    eval.active_minibuffer_window = saved.previous_active_minibuffer_window;
+}
+
 fn signal_invalid_read_syntax_in_buffer(
     buffer_text: &str,
     absolute_error_pos: usize,
@@ -614,8 +697,12 @@ fn read_from_minibuffer_interactive(
         buf.goto_byte(total_len); // cursor at end of initial input
     }
 
-    // Switch to minibuffer buffer
-    eval.buffer_manager_mut().set_current(minibuf_id);
+    let active_minibuffer_window = activate_minibuffer_window(eval, minibuf_id);
+    if active_minibuffer_window.is_none() {
+        // Batch/no-frame fallback: still switch current buffer so tests without
+        // a realized GUI frame can exercise the minibuffer logic.
+        eval.buffer_manager_mut().set_current(minibuf_id);
+    }
 
     let enable_recursive = eval
         .obarray()
@@ -682,6 +769,9 @@ fn read_from_minibuffer_interactive(
 
     // Restore state
     eval.current_local_map = saved_local_map;
+    if let Some(saved) = active_minibuffer_window {
+        restore_minibuffer_window(eval, saved);
+    }
     if let Some(buf_id) = saved_buffer_id {
         eval.buffer_manager_mut().set_current(buf_id);
     }

@@ -1937,6 +1937,7 @@ dependencies = [
  "crossbeam-channel",
  "libc",
  "neomacs-display-runtime",
+ "neomacs-layout-engine",
  "neovm-core",
  "tracing",
  "tracing-subscriber",

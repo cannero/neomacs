@@ -4512,6 +4512,24 @@ pub(crate) fn builtin_kill_emacs(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_kill_emacs_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("kill-emacs", &args, 0, 2)?;
+
+    let exit_code = match args.first().copied().unwrap_or(Value::Nil) {
+        Value::Int(n) => n as i32,
+        Value::Nil | Value::True => 0,
+        _ => 0,
+    };
+    let restart = args.get(1).is_some_and(Value::is_truthy);
+
+    let _ = eval.run_hook_if_bound("kill-emacs-hook");
+    eval.request_shutdown(exit_code, restart);
+    Ok(Value::Nil)
+}
+
 pub(crate) fn builtin_lower_frame(args: Vec<Value>) -> EvalResult {
     expect_range_args("lower-frame", &args, 0, 1)?;
     Ok(Value::Nil)

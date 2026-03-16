@@ -20,7 +20,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
 use crate::buffer::BufferId;
-use crate::window::{FrameId, WindowId};
+use crate::window::{FrameId, Window, WindowId};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -711,94 +711,107 @@ pub(crate) fn builtin_pos_visible_in_window_p_in_state(
 ) -> EvalResult {
     expect_args_range("pos-visible-in-window-p", &args, 0, 3)?;
     validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
-    if frames.frame_list().is_empty() {
+    let Some(ctx) = resolve_live_window_display_context(frames, buffers, args.get(1))? else {
+        return Ok(Value::Nil);
+    };
+    let partially = args.get(2).is_some_and(Value::is_truthy);
+    let Some(pos_lisp) = resolve_pos_visible_target_lisp_pos(&ctx, args.first())? else {
+        return Ok(Value::Nil);
+    };
+    let Some(metrics) = approximate_pos_visible_metrics(&ctx, pos_lisp) else {
+        return Ok(Value::Nil);
+    };
+    if !partially && !metrics.fully_visible {
         return Ok(Value::Nil);
     }
+    if !partially {
+        return Ok(Value::True);
+    }
+    let mut out = vec![Value::Int(metrics.x), Value::Int(metrics.y)];
+    if !metrics.fully_visible {
+        out.extend([
+            Value::Int(metrics.rtop),
+            Value::Int(metrics.rbot),
+            Value::Int(metrics.row_height),
+            Value::Int(metrics.vpos),
+        ]);
+    }
+    Ok(Value::list(out))
+}
 
-    // Extract buffer data up-front so we can release the immutable borrow on
-    // buffer/window state before calling shared window helpers.
-    let (check_pos, text_bytes, zv) = {
-        let Some(buf) = buffers.current_buffer() else {
-            return Ok(Value::Nil);
-        };
-        let check_pos = match args.first() {
-            Some(Value::True) | Some(Value::Symbol(_))
-                if args
-                    .first()
-                    .is_some_and(|v| matches!(v, Value::True) || v.is_symbol_named("t")) =>
-            {
-                buf.zv
-            }
-            Some(v) if !v.is_nil() => {
-                expect_integer_or_marker(v)?;
-                let n = v.as_int().unwrap_or(0);
-                buf.text
-                    .char_to_byte(((n - 1).max(0) as usize).min(buf.text.byte_to_char(buf.zv)))
-            }
-            _ => buf.pt,
-        };
-        let text_bytes = buf.text.to_string().into_bytes();
-        (check_pos, text_bytes, buf.zv)
+/// `(window-line-height &optional LINE WINDOW)` evaluator-backed variant.
+///
+/// GNU Emacs returns `(HEIGHT VPOS YPOS OFFBOT)` for a live GUI window.  We
+/// approximate this from the current frame/window geometry so commands in
+/// `simple.el` can reason about visual line movement without batch fallbacks.
+pub(crate) fn builtin_window_line_height_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_window_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_line_height_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args_range("window-line-height", &args, 0, 2)?;
+    validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
+    let Some(ctx) = resolve_live_window_display_context(frames, buffers, args.get(1))? else {
+        return Ok(Value::Nil);
     };
 
-    // Get window-start (char position → byte offset).
-    let ws = super::window_cmds::builtin_window_start_in_state(
-        frames,
-        buffers,
-        vec![args.get(1).copied().unwrap_or(Value::Nil)],
-    )
-    .ok()
-    .and_then(|v| match v {
-        Value::Int(n) => Some(n),
-        _ => None,
-    })
-    .unwrap_or(1);
-    // Convert char position to byte offset using the extracted text.
-    let mut ws_byte = 0usize;
-    let mut chars_seen = 0i64;
-    for (i, &b) in text_bytes.iter().enumerate() {
-        if chars_seen >= (ws - 1).max(0) {
-            ws_byte = i;
-            break;
+    let line_spec = args.first().copied().unwrap_or(Value::Nil);
+    let metrics = if line_spec.is_nil() {
+        let current_pos = current_window_point_lisp(&ctx);
+        approximate_pos_visible_metrics(&ctx, current_pos)
+            .map(ApproxVisibleMetrics::as_window_line_height)
+    } else if line_spec.is_symbol_named("mode-line") {
+        if ctx.is_minibuffer {
+            None
+        } else {
+            Some(WindowLineMetrics {
+                height: ctx.char_height,
+                vpos: 0,
+                ypos: ctx.body_height,
+                offbot: 0,
+            })
         }
-        // Count only leading bytes of UTF-8 sequences as char starts.
-        if (b & 0xC0) != 0x80 {
-            chars_seen += 1;
-        }
-    }
-    if chars_seen < (ws - 1).max(0) {
-        ws_byte = text_bytes.len();
-    }
-
-    // Get window height to estimate window-end.
-    let wh = super::window_cmds::builtin_window_body_height_in_state(
-        frames,
-        buffers,
-        vec![args.get(1).copied().unwrap_or(Value::Nil)],
-    )
-    .ok()
-    .and_then(|v| match v {
-        Value::Int(n) => Some(n),
-        _ => None,
-    })
-    .unwrap_or(24);
-
-    // Estimate window-end: scan wh lines from window-start.
-    let mut we_byte = ws_byte;
-    for _ in 0..wh {
-        while we_byte < zv && we_byte < text_bytes.len() && text_bytes[we_byte] != b'\n' {
-            we_byte += 1;
-        }
-        if we_byte < zv && we_byte < text_bytes.len() {
-            we_byte += 1;
-        }
-    }
-
-    if check_pos >= ws_byte && check_pos <= we_byte {
-        Ok(Value::True)
+    } else if line_spec.is_symbol_named("header-line") || line_spec.is_symbol_named("tab-line") {
+        None
     } else {
-        Ok(Value::Nil)
-    }
+        let line_num = match line_spec {
+            Value::Int(n) => n,
+            Value::Char(ch) => ch as i64,
+            other => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("integerp"), other],
+                ));
+            }
+        };
+        let row = if line_num < 0 {
+            ctx.body_lines + line_num
+        } else {
+            line_num
+        };
+        if row < 0 || row >= ctx.body_lines {
+            None
+        } else {
+            Some(window_row_metrics(&ctx, row))
+        }
+    };
+
+    let Some(metrics) = metrics else {
+        return Ok(Value::Nil);
+    };
+    Ok(Value::list(vec![
+        Value::Int(metrics.height),
+        Value::Int(metrics.vpos),
+        Value::Int(metrics.ypos),
+        Value::Int(metrics.offbot),
+    ]))
 }
 
 /// (move-point-visually DIRECTION) -> boolean
@@ -1163,6 +1176,249 @@ fn resolve_mode_line_buffer_in_state(
     match buffer {
         Some(Value::Buffer(id)) => Some(*id),
         _ => resolve_optional_window_buffer_in_state(frames, window),
+    }
+}
+
+#[derive(Clone)]
+struct ApproxWindowDisplayContext {
+    body_height: i64,
+    body_lines: i64,
+    char_width: i64,
+    char_height: i64,
+    window_start: usize,
+    window_point: usize,
+    chars: Vec<char>,
+    is_minibuffer: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ApproxVisibleMetrics {
+    x: i64,
+    y: i64,
+    rtop: i64,
+    rbot: i64,
+    row_height: i64,
+    vpos: i64,
+    fully_visible: bool,
+}
+
+#[derive(Clone, Copy)]
+struct WindowLineMetrics {
+    height: i64,
+    vpos: i64,
+    ypos: i64,
+    offbot: i64,
+}
+
+impl ApproxVisibleMetrics {
+    fn as_window_line_height(self) -> WindowLineMetrics {
+        WindowLineMetrics {
+            height: self.row_height,
+            vpos: self.vpos,
+            ypos: self.y,
+            offbot: self.rbot,
+        }
+    }
+}
+
+fn resolve_live_window_display_context(
+    frames: &crate::window::FrameManager,
+    buffers: &crate::buffer::BufferManager,
+    window: Option<&Value>,
+) -> Result<Option<ApproxWindowDisplayContext>, Flow> {
+    let Some((fid, wid)) = resolve_live_window_identity(frames, window)? else {
+        return Ok(None);
+    };
+    let Some(frame) = frames.get(fid) else {
+        return Ok(None);
+    };
+    let Some(window_ref) = frame.find_window(wid) else {
+        return Ok(None);
+    };
+    let Some(buffer_id) = window_ref.buffer_id() else {
+        return Ok(None);
+    };
+    let Some(buffer) = buffers.get(buffer_id) else {
+        return Ok(None);
+    };
+
+    let Window::Leaf {
+        bounds,
+        window_start,
+        point,
+        ..
+    } = window_ref
+    else {
+        return Ok(None);
+    };
+
+    let char_width = frame.char_width.max(1.0).round() as i64;
+    let char_height = frame.char_height.max(1.0).round() as i64;
+    let body_top = bounds.y.max(0.0) as i64;
+    let body_bottom = (bounds.y + bounds.height).max(0.0) as i64
+        - if frame.minibuffer_window == Some(wid) {
+            0
+        } else {
+            char_height
+        };
+    let body_height = (body_bottom - body_top).max(1);
+    let body_lines = ((body_height + char_height - 1) / char_height).max(1);
+    let chars = buffer.text.to_string().chars().collect::<Vec<_>>();
+    let window_point =
+        if frame.selected_window == wid && buffers.current_buffer_id() == Some(buffer_id) {
+            buffer.point_char().saturating_add(1)
+        } else {
+            (*point).max(1)
+        };
+
+    Ok(Some(ApproxWindowDisplayContext {
+        body_height,
+        body_lines,
+        char_width,
+        char_height,
+        window_start: (*window_start).max(1),
+        window_point,
+        chars,
+        is_minibuffer: frame.minibuffer_window == Some(wid),
+    }))
+}
+
+fn resolve_live_window_identity(
+    frames: &crate::window::FrameManager,
+    window: Option<&Value>,
+) -> Result<Option<(FrameId, WindowId)>, Flow> {
+    let Some(windowish) = window else {
+        return Ok(frames
+            .selected_frame()
+            .map(|frame| (frame.id, frame.selected_window)));
+    };
+    if windowish.is_nil() {
+        return Ok(frames
+            .selected_frame()
+            .map(|frame| (frame.id, frame.selected_window)));
+    }
+    let wid = match windowish {
+        Value::Window(id) => WindowId(*id),
+        Value::Int(id) if *id >= 0 => WindowId(*id as u64),
+        other => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("window-live-p"), *other],
+            ));
+        }
+    };
+    for fid in frames.frame_list() {
+        if frames
+            .get(fid)
+            .is_some_and(|frame| frame.find_window(wid).is_some())
+        {
+            return Ok(Some((fid, wid)));
+        }
+    }
+    Ok(None)
+}
+
+fn resolve_pos_visible_target_lisp_pos(
+    ctx: &ApproxWindowDisplayContext,
+    pos: Option<&Value>,
+) -> Result<Option<usize>, Flow> {
+    match pos {
+        Some(value) if matches!(value, Value::True) || value.is_symbol_named("t") => {
+            Ok(Some(last_visible_row_start_lisp_pos(ctx)))
+        }
+        Some(value) if !value.is_nil() => {
+            expect_integer_or_marker(value)?;
+            let lisp_pos = value.as_int().unwrap_or(0).max(1) as usize;
+            Ok(Some(lisp_pos.min(ctx.chars.len().saturating_add(1))))
+        }
+        _ => Ok(Some(current_window_point_lisp(ctx))),
+    }
+}
+
+fn current_window_point_lisp(ctx: &ApproxWindowDisplayContext) -> usize {
+    ctx.window_point
+        .max(1)
+        .min(ctx.chars.len().saturating_add(1))
+}
+
+fn last_visible_row_start_lisp_pos(ctx: &ApproxWindowDisplayContext) -> usize {
+    let row_start = nth_visible_row_start_char(
+        &ctx.chars,
+        ctx.window_start.saturating_sub(1),
+        ctx.body_lines.saturating_sub(1),
+    );
+    row_start
+        .saturating_add(1)
+        .min(ctx.chars.len().saturating_add(1))
+}
+
+fn nth_visible_row_start_char(chars: &[char], mut start_char: usize, rows: i64) -> usize {
+    start_char = start_char.min(chars.len());
+    for _ in 0..rows.max(0) {
+        if start_char >= chars.len() {
+            return chars.len();
+        }
+        match chars[start_char..].iter().position(|ch| *ch == '\n') {
+            Some(offset) => start_char += offset + 1,
+            None => return chars.len(),
+        }
+    }
+    start_char
+}
+
+fn row_col_for_lisp_pos(chars: &[char], start_char: usize, lisp_pos: usize) -> Option<(i64, i64)> {
+    if lisp_pos == 0 {
+        return None;
+    }
+    let target = lisp_pos.saturating_sub(1).min(chars.len());
+    let mut row = 0_i64;
+    let mut col = 0_i64;
+    let mut idx = start_char.min(chars.len());
+    while idx < target {
+        if chars[idx] == '\n' {
+            row += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+        idx += 1;
+    }
+    Some((row, col))
+}
+
+fn approximate_pos_visible_metrics(
+    ctx: &ApproxWindowDisplayContext,
+    pos_lisp: usize,
+) -> Option<ApproxVisibleMetrics> {
+    if pos_lisp < ctx.window_start {
+        return None;
+    }
+    let start_char = ctx.window_start.saturating_sub(1);
+    let (row, col) = row_col_for_lisp_pos(&ctx.chars, start_char, pos_lisp)?;
+    if row < 0 || row >= ctx.body_lines {
+        return None;
+    }
+    let row_metrics = window_row_metrics(ctx, row);
+    Some(ApproxVisibleMetrics {
+        x: col.saturating_mul(ctx.char_width),
+        y: row_metrics.ypos,
+        rtop: 0,
+        rbot: row_metrics.offbot,
+        row_height: row_metrics.height,
+        vpos: row_metrics.vpos,
+        fully_visible: row_metrics.offbot == 0,
+    })
+}
+
+fn window_row_metrics(ctx: &ApproxWindowDisplayContext, row: i64) -> WindowLineMetrics {
+    let ypos = row.saturating_mul(ctx.char_height);
+    let row_bottom = (row + 1).saturating_mul(ctx.char_height);
+    let offbot = (row_bottom - ctx.body_height).max(0);
+    WindowLineMetrics {
+        height: (ctx.char_height - offbot).max(1),
+        vpos: row,
+        ypos,
+        offbot,
     }
 }
 

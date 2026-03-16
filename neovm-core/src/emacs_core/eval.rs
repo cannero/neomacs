@@ -838,6 +838,13 @@ pub struct Evaluator {
     read_command_keys: Vec<Value>,
     /// Current echo-area message text, mirroring GNU `current-message`.
     current_message: Option<String>,
+    /// Window that was selected when the active minibuffer session began.
+    pub(crate) minibuffer_selected_window: Option<crate::window::WindowId>,
+    /// Currently active minibuffer window, if any.
+    pub(crate) active_minibuffer_window: Option<crate::window::WindowId>,
+    /// Pending orderly shutdown requested by GNU C-owned primitives such as
+    /// `kill-emacs`.
+    pub(crate) shutdown_request: Option<ShutdownRequest>,
     /// Batch-compatible input-mode interrupt flag for `current-input-mode`.
     input_mode_interrupt: bool,
     /// True while the command loop is blocked waiting for external input.
@@ -945,6 +952,12 @@ pub struct Evaluator {
     /// only the selected env template and trimmed body, so captured values are
     /// always rebuilt from the current runtime environment on a hit.
     interpreted_closure_trim_cache: HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShutdownRequest {
+    pub exit_code: i32,
+    pub restart: bool,
 }
 
 pub(crate) enum RequirePlan {
@@ -2391,6 +2404,9 @@ impl Evaluator {
             recent_input_events: Vec::new(),
             read_command_keys: Vec::new(),
             current_message: None,
+            minibuffer_selected_window: None,
+            active_minibuffer_window: None,
+            shutdown_request: None,
             input_mode_interrupt: true,
             waiting_for_user_input: false,
             frames: FrameManager::new(),
@@ -2494,6 +2510,9 @@ impl Evaluator {
             recent_input_events: Vec::new(),
             read_command_keys: Vec::new(),
             current_message: None,
+            minibuffer_selected_window: None,
+            active_minibuffer_window: None,
+            shutdown_request: None,
             input_mode_interrupt: true,
             waiting_for_user_input: false,
             frames: FrameManager::new(),
@@ -2678,6 +2697,15 @@ impl Evaluator {
             Ok(_) => Ok(()),
             Err(flow) => Err(format!("{:?}", flow)),
         }
+    }
+
+    pub(crate) fn request_shutdown(&mut self, exit_code: i32, restart: bool) {
+        self.shutdown_request = Some(ShutdownRequest { exit_code, restart });
+        self.command_loop.running = false;
+    }
+
+    pub fn shutdown_request(&self) -> Option<ShutdownRequest> {
+        self.shutdown_request
     }
 
     #[tracing::instrument(skip_all, fields(depth = self.command_loop.recursive_depth, has_input = self.input_rx.is_some()))]
@@ -3299,7 +3327,7 @@ impl Evaluator {
     }
 
     /// Run a named hook if it is bound and non-nil.
-    fn run_hook_if_bound(&mut self, hook_name: &str) -> EvalResult {
+    pub(crate) fn run_hook_if_bound(&mut self, hook_name: &str) -> EvalResult {
         match self.eval_symbol(hook_name) {
             Ok(hook_val) if !hook_val.is_nil() => {
                 // (run-hooks 'HOOK)

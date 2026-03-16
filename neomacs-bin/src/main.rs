@@ -20,6 +20,7 @@ use neomacs_display_runtime::render_thread::{
     RenderThread, SharedImageDimensions, SharedMonitorInfo,
 };
 use neomacs_display_runtime::thread_comm::{RenderCommand, ThreadComms};
+use neomacs_layout_engine::font_metrics::FontMetricsService;
 
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
@@ -172,13 +173,21 @@ fn main() {
     run_gnu_startup(&mut evaluator);
     tracing::info!("GNU startup returned (unexpected)");
 
-    // If top-level returns (shouldn't normally happen), fall back to recursive-edit
-    tracing::info!("Entering command loop (recursive-edit)");
-    let exit_status = evaluator.recursive_edit();
-    if exit_status.is_ok() {
-        tracing::info!("Command loop exited normally");
+    if evaluator.shutdown_request().is_none() {
+        // If top-level returns without an explicit shutdown request
+        // (shouldn't normally happen), fall back to recursive-edit.
+        tracing::info!("Entering command loop (recursive-edit)");
+        let exit_status = evaluator.recursive_edit();
+        if exit_status.is_ok() {
+            tracing::info!("Command loop exited normally");
+        } else {
+            tracing::warn!("Command loop exited with error");
+        }
     } else {
-        tracing::warn!("Command loop exited with error");
+        tracing::info!(
+            "Skipping recursive-edit fallback because shutdown was requested: {:?}",
+            evaluator.shutdown_request()
+        );
     }
 
     // 11. Shutdown
@@ -188,6 +197,15 @@ fn main() {
         .try_send(neomacs_display_runtime::thread_comm::RenderCommand::Shutdown);
     render_thread.join();
     tracing::info!("Neomacs exited cleanly");
+
+    if let Some(request) = evaluator.shutdown_request() {
+        if request.restart {
+            tracing::warn!("restart requested via kill-emacs, but restart is not implemented yet");
+        }
+        if request.exit_code != 0 {
+            std::process::exit(request.exit_code);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +219,27 @@ struct BootstrapResult {
     minibuf_id: BufferId,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct BootstrapFrameMetrics {
+    char_width: f32,
+    char_height: f32,
+    font_pixel_size: f32,
+}
+
+fn bootstrap_frame_metrics() -> BootstrapFrameMetrics {
+    let font_pixel_size = 16.0;
+    let mut metrics_svc = FontMetricsService::new();
+    let metrics = metrics_svc.font_metrics("Monospace", 400, false, font_pixel_size);
+    BootstrapFrameMetrics {
+        char_width: metrics.char_width.max(1.0),
+        char_height: metrics.line_height.max(1.0),
+        font_pixel_size,
+    }
+}
+
 fn bootstrap_buffers(eval: &mut Evaluator, width: u32, height: u32) -> BootstrapResult {
+    let frame_metrics = bootstrap_frame_metrics();
+
     // Create *scratch* buffer with initial content
     let scratch_id = eval.buffer_manager_mut().create_buffer("*scratch*");
     if let Some(buf) = eval.buffer_manager_mut().get_mut(scratch_id) {
@@ -251,6 +289,9 @@ fn bootstrap_buffers(eval: &mut Evaluator, width: u32, height: u32) -> Bootstrap
             .parameters
             .insert("window-system".to_string(), Value::symbol("neomacs"));
         frame.title = "Neomacs".to_string();
+        frame.font_pixel_size = frame_metrics.font_pixel_size;
+        frame.char_width = frame_metrics.char_width;
+        frame.char_height = frame_metrics.char_height;
         if let Window::Leaf {
             window_start,
             point,
@@ -431,14 +472,16 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 #[cfg(test)]
 mod tests {
     use super::{
-        bootstrap_buffers, configure_gnu_startup_state, current_layout_frame_id, run_gnu_startup,
-        run_layout,
+        bootstrap_buffers, bootstrap_frame_metrics, configure_gnu_startup_state,
+        current_layout_frame_id, run_gnu_startup, run_layout,
     };
     use neomacs_display_runtime::FrameGlyphBuffer;
     use neomacs_display_runtime::core::frame_glyphs::{FrameGlyph, GlyphRowRole};
     use neovm_core::emacs_core::Evaluator;
     use neovm_core::emacs_core::Value;
-    use neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features;
+    use neovm_core::emacs_core::load::{
+        create_bootstrap_evaluator_cached_with_features, create_bootstrap_evaluator_with_features,
+    };
     use neovm_core::emacs_core::parse_forms;
     use neovm_core::emacs_core::print_value_with_eval;
     use neovm_core::window::FrameId;
@@ -486,6 +529,27 @@ mod tests {
             eval.obarray().symbol_value("default-minibuffer-frame"),
             Some(&Value::Nil)
         );
+    }
+
+    #[test]
+    fn bootstrap_buffers_seed_frame_with_renderer_metrics() {
+        let metrics = bootstrap_frame_metrics();
+        let mut eval = Evaluator::new();
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap");
+        assert_eq!(frame.char_width, metrics.char_width);
+        assert_eq!(frame.char_height, metrics.char_height);
+        assert_eq!(frame.font_pixel_size, metrics.font_pixel_size);
+        let minibuffer_height = frame
+            .minibuffer_leaf
+            .as_ref()
+            .expect("minibuffer leaf")
+            .bounds()
+            .height;
+        assert_eq!(minibuffer_height, metrics.char_height);
     }
 
     #[test]
@@ -783,5 +847,34 @@ mod tests {
             print_value_with_eval(&mut eval, &result),
             "(960 608 960 592 960 592 (0 0 960 608) (0 0 960 592))"
         );
+    }
+
+    #[test]
+    fn gnu_startup_next_line_moves_point_on_live_gui_frame() {
+        let mut eval =
+            create_bootstrap_evaluator_with_features(&["neomacs"]).expect("bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "abc\ndef\nghi")
+                 (goto-char 1)
+                 (command-execute 'next-line)
+                 (point))"#,
+        )
+        .expect("parse startup next-line probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup next-line probe should evaluate");
+        assert_eq!(result, Value::Int(5));
     }
 }

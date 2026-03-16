@@ -1045,6 +1045,18 @@ fn select_window_works() {
 }
 
 #[test]
+fn select_window_accepts_minibuffer_window_and_switches_current_buffer() {
+    let results = eval_with_frame(
+        "(let ((mw (minibuffer-window)))
+           (select-window mw)
+           (list (eq (selected-window) mw)
+                 (window-minibuffer-p (selected-window))
+                 (eq (current-buffer) (window-buffer mw))))",
+    );
+    assert_eq!(results[0], "OK (t t t)");
+}
+
+#[test]
 fn select_window_validates_designators_and_arity() {
     let mut ev = Evaluator::new();
     let forms = parse_forms(

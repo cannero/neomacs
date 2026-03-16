@@ -5184,6 +5184,13 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "window-line-height" => Some(
+                crate::emacs_core::xdisp::builtin_window_line_height_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "coordinates-in-window-p" => Some(
                 crate::emacs_core::builtins::builtin_coordinates_in_window_p_in_state(
                     self.shared.frames,

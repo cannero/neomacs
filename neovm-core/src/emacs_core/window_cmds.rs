@@ -984,10 +984,16 @@ pub(crate) fn builtin_window_minibuffer_p(
     Ok(Value::bool(is_minibuffer))
 }
 
-/// `(minibuffer-selected-window)` -> nil in batch (no active minibuffer).
-pub(crate) fn builtin_minibuffer_selected_window(args: Vec<Value>) -> EvalResult {
+/// `(minibuffer-selected-window)` -> selected window active at minibuffer entry.
+pub(crate) fn builtin_minibuffer_selected_window(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("minibuffer-selected-window", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(eval
+        .minibuffer_selected_window
+        .map(window_value)
+        .unwrap_or(Value::Nil))
 }
 
 /// `(active-minibuffer-window)` -> nil in batch.
@@ -995,7 +1001,11 @@ pub(crate) fn builtin_active_minibuffer_window_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_active_minibuffer_window_in_state(&eval.minibuffers, &eval.frames, args)
+    expect_args("active-minibuffer-window", &args, 0)?;
+    if let Some(wid) = eval.active_minibuffer_window {
+        return Ok(window_value(wid));
+    }
+    builtin_active_minibuffer_window_in_state(&eval.minibuffers, &eval.frames, vec![])
 }
 
 pub(crate) fn builtin_active_minibuffer_window_in_state(

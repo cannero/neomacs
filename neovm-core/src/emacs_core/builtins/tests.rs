@@ -5345,10 +5345,11 @@ fn pure_dispatch_define_coding_system_internal_not_in_pure_path() {
 
 #[test]
 fn pure_dispatch_process_placeholder_cluster_matches_compat_contracts() {
-    let kill_emacs = dispatch_builtin_pure("kill-emacs", vec![])
-        .expect("builtin kill-emacs should resolve")
-        .expect("builtin kill-emacs should evaluate");
-    assert!(kill_emacs.is_nil());
+    let kill_emacs = dispatch_builtin_pure("kill-emacs", vec![]);
+    assert!(
+        kill_emacs.is_none(),
+        "kill-emacs now requires the eval-aware dispatch path"
+    );
 
     let lower_frame = dispatch_builtin_pure("lower-frame", vec![])
         .expect("builtin lower-frame should resolve")
@@ -5362,6 +5363,27 @@ fn pure_dispatch_process_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin lread--substitute-object-in-subtree should resolve")
     .expect("builtin lread--substitute-object-in-subtree should evaluate");
     assert!(lread_substitute.is_nil());
+}
+
+#[test]
+fn kill_emacs_eval_requests_shutdown_and_stops_command_loop() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    eval.command_loop.running = true;
+
+    let result = super::symbols::builtin_kill_emacs_eval(&mut eval, vec![Value::Int(7)])
+        .expect("kill-emacs eval dispatch");
+    assert!(result.is_nil());
+    assert_eq!(
+        eval.shutdown_request,
+        Some(crate::emacs_core::eval::ShutdownRequest {
+            exit_code: 7,
+            restart: false,
+        })
+    );
+    assert!(
+        !eval.command_loop.running,
+        "kill-emacs should stop the interactive command loop"
+    );
 }
 
 #[test]

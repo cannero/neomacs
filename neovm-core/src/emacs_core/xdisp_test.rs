@@ -348,6 +348,88 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
 }
 
 #[test]
+fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval.frames.create_frame("xdisp-pos", 160, 64, buf_id);
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
+    {
+        let buf = eval.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("abc\ndef\nghi\n");
+        buf.goto_byte(4);
+    }
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        let window = frame
+            .find_window_mut(selected_window)
+            .expect("selected window");
+        match window {
+            crate::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } => {
+                *window_start = 1;
+                *point = 5;
+            }
+            other => panic!("expected leaf window, got {:?}", other),
+        }
+    }
+
+    let result = builtin_pos_visible_in_window_p_eval(
+        &mut eval,
+        vec![Value::Int(5), Value::Window(selected_window.0), Value::True],
+    )
+    .unwrap();
+    assert_eq!(super::super::print::print_value(&result), "(0 16)");
+}
+
+#[test]
+fn test_window_line_height_eval_returns_live_gui_row_metrics() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval
+        .frames
+        .create_frame("xdisp-line-height", 160, 64, buf_id);
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
+    {
+        let buf = eval.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("abc\ndef\nghi\n");
+        buf.goto_byte(4);
+    }
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        let window = frame
+            .find_window_mut(selected_window)
+            .expect("selected window");
+        match window {
+            crate::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } => {
+                *window_start = 1;
+                *point = 5;
+            }
+            other => panic!("expected leaf window, got {:?}", other),
+        }
+    }
+
+    let current = builtin_window_line_height_eval(
+        &mut eval,
+        vec![Value::Nil, Value::Window(selected_window.0)],
+    )
+    .unwrap();
+    let last = builtin_window_line_height_eval(
+        &mut eval,
+        vec![Value::Int(-1), Value::Window(selected_window.0)],
+    )
+    .unwrap();
+    assert_eq!(super::super::print::print_value(&current), "(16 1 16 0)");
+    assert_eq!(super::super::print::print_value(&last), "(16 2 32 0)");
+}
+
+#[test]
 fn test_move_point_visually() {
     for direction in [1_i64, 0, -1, 2] {
         let err = builtin_move_point_visually(vec![Value::Int(direction)]).unwrap_err();
