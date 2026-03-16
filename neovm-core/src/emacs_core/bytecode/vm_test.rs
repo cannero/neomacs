@@ -717,6 +717,29 @@ fn vm_eval_bridge_preserves_frames_across_eval_dependent_builtins() {
 }
 
 #[test]
+fn vm_window_and_frame_selection_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((f (selected-frame))
+                      (w (selected-window)))
+                 (list (framep f)
+                       (windowp w)
+                       (eq (selected-frame) f)
+                       (eq (frame-selected-window f) w)
+                       (eq (frame-first-window f) w)
+                       (eq (frame-root-window f) w)
+                       (eq (window-frame w) f)
+                       (bufferp (window-buffer w))
+                       (window-live-p w)
+                       (window-valid-p w)
+                       (frame-live-p f)
+                       (frame-visible-p f)))"#
+        ),
+        "OK (t t t t t t t t t t t t)"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),

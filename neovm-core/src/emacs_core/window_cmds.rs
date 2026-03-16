@@ -10,7 +10,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::{Value, list_to_vec, next_float_id, read_cons, with_heap};
-use crate::buffer::BufferId;
+use crate::buffer::{BufferId, BufferManager};
 use crate::window::{
     FrameId, FrameManager, SplitDirection, Window, WindowId, window_first_child_id,
     window_next_sibling_id, window_parent_id, window_prev_sibling_id,
@@ -252,11 +252,19 @@ fn resolve_window_id_with_pred(
     arg: Option<&Value>,
     pred: &str,
 ) -> Result<(FrameId, WindowId), Flow> {
+    resolve_window_id_with_pred_in_state(&mut eval.frames, &mut eval.buffers, arg, pred)
+}
+
+fn resolve_window_id_with_pred_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+    pred: &str,
+) -> Result<(FrameId, WindowId), Flow> {
     match arg {
         None | Some(Value::Nil) => {
-            let frame_id = ensure_selected_frame_id(eval);
-            let frame = eval
-                .frames
+            let frame_id = ensure_selected_frame_id_in_state(frames, buffers);
+            let frame = frames
                 .get(frame_id)
                 .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
             Ok((frame_id, frame.selected_window))
@@ -268,7 +276,7 @@ fn resolve_window_id_with_pred(
                     vec![Value::symbol(pred), *val],
                 ));
             };
-            if let Some(frame_id) = resolve_window_frame_id_for_pred(&eval.frames, wid, pred) {
+            if let Some(frame_id) = resolve_window_frame_id_for_pred(frames, wid, pred) {
                 Ok((frame_id, wid))
             } else {
                 Err(signal(
@@ -402,11 +410,20 @@ fn resolve_frame_id(
     arg: Option<&Value>,
     predicate: &str,
 ) -> Result<FrameId, Flow> {
+    resolve_frame_id_in_state(&mut eval.frames, &mut eval.buffers, arg, predicate)
+}
+
+fn resolve_frame_id_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+    predicate: &str,
+) -> Result<FrameId, Flow> {
     match arg {
-        None | Some(Value::Nil) => Ok(ensure_selected_frame_id(eval)),
+        None | Some(Value::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
         Some(Value::Int(n)) => {
             let fid = FrameId(*n as u64);
-            if eval.frames.get(fid).is_some() {
+            if frames.get(fid).is_some() {
                 Ok(fid)
             } else {
                 Err(signal(
@@ -417,7 +434,7 @@ fn resolve_frame_id(
         }
         Some(Value::Frame(id)) => {
             let fid = FrameId(*id);
-            if eval.frames.get(fid).is_some() {
+            if frames.get(fid).is_some() {
                 Ok(fid)
             } else {
                 Err(signal(
@@ -441,11 +458,20 @@ fn resolve_frame_or_window_frame_id(
     arg: Option<&Value>,
     predicate: &str,
 ) -> Result<FrameId, Flow> {
+    resolve_frame_or_window_frame_id_in_state(&mut eval.frames, &mut eval.buffers, arg, predicate)
+}
+
+fn resolve_frame_or_window_frame_id_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+    predicate: &str,
+) -> Result<FrameId, Flow> {
     match arg {
-        None | Some(Value::Nil) => Ok(ensure_selected_frame_id(eval)),
+        None | Some(Value::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
         Some(Value::Frame(id)) => {
             let fid = FrameId(*id);
-            if eval.frames.get(fid).is_some() {
+            if frames.get(fid).is_some() {
                 Ok(fid)
             } else {
                 Err(signal(
@@ -456,11 +482,11 @@ fn resolve_frame_or_window_frame_id(
         }
         Some(Value::Int(n)) => {
             let fid = FrameId(*n as u64);
-            if eval.frames.get(fid).is_some() {
+            if frames.get(fid).is_some() {
                 return Ok(fid);
             }
             let wid = WindowId(*n as u64);
-            if let Some(fid) = eval.frames.find_valid_window_frame_id(wid) {
+            if let Some(fid) = frames.find_valid_window_frame_id(wid) {
                 return Ok(fid);
             }
             Err(signal(
@@ -470,7 +496,7 @@ fn resolve_frame_or_window_frame_id(
         }
         Some(Value::Window(id)) => {
             let wid = WindowId(*id);
-            if let Some(fid) = eval.frames.find_valid_window_frame_id(wid) {
+            if let Some(fid) = frames.find_valid_window_frame_id(wid) {
                 return Ok(fid);
             }
             Err(signal(
@@ -511,24 +537,29 @@ fn get_window(frames: &FrameManager, fid: FrameId, wid: WindowId) -> Result<&Win
 /// In batch compatibility mode, GNU Emacs still has an initial frame (`F1`).
 /// When the evaluator has no frame yet, synthesize one on demand.
 pub(crate) fn ensure_selected_frame_id(eval: &mut super::eval::Evaluator) -> FrameId {
-    if let Some(fid) = eval.frames.selected_frame().map(|f| f.id) {
+    ensure_selected_frame_id_in_state(&mut eval.frames, &mut eval.buffers)
+}
+
+pub(crate) fn ensure_selected_frame_id_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+) -> FrameId {
+    if let Some(fid) = frames.selected_frame().map(|f| f.id) {
         return fid;
     }
 
-    let buf_id = eval
-        .buffers
+    let buf_id = buffers
         .current_buffer()
         .map(|b| b.id)
-        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
+        .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
     // Batch GNU Emacs startup exposes an initial ~80x24 text window plus
     // a minibuffer line; frame parameters report 80x25.
     // With our default 8x16 char metrics the text area corresponds to 640x384.
-    let fid = eval.frames.create_frame("F1", 640, 384, buf_id);
-    let minibuffer_buf_id = eval
-        .buffers
+    let fid = frames.create_frame("F1", 640, 384, buf_id);
+    let minibuffer_buf_id = buffers
         .find_buffer_by_name(" *Minibuf-0*")
-        .unwrap_or_else(|| eval.buffers.create_buffer(" *Minibuf-0*"));
-    if let Some(frame) = eval.frames.get_mut(fid) {
+        .unwrap_or_else(|| buffers.create_buffer(" *Minibuf-0*"));
+    if let Some(frame) = frames.get_mut(fid) {
         frame.parameters.insert("width".to_string(), Value::Int(80));
         frame
             .parameters
@@ -638,10 +669,17 @@ pub(crate) fn builtin_selected_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_selected_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("selected-window", &args, 0)?;
-    let fid = ensure_selected_frame_id(eval);
-    let frame = eval
-        .frames
+    let fid = ensure_selected_frame_id_in_state(frames, buffers);
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     Ok(window_value(frame.selected_window))
@@ -668,10 +706,17 @@ pub(crate) fn builtin_frame_selected_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_selected_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-selected-window", &args, 1)?;
-    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
-    let frame = eval
-        .frames
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(window_value(frame.selected_window))
@@ -750,10 +795,18 @@ pub(crate) fn builtin_frame_first_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_first_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_first_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-first-window", &args, 1)?;
-    let fid = resolve_frame_or_window_frame_id(eval, args.first(), "frame-live-p")?;
-    let frame = eval
-        .frames
+    let fid =
+        resolve_frame_or_window_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let first = frame
@@ -769,10 +822,18 @@ pub(crate) fn builtin_frame_root_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_root_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_frame_root_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("frame-root-window", &args, 1)?;
-    let fid = resolve_frame_or_window_frame_id(eval, args.first(), "frame-live-p")?;
-    let frame = eval
-        .frames
+    let fid =
+        resolve_frame_or_window_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(window_value(frame.root_window.id()))
@@ -826,14 +887,31 @@ pub(crate) fn builtin_window_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-frame", &args, 1)?;
-    let (fid, _wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
+    let (fid, _wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     Ok(Value::Frame(fid.0))
 }
 
 /// `(window-buffer &optional WINDOW)` -> buffer object.
 pub(crate) fn builtin_window_buffer(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_buffer_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("window-buffer", &args, 1)?;
@@ -847,8 +925,9 @@ pub(crate) fn builtin_window_buffer(
 
     match args.first() {
         None | Some(Value::Nil) => {
-            let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "windowp")?;
-            resolve_buffer(&eval.frames, fid, wid)
+            let (fid, wid) =
+                resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
+            resolve_buffer(frames, fid, wid)
         }
         Some(val) => {
             let Some(wid) = window_id_from_designator(val) else {
@@ -857,10 +936,10 @@ pub(crate) fn builtin_window_buffer(
                     vec![Value::symbol("windowp"), *val],
                 ));
             };
-            if let Some(fid) = eval.frames.find_window_frame_id(wid) {
-                return resolve_buffer(&eval.frames, fid, wid);
+            if let Some(fid) = frames.find_window_frame_id(wid) {
+                return resolve_buffer(frames, fid, wid);
             }
-            if eval.frames.is_window_object_id(wid) {
+            if frames.is_window_object_id(wid) {
                 return Ok(Value::Nil);
             }
             Err(signal(
@@ -2350,13 +2429,16 @@ pub(crate) fn builtin_set_window_dedicated_p(
 
 /// `(windowp OBJ)` -> t if OBJ is a window object/designator that exists.
 pub(crate) fn builtin_windowp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_windowp_in_state(&eval.frames, args)
+}
+
+pub(crate) fn builtin_windowp_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
     expect_args("windowp", &args, 1)?;
     let wid = match window_id_from_designator(&args[0]) {
         Some(wid) => wid,
         None => return Ok(Value::Nil),
     };
-    let found = eval.frames.is_window_object_id(wid);
-    Ok(Value::bool(found))
+    Ok(Value::bool(frames.is_window_object_id(wid)))
 }
 
 /// `(window-valid-p OBJ)` -> t if OBJ is a live window.
@@ -2364,12 +2446,19 @@ pub(crate) fn builtin_window_valid_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_valid_p_in_state(&eval.frames, args)
+}
+
+pub(crate) fn builtin_window_valid_p_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("window-valid-p", &args, 1)?;
     let wid = match window_id_from_designator(&args[0]) {
         Some(wid) => wid,
         None => return Ok(Value::Nil),
     };
-    Ok(Value::bool(eval.frames.is_valid_window_id(wid)))
+    Ok(Value::bool(frames.is_valid_window_id(wid)))
 }
 
 /// `(window-live-p OBJ)` -> t if OBJ is a live leaf window.
@@ -2377,13 +2466,19 @@ pub(crate) fn builtin_window_live_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_live_p_in_state(&eval.frames, args)
+}
+
+pub(crate) fn builtin_window_live_p_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("window-live-p", &args, 1)?;
     let wid = match window_id_from_designator(&args[0]) {
         Some(wid) => wid,
         None => return Ok(Value::Nil),
     };
-    let live = eval.frames.is_live_window_id(wid);
-    Ok(Value::bool(live))
+    Ok(Value::bool(frames.is_live_window_id(wid)))
 }
 
 /// `(window-at X Y &optional FRAME)` -> window object or nil.
@@ -3335,8 +3430,16 @@ pub(crate) fn builtin_selected_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_selected_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("selected-frame", &args, 0)?;
-    let fid = ensure_selected_frame_id(eval);
+    let fid = ensure_selected_frame_id_in_state(frames, buffers);
     Ok(Value::Frame(fid.0))
 }
 
@@ -3954,6 +4057,13 @@ pub(crate) fn builtin_frame_visible_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_visible_p_in_state(&eval.frames, args)
+}
+
+pub(crate) fn builtin_frame_visible_p_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("frame-visible-p", &args, 1)?;
     let fid = match args.first() {
         Some(Value::Int(n)) => FrameId(*n as u64),
@@ -3966,7 +4076,7 @@ pub(crate) fn builtin_frame_visible_p(
         }
         None => unreachable!("expect_args enforced"),
     };
-    let frame = eval.frames.get(fid).ok_or_else(|| {
+    let frame = frames.get(fid).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[0]],
@@ -3998,13 +4108,17 @@ pub(crate) fn builtin_frame_live_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_frame_live_p_in_state(&eval.frames, args)
+}
+
+pub(crate) fn builtin_frame_live_p_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
     expect_args("frame-live-p", &args, 1)?;
     let id = match &args[0] {
         Value::Frame(id) => *id,
         Value::Int(n) => *n as u64,
         _ => return Ok(Value::Nil),
     };
-    Ok(Value::bool(eval.frames.get(FrameId(id)).is_some()))
+    Ok(Value::bool(frames.get(FrameId(id)).is_some()))
 }
 
 // ===========================================================================

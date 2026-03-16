@@ -1643,41 +1643,10 @@ impl<'a> Vm<'a> {
     }
 
     fn ensure_selected_frame_id(&mut self) -> FrameId {
-        if let Some(fid) = self.shared.frames.selected_frame().map(|frame| frame.id) {
-            return fid;
-        }
-
-        let buf_id = self
-            .shared
-            .buffers
-            .current_buffer()
-            .map(|buffer| buffer.id)
-            .unwrap_or_else(|| self.shared.buffers.create_buffer("*scratch*"));
-        let fid = self.shared.frames.create_frame("F1", 640, 384, buf_id);
-        let minibuffer_buf_id = self
-            .shared
-            .buffers
-            .find_buffer_by_name(" *Minibuf-0*")
-            .unwrap_or_else(|| self.shared.buffers.create_buffer(" *Minibuf-0*"));
-        if let Some(frame) = self.shared.frames.get_mut(fid) {
-            frame.parameters.insert("width".to_string(), Value::Int(80));
-            frame
-                .parameters
-                .insert("height".to_string(), Value::Int(25));
-            if let Some(Window::Leaf {
-                window_start,
-                point,
-                ..
-            }) = frame.find_window_mut(frame.selected_window)
-            {
-                *window_start = 1;
-                *point = 1;
-            }
-            if let Some(minibuffer_leaf) = frame.minibuffer_leaf.as_mut() {
-                minibuffer_leaf.set_buffer(minibuffer_buf_id);
-            }
-        }
-        fid
+        crate::emacs_core::window_cmds::ensure_selected_frame_id_in_state(
+            self.shared.frames,
+            self.shared.buffers,
+        )
     }
 
     fn resolve_frame_id(&mut self, arg: Option<&Value>, predicate: &str) -> Result<FrameId, Flow> {
@@ -3968,6 +3937,83 @@ impl<'a> Vm<'a> {
             "frame-list" => Some(self.builtin_frame_list_fast(args)),
             "framep" => Some(self.builtin_framep_fast(args)),
             "frame-parameter" => Some(self.builtin_frame_parameter_fast(args)),
+            "selected-frame" => Some(
+                crate::emacs_core::window_cmds::builtin_selected_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "selected-window" => Some(
+                crate::emacs_core::window_cmds::builtin_selected_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-selected-window" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_selected_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-first-window" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_first_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-root-window" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_root_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "windowp" => Some(crate::emacs_core::window_cmds::builtin_windowp_in_state(
+                &*self.shared.frames,
+                args.to_vec(),
+            )),
+            "window-valid-p" => Some(
+                crate::emacs_core::window_cmds::builtin_window_valid_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "window-live-p" => Some(
+                crate::emacs_core::window_cmds::builtin_window_live_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "window-frame" => Some(
+                crate::emacs_core::window_cmds::builtin_window_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-buffer" => Some(
+                crate::emacs_core::window_cmds::builtin_window_buffer_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-visible-p" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_visible_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-live-p" => Some(
+                crate::emacs_core::window_cmds::builtin_frame_live_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "coding-system-list" => Some(crate::emacs_core::coding::builtin_coding_system_list(
                 &*self.shared.coding_systems,
                 args.to_vec(),
