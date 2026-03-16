@@ -5286,6 +5286,15 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "window-configuration-p" => Some(
+                crate::emacs_core::builtins::builtin_window_configuration_p(args.to_vec()),
+            ),
+            "window-configuration-frame" => Some(
+                crate::emacs_core::builtins::builtin_window_configuration_frame(args.to_vec()),
+            ),
+            "window-configuration-equal-p" => Some(
+                crate::emacs_core::builtins::builtin_window_configuration_equal_p(args.to_vec()),
+            ),
             "window-combination-limit" => Some(
                 crate::emacs_core::window_cmds::builtin_window_combination_limit_in_state(
                     self.shared.frames,

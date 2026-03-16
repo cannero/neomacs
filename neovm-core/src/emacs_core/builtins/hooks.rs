@@ -323,14 +323,14 @@ fn make_window_configuration_value(frame: Value, serial: i64) -> Value {
     ])
 }
 
-pub(super) fn builtin_window_configuration_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_window_configuration_p(args: Vec<Value>) -> EvalResult {
     expect_args("window-configuration-p", &args, 1)?;
     Ok(Value::bool(
         window_configuration_frame_from_value(&args[0]).is_some(),
     ))
 }
 
-pub(super) fn builtin_window_configuration_frame(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_window_configuration_frame(args: Vec<Value>) -> EvalResult {
     expect_args("window-configuration-frame", &args, 1)?;
     window_configuration_frame_from_value(&args[0]).ok_or_else(|| {
         signal(
@@ -340,7 +340,7 @@ pub(super) fn builtin_window_configuration_frame(args: Vec<Value>) -> EvalResult
     })
 }
 
-pub(super) fn builtin_window_configuration_equal_p(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_window_configuration_equal_p(args: Vec<Value>) -> EvalResult {
     expect_args("window-configuration-equal-p", &args, 2)?;
     if window_configuration_frame_from_value(&args[0]).is_none() {
         return Err(signal(
