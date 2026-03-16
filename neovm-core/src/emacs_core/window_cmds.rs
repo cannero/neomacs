@@ -360,13 +360,21 @@ fn resolve_window_id_or_error(
     eval: &mut super::eval::Evaluator,
     arg: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
+    resolve_window_id_or_error_in_state(&mut eval.frames, &mut eval.buffers, arg)
+}
+
+fn resolve_window_id_or_error_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+) -> Result<(FrameId, WindowId), Flow> {
     match arg {
-        None | Some(Value::Nil) => resolve_window_id(eval, arg),
+        None | Some(Value::Nil) => resolve_window_id_in_state(frames, buffers, arg),
         Some(value) => {
             let Some(wid) = window_id_from_designator(value) else {
                 return Err(signal("error", vec![Value::string("Invalid window")]));
             };
-            if let Some(fid) = eval.frames.find_window_frame_id(wid) {
+            if let Some(fid) = frames.find_window_frame_id(wid) {
                 Ok((fid, wid))
             } else {
                 Err(signal("error", vec![Value::string("Invalid window")]))
@@ -3112,21 +3120,28 @@ pub(crate) fn builtin_delete_window(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_window_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_window_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("delete-window", &args, 1)?;
-    let (fid, wid) = resolve_window_id_or_error(eval, args.first())?;
-    if !eval.frames.delete_window(fid, wid) {
+    let (fid, wid) = resolve_window_id_or_error_in_state(frames, buffers, args.first())?;
+    if !frames.delete_window(fid, wid) {
         return Err(signal(
             "error",
             vec![Value::string("Cannot delete sole window")],
         ));
     }
-    let selected_buffer = eval
-        .frames
+    let selected_buffer = frames
         .get(fid)
         .and_then(|frame| frame.find_window(frame.selected_window))
         .and_then(|w| w.buffer_id());
     if let Some(buffer_id) = selected_buffer {
-        eval.buffers.set_current(buffer_id);
+        buffers.set_current(buffer_id);
     }
     Ok(Value::Nil)
 }
@@ -3138,10 +3153,17 @@ pub(crate) fn builtin_delete_other_windows(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_other_windows_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_other_windows_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("delete-other-windows", &args, 2)?;
-    let (fid, keep_wid) = resolve_window_id_or_error(eval, args.first())?;
-    let frame = eval
-        .frames
+    let (fid, keep_wid) = resolve_window_id_or_error_in_state(frames, buffers, args.first())?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
@@ -3149,17 +3171,17 @@ pub(crate) fn builtin_delete_other_windows(
     let to_delete: Vec<WindowId> = all_ids.into_iter().filter(|&w| w != keep_wid).collect();
 
     for wid in to_delete {
-        let _ = eval.frames.delete_window(fid, wid);
+        let _ = frames.delete_window(fid, wid);
     }
     // Select the kept window.
-    let selected_buffer = if let Some(f) = eval.frames.get_mut(fid) {
+    let selected_buffer = if let Some(f) = frames.get_mut(fid) {
         f.select_window(keep_wid);
         f.find_window(keep_wid).and_then(|w| w.buffer_id())
     } else {
         None
     };
     if let Some(buffer_id) = selected_buffer {
-        eval.buffers.set_current(buffer_id);
+        buffers.set_current(buffer_id);
     }
     Ok(Value::Nil)
 }
@@ -3173,21 +3195,28 @@ pub(crate) fn builtin_delete_window_internal(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_window_internal_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_window_internal_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("delete-window-internal", &args, 1)?;
 
-    let wid = resolve_window_object_id_with_pred(eval, args.first(), "windowp")?;
-    if !eval.frames.is_valid_window_id(wid) {
+    let wid =
+        resolve_window_object_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
+    if !frames.is_valid_window_id(wid) {
         // GNU Emacs treats deleting an already deleted window object as a no-op.
         return Ok(Value::Nil);
     }
 
-    let fid = eval
-        .frames
+    let fid = frames
         .find_valid_window_frame_id(wid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
-    let frame = eval
-        .frames
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let is_minibuffer = frame.minibuffer_window == Some(wid);
@@ -3202,7 +3231,7 @@ pub(crate) fn builtin_delete_window_internal(
         ));
     }
 
-    if eval.frames.delete_window(fid, wid) {
+    if frames.delete_window(fid, wid) {
         Ok(Value::Nil)
     } else {
         Err(signal("error", vec![Value::string("Deletion failed")]))
@@ -3217,10 +3246,18 @@ pub(crate) fn builtin_delete_other_windows_internal(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_other_windows_internal_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_other_windows_internal_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("delete-other-windows-internal", &args, 2)?;
-    let (fid, keep_wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let frame = eval
-        .frames
+    let (fid, keep_wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
@@ -3228,16 +3265,16 @@ pub(crate) fn builtin_delete_other_windows_internal(
     let to_delete: Vec<WindowId> = all_ids.into_iter().filter(|&w| w != keep_wid).collect();
 
     for wid in to_delete {
-        let _ = eval.frames.delete_window(fid, wid);
+        let _ = frames.delete_window(fid, wid);
     }
-    let selected_buffer = if let Some(f) = eval.frames.get_mut(fid) {
+    let selected_buffer = if let Some(f) = frames.get_mut(fid) {
         f.select_window(keep_wid);
         f.find_window(keep_wid).and_then(|w| w.buffer_id())
     } else {
         None
     };
     if let Some(buffer_id) = selected_buffer {
-        eval.buffers.set_current(buffer_id);
+        buffers.set_current(buffer_id);
     }
     Ok(Value::Nil)
 }
@@ -4434,6 +4471,14 @@ pub(crate) fn builtin_make_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_make_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_make_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("make-frame", &args, 1)?;
     let mut width: u32 = 800;
     let mut height: u32 = 600;
@@ -4471,12 +4516,11 @@ pub(crate) fn builtin_make_frame(
     }
 
     // Use the current buffer (or BufferId(0) as fallback) for the initial window.
-    let buf_id = eval
-        .buffers
+    let buf_id = buffers
         .current_buffer()
         .map(|b| b.id)
         .unwrap_or(BufferId(0));
-    let fid = eval.frames.create_frame(&name, width, height, buf_id);
+    let fid = frames.create_frame(&name, width, height, buf_id);
     Ok(Value::Frame(fid.0))
 }
 
@@ -4485,9 +4529,17 @@ pub(crate) fn builtin_delete_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("delete-frame", &args, 2)?;
-    let fid = resolve_frame_id(eval, args.first(), "framep")?;
-    if !eval.frames.delete_frame(fid) {
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
+    if !frames.delete_frame(fid) {
         return Err(signal("error", vec![Value::string("Cannot delete frame")]));
     }
     Ok(Value::Nil)

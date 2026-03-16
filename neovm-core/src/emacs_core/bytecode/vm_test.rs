@@ -991,6 +991,41 @@ fn vm_window_selection_and_buffer_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_deletion_and_frame_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(let* ((w1 (selected-window))
+                      (w2 (next-window w1))
+                      (b1 (get-buffer-create "vm-del-1"))
+                      (b2 (get-buffer-create "vm-del-2"))
+                      (f2 (make-frame '((name . "vm-frame")))))
+                 (set-window-buffer w1 b1)
+                 (set-window-buffer w2 b2)
+                 (select-window w2)
+                 (list (framep f2)
+                       (frame-live-p f2)
+                       (delete-window w2)
+                       (eq (selected-window) w1)
+                       (eq (current-buffer) b1)
+                       (length (window-list))
+                       (progn (delete-other-windows w1) (length (window-list)))
+                       (delete-frame f2)
+                       (frame-live-p f2)))"#,
+            |eval| {
+                let fid = crate::emacs_core::window_cmds::ensure_selected_frame_id(eval);
+                let w1 = eval.frames.get(fid).expect("frame").selected_window;
+                let buffer_id = eval.buffers.current_buffer().expect("buffer").id;
+                let _w2 = eval
+                    .frames
+                    .split_window(fid, w1, SplitDirection::Horizontal, buffer_id)
+                    .expect("horizontal split");
+            }
+        ),
+        "OK (t t nil t t 1 1 nil nil)"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),

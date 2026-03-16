@@ -1432,15 +1432,6 @@ pub(crate) fn builtin_split_window_internal(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("split-window-internal", &args, 4, 5)?;
-    if !args[0].is_nil() {
-        let windowp = super::window_cmds::builtin_windowp(eval, vec![args[0]])?;
-        if windowp.is_nil() {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("windowp"), args[0]],
-            ));
-        }
-    }
     if !args[1].is_nil() {
         let _ = expect_fixnum(&args[1])?;
     }

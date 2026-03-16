@@ -4460,6 +4460,34 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "delete-window" => Some(
+                crate::emacs_core::window_cmds::builtin_delete_window_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "delete-other-windows" => Some(
+                crate::emacs_core::window_cmds::builtin_delete_other_windows_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "delete-window-internal" => Some(
+                crate::emacs_core::window_cmds::builtin_delete_window_internal_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "delete-other-windows-internal" => Some(
+                crate::emacs_core::window_cmds::builtin_delete_other_windows_internal_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "window-combination-limit" => Some(
                 crate::emacs_core::window_cmds::builtin_window_combination_limit_in_state(
                     self.shared.frames,
@@ -4480,9 +4508,21 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "make-frame" => Some(crate::emacs_core::window_cmds::builtin_make_frame_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
             "frame-live-p" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_live_p_in_state(
                     &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "delete-frame" => Some(
+                crate::emacs_core::window_cmds::builtin_delete_frame_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
                     args.to_vec(),
                 ),
             ),

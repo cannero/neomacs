@@ -1773,6 +1773,10 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         "split-window-internal" => return Some(builtin_split_window_internal(eval, args)),
+        "delete-window" => return Some(super::window_cmds::builtin_delete_window(eval, args)),
+        "delete-other-windows" => {
+            return Some(super::window_cmds::builtin_delete_other_windows(eval, args));
+        }
         "delete-window-internal" => {
             return Some(super::window_cmds::builtin_delete_window_internal(
                 eval, args,
@@ -1845,6 +1849,7 @@ pub(crate) fn dispatch_builtin(
         "make-frame-visible" => {
             return Some(super::window_cmds::builtin_make_frame_visible(eval, args));
         }
+        "make-frame" => return Some(super::window_cmds::builtin_make_frame(eval, args)),
         "iconify-frame" => return Some(super::window_cmds::builtin_iconify_frame(eval, args)),
         "delete-frame" => return Some(super::window_cmds::builtin_delete_frame(eval, args)),
         "frame-char-height" => {
