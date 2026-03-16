@@ -101,6 +101,36 @@ fn vm_interpreted_lambda_call_restores_outer_binding_state() {
     );
 }
 
+#[test]
+fn vm_mapc_mapcan_and_mapconcat_use_shared_runtime_callbacks() {
+    assert_eq!(
+        vm_eval_str("(let ((xs '(1 2 3))) (eq (mapc #'identity xs) xs))"),
+        "OK t"
+    );
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (setq vm-mapc-log nil)
+               (mapc (lambda (x) (setq vm-mapc-log (cons x vm-mapc-log))) '(1 2 3))
+               vm-mapc-log)"
+        ),
+        "OK (3 2 1)"
+    );
+    assert_eq!(
+        vm_eval_str("(mapcan (lambda (x) (list x (+ x 10))) '(1 2 3))"),
+        "OK (1 11 2 12 3 13)"
+    );
+    assert_eq!(
+        vm_eval_str("(mapconcat (lambda (x) (number-to-string x)) '(1 2 3) \":\")"),
+        "OK \"1:2:3\""
+    );
+    assert_eq!(
+        vm_eval_str("(mapconcat #'identity [\"a\" \"b\" \"c\"] \",\")"),
+        "OK \"a,b,c\""
+    );
+    assert_eq!(vm_eval_str("(mapconcat #'identity nil \",\")"), "OK \"\"");
+}
+
 fn execute_manual_vm<T>(
     mut func: ByteCodeFunction,
     init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,

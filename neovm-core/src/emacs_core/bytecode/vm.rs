@@ -2008,6 +2008,99 @@ impl<'a> Vm<'a> {
         out
     }
 
+    fn builtin_mapc_fast(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("mapc", args, 2)?;
+        let func = args[0];
+        let sequence = args[1];
+        let saved_roots = self.gc_roots.len();
+        self.gc_roots.push(func);
+        self.gc_roots.push(sequence);
+
+        let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
+            &sequence,
+            |item| {
+                self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
+                Ok(())
+            },
+        );
+
+        self.gc_roots.truncate(saved_roots);
+        map_result?;
+        Ok(sequence)
+    }
+
+    fn builtin_mapcan_fast(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("mapcan", args, 2)?;
+        let func = args[0];
+        let sequence = args[1];
+        let saved_roots = self.gc_roots.len();
+        self.gc_roots.push(func);
+        self.gc_roots.push(sequence);
+
+        let mut mapped = Vec::new();
+        let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
+            &sequence,
+            |item| {
+                let value =
+                    self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
+                mapped.push(value);
+                self.gc_roots.push(value);
+                Ok(())
+            },
+        );
+
+        let out = match map_result {
+            Ok(()) => self.with_extra_roots(&mapped, |_| {
+                crate::emacs_core::builtins::builtin_nconc(mapped.clone())
+            }),
+            Err(flow) => Err(flow),
+        };
+        self.gc_roots.truncate(saved_roots);
+        out
+    }
+
+    fn builtin_mapconcat_fast(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_range_args("mapconcat", args, 2, 3)?;
+        let func = args[0];
+        let sequence = args[1];
+        let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
+        let saved_roots = self.gc_roots.len();
+        self.gc_roots.push(func);
+        self.gc_roots.push(sequence);
+        self.gc_roots.push(separator);
+
+        let mut parts = Vec::new();
+        let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
+            &sequence,
+            |item| {
+                let value =
+                    self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
+                parts.push(value);
+                self.gc_roots.push(value);
+                Ok(())
+            },
+        );
+
+        let out = match map_result {
+            Ok(()) if parts.is_empty() => Ok(Value::string("")),
+            Ok(()) => {
+                let mut concat_args = Vec::with_capacity(parts.len() * 2 - 1);
+                for (index, part) in parts.iter().copied().enumerate() {
+                    if index > 0 {
+                        concat_args.push(separator);
+                    }
+                    concat_args.push(part);
+                }
+                self.with_extra_roots(&concat_args, |_| {
+                    crate::emacs_core::builtins::builtin_concat(concat_args.clone())
+                })
+            }
+            Err(flow) => Err(flow),
+        };
+        self.gc_roots.truncate(saved_roots);
+        out
+    }
+
     fn builtin_frame_list_fast(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("frame-list", args, 0)?;
         let _ = self.ensure_selected_frame_id();
@@ -4297,6 +4390,9 @@ impl<'a> Vm<'a> {
                 args.to_vec(),
             )),
             "mapcar" => Some(self.builtin_mapcar_fast(args)),
+            "mapc" => Some(self.builtin_mapc_fast(args)),
+            "mapcan" => Some(self.builtin_mapcan_fast(args)),
+            "mapconcat" => Some(self.builtin_mapconcat_fast(args)),
             "fboundp" => Some(self.builtin_fboundp_fast(args)),
             "frame-list" => Some(self.builtin_frame_list_fast(args)),
             "framep" => Some(self.builtin_framep_fast(args)),
