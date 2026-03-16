@@ -2782,6 +2782,40 @@ fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((main (current-thread))
+                      (worker (make-thread (lambda () 42) "vm-worker"))
+                      (threads-before (all-threads))
+                      (mx (make-mutex "vm-mutex"))
+                      (cv (make-condition-variable mx "vm-cond")))
+                 (list
+                  (threadp main)
+                  (threadp worker)
+                  (equal (thread-name worker) "vm-worker")
+                  (null (thread-live-p worker))
+                  (consp (memq main threads-before))
+                  (consp (memq worker threads-before))
+                  (null (thread-yield))
+                  (null (thread-signal worker 'test-error "oops"))
+                  (= (thread-join worker) 42)
+                  (null (thread-last-error))
+                  (mutexp mx)
+                  (equal (mutex-name mx) "vm-mutex")
+                  (null (mutex-lock mx))
+                  (condition-variable-p cv)
+                  (equal (condition-name cv) "vm-cond")
+                  (eq (condition-mutex cv) mx)
+                  (null (condition-notify cv))
+                  (null (condition-wait cv))
+                  (null (mutex-unlock mx))))"#
+        ),
+        "OK (t t t t t t t t t t t t t t t t t t t)"
+    );
+}
+
+#[test]
 fn vm_make_process_builtin_uses_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
