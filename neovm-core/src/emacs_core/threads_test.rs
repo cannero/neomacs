@@ -176,6 +176,51 @@ fn test_builtin_make_thread_runs_function() {
 }
 
 #[test]
+fn test_builtin_make_thread_accepts_buffer_disposition_arg() {
+    let mut eval = Evaluator::new();
+    let result = builtin_make_thread(
+        &mut eval,
+        vec![
+            Value::make_lambda(super::super::value::LambdaData {
+                params: super::super::value::LambdaParams::simple(vec![]),
+                body: vec![].into(),
+                env: None,
+                docstring: None,
+                doc_form: None,
+            }),
+            Value::string("worker"),
+            Value::symbol("silently"),
+        ],
+    );
+    assert!(result.is_ok());
+    assert_eq!(tagged_object_id(&result.unwrap(), "thread"), Some(1));
+}
+
+#[test]
+fn test_builtin_make_thread_rejects_more_than_three_args() {
+    let mut eval = Evaluator::new();
+    let result = builtin_make_thread(
+        &mut eval,
+        vec![
+            Value::make_lambda(super::super::value::LambdaData {
+                params: super::super::value::LambdaParams::simple(vec![]),
+                body: vec![].into(),
+                env: None,
+                docstring: None,
+                doc_form: None,
+            }),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+        ],
+    );
+    assert!(matches!(
+        result,
+        Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
+    ));
+}
+
+#[test]
 fn test_builtin_threadp() {
     let mut eval = Evaluator::new();
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();

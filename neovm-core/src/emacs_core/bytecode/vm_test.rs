@@ -2856,6 +2856,29 @@ fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
 }
 
 #[test]
+fn vm_make_thread_runs_body_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq vm-thread-seen nil)
+                 (let* ((main (current-thread))
+                        (worker (make-thread
+                                 (lambda ()
+                                   (setq vm-thread-seen (current-thread))
+                                   (current-thread))
+                                 "vm-worker")))
+                   (list
+                    (threadp worker)
+                    (not (eq main worker))
+                    (eq vm-thread-seen worker)
+                    (eq (thread-join worker) worker)
+                    (eq (current-thread) main))))"#
+        ),
+        "OK (t t t t t)"
+    );
+}
+
+#[test]
 fn vm_make_process_builtin_uses_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

@@ -170,6 +170,18 @@ impl ThreadManager {
         }
     }
 
+    /// Set the currently running thread and return the previous thread id.
+    pub fn enter_thread(&mut self, id: u64) -> u64 {
+        let saved = self.current_thread;
+        self.current_thread = id;
+        saved
+    }
+
+    /// Restore the previously running thread id.
+    pub fn restore_thread(&mut self, id: u64) {
+        self.current_thread = id;
+    }
+
     /// Mark a thread as Finished with the given result.
     pub fn finish_thread(&mut self, id: u64, result: Value) {
         if let Some(t) = self.threads.get_mut(&id) {
@@ -464,6 +476,17 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     }
 }
 
+fn expect_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Result<(), Flow> {
+    if args.len() < min || args.len() > max {
+        Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn tagged_object_value(tag: &str, id: u64) -> Value {
     Value::cons(Value::symbol(tag), Value::Int(id as i64))
 }
@@ -537,10 +560,17 @@ pub(crate) fn builtin_make_thread(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("make-thread", &args, 1)?;
+    let (thread_id, function) = prepare_make_thread_in_state(&mut eval.threads, &args)?;
+    finish_make_thread_in_eval(eval, thread_id, function)
+}
+
+pub(crate) fn prepare_make_thread_in_state(
+    threads: &mut ThreadManager,
+    args: &[Value],
+) -> Result<(u64, Value), Flow> {
+    expect_args_range("make-thread", args, 1, 3)?;
 
     let function = args[0];
-
     let name = if args.len() > 1 {
         match &args[1] {
             Value::Str(_) => Some(args[1].as_str().unwrap().to_string()),
@@ -556,16 +586,19 @@ pub(crate) fn builtin_make_thread(
         None
     };
 
-    let thread_id = eval.threads.create_thread(function, name);
-    eval.threads.start_thread(thread_id);
+    let thread_id = threads.create_thread(function, name);
+    threads.start_thread(thread_id);
+    Ok((thread_id, function))
+}
 
-    // Run the function immediately (cooperative simulation).
-    let saved_current = eval.threads.current_thread;
-    eval.threads.current_thread = thread_id;
-
+pub(crate) fn finish_make_thread_in_eval(
+    eval: &mut super::eval::Evaluator,
+    thread_id: u64,
+    function: Value,
+) -> EvalResult {
+    let saved_current = eval.threads.enter_thread(thread_id);
     let result = eval.apply(function, vec![]);
-
-    eval.threads.current_thread = saved_current;
+    eval.threads.restore_thread(saved_current);
 
     match result {
         Ok(val) => {
