@@ -5,6 +5,15 @@ use super::*;
 // ===========================================================================
 
 use crate::buffer::{BufferId, BufferManager};
+use crate::window::FrameManager;
+
+#[derive(Clone, Copy)]
+pub(crate) struct MakeIndirectBufferPlan {
+    pub(crate) id: BufferId,
+    pub(crate) saved_current: Option<BufferId>,
+    pub(crate) run_clone_hook: bool,
+    pub(crate) run_buffer_list_update_hook: bool,
+}
 
 pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
     match value {
@@ -71,11 +80,19 @@ pub(crate) fn builtin_make_indirect_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let plan = prepare_make_indirect_buffer_in_manager(&mut eval.buffers, args)?;
+    finish_make_indirect_buffer_hooks(eval, plan)
+}
+
+pub(crate) fn prepare_make_indirect_buffer_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> Result<MakeIndirectBufferPlan, Flow> {
     expect_range_args("make-indirect-buffer", &args, 2, 4)?;
 
     let base_id = match args[0] {
         Value::Buffer(id) => {
-            if eval.buffers.get(id).is_none() {
+            if buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Base buffer has been killed")],
@@ -85,7 +102,7 @@ pub(crate) fn builtin_make_indirect_buffer(
         }
         Value::Str(str_id) => {
             let name = with_heap(|h| h.get_string(str_id).to_owned());
-            eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
+            buffers.find_buffer_by_name(&name).ok_or_else(|| {
                 signal(
                     "error",
                     vec![Value::string(format!("No such buffer: `{name}`"))],
@@ -107,7 +124,7 @@ pub(crate) fn builtin_make_indirect_buffer(
             vec![Value::string("Empty string for buffer name is not allowed")],
         ));
     }
-    if eval.buffers.find_buffer_by_name(&name).is_some() {
+    if buffers.find_buffer_by_name(&name).is_some() {
         return Err(signal(
             "error",
             vec![Value::string(format!("Buffer name `{name}` is in use"))],
@@ -116,8 +133,7 @@ pub(crate) fn builtin_make_indirect_buffer(
 
     let clone = args.get(2).is_some_and(|value| !value.is_nil());
     let inhibit_buffer_hooks = args.get(3).is_some_and(|value| !value.is_nil());
-    let id = eval
-        .buffers
+    let id = buffers
         .create_indirect_buffer(base_id, &name, clone)
         .ok_or_else(|| {
             signal(
@@ -126,21 +142,33 @@ pub(crate) fn builtin_make_indirect_buffer(
             )
         })?;
 
-    let saved_current = eval.buffers.current_buffer_id();
-    if clone {
-        eval.buffers.set_current(id);
+    Ok(MakeIndirectBufferPlan {
+        id,
+        saved_current: buffers.current_buffer_id(),
+        run_clone_hook: clone,
+        run_buffer_list_update_hook: !inhibit_buffer_hooks,
+    })
+}
+
+pub(crate) fn finish_make_indirect_buffer_hooks(
+    eval: &mut super::eval::Evaluator,
+    plan: MakeIndirectBufferPlan,
+) -> EvalResult {
+    if plan.run_clone_hook {
+        eval.buffers.set_current(plan.id);
         let clone_result =
             builtin_run_hooks(eval, vec![Value::symbol("clone-indirect-buffer-hook")]);
-        if let Some(saved_id) = saved_current {
-            eval.buffers.set_current(saved_id);
+        if let Some(saved_id) = plan.saved_current {
+            if eval.buffers.get(saved_id).is_some() {
+                eval.buffers.set_current(saved_id);
+            }
         }
         clone_result?;
     }
-    if !inhibit_buffer_hooks {
+    if plan.run_buffer_list_update_hook {
         builtin_run_hooks(eval, vec![Value::symbol("buffer-list-update-hook")])?;
     }
-
-    Ok(Value::Buffer(id))
+    Ok(Value::Buffer(plan.id))
 }
 
 /// (get-buffer NAME-OR-BUFFER) → buffer or nil
@@ -330,21 +358,29 @@ pub(crate) fn builtin_kill_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_kill_buffer_in_state(&mut eval.buffers, &mut eval.frames, args)
+}
+
+pub(crate) fn builtin_kill_buffer_in_state(
+    buffers: &mut BufferManager,
+    frames: &mut FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("kill-buffer", &args, 1)?;
     let id = match args.first() {
-        None | Some(Value::Nil) => match eval.buffers.current_buffer() {
+        None | Some(Value::Nil) => match buffers.current_buffer() {
             Some(buf) => buf.id,
             None => return Ok(Value::Nil),
         },
         Some(Value::Buffer(id)) => {
-            if eval.buffers.get(*id).is_none() {
+            if buffers.get(*id).is_none() {
                 return Ok(Value::Nil);
             }
             *id
         }
         Some(Value::Str(name_id)) => {
             let name = with_heap(|h| h.get_string(*name_id).to_owned());
-            match eval.buffers.find_buffer_by_name(&name) {
+            match buffers.find_buffer_by_name(&name) {
                 Some(id) => id,
                 None => {
                     return Err(signal(
@@ -362,9 +398,9 @@ pub(crate) fn builtin_kill_buffer(
         }
     };
 
-    let was_current = eval.buffers.current_buffer().map(|buf| buf.id) == Some(id);
+    let was_current = buffers.current_buffer().map(|buf| buf.id) == Some(id);
     let replacement = if was_current {
-        match builtin_other_buffer(eval, vec![Value::Buffer(id)])? {
+        match builtin_other_buffer_in_manager(buffers, vec![Value::Buffer(id)])? {
             Value::Buffer(next) if next != id => Some(next),
             _ => None,
         }
@@ -372,28 +408,27 @@ pub(crate) fn builtin_kill_buffer(
         None
     };
 
-    if !eval.buffers.kill_buffer(id) {
+    if !buffers.kill_buffer(id) {
         return Ok(Value::Nil);
     }
 
     // Ensure dead-buffer windows continue to point at a live fallback buffer.
-    let scratch = eval
-        .buffers
+    let scratch = buffers
         .find_buffer_by_name("*scratch*")
-        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
-    eval.frames.replace_buffer_in_windows(id, scratch);
+        .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
+    frames.replace_buffer_in_windows(id, scratch);
 
     if was_current {
         if let Some(next) = replacement {
-            if eval.buffers.get(next).is_some() {
-                eval.buffers.set_current(next);
+            if buffers.get(next).is_some() {
+                buffers.set_current(next);
             }
         }
-        if eval.buffers.current_buffer().is_none() {
-            if let Some(next) = eval.buffers.buffer_list().into_iter().next() {
-                eval.buffers.set_current(next);
+        if buffers.current_buffer().is_none() {
+            if let Some(next) = buffers.buffer_list().into_iter().next() {
+                buffers.set_current(next);
             } else {
-                eval.buffers.set_current(scratch);
+                buffers.set_current(scratch);
             }
         }
     }

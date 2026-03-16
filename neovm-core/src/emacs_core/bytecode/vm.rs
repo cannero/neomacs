@@ -1943,6 +1943,30 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_make_indirect_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        let plan = crate::emacs_core::builtins::prepare_make_indirect_buffer_in_manager(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )?;
+        if !plan.run_clone_hook && !plan.run_buffer_list_update_hook {
+            return Ok(Value::Buffer(plan.id));
+        }
+        let mut extra_roots = Vec::with_capacity(args.len() + 1);
+        extra_roots.push(Value::Buffer(plan.id));
+        extra_roots.extend(args.iter().copied());
+        self.with_mirrored_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::builtins::finish_make_indirect_buffer_hooks(eval, plan)
+        })
+    }
+
+    fn builtin_kill_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_kill_buffer_in_state(
+            &mut *self.shared.buffers,
+            &mut *self.shared.frames,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_set_buffer_multibyte_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_set_buffer_multibyte_in_manager(
             &mut *self.shared.buffers,
@@ -3095,6 +3119,7 @@ impl<'a> Vm<'a> {
             "other-buffer" => Some(self.builtin_other_buffer_shared(args)),
             "generate-new-buffer-name" => Some(self.builtin_generate_new_buffer_name_shared(args)),
             "get-file-buffer" => Some(self.builtin_get_file_buffer_shared(args)),
+            "make-indirect-buffer" => Some(self.builtin_make_indirect_buffer_shared(args)),
             "point-min" => Some(self.builtin_point_min_shared(args)),
             "point-max" => Some(self.builtin_point_max_shared(args)),
             "goto-char" => Some(self.builtin_goto_char_shared(args)),
@@ -3568,6 +3593,7 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "kill-buffer" => Some(self.builtin_kill_buffer_shared(args)),
             "set-buffer-multibyte" => Some(self.builtin_set_buffer_multibyte_shared(args)),
             "make-local-variable" => Some(self.builtin_make_local_variable_shared(args)),
             "local-variable-p" => Some(self.builtin_local_variable_p_shared(args)),

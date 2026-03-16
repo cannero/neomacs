@@ -965,6 +965,50 @@ fn vm_buffer_identity_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_make_indirect_buffer_uses_shared_manager_state_and_narrow_hook_bridge() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((base (get-buffer-create "vm-mib-base")))
+                 (fset 'vm-mib-clone (lambda () (setq vm-mib-last-clone (buffer-name))))
+                 (fset 'vm-mib-list (lambda () (setq vm-mib-buffer-list-ran t)))
+                 (setq clone-indirect-buffer-hook '(vm-mib-clone))
+                 (setq buffer-list-update-hook '(vm-mib-list))
+                 (setq vm-mib-last-clone nil)
+                 (setq vm-mib-buffer-list-ran nil)
+                 (set-buffer base)
+                 (let ((indirect (make-indirect-buffer base "vm-mib-ind" t)))
+                   (list (buffer-name (current-buffer))
+                         (buffer-name indirect)
+                         vm-mib-last-clone
+                         vm-mib-buffer-list-ran
+                         (eq (buffer-base-buffer indirect) base))))"#
+        ),
+        r#"OK ("vm-mib-base" "vm-mib-ind" "vm-mib-ind" t t)"#
+    );
+}
+
+#[test]
+fn vm_kill_buffer_uses_shared_manager_and_frame_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((a (get-buffer-create "vm-kill-a"))
+                     (b (get-buffer-create "vm-kill-b")))
+                 (set-buffer a)
+                 (list
+                  (kill-buffer nil)
+                  (buffer-live-p a)
+                  (let ((current (current-buffer)))
+                    (list (not (eq current a))
+                          (buffer-live-p current)))
+                  (condition-case err
+                      (kill-buffer "vm-kill-missing")
+                    (error (car err)))))"#
+        ),
+        r#"OK (t nil (t t) error)"#
+    );
+}
+
+#[test]
 fn vm_set_buffer_multibyte_uses_shared_current_buffer_state() {
     assert_eq!(
         vm_eval_str(
