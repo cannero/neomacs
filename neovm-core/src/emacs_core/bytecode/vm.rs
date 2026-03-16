@@ -2812,6 +2812,13 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_undo_boundary_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::undo::builtin_undo_boundary_in_state(
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_buffer_enable_undo_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_buffer_enable_undo_in_manager(
             &mut *self.shared.buffers,
@@ -3840,6 +3847,7 @@ impl<'a> Vm<'a> {
             "replace-region-contents" => Some(self.builtin_replace_region_contents_shared(args)),
             "delete-field" => Some(self.builtin_delete_field_shared(args)),
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
+            "undo-boundary" => Some(self.builtin_undo_boundary_shared(args)),
             "char-equal" => Some(crate::emacs_core::builtins::builtin_char_equal_in_state(
                 &self.shared.obarray,
                 &self.shared.dynamic,
@@ -4168,9 +4176,10 @@ impl<'a> Vm<'a> {
                 &*self.shared.buffers,
                 args.to_vec(),
             )),
-            "standard-case-table" => Some(
-                crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
-            ),
+            "current-case-table" => Some(self.builtin_current_case_table_shared(args)),
+            "standard-case-table" => Some(self.builtin_standard_case_table_shared(args)),
+            "set-case-table" => Some(self.builtin_set_case_table_shared(args)),
+            "set-standard-case-table" => Some(self.builtin_set_standard_case_table_shared(args)),
             "standard-category-table" => Some(
                 crate::emacs_core::category::builtin_standard_category_table(args.to_vec()),
             ),
@@ -6579,6 +6588,36 @@ impl<'a> Vm<'a> {
         self.call_eval_builtin_shared(
             args,
             crate::emacs_core::builtins::builtin_current_message_eval,
+        )
+    }
+
+    fn builtin_current_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::casetab::builtin_current_case_table_in_state(
+            self.shared.obarray,
+            self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_standard_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::casetab::builtin_standard_case_table_in_state(
+            self.shared.obarray,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_set_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::casetab::builtin_set_case_table_in_state(
+            self.shared.obarray,
+            self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_set_standard_case_table_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::casetab::builtin_set_standard_case_table_in_state(
+            self.shared.obarray,
+            args.to_vec(),
         )
     }
 

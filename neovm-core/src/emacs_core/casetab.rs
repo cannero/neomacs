@@ -264,8 +264,7 @@ pub(crate) fn builtin_current_case_table_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("current-case-table", &args, 0)?;
-    current_case_table_for_buffer(eval)
+    builtin_current_case_table_in_state(&mut eval.obarray, &mut eval.buffers, args)
 }
 
 /// `(standard-case-table)` -- evaluator-backed standard case table object.
@@ -273,8 +272,7 @@ pub(crate) fn builtin_standard_case_table_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("standard-case-table", &args, 0)?;
-    ensure_standard_case_table_object_eval(eval)
+    builtin_standard_case_table_in_state(&mut eval.obarray, args)
 }
 
 /// `(set-case-table TABLE)` -- evaluator-backed current buffer case table set.
@@ -282,16 +280,7 @@ pub(crate) fn builtin_set_case_table_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("set-case-table", &args, 1)?;
-    if !is_case_table(&args[0]) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("case-table-p"), args[0]],
-        ));
-    }
-    let table = args[0];
-    set_current_case_table_for_buffer(eval, table)?;
-    Ok(table)
+    builtin_set_case_table_in_state(&mut eval.obarray, &mut eval.buffers, args)
 }
 
 /// `(set-standard-case-table TABLE)` -- evaluator-backed standard table set.
@@ -299,10 +288,7 @@ pub(crate) fn builtin_set_standard_case_table_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let table = builtin_set_standard_case_table(args)?;
-    eval.obarray
-        .set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
-    Ok(table)
+    builtin_set_standard_case_table_in_state(&mut eval.obarray, args)
 }
 
 /// `(downcase CHAR)` -- convert a character to lowercase.
@@ -429,30 +415,70 @@ fn ensure_standard_case_table_object() -> EvalResult {
     })
 }
 
-fn ensure_standard_case_table_object_eval(eval: &mut super::eval::Evaluator) -> EvalResult {
-    if let Some(value) = eval
-        .obarray
-        .symbol_value(STANDARD_CASE_TABLE_SYMBOL)
-        .cloned()
-    {
+pub(crate) fn builtin_current_case_table_in_state(
+    obarray: &mut super::symbol::Obarray,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("current-case-table", &args, 0)?;
+    current_case_table_for_buffer_in_state(obarray, buffers)
+}
+
+pub(crate) fn builtin_standard_case_table_in_state(
+    obarray: &mut super::symbol::Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("standard-case-table", &args, 0)?;
+    ensure_standard_case_table_object_in_state(obarray)
+}
+
+pub(crate) fn builtin_set_case_table_in_state(
+    obarray: &mut super::symbol::Obarray,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-case-table", &args, 1)?;
+    if !is_case_table(&args[0]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("case-table-p"), args[0]],
+        ));
+    }
+    let table = args[0];
+    let _ = ensure_standard_case_table_object_in_state(obarray)?;
+    set_current_case_table_for_buffer_in_state(buffers, table)?;
+    Ok(table)
+}
+
+pub(crate) fn builtin_set_standard_case_table_in_state(
+    obarray: &mut super::symbol::Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
+    let table = builtin_set_standard_case_table(args)?;
+    obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
+    Ok(table)
+}
+
+fn ensure_standard_case_table_object_in_state(obarray: &mut super::symbol::Obarray) -> EvalResult {
+    if let Some(value) = obarray.symbol_value(STANDARD_CASE_TABLE_SYMBOL).cloned() {
         if is_case_table(&value) {
             return Ok(value);
         }
     }
     let table = make_standard_case_table_value();
-    eval.obarray
-        .set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
+    obarray.set_symbol_value(STANDARD_CASE_TABLE_SYMBOL, table);
     Ok(table)
 }
 
-fn current_case_table_for_buffer(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
-    let fallback = ensure_standard_case_table_object_eval(eval)?;
-    let current_id = eval
-        .buffers
+fn current_case_table_for_buffer_in_state(
+    obarray: &mut super::symbol::Obarray,
+    buffers: &mut crate::buffer::BufferManager,
+) -> Result<Value, Flow> {
+    let fallback = ensure_standard_case_table_object_in_state(obarray)?;
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -463,23 +489,18 @@ fn current_case_table_for_buffer(eval: &mut super::eval::Evaluator) -> Result<Va
         }
     }
 
-    let _ =
-        eval.buffers
-            .set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, fallback);
+    let _ = buffers.set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, fallback);
     Ok(fallback)
 }
 
-fn set_current_case_table_for_buffer(
-    eval: &mut super::eval::Evaluator,
+fn set_current_case_table_for_buffer_in_state(
+    buffers: &mut crate::buffer::BufferManager,
     table: Value,
 ) -> Result<(), Flow> {
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval
-        .buffers
-        .set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, table);
+    let _ = buffers.set_buffer_local_property(current_id, CURRENT_CASE_TABLE_PROPERTY, table);
     Ok(())
 }
 

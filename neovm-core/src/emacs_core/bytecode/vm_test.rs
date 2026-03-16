@@ -2037,6 +2037,45 @@ fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_case_table_builtins_use_shared_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((buf (current-buffer))
+                      (other (get-buffer-create "*case-other*"))
+                      (third (get-buffer-create "*case-third*"))
+                      (standard (standard-case-table))
+                      (custom (copy-sequence standard)))
+                 (list
+                  (eq (current-case-table) standard)
+                  (not (eq standard custom))
+                  (progn (set-case-table custom) (eq (current-case-table) custom))
+                  (progn (set-buffer other) (eq (current-case-table) standard))
+                  (progn (set-buffer buf) (eq (current-case-table) custom))
+                  (progn (set-standard-case-table custom) (eq (standard-case-table) custom))
+                  (progn (set-buffer third) (eq (current-case-table) custom))))"#
+        ),
+        "OK (t t t t t t t)"
+    );
+}
+
+#[test]
+fn vm_undo_boundary_uses_shared_buffer_state() {
+    let mut eval = Evaluator::new_vm_harness();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
+        buffer.insert("x");
+    }
+    let form = parse_forms("(undo-boundary)").expect("parse");
+    let mut compiler = Compiler::new(false);
+    let func = compiler.compile_toplevel(&form[0]);
+    let mut vm = new_vm(&mut eval);
+    let result = vm.execute(&func, vec![]);
+    assert!(matches!(result, Ok(value) if value.is_nil()));
+    let buffer = eval.buffers.current_buffer().expect("scratch buffer");
+    assert!(buffer.undo_list.has_trailing_boundary());
+}
+
+#[test]
 fn vm_simple_process_builtins_use_shared_runtime_state() {
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
