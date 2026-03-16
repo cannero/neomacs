@@ -1495,6 +1495,14 @@ impl LayoutEngine {
         let char_w = params.char_width;
         let char_h = params.char_height;
         let font_ascent = params.font_ascent;
+        let echo_message = if params.is_minibuffer {
+            evaluator
+                .current_message_text()
+                .filter(|message| !message.is_empty())
+                .map(|message| message.to_string())
+        } else {
+            None
+        };
 
         // Text area (excluding fringes, margins, mode-line)
         let text_x = params.text_bounds.x;
@@ -1686,6 +1694,24 @@ impl LayoutEngine {
         let mut current_face_id: u32 = 1; // 0 is reserved for default face
         let mut current_fg: Color = default_fg; // tracks foreground across face changes
         let mut current_bg: Color = default_bg; // tracks background across face changes
+
+        if let Some(echo_message) = echo_message {
+            self.render_rust_status_line_plain(
+                text_x,
+                text_y,
+                text_width,
+                text_height.max(char_h),
+                params.window_id,
+                char_w,
+                default_face_ascent,
+                0,
+                default_resolved,
+                echo_message,
+                frame_glyphs,
+                StatusLineKind::Minibuffer,
+            );
+            return;
+        }
 
         // Line number state
         let window_start_byte = buf_access.charpos_to_bytepos(window_start);

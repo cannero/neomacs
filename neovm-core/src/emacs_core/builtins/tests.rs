@@ -7700,6 +7700,20 @@ fn message_nil_returns_nil() {
     let eval_result =
         builtin_message_eval(&mut eval, vec![Value::Nil]).expect("message eval should accept nil");
     assert!(eval_result.is_nil());
+
+    let displayed = builtin_message_eval(&mut eval, vec![Value::string("hello echo")])
+        .expect("message eval should store echo text");
+    assert_eq!(displayed, Value::string("hello echo"));
+    let current = builtin_current_message_eval(&mut eval, vec![])
+        .expect("current-message should read stored echo text");
+    assert_eq!(current, Value::string("hello echo"));
+
+    let cleared =
+        builtin_message_eval(&mut eval, vec![Value::Nil]).expect("message eval should clear");
+    assert!(cleared.is_nil());
+    let current_after_clear =
+        builtin_current_message_eval(&mut eval, vec![]).expect("current-message should clear");
+    assert!(current_after_clear.is_nil());
 }
 
 #[test]

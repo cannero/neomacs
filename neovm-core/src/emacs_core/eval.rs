@@ -713,6 +713,8 @@ pub struct Evaluator {
     recent_input_events: Vec<Value>,
     /// Last key sequence captured by read-key/read-key-sequence/read-event paths.
     read_command_keys: Vec<Value>,
+    /// Current echo-area message text, mirroring GNU `current-message`.
+    current_message: Option<String>,
     /// Batch-compatible input-mode interrupt flag for `current-input-mode`.
     input_mode_interrupt: bool,
     /// Frame manager — owns all frames and windows.
@@ -2262,6 +2264,7 @@ impl Evaluator {
             interactive: InteractiveRegistry::new(),
             recent_input_events: Vec::new(),
             read_command_keys: Vec::new(),
+            current_message: None,
             input_mode_interrupt: true,
             frames: FrameManager::new(),
             modes: ModeRegistry::new(),
@@ -2362,6 +2365,7 @@ impl Evaluator {
             interactive,
             recent_input_events: Vec::new(),
             read_command_keys: Vec::new(),
+            current_message: None,
             input_mode_interrupt: true,
             frames: FrameManager::new(),
             modes,
@@ -2950,6 +2954,7 @@ impl Evaluator {
                 }
                 InputEvent::KeyPress(ref key) => {
                     tracing::debug!("read_char: received KeyPress {:?}", key);
+                    self.clear_current_message();
                     // Record for keyboard macro
                     if self.command_loop.defining_kbd_macro {
                         self.command_loop.kbd_macro_events.push(key.clone());
@@ -2963,11 +2968,13 @@ impl Evaluator {
                     y,
                     modifiers,
                 } => {
+                    self.clear_current_message();
                     let event =
                         Self::make_mouse_event(&button, x, y, &modifiers, "down-mouse", self);
                     return Ok(event);
                 }
                 InputEvent::MouseRelease { button, x, y } => {
+                    self.clear_current_message();
                     let event = Self::make_mouse_event(
                         &button,
                         x,
@@ -3491,6 +3498,18 @@ impl Evaluator {
     /// Public mutable access to the frame manager.
     pub fn frame_manager_mut(&mut self) -> &mut FrameManager {
         &mut self.frames
+    }
+
+    pub fn current_message_text(&self) -> Option<&str> {
+        self.current_message.as_deref()
+    }
+
+    pub fn set_current_message(&mut self, message: Option<String>) {
+        self.current_message = message;
+    }
+
+    pub fn clear_current_message(&mut self) {
+        self.current_message = None;
     }
 
     /// Public read access to the face table.
@@ -5947,7 +5966,7 @@ impl Evaluator {
         // Root both values so GC during body can't collect them.
         self.temp_roots.push(message_value);
         let current_message = if message_value.is_truthy() {
-            super::builtins::builtin_current_message(vec![])?
+            super::builtins::builtin_current_message_eval(self, vec![])?
         } else {
             Value::Nil
         };

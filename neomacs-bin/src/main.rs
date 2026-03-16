@@ -263,9 +263,9 @@ fn bootstrap_buffers(eval: &mut Evaluator, width: u32, height: u32) -> Bootstrap
     }
 
     // Fix window geometry: root window takes frame height minus minibuffer.
-    let mini_h = 32.0_f32;
-    let mini_y = height as f32 - mini_h;
     if let Some(frame) = eval.frame_manager_mut().selected_frame_mut() {
+        let mini_h = frame.char_height.max(1.0);
+        let mini_y = height as f32 - mini_h;
         if let Window::Leaf { bounds, .. } = &mut frame.root_window {
             bounds.height = mini_y;
         }
@@ -432,7 +432,10 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 mod tests {
     use super::{
         bootstrap_buffers, configure_gnu_startup_state, current_layout_frame_id, run_gnu_startup,
+        run_layout,
     };
+    use neomacs_display_runtime::FrameGlyphBuffer;
+    use neomacs_display_runtime::core::frame_glyphs::{FrameGlyph, GlyphRowRole};
     use neovm_core::emacs_core::Evaluator;
     use neovm_core::emacs_core::Value;
     use neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features;
@@ -528,6 +531,89 @@ mod tests {
         assert_eq!(
             result,
             Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default")
+        );
+    }
+
+    #[test]
+    fn gnu_startup_posts_echo_area_message() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms("(list (current-message) (startup-echo-area-message))")
+            .expect("parse startup echo probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup echo probe should evaluate");
+        assert_eq!(
+            print_value_with_eval(&mut eval, &result),
+            "(\"For information about GNU Emacs and the GNU system, type C-h C-a.\" \"For information about GNU Emacs and the GNU system, type C-h C-a.\")"
+        );
+    }
+
+    #[test]
+    fn gnu_startup_keeps_single_row_minibuffer() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms("(window-total-height (minibuffer-window))")
+            .expect("parse minibuffer height probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("minibuffer height probe should evaluate");
+        assert_eq!(result, Value::Int(1));
+    }
+
+    #[test]
+    fn gnu_startup_renders_echo_message_into_minibuffer_row() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(960.0, 640.0);
+        run_layout(&mut eval, &mut frame_glyphs);
+
+        let rendered: String = frame_glyphs
+            .glyphs
+            .iter()
+            .filter_map(|glyph| match glyph {
+                FrameGlyph::Char { row_role, char, .. }
+                    if *row_role == GlyphRowRole::Minibuffer =>
+                {
+                    Some(*char)
+                }
+                _ => None,
+            })
+            .collect();
+
+        assert!(
+            rendered.contains("For information about GNU Emacs and the GNU system"),
+            "expected startup echo message in minibuffer row, got: {rendered:?}"
         );
     }
 

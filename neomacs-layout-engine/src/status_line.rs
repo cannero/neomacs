@@ -19,6 +19,7 @@ pub(crate) enum StatusLineKind {
     HeaderLine,
     TabLine,
     TabBar,
+    Minibuffer,
 }
 
 impl StatusLineKind {
@@ -28,6 +29,7 @@ impl StatusLineKind {
             Self::HeaderLine => GlyphRowRole::HeaderLine,
             Self::TabLine => GlyphRowRole::TabLine,
             Self::TabBar => GlyphRowRole::TabBar,
+            Self::Minibuffer => GlyphRowRole::Minibuffer,
         }
     }
 }
@@ -541,6 +543,9 @@ impl LayoutEngine {
                     // TabBar uses build_ffi_tab_bar_spec() instead, never reaches here.
                     unreachable!("TabBar should use build_ffi_tab_bar_spec()")
                 }
+                StatusLineKind::Minibuffer => {
+                    unreachable!("Minibuffer should use render_rust_status_line_plain()")
+                }
             }
         };
 
@@ -1016,12 +1021,13 @@ mod tests {
 
     #[test]
     fn status_line_kind_variants_exist() {
-        // Ensure all four variants can be constructed (compile-time check
+        // Ensure all variants can be constructed (compile-time check
         // made explicit).
         let _ml = StatusLineKind::ModeLine;
         let _hl = StatusLineKind::HeaderLine;
         let _tl = StatusLineKind::TabLine;
         let _tb = StatusLineKind::TabBar;
+        let _mini = StatusLineKind::Minibuffer;
     }
 
     #[test]
@@ -1033,12 +1039,14 @@ mod tests {
                 StatusLineKind::HeaderLine => 1,
                 StatusLineKind::TabLine => 2,
                 StatusLineKind::TabBar => 3,
+                StatusLineKind::Minibuffer => 4,
             }
         };
         assert_eq!(check(&StatusLineKind::ModeLine), 0);
         assert_eq!(check(&StatusLineKind::HeaderLine), 1);
         assert_eq!(check(&StatusLineKind::TabLine), 2);
         assert_eq!(check(&StatusLineKind::TabBar), 3);
+        assert_eq!(check(&StatusLineKind::Minibuffer), 4);
     }
 
     // ---------------------------------------------------------------

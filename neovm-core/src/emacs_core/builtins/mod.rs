@@ -2162,6 +2162,7 @@ pub(crate) fn dispatch_builtin(
         }
         "message-box" => return Some(builtin_message_box_eval(eval, args)),
         "message-or-box" => return Some(builtin_message_or_box_eval(eval, args)),
+        "current-message" => return Some(builtin_current_message_eval(eval, args)),
         "read-from-string" => return Some(super::reader::builtin_read_from_string(eval, args)),
         "read" => return Some(super::reader::builtin_read(eval, args)),
         "read-from-minibuffer" => {

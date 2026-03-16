@@ -84,6 +84,7 @@ pub(crate) fn builtin_message_eval(
 ) -> EvalResult {
     expect_min_args("message", &args, 1)?;
     if args.len() == 1 && args[0].is_nil() {
+        eval.clear_current_message();
         return Ok(Value::Nil);
     }
     let msg = if args.len() == 1 {
@@ -95,6 +96,7 @@ pub(crate) fn builtin_message_eval(
             _ => String::new(),
         }
     };
+    eval.set_current_message(Some(msg.clone()));
     eprintln!("{}", msg);
     Ok(Value::string(msg))
 }
@@ -143,6 +145,17 @@ pub(crate) fn builtin_current_message(args: Vec<Value>) -> EvalResult {
     expect_args("current-message", &args, 0)?;
     // Batch mode keeps message display side effects out-of-band.
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_current_message_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("current-message", &args, 0)?;
+    Ok(match eval.current_message_text() {
+        Some(message) => Value::string(message),
+        None => Value::Nil,
+    })
 }
 
 pub(crate) fn builtin_daemonp(args: Vec<Value>) -> EvalResult {
