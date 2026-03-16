@@ -6627,9 +6627,10 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_current_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::builtins::builtin_current_message_eval,
+        let (_, _, _, _, _, current_message) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_current_message_in_state(
+            &*current_message,
+            args.to_vec(),
         )
     }
 
@@ -6664,28 +6665,60 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_format_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_format_eval)
+        let (obarray, _, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_format_in_state(
+            &*obarray,
+            &*buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_format_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::builtins::builtin_format_message_eval,
+        let (obarray, _, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_format_message_in_state(
+            &*obarray,
+            &*buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
         )
     }
 
     fn builtin_message_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_message_eval)
+        let (obarray, dynamic, buffers, frames, threads, current_message) =
+            self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_message_in_state(
+            &*obarray,
+            dynamic.as_slice(),
+            &*buffers,
+            &*frames,
+            &*threads,
+            current_message,
+            args.to_vec(),
+        )
     }
 
     fn builtin_message_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_message_box_eval)
+        let (obarray, _, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_message_box_in_state(
+            &*obarray,
+            &*buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_message_or_box_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::builtins::builtin_message_or_box_eval,
+        let (obarray, _, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_message_or_box_in_state(
+            &*obarray,
+            &*buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
         )
     }
 
@@ -6816,22 +6849,50 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_princ_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_princ_eval)
+        let (obarray, dynamic, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_princ_in_state(
+            &*obarray,
+            dynamic.as_slice(),
+            buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_prin1_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_prin1_eval)
+        let (obarray, dynamic, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_prin1_in_state(
+            &*obarray,
+            dynamic.as_slice(),
+            buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_prin1_to_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::builtins::builtin_prin1_to_string_eval,
+        let (obarray, _, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_prin1_to_string_in_state(
+            &*obarray,
+            &*buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
         )
     }
 
     fn builtin_print_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_print_eval)
+        let (obarray, dynamic, buffers, frames, threads, _) = self.shared.printer_runtime_state();
+        crate::emacs_core::builtins::builtin_print_in_state(
+            &*obarray,
+            dynamic.as_slice(),
+            buffers,
+            &*frames,
+            &*threads,
+            args.to_vec(),
+        )
     }
 
     fn builtin_terpri_shared(&mut self, args: &[Value]) -> EvalResult {

@@ -696,11 +696,23 @@ pub(crate) fn builtin_format_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_format_wrapper_strict_eval(eval, args)
+    builtin_format_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
 }
 
-fn format_percent_s_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
-    super::misc_eval::print_value_princ_eval(eval, value)
+fn format_percent_s_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    value: &Value,
+) -> String {
+    super::misc_eval::print_value_princ_in_state(obarray, buffers, frames, threads, value)
 }
 
 fn format_not_enough_args_error() -> Flow {
@@ -1085,13 +1097,41 @@ pub(super) fn builtin_format_wrapper_strict_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_format_wrapper_strict_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_format_wrapper_strict_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
         expect_min_args("format", &args, 1)?;
-        let s = do_format(&args, &|v| format_percent_s_eval(eval, v), &|v| {
-            print_value_eval(eval, v)
-        })?;
+        let s = do_format(
+            &args,
+            &|v| format_percent_s_in_state(obarray, buffers, frames, threads, v),
+            &|v| super::error::print_value_in_state(obarray, buffers, frames, threads, v),
+        )?;
         Ok(Value::string(s))
     })
+}
+
+pub(crate) fn builtin_format_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_format_wrapper_strict_in_state(obarray, buffers, frames, threads, args)
 }
 
 /// Apply `text-quoting-style` translation to a string.
@@ -1129,8 +1169,24 @@ pub(crate) fn builtin_format_message_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_format_message_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_format_message_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("format-message", &args, 1)?;
-    let formatted = builtin_format_eval(eval, args)?;
+    let formatted = builtin_format_in_state(obarray, buffers, frames, threads, args)?;
     match formatted {
         Value::Str(id) => {
             let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());

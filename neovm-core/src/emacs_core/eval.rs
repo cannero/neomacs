@@ -252,6 +252,7 @@ pub(crate) struct VmSharedState<'a> {
     pub(crate) minibuffers: &'a mut MinibufferManager,
     pub(crate) recent_input_events: &'a mut Vec<Value>,
     read_command_keys: &'a mut Vec<Value>,
+    pub(crate) current_message: &'a mut Option<String>,
     pub(crate) input_mode_interrupt: &'a mut bool,
     pub(crate) waiting_for_user_input: &'a mut bool,
     modes: &'a mut ModeRegistry,
@@ -307,6 +308,7 @@ impl<'a> VmSharedState<'a> {
         minibuffers: &'a mut MinibufferManager,
         recent_input_events: &'a mut Vec<Value>,
         read_command_keys: &'a mut Vec<Value>,
+        current_message: &'a mut Option<String>,
         input_mode_interrupt: &'a mut bool,
         waiting_for_user_input: &'a mut bool,
         frames: &'a mut FrameManager,
@@ -368,6 +370,7 @@ impl<'a> VmSharedState<'a> {
             minibuffers,
             recent_input_events,
             read_command_keys,
+            current_message,
             input_mode_interrupt,
             waiting_for_user_input,
             frames,
@@ -429,6 +432,28 @@ impl<'a> VmSharedState<'a> {
         (frames, buffers, display_host)
     }
 
+    pub(crate) fn printer_runtime_state(
+        &mut self,
+    ) -> (
+        &mut Obarray,
+        &mut Vec<OrderedRuntimeBindingMap>,
+        &mut BufferManager,
+        &mut FrameManager,
+        &mut ThreadManager,
+        &mut Option<String>,
+    ) {
+        let Self {
+            obarray,
+            dynamic,
+            buffers,
+            frames,
+            threads,
+            current_message,
+            ..
+        } = self;
+        (obarray, dynamic, buffers, frames, threads, current_message)
+    }
+
     pub(crate) fn from_evaluator(eval: &'a mut Evaluator) -> Self {
         let parent_eval = std::ptr::NonNull::from(&mut *eval);
         Self::new(
@@ -455,6 +480,7 @@ impl<'a> VmSharedState<'a> {
             &mut eval.minibuffers,
             &mut eval.recent_input_events,
             &mut eval.read_command_keys,
+            &mut eval.current_message,
             &mut eval.input_mode_interrupt,
             &mut eval.waiting_for_user_input,
             &mut eval.frames,
@@ -3710,6 +3736,39 @@ impl Evaluator {
 
     pub fn clear_current_message(&mut self) {
         self.current_message = None;
+    }
+
+    pub(crate) fn current_message_slot(&mut self) -> &mut Option<String> {
+        &mut self.current_message
+    }
+
+    pub(crate) fn message_runtime_state(
+        &mut self,
+    ) -> (
+        &Obarray,
+        &[OrderedRuntimeBindingMap],
+        &BufferManager,
+        &FrameManager,
+        &ThreadManager,
+        &mut Option<String>,
+    ) {
+        let Self {
+            obarray,
+            dynamic,
+            buffers,
+            frames,
+            threads,
+            current_message,
+            ..
+        } = self;
+        (
+            obarray,
+            dynamic.as_slice(),
+            buffers,
+            frames,
+            threads,
+            current_message,
+        )
     }
 
     /// Public read access to the face table.

@@ -82,27 +82,71 @@ pub(crate) fn builtin_message_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let (obarray, dynamic, buffers, frames, threads, current_message) =
+        eval.message_runtime_state();
+    builtin_message_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        frames,
+        threads,
+        current_message,
+        args,
+    )
+}
+
+pub(crate) fn builtin_message_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    current_message: &mut Option<String>,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("message", &args, 1)?;
     if args.len() == 1 && args[0].is_nil() {
-        eval.clear_current_message();
+        *current_message = None;
         return Ok(Value::Nil);
     }
     let msg = if args.len() == 1 {
         expect_strict_string(&args[0])?
     } else {
         // GNU Emacs's `message` uses `format-message` internally.
-        match builtin_format_message_eval(eval, args.clone())? {
+        match super::strings::builtin_format_message_in_state(
+            obarray,
+            buffers,
+            frames,
+            threads,
+            args.clone(),
+        )? {
             Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
     };
-    eval.set_current_message(Some(msg.clone()));
+    *current_message = Some(msg.clone());
     eprintln!("{}", msg);
     Ok(Value::string(msg))
 }
 
 pub(crate) fn builtin_message_box_eval(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_message_box_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_message_box_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message-box", &args, 1)?;
@@ -112,7 +156,13 @@ pub(crate) fn builtin_message_box_eval(
     let msg = if args.len() == 1 {
         expect_strict_string(&args[0])?
     } else {
-        match builtin_format_wrapper_strict_eval(eval, args.clone())? {
+        match super::strings::builtin_format_in_state(
+            obarray,
+            buffers,
+            frames,
+            threads,
+            args.clone(),
+        )? {
             Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
@@ -125,6 +175,22 @@ pub(crate) fn builtin_message_or_box_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_message_or_box_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_message_or_box_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("message-or-box", &args, 1)?;
     if args.len() == 1 && args[0].is_nil() {
         return Ok(Value::Nil);
@@ -132,7 +198,13 @@ pub(crate) fn builtin_message_or_box_eval(
     let msg = if args.len() == 1 {
         expect_strict_string(&args[0])?
     } else {
-        match builtin_format_wrapper_strict_eval(eval, args.clone())? {
+        match super::strings::builtin_format_in_state(
+            obarray,
+            buffers,
+            frames,
+            threads,
+            args.clone(),
+        )? {
             Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
             _ => String::new(),
         }
@@ -151,8 +223,16 @@ pub(crate) fn builtin_current_message_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let current_message = eval.current_message_text().map(str::to_owned);
+    builtin_current_message_in_state(&current_message, args)
+}
+
+pub(crate) fn builtin_current_message_in_state(
+    current_message: &Option<String>,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("current-message", &args, 0)?;
-    Ok(match eval.current_message_text() {
+    Ok(match current_message.as_deref() {
         Some(message) => Value::string(message),
         None => Value::Nil,
     })

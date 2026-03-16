@@ -140,45 +140,49 @@ pub fn format_eval_result(result: &Result<Value, EvalError>) -> String {
     }
 }
 
-/// Render a value with evaluator-context-aware opaque handle formatting.
-pub fn print_value_with_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
-    format_value_with_eval(eval, value, print_options_from_eval(eval))
-}
-
-fn format_opaque_handle_with_eval(eval: &super::eval::Evaluator, value: &Value) -> Option<String> {
+fn format_opaque_handle_in_state(
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
+    value: &Value,
+) -> Option<String> {
     if let Some(handle) = super::terminal::pure::print_terminal_handle(value) {
         return Some(handle);
     }
     if let Value::Window(id) = value {
-        return Some(format_window_handle_with_eval(eval, *id));
+        return Some(format_window_handle_in_state(buffers, frames, *id));
     }
-    if let Some(id) = eval.threads.thread_id_from_handle(value) {
+    if let Some(id) = threads.thread_id_from_handle(value) {
         return Some(format!("#<thread {id}>"));
     }
-    if let Some(id) = eval.threads.mutex_id_from_handle(value) {
+    if let Some(id) = threads.mutex_id_from_handle(value) {
         return Some(format!("#<mutex {id}>"));
     }
-    if let Some(id) = eval.threads.condition_variable_id_from_handle(value) {
+    if let Some(id) = threads.condition_variable_id_from_handle(value) {
         return Some(format!("#<condvar {id}>"));
     }
     if let Value::Buffer(id) = value {
-        if let Some(buf) = eval.buffers.get(*id) {
+        if let Some(buf) = buffers.get(*id) {
             return Some(format!("#<buffer {}>", buf.name));
         }
-        if eval.buffers.dead_buffer_last_name(*id).is_some() {
+        if buffers.dead_buffer_last_name(*id).is_some() {
             return Some("#<killed buffer>".to_string());
         }
     }
     None
 }
 
-fn format_window_handle_with_eval(eval: &super::eval::Evaluator, id: u64) -> String {
+fn format_window_handle_in_state(
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    id: u64,
+) -> String {
     let window_id = WindowId(id);
-    if let Some(frame_id) = eval.frames.find_window_frame_id(window_id) {
-        if let Some(frame) = eval.frames.get(frame_id) {
+    if let Some(frame_id) = frames.find_window_frame_id(window_id) {
+        if let Some(frame) = frames.get(frame_id) {
             if let Some(window) = frame.find_window(window_id) {
                 if let Some(buffer_id) = window.buffer_id() {
-                    if let Some(buffer) = eval.buffers.get(buffer_id) {
+                    if let Some(buffer) = buffers.get(buffer_id) {
                         return format!("#<window {id} on {}>", buffer.name);
                     }
                 }
@@ -189,42 +193,67 @@ fn format_window_handle_with_eval(eval: &super::eval::Evaluator, id: u64) -> Str
     format!("#<window {id}>")
 }
 
-fn print_options_from_eval(eval: &super::eval::Evaluator) -> PrintOptions {
+fn print_options_from_state(obarray: &super::symbol::Obarray) -> PrintOptions {
     PrintOptions::with_print_gensym(
-        eval.obarray
+        obarray
             .symbol_value("print-gensym")
             .is_some_and(Value::is_truthy),
     )
 }
 
-fn format_value_with_eval(
-    eval: &super::eval::Evaluator,
+pub(crate) fn print_value_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
+    value: &Value,
+) -> String {
+    format_value_in_state(
+        obarray,
+        buffers,
+        frames,
+        threads,
+        value,
+        print_options_from_state(obarray),
+    )
+}
+
+fn format_value_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     options: PrintOptions,
 ) -> String {
-    if let Some(handle) = format_opaque_handle_with_eval(eval, value) {
+    if let Some(handle) = format_opaque_handle_in_state(buffers, frames, threads, value) {
         return handle;
     }
     match value {
         super::value::Value::Cons(_) | super::value::Value::Vector(_) => {
-            format_value_with_eval_slow(eval, value, options)
+            format_value_in_state_slow(obarray, buffers, frames, threads, value, options)
         }
         _ => super::print::print_value_with_options(value, options),
     }
 }
 
-fn format_value_with_eval_slow(
-    eval: &super::eval::Evaluator,
+fn format_value_in_state_slow(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     options: PrintOptions,
 ) -> String {
     match value {
         Value::Cons(_) => {
-            if let Some(shorthand) = format_list_shorthand_with_eval(eval, value, options) {
+            if let Some(shorthand) =
+                format_list_shorthand_in_state(obarray, buffers, frames, threads, value, options)
+            {
                 return shorthand;
             }
             let mut out = String::from("(");
-            format_cons_with_eval(eval, value, &mut out, options);
+            format_cons_in_state(obarray, buffers, frames, threads, value, &mut out, options);
             out.push(')');
             out
         }
@@ -235,7 +264,9 @@ fn format_value_with_eval_slow(
                 if idx > 0 {
                     out.push(' ');
                 }
-                out.push_str(&format_value_with_eval(eval, item, options));
+                out.push_str(&format_value_in_state(
+                    obarray, buffers, frames, threads, item, options,
+                ));
             }
             out.push(']');
             out
@@ -244,8 +275,11 @@ fn format_value_with_eval_slow(
     }
 }
 
-fn format_list_shorthand_with_eval(
-    eval: &super::eval::Evaluator,
+fn format_list_shorthand_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     options: PrintOptions,
 ) -> Option<String> {
@@ -263,7 +297,7 @@ fn format_list_shorthand_with_eval(
         let payload = quote_payload(&items[1])?;
         return Some(format!(
             "#s{}",
-            format_value_with_eval(eval, &payload, options)
+            format_value_in_state(obarray, buffers, frames, threads, &payload, options)
         ));
     }
 
@@ -286,12 +320,15 @@ fn format_list_shorthand_with_eval(
 
     Some(format!(
         "{prefix}{}",
-        format_value_with_eval(eval, quoted, nested_options)
+        format_value_in_state(obarray, buffers, frames, threads, quoted, nested_options)
     ))
 }
 
-fn format_cons_with_eval(
-    eval: &super::eval::Evaluator,
+fn format_cons_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     out: &mut String,
     options: PrintOptions,
@@ -305,7 +342,9 @@ fn format_cons_with_eval(
                     out.push(' ');
                 }
                 let pair = read_cons(cell);
-                out.push_str(&format_value_with_eval(eval, &pair.car, options));
+                out.push_str(&format_value_in_state(
+                    obarray, buffers, frames, threads, &pair.car, options,
+                ));
                 cursor = pair.cdr;
                 first = false;
             }
@@ -314,50 +353,79 @@ fn format_cons_with_eval(
                 if !first {
                     out.push_str(" . ");
                 }
-                out.push_str(&format_value_with_eval(eval, &other, options));
+                out.push_str(&format_value_in_state(
+                    obarray, buffers, frames, threads, &other, options,
+                ));
                 return;
             }
         }
     }
 }
 
-/// Render a value as bytes with evaluator-context-aware opaque handle formatting.
-pub fn print_value_bytes_with_eval(eval: &super::eval::Evaluator, value: &Value) -> Vec<u8> {
-    if let Some(handle) = format_opaque_handle_with_eval(eval, value) {
+pub(crate) fn print_value_bytes_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
+    value: &Value,
+) -> Vec<u8> {
+    if let Some(handle) = format_opaque_handle_in_state(buffers, frames, threads, value) {
         return handle.into_bytes();
     }
-    format_value_bytes_with_eval(eval, value, print_options_from_eval(eval))
+    format_value_bytes_in_state_with_options(
+        obarray,
+        buffers,
+        frames,
+        threads,
+        value,
+        print_options_from_state(obarray),
+    )
 }
 
-fn format_value_bytes_with_eval(
-    eval: &super::eval::Evaluator,
+fn format_value_bytes_in_state_with_options(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     options: PrintOptions,
 ) -> Vec<u8> {
     match value {
-        Value::Cons(_) => format_cons_bytes_with_eval(eval, value, options),
-        Value::Vector(_) => format_vector_bytes_with_eval(eval, value, options),
+        Value::Cons(_) => {
+            format_cons_bytes_in_state(obarray, buffers, frames, threads, value, options)
+        }
+        Value::Vector(_) => {
+            format_vector_bytes_in_state(obarray, buffers, frames, threads, value, options)
+        }
         _ => super::print::print_value_bytes_with_options(value, options),
     }
 }
 
-fn format_cons_bytes_with_eval(
-    eval: &super::eval::Evaluator,
+fn format_cons_bytes_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     options: PrintOptions,
 ) -> Vec<u8> {
-    if let Some(shorthand) = format_list_shorthand_bytes_with_eval(eval, value, options) {
+    if let Some(shorthand) =
+        format_list_shorthand_bytes_in_state(obarray, buffers, frames, threads, value, options)
+    {
         return shorthand;
     }
     let mut out = Vec::new();
     out.push(b'(');
-    append_cons_bytes_with_eval(eval, value, &mut out, options);
+    append_cons_bytes_in_state(obarray, buffers, frames, threads, value, &mut out, options);
     out.push(b')');
     out
 }
 
-fn format_vector_bytes_with_eval(
-    eval: &super::eval::Evaluator,
+fn format_vector_bytes_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     options: PrintOptions,
 ) -> Vec<u8> {
@@ -376,14 +444,19 @@ fn format_vector_bytes_with_eval(
         if idx > 0 {
             out.push(b' ');
         }
-        out.extend(format_value_bytes_with_eval(eval, item, options));
+        out.extend(format_value_bytes_in_state_with_options(
+            obarray, buffers, frames, threads, item, options,
+        ));
     }
     out.push(b']');
     out
 }
 
-fn format_list_shorthand_bytes_with_eval(
-    eval: &super::eval::Evaluator,
+fn format_list_shorthand_bytes_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     options: PrintOptions,
 ) -> Option<Vec<u8>> {
@@ -401,7 +474,9 @@ fn format_list_shorthand_bytes_with_eval(
         let payload = quote_payload(&items[1])?;
         let mut out = Vec::new();
         out.extend_from_slice(b"#s");
-        out.extend(format_value_bytes_with_eval(eval, &payload, options));
+        out.extend(format_value_bytes_in_state_with_options(
+            obarray, buffers, frames, threads, &payload, options,
+        ));
         return Some(out);
     }
 
@@ -424,7 +499,14 @@ fn format_list_shorthand_bytes_with_eval(
 
     let mut out = Vec::new();
     out.extend_from_slice(prefix);
-    out.extend(format_value_bytes_with_eval(eval, quoted, nested_options));
+    out.extend(format_value_bytes_in_state_with_options(
+        obarray,
+        buffers,
+        frames,
+        threads,
+        quoted,
+        nested_options,
+    ));
     Some(out)
 }
 
@@ -439,8 +521,11 @@ fn quote_payload(value: &Value) -> Option<Value> {
     }
 }
 
-fn append_cons_bytes_with_eval(
-    eval: &super::eval::Evaluator,
+fn append_cons_bytes_in_state(
+    obarray: &super::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &super::threads::ThreadManager,
     value: &Value,
     out: &mut Vec<u8>,
     options: PrintOptions,
@@ -454,7 +539,9 @@ fn append_cons_bytes_with_eval(
                     out.push(b' ');
                 }
                 let pair = read_cons(cell);
-                out.extend(format_value_bytes_with_eval(eval, &pair.car, options));
+                out.extend(format_value_bytes_in_state_with_options(
+                    obarray, buffers, frames, threads, &pair.car, options,
+                ));
                 cursor = pair.cdr;
                 first = false;
             }
@@ -463,11 +550,35 @@ fn append_cons_bytes_with_eval(
                 if !first {
                     out.extend_from_slice(b" . ");
                 }
-                out.extend(format_value_bytes_with_eval(eval, &other, options));
+                out.extend(format_value_bytes_in_state_with_options(
+                    obarray, buffers, frames, threads, &other, options,
+                ));
                 return;
             }
         }
     }
+}
+
+/// Render a value with evaluator-context-aware opaque handle formatting.
+pub fn print_value_with_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+    print_value_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        value,
+    )
+}
+
+/// Render a value as bytes with evaluator-context-aware opaque handle formatting.
+pub fn print_value_bytes_with_eval(eval: &super::eval::Evaluator, value: &Value) -> Vec<u8> {
+    print_value_bytes_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        value,
+    )
 }
 
 fn print_data_payload_with_eval(eval: &super::eval::Evaluator, data: &[Value]) -> String {

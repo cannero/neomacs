@@ -813,43 +813,74 @@ fn resolve_print_target(eval: &super::eval::Evaluator, printcharfun: Option<&Val
     }
 }
 
+pub(crate) fn resolve_print_target_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    printcharfun: Option<&Value>,
+) -> Value {
+    match printcharfun {
+        Some(dest) if !dest.is_nil() => *dest,
+        _ => dynamic_or_global_symbol_value_in_state(obarray, dynamic, "standard-output")
+            .unwrap_or(Value::True),
+    }
+}
+
+fn write_print_output_to_target(
+    buffers: &mut crate::buffer::BufferManager,
+    target: Value,
+    text: &str,
+) -> Result<(), Flow> {
+    match target {
+        Value::True | Value::Nil => Ok(()),
+        Value::Buffer(id) => {
+            if buffers.get(id).is_none() {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Output buffer no longer exists")],
+                ));
+            }
+            let _ = buffers.insert_into_buffer(id, text);
+            Ok(())
+        }
+        Value::Str(name_id) => {
+            let name = with_heap(|h| h.get_string(name_id).to_owned());
+            let Some(id) = buffers.find_buffer_by_name(&name) else {
+                return Err(signal(
+                    "error",
+                    vec![Value::string(format!("No buffer named {name}"))],
+                ));
+            };
+            if buffers.get(id).is_none() {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Output buffer no longer exists")],
+                ));
+            }
+            let _ = buffers.insert_into_buffer(id, text);
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 fn write_print_output(
     eval: &mut super::eval::Evaluator,
     printcharfun: Option<&Value>,
     text: &str,
 ) -> Result<(), Flow> {
     let target = resolve_print_target(eval, printcharfun);
-    match target {
-        Value::True => Ok(()),
-        Value::Buffer(id) => {
-            if eval.buffers.get(id).is_none() {
-                return Err(signal(
-                    "error",
-                    vec![Value::string("Output buffer no longer exists")],
-                ));
-            }
-            let _ = eval.buffers.insert_into_buffer(id, text);
-            Ok(())
-        }
-        Value::Str(name_id) => {
-            let name = with_heap(|h| h.get_string(name_id).to_owned());
-            let Some(id) = eval.buffers.find_buffer_by_name(&name) else {
-                return Err(signal(
-                    "error",
-                    vec![Value::string(format!("No buffer named {name}"))],
-                ));
-            };
-            if eval.buffers.get(id).is_none() {
-                return Err(signal(
-                    "error",
-                    vec![Value::string("Output buffer no longer exists")],
-                ));
-            }
-            let _ = eval.buffers.insert_into_buffer(id, text);
-            Ok(())
-        }
-        _ => Ok(()),
-    }
+    write_print_output_to_target(&mut eval.buffers, target, text)
+}
+
+pub(crate) fn write_print_output_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    printcharfun: Option<&Value>,
+    text: &str,
+) -> Result<(), Flow> {
+    let target = resolve_print_target_in_state(obarray, dynamic, printcharfun);
+    write_print_output_to_target(buffers, target, text)
 }
 
 fn write_terpri_output(eval: &mut super::eval::Evaluator, target: Value) -> Result<(), Flow> {
@@ -892,46 +923,6 @@ fn write_terpri_output(eval: &mut super::eval::Evaluator, target: Value) -> Resu
             Ok(())
         }
     }
-}
-
-fn print_threading_handle(eval: &super::eval::Evaluator, value: &Value) -> Option<String> {
-    if let Some(handle) = super::terminal::pure::print_terminal_handle(value) {
-        return Some(handle);
-    }
-    if let Value::Window(id) = value {
-        let window_id = crate::window::WindowId(*id);
-        if let Some(frame_id) = eval.frames.find_window_frame_id(window_id) {
-            if let Some(frame) = eval.frames.get(frame_id) {
-                if let Some(window) = frame.find_window(window_id) {
-                    if let Some(buffer_id) = window.buffer_id() {
-                        if let Some(buffer) = eval.buffers.get(buffer_id) {
-                            return Some(format!("#<window {} on {}>", id, buffer.name));
-                        }
-                    }
-                    return Some(format!("#<window {} on {}>", id, frame.name));
-                }
-            }
-        }
-        return Some(format!("#<window {}>", id));
-    }
-    if let Some(id) = eval.threads.thread_id_from_handle(value) {
-        return Some(format!("#<thread {id}>"));
-    }
-    if let Some(id) = eval.threads.mutex_id_from_handle(value) {
-        return Some(format!("#<mutex {id}>"));
-    }
-    if let Some(id) = eval.threads.condition_variable_id_from_handle(value) {
-        return Some(format!("#<condvar {id}>"));
-    }
-    if let Value::Buffer(id) = value {
-        if let Some(buf) = eval.buffers.get(*id) {
-            return Some(format!("#<buffer {}>", buf.name));
-        }
-        if eval.buffers.dead_buffer_last_name(*id).is_some() {
-            return Some("#<killed buffer>".to_string());
-        }
-    }
-    None
 }
 
 pub(super) fn print_value_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
@@ -1012,24 +1003,37 @@ pub(super) fn print_value_princ(value: &Value) -> String {
     }
 }
 
-pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+pub(crate) fn print_value_princ_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    value: &Value,
+) -> String {
+    if super::terminal::pure::print_terminal_handle(value).is_some()
+        || threads.thread_id_from_handle(value).is_some()
+        || threads.mutex_id_from_handle(value).is_some()
+        || threads.condition_variable_id_from_handle(value).is_some()
+    {
+        return super::error::print_value_in_state(obarray, buffers, frames, threads, value);
+    }
     match value {
         Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
         Value::Symbol(id) => resolve_sym(*id).to_owned(),
         Value::Keyword(id) => resolve_sym(*id).to_owned(),
         Value::Buffer(id) => {
-            if let Some(buf) = eval.buffers.get(*id) {
+            if let Some(buf) = buffers.get(*id) {
                 return buf.name.clone();
             }
-            if eval.buffers.dead_buffer_last_name(*id).is_some() {
+            if buffers.dead_buffer_last_name(*id).is_some() {
                 return "#<killed buffer>".to_string();
             }
-            print_value_eval(eval, value)
+            super::error::print_value_in_state(obarray, buffers, frames, threads, value)
         }
         Value::Cons(_) => {
-            if let Some(shorthand) =
-                print_value_princ_list_shorthand(value, &|item| print_value_princ_eval(eval, item))
-            {
+            if let Some(shorthand) = print_value_princ_list_shorthand(value, &|item| {
+                print_value_princ_in_state(obarray, buffers, frames, threads, item)
+            }) {
                 return shorthand;
             }
             let mut out = String::from("(");
@@ -1042,7 +1046,9 @@ pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Valu
                             out.push(' ');
                         }
                         let pair = read_cons(cell);
-                        out.push_str(&print_value_princ_eval(eval, &pair.car));
+                        out.push_str(&print_value_princ_in_state(
+                            obarray, buffers, frames, threads, &pair.car,
+                        ));
                         cursor = pair.cdr;
                         first = false;
                     }
@@ -1051,7 +1057,9 @@ pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Valu
                         if !first {
                             out.push_str(" . ");
                         }
-                        out.push_str(&print_value_princ_eval(eval, &other));
+                        out.push_str(&print_value_princ_in_state(
+                            obarray, buffers, frames, threads, &other,
+                        ));
                         break;
                     }
                 }
@@ -1063,7 +1071,7 @@ pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Valu
             let items = with_heap(|h| h.get_vector(*id).clone());
             let parts: Vec<String> = items
                 .iter()
-                .map(|item| print_value_princ_eval(eval, item))
+                .map(|item| print_value_princ_in_state(obarray, buffers, frames, threads, item))
                 .collect();
             format!("[{}]", parts.join(" "))
         }
@@ -1071,16 +1079,22 @@ pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Valu
             let items = with_heap(|h| h.get_vector(*id).clone());
             let parts: Vec<String> = items
                 .iter()
-                .map(|item| print_value_princ_eval(eval, item))
+                .map(|item| print_value_princ_in_state(obarray, buffers, frames, threads, item))
                 .collect();
             format!("#s({})", parts.join(" "))
         }
-        other => print_value_eval(eval, other),
+        other => super::error::print_value_in_state(obarray, buffers, frames, threads, other),
     }
 }
 
-fn princ_text_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
-    print_value_princ_eval(eval, value)
+pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+    print_value_princ_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        value,
+    )
 }
 
 fn prin1_to_string_value(value: &Value, noescape: bool) -> String {
@@ -1099,15 +1113,33 @@ fn prin1_to_string_value_eval(
     value: &Value,
     noescape: bool,
 ) -> String {
+    prin1_to_string_value_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        value,
+        noescape,
+    )
+}
+
+pub(crate) fn prin1_to_string_value_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    value: &Value,
+    noescape: bool,
+) -> String {
     if noescape {
         match value {
             Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-            other => print_value_eval(eval, other),
+            other => super::error::print_value_in_state(obarray, buffers, frames, threads, other),
         }
-    } else if let Some(handle) = print_threading_handle(eval, value) {
-        handle
     } else {
-        bytes_to_storage_string(&super::error::print_value_bytes_with_eval(eval, value))
+        bytes_to_storage_string(&super::error::print_value_bytes_in_state(
+            obarray, buffers, frames, threads, value,
+        ))
     }
 }
 
@@ -1126,9 +1158,27 @@ pub(crate) fn builtin_princ_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_princ_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_princ_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("princ", &args, 1)?;
-    let text = princ_text_eval(eval, &args[0]);
-    write_print_output(eval, args.get(1), &text)?;
+    let text = print_value_princ_in_state(obarray, buffers, frames, threads, &args[0]);
+    write_print_output_in_state(obarray, dynamic, buffers, args.get(1), &text)?;
     Ok(args[0])
 }
 
@@ -1136,9 +1186,27 @@ pub(crate) fn builtin_prin1_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_prin1_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_prin1_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
-    let text = print_value_eval(eval, &args[0]);
-    write_print_output(eval, args.get(1), &text)?;
+    let text = super::error::print_value_in_state(obarray, buffers, frames, threads, &args[0]);
+    write_print_output_in_state(obarray, dynamic, buffers, args.get(1), &text)?;
     Ok(args[0])
 }
 
@@ -1152,10 +1220,26 @@ pub(crate) fn builtin_prin1_to_string_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_prin1_to_string_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_prin1_to_string_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("prin1-to-string", &args, 1)?;
     let noescape = args.get(1).is_some_and(|v| v.is_truthy());
-    Ok(Value::string(prin1_to_string_value_eval(
-        eval, &args[0], noescape,
+    Ok(Value::string(prin1_to_string_value_in_state(
+        obarray, buffers, frames, threads, &args[0], noescape,
     )))
 }
 
@@ -1173,12 +1257,32 @@ pub(crate) fn builtin_print_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_print_in_state(
+        &eval.obarray,
+        &eval.dynamic,
+        &mut eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
+}
+
+pub(crate) fn builtin_print_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    threads: &crate::emacs_core::threads::ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("print", &args, 1)?;
     let mut text = String::new();
     text.push('\n');
-    text.push_str(&print_value_eval(eval, &args[0]));
+    text.push_str(&super::error::print_value_in_state(
+        obarray, buffers, frames, threads, &args[0],
+    ));
     text.push('\n');
-    write_print_output(eval, args.get(1), &text)?;
+    write_print_output_in_state(obarray, dynamic, buffers, args.get(1), &text)?;
     Ok(args[0])
 }
 
