@@ -2839,3 +2839,20 @@ fn set_window_buffer_bootstraps_initial_frame_for_nil_window_designator() {
         .collect::<Vec<_>>();
     assert_eq!(out[0], "OK (\"swb-bootstrap\" 1 7)");
 }
+
+#[test]
+fn scroll_and_recenter_use_selected_window_state() {
+    let results = eval_with_frame(
+        "(let ((w (selected-window)))
+           (with-current-buffer (window-buffer w)
+             (erase-buffer)
+             (insert \"a\nb\nc\nd\ne\nf\ng\nh\n\"))
+           (set-window-point w 1)
+           (list (progn (scroll-up 2) (window-point w))
+                 (progn (scroll-down 1) (window-point w))
+                 (progn (scroll-left 3) (window-hscroll w))
+                 (progn (scroll-right 1) (window-hscroll w))
+                 (progn (set-window-point w 9) (recenter 1) (window-start w))))",
+    );
+    assert_eq!(results[0], "OK (5 3 3 2 7)");
+}

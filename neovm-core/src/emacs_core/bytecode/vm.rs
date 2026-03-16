@@ -4620,6 +4620,32 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "scroll-left" => Some(crate::emacs_core::window_cmds::builtin_scroll_left_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "scroll-right" => Some(
+                crate::emacs_core::window_cmds::builtin_scroll_right_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "scroll-up" => Some(crate::emacs_core::window_cmds::builtin_scroll_up_in_state(
+                &*self.shared.obarray,
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "scroll-down" => Some(
+                crate::emacs_core::window_cmds::builtin_scroll_down_in_state(
+                    &*self.shared.obarray,
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "set-window-hscroll" => Some(
                 crate::emacs_core::window_cmds::builtin_set_window_hscroll_in_state(
                     self.shared.frames,
@@ -4718,6 +4744,11 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "recenter" => Some(crate::emacs_core::window_cmds::builtin_recenter_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
             "window-body-width" => Some(
                 crate::emacs_core::window_cmds::builtin_window_body_width_in_state(
                     self.shared.frames,

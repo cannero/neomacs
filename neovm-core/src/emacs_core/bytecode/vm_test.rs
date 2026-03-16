@@ -828,6 +828,25 @@ fn vm_window_scroll_and_history_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_scroll_and_recenter_builtins_use_shared_window_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((w (selected-window)))
+                 (with-current-buffer (window-buffer w)
+                   (erase-buffer)
+                   (insert "a\nb\nc\nd\ne\nf\ng\nh\n"))
+                 (set-window-point w 1)
+                 (list (progn (scroll-up 2) (window-point w))
+                       (progn (scroll-down 1) (window-point w))
+                       (progn (scroll-left 3) (window-hscroll w))
+                       (progn (scroll-right 1) (window-hscroll w))
+                       (progn (set-window-point w 9) (recenter 1) (window-start w))))"#
+        ),
+        "OK (5 3 3 2 7)"
+    );
+}
+
+#[test]
 fn vm_window_geometry_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

@@ -2075,8 +2075,12 @@ fn scroll_prefix_value(value: &Value) -> i64 {
 }
 
 fn default_scroll_columns(eval: &super::eval::Evaluator, fid: FrameId, wid: WindowId) -> i64 {
-    let char_width = eval.frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    let window_cols = get_leaf(&eval.frames, fid, wid)
+    default_scroll_columns_in_state(&eval.frames, fid, wid)
+}
+
+fn default_scroll_columns_in_state(frames: &FrameManager, fid: FrameId, wid: WindowId) -> i64 {
+    let char_width = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
+    let window_cols = get_leaf(frames, fid, wid)
         .ok()
         .map(|leaf| {
             if char_width > 0.0 {
@@ -2094,11 +2098,18 @@ pub(crate) fn builtin_scroll_left(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_scroll_left_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_scroll_left_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("scroll-left", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, None)?;
-    let base = eval
-        .frames
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) = resolve_window_id_in_state(frames, buffers, None)?;
+    let base = frames
         .get(fid)
         .and_then(|frame| frame.find_window(wid))
         .and_then(|window| match window {
@@ -2107,7 +2118,7 @@ pub(crate) fn builtin_scroll_left(
         })
         .unwrap_or(0);
     let delta = match args.first() {
-        None | Some(Value::Nil) => default_scroll_columns(eval, fid, wid),
+        None | Some(Value::Nil) => default_scroll_columns_in_state(frames, fid, wid),
         Some(value) => scroll_prefix_value(value),
     };
     let mut next = base as i128 + delta as i128;
@@ -2115,8 +2126,7 @@ pub(crate) fn builtin_scroll_left(
         next = 0;
     }
     let next = next.min(i64::MAX as i128) as i64;
-    if let Some(Window::Leaf { hscroll, .. }) = eval
-        .frames
+    if let Some(Window::Leaf { hscroll, .. }) = frames
         .get_mut(fid)
         .and_then(|frame| frame.find_window_mut(wid))
     {
@@ -2130,11 +2140,18 @@ pub(crate) fn builtin_scroll_right(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_scroll_right_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_scroll_right_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("scroll-right", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (fid, wid) = resolve_window_id(eval, None)?;
-    let base = eval
-        .frames
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) = resolve_window_id_in_state(frames, buffers, None)?;
+    let base = frames
         .get(fid)
         .and_then(|frame| frame.find_window(wid))
         .and_then(|window| match window {
@@ -2143,7 +2160,7 @@ pub(crate) fn builtin_scroll_right(
         })
         .unwrap_or(0);
     let delta = match args.first() {
-        None | Some(Value::Nil) => default_scroll_columns(eval, fid, wid),
+        None | Some(Value::Nil) => default_scroll_columns_in_state(frames, fid, wid),
         Some(value) => scroll_prefix_value(value),
     };
     let mut next = base as i128 - delta as i128;
@@ -2151,8 +2168,7 @@ pub(crate) fn builtin_scroll_right(
         next = 0;
     }
     let next = next.min(i64::MAX as i128) as i64;
-    if let Some(Window::Leaf { hscroll, .. }) = eval
-        .frames
+    if let Some(Window::Leaf { hscroll, .. }) = frames
         .get_mut(fid)
         .and_then(|frame| frame.find_window_mut(wid))
     {
@@ -3838,6 +3854,22 @@ pub(crate) fn builtin_scroll_down_command(
 /// Compute scroll distance: if ARG is nil, use window height minus
 /// next-screen-context-lines; otherwise use ARG as line count.
 fn scroll_lines(eval: &mut super::eval::Evaluator, arg: Option<&Value>, direction: i64) -> i64 {
+    scroll_lines_in_state(
+        &eval.obarray,
+        &mut eval.frames,
+        &mut eval.buffers,
+        arg,
+        direction,
+    )
+}
+
+fn scroll_lines_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+    direction: i64,
+) -> i64 {
     if let Some(v) = arg {
         if !v.is_nil() {
             // Explicit line count.
@@ -3849,15 +3881,14 @@ fn scroll_lines(eval: &mut super::eval::Evaluator, arg: Option<&Value>, directio
         }
     }
     // nil or absent: full window minus context lines.
-    let wh = builtin_window_body_height(eval, vec![])
+    let wh = builtin_window_body_height_in_state(frames, buffers, vec![])
         .ok()
         .and_then(|v| match v {
             Value::Int(n) => Some(n),
             _ => None,
         })
         .unwrap_or(24);
-    let ctx = eval
-        .obarray
+    let ctx = obarray
         .symbol_value("next-screen-context-lines")
         .and_then(|v| match v {
             Value::Int(n) => Some(*n),
@@ -3872,10 +3903,19 @@ fn scroll_lines(eval: &mut super::eval::Evaluator, arg: Option<&Value>, directio
 /// Mirror GNU Emacs Fscroll_up (window.c): move point forward by ARG lines
 /// (or a windowful if nil).  Signals end-of-buffer if already at end.
 pub(crate) fn builtin_scroll_up(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_scroll_up_in_state(&eval.obarray, &mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_scroll_up_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("scroll-up", &args, 1)?;
     let arg = args.first().cloned();
-    let lines = scroll_lines(eval, arg.as_ref(), 1);
-    scroll_by_lines(eval, lines)
+    let lines = scroll_lines_in_state(obarray, frames, buffers, arg.as_ref(), 1);
+    scroll_by_lines_in_state(frames, buffers, lines)
 }
 
 /// `(scroll-down &optional ARG)` — scroll text downward (backward in buffer).
@@ -3886,23 +3926,45 @@ pub(crate) fn builtin_scroll_down(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_scroll_down_in_state(&eval.obarray, &mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_scroll_down_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("scroll-down", &args, 1)?;
     let arg = args.first().cloned();
-    let lines = scroll_lines(eval, arg.as_ref(), -1);
-    scroll_by_lines(eval, lines)
+    let lines = scroll_lines_in_state(obarray, frames, buffers, arg.as_ref(), -1);
+    scroll_by_lines_in_state(frames, buffers, lines)
 }
 
 /// Move point by `lines` newlines (positive=forward, negative=backward).
 /// Signals end-of-buffer or beginning-of-buffer on boundary.
 fn scroll_by_lines(eval: &mut super::eval::Evaluator, lines: i64) -> EvalResult {
-    let Some(current_id) = eval.buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
+    scroll_by_lines_in_state(&mut eval.frames, &mut eval.buffers, lines)
+}
+
+fn scroll_by_lines_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    lines: i64,
+) -> EvalResult {
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) = resolve_window_id_in_state(frames, buffers, None)?;
+    let (buffer_id, window_point) = match get_leaf(frames, fid, wid)? {
+        Window::Leaf {
+            buffer_id, point, ..
+        } => (*buffer_id, *point as i64),
+        _ => return Ok(Value::Nil),
     };
-    let Some(buf) = eval.buffers.get(current_id) else {
+    let Some(buf) = buffers.get(buffer_id) else {
         return Ok(Value::Nil);
     };
     let text = buf.text.to_string();
-    let pt = buf.pt.clamp(buf.begv, buf.zv);
+    let pt = buf.lisp_pos_to_byte(window_point).clamp(buf.begv, buf.zv);
     let bytes = text.as_bytes();
     let begv = buf.begv;
     let zv = buf.zv;
@@ -3941,7 +4003,14 @@ fn scroll_by_lines(eval: &mut super::eval::Evaluator, lines: i64) -> EvalResult 
         }
     }
 
-    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
+    let point_lisp = buf.text.byte_to_char(pos) + 1;
+    let _ = buffers.goto_buffer_byte(buffer_id, pos);
+    if let Some(Window::Leaf { point, .. }) = frames
+        .get_mut(fid)
+        .and_then(|frame| frame.find_window_mut(wid))
+    {
+        *point = point_lisp;
+    }
     Ok(Value::Nil)
 }
 
@@ -3960,9 +4029,17 @@ pub(crate) fn builtin_recenter_top_bottom(
 /// point appears at the center of the window, or at line ARG from the
 /// top (or bottom if ARG is negative).
 pub(crate) fn builtin_recenter(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_recenter_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_recenter_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("recenter", &args, 2)?;
 
-    let wh = builtin_window_body_height(eval, vec![])
+    let wh = builtin_window_body_height_in_state(frames, buffers, vec![])
         .ok()
         .and_then(|v| match v {
             Value::Int(n) => Some(n),
@@ -3985,14 +4062,19 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Evaluator, args: Vec<Valu
     };
 
     // Compute new window-start by moving backward target_line lines from point.
-    let Some(current_id) = eval.buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) = resolve_window_id_in_state(frames, buffers, None)?;
+    let (buffer_id, window_point) = match get_leaf(frames, fid, wid)? {
+        Window::Leaf {
+            buffer_id, point, ..
+        } => (*buffer_id, *point as i64),
+        _ => return Ok(Value::Nil),
     };
-    let Some(buf) = eval.buffers.get(current_id) else {
+    let Some(buf) = buffers.get(buffer_id) else {
         return Ok(Value::Nil);
     };
     let text = buf.text.to_string();
-    let pt = buf.pt.clamp(buf.begv, buf.zv);
+    let pt = buf.lisp_pos_to_byte(window_point).clamp(buf.begv, buf.zv);
     let bytes = text.as_bytes();
     let begv = buf.begv;
 
@@ -4013,16 +4095,13 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Evaluator, args: Vec<Valu
     }
 
     // Set window-start.
-    let _ = ensure_selected_frame_id(eval);
-    if let Ok((fid, wid)) = resolve_window_id(eval, None) {
-        if let Some(clamped) = clamped_window_position(eval, fid, wid, pos as i64) {
-            if let Some(Window::Leaf { window_start, .. }) = eval
-                .frames
-                .get_mut(fid)
-                .and_then(|frame| frame.find_window_mut(wid))
-            {
-                *window_start = clamped;
-            }
+    let pos_lisp = buf.text.byte_to_char(pos) as i64 + 1;
+    if let Some(clamped) = clamped_window_position_in_state(frames, buffers, fid, wid, pos_lisp) {
+        if let Some(Window::Leaf { window_start, .. }) = frames
+            .get_mut(fid)
+            .and_then(|frame| frame.find_window_mut(wid))
+        {
+            *window_start = clamped;
         }
     }
 
