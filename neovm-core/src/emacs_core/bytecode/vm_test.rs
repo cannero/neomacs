@@ -2164,3 +2164,23 @@ fn vm_command_modes_uses_shared_symbol_and_bytecode_state() {
         "OK ((foo-mode bar-mode) nil (text-mode prog-mode) (rust-ts-mode c-mode) nil nil)"
     );
 }
+
+#[test]
+fn vm_commandp_uses_shared_command_metadata_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(let ((f (make-byte-code '() \"\" [] 0 nil [nil nil])))
+               (list
+                 (commandp 'forward-char)
+                 (commandp 'car)
+                 (commandp '(lambda () (interactive) t))
+                 (commandp '(lambda () t))
+                 (commandp \"abc\")
+                 (commandp \"abc\" t)
+                 (commandp [1 2 3])
+                 (commandp [1 2 3] t)
+                 (commandp f)))"
+        ),
+        "OK (t nil t nil t nil t nil t)"
+    );
+}

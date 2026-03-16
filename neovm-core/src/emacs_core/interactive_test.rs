@@ -452,6 +452,49 @@ fn commandp_true_for_builtin_forward_char() {
 }
 
 #[test]
+fn commandp_handles_keyboard_macros_and_bytecode_interactive_slots() {
+    let mut ev = Evaluator::new();
+    let bytecode = crate::emacs_core::builtins::symbols::make_byte_code_from_parts(
+        &Value::Nil,
+        &Value::string(""),
+        &Value::vector(vec![]),
+        &Value::Int(0),
+        None,
+        Some(&Value::vector(vec![Value::Nil, Value::Nil])),
+    )
+    .expect("make-byte-code should build commandp fixture");
+
+    assert!(
+        builtin_commandp_interactive(&mut ev, vec![Value::string("abc")])
+            .expect("string keyboard macro should be accepted")
+            .is_truthy()
+    );
+    assert!(
+        builtin_commandp_interactive(&mut ev, vec![Value::vector(vec![Value::Int(1)])])
+            .expect("vector keyboard macro should be accepted")
+            .is_truthy()
+    );
+    assert!(
+        builtin_commandp_interactive(&mut ev, vec![Value::string("abc"), Value::True])
+            .expect("FOR-CALL-INTERACTIVELY should reject strings")
+            .is_nil()
+    );
+    assert!(
+        builtin_commandp_interactive(
+            &mut ev,
+            vec![Value::vector(vec![Value::Int(1)]), Value::True]
+        )
+        .expect("FOR-CALL-INTERACTIVELY should reject vectors")
+        .is_nil()
+    );
+    assert!(
+        builtin_commandp_interactive(&mut ev, vec![bytecode])
+            .expect("bytecode with interactive slot should be a command")
+            .is_truthy()
+    );
+}
+
+#[test]
 fn commandp_true_for_builtin_editing_commands() {
     let mut ev = Evaluator::new();
     for name in [

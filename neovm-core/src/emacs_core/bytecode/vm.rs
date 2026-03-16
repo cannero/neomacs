@@ -2851,6 +2851,11 @@ impl<'a> Vm<'a> {
                 self.shared.autoloads,
                 args,
             )),
+            "commandp" => Some(crate::emacs_core::interactive::builtin_commandp_in_state(
+                &*self.shared.obarray,
+                &*self.shared.interactive,
+                args,
+            )),
             "interactive-form" => Some(self.builtin_interactive_form_shared(args)),
             "command-modes" => Some(crate::emacs_core::interactive::builtin_command_modes_in_state(
                 &*self.shared.obarray,

@@ -344,9 +344,22 @@ pub(crate) fn builtin_called_interactively_p(eval: &mut Evaluator, args: Vec<Val
 /// `(commandp FUNCTION &optional FOR-CALL-INTERACTIVELY)`
 /// Return non-nil if FUNCTION is a command (i.e., can be called interactively).
 pub(crate) fn builtin_commandp_interactive(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_commandp_in_state(&eval.obarray, &eval.interactive, &args)
+}
+
+pub(crate) fn builtin_commandp_in_state(
+    obarray: &Obarray,
+    interactive: &InteractiveRegistry,
+    args: &[Value],
+) -> EvalResult {
     expect_min_args("commandp", &args, 1)?;
     expect_max_args("commandp", &args, 2)?;
-    let is_command = command_designator_p(eval, &args[0]);
+    let is_command = command_designator_p_in_state(
+        obarray,
+        interactive,
+        &args[0],
+        args.get(1).is_some_and(|value| !value.is_nil()),
+    );
     Ok(Value::bool(is_command))
 }
 
@@ -829,47 +842,28 @@ fn value_is_declare_form(value: &Value) -> bool {
 }
 
 fn resolve_function_designator_symbol(eval: &Evaluator, name: &str) -> Option<(String, Value)> {
-    let mut current = name.to_string();
-    let mut seen = HashSet::new();
-
-    loop {
-        if !seen.insert(current.clone()) {
-            return None;
-        }
-
-        if eval.obarray.is_function_unbound(&current) {
-            return None;
-        }
-
-        if let Some(function) = eval.obarray.symbol_function(&current) {
-            if let Some(next) = function.as_symbol_name() {
-                if next == "nil" {
-                    return Some((current, Value::Nil));
-                }
-                current = next.to_string();
-                continue;
-            }
-            return Some((current, *function));
-        }
-
-        if let Some(function) = super::subr_info::fallback_macro_value(&current) {
-            return Some((current, function));
-        }
-
-        if super::subr_info::is_special_form(&current)
-            || super::subr_info::is_evaluator_callable_name(&current)
-            || super::builtin_registry::is_dispatch_builtin_name(&current)
-        {
-            return Some((current.clone(), Value::Subr(intern(&current))));
-        }
-
-        return None;
-    }
+    resolve_function_designator_symbol_in_state(&eval.obarray, name)
 }
 
-fn command_object_p(eval: &Evaluator, resolved_name: Option<&str>, value: &Value) -> bool {
+fn resolve_function_designator_symbol_in_state(
+    obarray: &Obarray,
+    name: &str,
+) -> Option<(String, Value)> {
+    crate::emacs_core::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
+        obarray,
+        intern(name),
+    )
+    .map(|(resolved, value)| (resolve_sym(resolved).to_string(), value))
+}
+
+fn command_object_p_in_state(
+    interactive: &InteractiveRegistry,
+    resolved_name: Option<&str>,
+    value: &Value,
+    for_call_interactively: bool,
+) -> bool {
     if let Some(name) = resolved_name {
-        if eval.interactive.is_interactive(name) || builtin_command_name(name) {
+        if interactive.is_interactive(name) || builtin_command_name(name) {
             return true;
         }
     }
@@ -885,28 +879,50 @@ fn command_object_p(eval: &Evaluator, resolved_name: Option<&str>, value: &Value
                 false
             }
         }
+        Value::ByteCode(_) => value
+            .get_bytecode_data()
+            .is_some_and(|bc| bc.interactive.is_some()),
         Value::Cons(_) => quoted_lambda_has_interactive_form(value),
         Value::Subr(id) => {
             let name = resolve_sym(*id);
-            eval.interactive.is_interactive(name) || builtin_command_name(name)
+            interactive.is_interactive(name) || builtin_command_name(name)
         }
+        Value::Str(_) | Value::Vector(_) => !for_call_interactively,
         _ => false,
     }
 }
 
-fn command_designator_p(eval: &Evaluator, designator: &Value) -> bool {
+fn command_designator_p_in_state(
+    obarray: &Obarray,
+    interactive: &InteractiveRegistry,
+    designator: &Value,
+    for_call_interactively: bool,
+) -> bool {
     if let Some(name) = designator.as_symbol_name() {
-        if eval.obarray.is_function_unbound(name) {
+        if obarray.is_function_unbound(name) {
             return false;
         }
         if let Some((resolved_name, resolved_value)) =
-            resolve_function_designator_symbol(eval, name)
+            resolve_function_designator_symbol_in_state(obarray, name)
         {
-            return command_object_p(eval, Some(&resolved_name), &resolved_value);
+            return command_object_p_in_state(
+                interactive,
+                Some(&resolved_name),
+                &resolved_value,
+                for_call_interactively,
+            );
         }
-        return eval.interactive.is_interactive(name) || builtin_command_name(name);
+        return interactive.is_interactive(name) || builtin_command_name(name);
     }
-    command_object_p(eval, None, designator)
+    command_object_p_in_state(interactive, None, designator, for_call_interactively)
+}
+
+fn command_object_p(eval: &Evaluator, resolved_name: Option<&str>, value: &Value) -> bool {
+    command_object_p_in_state(&eval.interactive, resolved_name, value, false)
+}
+
+fn command_designator_p(eval: &Evaluator, designator: &Value) -> bool {
+    command_designator_p_in_state(&eval.obarray, &eval.interactive, designator, false)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
