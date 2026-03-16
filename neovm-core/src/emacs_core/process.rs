@@ -19,7 +19,9 @@ use super::intern::resolve_sym;
 use super::value::{
     StringTextPropertyRun, Value, list_to_vec, next_float_id, read_cons, with_heap,
 };
+use crate::buffer::BufferManager;
 use crate::gc::GcTrace;
+use crate::window::FrameManager;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1163,6 +1165,29 @@ fn resolve_process_or_wrong_type_any(
     }
 }
 
+fn resolve_process_or_wrong_type_any_in_manager(
+    processes: &ProcessManager,
+    value: &Value,
+) -> Result<ProcessId, Flow> {
+    match value {
+        Value::Int(n) if *n >= 0 => {
+            let id = *n as ProcessId;
+            if processes.get_any(id).is_some() {
+                Ok(id)
+            } else {
+                Err(signal_wrong_type_processp(*value))
+            }
+        }
+        Value::Str(s) => {
+            let name = with_heap(|h| h.get_string(*s).to_owned());
+            processes
+                .find_by_name(&name)
+                .ok_or_else(|| signal_wrong_type_processp(*value))
+        }
+        _ => Err(signal_wrong_type_processp(*value)),
+    }
+}
+
 fn resolve_process_or_missing_error(
     eval: &super::eval::Evaluator,
     value: &Value,
@@ -1214,27 +1239,26 @@ fn resolve_process_for_status(
     }
 }
 
-fn resolve_buffer_name_for_process_lookup(
-    eval: &super::eval::Evaluator,
+fn resolve_buffer_name_for_process_lookup_in_state(
+    frames: &FrameManager,
+    buffers: &BufferManager,
     value: &Value,
 ) -> Result<Option<String>, Flow> {
     match value {
-        Value::Nil => Ok(eval
-            .frames
+        Value::Nil => Ok(frames
             .selected_frame()
             .and_then(|frame| frame.selected_window())
             .and_then(|window| window.buffer_id())
-            .and_then(|id| eval.buffers.get(id))
+            .and_then(|id| buffers.get(id))
             .map(|buf| buf.name.clone())),
         Value::Str(name) => {
             let name_str = with_heap(|h| h.get_string(*name).to_owned());
-            Ok(eval
-                .buffers
+            Ok(buffers
                 .find_buffer_by_name(&name_str)
-                .and_then(|id| eval.buffers.get(id))
+                .and_then(|id| buffers.get(id))
                 .map(|buf| buf.name.clone()))
         }
-        Value::Buffer(id) => Ok(eval.buffers.get(*id).map(|buf| buf.name.clone())),
+        Value::Buffer(id) => Ok(buffers.get(*id).map(|buf| buf.name.clone())),
         other => Err(signal_wrong_type_string(*other)),
     }
 }
@@ -3939,8 +3963,15 @@ pub(crate) fn builtin_process_list(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_list_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_list_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-list", &args, 0)?;
-    let ids = eval.processes.list_processes();
+    let ids = processes.list_processes();
     let values: Vec<Value> = ids.iter().map(|id| Value::Int(*id as i64)).collect();
     Ok(Value::list(values))
 }
@@ -3950,9 +3981,16 @@ pub(crate) fn builtin_process_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_name_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_name_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-name", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    match eval.processes.get_any(id) {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    match processes.get_any(id) {
         Some(proc) => Ok(Value::string(proc.name.clone())),
         None => Err(signal_wrong_type_processp(args[0])),
     }
@@ -3963,14 +4001,21 @@ pub(crate) fn builtin_process_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_buffer_in_state(&eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_process_buffer_in_state(
+    processes: &ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-buffer", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    match eval.processes.get_any(id) {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    match processes.get_any(id) {
         Some(proc) => match &proc.buffer_name {
-            Some(name) => Ok(eval
-                .buffers
+            Some(name) => Ok(buffers
                 .find_buffer_by_name(name)
-                .or_else(|| eval.buffers.find_dead_buffer_by_name(name))
+                .or_else(|| buffers.find_dead_buffer_by_name(name))
                 .map(Value::Buffer)
                 .unwrap_or(Value::Nil)),
             None => Ok(Value::Nil),
@@ -4026,12 +4071,20 @@ pub(crate) fn builtin_set_process_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_buffer_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_process_buffer_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-buffer", &args, 2)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     let next_buffer_name = match &args[1] {
         Value::Nil => None,
         Value::Buffer(buffer_id) => Some(
-            eval.buffers
+            buffers
                 .get(*buffer_id)
                 .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?
                 .name
@@ -4039,7 +4092,7 @@ pub(crate) fn builtin_set_process_buffer(
         ),
         _ => return Err(signal_wrong_type_bufferp(args[1])),
     };
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4620,9 +4673,16 @@ pub(crate) fn builtin_get_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_process_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_get_process_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("get-process", &args, 1)?;
     let name = expect_string_strict(&args[0])?;
-    match eval.processes.find_by_name(&name) {
+    match processes.find_by_name(&name) {
         Some(id) => Ok(Value::Int(id as i64)),
         None => Ok(Value::Nil),
     }
@@ -4633,11 +4693,22 @@ pub(crate) fn builtin_get_buffer_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_buffer_process_in_state(&eval.frames, &eval.buffers, &eval.processes, args)
+}
+
+pub(crate) fn builtin_get_buffer_process_in_state(
+    frames: &FrameManager,
+    buffers: &BufferManager,
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("get-buffer-process", &args, 1)?;
-    let Some(buffer_name) = resolve_buffer_name_for_process_lookup(eval, &args[0])? else {
+    let Some(buffer_name) =
+        resolve_buffer_name_for_process_lookup_in_state(frames, buffers, &args[0])?
+    else {
         return Ok(Value::Nil);
     };
-    match eval.processes.find_by_buffer_name(&buffer_name) {
+    match processes.find_by_buffer_name(&buffer_name) {
         Some(id) => Ok(Value::Int(id as i64)),
         None => Ok(Value::Nil),
     }
@@ -4645,9 +4716,16 @@ pub(crate) fn builtin_get_buffer_process(
 
 /// (processp OBJECT) -> bool
 pub(crate) fn builtin_processp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_processp_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_processp_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("processp", &args, 1)?;
     Ok(Value::bool(match &args[0] {
-        Value::Int(n) if *n >= 0 => eval.processes.get_any(*n as ProcessId).is_some(),
+        Value::Int(n) if *n >= 0 => processes.get_any(*n as ProcessId).is_some(),
         _ => false,
     }))
 }
@@ -4703,9 +4781,16 @@ pub(crate) fn builtin_process_query_on_exit_flag(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_query_on_exit_flag_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_query_on_exit_flag_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-query-on-exit-flag", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4719,10 +4804,17 @@ pub(crate) fn builtin_set_process_query_on_exit_flag(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_query_on_exit_flag_in_state(&mut eval.processes, args)
+}
+
+pub(crate) fn builtin_set_process_query_on_exit_flag_in_state(
+    processes: &mut ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-query-on-exit-flag", &args, 2)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     let flag = args[1].is_truthy();
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -4737,9 +4829,16 @@ pub(crate) fn builtin_process_command(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_command_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_command_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("process-command", &args, 1)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],

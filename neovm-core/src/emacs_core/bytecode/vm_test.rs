@@ -1784,6 +1784,68 @@ fn vm_minibuffer_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_simple_process_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (processp p)
+              (not (processp 99))
+              (eq (get-process "vm-proc") p)
+              (eq (get-buffer-process "*vm-proc*") p)
+              (equal (process-name p) "vm-proc")
+              (equal (process-command p) '("/bin/echo" "hello"))
+              (let ((b (process-buffer p)))
+                (and (bufferp b) (equal (buffer-name b) "*vm-proc*")))
+              (process-query-on-exit-flag p)
+              (eq (set-process-query-on-exit-flag p nil) nil)
+              (null (process-query-on-exit-flag p))
+              (eq (set-process-buffer p nil) nil)
+              (null (process-buffer p))
+              (let ((xs (process-list)))
+                (and (memq p xs) (= (length xs) 1)))))"#,
+        |eval| {
+            let _buffer_id = eval.buffers.create_buffer("*vm-proc*");
+            let _pid = eval.processes.create_process(
+                "vm-proc".into(),
+                Some("*vm-proc*".into()),
+                "/bin/echo".into(),
+                vec!["hello".into()],
+            );
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t t t t t t)");
+}
+
+#[test]
+fn vm_stale_process_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (processp p)
+              (let ((b (process-buffer p)))
+                (and (bufferp b) (equal (buffer-name b) "*vm-stale-proc*")))
+              (eq (set-process-buffer p nil) nil)
+              (null (process-buffer p))
+              (eq (set-process-query-on-exit-flag p nil) nil)
+              (null (process-query-on-exit-flag p))
+              (null (get-process "vm-stale-proc"))
+              (null (get-buffer-process "*vm-stale-proc*"))))"#,
+        |eval| {
+            let _buffer_id = eval.buffers.create_buffer("*vm-stale-proc*");
+            let pid = eval.processes.create_process(
+                "vm-stale-proc".into(),
+                Some("*vm-stale-proc*".into()),
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+            assert!(eval.processes.delete_process(pid));
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t)");
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));

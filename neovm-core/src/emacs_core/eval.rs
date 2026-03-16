@@ -240,7 +240,7 @@ pub(crate) struct VmSharedState<'a> {
     pub(crate) depth: &'a mut usize,
     pub(crate) max_depth: &'a mut usize,
     pub(crate) catch_tags: &'a mut Vec<Value>,
-    processes: &'a mut ProcessManager,
+    pub(crate) processes: &'a mut ProcessManager,
     timers: &'a mut TimerManager,
     standard_syntax_table: &'a mut Value,
     registers: &'a mut RegisterManager,

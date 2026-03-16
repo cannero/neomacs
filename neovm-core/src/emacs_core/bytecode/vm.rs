@@ -4234,6 +4234,60 @@ impl<'a> Vm<'a> {
             "run-hook-with-args-until-success" => {
                 Some(self.builtin_run_hook_with_args_until_success_shared(args))
             }
+            "get-process" => Some(crate::emacs_core::process::builtin_get_process_in_state(
+                &*self.shared.processes,
+                args.to_vec(),
+            )),
+            "get-buffer-process" => Some(
+                crate::emacs_core::process::builtin_get_buffer_process_in_state(
+                    &*self.shared.frames,
+                    &*self.shared.buffers,
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "processp" => Some(crate::emacs_core::process::builtin_processp_in_state(
+                &*self.shared.processes,
+                args.to_vec(),
+            )),
+            "process-list" => Some(crate::emacs_core::process::builtin_process_list_in_state(
+                &*self.shared.processes,
+                args.to_vec(),
+            )),
+            "process-name" => Some(crate::emacs_core::process::builtin_process_name_in_state(
+                &*self.shared.processes,
+                args.to_vec(),
+            )),
+            "process-buffer" => Some(crate::emacs_core::process::builtin_process_buffer_in_state(
+                &*self.shared.processes,
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "set-process-buffer" => Some(
+                crate::emacs_core::process::builtin_set_process_buffer_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "process-query-on-exit-flag" => Some(
+                crate::emacs_core::process::builtin_process_query_on_exit_flag_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-query-on-exit-flag" => Some(
+                crate::emacs_core::process::builtin_set_process_query_on_exit_flag_in_state(
+                    self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-command" => Some(
+                crate::emacs_core::process::builtin_process_command_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
             "run-hook-with-args-until-failure" => {
                 Some(self.builtin_run_hook_with_args_until_failure_shared(args))
             }
