@@ -975,10 +975,14 @@ pub(crate) fn builtin_setplist_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_setplist_in_obarray(eval.obarray_mut(), args)
+}
+
+pub(crate) fn builtin_setplist_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("setplist", &args, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
     let plist = args[1];
-    set_symbol_raw_plist(eval, symbol, plist);
+    set_symbol_raw_plist_in_obarray(obarray, symbol, plist);
     Ok(plist)
 }
 

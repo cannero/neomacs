@@ -3850,6 +3850,16 @@ impl<'a> Vm<'a> {
                 &*self.shared.obarray,
                 args,
             )),
+            "featurep" => Some(crate::emacs_core::builtins::builtin_featurep_in_state(
+                &*self.shared.obarray,
+                self.shared.features,
+                args.to_vec(),
+            )),
+            "provide" => Some(crate::emacs_core::builtins::builtin_provide_in_state(
+                self.shared.obarray,
+                self.shared.features,
+                args.to_vec(),
+            )),
             "eval" => Some(self.eval_with_vm_bridge(args.to_vec(), args)),
             "load" => Some(self.load_with_vm_bridge(args.to_vec(), args)),
             "autoload-do-load" => Some(self.autoload_do_load_with_vm_bridge(
@@ -4007,6 +4017,12 @@ impl<'a> Vm<'a> {
                 Ok(value)
                 })())
             }
+            "setplist" => Some(
+                crate::emacs_core::builtins::symbols::builtin_setplist_in_obarray(
+                    self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
             "symbol-function" => Some(
                 crate::emacs_core::builtins::symbols::builtin_symbol_function_in_obarray(
                     &*self.shared.obarray,
@@ -4155,6 +4171,10 @@ impl<'a> Vm<'a> {
                 self.shared.obarray.intern(&name);
                 Ok(Value::symbol(name))
             })()),
+            "unintern" => Some(crate::emacs_core::hashtab::builtin_unintern_in_obarray(
+                self.shared.obarray,
+                args.to_vec(),
+            )),
             "mapcar" => Some(self.builtin_mapcar_fast(args)),
             "fboundp" => Some(self.builtin_fboundp_fast(args)),
             "frame-list" => Some(self.builtin_frame_list_fast(args)),

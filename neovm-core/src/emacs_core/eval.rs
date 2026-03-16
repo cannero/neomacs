@@ -565,6 +565,84 @@ fn is_runtime_dynamically_special(obarray: &Obarray, sym_id: SymId) -> bool {
     obarray.is_special_id(sym_id) && !obarray.is_constant_id(sym_id)
 }
 
+pub(crate) fn sync_features_variable_in_state(obarray: &mut Obarray, features: &[SymId]) {
+    let values: Vec<Value> = features.iter().map(|id| Value::Symbol(*id)).collect();
+    obarray.set_symbol_value("features", Value::list(values));
+}
+
+pub(crate) fn refresh_features_from_variable_in_state(
+    obarray: &Obarray,
+    features: &mut Vec<SymId>,
+) {
+    let current = obarray
+        .symbol_value("features")
+        .cloned()
+        .unwrap_or(Value::Nil);
+    let mut parsed = Vec::new();
+    if let Some(items) = list_to_vec(&current) {
+        for item in items {
+            if let Value::Symbol(id) = item {
+                parsed.push(id);
+            }
+        }
+    }
+    *features = parsed;
+}
+
+pub(crate) fn feature_present_in_state(
+    obarray: &Obarray,
+    features: &mut Vec<SymId>,
+    name: &str,
+) -> bool {
+    refresh_features_from_variable_in_state(obarray, features);
+    let id = intern(name);
+    features.iter().any(|feature| *feature == id)
+}
+
+pub(crate) fn add_feature_in_state(obarray: &mut Obarray, features: &mut Vec<SymId>, name: &str) {
+    refresh_features_from_variable_in_state(obarray, features);
+    let id = intern(name);
+    if features.iter().any(|feature| *feature == id) {
+        return;
+    }
+    // Emacs pushes newly-provided features at the front.
+    features.insert(0, id);
+    sync_features_variable_in_state(obarray, features);
+}
+
+pub(crate) fn remove_feature_in_state(
+    obarray: &mut Obarray,
+    features: &mut Vec<SymId>,
+    name: &str,
+) {
+    refresh_features_from_variable_in_state(obarray, features);
+    let id = intern(name);
+    features.retain(|feature| *feature != id);
+    sync_features_variable_in_state(obarray, features);
+}
+
+pub(crate) fn provide_value_in_state(
+    obarray: &mut Obarray,
+    features: &mut Vec<SymId>,
+    feature: Value,
+    subfeatures: Option<Value>,
+) -> EvalResult {
+    let name = match &feature {
+        Value::Symbol(symbol) => resolve_sym(*symbol).to_owned(),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), feature],
+            ));
+        }
+    };
+    if let Some(value) = subfeatures {
+        obarray.put_property(&name, "subfeatures", value);
+    }
+    add_feature_in_state(obarray, features, &name);
+    Ok(feature)
+}
+
 /// Limit for stored recent input events to match GNU Emacs: 300 entries.
 pub(crate) const RECENT_INPUT_EVENT_LIMIT: usize = 300;
 
@@ -3368,43 +3446,19 @@ impl Evaluator {
     /// Keep the Lisp-visible `features` variable in sync with the evaluator's
     /// internal feature set.
     fn sync_features_variable(&mut self) {
-        let values: Vec<Value> = self.features.iter().map(|id| Value::Symbol(*id)).collect();
-        self.obarray
-            .set_symbol_value("features", Value::list(values));
+        sync_features_variable_in_state(&mut self.obarray, &self.features);
     }
 
     fn refresh_features_from_variable(&mut self) {
-        let current = self
-            .obarray
-            .symbol_value("features")
-            .cloned()
-            .unwrap_or(Value::Nil);
-        let mut parsed = Vec::new();
-        if let Some(items) = list_to_vec(&current) {
-            for item in items {
-                if let Value::Symbol(id) = item {
-                    parsed.push(id);
-                }
-            }
-        }
-        self.features = parsed;
+        refresh_features_from_variable_in_state(&self.obarray, &mut self.features);
     }
 
     fn has_feature(&mut self, name: &str) -> bool {
-        self.refresh_features_from_variable();
-        let id = intern(name);
-        self.features.iter().any(|f| *f == id)
+        feature_present_in_state(&self.obarray, &mut self.features, name)
     }
 
     pub(crate) fn add_feature(&mut self, name: &str) {
-        self.refresh_features_from_variable();
-        let id = intern(name);
-        if self.features.iter().any(|f| *f == id) {
-            return;
-        }
-        // Emacs pushes newly-provided features at the front.
-        self.features.insert(0, id);
-        self.sync_features_variable();
+        add_feature_in_state(&mut self.obarray, &mut self.features, name);
     }
 
     pub(crate) fn feature_present(&mut self, name: &str) -> bool {
@@ -3413,10 +3467,7 @@ impl Evaluator {
 
     /// Remove a feature (used to undo temporary provides during bootstrap).
     pub(crate) fn remove_feature(&mut self, name: &str) {
-        self.refresh_features_from_variable();
-        let id = intern(name);
-        self.features.retain(|f| *f != id);
-        self.sync_features_variable();
+        remove_feature_in_state(&mut self.obarray, &mut self.features, name);
     }
 
     /// Access the obarray (for builtins that need it).
@@ -5737,20 +5788,7 @@ impl Evaluator {
         feature: Value,
         subfeatures: Option<Value>,
     ) -> EvalResult {
-        let name = match &feature {
-            Value::Symbol(s) => resolve_sym(*s).to_owned(),
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("symbolp"), feature],
-                ));
-            }
-        };
-        if let Some(value) = subfeatures {
-            self.obarray.put_property(&name, "subfeatures", value);
-        }
-        self.add_feature(&name);
-        Ok(feature)
+        provide_value_in_state(&mut self.obarray, &mut self.features, feature, subfeatures)
     }
 
     #[tracing::instrument(level = "info", skip(self), err(Debug))]

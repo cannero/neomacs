@@ -1199,6 +1199,29 @@ fn vm_hook_builtins_use_shared_runtime_state_and_vm_callbacks() {
 }
 
 #[test]
+fn vm_feature_and_symbol_table_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((sym (intern "vm-plist-sym")))
+                 (setq features '(vm-old-feature))
+                 (setplist sym '(a 1 b 2))
+                 (list
+                  (featurep 'vm-old-feature)
+                  (provide 'vm-new-feature '(vm-sub))
+                  features
+                  (featurep 'vm-new-feature)
+                  (featurep 'vm-new-feature 'vm-sub)
+                  (get sym 'a)
+                  (symbol-plist sym)
+                  (progn
+                    (unintern sym)
+                    (intern-soft "vm-plist-sym"))))"#
+        ),
+        "OK (t vm-new-feature (vm-new-feature vm-old-feature) t t 1 (a 1 b 2) nil)"
+    );
+}
+
+#[test]
 fn vm_key_lookup_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

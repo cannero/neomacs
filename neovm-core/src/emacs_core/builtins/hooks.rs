@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::intern::SymId;
 use crate::emacs_core::symbol::Obarray;
 
 // ===========================================================================
@@ -566,6 +567,14 @@ pub(crate) fn builtin_run_window_scroll_functions(
 }
 
 pub(crate) fn builtin_featurep(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_featurep_in_state(&eval.obarray, &mut eval.features, args)
+}
+
+pub(crate) fn builtin_featurep_in_state(
+    obarray: &Obarray,
+    features: &mut Vec<SymId>,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("featurep", &args, 1)?;
     expect_max_args("featurep", &args, 2)?;
     let name = args[0].as_symbol_name().ok_or_else(|| {
@@ -574,7 +583,7 @@ pub(crate) fn builtin_featurep(eval: &mut super::eval::Evaluator, args: Vec<Valu
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    if !eval.feature_present(name) {
+    if !crate::emacs_core::eval::feature_present_in_state(obarray, features, name) {
         return Ok(Value::Nil);
     }
 
@@ -585,8 +594,7 @@ pub(crate) fn builtin_featurep(eval: &mut super::eval::Evaluator, args: Vec<Valu
         return Ok(Value::True);
     }
 
-    let subfeatures = eval
-        .obarray()
+    let subfeatures = obarray
         .get_property(name, "subfeatures")
         .cloned()
         .unwrap_or(Value::Nil);

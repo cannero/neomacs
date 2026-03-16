@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::symbol::Obarray;
 
 pub(crate) fn builtin_get_pos_property(
     eval: &mut super::eval::Evaluator,
@@ -368,8 +369,21 @@ pub(crate) fn builtin_defalias(eval: &mut super::eval::Evaluator, args: Vec<Valu
 }
 
 pub(crate) fn builtin_provide(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_provide_in_state(&mut eval.obarray, &mut eval.features, args)
+}
+
+pub(crate) fn builtin_provide_in_state(
+    obarray: &mut Obarray,
+    features: &mut Vec<SymId>,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("provide", &args, 1, 2)?;
-    eval.provide_value(args[0], args.get(1).cloned())
+    crate::emacs_core::eval::provide_value_in_state(
+        obarray,
+        features,
+        args[0],
+        args.get(1).cloned(),
+    )
 }
 
 pub(crate) fn builtin_require(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
