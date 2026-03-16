@@ -1668,6 +1668,20 @@ fn vm_casefiddle_word_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_char_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (char-equal ?a ?A)
+                 (let ((case-fold-search nil))
+                   (char-equal ?a ?A))
+                 (bool-vector-p (char-category-set ?a)))"#
+        ),
+        "OK (t nil t)"
+    );
+}
+
+#[test]
 fn vm_buffer_substring_copy_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

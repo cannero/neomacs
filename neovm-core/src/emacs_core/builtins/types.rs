@@ -351,12 +351,24 @@ pub(crate) fn builtin_symbol_with_pos_pos(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_char_equal(eval: &super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_char_equal_in_state(&eval.obarray, &eval.dynamic, args)
+}
+
+pub(crate) fn builtin_char_equal_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("char-equal", &args, 2)?;
     let left = expect_char_equal_code(&args[0])?;
     let right = expect_char_equal_code(&args[1])?;
-    let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
-        .map(|v| !v.is_nil())
-        .unwrap_or(true);
+    let case_fold = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "case-fold-search",
+    )
+    .map(|v| !v.is_nil())
+    .unwrap_or(true);
     if !case_fold {
         return Ok(Value::bool(left == right));
     }

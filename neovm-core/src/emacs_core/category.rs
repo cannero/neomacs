@@ -756,11 +756,18 @@ pub(crate) fn builtin_char_category_set(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_char_category_set_in_manager(&eval.category_manager, args)
+}
+
+pub(crate) fn builtin_char_category_set_in_manager(
+    category_manager: &CategoryManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("char-category-set", &args, 1)?;
 
     let ch = extract_char(&args[0], "char-category-set")?;
 
-    let cats = eval.category_manager.current().char_category_set(ch);
+    let cats = category_manager.current().char_category_set(ch);
 
     // Build a 128-element bool-vector.
     let mut bits = vec![Value::Int(0); 128];

@@ -3595,6 +3595,10 @@ impl<'a> Vm<'a> {
             "make-keymap" => Some(
                 crate::emacs_core::builtins::keymaps::builtin_make_keymap_pure(args),
             ),
+            "char-category-set" => Some(crate::emacs_core::category::builtin_char_category_set_in_manager(
+                self.shared.category_manager,
+                args.to_vec(),
+            )),
             "modify-category-entry" => Some(
                 crate::emacs_core::category::modify_category_entry_in_manager(
                     self.shared.category_manager,
@@ -3816,6 +3820,11 @@ impl<'a> Vm<'a> {
             "replace-region-contents" => Some(self.builtin_replace_region_contents_shared(args)),
             "delete-field" => Some(self.builtin_delete_field_shared(args)),
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
+            "char-equal" => Some(crate::emacs_core::builtins::builtin_char_equal_in_state(
+                &self.shared.obarray,
+                &self.shared.dynamic,
+                args.to_vec(),
+            )),
             "downcase-region" => Some(crate::emacs_core::casefiddle::builtin_downcase_region_in_state(
                 &self.shared.obarray,
                 &self.shared.dynamic,
