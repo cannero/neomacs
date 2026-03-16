@@ -5773,26 +5773,25 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn quote_to_runtime_value(&mut self, expr: &Expr) -> Value {
+    pub(crate) fn quote_to_runtime_value_in_state(obarray: &Obarray, expr: &Expr) -> Value {
         match expr {
-            Expr::ReaderLoadFileName => self
-                .obarray
+            Expr::ReaderLoadFileName => obarray
                 .symbol_value("load-file-name")
                 .cloned()
                 .unwrap_or(Value::Nil),
             Expr::List(items) => {
                 let quoted = items
                     .iter()
-                    .map(|item| self.quote_to_runtime_value(item))
+                    .map(|item| Self::quote_to_runtime_value_in_state(obarray, item))
                     .collect::<Vec<_>>();
                 Value::list(quoted)
             }
             Expr::DottedList(items, last) => {
                 let head_vals: Vec<Value> = items
                     .iter()
-                    .map(|item| self.quote_to_runtime_value(item))
+                    .map(|item| Self::quote_to_runtime_value_in_state(obarray, item))
                     .collect();
-                let tail_val = self.quote_to_runtime_value(last);
+                let tail_val = Self::quote_to_runtime_value_in_state(obarray, last);
                 head_vals
                     .into_iter()
                     .rev()
@@ -5801,12 +5800,16 @@ impl Evaluator {
             Expr::Vector(items) => {
                 let vals = items
                     .iter()
-                    .map(|item| self.quote_to_runtime_value(item))
+                    .map(|item| Self::quote_to_runtime_value_in_state(obarray, item))
                     .collect();
                 Value::vector(vals)
             }
             _ => quote_to_value(expr),
         }
+    }
+
+    pub(crate) fn quote_to_runtime_value(&mut self, expr: &Expr) -> Value {
+        Self::quote_to_runtime_value_in_state(&self.obarray, expr)
     }
 
     fn sf_byte_code_literal(&mut self, tail: &[Expr]) -> EvalResult {

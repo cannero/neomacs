@@ -6571,11 +6571,18 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_from_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_from_string)
+        crate::emacs_core::reader::builtin_read_from_string_in_state(
+            &*self.shared.obarray,
+            args.to_vec(),
+        )
     }
 
     fn builtin_read_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read)
+        crate::emacs_core::reader::builtin_read_in_state(
+            &*self.shared.obarray,
+            self.shared.buffers,
+            args.to_vec(),
+        )
     }
 
     fn builtin_read_event_shared(&mut self, args: &[Value]) -> EvalResult {

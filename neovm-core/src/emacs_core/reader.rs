@@ -222,6 +222,13 @@ pub(crate) fn builtin_read_from_string(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_read_from_string_in_state(&eval.obarray, args)
+}
+
+pub(crate) fn builtin_read_from_string_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("read-from-string", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -306,12 +313,12 @@ pub(crate) fn builtin_read_from_string(
             )
         })?;
 
-    let value = if let Some(bytecode) = first_form_byte_code_literal_value(eval, &expr) {
+    let value = if let Some(bytecode) = first_form_byte_code_literal_value(obarray, &expr) {
         bytecode
-    } else if let Some(hash_table) = first_form_hash_table_literal_value(eval, &expr) {
+    } else if let Some(hash_table) = first_form_hash_table_literal_value(obarray, &expr) {
         hash_table
     } else {
-        eval.quote_to_runtime_value(&expr)
+        super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, &expr)
     };
     let absolute_end = start + end_pos;
 
@@ -319,7 +326,7 @@ pub(crate) fn builtin_read_from_string(
 }
 
 fn first_form_byte_code_literal_value(
-    eval: &mut super::eval::Evaluator,
+    obarray: &crate::emacs_core::symbol::Obarray,
     expr: &Expr,
 ) -> Option<Value> {
     let Expr::List(items) = expr else {
@@ -339,13 +346,13 @@ fn first_form_byte_code_literal_value(
     };
     let values = values
         .iter()
-        .map(|value| eval.quote_to_runtime_value(value))
+        .map(|value| super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, value))
         .collect();
     Some(Value::vector(values))
 }
 
 fn first_form_hash_table_literal_value(
-    eval: &mut super::eval::Evaluator,
+    obarray: &crate::emacs_core::symbol::Obarray,
     expr: &Expr,
 ) -> Option<Value> {
     let Expr::List(items) = expr else {
@@ -390,7 +397,7 @@ fn first_form_hash_table_literal_value(
             i += 1;
             continue;
         };
-        let value = eval.quote_to_runtime_value(&spec[i + 1]);
+        let value = super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, &spec[i + 1]);
         match resolve_sym(*key_id) {
             "size" => {
                 size = value.as_int()?;
@@ -438,8 +445,14 @@ fn first_form_hash_table_literal_value(
             if let Some(Expr::List(data_items)) = data_expr {
                 let mut idx = 0_usize;
                 while idx + 1 < data_items.len() {
-                    let key_value = eval.quote_to_runtime_value(&data_items[idx]);
-                    let val_value = eval.quote_to_runtime_value(&data_items[idx + 1]);
+                    let key_value = super::eval::Evaluator::quote_to_runtime_value_in_state(
+                        obarray,
+                        &data_items[idx],
+                    );
+                    let val_value = super::eval::Evaluator::quote_to_runtime_value_in_state(
+                        obarray,
+                        &data_items[idx + 1],
+                    );
                     let key = key_value.to_hash_key(&table.test);
                     let inserting_new_key = !table.data.contains_key(&key);
                     table.data.insert(key.clone(), val_value);
@@ -514,6 +527,14 @@ fn skip_ws_comments(input: &str, mut pos: usize) -> usize {
 /// - If STREAM is nil, would read from stdin (returns nil in non-interactive mode).
 /// - If STREAM is a buffer, read from buffer at point.
 pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_read_in_state(&eval.obarray, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_read_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("read", &args, 1)?;
 
     if args.is_empty() || args[0].is_nil() {
@@ -527,7 +548,7 @@ pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
     match &args[0] {
         Value::Str(_) => {
             // Read from string
-            let result = builtin_read_from_string(eval, args)?;
+            let result = builtin_read_from_string_in_state(obarray, args)?;
             // Return just the car (the parsed object)
             match &result {
                 Value::Cons(cell) => {
@@ -541,8 +562,7 @@ pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
             // Read from buffer at point
             let buf_id = *id;
             let (text, pt) = {
-                let buf = eval
-                    .buffers
+                let buf = buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
                 (buf.buffer_string(), buf.pt)
@@ -573,16 +593,16 @@ pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
                         vec![Value::string("End of file during parsing")],
                     )
                 })?;
-            let value = if let Some(bytecode) = first_form_byte_code_literal_value(eval, &expr) {
+            let value = if let Some(bytecode) = first_form_byte_code_literal_value(obarray, &expr) {
                 bytecode
-            } else if let Some(hash_table) = first_form_hash_table_literal_value(eval, &expr) {
+            } else if let Some(hash_table) = first_form_hash_table_literal_value(obarray, &expr) {
                 hash_table
             } else {
-                eval.quote_to_runtime_value(&expr)
+                super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, &expr)
             };
             // Advance point past the read form
             let new_pt = pt + end_offset;
-            let _ = eval.buffers.goto_buffer_byte(buf_id, new_pt);
+            let _ = buffers.goto_buffer_byte(buf_id, new_pt);
             Ok(value)
         }
         Value::Symbol(id) => Err(signal(
