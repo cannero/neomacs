@@ -2105,6 +2105,40 @@ fn vm_parse_partial_sexp_uses_shared_current_buffer_state() {
 }
 
 #[test]
+fn vm_overlay_builtins_use_shared_current_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "overlay body")
+                 (let ((ov1 (make-overlay 2 6))
+                       (ov2 (make-overlay 6 10)))
+                   (overlay-put ov1 'face 'bold)
+                   (list
+                    (overlayp ov1)
+                    (overlay-get ov1 'face)
+                    (length (overlays-at 3))
+                    (length (overlays-in 1 13))
+                    (next-overlay-change 1)
+                    (previous-overlay-change 10)
+                    (progn
+                      (move-overlay ov1 4 8)
+                      (list (overlay-start ov1)
+                            (overlay-end ov1)
+                            (eq (overlay-buffer ov1) (current-buffer))
+                            (> (length (overlay-properties ov1)) 0)))
+                    (progn
+                      (delete-overlay ov2)
+                      (length (overlays-in 1 13)))
+                    (progn
+                      (delete-all-overlays)
+                      (length (overlays-in 1 13))))))"#
+        ),
+        "OK (t bold 1 2 2 6 (4 8 t t) 1 0)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

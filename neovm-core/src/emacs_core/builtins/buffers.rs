@@ -242,9 +242,16 @@ pub(crate) fn builtin_delete_all_overlays(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_all_overlays_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_all_overlays_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("delete-all-overlays", &args, 1)?;
     let target = if args.is_empty() || args[0].is_nil() {
-        eval.buffers.current_buffer().map(|buf| buf.id)
+        buffers.current_buffer().map(|buf| buf.id)
     } else {
         Some(expect_buffer_id(&args[0])?)
     };
@@ -252,11 +259,11 @@ pub(crate) fn builtin_delete_all_overlays(
     let Some(target_id) = target else {
         return Ok(Value::Nil);
     };
-    if eval.buffers.get(target_id).is_none() {
+    if buffers.get(target_id).is_none() {
         // GNU Emacs treats dead buffers as a no-op.
         return Ok(Value::Nil);
     }
-    let _ = eval.buffers.delete_all_buffer_overlays(target_id);
+    let _ = buffers.delete_all_buffer_overlays(target_id);
     Ok(Value::Nil)
 }
 

@@ -3044,6 +3044,77 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "next-overlay-change" => Some(
+                crate::emacs_core::textprop::builtin_next_overlay_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "previous-overlay-change" => Some(
+                crate::emacs_core::textprop::builtin_previous_overlay_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "make-overlay" => Some(crate::emacs_core::textprop::builtin_make_overlay_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "delete-overlay" => Some(
+                crate::emacs_core::textprop::builtin_delete_overlay_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "overlay-put" => Some(crate::emacs_core::textprop::builtin_overlay_put_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "overlay-get" => Some(crate::emacs_core::textprop::builtin_overlay_get_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "overlayp" => Some(crate::emacs_core::textprop::builtin_overlayp_pure(args.to_vec())),
+            "overlays-at" => Some(crate::emacs_core::textprop::builtin_overlays_at_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "overlays-in" => Some(crate::emacs_core::textprop::builtin_overlays_in_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "move-overlay" => Some(crate::emacs_core::textprop::builtin_move_overlay_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "overlay-start" => Some(
+                crate::emacs_core::textprop::builtin_overlay_start_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "overlay-end" => Some(crate::emacs_core::textprop::builtin_overlay_end_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "overlay-buffer" => Some(
+                crate::emacs_core::textprop::builtin_overlay_buffer_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "overlay-properties" => Some(
+                crate::emacs_core::textprop::builtin_overlay_properties_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "delete-all-overlays" => Some(
+                crate::emacs_core::builtins::builtin_delete_all_overlays_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),

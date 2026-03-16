@@ -7,8 +7,8 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
 use super::value::*;
-use crate::buffer::buffer::BufferId;
 use crate::buffer::text_props::TextPropertyTable;
+use crate::buffer::{BufferId, BufferManager};
 
 // ---------------------------------------------------------------------------
 // Helpers (local to this module)
@@ -102,6 +102,23 @@ fn expect_integer_or_marker_eval(
     }
 }
 
+fn expect_integer_or_marker_in_buffers(
+    buffers: &BufferManager,
+    value: &Value,
+) -> Result<i64, Flow> {
+    match value {
+        Value::Int(n) => Ok(*n),
+        Value::Char(c) => Ok(*c as i64),
+        marker if super::marker::is_marker(marker) => {
+            super::marker::marker_position_as_int_with_buffers(buffers, marker)
+        }
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *other],
+        )),
+    }
+}
+
 /// Extract a symbol name (for property names).
 fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
     match value.as_symbol_name() {
@@ -149,9 +166,15 @@ fn resolve_buffer_id(
     eval: &super::eval::Evaluator,
     object: Option<&Value>,
 ) -> Result<BufferId, Flow> {
+    resolve_buffer_id_in_buffers(&eval.buffers, object)
+}
+
+fn resolve_buffer_id_in_buffers(
+    buffers: &BufferManager,
+    object: Option<&Value>,
+) -> Result<BufferId, Flow> {
     match object {
-        None | Some(Value::Nil) => eval
-            .buffers
+        None | Some(Value::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
@@ -161,6 +184,36 @@ fn resolve_buffer_id(
             vec![Value::symbol("bufferp"), *other],
         )),
     }
+}
+
+fn current_buffer_id_in_buffers(buffers: &BufferManager) -> Result<BufferId, Flow> {
+    buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))
+}
+
+fn make_overlay_value(ov_id: u64, buf_id: BufferId) -> Value {
+    Value::cons(Value::Int(ov_id as i64), Value::Buffer(buf_id))
+}
+
+fn ensure_marker_points_into_buffer(
+    buffers: &BufferManager,
+    value: &Value,
+    buffer_id: BufferId,
+) -> Result<(), Flow> {
+    let Some((Some(buffer_name), _, _)) = super::marker::marker_logical_fields(value) else {
+        return Ok(());
+    };
+    let Some(marker_buffer_id) = buffers.find_buffer_by_name(&buffer_name) else {
+        return Ok(());
+    };
+    if marker_buffer_id == buffer_id {
+        return Ok(());
+    }
+    Err(signal(
+        "error",
+        vec![Value::string("Marker points into wrong buffer"), *value],
+    ))
 }
 
 /// Check if the OBJECT argument is a string.  Returns Some(ObjId) if so.
@@ -1110,15 +1163,17 @@ pub(crate) fn builtin_next_overlay_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_next_overlay_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_next_overlay_change_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("next-overlay-change", &args, 1)?;
-    let pos = expect_integer_or_marker_eval(eval, &args[0])?;
-    let buf_id = eval
-        .buffers
-        .current_buffer()
-        .map(|b| b.id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let buf_id = current_buffer_id_in_buffers(buffers)?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1149,15 +1204,17 @@ pub(crate) fn builtin_previous_overlay_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_previous_overlay_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_previous_overlay_change_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("previous-overlay-change", &args, 1)?;
-    let pos = expect_integer_or_marker_eval(eval, &args[0])?;
-    let buf_id = eval
-        .buffers
-        .current_buffer()
-        .map(|b| b.id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let buf_id = current_buffer_id_in_buffers(buffers)?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1188,16 +1245,27 @@ pub(crate) fn builtin_make_overlay(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_make_overlay_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_make_overlay_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("make-overlay", &args, 2)?;
     expect_max_args("make-overlay", &args, 5)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
-    let buf_id = resolve_buffer_id(eval, args.get(2))?;
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    ensure_marker_points_into_buffer(buffers, &args[0], buf_id)?;
+    ensure_marker_points_into_buffer(buffers, &args[1], buf_id)?;
+    let mut beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let mut end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    if beg > end {
+        std::mem::swap(&mut beg, &mut end);
+    }
     let front_advance = args.get(3).is_some_and(|v| v.is_truthy());
     let rear_advance = args.get(4).is_some_and(|v| v.is_truthy());
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get_mut(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1212,7 +1280,7 @@ pub(crate) fn builtin_make_overlay(
     }
 
     // Return a cons (overlay-id . buffer-id) to identify the overlay.
-    Ok(Value::cons(Value::Int(ov_id as i64), Value::Buffer(buf_id)))
+    Ok(make_overlay_value(ov_id, buf_id))
 }
 
 /// Extract overlay id and buffer id from an overlay value (cons of int . buffer).
@@ -1234,9 +1302,16 @@ pub(crate) fn builtin_delete_overlay(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_overlay_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_overlay_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("delete-overlay", &args, 1)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
-    let _ = eval.buffers.delete_buffer_overlay(buf_id, ov_id);
+    let _ = buffers.delete_buffer_overlay(buf_id, ov_id);
     Ok(Value::Nil)
 }
 
@@ -1245,14 +1320,19 @@ pub(crate) fn builtin_overlay_put(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlay_put_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlay_put_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("overlay-put", &args, 3)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
     let prop = expect_symbol_name(&args[1])?;
     let val = args[2];
 
-    let _ = eval
-        .buffers
-        .put_buffer_overlay_property(buf_id, ov_id, &prop, val);
+    let _ = buffers.put_buffer_overlay_property(buf_id, ov_id, &prop, val);
     Ok(val)
 }
 
@@ -1261,11 +1341,18 @@ pub(crate) fn builtin_overlay_get(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlay_get_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlay_get_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("overlay-get", &args, 2)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
-    if let Some(buf) = eval.buffers.get(buf_id) {
+    if let Some(buf) = buffers.get(buf_id) {
         match buf.overlays.overlay_get(ov_id, &prop) {
             Some(v) => {
                 let val: Value = *v;
@@ -1279,6 +1366,10 @@ pub(crate) fn builtin_overlay_get(
 
 /// (overlayp OBJ)
 pub(crate) fn builtin_overlayp(_eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_overlayp_pure(args)
+}
+
+pub(crate) fn builtin_overlayp_pure(args: Vec<Value>) -> EvalResult {
     expect_args("overlayp", &args, 1)?;
     if let Value::Cons(cell) = &args[0] {
         let pair = read_cons(*cell);
@@ -1294,18 +1385,18 @@ pub(crate) fn builtin_overlays_at(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlays_at_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlays_at_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("overlays-at", &args, 1)?;
     expect_max_args("overlays-at", &args, 2)?;
-    let pos = expect_int_eval(eval, &args[0])?;
-
-    let buf_id = eval
-        .buffers
-        .current_buffer()
-        .map(|b| b.id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-
-    let buf = eval
-        .buffers
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let buf_id = current_buffer_id_in_buffers(buffers)?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1313,7 +1404,7 @@ pub(crate) fn builtin_overlays_at(
     let ids = buf.overlays.overlays_at(byte_pos);
     let overlays: Vec<Value> = ids
         .into_iter()
-        .map(|id| Value::cons(Value::Int(id as i64), Value::Buffer(buf_id)))
+        .map(|id| make_overlay_value(id, buf_id))
         .collect();
     Ok(Value::list(overlays))
 }
@@ -1323,18 +1414,18 @@ pub(crate) fn builtin_overlays_in(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlays_in_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlays_in_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("overlays-in", &args, 2)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
-
-    let buf_id = eval
-        .buffers
-        .current_buffer()
-        .map(|b| b.id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-
-    let buf = eval
-        .buffers
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let buf_id = current_buffer_id_in_buffers(buffers)?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1343,7 +1434,7 @@ pub(crate) fn builtin_overlays_in(
     let ids = buf.overlays.overlays_in(byte_beg, byte_end);
     let overlays: Vec<Value> = ids
         .into_iter()
-        .map(|id| Value::cons(Value::Int(id as i64), Value::Buffer(buf_id)))
+        .map(|id| make_overlay_value(id, buf_id))
         .collect();
     Ok(Value::list(overlays))
 }
@@ -1353,17 +1444,28 @@ pub(crate) fn builtin_move_overlay(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_move_overlay_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_move_overlay_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("move-overlay", &args, 3)?;
     expect_max_args("move-overlay", &args, 4)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
-    let beg = expect_int_eval(eval, &args[1])?;
-    let end = expect_int(&args[2])?;
+    ensure_marker_points_into_buffer(buffers, &args[1], buf_id)?;
+    ensure_marker_points_into_buffer(buffers, &args[2], buf_id)?;
+    let mut beg = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
+    let mut end = expect_integer_or_marker_in_buffers(buffers, &args[2])?;
+    if beg > end {
+        std::mem::swap(&mut beg, &mut end);
+    }
     // Optional BUFFER argument — if given, we'd need to move between buffers.
     // For simplicity, we move within the same buffer.
     let _new_buf = args.get(3);
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get_mut(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1378,11 +1480,17 @@ pub(crate) fn builtin_overlay_start(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlay_start_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlay_start_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("overlay-start", &args, 1)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1397,11 +1505,17 @@ pub(crate) fn builtin_overlay_end(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlay_end_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlay_end_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("overlay-end", &args, 1)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1416,11 +1530,18 @@ pub(crate) fn builtin_overlay_buffer(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlay_buffer_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlay_buffer_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("overlay-buffer", &args, 1)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
 
     // Check if the overlay still exists in the buffer.
-    if let Some(buf) = eval.buffers.get(buf_id) {
+    if let Some(buf) = buffers.get(buf_id) {
         if buf.overlays.get(ov_id).is_some() {
             return Ok(Value::Buffer(buf_id));
         }
@@ -1433,10 +1554,17 @@ pub(crate) fn builtin_overlay_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_overlay_properties_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_overlay_properties_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("overlay-properties", &args, 1)?;
     let (ov_id, buf_id) = expect_overlay(&args[0])?;
 
-    if let Some(buf) = eval.buffers.get(buf_id) {
+    if let Some(buf) = buffers.get(buf_id) {
         if let Some(ov) = buf.overlays.get(ov_id) {
             return Ok(hashmap_to_plist(&ov.properties));
         }
