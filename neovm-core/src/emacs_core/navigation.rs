@@ -387,18 +387,25 @@ pub(crate) fn builtin_forward_line(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_forward_line_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_forward_line_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     let n = if args.is_empty() || args[0].is_nil() {
         1
     } else {
         expect_int(&args[0])?
     };
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
         (buffer_text(buf), buf.begv, buf.zv, buf.pt)
     };
     let (new_pos, moved) = move_by_lines_narrowed(&text, pt, n, begv, zv);
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
+    let _ = buffers.goto_buffer_byte(current_id, new_pos);
     Ok(Value::Int(n - moved))
 }
 
@@ -407,14 +414,21 @@ pub(crate) fn builtin_beginning_of_line(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_beginning_of_line_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_beginning_of_line_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     let n = if args.is_empty() || args[0].is_nil() {
         1
     } else {
         expect_int(&args[0])?
     };
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
         (buffer_text(buf), buf.begv, buf.zv, buf.pt)
     };
     let mut pos = pt;
@@ -424,7 +438,7 @@ pub(crate) fn builtin_beginning_of_line(
         pos = new_pos;
     }
     let bol = line_beginning_byte_narrowed(&text, pos, begv);
-    let _ = eval.buffers.goto_buffer_byte(current_id, bol);
+    let _ = buffers.goto_buffer_byte(current_id, bol);
     Ok(Value::Nil)
 }
 
@@ -433,14 +447,21 @@ pub(crate) fn builtin_end_of_line(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_end_of_line_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_end_of_line_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     let n = if args.is_empty() || args[0].is_nil() {
         1
     } else {
         expect_int(&args[0])?
     };
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (text, begv, zv, pt) = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
         (buffer_text(buf), buf.begv, buf.zv, buf.pt)
     };
     let mut pos = pt;
@@ -452,11 +473,11 @@ pub(crate) fn builtin_end_of_line(
         moved = actual_moved;
     }
     if n != 1 && moved != n - 1 && pos == begv {
-        let _ = eval.buffers.goto_buffer_byte(current_id, begv);
+        let _ = buffers.goto_buffer_byte(current_id, begv);
         return Ok(Value::Nil);
     }
     let eol = line_end_byte_narrowed(&text, pos, zv);
-    let _ = eval.buffers.goto_buffer_byte(current_id, eol);
+    let _ = buffers.goto_buffer_byte(current_id, eol);
     Ok(Value::Nil)
 }
 
@@ -469,14 +490,21 @@ pub(crate) fn builtin_forward_char(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_forward_char_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_forward_char_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     let n = if args.is_empty() || args[0].is_nil() {
         1
     } else {
         expect_int(&args[0])?
     };
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let current_id = buffers.current_buffer_id().ok_or_else(no_buffer)?;
     let (cur_char, total_chars, new_byte) = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let buf = buffers.get(current_id).ok_or_else(no_buffer)?;
         let cur_char = buf.point_char();
         let total_chars = buf.text.char_count();
         let new_char = if n >= 0 {
@@ -488,7 +516,7 @@ pub(crate) fn builtin_forward_char(
         };
         (cur_char, total_chars, buf.text.char_to_byte(new_char))
     };
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_byte);
+    let _ = buffers.goto_buffer_byte(current_id, new_byte);
     // Signal if we couldn't move the full distance
     let desired = cur_char as i64 + n;
     if desired < 0 {
@@ -505,13 +533,20 @@ pub(crate) fn builtin_backward_char(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_backward_char_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_backward_char_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     let n = if args.is_empty() || args[0].is_nil() {
         1
     } else {
         expect_int(&args[0])?
     };
     // backward-char N == forward-char (- N)
-    builtin_forward_char(eval, vec![Value::Int(-n)])
+    builtin_forward_char_in_manager(buffers, vec![Value::Int(-n)])
 }
 
 /// Parse a skip-chars character set string into a set of chars.
@@ -688,7 +723,15 @@ pub(crate) fn builtin_region_beginning(
     eval: &mut super::eval::Evaluator,
     _args: Vec<Value>,
 ) -> EvalResult {
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
+    builtin_region_beginning_in_manager(&eval.buffers, _args)
+}
+
+pub(crate) fn builtin_region_beginning_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("region-beginning", &args, 0)?;
+    let buf = buffers.current_buffer().ok_or_else(no_buffer)?;
     let mark = buf.mark().ok_or_else(|| {
         signal(
             "error",
@@ -707,7 +750,15 @@ pub(crate) fn builtin_region_end(
     eval: &mut super::eval::Evaluator,
     _args: Vec<Value>,
 ) -> EvalResult {
-    let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
+    builtin_region_end_in_manager(&eval.buffers, _args)
+}
+
+pub(crate) fn builtin_region_end_in_manager(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("region-end", &args, 0)?;
+    let buf = buffers.current_buffer().ok_or_else(no_buffer)?;
     let mark = buf.mark().ok_or_else(|| {
         signal(
             "error",

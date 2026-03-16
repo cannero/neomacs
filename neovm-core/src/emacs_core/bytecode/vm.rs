@@ -3539,6 +3539,40 @@ impl<'a> Vm<'a> {
             "eolp" => Some(self.builtin_eolp_shared(args)),
             "line-beginning-position" => Some(self.builtin_line_beginning_position_shared(args)),
             "line-end-position" => Some(self.builtin_line_end_position_shared(args)),
+            "pos-bol" => Some(crate::emacs_core::builtins::builtin_pos_bol_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "pos-eol" => Some(crate::emacs_core::builtins::builtin_pos_eol_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "forward-line" => Some(
+                crate::emacs_core::navigation::builtin_forward_line_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "beginning-of-line" => Some(
+                crate::emacs_core::navigation::builtin_beginning_of_line_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "end-of-line" => Some(crate::emacs_core::navigation::builtin_end_of_line_in_manager(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "forward-char" => Some(crate::emacs_core::navigation::builtin_forward_char_in_manager(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "backward-char" => Some(
+                crate::emacs_core::navigation::builtin_backward_char_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "insert-before-markers" => Some(self.builtin_insert_before_markers_shared(args)),
             "insert-buffer-substring" => Some(self.builtin_insert_buffer_substring_shared(args)),
             "delete-char" => Some(self.builtin_delete_char_shared(args)),
@@ -3563,6 +3597,22 @@ impl<'a> Vm<'a> {
             "buffer-local-value" => Some(self.builtin_buffer_local_value_shared(args)),
             "local-variable-if-set-p" => Some(self.builtin_local_variable_if_set_p_shared(args)),
             "variable-binding-locus" => Some(self.builtin_variable_binding_locus_shared(args)),
+            "region-beginning" => Some(
+                crate::emacs_core::navigation::builtin_region_beginning_in_manager(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "region-end" => Some(crate::emacs_core::navigation::builtin_region_end_in_manager(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "vertical-motion" => Some(
+                crate::emacs_core::builtins::symbols::builtin_vertical_motion_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "skip-chars-forward" => Some(self.builtin_skip_chars_forward_shared(args)),
             "skip-chars-backward" => Some(self.builtin_skip_chars_backward_shared(args)),
             "scan-lists" => Some(self.builtin_scan_lists_shared(args)),

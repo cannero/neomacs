@@ -3231,6 +3231,44 @@ fn vm_mark_marker_uses_shared_buffer_mark_state() {
 }
 
 #[test]
+fn vm_motion_builtins_use_shared_current_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (insert "abc\ndef\nghi")
+                 (goto-char 6)
+                 (list
+                  (pos-bol)
+                  (pos-eol)
+                  (progn (forward-line 1) (point))
+                  (progn (beginning-of-line) (point))
+                  (progn (end-of-line) (point))
+                  (progn (backward-char 2) (point))
+                  (progn (forward-char 1) (point))
+                  (progn
+                    (goto-char 1)
+                    (list (vertical-motion 1) (point)
+                          (vertical-motion 1) (point)
+                          (vertical-motion -1) (point)))))"#
+        ),
+        "OK (5 8 9 9 12 10 11 (1 5 1 9 -1 5))"
+    );
+}
+
+#[test]
+fn vm_region_bounds_use_shared_mark_state() {
+    assert_eq!(
+        vm_eval_with_init_str("(list (region-beginning) (region-end))", |eval| {
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            let _ = eval.buffers.replace_buffer_contents(current, "abcdef");
+            let _ = eval.buffers.goto_buffer_byte(current, 2);
+            let _ = eval.buffers.set_buffer_mark(current, 4);
+        }),
+        "OK (3 5)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

@@ -94,13 +94,27 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
 }
 
 pub(crate) fn builtin_pos_bol(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_max_args("pos-bol", &args, 1)?;
-    super::navigation::builtin_line_beginning_position(eval, args)
+    builtin_pos_bol_in_buffers(&eval.buffers, args)
 }
 
 pub(crate) fn builtin_pos_eol(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_pos_eol_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_pos_bol_in_buffers(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("pos-bol", &args, 1)?;
+    super::navigation::builtin_line_beginning_position_in_manager(buffers, args)
+}
+
+pub(crate) fn builtin_pos_eol_in_buffers(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("pos-eol", &args, 1)?;
-    super::navigation::builtin_line_end_position(eval, args)
+    super::navigation::builtin_line_end_position_in_manager(buffers, args)
 }
 
 pub(crate) fn builtin_previous_property_change(

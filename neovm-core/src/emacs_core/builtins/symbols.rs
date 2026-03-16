@@ -2457,6 +2457,13 @@ pub(crate) fn builtin_vertical_motion(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_vertical_motion_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_vertical_motion_in_buffers(
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("vertical-motion", &args, 1, 3)?;
     // First arg can be LINES (integer) or (COLS . LINES) cons pair.
     let lines = match args[0] {
@@ -2490,10 +2497,10 @@ pub(crate) fn builtin_vertical_motion(
         }
     }
 
-    let Some(current_id) = eval.buffers.current_buffer_id() else {
+    let Some(current_id) = buffers.current_buffer_id() else {
         return Ok(Value::Int(0));
     };
-    let Some(buf) = eval.buffers.get(current_id) else {
+    let Some(buf) = buffers.get(current_id) else {
         return Ok(Value::Int(0));
     };
     let text = buf.text.to_string();
@@ -2508,7 +2515,7 @@ pub(crate) fn builtin_vertical_motion(
         while bol > begv && bytes[bol - 1] != b'\n' {
             bol -= 1;
         }
-        let _ = eval.buffers.goto_buffer_byte(current_id, bol);
+        let _ = buffers.goto_buffer_byte(current_id, bol);
         return Ok(Value::Int(0));
     }
 
@@ -2554,7 +2561,7 @@ pub(crate) fn builtin_vertical_motion(
         }
     }
 
-    let _ = eval.buffers.goto_buffer_byte(current_id, pos);
+    let _ = buffers.goto_buffer_byte(current_id, pos);
     Ok(Value::Int(moved))
 }
 
