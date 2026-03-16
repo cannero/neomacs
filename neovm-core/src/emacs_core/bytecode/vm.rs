@@ -4002,6 +4002,69 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "window-display-table" => Some(
+                crate::emacs_core::window_cmds::builtin_window_display_table_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-display-table" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_display_table_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-cursor-type" => Some(
+                crate::emacs_core::window_cmds::builtin_window_cursor_type_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-cursor-type" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_cursor_type_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-parameter" => Some(
+                crate::emacs_core::window_cmds::builtin_window_parameter_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-parameter" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_parameter_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-parameters" => Some(
+                crate::emacs_core::window_cmds::builtin_window_parameters_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-dedicated-p" => Some(
+                crate::emacs_core::window_cmds::builtin_window_dedicated_p_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-dedicated-p" => Some(
+                crate::emacs_core::window_cmds::builtin_set_window_dedicated_p_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "window-normal-size" => Some(
                 crate::emacs_core::window_cmds::builtin_window_normal_size_in_state(
                     self.shared.frames,

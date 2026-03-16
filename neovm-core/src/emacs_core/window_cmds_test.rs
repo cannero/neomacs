@@ -1685,6 +1685,60 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
 }
 
 #[test]
+fn window_metadata_shared_state_smoke() {
+    let mut ev = Evaluator::new();
+    let forms = parse_forms(
+        "(let* ((w (selected-window))
+                (m (minibuffer-window))
+                (dt '(1 2 3)))
+           (list (window-dedicated-p w)
+                 (set-window-dedicated-p w t)
+                 (window-dedicated-p w)
+                 (set-window-dedicated-p w nil)
+                 (window-dedicated-p w)
+                 (null (window-parameters w))
+                 (set-window-parameter w 'foo 'bar)
+                 (window-parameter w 'foo)
+                 (equal (window-parameters w) '((foo . bar)))
+                 (set-window-parameter w 'foo nil)
+                 (equal (window-parameters w) '((foo)))
+                 (null (window-display-table w))
+                 (let ((rv (set-window-display-table w dt))) (equal rv dt))
+                 (equal (window-display-table w) dt)
+                 (null (set-window-display-table w nil))
+                 (null (window-display-table w))
+                 (window-cursor-type w)
+                 (set-window-cursor-type w 'bar)
+                 (window-cursor-type w)
+                 (set-window-cursor-type w t)
+                 (window-cursor-type w)
+                 (set-window-cursor-type m nil)
+                 (window-cursor-type m)))
+         (list (condition-case err (window-parameter 999999 'foo) (error err))
+               (condition-case err (set-window-parameter 999999 'foo 'bar) (error err))
+               (condition-case err (window-display-table 999999) (error err))
+               (condition-case err (set-window-display-table 999999 nil) (error err))
+               (condition-case err (window-cursor-type 999999) (error err))
+               (condition-case err (set-window-cursor-type 999999 nil) (error err))
+               (condition-case err (set-window-dedicated-p 999999 t) (error err)))",
+    )
+    .expect("parse");
+    let out = ev
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        out[0],
+        "OK (nil t t nil nil t bar bar t nil t t t t t t t bar bar t t nil nil)"
+    );
+    assert_eq!(
+        out[1],
+        "OK ((wrong-type-argument windowp 999999) (wrong-type-argument windowp 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999))"
+    );
+}
+
+#[test]
 fn window_preserve_size_fixed_and_resizable_helpers_match_batch_semantics() {
     let out = bootstrap_eval_with_frame(
         "(let ((w (selected-window)))

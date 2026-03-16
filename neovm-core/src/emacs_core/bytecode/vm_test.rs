@@ -867,6 +867,41 @@ fn vm_window_geometry_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_metadata_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (m (minibuffer-window))
+                      (dt '(1 2 3)))
+                 (list (window-dedicated-p w)
+                       (set-window-dedicated-p w t)
+                       (window-dedicated-p w)
+                       (set-window-dedicated-p w nil)
+                       (window-dedicated-p w)
+                       (null (window-parameters w))
+                       (set-window-parameter w 'foo 'bar)
+                       (window-parameter w 'foo)
+                       (equal (window-parameters w) '((foo . bar)))
+                       (set-window-parameter w 'foo nil)
+                       (equal (window-parameters w) '((foo)))
+                       (null (window-display-table w))
+                       (let ((rv (set-window-display-table w dt))) (equal rv dt))
+                       (equal (window-display-table w) dt)
+                       (null (set-window-display-table w nil))
+                       (null (window-display-table w))
+                       (window-cursor-type w)
+                       (set-window-cursor-type w 'bar)
+                       (window-cursor-type w)
+                       (set-window-cursor-type w t)
+                       (window-cursor-type w)
+                       (set-window-cursor-type m nil)
+                       (window-cursor-type m)))"#
+        ),
+        "OK (nil t t nil nil t bar bar t nil t t t t t t t bar bar t t nil nil)"
+    );
+}
+
+#[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),

@@ -311,9 +311,18 @@ fn resolve_window_object_id_with_pred(
     arg: Option<&Value>,
     pred: &str,
 ) -> Result<WindowId, Flow> {
+    resolve_window_object_id_with_pred_in_state(&mut eval.frames, &mut eval.buffers, arg, pred)
+}
+
+fn resolve_window_object_id_with_pred_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    arg: Option<&Value>,
+    pred: &str,
+) -> Result<WindowId, Flow> {
     match arg {
         None | Some(Value::Nil) => {
-            let (_fid, wid) = resolve_window_id(eval, None)?;
+            let (_fid, wid) = resolve_window_id_with_pred_in_state(frames, buffers, None, pred)?;
             Ok(wid)
         }
         Some(val) => {
@@ -323,7 +332,7 @@ fn resolve_window_object_id_with_pred(
                     vec![Value::symbol(pred), *val],
                 ));
             };
-            if eval.frames.is_window_object_id(wid) {
+            if frames.is_window_object_id(wid) {
                 Ok(wid)
             } else {
                 Err(signal(
@@ -986,10 +995,19 @@ pub(crate) fn builtin_window_display_table(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_display_table_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_display_table_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-display-table", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
-    Ok(eval.frames.window_display_table(wid))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(frames.window_display_table(wid))
 }
 
 /// `(set-window-display-table WINDOW TABLE)` -> TABLE.
@@ -997,11 +1015,20 @@ pub(crate) fn builtin_set_window_display_table(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_display_table_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_display_table_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-display-table", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let table = args[1];
-    eval.frames.set_window_display_table(wid, table);
+    frames.set_window_display_table(wid, table);
     Ok(table)
 }
 
@@ -1010,10 +1037,19 @@ pub(crate) fn builtin_window_cursor_type(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_cursor_type_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_cursor_type_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-cursor-type", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
-    Ok(eval.frames.window_cursor_type(wid))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(frames.window_cursor_type(wid))
 }
 
 /// `(set-window-cursor-type WINDOW TYPE)` -> TYPE.
@@ -1021,11 +1057,20 @@ pub(crate) fn builtin_set_window_cursor_type(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_cursor_type_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_cursor_type_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-cursor-type", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id(eval, args.first())?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let cursor_type = args[1];
-    eval.frames.set_window_cursor_type(wid, cursor_type);
+    frames.set_window_cursor_type(wid, cursor_type);
     Ok(cursor_type)
 }
 
@@ -1034,13 +1079,19 @@ pub(crate) fn builtin_window_parameter(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_parameter_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_parameter_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("window-parameter", &args, 2)?;
-    let _ = ensure_selected_frame_id(eval);
-    let wid = resolve_window_object_id_with_pred(eval, args.first(), "windowp")?;
-    Ok(eval
-        .frames
-        .window_parameter(wid, &args[1])
-        .unwrap_or(Value::Nil))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let wid =
+        resolve_window_object_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
+    Ok(frames.window_parameter(wid, &args[1]).unwrap_or(Value::Nil))
 }
 
 /// `(set-window-parameter WINDOW PARAMETER VALUE)` -> VALUE.
@@ -1048,11 +1099,20 @@ pub(crate) fn builtin_set_window_parameter(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_parameter_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_parameter_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-parameter", &args, 3)?;
-    let _ = ensure_selected_frame_id(eval);
-    let wid = resolve_window_object_id_with_pred(eval, args.first(), "windowp")?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let wid =
+        resolve_window_object_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
     let value = args[2];
-    eval.frames.set_window_parameter(wid, args[1], value);
+    frames.set_window_parameter(wid, args[1], value);
     Ok(value)
 }
 
@@ -1061,10 +1121,19 @@ pub(crate) fn builtin_window_parameters(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_parameters_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_parameters_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-parameters", &args, 1)?;
-    let _ = ensure_selected_frame_id(eval);
-    let (_fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    Ok(eval.frames.window_parameters_alist(wid))
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (_fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    Ok(frames.window_parameters_alist(wid))
 }
 
 /// `(window-parent &optional WINDOW)` -> parent window or nil.
@@ -2806,9 +2875,18 @@ pub(crate) fn builtin_window_dedicated_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_dedicated_p_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_dedicated_p_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-dedicated-p", &args, 1)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = get_leaf(&eval.frames, fid, wid)?;
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    let w = get_leaf(frames, fid, wid)?;
     match w {
         Window::Leaf { dedicated, .. } => Ok(Value::bool(*dedicated)),
         _ => Ok(Value::Nil),
@@ -2820,14 +2898,19 @@ pub(crate) fn builtin_set_window_dedicated_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_window_dedicated_p_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_window_dedicated_p_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-window-dedicated-p", &args, 2)?;
     let flag = args[1].is_truthy();
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    if let Some(w) = eval
-        .frames
-        .get_mut(fid)
-        .and_then(|f| f.find_window_mut(wid))
-    {
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    if let Some(w) = frames.get_mut(fid).and_then(|f| f.find_window_mut(wid)) {
         if let Window::Leaf { dedicated, .. } = w {
             *dedicated = flag;
         }
