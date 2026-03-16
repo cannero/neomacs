@@ -3038,6 +3038,12 @@ impl<'a> Vm<'a> {
             "skip-chars-backward" => Some(self.builtin_skip_chars_backward_shared(args)),
             "scan-lists" => Some(self.builtin_scan_lists_shared(args)),
             "scan-sexps" => Some(self.builtin_scan_sexps_shared(args)),
+            "parse-partial-sexp" => Some(
+                crate::emacs_core::syntax::builtin_parse_partial_sexp_in_manager(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "standard-case-table" => Some(
                 crate::emacs_core::casetab::builtin_standard_case_table(args.to_vec()),
             ),

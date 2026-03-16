@@ -2608,6 +2608,13 @@ pub(crate) fn builtin_parse_partial_sexp(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_parse_partial_sexp_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_parse_partial_sexp_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() < 2 || args.len() > 6 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2637,8 +2644,7 @@ pub(crate) fn builtin_parse_partial_sexp(
         }
     };
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
@@ -2650,6 +2656,13 @@ pub(crate) fn builtin_syntax_ppss(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_syntax_ppss_in_manager(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_syntax_ppss_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2657,8 +2670,7 @@ pub(crate) fn builtin_syntax_ppss(
         ));
     }
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();

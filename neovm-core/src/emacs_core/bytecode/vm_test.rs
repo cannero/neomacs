@@ -2085,6 +2085,26 @@ fn vm_buffer_metadata_builtins_use_shared_manager_state() {
 }
 
 #[test]
+fn vm_parse_partial_sexp_uses_shared_current_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((a (get-buffer-create "vm-pps-a"))
+                     (b (get-buffer-create "vm-pps-b")))
+                 (set-buffer a)
+                 (erase-buffer)
+                 (insert "(a)")
+                 (setq vm-pps-a (parse-partial-sexp 1 3))
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert "abc")
+                 (list vm-pps-a
+                       (parse-partial-sexp 1 4)))"#
+        ),
+        "OK ((1 1 2 nil nil nil 0 nil nil (1) nil) (0 nil 1 nil nil nil 0 nil nil nil nil))"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {
