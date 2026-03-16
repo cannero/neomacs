@@ -1839,6 +1839,14 @@ pub(crate) fn builtin_coordinates_in_window_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_coordinates_in_window_p_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_coordinates_in_window_p_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("coordinates-in-window-p", &args, 2)?;
 
     let (x, y) = match &args[0] {
@@ -1874,13 +1882,20 @@ pub(crate) fn builtin_coordinates_in_window_p(
         }
     };
 
-    expect_optional_live_window_designator(&args[1], eval)?;
     let window_arg = args[1];
-    let width = match super::window_cmds::builtin_window_total_width(eval, vec![window_arg])? {
+    let width = match super::window_cmds::builtin_window_total_width_in_state(
+        frames,
+        buffers,
+        vec![window_arg],
+    )? {
         Value::Int(n) => n as f64,
         _ => 0.0,
     };
-    let height = match super::window_cmds::builtin_window_total_height(eval, vec![window_arg])? {
+    let height = match super::window_cmds::builtin_window_total_height_in_state(
+        frames,
+        buffers,
+        vec![window_arg],
+    )? {
         Value::Int(n) => n as f64,
         _ => 0.0,
     };

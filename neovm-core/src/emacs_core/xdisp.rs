@@ -381,8 +381,16 @@ pub(crate) fn builtin_window_text_pixel_size_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_text_pixel_size_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_text_pixel_size_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args_range("window-text-pixel-size", &args, 0, 7)?;
-    validate_optional_window_designator(eval, args.first(), "window-live-p")?;
+    validate_optional_window_designator_in_state(&*frames, args.first(), "window-live-p")?;
     if let Some(from) = args.get(1) {
         if !from.is_nil() {
             expect_integer_or_marker(from)?;
@@ -427,13 +435,24 @@ pub(crate) fn builtin_pos_visible_in_window_p_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_pos_visible_in_window_p_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_pos_visible_in_window_p_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args_range("pos-visible-in-window-p", &args, 0, 3)?;
-    validate_optional_window_designator(eval, args.get(1), "window-live-p")?;
+    validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
+    if frames.frame_list().is_empty() {
+        return Ok(Value::Nil);
+    }
 
     // Extract buffer data up-front so we can release the immutable borrow on
-    // `eval` before calling window helpers that need `&mut eval`.
+    // buffer/window state before calling shared window helpers.
     let (check_pos, text_bytes, zv) = {
-        let Some(buf) = eval.buffers.current_buffer() else {
+        let Some(buf) = buffers.current_buffer() else {
             return Ok(Value::Nil);
         };
         let check_pos = match args.first() {
@@ -457,13 +476,17 @@ pub(crate) fn builtin_pos_visible_in_window_p_eval(
     };
 
     // Get window-start (char position → byte offset).
-    let ws = super::window_cmds::builtin_window_start(eval, vec![])
-        .ok()
-        .and_then(|v| match v {
-            Value::Int(n) => Some(n),
-            _ => None,
-        })
-        .unwrap_or(1);
+    let ws = super::window_cmds::builtin_window_start_in_state(
+        frames,
+        buffers,
+        vec![args.get(1).copied().unwrap_or(Value::Nil)],
+    )
+    .ok()
+    .and_then(|v| match v {
+        Value::Int(n) => Some(n),
+        _ => None,
+    })
+    .unwrap_or(1);
     // Convert char position to byte offset using the extracted text.
     let mut ws_byte = 0usize;
     let mut chars_seen = 0i64;
@@ -482,13 +505,17 @@ pub(crate) fn builtin_pos_visible_in_window_p_eval(
     }
 
     // Get window height to estimate window-end.
-    let wh = super::window_cmds::builtin_window_body_height(eval, vec![])
-        .ok()
-        .and_then(|v| match v {
-            Value::Int(n) => Some(n),
-            _ => None,
-        })
-        .unwrap_or(24);
+    let wh = super::window_cmds::builtin_window_body_height_in_state(
+        frames,
+        buffers,
+        vec![args.get(1).copied().unwrap_or(Value::Nil)],
+    )
+    .ok()
+    .and_then(|v| match v {
+        Value::Int(n) => Some(n),
+        _ => None,
+    })
+    .unwrap_or(24);
 
     // Estimate window-end: scan wh lines from window-start.
     let mut we_byte = ws_byte;
@@ -698,6 +725,13 @@ fn validate_optional_frame_designator(
     eval: &super::eval::Evaluator,
     value: Option<&Value>,
 ) -> Result<(), Flow> {
+    validate_optional_frame_designator_in_state(&eval.frames, value)
+}
+
+fn validate_optional_frame_designator_in_state(
+    frames: &crate::window::FrameManager,
+    value: Option<&Value>,
+) -> Result<(), Flow> {
     let Some(frameish) = value else {
         return Ok(());
     };
@@ -706,12 +740,12 @@ fn validate_optional_frame_designator(
     }
     match frameish {
         Value::Int(id) if *id >= 0 => {
-            if eval.frames.get(FrameId(*id as u64)).is_some() {
+            if frames.get(FrameId(*id as u64)).is_some() {
                 return Ok(());
             }
         }
         Value::Frame(id) => {
-            if eval.frames.get(FrameId(*id)).is_some() {
+            if frames.get(FrameId(*id)).is_some() {
                 return Ok(());
             }
         }
@@ -728,6 +762,14 @@ fn validate_optional_window_designator(
     value: Option<&Value>,
     predicate: &str,
 ) -> Result<(), Flow> {
+    validate_optional_window_designator_in_state(&eval.frames, value, predicate)
+}
+
+fn validate_optional_window_designator_in_state(
+    frames: &crate::window::FrameManager,
+    value: Option<&Value>,
+    predicate: &str,
+) -> Result<(), Flow> {
     let Some(windowish) = value else {
         return Ok(());
     };
@@ -740,8 +782,8 @@ fn validate_optional_window_designator(
         _ => None,
     };
     if let Some(wid) = wid {
-        for fid in eval.frames.frame_list() {
-            if let Some(frame) = eval.frames.get(fid) {
+        for fid in frames.frame_list() {
+            if let Some(frame) = frames.get(fid) {
                 if frame.find_window(wid).is_some() {
                     return Ok(());
                 }
@@ -758,6 +800,13 @@ fn validate_optional_buffer_designator(
     eval: &super::eval::Evaluator,
     value: Option<&Value>,
 ) -> Result<(), Flow> {
+    validate_optional_buffer_designator_in_state(&eval.buffers, value)
+}
+
+fn validate_optional_buffer_designator_in_state(
+    buffers: &crate::buffer::BufferManager,
+    value: Option<&Value>,
+) -> Result<(), Flow> {
     let Some(bufferish) = value else {
         return Ok(());
     };
@@ -765,7 +814,7 @@ fn validate_optional_buffer_designator(
         return Ok(());
     }
     if let Value::Buffer(id) = bufferish {
-        if eval.buffers.get(*id).is_some() {
+        if buffers.get(*id).is_some() {
             return Ok(());
         }
     }

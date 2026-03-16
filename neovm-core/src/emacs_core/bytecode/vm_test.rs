@@ -869,6 +869,38 @@ fn vm_frame_identity_and_display_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_xdisp_window_visibility_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-xdisp")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert "hello\nworld\n")
+                 (goto-char 1)
+                 (list (format-mode-line "%b")
+                       (window-text-pixel-size w)
+                       (pos-visible-in-window-p 1 w)
+                       (coordinates-in-window-p '(0 . 0) w)
+                       (condition-case err
+                           (format-mode-line "%b" nil "x")
+                         (error err))
+                       (condition-case err
+                           (window-text-pixel-size 999999)
+                         (error err))
+                       (condition-case err
+                           (pos-visible-in-window-p 'left w)
+                         (error err))
+                       (condition-case err
+                           (coordinates-in-window-p 'x w)
+                         (error err))))"#
+        ),
+        r#"OK ("vm-xdisp" (0 . 0) t (0 . 0) (wrong-type-argument windowp "x") (wrong-type-argument window-live-p 999999) (wrong-type-argument integer-or-marker-p left) (wrong-type-argument consp x))"#
+    );
+}
+
+#[test]
 fn vm_frame_parameter_and_resize_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

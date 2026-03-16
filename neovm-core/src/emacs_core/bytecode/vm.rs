@@ -5115,6 +5115,28 @@ impl<'a> Vm<'a> {
                 self.shared.buffers,
                 args.to_vec(),
             )),
+            "format-mode-line" => Some(self.builtin_format_mode_line_shared(args)),
+            "window-text-pixel-size" => Some(
+                crate::emacs_core::xdisp::builtin_window_text_pixel_size_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "pos-visible-in-window-p" => Some(
+                crate::emacs_core::xdisp::builtin_pos_visible_in_window_p_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "coordinates-in-window-p" => Some(
+                crate::emacs_core::builtins::builtin_coordinates_in_window_p_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "tool-bar-height" => Some(crate::emacs_core::xdisp::builtin_tool_bar_height_in_state(
                 self.shared.frames,
                 self.shared.buffers,
@@ -6041,6 +6063,14 @@ impl<'a> Vm<'a> {
             let result = f(eval);
             eval.restore_temp_roots(saved_temp_roots);
             result
+        })
+    }
+
+    fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::xdisp::builtin_format_mode_line_eval(eval, call_args)
         })
     }
 
