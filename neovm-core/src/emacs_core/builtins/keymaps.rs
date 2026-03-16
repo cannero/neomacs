@@ -134,11 +134,18 @@ pub(super) fn builtin_accessible_keymaps(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_accessible_keymaps_in_obarray(eval.obarray(), &args)
+}
+
+pub(crate) fn builtin_accessible_keymaps_in_obarray(
+    obarray: &Obarray,
+    args: &[Value],
+) -> EvalResult {
     use super::value::with_heap;
 
     expect_min_args("accessible-keymaps", &args, 1)?;
     expect_max_args("accessible-keymaps", &args, 2)?;
-    let keymap = expect_keymap(eval, &args[0])?;
+    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
 
     // Collect all accessible keymaps
     let mut all_out = Vec::new();
@@ -207,6 +214,10 @@ pub(super) fn builtin_make_keymap(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_make_keymap_pure(&args)
+}
+
+pub(crate) fn builtin_make_keymap_pure(args: &[Value]) -> EvalResult {
     expect_max_args("make-keymap", &args, 1)?;
     Ok(make_list_keymap())
 }
@@ -227,8 +238,12 @@ pub(super) fn builtin_copy_keymap(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_copy_keymap_in_obarray(eval.obarray(), &args)
+}
+
+pub(crate) fn builtin_copy_keymap_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("copy-keymap", &args, 1)?;
-    let keymap = expect_keymap(eval, &args[0])?;
+    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     Ok(list_keymap_copy(&keymap))
 }
 
@@ -416,21 +431,35 @@ pub(super) fn builtin_current_active_maps(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_current_active_maps_in_state(
+        &mut eval.obarray,
+        eval.dynamic.as_slice(),
+        eval.current_local_map,
+        &args,
+    )
+}
+
+pub(crate) fn builtin_current_active_maps_in_state(
+    obarray: &mut Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    current_local_map: Value,
+    args: &[Value],
+) -> EvalResult {
     expect_max_args("current-active-maps", &args, 2)?;
 
     let mut maps = Vec::new();
 
     // Collect minor mode keymaps (highest precedence).
-    let minor_maps = collect_minor_mode_maps(eval);
+    let minor_maps = collect_minor_mode_maps_in_state(obarray, dynamic);
     maps.extend(minor_maps);
 
     // Local map.
-    if !eval.current_local_map.is_nil() {
-        maps.push(eval.current_local_map);
+    if !current_local_map.is_nil() {
+        maps.push(current_local_map);
     }
 
     // Global map (lowest precedence).
-    maps.push(ensure_global_keymap(eval));
+    maps.push(ensure_global_keymap_in_obarray(obarray));
     Ok(Value::list(maps))
 }
 
@@ -439,8 +468,16 @@ pub(super) fn builtin_current_minor_mode_maps(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_current_minor_mode_maps_in_state(eval.obarray(), eval.dynamic.as_slice(), &args)
+}
+
+pub(crate) fn builtin_current_minor_mode_maps_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    args: &[Value],
+) -> EvalResult {
     expect_args("current-minor-mode-maps", &args, 0)?;
-    let maps = collect_minor_mode_maps(eval);
+    let maps = collect_minor_mode_maps_in_state(obarray, dynamic);
     if maps.is_empty() {
         Ok(Value::Nil)
     } else {
@@ -455,37 +492,59 @@ pub(super) fn builtin_current_minor_mode_maps(
 /// 2. `minor-mode-overriding-map-alist`
 /// 3. `minor-mode-map-alist` (entries already in overriding alist are skipped)
 fn collect_minor_mode_maps(eval: &super::eval::Evaluator) -> Vec<Value> {
+    collect_minor_mode_maps_in_state(eval.obarray(), eval.dynamic.as_slice())
+}
+
+fn collect_minor_mode_maps_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+) -> Vec<Value> {
     let mut maps = Vec::new();
 
     // 1. Emulation mode map alists (highest precedence).
-    if let Some(emulation_raw) =
-        super::misc_eval::dynamic_or_global_symbol_value(eval, "emulation-mode-map-alists")
-    {
+    if let Some(emulation_raw) = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "emulation-mode-map-alists",
+    ) {
         if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
             for entry in emulation_entries {
                 // Each entry is either a symbol (whose value is an alist) or an alist directly.
                 let alist_value = match entry.as_symbol_name() {
-                    Some(name) => super::misc_eval::dynamic_or_global_symbol_value(eval, name)
-                        .unwrap_or(Value::Nil),
+                    Some(name) => super::misc_eval::dynamic_or_global_symbol_value_in_state(
+                        obarray, dynamic, name,
+                    )
+                    .unwrap_or(Value::Nil),
                     None => entry,
                 };
-                collect_maps_from_alist(eval, &alist_value, None, &mut maps);
+                collect_maps_from_alist_in_state(obarray, dynamic, &alist_value, None, &mut maps);
             }
         }
     }
 
     // 2. minor-mode-overriding-map-alist.
-    let overriding =
-        super::misc_eval::dynamic_or_global_symbol_value(eval, "minor-mode-overriding-map-alist");
+    let overriding = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "minor-mode-overriding-map-alist",
+    );
     if let Some(ref ov) = overriding {
-        collect_maps_from_alist(eval, ov, None, &mut maps);
+        collect_maps_from_alist_in_state(obarray, dynamic, ov, None, &mut maps);
     }
 
     // 3. minor-mode-map-alist (skip entries already in overriding alist).
-    if let Some(regular) =
-        super::misc_eval::dynamic_or_global_symbol_value(eval, "minor-mode-map-alist")
-    {
-        collect_maps_from_alist(eval, &regular, overriding.as_ref(), &mut maps);
+    if let Some(regular) = super::misc_eval::dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "minor-mode-map-alist",
+    ) {
+        collect_maps_from_alist_in_state(
+            obarray,
+            dynamic,
+            &regular,
+            overriding.as_ref(),
+            &mut maps,
+        );
     }
 
     maps
@@ -498,6 +557,22 @@ fn collect_minor_mode_maps(eval: &super::eval::Evaluator) -> Vec<Value> {
 /// (used to avoid duplicates between overriding and regular alists).
 fn collect_maps_from_alist(
     eval: &super::eval::Evaluator,
+    alist: &Value,
+    skip_if_in: Option<&Value>,
+    maps: &mut Vec<Value>,
+) {
+    collect_maps_from_alist_in_state(
+        eval.obarray(),
+        eval.dynamic.as_slice(),
+        alist,
+        skip_if_in,
+        maps,
+    )
+}
+
+fn collect_maps_from_alist_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
     alist: &Value,
     skip_if_in: Option<&Value>,
     maps: &mut Vec<Value>,
@@ -525,8 +600,9 @@ fn collect_maps_from_alist(
         }
 
         // Check if mode variable is bound and non-nil.
-        let mode_active = super::misc_eval::dynamic_or_global_symbol_value(eval, mode_name)
-            .is_some_and(|v| v.is_truthy());
+        let mode_active =
+            super::misc_eval::dynamic_or_global_symbol_value_in_state(obarray, dynamic, mode_name)
+                .is_some_and(|v| v.is_truthy());
         if !mode_active {
             continue;
         }
@@ -535,7 +611,7 @@ fn collect_maps_from_alist(
         let resolved = if is_list_keymap(&keymap_val) {
             keymap_val
         } else if let Some(sym_name) = keymap_val.as_symbol_name() {
-            eval.obarray
+            obarray
                 .symbol_function(sym_name)
                 .cloned()
                 .filter(|v| is_list_keymap(v))
@@ -564,6 +640,65 @@ fn assq_in_alist(alist: &Value, key: &Value) -> bool {
         }
     }
     false
+}
+
+pub(crate) struct KeymapIterationPlan {
+    pub(crate) bindings: Vec<(Value, Value)>,
+    pub(crate) parent: Value,
+}
+
+pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
+    let Some(entries) = list_to_vec(&keymap) else {
+        return KeymapIterationPlan {
+            bindings: Vec::new(),
+            parent: Value::Nil,
+        };
+    };
+
+    let mut bindings = Vec::new();
+    let mut parent = Value::Nil;
+
+    for (i, entry) in entries.iter().enumerate() {
+        if i == 0 && entry.is_symbol_named("keymap") {
+            continue;
+        }
+
+        if is_list_keymap(entry) {
+            parent = *entry;
+            break;
+        }
+
+        match entry {
+            Value::Cons(cell) => {
+                let pair = read_cons(*cell);
+                if !pair.cdr.is_nil() {
+                    bindings.push((pair.car, pair.cdr));
+                }
+            }
+            Value::Vector(obj_id) => {
+                let items = with_heap(|h| h.get_vector(*obj_id).clone());
+                for (idx, binding) in items.iter().enumerate() {
+                    if !binding.is_nil() {
+                        bindings.push((Value::Int(idx as i64), *binding));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    KeymapIterationPlan { bindings, parent }
+}
+
+pub(crate) fn execute_keymap_iteration_callbacks(
+    eval: &mut super::eval::Evaluator,
+    function: Value,
+    bindings: &[(Value, Value)],
+) -> Result<(), Flow> {
+    for (event, binding) in bindings {
+        eval.apply(function, vec![*event, *binding])?;
+    }
+    Ok(())
 }
 
 /// `(map-keymap FUNCTION KEYMAP &optional SORT-FIRST)` -> nil.
@@ -615,52 +750,9 @@ fn map_keymap_internal_impl(
     function: Value,
     keymap: Value,
 ) -> EvalResult {
-    // Keymap is (keymap [char-table] (event . binding) ... [parent-keymap])
-    // Skip the 'keymap symbol at the head.
-    let Some(entries) = list_to_vec(&keymap) else {
-        return Ok(Value::Nil);
-    };
-
-    for (i, entry) in entries.iter().enumerate() {
-        if i == 0 {
-            // Skip the 'keymap symbol.
-            if entry.is_symbol_named("keymap") {
-                continue;
-            }
-        }
-
-        // If entry is itself a keymap (embedded parent), return it.
-        if is_list_keymap(entry) {
-            return Ok(*entry);
-        }
-
-        match entry {
-            Value::Cons(cell) => {
-                let pair = read_cons(*cell);
-                let event = pair.car;
-                let binding = pair.cdr;
-                // Skip if binding is nil.
-                if !binding.is_nil() {
-                    eval.apply(function, vec![event, binding])?;
-                }
-            }
-            // Char-table or vector: iterate each entry.
-            Value::Vector(obj_id) => {
-                let items = with_heap(|h| h.get_vector(*obj_id).clone());
-                for (idx, binding) in items.iter().enumerate() {
-                    if !binding.is_nil() {
-                        let event = Value::Int(idx as i64);
-                        eval.apply(function, vec![event, *binding])?;
-                    }
-                }
-            }
-            _ => {
-                // Skip other entries (e.g., strings used as menu prompts).
-            }
-        }
-    }
-
-    Ok(Value::Nil)
+    let plan = plan_keymap_iteration(keymap);
+    execute_keymap_iteration_callbacks(eval, function, &plan.bindings)?;
+    Ok(plan.parent)
 }
 
 /// (keymap-parent KEYMAP) -> keymap or nil
@@ -668,8 +760,12 @@ pub(super) fn builtin_keymap_parent(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_keymap_parent_in_obarray(eval.obarray(), &args)
+}
+
+pub(crate) fn builtin_keymap_parent_in_obarray(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("keymap-parent", &args, 1)?;
-    let keymap = expect_keymap(eval, &args[0])?;
+    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     Ok(list_keymap_parent(&keymap))
 }
 
@@ -678,12 +774,19 @@ pub(super) fn builtin_set_keymap_parent(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_keymap_parent_in_obarray(eval.obarray(), &args)
+}
+
+pub(crate) fn builtin_set_keymap_parent_in_obarray(
+    obarray: &Obarray,
+    args: &[Value],
+) -> EvalResult {
     expect_args("set-keymap-parent", &args, 2)?;
-    let keymap = expect_keymap(eval, &args[0])?;
+    let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     let parent = if args[1].is_nil() {
         Value::Nil
     } else {
-        expect_keymap(eval, &args[1])?
+        expect_keymap_in_obarray(obarray, &args[1])?
     };
     list_keymap_set_parent(keymap, parent);
     Ok(args[1])

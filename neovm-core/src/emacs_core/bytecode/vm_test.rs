@@ -732,6 +732,70 @@ fn vm_use_global_map_updates_shared_runtime_state() {
 }
 
 #[test]
+fn vm_keymap_structure_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((parent (make-keymap))
+                      (child (copy-keymap parent))
+                      (minor (make-sparse-keymap))
+                      (prefix (make-sparse-keymap)))
+                 (define-key parent [1] 'parent-binding)
+                 (define-key child [2] 'child-binding)
+                 (set-keymap-parent child parent)
+                 (define-key child [24] prefix)
+                 (define-key prefix [97] 'prefixed)
+                 (setq minor-mode-map-alist (list (cons 'vm-minor-mode minor)))
+                 (setq vm-minor-mode t)
+                 (use-local-map child)
+                 (list (keymapp parent)
+                       (not (eq child parent))
+                       (eq (keymap-parent child) parent)
+                       (eq (set-keymap-parent child parent) parent)
+                       (let ((maps (current-active-maps)))
+                         (list (eq (car maps) minor)
+                               (eq (car (cdr maps)) child)
+                               (eq (car (cdr (cdr maps))) (current-global-map))))
+                       (equal (current-minor-mode-maps) (list minor))
+                       (let ((root (make-sparse-keymap))
+                             (desc (make-sparse-keymap)))
+                         (define-key root [24] desc)
+                         (not (null (accessible-keymaps root [24]))))
+                       (lookup-key child [1])
+                       (lookup-key child [2])
+                       (lookup-key child [24 97])))"#
+        ),
+        "OK (t t t t (t t t) t t parent-binding child-binding prefixed)"
+    );
+}
+
+#[test]
+fn vm_map_keymap_builtins_use_shared_state_and_narrow_callback_bridge() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((parent (make-sparse-keymap))
+                      (child (make-sparse-keymap))
+                      (seen nil))
+                 (define-key parent [1] 'parent-binding)
+                 (define-key child [2] 'child-binding)
+                 (set-keymap-parent child parent)
+                 (fset 'vm-record-binding
+                       (lambda (_event binding)
+                         (setq seen (cons binding seen))))
+                 (list
+                  (progn
+                    (setq seen nil)
+                    (map-keymap-internal 'vm-record-binding child)
+                    (reverse seen))
+                  (progn
+                    (setq seen nil)
+                    (map-keymap 'vm-record-binding child)
+                    (reverse seen))))"#
+        ),
+        "OK ((child-binding parent-binding) (child-binding parent-binding))"
+    );
+}
+
+#[test]
 fn vm_set_buffer_and_current_buffer_share_buffer_runtime_state() {
     assert_eq!(
         vm_eval_str(

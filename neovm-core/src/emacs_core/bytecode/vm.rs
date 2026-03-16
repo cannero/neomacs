@@ -1967,6 +1967,75 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_current_active_maps_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::keymaps::builtin_current_active_maps_in_state(
+            &mut *self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            *self.shared.current_local_map,
+            args,
+        )
+    }
+
+    fn builtin_current_minor_mode_maps_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::keymaps::builtin_current_minor_mode_maps_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            args,
+        )
+    }
+
+    fn builtin_map_keymap_shared(&mut self, args: &[Value], include_parents: bool) -> EvalResult {
+        let (function, mut keymap) = if include_parents {
+            builtins::expect_min_args("map-keymap", args, 2)?;
+            builtins::expect_max_args("map-keymap", args, 3)?;
+            (
+                args[0],
+                crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
+                    &*self.shared.obarray,
+                    &args[1],
+                )?,
+            )
+        } else {
+            builtins::expect_args("map-keymap-internal", args, 2)?;
+            (
+                args[0],
+                crate::emacs_core::builtins::keymaps::expect_keymap_in_obarray(
+                    &*self.shared.obarray,
+                    &args[1],
+                )?,
+            )
+        };
+
+        loop {
+            let plan = crate::emacs_core::builtins::keymaps::plan_keymap_iteration(keymap);
+            let parent = plan.parent;
+            let bindings = plan.bindings;
+            if !bindings.is_empty() {
+                let mut extra_roots = Vec::with_capacity(2 + bindings.len() * 2);
+                extra_roots.push(function);
+                extra_roots.push(keymap);
+                extra_roots.push(parent);
+                for (event, binding) in &bindings {
+                    extra_roots.push(*event);
+                    extra_roots.push(*binding);
+                }
+                self.with_mirrored_evaluator(&extra_roots, move |eval| {
+                    crate::emacs_core::builtins::keymaps::execute_keymap_iteration_callbacks(
+                        eval, function, &bindings,
+                    )
+                })?;
+            }
+
+            if !include_parents {
+                return Ok(parent);
+            }
+            if parent.is_nil() || !crate::emacs_core::keymap::is_list_keymap(&parent) {
+                return Ok(Value::Nil);
+            }
+            keymap = parent;
+        }
+    }
+
     fn builtin_set_buffer_multibyte_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_set_buffer_multibyte_in_manager(
             &mut *self.shared.buffers,
@@ -3030,6 +3099,9 @@ impl<'a> Vm<'a> {
                 builtins::expect_max_args("make-sparse-keymap", args, 1)
                     .map(|_| crate::emacs_core::keymap::make_sparse_list_keymap()),
             ),
+            "make-keymap" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_make_keymap_pure(args),
+            ),
             "modify-category-entry" => Some(
                 crate::emacs_core::category::modify_category_entry_in_manager(
                     self.shared.category_manager,
@@ -3440,6 +3512,8 @@ impl<'a> Vm<'a> {
                 builtins::expect_args("current-global-map", args, 0)
                     .map(|_| self.ensure_global_keymap()),
             ),
+            "current-active-maps" => Some(self.builtin_current_active_maps_shared(args)),
+            "current-minor-mode-maps" => Some(self.builtin_current_minor_mode_maps_shared(args)),
             "use-global-map" => Some(
                 crate::emacs_core::builtins::keymaps::builtin_use_global_map_in_obarray(
                     self.shared.obarray,
@@ -3465,6 +3539,32 @@ impl<'a> Vm<'a> {
                     args,
                 ),
             ),
+            "accessible-keymaps" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_accessible_keymaps_in_obarray(
+                    &*self.shared.obarray,
+                    args,
+                ),
+            ),
+            "copy-keymap" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_copy_keymap_in_obarray(
+                    &*self.shared.obarray,
+                    args,
+                ),
+            ),
+            "keymap-parent" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_keymap_parent_in_obarray(
+                    &*self.shared.obarray,
+                    args,
+                ),
+            ),
+            "set-keymap-parent" => Some(
+                crate::emacs_core::builtins::keymaps::builtin_set_keymap_parent_in_obarray(
+                    &*self.shared.obarray,
+                    args,
+                ),
+            ),
+            "map-keymap" => Some(self.builtin_map_keymap_shared(args, true)),
+            "map-keymap-internal" => Some(self.builtin_map_keymap_shared(args, false)),
             "autoload" => Some(crate::emacs_core::autoload::register_autoload_in_state(
                 self.shared.obarray,
                 self.shared.autoloads,
