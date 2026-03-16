@@ -43,21 +43,28 @@ pub(crate) fn builtin_next_char_property_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_next_char_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_next_char_property_change_in_buffers(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("next-char-property-change", &args, 1)?;
     expect_max_args("next-char-property-change", &args, 2)?;
     let result = match args.len() {
-        1 => super::textprop::builtin_next_property_change(eval, args)?,
-        2 => {
-            super::textprop::builtin_next_property_change(eval, vec![args[0], Value::Nil, args[1]])?
-        }
+        1 => super::textprop::builtin_next_property_change_in_buffers(buffers, args)?,
+        2 => super::textprop::builtin_next_property_change_in_buffers(
+            buffers,
+            vec![args[0], Value::Nil, args[1]],
+        )?,
         _ => unreachable!(),
     };
     if !result.is_nil() {
         return Ok(result);
     }
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     Ok(Value::Int(buf.point_max_char() as i64 + 1))
@@ -77,10 +84,17 @@ pub(crate) fn builtin_previous_property_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_previous_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_previous_property_change_in_buffers(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("previous-property-change", &args, 1)?;
     expect_max_args("previous-property-change", &args, 3)?;
 
-    let pos = expect_integer_or_marker(&args[0])?;
+    let pos = super::buffers::expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
     // --- String OBJECT ---
     if let Some(Value::Str(str_id)) = args.get(1) {
@@ -136,8 +150,7 @@ pub(crate) fn builtin_previous_property_change(
 
     // --- Buffer OBJECT ---
     let buf_id = match args.get(1) {
-        None | Some(Value::Nil) => eval
-            .buffers
+        None | Some(Value::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
@@ -148,8 +161,7 @@ pub(crate) fn builtin_previous_property_change(
         )),
     }?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -157,7 +169,7 @@ pub(crate) fn builtin_previous_property_change(
 
     let (byte_limit, limit_val) = match args.get(2) {
         Some(v) if !v.is_nil() => {
-            let limit = expect_integer_or_marker(v)?;
+            let limit = super::buffers::expect_integer_or_marker_in_buffers(buffers, v)?;
             let limit_byte = buf.lisp_pos_to_byte(limit);
             (Some(limit_byte), Some(limit))
         }
@@ -202,6 +214,13 @@ pub(crate) fn builtin_previous_char_property_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_previous_char_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_previous_char_property_change_in_buffers(
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("previous-char-property-change", &args, 1)?;
     expect_max_args("previous-char-property-change", &args, 2)?;
 
@@ -209,13 +228,12 @@ pub(crate) fn builtin_previous_char_property_change(
     if let Some(limit) = args.get(1) {
         forwarded.push(*limit);
     }
-    let result = builtin_previous_property_change(eval, forwarded)?;
+    let result = builtin_previous_property_change_in_buffers(buffers, forwarded)?;
     if !result.is_nil() {
         return Ok(result);
     }
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     Ok(Value::Int(buf.point_min_char() as i64 + 1))
@@ -223,6 +241,13 @@ pub(crate) fn builtin_previous_char_property_change(
 
 pub(crate) fn builtin_next_single_char_property_change(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_next_single_char_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_next_single_char_property_change_in_buffers(
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("next-single-char-property-change", &args, 2)?;
@@ -239,22 +264,21 @@ pub(crate) fn builtin_next_single_char_property_change(
         ));
     }
 
-    let result = super::textprop::builtin_next_single_property_change(eval, args.clone())?;
+    let result =
+        super::textprop::builtin_next_single_property_change_in_buffers(buffers, args.clone())?;
     if !result.is_nil() {
         return Ok(result);
     }
 
     let upper = match args.get(2) {
         Some(Value::Buffer(id)) => {
-            let buf = eval
-                .buffers
+            let buf = buffers
                 .get(*id)
                 .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
             buf.point_max_char() as i64 + 1
         }
         _ => {
-            let buf = eval
-                .buffers
+            let buf = buffers
                 .current_buffer()
                 .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
             buf.point_max_char() as i64 + 1
@@ -265,6 +289,13 @@ pub(crate) fn builtin_next_single_char_property_change(
 
 pub(crate) fn builtin_previous_single_char_property_change(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_previous_single_char_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("previous-single-char-property-change", &args, 2)?;
@@ -279,22 +310,21 @@ pub(crate) fn builtin_previous_single_char_property_change(
         return Ok(Value::Int(0));
     }
 
-    let result = super::textprop::builtin_previous_single_property_change(eval, args.clone())?;
+    let result =
+        super::textprop::builtin_previous_single_property_change_in_buffers(buffers, args.clone())?;
     if !result.is_nil() {
         return Ok(result);
     }
 
     let lower = match args.get(2) {
         Some(Value::Buffer(id)) => {
-            let buf = eval
-                .buffers
+            let buf = buffers
                 .get(*id)
                 .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
             buf.point_min_char() as i64 + 1
         }
         _ => {
-            let buf = eval
-                .buffers
+            let buf = buffers
                 .current_buffer()
                 .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
             buf.point_min_char() as i64 + 1

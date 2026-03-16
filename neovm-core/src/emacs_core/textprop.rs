@@ -704,9 +704,16 @@ pub(crate) fn builtin_next_single_property_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_next_single_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_next_single_property_change_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("next-single-property-change", &args, 2)?;
     expect_max_args("next-single-property-change", &args, 4)?;
-    let pos = expect_int_eval(eval, &args[0])?;
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
@@ -757,10 +764,9 @@ pub(crate) fn builtin_next_single_property_change(
         });
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(2))?;
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -817,9 +823,16 @@ pub(crate) fn builtin_previous_single_property_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_previous_single_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_previous_single_property_change_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("previous-single-property-change", &args, 2)?;
     expect_max_args("previous-single-property-change", &args, 4)?;
-    let pos = expect_int_eval(eval, &args[0])?;
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
     let prop = expect_symbol_name(&args[1])?;
 
     if let Some(str_id) = is_string_object(args.get(2)) {
@@ -871,10 +884,9 @@ pub(crate) fn builtin_previous_single_property_change(
         });
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(2))?;
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -932,9 +944,16 @@ pub(crate) fn builtin_next_property_change(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_next_property_change_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_next_property_change_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("next-property-change", &args, 1)?;
     expect_max_args("next-property-change", &args, 3)?;
-    let pos = expect_int_eval(eval, &args[0])?;
+    let pos = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
 
     if let Some(str_id) = is_string_object(args.get(1)) {
         let s = with_heap(|h| h.get_string(str_id).to_owned());
@@ -976,11 +995,10 @@ pub(crate) fn builtin_next_property_change(
         };
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(1))?;
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(1))?;
     let limit_arg = args.get(2);
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1026,10 +1044,17 @@ pub(crate) fn builtin_text_property_any(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_text_property_any_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_text_property_any_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("text-property-any", &args, 4)?;
     expect_max_args("text-property-any", &args, 5)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let prop = expect_symbol_name(&args[2])?;
     let val = &args[3];
 
@@ -1053,9 +1078,8 @@ pub(crate) fn builtin_text_property_any(
         return Ok(Value::Nil);
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(4))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
@@ -1084,10 +1108,17 @@ pub(crate) fn builtin_text_property_not_all(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_text_property_not_all_in_buffers(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_text_property_not_all_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("text-property-not-all", &args, 4)?;
     expect_max_args("text-property-not-all", &args, 5)?;
-    let beg = expect_int_eval(eval, &args[0])?;
-    let end = expect_int_eval(eval, &args[1])?;
+    let beg = expect_integer_or_marker_in_buffers(buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let prop = expect_symbol_name(&args[2])?;
     let val = &args[3];
 
@@ -1113,9 +1144,8 @@ pub(crate) fn builtin_text_property_not_all(
         return Ok(Value::Nil);
     }
 
-    let buf_id = resolve_buffer_id(eval, args.get(4))?;
-    let buf = eval
-        .buffers
+    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
+    let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 

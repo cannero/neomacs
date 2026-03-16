@@ -3175,6 +3175,66 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "next-single-property-change" => Some(
+                crate::emacs_core::textprop::builtin_next_single_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "previous-single-property-change" => Some(
+                crate::emacs_core::textprop::builtin_previous_single_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "next-property-change" => Some(
+                crate::emacs_core::textprop::builtin_next_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "previous-property-change" => Some(
+                crate::emacs_core::builtins::builtin_previous_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "next-char-property-change" => Some(
+                crate::emacs_core::builtins::builtin_next_char_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "previous-char-property-change" => Some(
+                crate::emacs_core::builtins::builtin_previous_char_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "next-single-char-property-change" => Some(
+                crate::emacs_core::builtins::builtin_next_single_char_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "previous-single-char-property-change" => Some(
+                crate::emacs_core::builtins::builtin_previous_single_char_property_change_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "text-property-any" => Some(
+                crate::emacs_core::textprop::builtin_text_property_any_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "text-property-not-all" => Some(
+                crate::emacs_core::textprop::builtin_text_property_not_all_in_buffers(
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "marker-position" => Some(
                 crate::emacs_core::marker::builtin_marker_position_in_buffers(
                     &*self.shared.buffers,

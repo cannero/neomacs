@@ -2169,6 +2169,34 @@ fn vm_text_property_builtins_use_shared_buffer_state() {
 }
 
 #[test]
+fn vm_text_property_change_queries_use_shared_live_marker_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "abcde")
+                 (put-text-property 2 5 'p t)
+                 (let ((lim (copy-marker 5))
+                       (end (copy-marker 5 t)))
+                   (goto-char 1)
+                   (insert "Z")
+                   (list
+                    (next-property-change 1)
+                    (next-single-property-change 1 'p)
+                    (next-char-property-change 1)
+                    (next-single-char-property-change 1 'p)
+                    (previous-property-change lim)
+                    (previous-single-property-change lim 'p)
+                    (previous-char-property-change lim)
+                    (previous-single-char-property-change lim 'p)
+                    (text-property-any 1 end 'p t)
+                    (text-property-not-all 3 end 'p t))))"#
+        ),
+        "OK (3 3 3 3 3 3 3 3 3 nil)"
+    );
+}
+
+#[test]
 fn vm_marker_builtins_use_shared_live_buffer_state() {
     assert_eq!(
         vm_eval_str(
