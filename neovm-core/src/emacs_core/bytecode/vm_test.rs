@@ -2138,6 +2138,24 @@ fn vm_printer_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_write_char_and_terpri_callable_targets_use_shared_eval_body() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq vm-print-calls nil)
+                 (fset 'vm-print-target
+                       (lambda (ch)
+                         (setq vm-print-calls (cons ch vm-print-calls))))
+                 (list
+                  (write-char 65 'vm-print-target)
+                  (terpri 'vm-print-target)
+                  vm-print-calls))"#
+        ),
+        "OK (65 t (10 65))"
+    );
+}
+
+#[test]
 fn vm_case_table_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_str(

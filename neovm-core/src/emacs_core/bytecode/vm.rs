@@ -6573,7 +6573,11 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_char)
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::reader::finish_read_char_in_eval(eval, &call_args)
+        })
     }
 
     fn builtin_read_from_string_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -6597,7 +6601,11 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        self.call_eval_builtin_shared(args, crate::emacs_core::lread::builtin_read_event)
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::lread::finish_read_event_in_eval(eval, &call_args)
+        })
     }
 
     fn builtin_read_char_exclusive_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -6607,7 +6615,11 @@ impl<'a> Vm<'a> {
         )? {
             return Ok(value);
         }
-        self.call_eval_builtin_shared(args, crate::emacs_core::lread::builtin_read_char_exclusive)
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::lread::finish_read_char_exclusive_in_eval(eval, &call_args)
+        })
     }
 
     fn builtin_read_key_sequence_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -6616,7 +6628,10 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_key_sequence)
+        let extra_roots = args.to_vec();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::reader::finish_read_key_sequence_in_eval(eval)
+        })
     }
 
     fn builtin_read_key_sequence_vector_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -6923,7 +6938,11 @@ impl<'a> Vm<'a> {
         )? {
             return Ok(result);
         }
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_terpri_eval)
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::builtins::finish_terpri_in_eval(eval, &call_args)
+        })
     }
 
     fn builtin_write_char_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -6936,7 +6955,11 @@ impl<'a> Vm<'a> {
         )? {
             return Ok(result);
         }
-        self.call_eval_builtin_shared(args, crate::emacs_core::builtins::builtin_write_char_eval)
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::builtins::finish_write_char_in_eval(eval, &call_args)
+        })
     }
 
     fn builtin_redraw_frame_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -6999,7 +7022,11 @@ impl<'a> Vm<'a> {
 
     fn builtin_yes_or_no_p_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::reader::builtin_yes_or_no_p_in_runtime(&self.shared, args)?;
-        self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_yes_or_no_p)
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::reader::finish_yes_or_no_p_in_eval(eval, &call_args)
+        })
     }
 
     /// Dispatch builtins that still require evaluator entry on the shared

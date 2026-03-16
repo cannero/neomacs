@@ -1298,10 +1298,7 @@ pub(crate) fn builtin_terpri_eval(
     )? {
         return Ok(result);
     }
-    expect_max_args("terpri", &args, 2)?;
-    let target = resolve_print_target(eval, args.first());
-    write_terpri_output(eval, target)?;
-    Ok(Value::True)
+    finish_terpri_in_eval(eval, &args)
 }
 
 pub(crate) fn builtin_terpri_in_state(
@@ -1320,6 +1317,16 @@ pub(crate) fn builtin_terpri_in_state(
         return Ok(Some(Value::True));
     }
     Ok(None)
+}
+
+pub(crate) fn finish_terpri_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
+    expect_max_args("terpri", args, 2)?;
+    let target = resolve_print_target(eval, args.first());
+    write_terpri_output(eval, target)?;
+    Ok(Value::True)
 }
 
 pub(super) fn write_char_rendered_text(char_code: i64) -> Option<String> {
@@ -1350,7 +1357,14 @@ pub(crate) fn builtin_write_char_eval(
     )? {
         return Ok(result);
     }
-    expect_range_args("write-char", &args, 1, 2)?;
+    finish_write_char_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_write_char_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
+    expect_range_args("write-char", args, 1, 2)?;
     let char_code = expect_fixnum(&args[0])?;
     let target = resolve_print_target(eval, args.get(1));
 
@@ -1386,7 +1400,6 @@ pub(crate) fn builtin_write_char_eval(
             }
         }
         other => {
-            // Root the callable target across eval.apply().
             let saved_roots = eval.save_temp_roots();
             eval.push_temp_root(other);
             let result = eval.apply(other, vec![Value::Int(char_code)]);

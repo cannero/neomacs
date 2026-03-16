@@ -1510,6 +1510,13 @@ pub(crate) fn builtin_yes_or_no_p(
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_yes_or_no_p_in_runtime(eval, &args)?;
+    finish_yes_or_no_p_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_yes_or_no_p_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     let prompt_str = if let Value::Str(id) = &args[0] {
         super::value::with_heap(|h| h.get_string(*id).to_owned())
     } else {
@@ -1562,7 +1569,13 @@ pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Val
         return Ok(value);
     }
 
-    // Interactive mode: block on input channel
+    finish_read_char_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_char_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     if eval.has_input_receiver() {
         let event = eval.read_char()?;
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
@@ -1578,7 +1591,6 @@ pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Val
         return Err(non_character_input_event_error());
     }
 
-    // Batch mode: no input available
     Ok(Value::Nil)
 }
 
@@ -1639,7 +1651,10 @@ pub(crate) fn builtin_read_key_sequence(
         return Ok(value);
     }
 
-    // Interactive mode: use the full key sequence reader
+    finish_read_key_sequence_in_eval(eval)
+}
+
+pub(crate) fn finish_read_key_sequence_in_eval(eval: &mut super::eval::Evaluator) -> EvalResult {
     if eval.has_input_receiver() {
         let (keys, _binding) = eval.read_key_sequence()?;
         let mut chars_only = true;
@@ -1658,7 +1673,6 @@ pub(crate) fn builtin_read_key_sequence(
         return Ok(Value::vector(keys));
     }
 
-    // Batch mode: no input
     eval.clear_read_command_keys();
     Ok(Value::string(""))
 }

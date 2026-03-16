@@ -219,7 +219,13 @@ pub(crate) fn builtin_read_event(
         return Ok(value);
     }
 
-    // Interactive mode: block on input channel
+    finish_read_event_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_event_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     if eval.has_input_receiver() {
         let event = eval.read_char()?;
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
@@ -232,7 +238,6 @@ pub(crate) fn builtin_read_event(
         return Ok(event);
     }
 
-    // Batch mode: no input available
     Ok(Value::Nil)
 }
 
@@ -249,7 +254,13 @@ pub(crate) fn builtin_read_char_exclusive(
         return Ok(value);
     }
 
-    // Interactive mode: block on input channel, skip non-character events
+    finish_read_char_exclusive_in_eval(eval, &args)
+}
+
+pub(crate) fn finish_read_char_exclusive_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
     if eval.has_input_receiver() {
         loop {
             let event = eval.read_char()?;
@@ -264,7 +275,6 @@ pub(crate) fn builtin_read_char_exclusive(
         }
     }
 
-    // 3. Batch mode: no character found
     Ok(Value::Nil)
 }
 
