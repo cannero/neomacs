@@ -215,29 +215,14 @@ pub(crate) fn builtin_read_event(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("read-event"), Value::Int(args.len() as i64)],
-        ));
-    }
-    expect_optional_prompt_string(&args)?;
-    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
-
-    // 1. Check unread-command-events first (both batch and interactive)
-    if let Some(event) = eval.pop_unread_command_event() {
-        if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
-            eval.set_read_command_keys(vec![event]);
-        }
-        if let Some(n) = event_to_int(&event) {
-            return Ok(Value::Int(n));
-        }
-        return Ok(event);
+    if let Some(value) = builtin_read_event_in_runtime(eval, &args)? {
+        return Ok(value);
     }
 
-    // 2. Interactive mode: block on input channel
-    if eval.input_rx.is_some() {
+    // Interactive mode: block on input channel
+    if eval.has_input_receiver() {
         let event = eval.read_char()?;
+        let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
             eval.set_read_command_keys(vec![event]);
         }
@@ -247,7 +232,7 @@ pub(crate) fn builtin_read_event(
         return Ok(event);
     }
 
-    // 3. Batch mode: no input available
+    // Batch mode: no input available
     Ok(Value::Nil)
 }
 
@@ -260,33 +245,15 @@ pub(crate) fn builtin_read_char_exclusive(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("read-char-exclusive"),
-                Value::Int(args.len() as i64),
-            ],
-        ));
-    }
-    expect_optional_prompt_string(&args)?;
-    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
-
-    // 1. Check unread-command-events first (both batch and interactive)
-    while let Some(event) = eval.pop_unread_command_event() {
-        if let Some(n) = event_to_int(&event) {
-            if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
-                eval.set_read_command_keys(vec![event]);
-            }
-            return Ok(Value::Int(n));
-        }
-        // Skip non-character events.
+    if let Some(value) = builtin_read_char_exclusive_in_runtime(eval, &args)? {
+        return Ok(value);
     }
 
-    // 2. Interactive mode: block on input channel, skip non-character events
-    if eval.input_rx.is_some() {
+    // Interactive mode: block on input channel, skip non-character events
+    if eval.has_input_receiver() {
         loop {
             let event = eval.read_char()?;
+            let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
             if let Some(n) = event_to_int(&event) {
                 if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                     eval.set_read_command_keys(vec![event]);
@@ -299,6 +266,68 @@ pub(crate) fn builtin_read_char_exclusive(
 
     // 3. Batch mode: no character found
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_read_event_in_runtime(
+    runtime: &mut impl super::reader::KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<Option<Value>, Flow> {
+    if args.len() > 3 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("read-event"), Value::Int(args.len() as i64)],
+        ));
+    }
+    expect_optional_prompt_string(args)?;
+    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+
+    if let Some(event) = runtime.pop_unread_command_event() {
+        if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+            runtime.set_read_command_keys(vec![event]);
+        }
+        if let Some(n) = event_to_int(&event) {
+            return Ok(Some(Value::Int(n)));
+        }
+        return Ok(Some(event));
+    }
+
+    if runtime.has_input_receiver() {
+        Ok(None)
+    } else {
+        Ok(Some(Value::Nil))
+    }
+}
+
+pub(crate) fn builtin_read_char_exclusive_in_runtime(
+    runtime: &mut impl super::reader::KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<Option<Value>, Flow> {
+    if args.len() > 3 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![
+                Value::symbol("read-char-exclusive"),
+                Value::Int(args.len() as i64),
+            ],
+        ));
+    }
+    expect_optional_prompt_string(args)?;
+    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+
+    while let Some(event) = runtime.pop_unread_command_event() {
+        if let Some(n) = event_to_int(&event) {
+            if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+                runtime.set_read_command_keys(vec![event]);
+            }
+            return Ok(Some(Value::Int(n)));
+        }
+    }
+
+    if runtime.has_input_receiver() {
+        Ok(None)
+    } else {
+        Ok(Some(Value::Nil))
+    }
 }
 
 // ---------------------------------------------------------------------------

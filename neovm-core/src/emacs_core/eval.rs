@@ -508,6 +508,110 @@ impl<'a> VmSharedState<'a> {
         // field is accessed while the parent evaluator callback is active.
         unsafe { f(self.parent_eval.as_mut()) }
     }
+
+    pub(crate) fn has_input_receiver(&self) -> bool {
+        self.input_rx.is_some()
+    }
+
+    pub(crate) fn record_input_event(&mut self, event: Value) {
+        set_runtime_binding_in_state(
+            self.obarray,
+            self.dynamic.as_mut_slice(),
+            self.buffers,
+            &*self.custom,
+            intern("last-input-event"),
+            event,
+        );
+        self.recent_input_events.push(event);
+        if self.recent_input_events.len() > RECENT_INPUT_EVENT_LIMIT {
+            self.recent_input_events.remove(0);
+        }
+    }
+
+    pub(crate) fn record_nonmenu_input_event(&mut self, event: Value) {
+        set_runtime_binding_in_state(
+            self.obarray,
+            self.dynamic.as_mut_slice(),
+            self.buffers,
+            &*self.custom,
+            intern("last-nonmenu-event"),
+            event,
+        );
+    }
+
+    pub(crate) fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        *self.read_command_keys = keys;
+    }
+
+    pub(crate) fn clear_read_command_keys(&mut self) {
+        self.read_command_keys.clear();
+    }
+
+    pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {
+        let name_id = intern("unread-command-events");
+        let current = lookup_runtime_binding(self.dynamic.as_slice(), name_id)
+            .and_then(RuntimeBindingValue::as_value)
+            .or_else(|| self.obarray.symbol_value("unread-command-events").copied())
+            .unwrap_or(Value::Nil);
+        match current {
+            Value::Cons(cell) => {
+                let pair = read_cons(cell);
+                let head = pair.car;
+                let tail = pair.cdr;
+                drop(pair);
+                set_runtime_binding_in_state(
+                    self.obarray,
+                    self.dynamic.as_mut_slice(),
+                    self.buffers,
+                    &*self.custom,
+                    name_id,
+                    tail,
+                );
+                self.record_input_event(head);
+                Some(head)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn peek_unread_command_event(&self) -> Option<Value> {
+        let name_id = intern("unread-command-events");
+        let current = lookup_runtime_binding(self.dynamic.as_slice(), name_id)
+            .and_then(RuntimeBindingValue::as_value)
+            .or_else(|| self.obarray.symbol_value("unread-command-events").copied())
+            .unwrap_or(Value::Nil);
+        match current {
+            Value::Cons(cell) => Some(read_cons(cell).car),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn push_unread_command_event(&mut self, event: Value) {
+        let name_id = intern("unread-command-events");
+        let current = lookup_runtime_binding(self.dynamic.as_slice(), name_id)
+            .and_then(RuntimeBindingValue::as_value)
+            .or_else(|| self.obarray.symbol_value("unread-command-events").copied())
+            .unwrap_or(Value::Nil);
+        set_runtime_binding_in_state(
+            self.obarray,
+            self.dynamic.as_mut_slice(),
+            self.buffers,
+            &*self.custom,
+            name_id,
+            Value::cons(event, current),
+        );
+    }
+
+    pub(crate) fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
+        set_runtime_binding_in_state(
+            self.obarray,
+            self.dynamic.as_mut_slice(),
+            self.buffers,
+            &*self.custom,
+            intern("unread-command-events"),
+            Value::list(vec![event]),
+        );
+    }
 }
 
 fn value_from_symbol_id(sym_id: SymId) -> Value {
@@ -3346,6 +3450,10 @@ impl Evaluator {
         self.waiting_for_user_input = waiting;
     }
 
+    pub(crate) fn has_input_receiver(&self) -> bool {
+        self.input_rx.is_some()
+    }
+
     pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {
         let current = match self.eval_symbol("unread-command-events") {
             Ok(value) => value,
@@ -3388,6 +3496,10 @@ impl Evaluator {
         };
         let new_list = Value::cons(event, current);
         self.assign("unread-command-events", new_list);
+    }
+
+    pub(crate) fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
+        self.assign("unread-command-events", Value::list(vec![event]));
     }
 
     /// Enable or disable lexical binding.

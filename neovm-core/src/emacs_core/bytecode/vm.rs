@@ -3697,6 +3697,8 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "read-event" => Some(self.builtin_read_event_shared(args)),
+            "read-char-exclusive" => Some(self.builtin_read_char_exclusive_shared(args)),
             "read-char" => Some(self.builtin_read_char_shared(args)),
             "read-key-sequence" => Some(self.builtin_read_key_sequence_shared(args)),
             "read-key-sequence-vector" => {
@@ -6439,14 +6441,49 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_char_shared(&mut self, args: &[Value]) -> EvalResult {
+        if let Some(value) =
+            crate::emacs_core::reader::builtin_read_char_in_runtime(&mut self.shared, args)?
+        {
+            return Ok(value);
+        }
         self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_char)
     }
 
+    fn builtin_read_event_shared(&mut self, args: &[Value]) -> EvalResult {
+        if let Some(value) =
+            crate::emacs_core::lread::builtin_read_event_in_runtime(&mut self.shared, args)?
+        {
+            return Ok(value);
+        }
+        self.call_eval_builtin_shared(args, crate::emacs_core::lread::builtin_read_event)
+    }
+
+    fn builtin_read_char_exclusive_shared(&mut self, args: &[Value]) -> EvalResult {
+        if let Some(value) = crate::emacs_core::lread::builtin_read_char_exclusive_in_runtime(
+            &mut self.shared,
+            args,
+        )? {
+            return Ok(value);
+        }
+        self.call_eval_builtin_shared(args, crate::emacs_core::lread::builtin_read_char_exclusive)
+    }
+
     fn builtin_read_key_sequence_shared(&mut self, args: &[Value]) -> EvalResult {
+        if let Some(value) =
+            crate::emacs_core::reader::builtin_read_key_sequence_in_runtime(&mut self.shared, args)?
+        {
+            return Ok(value);
+        }
         self.call_eval_builtin_shared(args, crate::emacs_core::reader::builtin_read_key_sequence)
     }
 
     fn builtin_read_key_sequence_vector_shared(&mut self, args: &[Value]) -> EvalResult {
+        if let Some(value) = crate::emacs_core::reader::builtin_read_key_sequence_vector_in_runtime(
+            &mut self.shared,
+            args,
+        )? {
+            return Ok(value);
+        }
         self.call_eval_builtin_shared(
             args,
             crate::emacs_core::reader::builtin_read_key_sequence_vector,

@@ -938,6 +938,94 @@ fn non_character_input_event_error() -> Flow {
     signal("error", vec![Value::string("Non-character input-event")])
 }
 
+pub(crate) trait KeyboardInputRuntime {
+    fn pop_unread_command_event(&mut self) -> Option<Value>;
+    fn peek_unread_command_event(&self) -> Option<Value>;
+    fn replace_unread_command_event_with_singleton(&mut self, event: Value);
+    fn record_input_event(&mut self, event: Value);
+    fn record_nonmenu_input_event(&mut self, event: Value);
+    fn set_read_command_keys(&mut self, keys: Vec<Value>);
+    fn clear_read_command_keys(&mut self);
+    fn read_command_keys(&self) -> &[Value];
+    fn has_input_receiver(&self) -> bool;
+}
+
+impl KeyboardInputRuntime for super::eval::Evaluator {
+    fn pop_unread_command_event(&mut self) -> Option<Value> {
+        super::eval::Evaluator::pop_unread_command_event(self)
+    }
+
+    fn peek_unread_command_event(&self) -> Option<Value> {
+        super::eval::Evaluator::peek_unread_command_event(self)
+    }
+
+    fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
+        super::eval::Evaluator::replace_unread_command_event_with_singleton(self, event);
+    }
+
+    fn record_input_event(&mut self, event: Value) {
+        super::eval::Evaluator::record_input_event(self, event);
+    }
+
+    fn record_nonmenu_input_event(&mut self, event: Value) {
+        super::eval::Evaluator::record_nonmenu_input_event(self, event);
+    }
+
+    fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        super::eval::Evaluator::set_read_command_keys(self, keys);
+    }
+
+    fn clear_read_command_keys(&mut self) {
+        super::eval::Evaluator::clear_read_command_keys(self);
+    }
+
+    fn read_command_keys(&self) -> &[Value] {
+        super::eval::Evaluator::read_command_keys(self)
+    }
+
+    fn has_input_receiver(&self) -> bool {
+        super::eval::Evaluator::has_input_receiver(self)
+    }
+}
+
+impl KeyboardInputRuntime for super::eval::VmSharedState<'_> {
+    fn pop_unread_command_event(&mut self) -> Option<Value> {
+        super::eval::VmSharedState::pop_unread_command_event(self)
+    }
+
+    fn peek_unread_command_event(&self) -> Option<Value> {
+        super::eval::VmSharedState::peek_unread_command_event(self)
+    }
+
+    fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
+        super::eval::VmSharedState::replace_unread_command_event_with_singleton(self, event);
+    }
+
+    fn record_input_event(&mut self, event: Value) {
+        super::eval::VmSharedState::record_input_event(self, event);
+    }
+
+    fn record_nonmenu_input_event(&mut self, event: Value) {
+        super::eval::VmSharedState::record_nonmenu_input_event(self, event);
+    }
+
+    fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        super::eval::VmSharedState::set_read_command_keys(self, keys);
+    }
+
+    fn clear_read_command_keys(&mut self) {
+        super::eval::VmSharedState::clear_read_command_keys(self);
+    }
+
+    fn read_command_keys(&self) -> &[Value] {
+        super::eval::VmSharedState::read_command_keys(self)
+    }
+
+    fn has_input_receiver(&self) -> bool {
+        super::eval::VmSharedState::has_input_receiver(self)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 10. input-pending-p
 // ---------------------------------------------------------------------------
@@ -1090,6 +1178,87 @@ fn peek_unread_command_event_in_state(
         Some(Value::Cons(cell)) => Some(read_cons(cell).car),
         _ => None,
     }
+}
+
+pub(crate) fn builtin_read_char_in_runtime(
+    runtime: &mut impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<Option<Value>, Flow> {
+    if args.len() > 3 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("read-char"), Value::Int(args.len() as i64)],
+        ));
+    }
+    expect_optional_prompt_string(args)?;
+    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
+
+    if let Some(event) = runtime.peek_unread_command_event() {
+        if let Some(n) = event_to_int(&event) {
+            let event = runtime
+                .pop_unread_command_event()
+                .expect("peeked unread event should still be present");
+            if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+                runtime.set_read_command_keys(vec![event]);
+            }
+            return Ok(Some(Value::Int(n)));
+        }
+        runtime.replace_unread_command_event_with_singleton(event);
+        runtime.record_input_event(event);
+        return Err(non_character_input_event_error());
+    }
+
+    if runtime.has_input_receiver() {
+        Ok(None)
+    } else {
+        Ok(Some(Value::Nil))
+    }
+}
+
+pub(crate) fn builtin_read_key_sequence_in_runtime(
+    runtime: &mut impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<Option<Value>, Flow> {
+    expect_min_args("read-key-sequence", args, 1)?;
+    expect_max_args("read-key-sequence", args, 6)?;
+    expect_optional_prompt_string(args)?;
+
+    if let Some(event) = runtime.pop_unread_command_event() {
+        runtime.record_nonmenu_input_event(event);
+        runtime.set_read_command_keys(vec![event]);
+        if let Some(c) = event_to_char(&event) {
+            return Ok(Some(Value::string(c.to_string())));
+        }
+        return Ok(Some(Value::vector(vec![event])));
+    }
+
+    if runtime.has_input_receiver() {
+        Ok(None)
+    } else {
+        runtime.clear_read_command_keys();
+        Ok(Some(Value::string("")))
+    }
+}
+
+pub(crate) fn builtin_read_key_sequence_vector_in_runtime(
+    runtime: &mut impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<Option<Value>, Flow> {
+    expect_min_args("read-key-sequence-vector", args, 1)?;
+    expect_max_args("read-key-sequence-vector", args, 6)?;
+    expect_optional_prompt_string(args)?;
+
+    if let Some(event) = runtime.pop_unread_command_event() {
+        runtime.record_nonmenu_input_event(event);
+        runtime.set_read_command_keys(vec![event]);
+        if let Some(n) = event_to_int(&event) {
+            return Ok(Some(Value::vector(vec![Value::Int(n)])));
+        }
+        return Ok(Some(Value::vector(vec![event])));
+    }
+
+    runtime.clear_read_command_keys();
+    Ok(Some(Value::vector(vec![])))
 }
 
 /// `(set-input-meta-mode META)`
@@ -1252,32 +1421,14 @@ pub(crate) fn builtin_yes_or_no_p(
 /// In batch mode, checks `unread-command-events` and returns nil if empty.
 /// In interactive mode, blocks on the input channel via `read_char()`.
 pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    if args.len() > 3 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol("read-char"), Value::Int(args.len() as i64)],
-        ));
-    }
-    expect_optional_prompt_string(&args)?;
-    let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
-
-    // 1. Check unread-command-events first (both batch and interactive)
-    if let Some(event) = eval.peek_unread_command_event() {
-        if let Some(n) = event_to_int(&event) {
-            let _ = eval.pop_unread_command_event();
-            if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
-                eval.set_read_command_keys(vec![event]);
-            }
-            return Ok(Value::Int(n));
-        }
-        eval.assign("unread-command-events", Value::list(vec![event]));
-        eval.record_input_event(event);
-        return Err(non_character_input_event_error());
+    if let Some(value) = builtin_read_char_in_runtime(eval, &args)? {
+        return Ok(value);
     }
 
-    // 2. Interactive mode: block on input channel
-    if eval.input_rx.is_some() {
+    // Interactive mode: block on input channel
+    if eval.has_input_receiver() {
         let event = eval.read_char()?;
+        let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if let Some(n) = event_to_int(&event) {
             if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                 eval.set_read_command_keys(vec![event]);
@@ -1290,7 +1441,7 @@ pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Val
         return Err(non_character_input_event_error());
     }
 
-    // 3. Batch mode: no input available
+    // Batch mode: no input available
     Ok(Value::Nil)
 }
 
@@ -1347,22 +1498,12 @@ pub(crate) fn builtin_read_key_sequence(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("read-key-sequence", &args, 1)?;
-    expect_max_args("read-key-sequence", &args, 6)?;
-    expect_optional_prompt_string(&args)?;
-
-    // 1. Check unread-command-events first
-    if let Some(event) = eval.pop_unread_command_event() {
-        eval.record_nonmenu_input_event(event);
-        eval.set_read_command_keys(vec![event]);
-        if let Some(c) = event_to_char(&event) {
-            return Ok(Value::string(c.to_string()));
-        }
-        return Ok(Value::vector(vec![event]));
+    if let Some(value) = builtin_read_key_sequence_in_runtime(eval, &args)? {
+        return Ok(value);
     }
 
-    // 2. Interactive mode: use the full key sequence reader
-    if eval.input_rx.is_some() {
+    // Interactive mode: use the full key sequence reader
+    if eval.has_input_receiver() {
         let (keys, _binding) = eval.read_key_sequence()?;
         let mut chars_only = true;
         let mut s = String::new();
@@ -1380,7 +1521,7 @@ pub(crate) fn builtin_read_key_sequence(
         return Ok(Value::vector(keys));
     }
 
-    // 3. Batch mode: no input
+    // Batch mode: no input
     eval.clear_read_command_keys();
     Ok(Value::string(""))
 }
@@ -1393,16 +1534,8 @@ pub(crate) fn builtin_read_key_sequence_vector(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("read-key-sequence-vector", &args, 1)?;
-    expect_max_args("read-key-sequence-vector", &args, 6)?;
-    expect_optional_prompt_string(&args)?;
-    if let Some(event) = eval.pop_unread_command_event() {
-        eval.record_nonmenu_input_event(event);
-        eval.set_read_command_keys(vec![event]);
-        if let Some(n) = event_to_int(&event) {
-            return Ok(Value::vector(vec![Value::Int(n)]));
-        }
-        return Ok(Value::vector(vec![event]));
+    if let Some(value) = builtin_read_key_sequence_vector_in_runtime(eval, &args)? {
+        return Ok(value);
     }
     eval.clear_read_command_keys();
     Ok(Value::vector(vec![]))

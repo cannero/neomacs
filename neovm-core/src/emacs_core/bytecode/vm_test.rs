@@ -182,6 +182,29 @@ fn vm_reader_and_minibuffer_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_keyboard_c_builtins_use_shared_unread_and_batch_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((unread-command-events (list 'foo 97)))
+                   (condition-case err
+                       (list (read-char) unread-command-events (recent-keys))
+                     (error (list (car err) unread-command-events (recent-keys)))))
+                 (let ((unread-command-events (list 'foo 97)))
+                   (list (read-event) unread-command-events (recent-keys)))
+                 (let ((unread-command-events (list 'foo 97)))
+                   (list (read-char-exclusive) unread-command-events (recent-keys)))
+                 (let ((unread-command-events nil))
+                   (list (read-event)
+                         (read-char-exclusive)
+                         (read-key-sequence "k: ")
+                         (read-key-sequence-vector "k: "))))"#
+        ),
+        "OK ((error (foo) [foo]) (foo (97) [foo foo]) (97 nil [foo foo foo 97]) (nil nil \"\" []))"
+    );
+}
+
+#[test]
 fn vm_internal_labeled_restriction_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_with_init_str(
