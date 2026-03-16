@@ -919,7 +919,7 @@ pub(crate) fn dispatch_builtin(
         "setplist" => return Some(builtin_setplist_eval(eval, args)),
         "symbol-plist" => return Some(builtin_symbol_plist_fn(eval, args)),
         "indirect-function" => return Some(builtin_indirect_function(eval, args)),
-        "obarrayp" => return Some(builtin_obarrayp_eval(eval, args)),
+        "obarrayp" => return Some(builtin_obarrayp(args)),
         "special-variable-p" => return Some(builtin_special_variable_p(eval, args)),
         "intern" => return Some(builtin_intern_fn(eval, args)),
         "intern-soft" => return Some(builtin_intern_soft(eval, args)),

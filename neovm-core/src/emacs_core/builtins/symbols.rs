@@ -265,10 +265,7 @@ pub(crate) fn builtin_boundp_in_state(
     ))
 }
 
-pub(crate) fn builtin_obarrayp_eval(
-    _eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_obarrayp(args: Vec<Value>) -> EvalResult {
     expect_args("obarrayp", &args, 1)?;
     Ok(Value::bool(expect_obarray_vector_id(&args[0]).is_ok()))
 }
@@ -573,18 +570,25 @@ pub(crate) fn builtin_func_arity_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_func_arity_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_func_arity_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("func-arity", &args, 1)?;
 
     if let Some(name) = args[0].as_symbol_name() {
-        if let Some(function) = resolve_indirect_symbol(eval, name) {
+        if let Some(function) =
+            resolve_indirect_symbol_by_id_in_obarray(obarray, intern(name)).map(|(_, value)| value)
+        {
             if function.is_nil() {
                 return Err(signal("void-function", vec![Value::symbol(name)]));
             }
-            maybe_mark_pcase_fallback_materialized(eval, name, &function);
             if super::subr_info::is_special_form(name) {
                 return super::subr_info::builtin_func_arity(vec![Value::Subr(intern(name))]);
             }
-            if let Some(arity) = dispatch_symbol_func_arity_override(eval, name, &function) {
+            if let Some(arity) =
+                dispatch_symbol_func_arity_override_in_obarray(obarray, name, &function)
+            {
                 return Ok(arity);
             }
             return super::subr_info::builtin_func_arity(vec![function]);
@@ -595,23 +599,16 @@ pub(crate) fn builtin_func_arity_eval(
     super::subr_info::builtin_func_arity(vec![args[0]])
 }
 
-fn maybe_mark_pcase_fallback_materialized(
-    _eval: &mut super::eval::Evaluator,
-    _name: &str,
-    _function: &Value,
-) {
-}
-
-fn has_startup_subr_wrapper(eval: &super::eval::Evaluator, name: &str) -> bool {
+fn has_startup_subr_wrapper_in_obarray(obarray: &Obarray, name: &str) -> bool {
     let wrapper = format!("neovm--startup-subr-wrapper-{name}");
     matches!(
-        eval.obarray().symbol_function(&wrapper),
+        obarray.symbol_function(&wrapper),
         Some(Value::Subr(subr_id)) if resolve_sym(*subr_id) == name
     )
 }
 
-fn dispatch_symbol_func_arity_override(
-    eval: &super::eval::Evaluator,
+fn dispatch_symbol_func_arity_override_in_obarray(
+    obarray: &Obarray,
     name: &str,
     function: &Value,
 ) -> Option<Value> {
@@ -620,7 +617,8 @@ fn dispatch_symbol_func_arity_override(
     }
 
     if super::autoload::is_autoload_value(function)
-        || (matches!(function, Value::ByteCode(_)) && has_startup_subr_wrapper(eval, name))
+        || (matches!(function, Value::ByteCode(_))
+            && has_startup_subr_wrapper_in_obarray(obarray, name))
     {
         return Some(super::subr_info::dispatch_subr_arity_value(name));
     }
@@ -2157,6 +2155,10 @@ pub(crate) fn builtin_intern_soft(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_intern_soft_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_intern_soft_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_min_args("intern-soft", &args, 1)?;
     expect_max_args("intern-soft", &args, 2)?;
     if let Some(obarray) = args.get(1) {
@@ -2205,7 +2207,7 @@ pub(crate) fn builtin_intern_soft(
             ));
         }
     };
-    if eval.obarray().intern_soft(&name).is_some() {
+    if obarray.intern_soft(&name).is_some() {
         Ok(Value::symbol(name))
     } else {
         Ok(Value::Nil)

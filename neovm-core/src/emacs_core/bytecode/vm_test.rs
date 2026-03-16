@@ -1835,6 +1835,26 @@ fn vm_variable_lookup_builtins_use_shared_dynamic_and_buffer_local_state() {
 }
 
 #[test]
+fn vm_func_arity_and_obarray_queries_use_shared_obarray_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (fset 'vm-fa-target 'car)
+                 (list
+                  (func-arity 'vm-fa-target)
+                  (intern-soft "vm-soft-target")
+                  (intern-soft "vm-soft-miss")
+                  (obarrayp (obarray-make 3))
+                  (obarrayp [1 2 3])))"#,
+            |eval| {
+                eval.obarray_mut().intern("vm-soft-target");
+            },
+        ),
+        "OK ((1 . 1) vm-soft-target nil t nil)"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

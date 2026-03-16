@@ -3844,18 +3844,15 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
 
 #[test]
 fn eval_dispatch_obarrayp_accepts_custom_obarrays() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
     let table = crate::emacs_core::builtins::symbols::builtin_obarray_make(vec![Value::Int(3)])
         .expect("obarray-make should evaluate");
-    let result =
-        crate::emacs_core::builtins::symbols::builtin_obarrayp_eval(&mut eval, vec![table])
-            .expect("obarrayp should evaluate");
+    let result = crate::emacs_core::builtins::symbols::builtin_obarrayp(vec![table])
+        .expect("obarrayp should evaluate");
     assert!(result.is_truthy());
 
     let non_obarray = Value::vector(vec![Value::Int(0); 3]);
-    let result =
-        crate::emacs_core::builtins::symbols::builtin_obarrayp_eval(&mut eval, vec![non_obarray])
-            .expect("obarrayp should evaluate");
+    let result = crate::emacs_core::builtins::symbols::builtin_obarrayp(vec![non_obarray])
+        .expect("obarrayp should evaluate");
     assert!(result.is_nil());
 }
 

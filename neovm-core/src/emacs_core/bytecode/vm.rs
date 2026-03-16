@@ -3010,6 +3010,21 @@ impl<'a> Vm<'a> {
                 &*self.shared.obarray,
                 args.to_vec(),
             )),
+            "func-arity" => Some(
+                crate::emacs_core::builtins::symbols::builtin_func_arity_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "intern-soft" => Some(
+                crate::emacs_core::builtins::symbols::builtin_intern_soft_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "obarrayp" => Some(crate::emacs_core::builtins::symbols::builtin_obarrayp(
+                args.to_vec(),
+            )),
             "default-toplevel-value" => Some(
                 crate::emacs_core::builtins::symbols::builtin_default_toplevel_value_in_obarray(
                     self.shared.obarray,
