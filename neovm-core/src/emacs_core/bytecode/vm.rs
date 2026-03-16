@@ -4246,6 +4246,13 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "delete-process" => Some(
+                crate::emacs_core::process::builtin_delete_process_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "processp" => Some(crate::emacs_core::process::builtin_processp_in_state(
                 &*self.shared.processes,
                 args.to_vec(),
@@ -4287,6 +4294,15 @@ impl<'a> Vm<'a> {
                     &*self.shared.processes,
                     args.to_vec(),
                 ),
+            ),
+            "process-contact" => Some(
+                crate::emacs_core::process::builtin_process_contact_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "process-attributes" => Some(
+                crate::emacs_core::process::builtin_process_attributes_in_state(args.to_vec()),
             ),
             "process-live-p" => Some(
                 crate::emacs_core::process::builtin_process_live_p_in_state(
@@ -4381,6 +4397,13 @@ impl<'a> Vm<'a> {
             "set-process-inherit-coding-system-flag" => Some(
                 crate::emacs_core::process::builtin_set_process_inherit_coding_system_flag_in_state(
                     self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "set-process-thread" => Some(
+                crate::emacs_core::process::builtin_set_process_thread_in_state(
+                    self.shared.processes,
+                    &*self.shared.threads,
                     args.to_vec(),
                 ),
             ),

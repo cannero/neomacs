@@ -16,6 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
+use super::threads::ThreadManager;
 use super::value::{
     StringTextPropertyRun, Value, list_to_vec, next_float_id, read_cons, with_heap,
 };
@@ -1220,14 +1221,21 @@ fn resolve_process_or_missing_error_any(
     eval: &super::eval::Evaluator,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
+    resolve_process_or_missing_error_any_in_manager(&eval.processes, value)
+}
+
+fn resolve_process_or_missing_error_any_in_manager(
+    processes: &ProcessManager,
+    value: &Value,
+) -> Result<ProcessId, Flow> {
     match value {
         Value::Str(s) => {
             let name = with_heap(|h| h.get_string(*s).to_owned());
-            eval.processes
+            processes
                 .find_by_name(&name)
                 .ok_or_else(|| signal_process_does_not_exist(&name))
         }
-        _ => resolve_process_or_wrong_type_any(eval, value),
+        _ => resolve_process_or_wrong_type_any_in_manager(processes, value),
     }
 }
 
@@ -3496,6 +3504,14 @@ pub(crate) fn builtin_delete_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -3507,14 +3523,14 @@ pub(crate) fn builtin_delete_process(
     }
     let id = if let Some(process) = args.first() {
         if process.is_nil() {
-            resolve_optional_process_or_current_buffer(eval, args.first())?
+            resolve_optional_process_or_current_buffer_in_state(processes, buffers, args.first())?
         } else {
-            resolve_process_or_missing_error_any(eval, process)?
+            resolve_process_or_missing_error_any_in_manager(processes, process)?
         }
     } else {
-        resolve_optional_process_or_current_buffer(eval, args.first())?
+        resolve_optional_process_or_current_buffer_in_state(processes, buffers, args.first())?
     };
-    eval.processes.delete_process(id);
+    processes.delete_process(id);
     Ok(Value::Nil)
 }
 
@@ -3756,6 +3772,10 @@ pub(crate) fn builtin_process_attributes(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_attributes_in_state(args)
+}
+
+pub(crate) fn builtin_process_attributes_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("process-attributes", &args, 1)?;
     let pid = match &args[0] {
         Value::Int(n) => *n,
@@ -4356,16 +4376,24 @@ pub(crate) fn builtin_set_process_thread(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_process_thread_in_state(&mut eval.processes, &eval.threads, args)
+}
+
+pub(crate) fn builtin_set_process_thread_in_state(
+    processes: &mut ProcessManager,
+    threads: &ThreadManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-process-thread", &args, 2)?;
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     let value = if args[1].is_nil() {
         Value::Nil
-    } else if eval.threads.thread_id_from_handle(&args[1]).is_some() {
+    } else if threads.thread_id_from_handle(&args[1]).is_some() {
         args[1]
     } else {
         return Err(signal_wrong_type_threadp(args[1]));
     };
-    let proc = eval.processes.get_any_mut(id).ok_or_else(|| {
+    let proc = processes.get_any_mut(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],
@@ -5121,6 +5149,13 @@ pub(crate) fn builtin_process_contact(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_process_contact_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_process_contact_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("process-contact", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -5131,8 +5166,8 @@ pub(crate) fn builtin_process_contact(
             ],
         ));
     }
-    let id = resolve_process_or_wrong_type_any(eval, &args[0])?;
-    let proc = eval.processes.get_any(id).ok_or_else(|| {
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let proc = processes.get_any(id).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), args[0]],

@@ -252,7 +252,7 @@ pub(crate) struct VmSharedState<'a> {
     read_command_keys: &'a mut Vec<Value>,
     input_mode_interrupt: &'a mut bool,
     modes: &'a mut ModeRegistry,
-    threads: &'a mut ThreadManager,
+    pub(crate) threads: &'a mut ThreadManager,
     kmacro: &'a mut KmacroManager,
     command_loop: &'a mut crate::keyboard::CommandLoop,
     input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,

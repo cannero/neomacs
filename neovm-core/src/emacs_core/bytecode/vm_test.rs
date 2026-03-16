@@ -2230,6 +2230,125 @@ fn vm_stale_process_control_and_send_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_delete_process_builtin_uses_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (processp 1)
+             (eq (delete-process nil) nil)
+             (processp 1)
+             (null (process-live-p 1))
+             (eq (process-status 1) 'signal)
+             (= (process-exit-status 1) 9)
+             (null (get-process "vm-delete-proc"))
+             (null (get-buffer-process "*vm-delete-proc*")))"#,
+        |eval| {
+            let buffer_id = eval.buffers.create_buffer("*vm-delete-proc*");
+            eval.buffers.set_current(buffer_id);
+            let pid = eval.processes.create_process(
+                "vm-delete-proc".into(),
+                Some("*vm-delete-proc*".into()),
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t t t)");
+}
+
+#[test]
+fn vm_process_contact_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (let ((port (process-contact 1 :service))
+                   (local (process-contact 1 :local)))
+               (list
+                (stringp (process-contact 1 :name))
+                (eq (process-contact 1 :server) t)
+                (integerp port)
+                (and (vectorp local)
+                     (= (length local) 5)
+                     (= (aref local 0) 127)
+                     (= (aref local 4) port))
+                (null (process-contact 1 :remote))
+                (null (process-contact 1 :coding))
+                (null (process-contact 1 :foo))))
+             (list
+              (stringp (process-contact 2 :name))
+              (null (process-contact 2 :server))
+              (null (process-contact 2 :service))
+              (null (process-contact 2 :local))
+              (null (process-contact 2 :remote))
+              (null (process-contact 2 :coding))
+              (null (process-contact 2 :foo))))"#,
+        |eval| {
+            use crate::emacs_core::process::ProcessKind;
+
+            let network_id = eval.processes.create_process_with_kind(
+                "vm-contact-network".into(),
+                None,
+                String::new(),
+                vec![],
+                ProcessKind::Network,
+            );
+            assert_eq!(network_id, 1);
+            let pipe_id = eval.processes.create_process_with_kind(
+                "vm-contact-pipe".into(),
+                None,
+                String::new(),
+                vec![],
+                ProcessKind::Pipe,
+            );
+            assert_eq!(pipe_id, 2);
+        },
+    );
+    assert_eq!(result, "OK ((t t t t t t t) (t t t t t t t))");
+}
+
+#[test]
+fn vm_process_attributes_builtin_uses_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((attrs (process-attributes (emacs-pid))))
+                   (and (listp attrs)
+                        (null (assq 'pid attrs))
+                        (let ((pair (assq 'comm attrs)))
+                          (and (consp pair) (stringp (cdr pair))))))
+                 (null (process-attributes -1))
+                 (eq (car (condition-case err (process-attributes 'x) (error err)))
+                     'wrong-type-argument)
+                 (null (process-attributes 999999999)))"#
+        ),
+        "OK (t t t t)"
+    );
+}
+
+#[test]
+fn vm_set_process_thread_builtin_uses_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((thr (current-thread)))
+             (list
+              (eq (set-process-thread 1 thr) thr)
+              (eq (process-thread 1) thr)
+              (eq (set-process-thread 1 nil) nil)
+              (null (process-thread 1))
+              (eq (car (condition-case err (set-process-thread 1 'x) (error err)))
+                  'wrong-type-argument)))"#,
+        |eval| {
+            let pid = eval.processes.create_process(
+                "vm-process-thread".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+        },
+    );
+    assert_eq!(result, "OK (t t t t t)");
+}
+
+#[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));
