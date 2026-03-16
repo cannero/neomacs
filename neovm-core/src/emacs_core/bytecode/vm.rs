@@ -1352,14 +1352,32 @@ impl<'a> Vm<'a> {
         }
 
         let name_id = intern(name);
-        let is_special = (self.shared.obarray.is_special_id(name_id)
-            && !self.shared.obarray.is_constant_id(name_id))
-            || crate::emacs_core::value::lexenv_declares_special(*self.shared.lexenv, name_id);
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &*self.shared.obarray,
+            name_id,
+        )?;
+        let resolved_name = resolve_sym(resolved);
+        let is_special = self.shared.obarray.is_special_id(name_id)
+            && !self.shared.obarray.is_constant_id(name_id);
+        let resolved_is_special = self.shared.obarray.is_special_id(resolved)
+            && !self.shared.obarray.is_constant_id(resolved);
+        let locally_special =
+            crate::emacs_core::value::lexenv_declares_special(*self.shared.lexenv, name_id)
+                || (resolved != name_id
+                    && crate::emacs_core::value::lexenv_declares_special(
+                        *self.shared.lexenv,
+                        resolved,
+                    ));
 
         // GNU Emacs resolves declared-special vars dynamically even when
         // lexical binding is active; the interpreter path already does this.
-        if !is_special {
+        if !is_special && !resolved_is_special && !locally_special {
             if let Some(val) = lexenv_lookup(*self.shared.lexenv, name_id) {
+                return Ok(val);
+            }
+            if resolved != name_id
+                && let Some(val) = lexenv_lookup(*self.shared.lexenv, resolved)
+            {
                 return Ok(val);
             }
         }
@@ -1369,17 +1387,23 @@ impl<'a> Vm<'a> {
             if let Some(val) = frame.get(&name_id) {
                 return Ok(*val);
             }
+            if resolved != name_id
+                && let Some(val) = frame.get(&resolved)
+            {
+                return Ok(*val);
+            }
         }
 
         // Current buffer-local binding.
-        if let Some(buf) = self.shared.buffers.current_buffer()
-            && let Some(value) = buf.buffer_local_value(name)
+        if crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
+            && let Some(buf) = self.shared.buffers.current_buffer()
+            && let Some(value) = buf.buffer_local_value(resolved_name)
         {
             return Ok(value);
         }
 
         // Obarray
-        if let Some(val) = self.shared.obarray.symbol_value(name) {
+        if let Some(val) = self.shared.obarray.symbol_value_id(resolved) {
             return Ok(*val);
         }
 
@@ -1389,18 +1413,45 @@ impl<'a> Vm<'a> {
         if name == "t" {
             return Ok(Value::True);
         }
+        if resolved_name == "nil" {
+            return Ok(Value::Nil);
+        }
+        if resolved_name == "t" {
+            return Ok(Value::True);
+        }
+        if resolved_name.starts_with(':') {
+            return Ok(Value::Keyword(resolved));
+        }
 
         Err(signal("void-variable", vec![Value::symbol(name)]))
     }
 
     fn assign_var(&mut self, name: &str, value: Value) -> Result<(), Flow> {
         let name_id = intern(name);
-        let is_special = (self.shared.obarray.is_special_id(name_id)
-            && !self.shared.obarray.is_constant_id(name_id))
-            || crate::emacs_core::value::lexenv_declares_special(*self.shared.lexenv, name_id);
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &*self.shared.obarray,
+            name_id,
+        )?;
+        let is_special = self.shared.obarray.is_special_id(name_id)
+            && !self.shared.obarray.is_constant_id(name_id);
+        let resolved_is_special = self.shared.obarray.is_special_id(resolved)
+            && !self.shared.obarray.is_constant_id(resolved);
+        let locally_special =
+            crate::emacs_core::value::lexenv_declares_special(*self.shared.lexenv, name_id)
+                || (resolved != name_id
+                    && crate::emacs_core::value::lexenv_declares_special(
+                        *self.shared.lexenv,
+                        resolved,
+                    ));
 
-        if !is_special {
+        if !is_special && !resolved_is_special && !locally_special {
             if let Some(cell_id) = lexenv_assq(*self.shared.lexenv, name_id) {
+                lexenv_set(cell_id, value);
+                return Ok(());
+            }
+            if resolved != name_id
+                && let Some(cell_id) = lexenv_assq(*self.shared.lexenv, resolved)
+            {
                 lexenv_set(cell_id, value);
                 return Ok(());
             }
@@ -1412,42 +1463,25 @@ impl<'a> Vm<'a> {
                 frame.insert(name_id, value);
                 return Ok(());
             }
-        }
-
-        // Update existing buffer-local binding if present.
-        if let Some(current_id) = self.shared.buffers.current_buffer_id()
-            && let Some(buf) = self.shared.buffers.get(current_id)
-        {
-            if name == "buffer-undo-list" {
-                let _ = self
-                    .shared
-                    .buffers
-                    .configure_buffer_undo_list(current_id, value);
-                return Ok(());
-            }
-            if buf.get_buffer_local(name).is_some() {
-                let _ = self
-                    .shared
-                    .buffers
-                    .set_buffer_local_property(current_id, name, value);
+            if resolved != name_id && frame.contains_key(&resolved) {
+                frame.insert(resolved, value);
                 return Ok(());
             }
         }
 
-        // Auto-local variables become local upon assignment.
-        if self.shared.custom.is_auto_buffer_local(name) {
-            if let Some(current_id) = self.shared.buffers.current_buffer_id() {
-                let _ = self
-                    .shared
-                    .buffers
-                    .set_buffer_local_property(current_id, name, value);
-                return Ok(());
-            }
+        if self.shared.obarray.is_constant_id(resolved) {
+            return Err(signal("setting-constant", vec![Value::symbol(name)]));
         }
 
-        // Fall through to obarray
-        self.shared.obarray.set_symbol_value(name, value);
-        self.run_variable_watchers(name, &value, &Value::Nil, "set")
+        crate::emacs_core::eval::set_runtime_binding_in_state(
+            self.shared.obarray,
+            self.shared.dynamic.as_mut_slice(),
+            self.shared.buffers,
+            &*self.shared.custom,
+            resolved,
+            value,
+        );
+        self.run_variable_watchers(resolve_sym(resolved), &value, &Value::Nil, "set")
     }
 
     fn run_variable_watchers(
@@ -1475,6 +1509,34 @@ impl<'a> Vm<'a> {
                 self.with_extra_roots(&callback_roots, |vm| vm.call_function(callback, args))?;
         }
         Ok(())
+    }
+
+    fn builtin_set_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("set", args, 2)?;
+        let symbol = crate::emacs_core::builtins::symbols::expect_symbol_id(&args[0])?;
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &*self.shared.obarray,
+            symbol,
+        )?;
+        let value = args[1];
+        if let Some(result) = crate::emacs_core::builtins::symbols::constant_set_outcome_in_obarray(
+            &*self.shared.obarray,
+            resolved,
+            args[0],
+            value,
+        ) {
+            return result;
+        }
+        crate::emacs_core::eval::set_runtime_binding_in_state(
+            self.shared.obarray,
+            self.shared.dynamic.as_mut_slice(),
+            self.shared.buffers,
+            &*self.shared.custom,
+            resolved,
+            value,
+        );
+        self.run_variable_watchers(resolve_sym(resolved), &value, &Value::Nil, "set")?;
+        Ok(value)
     }
 
     fn ensure_selected_frame_id(&mut self) -> FrameId {
@@ -2857,6 +2919,7 @@ impl<'a> Vm<'a> {
                 &*self.shared.buffers,
                 args.to_vec(),
             )),
+            "set" => Some(self.builtin_set_shared(args)),
             "default-boundp" => Some(
                 crate::emacs_core::builtins::symbols::builtin_default_boundp_in_obarray(
                     &*self.shared.obarray,

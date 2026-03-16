@@ -38,6 +38,24 @@ fn value_from_symbol_id(id: SymId) -> Value {
     Value::Symbol(id)
 }
 
+pub(crate) fn constant_set_outcome_in_obarray(
+    obarray: &Obarray,
+    symbol: SymId,
+    symbol_arg: Value,
+    new_value: Value,
+) -> Option<EvalResult> {
+    if !obarray.is_constant_id(symbol) {
+        return None;
+    }
+
+    let name = resolve_sym(symbol);
+    if name.starts_with(':') && eq_value(&Value::Keyword(symbol), &new_value) {
+        return Some(Ok(new_value));
+    }
+
+    Some(Err(signal("setting-constant", vec![symbol_arg])))
+}
+
 pub(crate) fn expect_symbol_id(value: &Value) -> Result<SymId, Flow> {
     symbol_id(value).ok_or_else(|| {
         signal(
@@ -630,11 +648,14 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Evaluator, args: Vec<Value>) -
     expect_args("set", &args, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
-    if eval.obarray().is_constant_id(resolved) {
-        return Err(signal("setting-constant", vec![args[0]]));
-    }
     let value = args[1];
-    eval.assign_with_watchers_by_id(resolved, value, "set")
+    if let Some(result) = constant_set_outcome_in_obarray(eval.obarray(), resolved, args[0], value)
+    {
+        return result;
+    }
+    eval.set_runtime_binding_by_id(resolved, value);
+    eval.run_variable_watchers(resolve_sym(resolved), &value, &Value::Nil, "set")?;
+    Ok(value)
 }
 
 pub(crate) fn builtin_fset(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {

@@ -9823,6 +9823,29 @@ fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
 }
 
 #[test]
+fn set_allows_keyword_self_assignment_like_gnu_emacs() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let keyword = Value::keyword(":vm-set-keyword");
+
+    let direct = builtin_set(&mut eval, vec![keyword, keyword])
+        .expect("set should allow keyword self-assignment");
+    assert_eq!(direct, keyword);
+
+    builtin_defvaralias_eval(
+        &mut eval,
+        vec![Value::symbol("vm-set-keyword-alias"), keyword, Value::Nil],
+    )
+    .expect("defvaralias should allow keyword targets");
+
+    let aliased = builtin_set(
+        &mut eval,
+        vec![Value::symbol("vm-set-keyword-alias"), keyword],
+    )
+    .expect("set should allow alias-to-keyword self-assignment");
+    assert_eq!(aliased, keyword);
+}
+
+#[test]
 fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
     builtin_setplist_eval(

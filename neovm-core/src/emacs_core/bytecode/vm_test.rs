@@ -1877,6 +1877,49 @@ fn vm_function_mutator_builtins_use_shared_function_state() {
 }
 
 #[test]
+fn vm_set_builtin_uses_shared_runtime_without_touching_lexicals() {
+    assert_eq!(
+        vm_eval_lexical_str(
+            r#"(progn
+                 (makunbound 'vm-lex-set)
+                 (let ((vm-lex-set 10))
+                   (list (set 'vm-lex-set 20)
+                         vm-lex-set
+                         (symbol-value 'vm-lex-set))))"#
+        ),
+        "OK (20 10 20)"
+    );
+}
+
+#[test]
+fn vm_varset_and_set_resolve_aliases_and_reject_constants_like_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (defvaralias 'vm-set-alias 'vm-set-base)
+                 (setq vm-set-alias 3)
+                 (list
+                  vm-set-base
+                  vm-set-alias
+                  (set 'vm-set-alias 4)
+                  vm-set-base
+                  vm-set-alias
+                  (progn
+                    (setq vm-set-side 0)
+                    (condition-case err
+                        (setq nil (setq vm-set-side 1))
+                      (error (list (car err) (cdr err) vm-set-side))))
+                  (progn
+                    (setq vm-set-side 0)
+                    (condition-case err
+                        (setq :vm-set-k (setq vm-set-side 2))
+                      (error (list (car err) (cdr err) vm-set-side))))))"#
+        ),
+        "OK (3 3 4 4 4 (setting-constant (nil) 1) (setting-constant (:vm-set-k) 2))"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

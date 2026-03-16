@@ -1241,11 +1241,14 @@ impl Compiler {
 
         let mut i = 0;
         while i + 1 < tail.len() {
-            let Expr::Symbol(id) = &tail[i] else {
-                i += 2;
-                continue;
+            let id = match &tail[i] {
+                Expr::Symbol(id) | Expr::Keyword(id) => *id,
+                _ => {
+                    i += 2;
+                    continue;
+                }
             };
-            let name = resolve_sym(*id);
+            let name = resolve_sym(id);
             self.compile_expr(func, &tail[i + 1], true);
             let is_last_pair = i + 2 >= tail.len();
             if for_value && is_last_pair {

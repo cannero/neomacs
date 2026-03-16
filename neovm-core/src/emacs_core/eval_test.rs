@@ -951,6 +951,21 @@ fn setq_constants_signal_setting_constant_after_rhs_evaluation() {
 }
 
 #[test]
+fn set_ignores_lexical_bindings_and_updates_dynamic_cell() {
+    let mut ev = Evaluator::new();
+    ev.set_lexical_binding(true);
+    let forms = parse_forms(
+        "(makunbound 'vm-lex-set)
+         (let ((vm-lex-set 10))
+           (list (set 'vm-lex-set 20) vm-lex-set (symbol-value 'vm-lex-set)))
+         (makunbound 'vm-lex-set)",
+    )
+    .expect("parse");
+    let results = ev.eval_forms(&forms);
+    assert_eq!(format_eval_result(&results[1]), "OK (20 10 20)");
+}
+
+#[test]
 fn setq_follows_variable_alias_resolution() {
     let results = eval_all(
         "(defvaralias 'vm-setq-alias 'vm-setq-base)

@@ -7036,12 +7036,58 @@ impl Evaluator {
     // Variable assignment
     // -----------------------------------------------------------------------
 
+    // Shared runtime write path for symbol-cell mutation. This mirrors GNU
+    // `set_internal` after lexical handling has already been decided.
+}
+
+pub(crate) fn set_runtime_binding_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut [OrderedSymMap],
+    buffers: &mut BufferManager,
+    custom: &CustomManager,
+    sym_id: SymId,
+    value: Value,
+) {
+    let name = resolve_sym(sym_id);
+    let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
+
+    for frame in dynamic.iter_mut().rev() {
+        if frame.contains_key(&sym_id) {
+            frame.insert(sym_id, value);
+            return;
+        }
+    }
+
+    if symbol_is_canonical
+        && let Some(current_id) = buffers.current_buffer_id()
+        && let Some(buf) = buffers.get(current_id)
+    {
+        if name == "buffer-undo-list" {
+            let _ = buffers.configure_buffer_undo_list(current_id, value);
+            return;
+        }
+        if buf.get_buffer_local(name).is_some() {
+            let _ = buffers.set_buffer_local_property(current_id, name, value);
+            return;
+        }
+    }
+
+    if symbol_is_canonical && custom.is_auto_buffer_local(name) {
+        if let Some(current_id) = buffers.current_buffer_id() {
+            let _ = buffers.set_buffer_local_property(current_id, name, value);
+            return;
+        }
+    }
+
+    obarray.set_symbol_value_id(sym_id, value);
+}
+
+impl Evaluator {
     /// Assign a value to a variable identified by SymId.
     /// Uses the SymId directly for lexenv/dynamic lookup, preserving
     /// uninterned symbol identity (like Emacs's EQ-based setq).
     pub(crate) fn assign_by_id(&mut self, sym_id: SymId, value: Value) {
         let name = resolve_sym(sym_id);
-        let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
         // If lexical binding and not special, check lexenv first
         if self.lexical_binding()
             && !is_runtime_dynamically_special(&self.obarray, sym_id)
@@ -7053,47 +7099,29 @@ impl Evaluator {
             }
         }
 
-        // Search dynamic frames (inner to outer)
-        for frame in self.dynamic.iter_mut().rev() {
-            if frame.contains_key(&sym_id) {
-                frame.insert(sym_id, value);
-                return;
-            }
-        }
-
-        // Update existing buffer-local binding if present.
-        if symbol_is_canonical
-            && let Some(current_id) = self.buffers.current_buffer_id()
-            && let Some(buf) = self.buffers.get(current_id)
-        {
-            if name == "buffer-undo-list" {
-                let _ = self.buffers.configure_buffer_undo_list(current_id, value);
-                return;
-            }
-            if buf.get_buffer_local(name).is_some() {
-                let _ = self
-                    .buffers
-                    .set_buffer_local_property(current_id, name, value);
-                return;
-            }
-        }
-
-        // Auto-local variables become local upon assignment.
-        if symbol_is_canonical && self.custom.is_auto_buffer_local(name) {
-            if let Some(current_id) = self.buffers.current_buffer_id() {
-                let _ = self
-                    .buffers
-                    .set_buffer_local_property(current_id, name, value);
-                return;
-            }
-        }
-
-        // Fall through to obarray value cell
-        self.obarray.set_symbol_value_id(sym_id, value);
+        set_runtime_binding_in_state(
+            &mut self.obarray,
+            self.dynamic.as_mut_slice(),
+            &mut self.buffers,
+            &self.custom,
+            sym_id,
+            value,
+        );
     }
 
     pub(crate) fn assign(&mut self, name: &str, value: Value) {
         self.assign_by_id(intern(name), value);
+    }
+
+    pub(crate) fn set_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
+        set_runtime_binding_in_state(
+            &mut self.obarray,
+            self.dynamic.as_mut_slice(),
+            &mut self.buffers,
+            &self.custom,
+            sym_id,
+            value,
+        );
     }
 
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {
