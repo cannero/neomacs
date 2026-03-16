@@ -1523,7 +1523,10 @@ pub(crate) fn builtin_overlays_at_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    let ids = buf.overlays.overlays_at(byte_pos);
+    let mut ids = buf.overlays.overlays_at(byte_pos);
+    if args.get(1).is_some_and(|value| value.is_truthy()) {
+        buf.overlays.sort_overlay_ids_by_priority_desc(&mut ids);
+    }
     let overlays: Vec<Value> = ids
         .into_iter()
         .map(|id| make_overlay_value(id, buf_id))

@@ -156,6 +156,15 @@ impl OverlayList {
         })
     }
 
+    pub fn sort_overlay_ids_by_priority_desc(&self, overlay_ids: &mut [u64]) {
+        overlay_ids.sort_by(
+            |left_id, right_id| match (self.get(*left_id), self.get(*right_id)) {
+                (Some(left), Some(right)) => compare_overlay_precedence(right, left),
+                _ => Ordering::Equal,
+            },
+        );
+    }
+
     /// Adjust all overlay positions after text is inserted at `pos` with
     /// `len` bytes.
     ///

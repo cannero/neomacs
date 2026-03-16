@@ -1033,6 +1033,29 @@ fn overlays_at_outside() {
 }
 
 #[test]
+fn overlays_at_sorted_returns_highest_priority_first() {
+    let mut eval = eval_with_text("hello world");
+    let low = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let high = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let nil_priority = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+
+    builtin_overlay_put(
+        &mut eval,
+        vec![low, Value::symbol("priority"), Value::Int(1)],
+    )
+    .unwrap();
+    builtin_overlay_put(
+        &mut eval,
+        vec![high, Value::symbol("priority"), Value::Int(10)],
+    )
+    .unwrap();
+
+    let result = builtin_overlays_at(&mut eval, vec![Value::Int(3), Value::True]).unwrap();
+    let items = list_to_vec(&result).unwrap();
+    assert_eq!(items, vec![high, low, nil_priority]);
+}
+
+#[test]
 fn overlays_in_basic() {
     let mut eval = eval_with_text("hello world");
     builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();

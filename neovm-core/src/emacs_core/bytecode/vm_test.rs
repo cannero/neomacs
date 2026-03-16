@@ -2139,6 +2139,28 @@ fn vm_overlay_builtins_use_shared_current_buffer_state() {
 }
 
 #[test]
+fn vm_overlays_at_sorted_uses_shared_priority_order() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (insert "overlay body")
+                 (let ((ov-low (make-overlay 2 6))
+                       (ov-high (make-overlay 2 6))
+                       (ov-nil (make-overlay 2 6)))
+                   (overlay-put ov-low 'name 'low)
+                   (overlay-put ov-high 'name 'high)
+                   (overlay-put ov-nil 'name 'nil-priority)
+                   (overlay-put ov-low 'priority 1)
+                   (overlay-put ov-high 'priority 10)
+                   (mapcar (lambda (ov) (overlay-get ov 'name))
+                           (overlays-at 3 t))))"#
+        ),
+        "OK (high low nil-priority)"
+    );
+}
+
+#[test]
 fn vm_text_property_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_str(
