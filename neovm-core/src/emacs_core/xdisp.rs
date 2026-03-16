@@ -17,6 +17,7 @@
 
 use super::chartable::{make_char_table_value, make_char_table_with_extra_slots};
 use super::error::{EvalResult, Flow, signal};
+use super::intern::intern;
 use super::value::*;
 use crate::buffer::BufferId;
 use crate::window::{FrameId, WindowId};
@@ -100,10 +101,66 @@ pub(crate) fn builtin_format_mode_line(args: Vec<Value>) -> EvalResult {
 /// Handles string formats with %-construct expansion and list-based format
 /// specs by recursively processing elements (symbols, strings, :eval, :propertize,
 /// and conditional cons cells).
+pub(crate) fn builtin_format_mode_line_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    frames: &crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> Result<Option<Value>, Flow> {
+    expect_args_range("format-mode-line", &args, 1, 4)?;
+    validate_optional_window_designator_in_state(frames, args.get(2), "windowp")?;
+    validate_optional_buffer_designator_in_state(buffers, args.get(3))?;
+
+    let target_buffer = resolve_mode_line_buffer_in_state(frames, args.get(2), args.get(3));
+    let saved_buffer = buffers.current_buffer_id();
+    if let Some(buffer_id) = target_buffer {
+        buffers.set_current(buffer_id);
+    }
+
+    if args[0].is_nil() {
+        if let Some(buffer_id) = saved_buffer {
+            buffers.set_current(buffer_id);
+        }
+        return Ok(Some(Value::string("")));
+    }
+
+    let format_val = args[0];
+    let mut result = String::new();
+    let needs_eval = format_mode_line_recursive_in_state(
+        obarray,
+        dynamic,
+        &*buffers,
+        &format_val,
+        &mut result,
+        0,
+    );
+
+    if let Some(buffer_id) = saved_buffer {
+        buffers.set_current(buffer_id);
+    }
+
+    if needs_eval {
+        Ok(None)
+    } else {
+        Ok(Some(Value::string(&result)))
+    }
+}
+
 pub(crate) fn builtin_format_mode_line_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    if let Some(value) = builtin_format_mode_line_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.frames,
+        &mut eval.buffers,
+        args.clone(),
+    )? {
+        return Ok(value);
+    }
+
     expect_args_range("format-mode-line", &args, 1, 4)?;
     validate_optional_window_designator(eval, args.get(2), "windowp")?;
     validate_optional_buffer_designator(eval, args.get(3))?;
@@ -122,6 +179,28 @@ pub(crate) fn builtin_format_mode_line_eval(
         eval.buffers.set_current(buffer_id);
     }
     Ok(Value::string(&result))
+}
+
+fn mode_line_symbol_value_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    name: &str,
+) -> Option<Value> {
+    let name_id = intern(name);
+    for frame in dynamic.iter().rev() {
+        if let Some(value) = frame.get(&name_id) {
+            return Some(*value);
+        }
+    }
+
+    if let Some(buf) = buffers.current_buffer()
+        && let Some(value) = buf.get_buffer_local(name)
+    {
+        return Some(*value);
+    }
+
+    obarray.symbol_value(name).copied()
 }
 
 /// Recursively process a mode-line format spec, appending output to `result`.
@@ -230,6 +309,117 @@ fn format_mode_line_recursive(
     }
 }
 
+fn format_mode_line_recursive_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    format: &Value,
+    result: &mut String,
+    depth: usize,
+) -> bool {
+    if depth > 20 {
+        return false;
+    }
+
+    match format {
+        Value::Nil => {}
+
+        Value::Str(_) => {
+            if let Some(fmt_str) = format.as_str() {
+                expand_mode_line_percent_in_state(buffers, fmt_str, result);
+            }
+        }
+
+        Value::Int(_) => {}
+
+        _ if format.is_symbol() => {
+            if let Some(name) = format.as_symbol_name() {
+                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
+                    result.push(' ');
+                    return false;
+                }
+                if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
+                    && !val.is_nil()
+                    && format_mode_line_recursive_in_state(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        &val,
+                        result,
+                        depth + 1,
+                    )
+                {
+                    return true;
+                }
+            }
+        }
+
+        _ if format.is_cons() => {
+            let car = format.cons_car();
+            let cdr = format.cons_cdr();
+
+            if car.is_symbol_named(":eval") {
+                return true;
+            }
+
+            if car.is_symbol_named(":propertize") {
+                if cdr.is_cons() {
+                    let elt = cdr.cons_car();
+                    return format_mode_line_recursive_in_state(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        &elt,
+                        result,
+                        depth + 1,
+                    );
+                }
+                return false;
+            }
+
+            if car.is_symbol() && !car.is_symbol_named("t") {
+                if let Some(sym_name) = car.as_symbol_name()
+                    && mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
+                        .is_some_and(|value| value.is_truthy())
+                {
+                    return format_mode_line_recursive_in_state(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        &cdr,
+                        result,
+                        depth + 1,
+                    );
+                }
+                return false;
+            }
+
+            if let Some(elements) = list_to_vec(format) {
+                for elem in &elements {
+                    if format_mode_line_recursive_in_state(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        elem,
+                        result,
+                        depth + 1,
+                    ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        _ => {
+            if let Some(s) = format.as_str() {
+                result.push_str(s);
+            }
+        }
+    }
+
+    false
+}
+
 /// Expand %-constructs in a mode-line format string.
 fn expand_mode_line_percent(eval: &super::eval::Evaluator, fmt_str: &str, result: &mut String) {
     let buf = eval.buffer_manager().current_buffer();
@@ -291,6 +481,82 @@ fn expand_mode_line_percent(eval: &super::eval::Evaluator, fmt_str: &str, result
                 Some('Z') => result.push_str("U"), // Like %z but includes eol type
                 Some('[') | Some(']') => {}        // Recursive edit depth brackets
                 Some('e') => {}                    // Error message area
+                Some(' ') => result.push(' '),
+                Some(c) => {
+                    result.push('%');
+                    result.push(c);
+                }
+                None => result.push('%'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+}
+
+fn expand_mode_line_percent_in_state(
+    buffers: &crate::buffer::BufferManager,
+    fmt_str: &str,
+    result: &mut String,
+) {
+    let buf = buffers.current_buffer();
+    let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
+    let file_name = buf.and_then(|b| b.file_name.as_deref()).unwrap_or("");
+    let modified = buf.map(|b| b.is_modified()).unwrap_or(false);
+
+    let (line_num, col_num) = if let Some(b) = buf {
+        let pt = b.pt;
+        let text = b.text.to_string();
+        let before = &text[..pt.min(text.len())];
+        let line = before.chars().filter(|&c| c == '\n').count() + 1;
+        let col = before.rfind('\n').map(|nl| pt - nl - 1).unwrap_or(pt);
+        (line, col)
+    } else {
+        (1, 0)
+    };
+
+    let mut chars = fmt_str.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            if chars.peek() == Some(&'-') {
+                chars.next();
+            }
+            while chars.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                chars.next();
+            }
+            match chars.next() {
+                Some('b') => result.push_str(buf_name),
+                Some('f') => result.push_str(file_name),
+                Some('F') => result.push_str("Neomacs"),
+                Some('*') => result.push(if modified { '*' } else { '-' }),
+                Some('+') => result.push(if modified { '+' } else { '-' }),
+                Some('-') => result.push('-'),
+                Some('%') => result.push('%'),
+                Some('n') => {}
+                Some('l') => result.push_str(&line_num.to_string()),
+                Some('c') => result.push_str(&col_num.to_string()),
+                Some('p') | Some('P') => {
+                    if let Some(b) = buf {
+                        let total = b.text.len();
+                        if total == 0 {
+                            result.push_str("All");
+                        } else {
+                            let pct = (b.pt * 100) / total;
+                            if pct == 0 {
+                                result.push_str("Top");
+                            } else if pct >= 99 {
+                                result.push_str("Bot");
+                            } else {
+                                result.push_str(&format!("{}%", pct));
+                            }
+                        }
+                    }
+                }
+                Some('z') => result.push_str("U"),
+                Some('@') => result.push('-'),
+                Some('Z') => result.push_str("U"),
+                Some('[') | Some(']') => {}
+                Some('e') => {}
                 Some(' ') => result.push(' '),
                 Some(c) => {
                     result.push('%');
@@ -851,6 +1117,33 @@ fn resolve_optional_window_buffer(
     None
 }
 
+fn resolve_optional_window_buffer_in_state(
+    frames: &crate::window::FrameManager,
+    value: Option<&Value>,
+) -> Option<BufferId> {
+    let windowish = value?;
+    if windowish.is_nil() {
+        return None;
+    }
+
+    let wid = match windowish {
+        Value::Window(id) => Some(WindowId(*id)),
+        Value::Int(id) if *id >= 0 => Some(WindowId(*id as u64)),
+        _ => None,
+    }?;
+
+    for fid in frames.frame_list() {
+        let Some(frame) = frames.get(fid) else {
+            continue;
+        };
+        if let Some(window) = frame.find_window(wid) {
+            return window.buffer_id();
+        }
+    }
+
+    None
+}
+
 fn resolve_mode_line_buffer(
     eval: &super::eval::Evaluator,
     window: Option<&Value>,
@@ -859,6 +1152,17 @@ fn resolve_mode_line_buffer(
     match buffer {
         Some(Value::Buffer(id)) => Some(*id),
         _ => resolve_optional_window_buffer(eval, window),
+    }
+}
+
+fn resolve_mode_line_buffer_in_state(
+    frames: &crate::window::FrameManager,
+    window: Option<&Value>,
+    buffer: Option<&Value>,
+) -> Option<BufferId> {
+    match buffer {
+        Some(Value::Buffer(id)) => Some(*id),
+        _ => resolve_optional_window_buffer_in_state(frames, window),
     }
 }
 

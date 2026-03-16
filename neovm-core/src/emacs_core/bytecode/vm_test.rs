@@ -3023,6 +3023,24 @@ fn vm_font_builtins_accept_live_frame_designators_on_shared_state() {
 }
 
 #[test]
+fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-fmt-mode-line")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert "abc")
+                 (setq mode-name "Neo")
+                 (list (format-mode-line '("%b " mode-name))
+                       (format-mode-line '(:eval mode-name))))"#
+        ),
+        r#"OK ("vm-fmt-mode-line Neo" "Neo")"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

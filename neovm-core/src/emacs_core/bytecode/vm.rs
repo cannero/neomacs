@@ -6318,10 +6318,20 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
-        self.call_eval_builtin_shared(
-            args,
-            crate::emacs_core::xdisp::builtin_format_mode_line_eval,
-        )
+        if let Some(value) = crate::emacs_core::xdisp::builtin_format_mode_line_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.frames,
+            &mut *self.shared.buffers,
+            args.to_vec(),
+        )? {
+            Ok(value)
+        } else {
+            self.call_eval_builtin_shared(
+                args,
+                crate::emacs_core::xdisp::builtin_format_mode_line_eval,
+            )
+        }
     }
 
     fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
