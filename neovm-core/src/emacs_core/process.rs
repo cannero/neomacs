@@ -2530,6 +2530,10 @@ pub(crate) fn builtin_format_network_address(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_format_network_address_in_state(args)
+}
+
+pub(crate) fn builtin_format_network_address_in_state(args: Vec<Value>) -> EvalResult {
     expect_min_args("format-network-address", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(

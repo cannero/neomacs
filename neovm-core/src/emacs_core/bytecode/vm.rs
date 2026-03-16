@@ -4246,6 +4246,9 @@ impl<'a> Vm<'a> {
             "run-hook-with-args-until-success" => {
                 Some(self.builtin_run_hook_with_args_until_success_shared(args))
             }
+            "format-network-address" => Some(
+                crate::emacs_core::process::builtin_format_network_address_in_state(args.to_vec()),
+            ),
             "network-interface-list" => Some(
                 crate::emacs_core::process::builtin_network_interface_list_in_state(args.to_vec()),
             ),

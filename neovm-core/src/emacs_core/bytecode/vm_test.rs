@@ -2517,20 +2517,28 @@ fn vm_process_network_and_signal_builtins_use_direct_runtime_paths() {
                       (ifname (car first))
                       (info (network-interface-info ifname)))
                  (list
-                  (listp interfaces)
+                 (listp interfaces)
                   (stringp ifname)
                   (vectorp (cdr first))
+                  (equal (format-network-address [127 0 0 1 80]) "127.0.0.1:80")
+                  (equal (format-network-address [127 0 0 1 80] t) "127.0.0.1")
+                  (equal (format-network-address [0 0 0 0 0 0 0 1 80]) "[0:0:0:0:0:0:0:1]:80")
+                  (equal (format-network-address [0 0 0 0 0 0 0 1 80] t) "0:0:0:0:0:0:0:1")
                   (and (listp info) (= (length info) 5))
                   (consp (network-lookup-address-info "localhost"))
                   (consp (member "HUP" (signal-names)))
                   (listp (list-system-processes))
                   (integerp (num-processors))
                   (> (num-processors) 0)
+                  (eq (car (condition-case err
+                               (format-network-address)
+                             (error err)))
+                      'wrong-number-of-arguments)
                   (condition-case err
                       (network-interface-list nil 'bogus)
                     (error (car err)))) )"#
         ),
-        "OK (t t t t t t t t t error)"
+        "OK (t t t t t t t t t t t t t t error)"
     );
 }
 
