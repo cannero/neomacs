@@ -3785,8 +3785,6 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
     let text_lines = clamp_frame_dimension(text_lines, MIN_FRAME_TEXT_LINES);
     let total_lines = text_lines.saturating_add(1).min(u32::MAX as i64);
 
-    frame.width = cols as u32;
-    frame.height = total_lines as u32;
     frame
         .parameters
         .insert("width".to_string(), Value::Int(cols));
@@ -4670,25 +4668,13 @@ fn current_gui_frame_metrics(eval: &super::eval::Evaluator) -> GuiFrameMetrics {
     }
 }
 
-fn bootstrap_primary_frame_id(eval: &super::eval::Evaluator) -> Option<FrameId> {
-    if eval.frames.frame_list().len() != 1 {
-        return None;
-    }
-    let value = eval.obarray.symbol_value("frame-initial-frame")?;
-    match value {
-        Value::Frame(id) => Some(FrameId(*id)),
-        Value::Int(id) if *id >= 0 => Some(FrameId(*id as u64)),
-        _ => None,
-    }
-    .filter(|fid| eval.frames.get(*fid).is_some())
-}
-
 /// `(x-create-frame PARMS)` -> frame.
 ///
 /// GNU Emacs owns `make-frame` in Lisp and delegates the host-window boundary
 /// to the C primitive `x-create-frame`.  NeoVM mirrors that split here:
-/// this builtin realizes the Lisp frame object and lets the frontend binary
-/// adopt that frame as the primary GUI window.
+/// this builtin realizes a fresh Lisp frame object and lets the frontend
+/// binary decide whether to adopt the existing primary window or create a
+/// new top-level OS window for it.
 pub(crate) fn builtin_x_create_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
@@ -4721,14 +4707,11 @@ pub(crate) fn builtin_x_create_frame(
         .map(|buffer| buffer.id)
         .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
     let minibuffer_buffer_id = eval.buffers.find_buffer_by_name(" *Minibuf-0*");
-    let reused_bootstrap = bootstrap_primary_frame_id(eval);
-    let fid = reused_bootstrap.unwrap_or_else(|| {
-        eval.frames
-            .create_frame(&name, width_px, height_px, current_buffer_id)
-    });
+    let fid = eval
+        .frames
+        .create_frame(&name, width_px, height_px, current_buffer_id);
     let root_height = (height_px as f32 - metrics.minibuffer_height).max(metrics.char_height);
     let minibuffer_y = root_height;
-    let mut host_request = None;
     {
         let frame = eval
             .frames
@@ -4766,23 +4749,15 @@ pub(crate) fn builtin_x_create_frame(
                 metrics.minibuffer_height.min(height_px as f32),
             ));
         }
-        if reused_bootstrap.is_some() {
-            host_request = Some(super::eval::GuiFrameHostRequest {
-                frame_id: fid,
-                width: width_px,
-                height: height_px,
-                title: frame.title.clone(),
-            });
-        }
     }
-    if let Some(request) = host_request {
-        if let Some(host) = eval.display_host.as_mut() {
-            host.realize_gui_frame(request)
-                .map_err(|message| signal("error", vec![Value::string(message)]))?;
-        }
-    }
-    if reused_bootstrap.is_some() {
-        let _ = eval.frames.select_frame(fid);
+    if let Some(host) = eval.display_host.as_mut() {
+        host.realize_gui_frame(super::eval::GuiFrameHostRequest {
+            frame_id: fid,
+            width: width_px,
+            height: height_px,
+            title,
+        })
+        .map_err(|message| signal("error", vec![Value::string(message)]))?;
     }
     Ok(Value::Frame(fid.0))
 }

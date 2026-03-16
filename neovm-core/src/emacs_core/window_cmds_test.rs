@@ -2348,7 +2348,7 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
 }
 
 #[test]
-fn x_create_frame_reuses_bootstrap_primary_frame_and_notifies_host() {
+fn x_create_frame_creates_opening_frame_and_notifies_host() {
     let mut ev = Evaluator::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
@@ -2361,7 +2361,7 @@ fn x_create_frame_reuses_bootstrap_primary_frame_and_notifies_host() {
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 608.0, 960.0, 32.0));
         }
     }
-    ev.set_variable("frame-initial-frame", Value::Frame(fid.0));
+    ev.set_variable("terminal-frame", Value::Frame(fid.0));
     let host = RecordingDisplayHost::new();
     let requests = host.requests.clone();
     ev.set_display_host(Box::new(host));
@@ -2374,14 +2374,18 @@ fn x_create_frame_reuses_bootstrap_primary_frame_and_notifies_host() {
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    assert_eq!(created, Value::Frame(fid.0));
-    assert_eq!(ev.frames.frame_list().len(), 1);
-    let frame = ev.frames.get(fid).expect("reused bootstrap frame");
+    let created_id = match created {
+        Value::Frame(id) => crate::window::FrameId(id),
+        other => panic!("expected frame object, got {other:?}"),
+    };
+    assert_ne!(created_id, fid);
+    assert_eq!(ev.frames.frame_list().len(), 2);
+    let frame = ev.frames.get(created_id).expect("created opening frame");
     assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
     assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
     let requests = requests.borrow();
     assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].frame_id, fid);
+    assert_eq!(requests[0].frame_id, created_id);
     assert_eq!(requests[0].title, "Neomacs");
     assert_eq!(requests[0].width, frame.width);
     assert_eq!(requests[0].height, frame.height);
@@ -2523,6 +2527,36 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
     assert_eq!(frame.height, 600);
     assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
     assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
+}
+
+#[test]
+fn set_frame_size_builtins_preserve_pixel_dimensions() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    let forms = parse_forms(
+        "(progn
+           (set-frame-width (selected-frame) 90)
+           (set-frame-height (selected-frame) 30)
+           (set-frame-size (selected-frame) 100 35))",
+    )
+    .expect("parse");
+    let out = ev.eval_forms(&forms);
+    assert!(
+        out[0].is_ok(),
+        "set-frame-size builtins failed: {:?}",
+        out[0]
+    );
+
+    let frame = ev.frames.get(fid).expect("frame should exist");
+    assert_eq!(frame.width, 800);
+    assert_eq!(frame.height, 600);
+    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(100)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(36)));
+    assert_eq!(
+        frame.parameters.get("neovm--frame-text-lines"),
+        Some(&Value::Int(35))
+    );
 }
 
 #[test]

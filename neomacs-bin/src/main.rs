@@ -31,21 +31,34 @@ use neovm_core::window::{FrameId, Window};
 
 struct PrimaryWindowDisplayHost {
     cmd_tx: crossbeam_channel::Sender<RenderCommand>,
+    primary_window_adopted: bool,
 }
 
 impl DisplayHost for PrimaryWindowDisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
-        self.cmd_tx
-            .send(RenderCommand::SetWindowTitle {
-                title: request.title,
-            })
-            .map_err(|err| format!("failed to update primary window title: {err}"))?;
-        self.cmd_tx
-            .send(RenderCommand::SetWindowSize {
-                width: request.width,
-                height: request.height,
-            })
-            .map_err(|err| format!("failed to update primary window size: {err}"))?;
+        if !self.primary_window_adopted {
+            self.cmd_tx
+                .send(RenderCommand::SetWindowTitle {
+                    title: request.title,
+                })
+                .map_err(|err| format!("failed to update primary window title: {err}"))?;
+            self.cmd_tx
+                .send(RenderCommand::SetWindowSize {
+                    width: request.width,
+                    height: request.height,
+                })
+                .map_err(|err| format!("failed to update primary window size: {err}"))?;
+            self.primary_window_adopted = true;
+        } else {
+            self.cmd_tx
+                .send(RenderCommand::CreateWindow {
+                    emacs_frame_id: request.frame_id.0,
+                    width: request.width,
+                    height: request.height,
+                    title: request.title,
+                })
+                .map_err(|err| format!("failed to create additional GUI window: {err}"))?;
+        }
         Ok(())
     }
 }
@@ -93,6 +106,7 @@ fn main() {
     let (emacs_comms, render_comms) = comms.split();
     evaluator.set_display_host(Box::new(PrimaryWindowDisplayHost {
         cmd_tx: emacs_comms.cmd_tx.clone(),
+        primary_window_adopted: false,
     }));
 
     // 5. Create shared state + spawn render thread
@@ -303,8 +317,9 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId) {
     eval.set_variable("initial-window-system", Value::symbol("neomacs"));
     eval.set_variable("invocation-name", Value::string(invocation_name));
     eval.set_variable("invocation-directory", Value::string(invocation_directory));
-    eval.set_variable("frame-initial-frame", Value::Frame(frame_id.0));
-    eval.set_variable("default-minibuffer-frame", Value::Frame(frame_id.0));
+    eval.set_variable("terminal-frame", Value::Frame(frame_id.0));
+    eval.set_variable("frame-initial-frame", Value::Nil);
+    eval.set_variable("default-minibuffer-frame", Value::Nil);
     // Skip the splash screen — its fill-region is extremely slow through
     // with_mirrored_evaluator.  Users who want it can set this to nil in
     // their init file.
@@ -415,8 +430,10 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 
 #[cfg(test)]
 mod tests {
-    use super::current_layout_frame_id;
+    use super::{configure_gnu_startup_state, current_layout_frame_id};
     use neovm_core::emacs_core::Evaluator;
+    use neovm_core::emacs_core::Value;
+    use neovm_core::window::FrameId;
 
     #[test]
     fn current_layout_frame_follows_selected_frame() {
@@ -442,5 +459,24 @@ mod tests {
         assert_eq!(current_layout_frame_id(&eval), Some(f1));
         assert!(eval.frame_manager_mut().delete_frame(f1));
         assert_eq!(current_layout_frame_id(&eval), Some(f2));
+    }
+
+    #[test]
+    fn configure_gnu_startup_state_marks_bootstrap_frame_as_terminal_frame() {
+        let mut eval = Evaluator::new();
+        configure_gnu_startup_state(&mut eval, FrameId(42));
+
+        assert_eq!(
+            eval.obarray().symbol_value("terminal-frame"),
+            Some(&Value::Frame(42))
+        );
+        assert_eq!(
+            eval.obarray().symbol_value("frame-initial-frame"),
+            Some(&Value::Nil)
+        );
+        assert_eq!(
+            eval.obarray().symbol_value("default-minibuffer-frame"),
+            Some(&Value::Nil)
+        );
     }
 }
