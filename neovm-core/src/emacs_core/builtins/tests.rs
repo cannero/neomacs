@@ -8792,6 +8792,40 @@ fn keyword_symbols_are_bound_and_special_constants() {
 }
 
 #[test]
+fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+
+    eval.obarray_mut().make_special_id(intern("vm-bound-dyn"));
+    let mut frame = OrderedSymMap::new();
+    frame.insert(intern("vm-bound-dyn"), Value::Int(9));
+    eval.dynamic.push(frame);
+
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    let buffer = eval.buffers.get_mut(current).expect("current buffer");
+    buffer.set_buffer_local("vm-bound-buf", Value::Int(7));
+
+    let dyn_bound = builtin_boundp(&mut eval, vec![Value::symbol("vm-bound-dyn")])
+        .expect("boundp should see dynamic binding");
+    assert!(dyn_bound.is_truthy());
+    let dyn_default = builtin_default_boundp(&mut eval, vec![Value::symbol("vm-bound-dyn")])
+        .expect("default-boundp should ignore dynamic binding");
+    assert!(dyn_default.is_nil());
+    let dyn_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-bound-dyn")])
+        .expect("symbol-value should see dynamic binding");
+    assert_eq!(dyn_value, Value::Int(9));
+
+    let buf_bound = builtin_boundp(&mut eval, vec![Value::symbol("vm-bound-buf")])
+        .expect("boundp should see current buffer-local binding");
+    assert!(buf_bound.is_truthy());
+    let buf_default = builtin_default_boundp(&mut eval, vec![Value::symbol("vm-bound-buf")])
+        .expect("default-boundp should ignore current buffer-local binding");
+    assert!(buf_default.is_nil());
+    let buf_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-bound-buf")])
+        .expect("symbol-value should read current buffer-local binding");
+    assert_eq!(buf_value, Value::Int(7));
+}
+
+#[test]
 fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
 

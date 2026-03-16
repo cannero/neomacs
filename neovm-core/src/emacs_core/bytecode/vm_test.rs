@@ -1810,6 +1810,31 @@ fn vm_symbol_introspection_builtins_use_shared_symbol_state() {
 }
 
 #[test]
+fn vm_variable_lookup_builtins_use_shared_dynamic_and_buffer_local_state() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (defvaralias 'vm-vm-alias 'vm-vm-base)
+                 (list
+                  (boundp 'vm-vm-alias)
+                  (default-boundp 'vm-vm-alias)
+                  (special-variable-p 'vm-vm-alias)
+                  (indirect-variable 'vm-vm-alias)
+                  (symbol-value 'vm-vm-alias)
+                  (let ((vm-vm-base 9))
+                    (list (boundp 'vm-vm-base)
+                          (symbol-value 'vm-vm-base)))))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("current buffer");
+                let buffer = eval.buffers.get_mut(current).expect("current buffer");
+                buffer.set_buffer_local("vm-vm-base", Value::Int(3));
+            },
+        ),
+        "OK (t nil t vm-vm-base 3 (t 9))"
+    );
+}
+
+#[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data }) => {

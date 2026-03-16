@@ -238,10 +238,30 @@ pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
 }
 
 pub(crate) fn builtin_boundp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_boundp_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
+}
+
+pub(crate) fn builtin_boundp_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("boundp", &args, 1)?;
-    let resolved = resolve_variable_alias_id(eval, expect_symbol_id(&args[0])?)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
+    for frame in dynamic.iter().rev() {
+        if frame.get(&resolved).is_some() {
+            return Ok(Value::True);
+        }
+    }
+    let resolved_name = resolve_sym(resolved);
+    if let Some(buf) = buffers.current_buffer()
+        && buf.get_buffer_local(resolved_name).is_some()
+    {
+        return Ok(Value::True);
+    }
     Ok(Value::bool(
-        eval.obarray().boundp_id(resolved) || eval.obarray().is_constant_id(resolved),
+        obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
     ))
 }
 
@@ -257,10 +277,17 @@ pub(crate) fn builtin_special_variable_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_special_variable_p_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_special_variable_p_in_obarray(
+    obarray: &Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("special-variable-p", &args, 1)?;
-    let resolved = resolve_variable_alias_id(eval, expect_symbol_id(&args[0])?)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     Ok(Value::bool(
-        eval.obarray().is_special_id(resolved) || eval.obarray().is_constant_id(resolved),
+        obarray.is_special_id(resolved) || obarray.is_constant_id(resolved),
     ))
 }
 
@@ -268,10 +295,14 @@ pub(crate) fn builtin_default_boundp(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_default_boundp_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_default_boundp_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("default-boundp", &args, 1)?;
-    let resolved = resolve_variable_alias_id(eval, expect_symbol_id(&args[0])?)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
     Ok(Value::bool(
-        eval.obarray().boundp_id(resolved) || eval.obarray().is_constant_id(resolved),
+        obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
     ))
 }
 
@@ -404,11 +435,18 @@ pub(crate) fn builtin_indirect_variable_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_indirect_variable_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_indirect_variable_in_obarray(
+    obarray: &Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("indirect-variable", &args, 1)?;
     let Some(symbol) = symbol_id(&args[0]) else {
         return Ok(args[0]);
     };
-    let resolved = resolve_variable_alias_id(eval, symbol)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     Ok(value_from_symbol_id(resolved))
 }
 
@@ -443,25 +481,34 @@ pub(crate) fn builtin_symbol_value(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_symbol_value_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
+}
+
+pub(crate) fn builtin_symbol_value_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedSymMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("symbol-value", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let resolved = resolve_variable_alias_id(eval, symbol)?;
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
     let resolved_is_canonical = is_canonical_symbol_id(resolved);
     // Check dynamic bindings first
-    for frame in eval.dynamic.iter().rev() {
+    for frame in dynamic.iter().rev() {
         if let Some(value) = frame.get(&resolved) {
             return Ok(*value);
         }
     }
     // Buffer-local bindings are keyed by canonical symbol names only.
     if resolved_is_canonical
-        && let Some(buf) = eval.buffers.current_buffer()
+        && let Some(buf) = buffers.current_buffer()
         && let Some(value) = buf.get_buffer_local(resolved_name)
     {
         return Ok(*value);
     }
-    match eval.obarray().symbol_value_id(resolved).cloned() {
+    match obarray.symbol_value_id(resolved).cloned() {
         Some(value) => Ok(value),
         None if resolved_is_canonical && resolved_name.starts_with(':') => {
             Ok(Value::Keyword(resolved))

@@ -2851,6 +2851,38 @@ impl<'a> Vm<'a> {
                 self.shared.autoloads,
                 args,
             )),
+            "boundp" => Some(crate::emacs_core::builtins::symbols::builtin_boundp_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "default-boundp" => Some(
+                crate::emacs_core::builtins::symbols::builtin_default_boundp_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "special-variable-p" => Some(
+                crate::emacs_core::builtins::symbols::builtin_special_variable_p_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "indirect-variable" => Some(
+                crate::emacs_core::builtins::symbols::builtin_indirect_variable_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "symbol-value" => Some(
+                crate::emacs_core::builtins::symbols::builtin_symbol_value_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "commandp" => Some(crate::emacs_core::interactive::builtin_commandp_in_state(
                 &*self.shared.obarray,
                 &*self.shared.interactive,
