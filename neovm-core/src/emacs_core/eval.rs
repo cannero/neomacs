@@ -218,9 +218,9 @@ impl InterpretedClosureTrimCacheEntry {
 /// must share to match GNU Emacs's single-runtime model.
 ///
 /// This bundle is also the correct GC/root boundary for VM fallback into
-/// evaluator paths: if the temporary mirrored evaluator omits one of these
-/// fields, collections during builtin dispatch can lose live values or expose
-/// stale runtime state.
+/// evaluator paths.  Keep a raw pointer to the parent evaluator as well so
+/// VM/evaluator crossings can run on the same runtime instead of rebuilding a
+/// temporary evaluator shell.
 pub(crate) struct VmSharedState<'a> {
     pub(crate) obarray: &'a mut Obarray,
     pub(crate) dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
@@ -276,6 +276,7 @@ pub(crate) struct VmSharedState<'a> {
     macro_cache_disabled: &'a mut bool,
     interpreted_closure_filter_fn: &'a mut Option<Value>,
     interpreted_closure_trim_cache: &'a mut HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
+    parent_eval: std::ptr::NonNull<Evaluator>,
 }
 
 impl<'a> VmSharedState<'a> {
@@ -336,6 +337,7 @@ impl<'a> VmSharedState<'a> {
         macro_cache_disabled: &'a mut bool,
         interpreted_closure_filter_fn: &'a mut Option<Value>,
         interpreted_closure_trim_cache: &'a mut HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
+        parent_eval: std::ptr::NonNull<Evaluator>,
     ) -> Self {
         Self {
             obarray,
@@ -392,6 +394,7 @@ impl<'a> VmSharedState<'a> {
             macro_cache_disabled,
             interpreted_closure_filter_fn,
             interpreted_closure_trim_cache,
+            parent_eval,
         }
     }
 
@@ -400,6 +403,7 @@ impl<'a> VmSharedState<'a> {
     }
 
     pub(crate) fn from_evaluator(eval: &'a mut Evaluator) -> Self {
+        let parent_eval = std::ptr::NonNull::from(&mut *eval);
         Self::new(
             &mut eval.obarray,
             &mut eval.dynamic,
@@ -455,73 +459,8 @@ impl<'a> VmSharedState<'a> {
             &mut eval.macro_cache_disabled,
             &mut eval.interpreted_closure_filter_fn,
             &mut eval.interpreted_closure_trim_cache,
+            parent_eval,
         )
-    }
-
-    pub(crate) fn swap_with_evaluator(&mut self, eval: &mut Evaluator) {
-        std::mem::swap(self.obarray, &mut eval.obarray);
-        std::mem::swap(self.dynamic, &mut eval.dynamic);
-        std::mem::swap(self.lexenv, &mut eval.lexenv);
-        std::mem::swap(self.features, &mut eval.features);
-        std::mem::swap(self.require_stack, &mut eval.require_stack);
-        std::mem::swap(self.loads_in_progress, &mut eval.loads_in_progress);
-        std::mem::swap(self.buffers, &mut eval.buffers);
-        std::mem::swap(self.match_data, &mut eval.match_data);
-        std::mem::swap(self.processes, &mut eval.processes);
-        std::mem::swap(self.timers, &mut eval.timers);
-        std::mem::swap(self.watchers, &mut eval.watchers);
-        std::mem::swap(self.standard_syntax_table, &mut eval.standard_syntax_table);
-        std::mem::swap(self.current_local_map, &mut eval.current_local_map);
-        std::mem::swap(self.registers, &mut eval.registers);
-        std::mem::swap(self.bookmarks, &mut eval.bookmarks);
-        std::mem::swap(self.abbrevs, &mut eval.abbrevs);
-        std::mem::swap(self.autoloads, &mut eval.autoloads);
-        std::mem::swap(self.custom, &mut eval.custom);
-        std::mem::swap(self.rectangle, &mut eval.rectangle);
-        std::mem::swap(self.interactive, &mut eval.interactive);
-        std::mem::swap(self.recent_input_events, &mut eval.recent_input_events);
-        std::mem::swap(self.read_command_keys, &mut eval.read_command_keys);
-        std::mem::swap(self.input_mode_interrupt, &mut eval.input_mode_interrupt);
-        std::mem::swap(self.frames, &mut eval.frames);
-        std::mem::swap(self.modes, &mut eval.modes);
-        std::mem::swap(self.threads, &mut eval.threads);
-        std::mem::swap(self.category_manager, &mut eval.category_manager);
-        std::mem::swap(self.kmacro, &mut eval.kmacro);
-        std::mem::swap(self.command_loop, &mut eval.command_loop);
-        std::mem::swap(self.input_rx, &mut eval.input_rx);
-        #[cfg(unix)]
-        std::mem::swap(self.wakeup_fd, &mut eval.wakeup_fd);
-        std::mem::swap(self.redisplay_fn, &mut eval.redisplay_fn);
-        std::mem::swap(self.display_host, &mut eval.display_host);
-        std::mem::swap(self.coding_systems, &mut eval.coding_systems);
-        std::mem::swap(self.face_table, &mut eval.face_table);
-        std::mem::swap(self.depth, &mut eval.depth);
-        std::mem::swap(self.max_depth, &mut eval.max_depth);
-        std::mem::swap(self.gc_pending, &mut eval.gc_pending);
-        std::mem::swap(self.gc_count, &mut eval.gc_count);
-        std::mem::swap(self.gc_stress, &mut eval.gc_stress);
-        std::mem::swap(self.temp_roots, &mut eval.temp_roots);
-        std::mem::swap(self.catch_tags, &mut eval.catch_tags);
-        std::mem::swap(self.saved_lexenvs, &mut eval.saved_lexenvs);
-        std::mem::swap(self.named_call_cache, &mut eval.named_call_cache);
-        std::mem::swap(
-            self.pcase_macroexpand_temp_counter,
-            &mut eval.pcase_macroexpand_temp_counter,
-        );
-        std::mem::swap(self.literal_cache, &mut eval.literal_cache);
-        std::mem::swap(self.macro_expansion_cache, &mut eval.macro_expansion_cache);
-        std::mem::swap(self.macro_cache_hits, &mut eval.macro_cache_hits);
-        std::mem::swap(self.macro_cache_misses, &mut eval.macro_cache_misses);
-        std::mem::swap(self.macro_expand_total_us, &mut eval.macro_expand_total_us);
-        std::mem::swap(self.macro_cache_disabled, &mut eval.macro_cache_disabled);
-        std::mem::swap(
-            self.interpreted_closure_filter_fn,
-            &mut eval.interpreted_closure_filter_fn,
-        );
-        std::mem::swap(
-            self.interpreted_closure_trim_cache,
-            &mut eval.interpreted_closure_trim_cache,
-        );
     }
 
     pub(crate) fn begin_lambda_call(
@@ -551,6 +490,14 @@ impl<'a> VmSharedState<'a> {
             self.temp_roots,
             state,
         );
+    }
+
+    pub(crate) fn with_parent_evaluator<T>(&mut self, f: impl FnOnce(&mut Evaluator) -> T) -> T {
+        // Safety: `parent_eval` points at the evaluator that created this
+        // shared state and stays alive for the entire VM lifetime. VM/evaluator
+        // crossings are serialized through `&mut self`, so no shared-state
+        // field is accessed while the parent evaluator callback is active.
+        unsafe { f(self.parent_eval.as_mut()) }
     }
 }
 

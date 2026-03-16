@@ -2915,9 +2915,8 @@ impl<'a> Vm<'a> {
                     .shared
                     .begin_lambda_call(&lambda_data, &args, func_val)?;
                 let body = lambda_data.body.clone();
-                let result = self.with_mirrored_evaluator(&extra_roots, move |eval| {
-                    eval.eval_lambda_body(&body)
-                });
+                let result = self
+                    .with_shared_evaluator(&extra_roots, move |eval| eval.eval_lambda_body(&body));
                 self.shared.finish_lambda_call(call_state);
                 result
             }
@@ -2969,7 +2968,7 @@ impl<'a> Vm<'a> {
                     &*self.shared.obarray,
                     &file,
                 )?;
-                self.with_mirrored_evaluator(extra_roots, move |eval| {
+                self.with_shared_evaluator(extra_roots, move |eval| {
                     eval.load_file_internal(&path)
                 })?;
                 crate::emacs_core::autoload::finish_autoload_do_load_in_state(
@@ -2992,9 +2991,8 @@ impl<'a> Vm<'a> {
             crate::emacs_core::eval::RequirePlan::Return(value) => Ok(value),
             crate::emacs_core::eval::RequirePlan::Load { sym_id, name, path } => {
                 self.shared.require_stack.push(sym_id);
-                let result = self.with_mirrored_evaluator(extra_roots, move |eval| {
-                    eval.load_file_internal(&path)
-                });
+                let result = self
+                    .with_shared_evaluator(extra_roots, move |eval| eval.load_file_internal(&path));
                 let _ = self.shared.require_stack.pop();
                 result?;
                 crate::emacs_core::eval::finish_require_in_state(
@@ -3021,8 +3019,9 @@ impl<'a> Vm<'a> {
             args.get(4).copied(),
         )? {
             crate::emacs_core::load::LoadPlan::Return(value) => Ok(value),
-            crate::emacs_core::load::LoadPlan::Load { path } => self
-                .with_mirrored_evaluator(extra_roots, move |eval| eval.load_file_internal(&path)),
+            crate::emacs_core::load::LoadPlan::Load { path } => {
+                self.with_shared_evaluator(extra_roots, move |eval| eval.load_file_internal(&path))
+            }
         }
     }
 
@@ -3035,7 +3034,7 @@ impl<'a> Vm<'a> {
         }
         let form = args[0];
         let lexical_arg = args.get(1).copied();
-        self.with_mirrored_evaluator(extra_roots, move |eval| {
+        self.with_shared_evaluator(extra_roots, move |eval| {
             eval.eval_value_with_lexical_arg(form, lexical_arg)
         })
     }
@@ -3394,9 +3393,8 @@ impl<'a> Vm<'a> {
             _ => {}
         }
 
-        // Create a temporary evaluator for builtin dispatch
-        // This is a bridge: builtins that don't need the evaluator work fine,
-        // those that do will need the evaluator reference.
+        // Builtins that still require evaluator entry run on the same shared
+        // runtime; pure/shared-state builtins bypass that path entirely.
         if let Some(result) = builtins::dispatch_builtin_pure(name, args.clone()) {
             return result.map_err(|flow| normalize_vm_builtin_error(name, flow));
         }
@@ -5377,88 +5375,27 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn with_mirrored_evaluator<T>(
+    fn with_shared_evaluator<T>(
         &mut self,
         extra_roots: &[Value],
         f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator) -> T,
     ) -> T {
-        use crate::emacs_core::intern::{
-            current_interner_ptr, set_current_interner, with_saved_interner,
-        };
-        use crate::emacs_core::value::{current_heap_ptr, set_current_heap, with_saved_heap};
-        // Evaluator::new() overwrites the thread-local heap/interner pointers.
-        // Save and restore them so ObjIds/SymIds from the caller remain valid.
-        let mut eval = with_saved_interner(|| {
-            with_saved_heap(crate::emacs_core::eval::Evaluator::new_preserving_thread_locals)
-        });
-
-        // The temp evaluator owns a fresh empty heap, but all ObjIds in
-        // args/obarray/dynamic/etc. belong to the ORIGINAL heap (the one
-        // set as CURRENT_HEAP by the parent Evaluator).  Evaluator methods
-        // like apply() and gc_collect() use self.heap, not the thread-local,
-        // so we must swap the real heap data into the temp evaluator.
-        let original_heap_ptr = current_heap_ptr();
-        assert!(
-            !original_heap_ptr.is_null(),
-            "dispatch_vm_builtin_eval: no current heap"
-        );
-        let original_interner_ptr = current_interner_ptr();
-        assert!(
-            !original_interner_ptr.is_null(),
-            "dispatch_vm_builtin_eval: no current interner"
-        );
-        // Safety: original_heap_ptr was set by the parent Evaluator's
-        // setup_thread_locals() and points to a valid, exclusively-owned
-        // LispHeap inside the parent's Box<LispHeap>.  The parent Evaluator
-        // is alive on the stack (it created this VM) and no other code
-        // accesses it while the VM is running.
-        unsafe {
-            std::mem::swap(&mut *eval.heap, &mut *original_heap_ptr);
-        }
-        // Safety: original_interner_ptr was set by the parent Evaluator's
-        // setup_thread_locals() and points to the active append-only interner
-        // that all live SymIds in shared VM state refer to.
-        unsafe {
-            std::mem::swap(&mut *eval.interner, &mut *original_interner_ptr);
-        }
-        // Point thread-local at eval.heap which now holds the real data.
-        set_current_heap(&mut eval.heap);
-        set_current_interner(&mut eval.interner);
-
-        self.shared.swap_with_evaluator(&mut eval);
-        let saved_temp_roots = eval.save_temp_roots();
-        for root in &self.gc_roots {
-            eval.push_temp_root(*root);
-        }
-        for root in extra_roots {
-            eval.push_temp_root(*root);
-        }
-
-        let result = f(&mut eval);
-
-        eval.restore_temp_roots(saved_temp_roots);
-        self.shared.swap_with_evaluator(&mut eval);
-
-        // Swap the heap data back to its original location so the parent
-        // Evaluator's Box<LispHeap> is consistent when we return.  Any
-        // objects allocated during the builtin are now in the original heap.
-        unsafe {
-            std::mem::swap(&mut *eval.heap, &mut *original_heap_ptr);
-        }
-        unsafe {
-            std::mem::swap(&mut *eval.interner, &mut *original_interner_ptr);
-        }
-        // Restore thread-local to the original location.
-        unsafe {
-            set_current_heap(&mut *original_heap_ptr);
-            set_current_interner(&mut *original_interner_ptr);
-        }
-
-        result
+        self.shared.with_parent_evaluator(|eval| {
+            let saved_temp_roots = eval.save_temp_roots();
+            for root in &self.gc_roots {
+                eval.push_temp_root(*root);
+            }
+            for root in extra_roots {
+                eval.push_temp_root(*root);
+            }
+            let result = f(eval);
+            eval.restore_temp_roots(saved_temp_roots);
+            result
+        })
     }
 
-    /// Dispatch builtins that require evaluator context by running them
-    /// on a temporary evaluator mirrored from the VM's current obarray/env.
+    /// Dispatch builtins that still require evaluator entry on the shared
+    /// runtime.
     fn dispatch_vm_builtin_eval(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {
         let trace_vm_builtins = std::env::var_os("NEOVM_TRACE_VM_BUILTINS").is_some();
         let trace_load_file_name = if trace_vm_builtins {
@@ -5472,7 +5409,7 @@ impl<'a> Vm<'a> {
         };
         let trace_start = trace_vm_builtins.then(std::time::Instant::now);
         let extra_roots = args.clone();
-        let result = self.with_mirrored_evaluator(&extra_roots, move |eval| {
+        let result = self.with_shared_evaluator(&extra_roots, move |eval| {
             builtins::dispatch_builtin(eval, name, args)
         });
         if let Some(start) = trace_start {
