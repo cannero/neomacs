@@ -1815,19 +1815,18 @@ pub(crate) fn builtin_constrain_to_field(
     Ok(Value::Int(new_pos))
 }
 
-fn resolve_field_position(
-    eval: &super::eval::Evaluator,
+fn resolve_field_position_in_buffers(
+    buffers: &BufferManager,
     position_value: Option<&Value>,
 ) -> Result<(i64, i64, i64), Flow> {
-    let buf = eval
-        .buffers
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_min = buf.point_min_char() as i64 + 1;
     let point_max = buf.point_max_char() as i64 + 1;
     let pos = match position_value {
         None | Some(Value::Nil) => buf.text.byte_to_char(buf.pt) as i64 + 1,
-        Some(value) => expect_integer_or_marker(value)?,
+        Some(value) => expect_integer_or_marker_in_buffers(buffers, value)?,
     };
     if pos < point_min || pos > point_max {
         return Err(signal("args-out-of-range", vec![Value::Int(pos)]));
@@ -1835,36 +1834,178 @@ fn resolve_field_position(
     Ok((pos, point_min, point_max))
 }
 
+fn field_property_after_char_in_buffers(buffers: &BufferManager, pos: i64) -> Result<Value, Flow> {
+    let value = crate::emacs_core::textprop::builtin_get_char_property_and_overlay_in_buffers(
+        buffers,
+        vec![Value::Int(pos), Value::symbol("field")],
+    )?;
+    match value {
+        Value::Cons(cell) => Ok(read_cons(cell).car),
+        other => Err(signal("error", vec![other])),
+    }
+}
+
+fn field_property_at_position_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    pos: i64,
+) -> Result<Value, Flow> {
+    crate::emacs_core::builtins::misc_eval::builtin_get_pos_property_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        vec![Value::Int(pos), Value::symbol("field")],
+    )
+}
+
+fn previous_field_change_in_buffers(
+    buffers: &BufferManager,
+    pos: i64,
+    limit: Option<i64>,
+) -> Result<i64, Flow> {
+    let mut args = vec![Value::Int(pos), Value::symbol("field")];
+    if let Some(limit) = limit {
+        args.push(Value::Nil);
+        args.push(Value::Int(limit));
+    }
+    expect_int(&crate::emacs_core::builtins::misc_eval::builtin_previous_single_char_property_change_in_buffers(buffers, args)?)
+}
+
+fn next_field_change_in_buffers(
+    buffers: &BufferManager,
+    pos: i64,
+    limit: Option<i64>,
+) -> Result<i64, Flow> {
+    let mut args = vec![Value::Int(pos), Value::symbol("field")];
+    if let Some(limit) = limit {
+        args.push(Value::Nil);
+        args.push(Value::Int(limit));
+    }
+    expect_int(&crate::emacs_core::builtins::misc_eval::builtin_next_single_char_property_change_in_buffers(buffers, args)?)
+}
+
+fn find_field_bounds_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    position_value: Option<&Value>,
+    merge_at_boundary: bool,
+    beg_limit: Option<i64>,
+    end_limit: Option<i64>,
+) -> Result<(i64, i64), Flow> {
+    let (pos, point_min, _point_max) = resolve_field_position_in_buffers(buffers, position_value)?;
+    let after_field = field_property_after_char_in_buffers(buffers, pos)?;
+    let before_field = if pos > point_min {
+        field_property_after_char_in_buffers(buffers, pos - 1)?
+    } else {
+        after_field
+    };
+
+    let mut at_field_start = false;
+    let mut at_field_end = false;
+    if !merge_at_boundary {
+        let field = field_property_at_position_in_state(obarray, dynamic, buffers, pos)?;
+        if !eq_value(&field, &after_field) {
+            at_field_end = true;
+        }
+        if !eq_value(&field, &before_field) {
+            at_field_start = true;
+        }
+        if field.is_nil() && at_field_start && at_field_end {
+            at_field_start = false;
+            at_field_end = false;
+        }
+    }
+
+    let boundary = Value::symbol("boundary");
+    let beg = if at_field_start {
+        pos
+    } else {
+        let mut cursor = pos;
+        if merge_at_boundary && eq_value(&before_field, &boundary) {
+            cursor = previous_field_change_in_buffers(buffers, cursor, beg_limit)?;
+        }
+        previous_field_change_in_buffers(buffers, cursor, beg_limit)?
+    };
+    let end = if at_field_end {
+        pos
+    } else {
+        let mut cursor = pos;
+        if merge_at_boundary && eq_value(&after_field, &boundary) {
+            cursor = next_field_change_in_buffers(buffers, cursor, end_limit)?;
+        }
+        next_field_change_in_buffers(buffers, cursor, end_limit)?
+    };
+
+    Ok((beg, end))
+}
+
 /// `(field-beginning &optional POS ESCAPE-FROM-EDGE LIMIT)` -> position
 pub(crate) fn builtin_field_beginning(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_field_beginning_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_field_beginning_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("field-beginning", &args, 3)?;
-    let (_pos, point_min, _point_max) = resolve_field_position(eval, args.first())?;
-    if let Some(limit_value) = args.get(2) {
-        if !limit_value.is_nil() {
-            let limit = expect_integer_or_marker(limit_value)?;
+    let limit = match args.get(2) {
+        Some(limit_value) if !limit_value.is_nil() => {
+            let limit = expect_integer_or_marker_in_buffers(buffers, limit_value)?;
             if limit <= 0 {
                 return Err(signal("args-out-of-range", vec![Value::Int(limit)]));
             }
-            return Ok(Value::Int(point_min.max(limit)));
+            Some(limit)
         }
-    }
-    Ok(Value::Int(point_min))
+        _ => None,
+    };
+    let (beg, _) = find_field_bounds_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args.first(),
+        args.get(1).is_some_and(|value| value.is_truthy()),
+        limit,
+        None,
+    )?;
+    Ok(Value::Int(beg))
 }
 
 /// `(field-end &optional POS ESCAPE-FROM-EDGE LIMIT)` -> position
 pub(crate) fn builtin_field_end(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_field_end_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_field_end_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("field-end", &args, 3)?;
-    let (_pos, _point_min, point_max) = resolve_field_position(eval, args.first())?;
-    if let Some(limit_value) = args.get(2) {
-        if !limit_value.is_nil() {
-            let limit = expect_integer_or_marker(limit_value)?;
-            return Ok(Value::Int(point_max.min(limit)));
+    let limit = match args.get(2) {
+        Some(limit_value) if !limit_value.is_nil() => {
+            Some(expect_integer_or_marker_in_buffers(buffers, limit_value)?)
         }
-    }
-    Ok(Value::Int(point_max))
+        _ => None,
+    };
+    let (_, end) = find_field_bounds_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        args.first(),
+        args.get(1).is_some_and(|value| value.is_truthy()),
+        None,
+        limit,
+    )?;
+    Ok(Value::Int(end))
 }
 
 /// `(field-string &optional POS)` -> field text at POS.
@@ -1872,9 +2013,19 @@ pub(crate) fn builtin_field_string(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_field_string_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_field_string_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("field-string", &args, 1)?;
-    let (_pos, point_min, point_max) = resolve_field_position(eval, args.first())?;
-    builtin_buffer_substring(eval, vec![Value::Int(point_min), Value::Int(point_max)])
+    let (beg, end) =
+        find_field_bounds_in_state(obarray, dynamic, buffers, args.first(), false, None, None)?;
+    builtin_buffer_substring_in_manager(buffers, vec![Value::Int(beg), Value::Int(end)])
 }
 
 /// `(field-string-no-properties &optional POS)` -> field text at POS.
@@ -1882,11 +2033,21 @@ pub(crate) fn builtin_field_string_no_properties(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_field_string_no_properties_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_field_string_no_properties_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("field-string-no-properties", &args, 1)?;
-    let (_pos, point_min, point_max) = resolve_field_position(eval, args.first())?;
-    super::editfns::builtin_buffer_substring_no_properties(
-        eval,
-        vec![Value::Int(point_min), Value::Int(point_max)],
+    let (beg, end) =
+        find_field_bounds_in_state(obarray, dynamic, buffers, args.first(), false, None, None)?;
+    super::editfns::builtin_buffer_substring_no_properties_in_state(
+        buffers,
+        vec![Value::Int(beg), Value::Int(end)],
     )
 }
 
@@ -1895,9 +2056,24 @@ pub(crate) fn builtin_delete_field(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_delete_field_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_delete_field_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("delete-field", &args, 1)?;
-    let (_pos, point_min, point_max) = resolve_field_position(eval, args.first())?;
-    builtin_delete_region(eval, vec![Value::Int(point_min), Value::Int(point_max)])
+    let (beg, end) =
+        find_field_bounds_in_state(obarray, dynamic, buffers, args.first(), false, None, None)?;
+    super::editfns::builtin_delete_region_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        vec![Value::Int(beg), Value::Int(end)],
+    )
 }
 
 /// `(clear-string STRING)` -> nil

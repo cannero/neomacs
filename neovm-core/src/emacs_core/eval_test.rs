@@ -2729,6 +2729,51 @@ fn compare_buffer_substrings_respects_case_fold_search() {
 }
 
 #[test]
+fn field_builtins_match_gnu_property_boundary_semantics() {
+    assert_eq!(
+        eval_one(
+            r#"(with-temp-buffer
+                 (list
+                  (progn
+                    (insert "abcdefg")
+                    (put-text-property 2 5 'field 'left)
+                    (put-text-property 5 8 'field 'right)
+                    (put-text-property 2 5 'face 'bold)
+                    (let ((s (field-string 3)))
+                      (list
+                       (list (field-beginning 3)
+                             (field-end 3)
+                             (field-string-no-properties 3))
+                       (get-text-property 1 'face s)
+                       (list (field-beginning 5)
+                             (field-beginning 5 t)
+                             (field-end 5)
+                             (field-end 5 t))
+                       (progn
+                         (delete-field 3)
+                         (list
+                          (buffer-substring-no-properties (point-min) (point-max))
+                          (get-text-property 2 'field))))))
+                  (progn
+                    (erase-buffer)
+                    (insert "abcdefg")
+                    (put-text-property 2 4 'field 'left)
+                    (put-text-property 4 5 'field 'boundary)
+                    (put-text-property 5 8 'field 'right)
+                    (list (field-beginning 4)
+                          (field-beginning 4 t)
+                          (field-end 4)
+                          (field-end 4 t)
+                          (field-beginning 5)
+                          (field-beginning 5 t)
+                          (field-end 5)
+                          (field-end 5 t)))))"#,
+        ),
+        r#"OK (((2 5 "bcd") bold (2 2 5 8) ("aefg" right)) (2 2 4 8 4 2 5 8))"#
+    );
+}
+
+#[test]
 fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
     let results = eval_all(
         "(list

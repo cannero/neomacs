@@ -1864,6 +1864,42 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn builtin_field_beginning_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_field_beginning_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_field_end_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_field_end_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_field_string_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_field_string_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_field_string_no_properties_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_field_string_no_properties_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
     fn builtin_point_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::builtins::builtin_point_in_manager(&*self.shared.buffers, args.to_vec())
     }
@@ -2148,6 +2184,15 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::builtin_compare_buffer_substrings_in_state(
             self.case_fold_search_enabled(),
             &*self.shared.buffers,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_delete_field_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::builtin_delete_field_in_state(
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            &mut *self.shared.buffers,
             args.to_vec(),
         )
     }
@@ -3018,6 +3063,12 @@ impl<'a> Vm<'a> {
             "point-min" => Some(self.builtin_point_min_shared(args)),
             "point-max" => Some(self.builtin_point_max_shared(args)),
             "goto-char" => Some(self.builtin_goto_char_shared(args)),
+            "field-beginning" => Some(self.builtin_field_beginning_shared(args)),
+            "field-end" => Some(self.builtin_field_end_shared(args)),
+            "field-string" => Some(self.builtin_field_string_shared(args)),
+            "field-string-no-properties" => {
+                Some(self.builtin_field_string_no_properties_shared(args))
+            }
             "char-after" => Some(self.builtin_char_after_shared(args)),
             "char-before" => Some(self.builtin_char_before_shared(args)),
             "buffer-size" => Some(self.builtin_buffer_size_shared(args)),
@@ -3056,6 +3107,7 @@ impl<'a> Vm<'a> {
             "compare-buffer-substrings" => {
                 Some(self.builtin_compare_buffer_substrings_shared(args))
             }
+            "delete-field" => Some(self.builtin_delete_field_shared(args)),
             "erase-buffer" => Some(self.builtin_erase_buffer_shared(args)),
             "buffer-enable-undo" => Some(self.builtin_buffer_enable_undo_shared(args)),
             "buffer-disable-undo" => Some(self.builtin_buffer_disable_undo_shared(args)),

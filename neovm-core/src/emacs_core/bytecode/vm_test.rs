@@ -929,6 +929,52 @@ fn vm_compare_buffer_substrings_uses_shared_case_fold_state() {
 }
 
 #[test]
+fn vm_field_builtins_use_shared_property_boundary_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (erase-buffer)
+                 (list
+                  (progn
+                    (insert "abcdefg")
+                    (put-text-property 2 5 'field 'left)
+                    (put-text-property 5 8 'field 'right)
+                    (put-text-property 2 5 'face 'bold)
+                    (let ((s (field-string 3)))
+                      (list
+                       (list (field-beginning 3)
+                             (field-end 3)
+                             (field-string-no-properties 3))
+                       (get-text-property 1 'face s)
+                       (list (field-beginning 5)
+                             (field-beginning 5 t)
+                             (field-end 5)
+                             (field-end 5 t))
+                       (progn
+                         (delete-field 3)
+                         (list
+                          (buffer-substring-no-properties (point-min) (point-max))
+                          (get-text-property 2 'field))))))
+                  (progn
+                    (erase-buffer)
+                    (insert "abcdefg")
+                    (put-text-property 2 4 'field 'left)
+                    (put-text-property 4 5 'field 'boundary)
+                    (put-text-property 5 8 'field 'right)
+                    (list (field-beginning 4)
+                          (field-beginning 4 t)
+                          (field-end 4)
+                          (field-end 4 t)
+                          (field-beginning 5)
+                          (field-beginning 5 t)
+                          (field-end 5)
+                          (field-end 5 t)))))"#
+        ),
+        r#"OK (((2 5 "bcd") bold (2 2 5 8) ("aefg" right)) (2 2 4 8 4 2 5 8))"#
+    );
+}
+
+#[test]
 fn vm_read_only_noop_buffer_mutations_match_gnu() {
     assert_eq!(
         vm_eval_str(
