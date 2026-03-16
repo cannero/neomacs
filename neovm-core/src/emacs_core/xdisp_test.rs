@@ -92,6 +92,63 @@ fn test_format_mode_line_eval_optional_designators() {
 }
 
 #[test]
+fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
+    let other_id = eval.buffers.create_buffer("*other*");
+
+    let ok = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::string("%b"),
+            Value::Nil,
+            Value::Nil,
+            Value::Buffer(other_id),
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(ok, Value::string("*other*"));
+    assert_eq!(eval.buffers.current_buffer_id(), Some(saved_current));
+}
+
+#[test]
+fn test_format_mode_line_eval_uses_window_buffer_instead_of_current_buffer() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
+    let frame_id = eval
+        .frames
+        .create_frame("xdisp-window", 80, 24, saved_current);
+    let other_id = eval.buffers.create_buffer("*window*");
+    let window_id = {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        let selected = frame.selected_window;
+        let window = frame
+            .find_window_mut(selected)
+            .expect("selected window on frame");
+        match window {
+            crate::window::Window::Leaf { buffer_id, .. } => *buffer_id = other_id,
+            other => panic!("expected leaf window, got {:?}", other),
+        }
+        selected.0 as i64
+    };
+
+    let ok = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::string("%b"),
+            Value::Nil,
+            Value::Window(window_id as u64),
+            Value::Nil,
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(ok, Value::string("*window*"));
+    assert_eq!(eval.buffers.current_buffer_id(), Some(saved_current));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

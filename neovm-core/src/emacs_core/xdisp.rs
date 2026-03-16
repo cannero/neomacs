@@ -18,6 +18,7 @@
 use super::chartable::{make_char_table_value, make_char_table_with_extra_slots};
 use super::error::{EvalResult, Flow, signal};
 use super::value::*;
+use crate::buffer::BufferId;
 use crate::window::{FrameId, WindowId};
 
 // ---------------------------------------------------------------------------
@@ -107,9 +108,19 @@ pub(crate) fn builtin_format_mode_line_eval(
     validate_optional_window_designator(eval, args.get(2), "windowp")?;
     validate_optional_buffer_designator(eval, args.get(3))?;
 
+    let target_buffer = resolve_mode_line_buffer(eval, args.get(2), args.get(3));
+    let saved_buffer = eval.buffers.current_buffer_id();
+    if let Some(buffer_id) = target_buffer {
+        eval.buffers.set_current(buffer_id);
+    }
+
     let format_val = args[0];
     let mut result = String::new();
     format_mode_line_recursive(eval, &format_val, &mut result, 0);
+
+    if let Some(buffer_id) = saved_buffer {
+        eval.buffers.set_current(buffer_id);
+    }
     Ok(Value::string(&result))
 }
 
@@ -762,6 +773,44 @@ fn validate_optional_buffer_designator(
         "wrong-type-argument",
         vec![Value::symbol("bufferp"), *bufferish],
     ))
+}
+
+fn resolve_optional_window_buffer(
+    eval: &super::eval::Evaluator,
+    value: Option<&Value>,
+) -> Option<BufferId> {
+    let windowish = value?;
+    if windowish.is_nil() {
+        return None;
+    }
+
+    let wid = match windowish {
+        Value::Window(id) => Some(WindowId(*id)),
+        Value::Int(id) if *id >= 0 => Some(WindowId(*id as u64)),
+        _ => None,
+    }?;
+
+    for fid in eval.frames.frame_list() {
+        let Some(frame) = eval.frames.get(fid) else {
+            continue;
+        };
+        if let Some(window) = frame.find_window(wid) {
+            return window.buffer_id();
+        }
+    }
+
+    None
+}
+
+fn resolve_mode_line_buffer(
+    eval: &super::eval::Evaluator,
+    window: Option<&Value>,
+    buffer: Option<&Value>,
+) -> Option<BufferId> {
+    match buffer {
+        Some(Value::Buffer(id)) => Some(*id),
+        _ => resolve_optional_window_buffer(eval, window),
+    }
 }
 
 // ---------------------------------------------------------------------------

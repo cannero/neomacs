@@ -563,4 +563,32 @@ mod tests {
             "(execute-extended-command execute-extended-command split-window-below split-window-below split-window-right split-window-right)"
         );
     }
+
+    #[test]
+    fn gnu_startup_formats_mode_line_for_target_window_buffer() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(let* ((w (selected-window))
+                      (buf (window-buffer w))
+                      (mini (minibuffer-window)))
+                 (with-current-buffer (window-buffer mini)
+                   (format-mode-line "%b" nil w buf)))"#,
+        )
+        .expect("parse startup mode-line probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup mode-line probe should evaluate");
+        assert_eq!(result, Value::string("*scratch*"));
+    }
 }

@@ -21,6 +21,10 @@ use neomacs_display_protocol::frame_glyphs::{
     WindowTransitionHint, WindowTransitionKind,
 };
 use neomacs_display_protocol::types::{Color, Rect};
+use neovm_core::buffer::BufferId;
+use neovm_core::emacs_core::Value;
+use neovm_core::emacs_core::expr::Expr;
+use neovm_core::emacs_core::intern::intern;
 
 /// Maximum number of characters in a ligature run before forced flush.
 const MAX_LIGATURE_RUN_LEN: usize = 64;
@@ -37,6 +41,27 @@ struct LigatureRunBuffer {
     total_advance: f32,
     is_overlay: bool,
     height_scale: f32,
+}
+
+fn eval_status_line_format(
+    evaluator: &mut neovm_core::emacs_core::Evaluator,
+    format_symbol: &str,
+    window_id: i64,
+    buffer_id: u64,
+) -> Option<String> {
+    evaluator.setup_thread_locals();
+    let expr = Expr::List(vec![
+        Expr::Symbol(intern("format-mode-line")),
+        Expr::Symbol(intern(format_symbol)),
+        Expr::Bool(false),
+        Expr::OpaqueValue(Value::Window(window_id as u64)),
+        Expr::OpaqueValue(Value::Buffer(BufferId(buffer_id))),
+    ]);
+    evaluator
+        .eval_expr(&expr)
+        .ok()
+        .and_then(|val| val.as_str_owned())
+        .filter(|s| !s.is_empty())
 }
 
 impl LigatureRunBuffer {
@@ -3815,31 +3840,20 @@ impl LayoutEngine {
             };
             let ml_face = face_resolver.resolve_named_face(ml_face_name);
 
-            // Try to evaluate (format-mode-line mode-line-format)
             let mode_text = {
-                evaluator.setup_thread_locals();
-                let expr_str = "(format-mode-line mode-line-format)";
-                match neovm_core::emacs_core::parse_forms(expr_str) {
-                    Ok(forms) if !forms.is_empty() => match evaluator.eval_expr(&forms[0]) {
-                        Ok(val) => {
-                            let result = val
-                                .as_str_owned()
-                                .filter(|s| !s.is_empty())
-                                .unwrap_or_else(|| format!(" {} ", buffer_name));
-                            tracing::debug!(
-                                "mode-line eval result: {:?} (len={})",
-                                &result[..result.len().min(120)],
-                                result.len()
-                            );
-                            result
-                        }
-                        Err(e) => {
-                            tracing::debug!("mode-line eval error: {:?}", e);
-                            format!(" {} ", buffer_name)
-                        }
-                    },
-                    _ => format!(" {} ", buffer_name),
-                }
+                let result = eval_status_line_format(
+                    evaluator,
+                    "mode-line-format",
+                    params.window_id,
+                    params.buffer_id,
+                )
+                .unwrap_or_else(|| format!(" {} ", buffer_name));
+                tracing::debug!(
+                    "mode-line eval result: {:?} (len={})",
+                    &result[..result.len().min(120)],
+                    result.len()
+                );
+                result
             };
 
             self.render_rust_status_line_plain(
@@ -3864,21 +3878,13 @@ impl LayoutEngine {
             let hl_y = params.bounds.y + params.tab_line_height;
             let hl_face = face_resolver.resolve_named_face("header-line");
 
-            // Try to evaluate (format-mode-line header-line-format)
-            let header_text = {
-                evaluator.setup_thread_locals();
-                let expr_str = "(format-mode-line header-line-format)";
-                match neovm_core::emacs_core::parse_forms(expr_str) {
-                    Ok(forms) if !forms.is_empty() => match evaluator.eval_expr(&forms[0]) {
-                        Ok(val) => val
-                            .as_str_owned()
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or_default(),
-                        Err(_) => String::new(),
-                    },
-                    _ => String::new(),
-                }
-            };
+            let header_text = eval_status_line_format(
+                evaluator,
+                "header-line-format",
+                params.window_id,
+                params.buffer_id,
+            )
+            .unwrap_or_default();
 
             self.render_rust_status_line_plain(
                 params.bounds.x,
@@ -3903,21 +3909,13 @@ impl LayoutEngine {
             let tl_y = params.bounds.y;
             let tl_face = face_resolver.resolve_named_face("tab-line");
 
-            // Try to evaluate (format-mode-line tab-line-format)
-            let tab_text = {
-                evaluator.setup_thread_locals();
-                let expr_str = "(format-mode-line tab-line-format)";
-                match neovm_core::emacs_core::parse_forms(expr_str) {
-                    Ok(forms) if !forms.is_empty() => match evaluator.eval_expr(&forms[0]) {
-                        Ok(val) => val
-                            .as_str_owned()
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or_default(),
-                        Err(_) => String::new(),
-                    },
-                    _ => String::new(),
-                }
-            };
+            let tab_text = eval_status_line_format(
+                evaluator,
+                "tab-line-format",
+                params.window_id,
+                params.buffer_id,
+            )
+            .unwrap_or_default();
 
             self.render_rust_status_line_plain(
                 params.bounds.x,
