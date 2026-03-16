@@ -1066,6 +1066,7 @@ pub(crate) fn dispatch_builtin(
         "local-variable-if-set-p" => return Some(builtin_local_variable_if_set_p_eval(eval, args)),
         "variable-binding-locus" => return Some(builtin_variable_binding_locus_eval(eval, args)),
         "interactive-form" => return Some(builtin_interactive_form_eval(eval, args)),
+        "command-modes" => return Some(super::interactive::builtin_command_modes_eval(eval, args)),
         "ntake" => return Some(builtin_ntake(args)),
         // Search / regex operations
         "search-forward" => return Some(builtin_search_forward(eval, args)),

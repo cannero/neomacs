@@ -2852,6 +2852,10 @@ impl<'a> Vm<'a> {
                 args,
             )),
             "interactive-form" => Some(self.builtin_interactive_form_shared(args)),
+            "command-modes" => Some(crate::emacs_core::interactive::builtin_command_modes_in_state(
+                &*self.shared.obarray,
+                args,
+            )),
             "eval" => Some(self.eval_with_vm_bridge(args.to_vec(), args)),
             "load" => Some(self.load_with_vm_bridge(args.to_vec(), args)),
             "autoload-do-load" => Some(self.autoload_do_load_with_vm_bridge(

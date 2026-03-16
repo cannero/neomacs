@@ -2142,3 +2142,25 @@ fn vm_interactive_form_uses_shared_autoload_load_bridge() {
         Value::list(vec![Value::symbol("interactive"), Value::string("P")])
     );
 }
+
+#[test]
+fn vm_command_modes_uses_shared_symbol_and_bytecode_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (fset 'vm-cm-shared-target '(lambda () t))
+               (fset 'vm-cm-shared-alias 'vm-cm-shared-target)
+               (put 'vm-cm-shared-alias 'command-modes '(foo-mode bar-mode))
+               (let ((f (make-byte-code '() \"\" [] 0 nil [nil '(rust-ts-mode c-mode)])))
+                 (fset 'vm-cm-shared-bytecode f))
+               (list
+                 (command-modes 'vm-cm-shared-alias)
+                 (command-modes 'vm-cm-shared-target)
+                 (command-modes '(lambda () (interactive \"p\" text-mode prog-mode) t))
+                 (command-modes 'vm-cm-shared-bytecode)
+                 (command-modes 'ignore)
+                 (command-modes 'car)))"
+        ),
+        "OK ((foo-mode bar-mode) nil (text-mode prog-mode) (rust-ts-mode c-mode) nil nil)"
+    );
+}

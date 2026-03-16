@@ -23,6 +23,7 @@ use super::keymap::{
     make_sparse_list_keymap,
 };
 use super::mode::{MajorMode, MinorMode};
+use super::symbol::Obarray;
 use super::value::*;
 
 // ---------------------------------------------------------------------------
@@ -355,6 +356,164 @@ pub(crate) fn builtin_commandp_interactive(eval: &mut Evaluator, args: Vec<Value
 pub(crate) fn builtin_command_modes(args: Vec<Value>) -> EvalResult {
     expect_args("command-modes", &args, 1)?;
     Ok(Value::Nil)
+}
+
+fn command_modes_from_expr_body(body: &[Expr]) -> Option<Value> {
+    let body_index = lambda_body_metadata_end(body);
+    for expr in &body[body_index..] {
+        let Expr::List(items) = expr else {
+            continue;
+        };
+        let Some(Expr::Symbol(head_id)) = items.first() else {
+            continue;
+        };
+        if resolve_sym(*head_id) != "interactive" {
+            continue;
+        }
+        let modes = items.iter().skip(2).map(quote_to_value).collect::<Vec<_>>();
+        return Some(if modes.is_empty() {
+            Value::Nil
+        } else {
+            Value::list(modes)
+        });
+    }
+    None
+}
+
+fn unquote_command_modes_value(value: Value) -> Value {
+    let Some(items) = value_list_to_vec(&value) else {
+        return value;
+    };
+    if items.len() == 2 && items[0].as_symbol_name() == Some("quote") {
+        items[1]
+    } else {
+        value
+    }
+}
+
+fn command_modes_from_quoted_interactive_form(form: &Value) -> Result<Option<Value>, Flow> {
+    let Value::Cons(cell) = form else {
+        return Ok(None);
+    };
+    let pair = read_cons(*cell);
+    if pair.car.as_symbol_name() != Some("interactive") {
+        return Ok(None);
+    }
+
+    match pair.cdr {
+        Value::Nil => Ok(Some(Value::Nil)),
+        Value::Cons(arg_cell) => {
+            let arg_pair = read_cons(arg_cell);
+            Ok(Some(arg_pair.cdr))
+        }
+        tail => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), tail],
+        )),
+    }
+}
+
+fn command_modes_from_quoted_lambda(value: &Value) -> Result<Option<Value>, Flow> {
+    let Some(items) = value_list_to_vec(value) else {
+        return Ok(None);
+    };
+    if items.first().and_then(Value::as_symbol_name) != Some("lambda") {
+        return Ok(None);
+    }
+
+    let mut body_index = 2;
+    if matches!(items.get(body_index), Some(Value::Str(_))) {
+        body_index += 1;
+    }
+    while items.get(body_index).is_some_and(value_is_declare_form) {
+        body_index += 1;
+    }
+
+    for form in &items[body_index..] {
+        if let Some(modes) = command_modes_from_quoted_interactive_form(form)? {
+            return Ok(Some(modes));
+        }
+    }
+
+    Ok(None)
+}
+
+pub(crate) fn builtin_command_modes_in_state(obarray: &Obarray, args: &[Value]) -> EvalResult {
+    expect_args("command-modes", args, 1)?;
+    let command = args[0];
+    let mut function = command;
+
+    if let Some(mut current) = crate::emacs_core::builtins::symbols::symbol_id(&command) {
+        let Some((_, indirect_function)) =
+            crate::emacs_core::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
+                obarray, current,
+            )
+        else {
+            return Ok(Value::Nil);
+        };
+        if indirect_function.is_nil() {
+            return Ok(Value::Nil);
+        }
+
+        loop {
+            if let Some(modes) = obarray
+                .get_property_id(current, intern("command-modes"))
+                .copied()
+                .filter(|value| !value.is_nil())
+            {
+                return Ok(modes);
+            }
+            let Some(next_function) =
+                crate::emacs_core::builtins::symbols::symbol_function_cell_in_obarray(
+                    obarray, current,
+                )
+            else {
+                return Ok(Value::Nil);
+            };
+            function = next_function;
+            let Some(next_symbol) = crate::emacs_core::builtins::symbols::symbol_id(&function)
+            else {
+                break;
+            };
+            current = next_symbol;
+        }
+    }
+
+    match function {
+        Value::Subr(_) => Ok(Value::Nil),
+        Value::Lambda(id) | Value::Macro(id) => {
+            let body = with_heap(|h| h.get_lambda(id).body.clone());
+            Ok(command_modes_from_expr_body(&body).unwrap_or(Value::Nil))
+        }
+        Value::ByteCode(id) => {
+            let interactive = with_heap(|h| h.get_bytecode(id).interactive);
+            let Some(Value::Vector(vec_id)) = interactive else {
+                return Ok(Value::Nil);
+            };
+            Ok(with_heap(|h| {
+                if h.vector_len(vec_id) > 1 {
+                    unquote_command_modes_value(h.vector_ref(vec_id, 1))
+                } else {
+                    Value::Nil
+                }
+            }))
+        }
+        Value::Cons(_) if super::autoload::is_autoload_value(&function) => {
+            let Some(items) = value_list_to_vec(&function) else {
+                return Ok(Value::Nil);
+            };
+            Ok(match items.get(3).copied() {
+                Some(Value::Cons(_)) => items[3],
+                _ => Value::Nil,
+            })
+        }
+        Value::Cons(_) => Ok(command_modes_from_quoted_lambda(&function)?.unwrap_or(Value::Nil)),
+        _ => Ok(Value::Nil),
+    }
+}
+
+pub(crate) fn builtin_command_modes_eval(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_command_modes_in_state(&eval.obarray, &args)
 }
 
 /// `(command-remapping COMMAND &optional POSITION KEYMAP)` -- return remapped

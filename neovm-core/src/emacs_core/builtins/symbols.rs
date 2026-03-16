@@ -1965,7 +1965,7 @@ fn pure_builtin_symbol_alias_target(name: &str) -> Option<&'static str> {
     }
 }
 
-fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) -> Option<Value> {
+pub(crate) fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) -> Option<Value> {
     if obarray.is_function_unbound_id(symbol) {
         return None;
     }

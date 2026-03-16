@@ -3413,7 +3413,7 @@ fn where_is_internal_non_definition_returns_nil() {
 }
 
 #[test]
-fn command_modes_returns_nil_with_arity_checks() {
+fn command_modes_extracts_modes_and_preserves_arity_checks() {
     assert_eq!(eval_one("(command-modes 'ignore)"), "OK nil");
     assert_eq!(eval_one("(command-modes nil)"), "OK nil");
     assert_eq!(eval_one("(command-modes 0)"), "OK nil");
@@ -3422,7 +3422,29 @@ fn command_modes_returns_nil_with_arity_checks() {
         eval_one("(command-modes '(lambda () (interactive)))"),
         "OK nil"
     );
+    assert_eq!(
+        eval_one("(command-modes '(lambda () (interactive \"p\" text-mode prog-mode) t))"),
+        "OK (text-mode prog-mode)"
+    );
     assert_eq!(eval_one("(command-modes '(lambda (x) x))"), "OK nil");
+    assert_eq!(
+        eval_one(
+            "(progn
+               (fset 'vm-command-modes-target '(lambda () t))
+               (fset 'vm-command-modes-alias 'vm-command-modes-target)
+               (put 'vm-command-modes-alias 'command-modes '(foo-mode bar-mode))
+               (command-modes 'vm-command-modes-alias))"
+        ),
+        "OK (foo-mode bar-mode)"
+    );
+    assert_eq!(
+        eval_one(
+            "(let ((f (make-byte-code '() \"\" [] 0 nil [nil '(rust-ts-mode c-mode)])))
+               (fset 'vm-command-modes-bytecode f)
+               (command-modes 'vm-command-modes-bytecode))"
+        ),
+        "OK (rust-ts-mode c-mode)"
+    );
     assert_eq!(
         eval_one(
             r#"(condition-case err

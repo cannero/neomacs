@@ -464,6 +464,8 @@ mod combination_verification_system;
 mod combination_virtual_machine_advanced;
 mod combination_workflow;
 mod combination_zipper_datastructure;
+#[path = "command-modes.rs"]
+mod command_modes;
 #[path = "commandp-functionp-advanced.rs"]
 mod commandp_functionp_advanced;
 pub(crate) mod common;
