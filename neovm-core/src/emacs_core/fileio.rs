@@ -1108,7 +1108,12 @@ pub(crate) fn builtin_expand_file_name(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `expand-file-name` that falls back to dynamic
 /// `default-directory` when DEFAULT-DIRECTORY is omitted or nil.
-pub(crate) fn builtin_expand_file_name_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_expand_file_name_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("expand-file-name", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -1122,19 +1127,22 @@ pub(crate) fn builtin_expand_file_name_eval(eval: &Evaluator, args: Vec<Value>) 
     let name = expect_string_strict(&args[0])?;
     let default_dir = if let Some(arg) = args.get(1) {
         match arg {
-            Value::Nil => default_directory_for_eval(eval),
+            Value::Nil => default_directory_in_state(obarray, dynamic, buffers),
             Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-            // Emacs treats non-string DEFAULT-DIRECTORY as root.
             _ => Some("/".to_string()),
         }
     } else {
-        default_directory_for_eval(eval)
+        default_directory_in_state(obarray, dynamic, buffers)
     };
 
     Ok(Value::string(expand_file_name(
         &name,
         default_dir.as_deref(),
     )))
+}
+
+pub(crate) fn builtin_expand_file_name_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_expand_file_name_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (make-temp-file PREFIX &optional DIR-FLAG SUFFIX TEXT) -> string
@@ -1309,7 +1317,12 @@ pub(crate) fn builtin_file_truename(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-truename` that resolves relative
 /// filenames against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_truename_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_truename_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("file-truename", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -1328,8 +1341,12 @@ pub(crate) fn builtin_file_truename_eval(eval: &Evaluator, args: Vec<Value>) -> 
 
     Ok(Value::string(file_truename(
         &filename,
-        default_directory_for_eval(eval).as_deref(),
+        default_directory_in_state(obarray, dynamic, buffers).as_deref(),
     )))
+}
+
+pub(crate) fn builtin_file_truename_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_truename_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-name-directory FILENAME) -> string or nil
@@ -1414,6 +1431,7 @@ pub(crate) fn builtin_substitute_in_file_name(args: Vec<Value>) -> EvalResult {
 pub(crate) fn default_directory_in_state(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
 ) -> Option<String> {
     let name_id = intern("default-directory");
     for frame in dynamic.iter().rev() {
@@ -1424,6 +1442,11 @@ pub(crate) fn default_directory_in_state(
             };
         }
     }
+    if let Some(buf) = buffers.current_buffer()
+        && let Some(Value::Str(id)) = buf.get_buffer_local("default-directory")
+    {
+        return Some(with_heap(|h| h.get_string(*id).to_owned()));
+    }
     match obarray.symbol_value("default-directory") {
         Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
@@ -1431,23 +1454,29 @@ pub(crate) fn default_directory_in_state(
 }
 
 fn default_directory_for_eval(eval: &Evaluator) -> Option<String> {
-    default_directory_in_state(&eval.obarray, eval.dynamic.as_slice())
+    default_directory_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers)
 }
 
 pub(crate) fn resolve_filename_in_state(
     obarray: &Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     filename: &str,
 ) -> String {
     if filename.is_empty() || Path::new(filename).is_absolute() {
         return filename.to_string();
     }
-    let default_dir = default_directory_in_state(obarray, dynamic);
+    let default_dir = default_directory_in_state(obarray, dynamic, buffers);
     expand_file_name(filename, default_dir.as_deref())
 }
 
 pub(crate) fn resolve_filename_for_eval(eval: &Evaluator, filename: &str) -> String {
-    resolve_filename_in_state(&eval.obarray, eval.dynamic.as_slice(), filename)
+    resolve_filename_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        filename,
+    )
 }
 
 fn file_error_symbol(kind: ErrorKind) -> &'static str {
@@ -1580,14 +1609,24 @@ pub(crate) fn builtin_access_file(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `access-file` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_access_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_access_file_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("access-file", &args, 2)?;
-    let filename = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
+    let filename =
+        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
     let operation = expect_string_strict(&args[1])?;
     match fs::metadata(&filename) {
         Ok(_) => Ok(Value::Nil),
         Err(err) => Err(signal_file_action_error(err, &operation, &filename)),
     }
+}
+
+pub(crate) fn builtin_access_file_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_access_file_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-exists-p FILENAME) -> t or nil
@@ -1599,11 +1638,20 @@ pub(crate) fn builtin_file_exists_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-exists-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_exists_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_exists_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-exists-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_exists_p(&filename)))
+}
+
+pub(crate) fn builtin_file_exists_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_exists_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-readable-p FILENAME) -> t or nil
@@ -1615,11 +1663,20 @@ pub(crate) fn builtin_file_readable_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-readable-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_readable_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_readable_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-readable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_readable_p(&filename)))
+}
+
+pub(crate) fn builtin_file_readable_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_readable_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-writable-p FILENAME) -> t or nil
@@ -1631,11 +1688,20 @@ pub(crate) fn builtin_file_writable_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-writable-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_writable_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_writable_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-writable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_writable_p(&filename)))
+}
+
+pub(crate) fn builtin_file_writable_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_writable_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-accessible-directory-p FILENAME) -> t or nil
@@ -1647,14 +1713,28 @@ pub(crate) fn builtin_file_accessible_directory_p(args: Vec<Value>) -> EvalResul
 
 /// Evaluator-aware variant of `file-accessible-directory-p` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_accessible_directory_p_eval(
-    eval: &Evaluator,
+pub(crate) fn builtin_file_accessible_directory_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("file-accessible-directory-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_accessible_directory_p(&filename)))
+}
+
+pub(crate) fn builtin_file_accessible_directory_p_eval(
+    eval: &Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_file_accessible_directory_p_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// (file-executable-p FILENAME) -> t or nil
@@ -1666,11 +1746,20 @@ pub(crate) fn builtin_file_executable_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-executable-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_executable_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_executable_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-executable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_executable_p(&filename)))
+}
+
+pub(crate) fn builtin_file_executable_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_executable_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-acl FILENAME) -> ACL string or nil
@@ -1705,11 +1794,20 @@ pub(crate) fn builtin_file_locked_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-locked-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_locked_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_locked_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-locked-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_locked_p(&filename)))
+}
+
+pub(crate) fn builtin_file_locked_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_locked_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-selinux-context FILENAME) -> (user role type range)
@@ -1759,16 +1857,25 @@ pub(crate) fn builtin_file_system_info(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-system-info` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_system_info_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_system_info_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-system-info", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let (total, free, avail) = file_system_info(&filename)?;
     Ok(Value::list(vec![
         Value::Int(total),
         Value::Int(free),
         Value::Int(avail),
     ]))
+}
+
+pub(crate) fn builtin_file_system_info_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_system_info_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-directory-p FILENAME) -> t or nil
@@ -1780,11 +1887,20 @@ pub(crate) fn builtin_file_directory_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-directory-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_directory_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_directory_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-directory-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_directory_p(&filename)))
+}
+
+pub(crate) fn builtin_file_directory_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_directory_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-regular-p FILENAME) -> t or nil
@@ -1796,11 +1912,20 @@ pub(crate) fn builtin_file_regular_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-regular-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_regular_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_regular_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-regular-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_regular_p(&filename)))
+}
+
+pub(crate) fn builtin_file_regular_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_regular_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-symlink-p FILENAME) -> t or nil
@@ -1812,11 +1937,20 @@ pub(crate) fn builtin_file_symlink_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-symlink-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_symlink_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_symlink_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-symlink-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_symlink_p(&filename)))
+}
+
+pub(crate) fn builtin_file_symlink_p_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_symlink_p_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (file-name-case-insensitive-p FILENAME) -> t or nil
@@ -1829,15 +1963,28 @@ pub(crate) fn builtin_file_name_case_insensitive_p(args: Vec<Value>) -> EvalResu
 
 /// Evaluator-aware variant of `file-name-case-insensitive-p` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_name_case_insensitive_p_eval(
-    eval: &Evaluator,
+pub(crate) fn builtin_file_name_case_insensitive_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("file-name-case-insensitive-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let default_dir = default_directory_for_eval(eval);
-    let filename = expand_file_name(&filename, default_dir.as_deref());
+    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::bool(file_name_case_insensitive_p(&filename)))
+}
+
+pub(crate) fn builtin_file_name_case_insensitive_p_eval(
+    eval: &Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_file_name_case_insensitive_p_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// (file-newer-than-file-p FILE1 FILE2) -> t or nil
@@ -1852,17 +1999,30 @@ pub(crate) fn builtin_file_newer_than_file_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `file-newer-than-file-p` that resolves
 /// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_newer_than_file_p_eval(
-    eval: &Evaluator,
+pub(crate) fn builtin_file_newer_than_file_p_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("file-newer-than-file-p", &args, 2)?;
     let file1 = expect_string_strict(&args[0])?;
     let file2 = expect_string_strict(&args[1])?;
-    let default_dir = default_directory_for_eval(eval);
-    let file1 = expand_file_name(&file1, default_dir.as_deref());
-    let file2 = expand_file_name(&file2, default_dir.as_deref());
+    let file1 = resolve_filename_in_state(obarray, dynamic, buffers, &file1);
+    let file2 = resolve_filename_in_state(obarray, dynamic, buffers, &file2);
     Ok(Value::bool(file_newer_than_file_p(&file1, &file2)))
+}
+
+pub(crate) fn builtin_file_newer_than_file_p_eval(
+    eval: &Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_file_newer_than_file_p_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// (file-modes FILENAME &optional FLAG) -> integer or nil

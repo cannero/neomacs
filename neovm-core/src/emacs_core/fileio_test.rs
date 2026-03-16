@@ -771,6 +771,51 @@ fn test_builtin_expand_file_name_eval_uses_default_directory() {
 }
 
 #[test]
+fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
+    let base =
+        std::env::temp_dir().join(format!("neovm-fileio-buffer-local-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(base.join("subdir")).unwrap();
+    fs::write(base.join("alpha.txt"), "alpha").unwrap();
+
+    let mut eval = Evaluator::new();
+    eval.obarray
+        .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    let base_str = format!("{}/", base.to_string_lossy());
+    eval.buffers
+        .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+        .expect("buffer local default-directory should set");
+
+    assert_eq!(
+        builtin_expand_file_name_eval(&eval, vec![Value::string("alpha.txt")])
+            .unwrap()
+            .as_str(),
+        Some(base.join("alpha.txt").to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        builtin_file_truename_eval(&eval, vec![Value::string("alpha.txt")])
+            .unwrap()
+            .as_str(),
+        Some(base.join("alpha.txt").to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        builtin_file_exists_p_eval(&eval, vec![Value::string("alpha.txt")]).unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        builtin_file_directory_p_eval(&eval, vec![Value::string("subdir")]).unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        builtin_file_regular_p_eval(&eval, vec![Value::string("alpha.txt")]).unwrap(),
+        Value::True
+    );
+
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
 fn test_builtin_file_truename_counter_validation() {
     let value = builtin_file_truename(vec![Value::string("/tmp"), Value::list(vec![])]).unwrap();
     assert_eq!(value.as_str(), Some("/tmp"));

@@ -2789,6 +2789,49 @@ fn vm_buffer_identity_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_fileio_builtins_use_shared_default_directory_state() {
+    let base = std::env::temp_dir().join(format!("neovm-vm-fileio-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(base.join("subdir")).expect("create subdir");
+    std::fs::write(base.join("alpha.txt"), b"alpha").expect("write alpha");
+    let base_str = format!("{}/", base.to_string_lossy());
+    let alpha = base.join("alpha.txt").to_string_lossy().to_string();
+
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (expand-file-name "alpha.txt")
+             (file-truename "alpha.txt")
+             (file-name-as-directory "dir")
+             (directory-file-name "dir/")
+             (file-name-concat "dir" "child")
+             (file-exists-p "alpha.txt")
+             (file-readable-p "alpha.txt")
+             (file-writable-p "alpha.txt")
+             (file-accessible-directory-p "subdir")
+             (file-directory-p "subdir")
+             (file-regular-p "alpha.txt")
+             (file-newer-than-file-p "alpha.txt" "missing.txt")
+             (progn (access-file "alpha.txt" "open") 'ok)
+             (length (file-system-info ".")))"#,
+        |eval| {
+            eval.obarray
+                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            eval.buffers
+                .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+                .expect("buffer local default-directory should set");
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(
+        result,
+        format!(r#"OK ("{alpha}" "{alpha}" "dir/" "dir" "dir/child" t t t t t t t ok 3)"#)
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

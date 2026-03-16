@@ -5111,6 +5111,132 @@ impl<'a> Vm<'a> {
                 self.shared.buffers,
                 args.to_vec(),
             )),
+            "access-file" => Some(crate::emacs_core::fileio::builtin_access_file_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "expand-file-name" => Some(
+                crate::emacs_core::fileio::builtin_expand_file_name_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-truename" => Some(crate::emacs_core::fileio::builtin_file_truename_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "file-name-as-directory" => Some(
+                crate::emacs_core::fileio::builtin_file_name_as_directory(args.to_vec()),
+            ),
+            "directory-file-name" => Some(
+                crate::emacs_core::fileio::builtin_directory_file_name(args.to_vec()),
+            ),
+            "file-name-concat" => {
+                Some(crate::emacs_core::fileio::builtin_file_name_concat(args.to_vec()))
+            }
+            "substitute-in-file-name" => Some(
+                crate::emacs_core::fileio::builtin_substitute_in_file_name(args.to_vec()),
+            ),
+            "file-exists-p" => Some(crate::emacs_core::fileio::builtin_file_exists_p_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "file-readable-p" => Some(
+                crate::emacs_core::fileio::builtin_file_readable_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-writable-p" => Some(
+                crate::emacs_core::fileio::builtin_file_writable_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-accessible-directory-p" => Some(
+                crate::emacs_core::fileio::builtin_file_accessible_directory_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-executable-p" => Some(
+                crate::emacs_core::fileio::builtin_file_executable_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-locked-p" => Some(
+                crate::emacs_core::fileio::builtin_file_locked_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-system-info" => Some(
+                crate::emacs_core::fileio::builtin_file_system_info_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-directory-p" => Some(
+                crate::emacs_core::fileio::builtin_file_directory_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-regular-p" => Some(
+                crate::emacs_core::fileio::builtin_file_regular_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-symlink-p" => Some(
+                crate::emacs_core::fileio::builtin_file_symlink_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-name-case-insensitive-p" => Some(
+                crate::emacs_core::fileio::builtin_file_name_case_insensitive_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "file-newer-than-file-p" => Some(
+                crate::emacs_core::fileio::builtin_file_newer_than_file_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "selected-frame" => Some(
                 crate::emacs_core::window_cmds::builtin_selected_frame_in_state(
                     self.shared.frames,

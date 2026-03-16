@@ -367,7 +367,7 @@ pub(crate) fn builtin_get_file_buffer_in_state(
 ) -> EvalResult {
     expect_args("get-file-buffer", &args, 1)?;
     let filename = expect_string(&args[0])?;
-    let resolved = super::fileio::resolve_filename_in_state(obarray, dynamic, &filename);
+    let resolved = super::fileio::resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let resolved_true = canonicalize_or_self(&resolved);
 
     for id in buffers.buffer_list() {
@@ -378,7 +378,8 @@ pub(crate) fn builtin_get_file_buffer_in_state(
             continue;
         };
 
-        let candidate = super::fileio::resolve_filename_in_state(obarray, dynamic, file_name);
+        let candidate =
+            super::fileio::resolve_filename_in_state(obarray, dynamic, buffers, file_name);
         if candidate == resolved {
             return Ok(Value::Buffer(id));
         }
