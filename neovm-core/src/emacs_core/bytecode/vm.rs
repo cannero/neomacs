@@ -8350,11 +8350,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_macroexpand_shared(&mut self, args: &[Value]) -> EvalResult {
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::builtins::builtin_macroexpand_eval(eval, call_args)
-        })
+        crate::emacs_core::builtins::symbols::builtin_macroexpand_with_runtime(self, args.to_vec())
     }
 
     fn builtin_mapatoms_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -9082,6 +9078,52 @@ impl<'a> Vm<'a> {
         crate::emacs_core::reader::builtin_yes_or_no_p_in_runtime(&self.shared, args)?;
         crate::emacs_core::reader::finish_yes_or_no_p_with_minibuffer(args, |minibuffer_args| {
             self.builtin_read_from_minibuffer_shared(minibuffer_args)
+        })
+    }
+}
+
+impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
+    fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
+        self.shared.next_pcase_macroexpand_temp_symbol()
+    }
+
+    fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)> {
+        crate::emacs_core::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
+            &*self.shared.obarray,
+            symbol,
+        )
+    }
+
+    fn is_global_function_placeholder(&self, symbol: SymId) -> bool {
+        self.shared.obarray.symbol_function_id(symbol).is_none()
+    }
+
+    fn eval_environment_lambda_form(&mut self, binding: &Value) -> Result<Value, Flow> {
+        let binding_value = *binding;
+        self.with_shared_evaluator(&[binding_value], move |eval| {
+            eval.eval_value(&binding_value)
+        })
+    }
+
+    fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
+        let args = vec![autoload, head, Value::symbol("macro")];
+        let extra_roots = args.clone();
+        let _ = self.autoload_do_load_with_vm_bridge(args, &extra_roots)?;
+        Ok(())
+    }
+
+    fn apply_macro_function(
+        &mut self,
+        form: Value,
+        function: Value,
+        args: Vec<Value>,
+    ) -> Result<Value, Flow> {
+        let mut extra_roots = Vec::with_capacity(args.len() + 2);
+        extra_roots.push(form);
+        extra_roots.push(function);
+        extra_roots.extend(args.iter().copied());
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            eval.with_macro_expansion_scope(|eval| eval.apply(function, args))
         })
     }
 }

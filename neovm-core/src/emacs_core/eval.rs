@@ -412,6 +412,13 @@ impl<'a> VmSharedState<'a> {
         self.read_command_keys.as_slice()
     }
 
+    pub(crate) fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
+        let n = *self.pcase_macroexpand_temp_counter;
+        *self.pcase_macroexpand_temp_counter =
+            self.pcase_macroexpand_temp_counter.saturating_add(1);
+        Value::symbol(format!("x{n}"))
+    }
+
     pub(crate) fn display_host_mut(&mut self) -> &mut Option<Box<dyn DisplayHost>> {
         self.display_host
     }

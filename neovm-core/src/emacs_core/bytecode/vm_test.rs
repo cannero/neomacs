@@ -1542,6 +1542,18 @@ fn vm_eval_and_macroexpand_tail_use_localized_shared_paths() {
 }
 
 #[test]
+fn vm_macroexpand_environment_lambda_uses_localized_shared_callbacks() {
+    assert_eq!(
+        vm_eval_str(
+            "(let ((env (list (list 'vm-env 'lambda '(x)
+                                   (list 'list (list 'quote 'when) 'x 1)))))
+               (macroexpand '(vm-env t) env))"
+        ),
+        "OK (if t (progn 1))"
+    );
+}
+
+#[test]
 fn vm_mapatoms_and_maphash_use_shared_runtime_callbacks() {
     assert_eq!(
         vm_eval_str(

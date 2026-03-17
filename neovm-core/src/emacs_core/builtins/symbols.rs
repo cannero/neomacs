@@ -38,6 +38,63 @@ fn value_from_symbol_id(id: SymId) -> Value {
     Value::Symbol(id)
 }
 
+pub(crate) trait MacroexpandRuntime {
+    fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value;
+    fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)>;
+    fn is_global_function_placeholder(&self, symbol: SymId) -> bool;
+    fn eval_environment_lambda_form(&mut self, binding: &Value) -> Result<Value, Flow>;
+    fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow>;
+    fn apply_macro_function(
+        &mut self,
+        form: Value,
+        function: Value,
+        args: Vec<Value>,
+    ) -> Result<Value, Flow>;
+}
+
+impl MacroexpandRuntime for super::eval::Evaluator {
+    fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
+        self.next_pcase_macroexpand_temp_symbol()
+    }
+
+    fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)> {
+        resolve_indirect_symbol_by_id(self, symbol)
+    }
+
+    fn is_global_function_placeholder(&self, symbol: SymId) -> bool {
+        self.obarray().symbol_function_id(symbol).is_none()
+    }
+
+    fn eval_environment_lambda_form(&mut self, binding: &Value) -> Result<Value, Flow> {
+        self.eval_value(binding)
+    }
+
+    fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
+        let _ = super::autoload::builtin_autoload_do_load(
+            self,
+            vec![autoload, head, Value::symbol("macro")],
+        )?;
+        Ok(())
+    }
+
+    fn apply_macro_function(
+        &mut self,
+        form: Value,
+        function: Value,
+        args: Vec<Value>,
+    ) -> Result<Value, Flow> {
+        let saved_roots = self.save_temp_roots();
+        self.push_temp_root(form);
+        self.push_temp_root(function);
+        for arg in &args {
+            self.push_temp_root(*arg);
+        }
+        let expanded = self.with_macro_expansion_scope(|eval| eval.apply(function, args))?;
+        self.restore_temp_roots(saved_roots);
+        Ok(expanded)
+    }
+}
+
 pub(crate) fn constant_set_outcome_in_obarray(
     obarray: &Obarray,
     symbol: SymId,
@@ -1101,12 +1158,12 @@ fn macroexpand_environment_binding_by_id(env: &Value, target: SymId) -> Option<V
     }
 }
 
-fn macroexpand_environment_callable(
-    eval: &mut super::eval::Evaluator,
+fn macroexpand_environment_callable<R: MacroexpandRuntime>(
+    runtime: &mut R,
     binding: &Value,
 ) -> Result<Value, Flow> {
     if is_lambda_form_list(binding) {
-        return eval.eval_value(binding);
+        return runtime.eval_environment_lambda_form(binding);
     }
     Ok(*binding)
 }
@@ -1180,7 +1237,7 @@ fn parse_simple_backquote_list_unquotes(pattern: &Value) -> Option<SimpleBackquo
 }
 
 fn expand_simple_backquote_list_pcase_let_star(
-    eval: &mut super::eval::Evaluator,
+    next_temp_symbol: &mut impl FnMut() -> Value,
     value_expr: &Value,
     pattern: &SimpleBackquoteListPattern,
     body_forms: &[Value],
@@ -1206,11 +1263,11 @@ fn expand_simple_backquote_list_pcase_let_star(
                 return None;
             }
 
-            let length_sym = eval.next_pcase_macroexpand_temp_symbol();
+            let length_sym = next_temp_symbol();
             let mut elem_bindings = Vec::with_capacity(vars.len());
             let mut var_bindings = Vec::with_capacity(vars.len());
             for (idx, var) in vars.iter().enumerate() {
-                let temp = eval.next_pcase_macroexpand_temp_symbol();
+                let temp = next_temp_symbol();
                 elem_bindings.push(Value::list(vec![
                     temp,
                     Value::list(vec![
@@ -1274,8 +1331,8 @@ fn expand_simple_backquote_list_pcase_let_star(
     let mut steps = Vec::with_capacity(head_vars.len());
     let mut source = source_expr;
     for _ in head_vars {
-        let head = eval.next_pcase_macroexpand_temp_symbol();
-        let tail = eval.next_pcase_macroexpand_temp_symbol();
+        let head = next_temp_symbol();
+        let tail = next_temp_symbol();
         steps.push((source, head, tail));
         source = tail;
     }
@@ -1413,7 +1470,7 @@ fn collect_pcase_fallback_bindings(bindings: &Value) -> Result<Vec<PcaseFallback
 }
 
 fn macroexpand_known_fallback_macro(
-    eval: &mut super::eval::Evaluator,
+    next_temp_symbol: &mut impl FnMut() -> Value,
     name: &str,
     args: &[Value],
 ) -> Result<Option<Value>, Flow> {
@@ -1709,7 +1766,11 @@ fn macroexpand_known_fallback_macro(
                 let mut star_args = Vec::with_capacity(args.len());
                 star_args.push(Value::list(vec![bindings_src[0].original]));
                 star_args.extend_from_slice(&args[1..]);
-                return macroexpand_known_fallback_macro(eval, "pcase-let*", &star_args);
+                return macroexpand_known_fallback_macro(
+                    next_temp_symbol,
+                    "pcase-let*",
+                    &star_args,
+                );
             }
 
             if name == "pcase-let*" {
@@ -1798,7 +1859,7 @@ fn macroexpand_known_fallback_macro(
                     };
                     let destructure_body = [expanded];
                     expanded = match expand_simple_backquote_list_pcase_let_star(
-                        eval,
+                        next_temp_symbol,
                         value_expr,
                         spec,
                         &destructure_body,
@@ -1944,9 +2005,9 @@ fn macroexpand_known_fallback_macro(
     }
 }
 
-#[tracing::instrument(level = "trace", skip(eval, environment), fields(head))]
-fn macroexpand_once_with_environment(
-    eval: &mut super::eval::Evaluator,
+#[tracing::instrument(level = "trace", skip(runtime, environment), fields(head))]
+fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
+    runtime: &mut R,
     form: Value,
     environment: Option<&Value>,
 ) -> Result<(Value, bool), Flow> {
@@ -1986,7 +2047,7 @@ fn macroexpand_once_with_environment(
         if let Some(binding) = macroexpand_environment_binding_by_id(env, head_id) {
             env_bound = true;
             if !binding.is_nil() {
-                function = Some(macroexpand_environment_callable(eval, &binding)?);
+                function = Some(macroexpand_environment_callable(runtime, &binding)?);
             }
         }
     }
@@ -1996,7 +2057,7 @@ fn macroexpand_once_with_environment(
     let mut resolved_name = head_name.to_string();
     let mut fallback_placeholder = false;
     if function.is_none() {
-        if let Some((resolved_id, global)) = resolve_indirect_symbol_by_id(eval, head_id) {
+        if let Some((resolved_id, global)) = runtime.resolve_indirect_symbol_by_id(head_id) {
             let resolved = resolve_sym(resolved_id);
             // Check for Value::Macro (native macros) AND cons-cell macros
             // `(macro . fn)` — matches real Emacs eval.c which checks
@@ -2006,7 +2067,7 @@ fn macroexpand_once_with_environment(
             if is_macro {
                 fallback_placeholder = is_canonical_symbol_id(resolved_id)
                     && super::subr_info::has_fallback_macro(resolved)
-                    && eval.obarray().symbol_function_id(resolved_id).is_none();
+                    && runtime.is_global_function_placeholder(resolved_id);
                 resolved_name = resolved.to_string();
                 function = Some(if global.is_cons() {
                     // Extract the function from (macro . fn)
@@ -2021,16 +2082,10 @@ fn macroexpand_once_with_environment(
                 // Pass macro_only=Qmacro so we only load if the autoload's
                 // TYPE field is `t` or `macro`.  This matches GNU Emacs
                 // eval.c which calls Fautoload_do_load(def, sym, Qmacro).
-                let _ = super::autoload::builtin_autoload_do_load(
-                    eval,
-                    vec![
-                        global,
-                        value_from_symbol_id(head_id),
-                        Value::symbol("macro"),
-                    ],
-                );
+                runtime.autoload_do_load_macro(global, value_from_symbol_id(head_id))?;
                 // Re-check the function cell after loading
-                if let Some((resolved_id2, global2)) = resolve_indirect_symbol_by_id(eval, head_id)
+                if let Some((resolved_id2, global2)) =
+                    runtime.resolve_indirect_symbol_by_id(head_id)
                 {
                     let resolved2 = resolve_sym(resolved_id2);
                     let is_macro2 = matches!(global2, Value::Macro(_))
@@ -2038,7 +2093,7 @@ fn macroexpand_once_with_environment(
                     if is_macro2 {
                         fallback_placeholder = is_canonical_symbol_id(resolved_id2)
                             && super::subr_info::has_fallback_macro(resolved2)
-                            && eval.obarray().symbol_function_id(resolved_id2).is_none();
+                            && runtime.is_global_function_placeholder(resolved_id2);
                         resolved_name = resolved2.to_string();
                         function = Some(if global2.is_cons() {
                             global2.cons_cdr()
@@ -2056,41 +2111,43 @@ fn macroexpand_once_with_environment(
     let args = list_to_vec(&tail)
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), tail]))?;
     if fallback_placeholder {
-        if let Some(expanded) = macroexpand_known_fallback_macro(eval, &resolved_name, &args)? {
+        if let Some(expanded) = macroexpand_known_fallback_macro(
+            &mut || runtime.next_pcase_macroexpand_temp_symbol(),
+            &resolved_name,
+            &args,
+        )? {
             return Ok((expanded, true));
         }
         return Ok((form, false));
     }
-    // Root function and args across eval.apply() — the macro
-    // expander may trigger GC.
-    let saved_roots = eval.save_temp_roots();
-    eval.push_temp_root(form);
-    eval.push_temp_root(function);
-    for arg in &args {
-        eval.push_temp_root(*arg);
-    }
-    let expanded = eval.with_macro_expansion_scope(|eval| eval.apply(function, args))?;
-    eval.restore_temp_roots(saved_roots);
+    let expanded = runtime.apply_macro_function(form, function, args)?;
     // Match real Emacs (eval.c line 1319): if the macro expander returned
     // the same form object (EQ), treat it as "no expansion occurred".
     let did_expand = !eq_value(&form, &expanded);
     Ok((expanded, did_expand))
 }
 
-pub(crate) fn builtin_macroexpand_eval(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_macroexpand_with_runtime<R: MacroexpandRuntime>(
+    runtime: &mut R,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("macroexpand", &args, 1, 2)?;
     let mut form = args[0];
     let environment = args.get(1);
     loop {
-        let (expanded, did_expand) = macroexpand_once_with_environment(eval, form, environment)?;
+        let (expanded, did_expand) = macroexpand_once_with_environment(runtime, form, environment)?;
         if !did_expand {
             return Ok(expanded);
         }
         form = expanded;
     }
+}
+
+pub(crate) fn builtin_macroexpand_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_macroexpand_with_runtime(eval, args)
 }
 
 pub(crate) fn builtin_indirect_function(
