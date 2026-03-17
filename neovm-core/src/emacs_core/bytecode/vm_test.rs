@@ -1553,6 +1553,22 @@ fn vm_call_interactively_handles_r_capital_spec_via_use_region_p_on_shared_runti
 }
 
 #[test]
+fn vm_call_interactively_handles_expression_prompt_specs_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (condition-case err
+                     (call-interactively '(lambda (expr) (interactive "xExpr: ") expr))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (value) (interactive "XExpr: ") value))
+                   (error (car err))))"#
+        ),
+        "OK (end-of-file end-of-file)"
+    );
+}
+
+#[test]
 fn vm_yes_or_no_p_uses_shared_runtime_batch_path() {
     assert_eq!(
         vm_eval_str(

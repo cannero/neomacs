@@ -1570,6 +1570,16 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     return Ok(None);
                 }
             }
+            'x' => args.push(interactive_read_expression_arg_in_vm_runtime(
+                shared,
+                vm_gc_roots,
+                prompt,
+            )?),
+            'X' => args.push(interactive_eval_expression_arg_in_vm_runtime(
+                shared,
+                vm_gc_roots,
+                prompt,
+            )?),
             'U' => args.push(interactive_u_arg(context)),
             'v' => {
                 let letter_args = [Value::string(prompt)];
@@ -1707,6 +1717,27 @@ fn default_call_interactively_args_in_state(
 fn interactive_read_expression_arg(eval: &mut Evaluator, prompt: String) -> Result<Value, Flow> {
     let input = super::reader::builtin_read_from_minibuffer(eval, vec![Value::string(prompt)])?;
     super::reader::builtin_read(eval, vec![input])
+}
+
+fn interactive_read_expression_arg_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    prompt: String,
+) -> Result<Value, Flow> {
+    shared.with_parent_evaluator_vm_roots(vm_gc_roots, &[], move |eval| {
+        interactive_read_expression_arg(eval, prompt)
+    })
+}
+
+fn interactive_eval_expression_arg_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    prompt: String,
+) -> Result<Value, Flow> {
+    shared.with_parent_evaluator_vm_roots(vm_gc_roots, &[], move |eval| {
+        let expr_value = interactive_read_expression_arg(eval, prompt)?;
+        eval.eval_value(&expr_value)
+    })
 }
 
 fn interactive_read_coding_system_optional_arg(prompt: String) -> Result<Value, Flow> {
