@@ -2548,7 +2548,16 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
             .map(|args| Some((func, args)));
     }
 
-    Ok(None)
+    Ok(Some((
+        func,
+        default_call_interactively_args_in_state(
+            &*shared.obarray,
+            shared.dynamic.as_slice(),
+            shared.buffers,
+            &*shared.frames,
+            &plan.resolved_name,
+        )?,
+    )))
 }
 
 pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
@@ -2560,18 +2569,6 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
     if let Some((function, call_args)) =
         resolve_call_interactively_target_and_args_in_vm_runtime(shared, plan, vm_gc_roots)?
     {
-        return Ok((function, call_args));
-    }
-
-    if let Some((function, call_args)) = resolve_call_interactively_target_and_args_in_state(
-        &mut *shared.obarray,
-        shared.dynamic,
-        shared.buffers,
-        &*shared.custom,
-        &*shared.frames,
-        &*shared.interactive,
-        plan,
-    )? {
         return Ok((function, call_args));
     }
 

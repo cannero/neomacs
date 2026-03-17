@@ -1376,6 +1376,23 @@ fn vm_call_interactively_uses_shared_runtime_planning() {
 }
 
 #[test]
+fn vm_call_interactively_builtin_forward_char_uses_default_prefix_arg() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (call-interactively 'forward-char)
+                 (point))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("current buffer");
+                let _ = eval.buffers.replace_buffer_contents(current, "ab");
+                let _ = eval.buffers.goto_buffer_byte(current, 0);
+            },
+        ),
+        "OK 2"
+    );
+}
+
+#[test]
 fn vm_call_interactively_instantiates_raw_lambda_commands_on_shared_runtime() {
     assert_eq!(
         vm_eval_str(
