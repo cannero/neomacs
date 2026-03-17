@@ -1376,6 +1376,17 @@ fn vm_call_interactively_uses_shared_runtime_planning() {
 }
 
 #[test]
+fn vm_call_interactively_instantiates_raw_lambda_commands_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            "(let ((current-prefix-arg 3))
+               (call-interactively '(lambda (n) (interactive \"p\") n)))"
+        ),
+        "OK 3"
+    );
+}
+
+#[test]
 fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
     assert_eq!(
         vm_eval_with_init_str(

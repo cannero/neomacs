@@ -8408,14 +8408,16 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_call_interactively_shared(&mut self, args: &[Value]) -> EvalResult {
-        let plan = crate::emacs_core::interactive::plan_call_interactively_in_state(
+        let mut plan = crate::emacs_core::interactive::plan_call_interactively_in_state(
             &*self.shared.obarray,
             &*self.shared.interactive,
             self.shared.read_command_keys(),
             args,
         )?;
         let extra_roots = args.to_vec();
-        let mut plan = plan;
+        if crate::emacs_core::interactive::callable_form_needs_instantiation(&plan.func) {
+            plan.func = self.instantiate_callable_cons_form(plan.func)?;
+        }
         let (function, call_args) = self.with_shared_evaluator(&extra_roots, move |eval| {
             crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_eval(
                 eval, &mut plan,

@@ -1492,15 +1492,18 @@ fn resolve_interactive_invocation_args(
     }
 }
 
-fn value_is_lambda_form(value: &Value) -> bool {
+pub(crate) fn callable_form_needs_instantiation(value: &Value) -> bool {
     let Some(items) = value_list_to_vec(value) else {
         return false;
     };
-    items.first().and_then(Value::as_symbol_name) == Some("lambda")
+    matches!(
+        items.first().and_then(Value::as_symbol_name),
+        Some("lambda" | "closure")
+    )
 }
 
 fn normalize_command_callable(eval: &mut Evaluator, value: Value) -> Result<Value, Flow> {
-    if value_is_lambda_form(&value) {
+    if callable_form_needs_instantiation(&value) {
         return eval.eval_value(&value);
     }
     Ok(value)
@@ -1621,7 +1624,7 @@ fn resolve_command_target_in_state(
 
 pub(crate) struct CallInteractivelyPlan {
     resolved_name: String,
-    func: Value,
+    pub(crate) func: Value,
     context: InteractiveInvocationContext,
 }
 
