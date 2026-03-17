@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::Expr;
 use crate::emacs_core::builtins::builtin_documentation_stringp;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
@@ -323,6 +324,32 @@ fn documentation_lambda_no_docstring() {
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("no-doc")]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
+}
+
+#[test]
+fn documentation_substitutes_command_keys_unless_raw() {
+    let mut evaluator = super::super::eval::Evaluator::new();
+    let lambda = Value::make_lambda(LambdaData {
+        params: LambdaParams::simple(vec![]),
+        body: vec![Expr::Symbol(crate::emacs_core::intern::intern("t"))].into(),
+        env: None,
+        docstring: Some("Press \\[save-buffer] to save.".to_string()),
+        doc_form: None,
+    });
+    evaluator.obarray.set_symbol_function("doc-raw-fn", lambda);
+
+    let display = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-raw-fn")]).unwrap();
+    let raw = builtin_documentation(
+        &mut evaluator,
+        vec![Value::symbol("doc-raw-fn"), Value::True],
+    )
+    .unwrap();
+
+    let display = display.as_str().expect("display documentation string");
+    let raw = raw.as_str().expect("raw documentation string");
+    assert!(display.contains("save-buffer"));
+    assert!(!display.contains("\\["));
+    assert!(raw.contains("\\[save-buffer]"));
 }
 
 #[test]
@@ -693,6 +720,42 @@ fn documentation_property_eval_returns_string_property() {
     )
     .unwrap();
     assert_eq!(result.as_str(), Some("doc"));
+}
+
+#[test]
+fn documentation_property_eval_substitutes_command_keys_unless_raw() {
+    let mut evaluator = super::super::eval::Evaluator::new();
+    evaluator.obarray.put_property(
+        "doc-sym",
+        "variable-documentation",
+        Value::string("Press \\[save-buffer] to save."),
+    );
+
+    let display = builtin_documentation_property_eval(
+        &mut evaluator,
+        vec![
+            Value::symbol("doc-sym"),
+            Value::symbol("variable-documentation"),
+        ],
+    )
+    .unwrap();
+    let raw = builtin_documentation_property_eval(
+        &mut evaluator,
+        vec![
+            Value::symbol("doc-sym"),
+            Value::symbol("variable-documentation"),
+            Value::True,
+        ],
+    )
+    .unwrap();
+
+    let display = display
+        .as_str()
+        .expect("display documentation-property string");
+    let raw = raw.as_str().expect("raw documentation-property string");
+    assert!(display.contains("save-buffer"));
+    assert!(!display.contains("\\["));
+    assert!(raw.contains("\\[save-buffer]"));
 }
 
 #[test]

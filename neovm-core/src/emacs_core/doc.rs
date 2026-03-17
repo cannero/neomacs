@@ -47,16 +47,20 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
 ///
 /// Looks up FUNCTION in the obarray's function cell. If the function cell
 /// holds a `Lambda` (or `Macro`) with a docstring, returns it as a string.
-/// Otherwise returns nil.  The optional RAW argument is accepted but ignored
-/// (in real Emacs it controls whether `substitute-command-keys` is applied).
+/// Otherwise returns nil.  Unless RAW is non-nil, string results are passed
+/// through `substitute-command-keys`, matching GNU Emacs.
 pub(crate) fn builtin_documentation(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let raw = args.get(1).is_some_and(Value::is_truthy);
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
     let plan = builtin_documentation_plan_in_obarray(unsafe { &*obarray }, args)?;
-    execute_documentation_plan(plan, |value| eval.eval_value(&value))
+    finish_documentation_result(
+        execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
+        raw,
+    )
 }
 
 enum DocumentationPlan {
@@ -71,6 +75,14 @@ fn execute_documentation_plan(
     match plan {
         DocumentationPlan::Final(value) => Ok(value),
         DocumentationPlan::Eval(value) => eval_value(value),
+    }
+}
+
+fn finish_documentation_result(value: Value, raw: bool) -> EvalResult {
+    if raw || !matches!(value, Value::Str(_)) {
+        Ok(value)
+    } else {
+        builtin_substitute_command_keys(vec![value])
     }
 }
 
@@ -122,15 +134,19 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
+    let raw = args.get(1).is_some_and(Value::is_truthy);
     let args_roots = args.clone();
     let plan = builtin_documentation_plan_in_obarray(&*shared.obarray, args)?;
-    execute_documentation_plan(plan, |value| {
-        let mut extra_roots = args_roots.clone();
-        extra_roots.push(value);
-        shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
-            eval.eval_value(&value)
-        })
-    })
+    finish_documentation_result(
+        execute_documentation_plan(plan, |value| {
+            let mut extra_roots = args_roots.clone();
+            extra_roots.push(value);
+            shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+                eval.eval_value(&value)
+            })
+        })?,
+        raw,
+    )
 }
 
 fn function_doc_or_error(func_val: Value) -> EvalResult {
@@ -10500,15 +10516,20 @@ fn startup_doc_quote_style_raw(doc: &str) -> String {
 /// - returns nil when PROP is not a symbol (matching Emacs `get`-like behavior)
 /// - unresolved integer doc offsets return nil
 /// - non-integer values are evaluated as Lisp and returned
-/// - accepts RAW but currently ignores it
+/// - unless RAW is non-nil, string results are passed through
+///   `substitute-command-keys`
 pub(crate) fn builtin_documentation_property_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let raw = args.get(2).is_some_and(Value::is_truthy);
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
     let plan = builtin_documentation_property_plan_in_obarray(unsafe { &*obarray }, args)?;
-    execute_documentation_plan(plan, |value| eval.eval_value(&value))
+    finish_documentation_result(
+        execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
+        raw,
+    )
 }
 
 fn builtin_documentation_property_plan_in_obarray(
@@ -10565,15 +10586,19 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
+    let raw = args.get(2).is_some_and(Value::is_truthy);
     let args_roots = args.clone();
     let plan = builtin_documentation_property_plan_in_obarray(&*shared.obarray, args)?;
-    execute_documentation_plan(plan, |value| {
-        let mut extra_roots = args_roots.clone();
-        extra_roots.push(value);
-        shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
-            eval.eval_value(&value)
-        })
-    })
+    finish_documentation_result(
+        execute_documentation_plan(plan, |value| {
+            let mut extra_roots = args_roots.clone();
+            extra_roots.push(value);
+            shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+                eval.eval_value(&value)
+            })
+        })?,
+        raw,
+    )
 }
 
 // ---------------------------------------------------------------------------

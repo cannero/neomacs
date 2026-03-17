@@ -7322,6 +7322,27 @@ fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_documentation_and_property_respect_raw_substitute_command_keys_semantics() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (fset 'vm-doc-fn (lambda () t))
+                 (put 'vm-doc-fn 'function-documentation "Press \\[save-buffer] to save.")
+                 (put 'vm-doc-prop 'variable-documentation "Press \\[save-buffer] to save.")
+                 (let ((doc (documentation 'vm-doc-fn))
+                       (raw-doc (documentation 'vm-doc-fn t))
+                       (prop (documentation-property 'vm-doc-prop 'variable-documentation))
+                       (raw-prop (documentation-property 'vm-doc-prop 'variable-documentation t)))
+                   (list (not (eq ?\\ (aref doc 6)))
+                         (eq ?\\ (aref raw-doc 6))
+                         (not (eq ?\\ (aref prop 6)))
+                         (eq ?\\ (aref raw-prop 6)))))"#
+        ),
+        "OK (t t t t)"
+    );
+}
+
+#[test]
 fn vm_backtrace_and_recursion_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
