@@ -8420,6 +8420,12 @@ impl<'a> Vm<'a> {
             plan.func = self.instantiate_callable_cons_form(plan.func)?;
         }
         let (function, call_args) = if let Some((function, call_args)) =
+            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_vm_batch_runtime(
+                &mut self.shared,
+                &mut plan,
+            )? {
+            (function, call_args)
+        } else if let Some((function, call_args)) =
             crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_state(
                 &mut *self.shared.obarray,
                 self.shared.dynamic,

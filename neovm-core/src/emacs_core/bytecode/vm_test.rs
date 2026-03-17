@@ -1431,6 +1431,24 @@ fn vm_call_interactively_handles_optional_coding_without_prefix_on_shared_runtim
 }
 
 #[test]
+fn vm_call_interactively_handles_k_k_capital_and_u_specs_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((unread-command-events (list '(down-mouse-1) '(mouse-1))))
+                   (call-interactively
+                    '(lambda (keys up) (interactive "k
+U") (list keys up))))
+                 (let ((unread-command-events (list '(down-mouse-1) '(mouse-1))))
+                   (call-interactively
+                    '(lambda (keys up) (interactive "K
+U") (list keys up)))))"#
+        ),
+        "OK (([(down-mouse-1)] [(mouse-1)]) ([(down-mouse-1)] [(mouse-1)]))"
+    );
+}
+
+#[test]
 fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
     assert_eq!(
         vm_eval_with_init_str(

@@ -950,6 +950,7 @@ struct InteractiveInvocationContext {
     command_keys: Vec<Value>,
     next_event_with_parameters_index: usize,
     has_command_keys_context: bool,
+    pending_up_event: Option<Value>,
 }
 
 impl InteractiveInvocationContext {
@@ -973,6 +974,105 @@ impl InteractiveInvocationContext {
         }
         context
     }
+}
+
+fn interactive_event_symbol_name(event: &Value) -> Option<&'static str> {
+    match event {
+        Value::Symbol(id) => Some(resolve_sym(*id)),
+        Value::Cons(cell) => match read_cons(*cell).car {
+            Value::Symbol(id) => Some(resolve_sym(id)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn interactive_strip_event_modifier_prefixes(mut name: &str) -> &str {
+    loop {
+        if let Some(rest) = name.strip_prefix("C-") {
+            name = rest;
+            continue;
+        }
+        if let Some(rest) = name.strip_prefix("M-") {
+            name = rest;
+            continue;
+        }
+        if let Some(rest) = name.strip_prefix("S-") {
+            name = rest;
+            continue;
+        }
+        if let Some(rest) = name.strip_prefix("s-") {
+            name = rest;
+            continue;
+        }
+        if let Some(rest) = name.strip_prefix("H-") {
+            name = rest;
+            continue;
+        }
+        if let Some(rest) = name.strip_prefix("A-") {
+            name = rest;
+            continue;
+        }
+        break;
+    }
+    name
+}
+
+fn interactive_event_is_down_event(event: &Value) -> bool {
+    let Some(name) = interactive_event_symbol_name(event) else {
+        return false;
+    };
+    interactive_strip_event_modifier_prefixes(name).starts_with("down-")
+}
+
+fn interactive_last_key_sequence_event(sequence: &Value) -> Option<Value> {
+    match sequence {
+        Value::Vector(id) => super::value::with_heap(|h| h.get_vector(*id).last().copied()),
+        _ => None,
+    }
+}
+
+fn interactive_capture_up_event_in_eval(
+    eval: &mut Evaluator,
+    sequence: &Value,
+    context: &mut InteractiveInvocationContext,
+) -> Result<(), Flow> {
+    context.pending_up_event = None;
+    if interactive_last_key_sequence_event(sequence)
+        .is_some_and(|event| interactive_event_is_down_event(&event))
+    {
+        let up_event = super::lread::builtin_read_event(eval, vec![])?;
+        if !up_event.is_nil() {
+            context.pending_up_event = Some(up_event);
+        }
+    }
+    Ok(())
+}
+
+fn interactive_capture_up_event_in_vm_batch_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    sequence: &Value,
+    context: &mut InteractiveInvocationContext,
+) -> Result<(), Flow> {
+    context.pending_up_event = None;
+    if interactive_last_key_sequence_event(sequence)
+        .is_some_and(|event| interactive_event_is_down_event(&event))
+    {
+        if let Some(up_event) = super::lread::builtin_read_event_in_runtime(shared, &[])? {
+            if !up_event.is_nil() {
+                context.pending_up_event = Some(up_event);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn interactive_u_arg(context: &mut InteractiveInvocationContext) -> Value {
+    context
+        .pending_up_event
+        .take()
+        .map(|event| Value::vector(vec![event]))
+        .unwrap_or(Value::Nil)
 }
 
 fn dynamic_or_global_symbol_value(eval: &Evaluator, name: &str) -> Option<Value> {
@@ -1220,6 +1320,126 @@ fn interactive_args_from_string_code_in_state(
             'U' => args.push(Value::Nil),
             'Z' => {
                 let raw = interactive_prefix_raw_arg_in_state(obarray, dynamic.as_slice(), kind);
+                if raw.is_nil() {
+                    args.push(Value::Nil);
+                } else {
+                    return Ok(None);
+                }
+            }
+            _ => return Ok(None),
+        }
+    }
+
+    Ok(Some(args))
+}
+
+fn interactive_string_code_supported_in_vm_batch_runtime(code: &str) -> bool {
+    let parsed = parse_interactive_code_entries(code);
+    parsed.entries.iter().all(|(letter, _)| {
+        matches!(
+            letter,
+            'c' | 'd' | 'e' | 'i' | 'k' | 'K' | 'm' | 'N' | 'p' | 'P' | 'r' | 'U' | 'Z'
+        )
+    })
+}
+
+fn interactive_args_from_string_code_in_vm_batch_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    code: &str,
+    kind: CommandInvocationKind,
+    context: &mut InteractiveInvocationContext,
+) -> Result<Option<Vec<Value>>, Flow> {
+    if shared.has_input_receiver() || !interactive_string_code_supported_in_vm_batch_runtime(code) {
+        return Ok(None);
+    }
+
+    let parsed = parse_interactive_code_entries(code);
+    interactive_apply_prefix_flags_in_state(
+        &mut *shared.obarray,
+        shared.dynamic.as_mut_slice(),
+        shared.buffers,
+        &*shared.custom,
+        &parsed.prefix_flags,
+    )?;
+    if parsed.entries.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+
+    let mut args = Vec::new();
+    for (letter, prompt) in parsed.entries {
+        match letter {
+            'c' => {
+                let arg =
+                    super::reader::builtin_read_char_in_runtime(shared, &[Value::string(prompt)])?
+                        .expect("batch VM read-char should resolve without evaluator");
+                args.push(arg);
+            }
+            'd' => args.push(interactive_point_arg_in_buffers(shared.buffers)?),
+            'e' => {
+                if let Some(event) = interactive_next_event_with_parameters_in_state(
+                    &mut *shared.obarray,
+                    shared.dynamic,
+                    context,
+                ) {
+                    args.push(event);
+                } else {
+                    return Err(signal(
+                        "error",
+                        vec![Value::string(
+                            "command must be bound to an event with parameters",
+                        )],
+                    ));
+                }
+            }
+            'i' => args.push(Value::Nil),
+            'k' => {
+                let arg = super::reader::builtin_read_key_sequence_in_runtime(
+                    shared,
+                    &[Value::string(prompt)],
+                )?
+                .expect("batch VM read-key-sequence should resolve without evaluator");
+                interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
+                args.push(arg);
+            }
+            'K' => {
+                let arg = super::reader::builtin_read_key_sequence_vector_in_runtime(
+                    shared,
+                    &[Value::string(prompt)],
+                )?
+                .expect("batch VM read-key-sequence-vector should resolve without evaluator");
+                interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
+                args.push(arg);
+            }
+            'm' => args.push(interactive_mark_arg_in_buffers(shared.buffers)?),
+            'N' => {
+                let raw = interactive_prefix_raw_arg_in_state(
+                    &*shared.obarray,
+                    shared.dynamic.as_slice(),
+                    kind,
+                );
+                if raw.is_nil() {
+                    return Ok(None);
+                }
+                args.push(Value::Int(prefix_numeric_value(&raw)));
+            }
+            'p' => args.push(interactive_prefix_numeric_arg_in_state(
+                &*shared.obarray,
+                shared.dynamic.as_slice(),
+                kind,
+            )),
+            'P' => args.push(interactive_prefix_raw_arg_in_state(
+                &*shared.obarray,
+                shared.dynamic.as_slice(),
+                kind,
+            )),
+            'r' => args.extend(interactive_region_args_in_buffers(shared.buffers, "error")?),
+            'U' => args.push(interactive_u_arg(context)),
+            'Z' => {
+                let raw = interactive_prefix_raw_arg_in_state(
+                    &*shared.obarray,
+                    shared.dynamic.as_slice(),
+                    kind,
+                );
                 if raw.is_nil() {
                     args.push(Value::Nil);
                 } else {
@@ -1649,14 +1869,20 @@ fn interactive_args_from_string_code(
                 vec![Value::string(prompt)],
             )?),
             'i' => args.push(Value::Nil),
-            'k' => args.push(super::reader::builtin_read_key_sequence(
-                eval,
-                vec![Value::string(prompt)],
-            )?),
-            'K' => args.push(super::reader::builtin_read_key_sequence_vector(
-                eval,
-                vec![Value::string(prompt)],
-            )?),
+            'k' => {
+                let arg =
+                    super::reader::builtin_read_key_sequence(eval, vec![Value::string(prompt)])?;
+                interactive_capture_up_event_in_eval(eval, &arg, context)?;
+                args.push(arg);
+            }
+            'K' => {
+                let arg = super::reader::builtin_read_key_sequence_vector(
+                    eval,
+                    vec![Value::string(prompt)],
+                )?;
+                interactive_capture_up_event_in_eval(eval, &arg, context)?;
+                args.push(arg);
+            }
             'M' => args.push(super::reader::builtin_read_string(
                 eval,
                 vec![Value::string(prompt)],
@@ -1709,7 +1935,7 @@ fn interactive_args_from_string_code(
                 let expr_value = interactive_read_expression_arg(eval, prompt)?;
                 args.push(eval.eval_value(&expr_value)?);
             }
-            'U' => args.push(Value::Nil),
+            'U' => args.push(interactive_u_arg(context)),
             'v' => args.push(super::minibuffer::builtin_read_variable(
                 eval,
                 vec![Value::string(prompt)],
@@ -2018,6 +2244,79 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
             &plan.resolved_name,
         )?,
     )))
+}
+
+pub(crate) fn resolve_call_interactively_target_and_args_in_vm_batch_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    plan: &mut CallInteractivelyPlan,
+) -> Result<Option<(Value, Vec<Value>)>, Flow> {
+    let func = plan.func;
+    if let Some(code) = shared
+        .interactive
+        .get_spec(&plan.resolved_name)
+        .map(|spec| spec.code.clone())
+    {
+        if let Some(args) = interactive_args_from_string_code_in_vm_batch_runtime(
+            shared,
+            &code,
+            CommandInvocationKind::CallInteractively,
+            &mut plan.context,
+        )? {
+            return Ok(Some((func, args)));
+        }
+        return Ok(None);
+    }
+
+    if let Some(lambda) = func.get_lambda_data()
+        && let Some(spec) = parsed_interactive_spec_from_lambda(lambda)
+    {
+        return match spec {
+            ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
+            ParsedInteractiveSpec::StringCode(code) => {
+                interactive_args_from_string_code_in_vm_batch_runtime(
+                    shared,
+                    &code,
+                    CommandInvocationKind::CallInteractively,
+                    &mut plan.context,
+                )
+                .map(|maybe_args| maybe_args.map(|args| (func, args)))
+            }
+            _ => Ok(None),
+        };
+    }
+
+    if let Some(bc) = func.get_bytecode_data()
+        && let Some(spec) = &bc.interactive
+    {
+        let spec_val = if let Value::Vector(vid) = spec {
+            super::value::with_heap(|h| {
+                if h.vector_len(*vid) > 0 {
+                    h.vector_ref(*vid, 0)
+                } else {
+                    *spec
+                }
+            })
+        } else {
+            *spec
+        };
+        if spec_val.is_nil() {
+            return Ok(Some((func, Vec::new())));
+        }
+        if let Some(code) = spec_val.as_str() {
+            if let Some(args) = interactive_args_from_string_code_in_vm_batch_runtime(
+                shared,
+                code,
+                CommandInvocationKind::CallInteractively,
+                &mut plan.context,
+            )? {
+                return Ok(Some((func, args)));
+            }
+            return Ok(None);
+        }
+        return Ok(None);
+    }
+
+    Ok(None)
 }
 
 fn last_command_event_char(eval: &Evaluator) -> Option<char> {

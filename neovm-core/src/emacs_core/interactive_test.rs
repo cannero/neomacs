@@ -3134,6 +3134,35 @@ fn interactive_lambda_g_e_and_u_specs_follow_batch_behavior() {
 }
 
 #[test]
+fn interactive_lambda_k_k_capital_and_u_specs_match_gnu_batch_mouse_up_event_behavior() {
+    let mut ev = gnu_simple_command_execute_eval();
+    let results = eval_all_with(
+        &mut ev,
+        r#"(list
+             (let ((unread-command-events (list '(down-mouse-1) '(mouse-1))))
+               (call-interactively
+                (lambda (keys up) (interactive "k
+U") (list keys up))))
+             (let ((unread-command-events (list '(down-mouse-1) '(mouse-1))))
+               (call-interactively
+                (lambda (keys up) (interactive "K
+U") (list keys up))))
+             (let ((unread-command-events (list '(down-mouse-1) '(mouse-1))))
+               (command-execute
+                (lambda (keys up) (interactive "k
+U") (list keys up))))
+             (let ((unread-command-events (list '(down-mouse-1) '(mouse-1))))
+               (command-execute
+                (lambda (keys up) (interactive "K
+U") (list keys up)))))"#,
+    );
+    assert_eq!(
+        results[0],
+        "OK (([(down-mouse-1)] [(mouse-1)]) ([(down-mouse-1)] [(mouse-1)]) ([(down-mouse-1)] [(mouse-1)]) ([(down-mouse-1)] [(mouse-1)]))"
+    );
+}
+
+#[test]
 fn interactive_lambda_invalid_control_letter_signals_error() {
     let mut ev = Evaluator::new();
     let results = eval_all_with(
