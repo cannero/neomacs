@@ -726,18 +726,7 @@ impl<'a> VmSharedState<'a> {
         extra_roots: &[Value],
         f: impl FnOnce(&mut Evaluator) -> T,
     ) -> T {
-        self.with_parent_evaluator(|eval| {
-            let saved_temp_roots = eval.save_temp_roots();
-            for root in vm_gc_roots {
-                eval.push_temp_root(*root);
-            }
-            for root in extra_roots {
-                eval.push_temp_root(*root);
-            }
-            let result = f(eval);
-            eval.restore_temp_roots(saved_temp_roots);
-            result
-        })
+        with_parent_evaluator_vm_roots_ptr(self.parent_eval, vm_gc_roots, extra_roots, f)
     }
 
     pub(crate) fn parent_eval_ptr(&self) -> std::ptr::NonNull<Evaluator> {
@@ -854,6 +843,30 @@ impl<'a> VmSharedState<'a> {
             intern("unread-command-events"),
             Value::list(vec![event]),
         );
+    }
+}
+
+pub(crate) fn with_parent_evaluator_vm_roots_ptr<T>(
+    mut parent_eval: std::ptr::NonNull<Evaluator>,
+    vm_gc_roots: &[Value],
+    extra_roots: &[Value],
+    f: impl FnOnce(&mut Evaluator) -> T,
+) -> T {
+    // Safety: `parent_eval` points at the evaluator that owns the shared VM
+    // runtime and outlives these callbacks. Callers ensure crossings are
+    // serialized against the surrounding shared-runtime borrows.
+    unsafe {
+        let eval = parent_eval.as_mut();
+        let saved_temp_roots = eval.save_temp_roots();
+        for root in vm_gc_roots {
+            eval.push_temp_root(*root);
+        }
+        for root in extra_roots {
+            eval.push_temp_root(*root);
+        }
+        let result = f(eval);
+        eval.restore_temp_roots(saved_temp_roots);
+        result
     }
 }
 

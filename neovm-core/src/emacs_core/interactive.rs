@@ -2143,17 +2143,12 @@ fn eval_interactive_form_expr_in_vm_runtime(
     vm_gc_roots: &[Value],
     form: &Expr,
 ) -> Result<Vec<Value>, Flow> {
-    let mut parent_eval = shared.parent_eval_ptr();
-    let value = unsafe {
-        let eval = parent_eval.as_mut();
-        let saved_temp_roots = eval.save_temp_roots();
-        for root in vm_gc_roots {
-            eval.push_temp_root(*root);
-        }
-        let result = eval.eval(form);
-        eval.restore_temp_roots(saved_temp_roots);
-        result
-    }?;
+    let value = super::eval::with_parent_evaluator_vm_roots_ptr(
+        shared.parent_eval_ptr(),
+        vm_gc_roots,
+        &[],
+        move |eval| eval.eval(form),
+    )?;
     interactive_form_value_to_args(value)
 }
 
@@ -2162,18 +2157,12 @@ fn eval_interactive_form_value_in_vm_runtime(
     vm_gc_roots: &[Value],
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
-    let mut parent_eval = shared.parent_eval_ptr();
-    let value = unsafe {
-        let eval = parent_eval.as_mut();
-        let saved_temp_roots = eval.save_temp_roots();
-        for root in vm_gc_roots {
-            eval.push_temp_root(*root);
-        }
-        eval.push_temp_root(form);
-        let result = eval.eval_value(&form);
-        eval.restore_temp_roots(saved_temp_roots);
-        result
-    }?;
+    let value = super::eval::with_parent_evaluator_vm_roots_ptr(
+        shared.parent_eval_ptr(),
+        vm_gc_roots,
+        &[form],
+        move |eval| eval.eval_value(&form),
+    )?;
     interactive_form_value_to_args(value)
 }
 

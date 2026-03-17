@@ -105,26 +105,16 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
     args: Vec<Value>,
 ) -> EvalResult {
     let args_roots = args.clone();
-    let mut parent_eval = shared.parent_eval_ptr();
+    let parent_eval = shared.parent_eval_ptr();
     builtin_documentation_in_obarray(&*shared.obarray, args, |value| {
         let mut extra_roots = args_roots.clone();
         extra_roots.push(value);
-        // Safety: `parent_eval` points at the evaluator that owns the shared
-        // runtime and outlives this callback. The VM/evaluator crossing only
-        // evaluates the deferred documentation form on that same runtime.
-        unsafe {
-            let eval = parent_eval.as_mut();
-            let saved_temp_roots = eval.save_temp_roots();
-            for root in vm_gc_roots {
-                eval.push_temp_root(*root);
-            }
-            for root in &extra_roots {
-                eval.push_temp_root(*root);
-            }
-            let result = eval.eval_value(&value);
-            eval.restore_temp_roots(saved_temp_roots);
-            result
-        }
+        super::eval::with_parent_evaluator_vm_roots_ptr(
+            parent_eval,
+            vm_gc_roots,
+            &extra_roots,
+            move |eval| eval.eval_value(&value),
+        )
     })
 }
 
@@ -10569,26 +10559,16 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
     args: Vec<Value>,
 ) -> EvalResult {
     let args_roots = args.clone();
-    let mut parent_eval = shared.parent_eval_ptr();
+    let parent_eval = shared.parent_eval_ptr();
     builtin_documentation_property_in_obarray(&*shared.obarray, args, |value| {
         let mut extra_roots = args_roots.clone();
         extra_roots.push(value);
-        // Safety: `parent_eval` points at the evaluator that owns the shared
-        // runtime and outlives this callback. The VM/evaluator crossing only
-        // evaluates the deferred documentation property form.
-        unsafe {
-            let eval = parent_eval.as_mut();
-            let saved_temp_roots = eval.save_temp_roots();
-            for root in vm_gc_roots {
-                eval.push_temp_root(*root);
-            }
-            for root in &extra_roots {
-                eval.push_temp_root(*root);
-            }
-            let result = eval.eval_value(&value);
-            eval.restore_temp_roots(saved_temp_roots);
-            result
-        }
+        super::eval::with_parent_evaluator_vm_roots_ptr(
+            parent_eval,
+            vm_gc_roots,
+            &extra_roots,
+            move |eval| eval.eval_value(&value),
+        )
     })
 }
 

@@ -240,7 +240,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
     }
 
     let args_roots = args.to_vec();
-    let mut parent_eval = shared.parent_eval_ptr();
+    let parent_eval = shared.parent_eval_ptr();
     finish_format_mode_line_in_state_with_eval(
         &*shared.obarray,
         shared.dynamic.as_slice(),
@@ -251,23 +251,12 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
             let form_val = *form;
             let mut extra_roots = args_roots.clone();
             extra_roots.push(form_val);
-            // Safety: `parent_eval` points at the evaluator that owns the
-            // shared runtime and outlives this callback. The crossing is only
-            // used for actual `:eval` forms that GNU also evaluates at render
-            // time.
-            unsafe {
-                let eval = parent_eval.as_mut();
-                let saved_temp_roots = eval.save_temp_roots();
-                for root in vm_gc_roots {
-                    eval.push_temp_root(*root);
-                }
-                for root in &extra_roots {
-                    eval.push_temp_root(*root);
-                }
-                let result = eval.eval_value(&form_val);
-                eval.restore_temp_roots(saved_temp_roots);
-                result
-            }
+            crate::emacs_core::eval::with_parent_evaluator_vm_roots_ptr(
+                parent_eval,
+                vm_gc_roots,
+                &extra_roots,
+                move |eval| eval.eval_value(&form_val),
+            )
         },
     )
 }

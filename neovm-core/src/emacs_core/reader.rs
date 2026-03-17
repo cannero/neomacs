@@ -1178,7 +1178,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     builtin_read_from_minibuffer_in_runtime(shared, args)?;
     let extra_roots = args.to_vec();
     let recursive_depth = shared.recursive_command_loop_depth();
-    let mut parent_eval = shared.parent_eval_ptr();
+    let parent_eval = shared.parent_eval_ptr();
     finish_read_from_minibuffer_in_state_with_recursive_edit(
         &mut *shared.obarray,
         &mut *shared.buffers,
@@ -1190,22 +1190,12 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         recursive_depth,
         args,
         move || {
-            // Safety: `parent_eval` is the evaluator that owns the shared VM
-            // runtime and outlives this callback. The recursive minibuffer
-            // transition is serialized through the outer `&mut VmSharedState`.
-            unsafe {
-                let eval = parent_eval.as_mut();
-                let saved_temp_roots = eval.save_temp_roots();
-                for root in vm_gc_roots {
-                    eval.push_temp_root(*root);
-                }
-                for root in &extra_roots {
-                    eval.push_temp_root(*root);
-                }
-                let result = eval.minibuffer_command_loop_inner();
-                eval.restore_temp_roots(saved_temp_roots);
-                result
-            }
+            super::eval::with_parent_evaluator_vm_roots_ptr(
+                parent_eval,
+                vm_gc_roots,
+                &extra_roots,
+                |eval| eval.minibuffer_command_loop_inner(),
+            )
         },
     )
 }
