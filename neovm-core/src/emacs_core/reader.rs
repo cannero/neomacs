@@ -1216,6 +1216,9 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         recursive_depth,
         args,
         move || {
+            // `shared` is already lending minibuffer/window state into the
+            // recursive-edit setup above, so this localized raw helper is the
+            // remaining borrow-safe way to enter the parent evaluator here.
             super::eval::with_parent_evaluator_vm_roots_ptr(
                 parent_eval,
                 vm_gc_roots,

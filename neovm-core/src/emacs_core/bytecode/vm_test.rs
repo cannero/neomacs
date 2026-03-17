@@ -109,6 +109,51 @@ fn vm_direct_dispatch_covers_all_dispatch_builtin_names() {
 }
 
 #[test]
+fn vm_raw_parent_bridge_is_limited_to_borrow_conflict_sites() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("src/emacs_core");
+    let mut pending = vec![root.clone()];
+    let mut unexpected = Vec::new();
+
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read emacs_core dir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                continue;
+            }
+
+            let rel = path
+                .strip_prefix(&manifest)
+                .expect("path under crate root")
+                .to_path_buf();
+            let source = std::fs::read_to_string(&path).expect("read Rust source");
+            for (lineno, line) in source.lines().enumerate() {
+                if !line.contains("with_parent_evaluator_vm_roots_ptr(") {
+                    continue;
+                }
+                let allowed = rel == PathBuf::from("src/emacs_core/eval.rs")
+                    || rel == PathBuf::from("src/emacs_core/bytecode/vm_test.rs")
+                    || rel == PathBuf::from("src/emacs_core/reader.rs")
+                    || rel == PathBuf::from("src/emacs_core/xdisp.rs");
+                if !allowed {
+                    unexpected.push(format!("{}:{}", rel.display(), lineno + 1));
+                }
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "raw parent-evaluator bridge escaped allowed files: {unexpected:?}"
+    );
+}
+
+#[test]
 fn vm_lexical_let_closure_captures_bytecode_binding() {
     assert_eq!(
         vm_eval_lexical_str(

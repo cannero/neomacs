@@ -251,6 +251,9 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
             let form_val = *form;
             let mut extra_roots = args_roots.clone();
             extra_roots.push(form_val);
+            // `buffers` is already borrowed for the mode-line walk, so keep
+            // this raw parent-evaluator bridge narrowly scoped to the `:eval`
+            // callback rather than reintroducing a wider shared-state fallback.
             crate::emacs_core::eval::with_parent_evaluator_vm_roots_ptr(
                 parent_eval,
                 vm_gc_roots,
