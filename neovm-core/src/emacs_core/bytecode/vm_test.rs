@@ -1417,6 +1417,20 @@ i")
 }
 
 #[test]
+fn vm_call_interactively_handles_optional_coding_without_prefix_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((current-prefix-arg nil)
+                     (unread-command-events '(97)))
+                 (list
+                  (call-interactively '(lambda (coding) (interactive "ZCoding: ") coding))
+                  unread-command-events))"#
+        ),
+        "OK (nil (97))"
+    );
+}
+
+#[test]
 fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
     assert_eq!(
         vm_eval_with_init_str(

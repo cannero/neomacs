@@ -1218,6 +1218,14 @@ fn interactive_args_from_string_code_in_state(
             )),
             'r' => args.extend(interactive_region_args_in_buffers(buffers, "error")?),
             'U' => args.push(Value::Nil),
+            'Z' => {
+                let raw = interactive_prefix_raw_arg_in_state(obarray, dynamic.as_slice(), kind);
+                if raw.is_nil() {
+                    args.push(Value::Nil);
+                } else {
+                    return Ok(None);
+                }
+            }
             _ => return Ok(None),
         }
     }
@@ -1668,6 +1676,17 @@ fn interactive_args_from_string_code(
             'p' => args.push(interactive_prefix_numeric_arg(eval, kind)),
             'P' => args.push(interactive_prefix_raw_arg(eval, kind)),
             'r' => args.extend(interactive_region_args(eval, "error")?),
+            'R' => {
+                let use_region = eval
+                    .apply(Value::symbol("use-region-p"), vec![])?
+                    .is_truthy();
+                if use_region {
+                    args.extend(interactive_region_args(eval, "error")?);
+                } else {
+                    args.push(Value::Nil);
+                    args.push(Value::Nil);
+                }
+            }
             'S' => {
                 let sym_name =
                     super::reader::builtin_read_string(eval, vec![Value::string(prompt)])?;
@@ -1698,7 +1717,14 @@ fn interactive_args_from_string_code(
             'z' => args.push(super::lread::builtin_read_coding_system(vec![
                 Value::string(prompt),
             ])?),
-            'Z' => args.push(interactive_read_coding_system_optional_arg(prompt)?),
+            'Z' => {
+                let raw = interactive_prefix_raw_arg(eval, kind);
+                if raw.is_nil() {
+                    args.push(Value::Nil);
+                } else {
+                    args.push(interactive_read_coding_system_optional_arg(prompt)?);
+                }
+            }
             _ => return Err(invalid_interactive_control_letter_error(letter)),
         }
     }

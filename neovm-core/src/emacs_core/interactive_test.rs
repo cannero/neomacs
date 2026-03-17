@@ -1102,6 +1102,70 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
     assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::True));
 }
 
+#[test]
+fn call_interactively_state_resolution_handles_optional_coding_without_prefix() {
+    let mut ev = Evaluator::new();
+    let lambda_forms =
+        super::super::parser::parse_forms("(lambda (coding) (interactive \"ZCoding: \") coding)")
+            .expect("parse lambda");
+    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+    let mut plan = plan_call_interactively_in_state(
+        ev.obarray(),
+        &ev.interactive,
+        ev.read_command_keys(),
+        &[lambda],
+    )
+    .expect("plan optional coding lambda");
+    let (_, args) = resolve_call_interactively_target_and_args_in_state(
+        &mut ev.obarray,
+        &mut ev.dynamic,
+        &mut ev.buffers,
+        &ev.custom,
+        &ev.frames,
+        &ev.interactive,
+        &mut plan,
+    )
+    .expect("resolve optional coding args")
+    .expect("shared-state optional coding path");
+    assert_eq!(args, vec![Value::Nil]);
+}
+
+#[test]
+fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
+    let mut ev = Evaluator::new();
+    let current = ev.buffers.current_buffer_id().expect("current buffer");
+    let _ = ev.buffers.replace_buffer_contents(current, "abcd");
+    let _ = ev.buffers.goto_buffer_byte(current, 2);
+    let _ = ev.buffers.set_buffer_mark(current, 1);
+
+    let mut context = InteractiveInvocationContext::default();
+    let _ = ev.eval_forms(
+        &parse_forms("(fset 'use-region-p (lambda () nil))").expect("parse use-region-p"),
+    );
+    let args = interactive_args_from_string_code(
+        &mut ev,
+        "R",
+        CommandInvocationKind::CallInteractively,
+        &mut context,
+    )
+    .expect("resolve inactive R")
+    .expect("R should produce args");
+    assert_eq!(args, vec![Value::Nil, Value::Nil]);
+
+    let _ = ev.eval_forms(
+        &parse_forms("(fset 'use-region-p (lambda () t))").expect("parse use-region-p"),
+    );
+    let args = interactive_args_from_string_code(
+        &mut ev,
+        "R",
+        CommandInvocationKind::CallInteractively,
+        &mut context,
+    )
+    .expect("resolve active R")
+    .expect("R should produce args");
+    assert_eq!(args, vec![Value::Int(2), Value::Int(3)]);
+}
+
 // -------------------------------------------------------------------
 // interactive-p / called-interactively-p
 // -------------------------------------------------------------------
