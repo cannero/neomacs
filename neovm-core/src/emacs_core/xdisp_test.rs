@@ -595,6 +595,21 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
 }
 
 #[test]
+fn test_format_mode_line_recursive_depth_specs_match_gnu() {
+    let mut eval = super::super::eval::Evaluator::new();
+
+    eval.command_loop.recursive_depth = 3;
+    let shallow =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%[|%]")]).expect("depth 3");
+    assert_eq!(shallow, Value::string("[[[|]]]"));
+
+    eval.command_loop.recursive_depth = 6;
+    let deep =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%[|%]")]).expect("depth 6");
+    assert_eq!(deep, Value::string("[[[... | ...]]]"));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

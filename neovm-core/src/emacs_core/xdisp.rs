@@ -521,6 +521,7 @@ fn append_mode_line_string_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
+    command_loop_depth: usize,
     result: &mut ModeLineRendered,
     value: &Value,
     literal: bool,
@@ -531,7 +532,14 @@ fn append_mode_line_string_in_state(
     if literal || !text.contains('%') {
         result.append_string_value_preserving_props(value);
     } else {
-        expand_mode_line_percent_in_state(obarray, dynamic, buffers, value, result);
+        expand_mode_line_percent_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            command_loop_depth,
+            value,
+            result,
+        );
     }
 }
 
@@ -562,6 +570,7 @@ fn format_mode_line_recursive(
             &eval.obarray,
             &eval.dynamic,
             &eval.buffers,
+            eval.command_loop.recursive_depth,
             result,
             format,
             false,
@@ -593,6 +602,7 @@ fn format_mode_line_recursive(
                             &eval.obarray,
                             &eval.dynamic,
                             &eval.buffers,
+                            eval.command_loop.recursive_depth,
                             result,
                             &val,
                             true,
@@ -707,7 +717,7 @@ fn format_mode_line_recursive_in_state(
         Value::Nil => {}
 
         Value::Str(_) => {
-            append_mode_line_string_in_state(obarray, dynamic, buffers, result, format, false)
+            append_mode_line_string_in_state(obarray, dynamic, buffers, 0, result, format, false)
         }
 
         Value::Int(_) => {}
@@ -723,7 +733,7 @@ fn format_mode_line_recursive_in_state(
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
-                            obarray, dynamic, buffers, result, &val, true,
+                            obarray, dynamic, buffers, 0, result, &val, true,
                         );
                     } else if format_mode_line_recursive_in_state(
                         obarray,
@@ -860,7 +870,7 @@ fn format_mode_line_recursive_in_state_with_eval(
         Value::Nil => {}
 
         Value::Str(_) => {
-            append_mode_line_string_in_state(obarray, dynamic, buffers, result, format, false)
+            append_mode_line_string_in_state(obarray, dynamic, buffers, 0, result, format, false)
         }
 
         Value::Int(_) => {}
@@ -876,7 +886,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
-                            obarray, dynamic, buffers, result, &val, true,
+                            obarray, dynamic, buffers, 0, result, &val, true,
                         );
                     } else {
                         format_mode_line_recursive_in_state_with_eval(
@@ -1031,6 +1041,7 @@ fn format_mode_line_recursive_in_vm_runtime(
             &*shared.obarray,
             shared.dynamic.as_slice(),
             &*shared.buffers,
+            shared.recursive_command_loop_depth(),
             result,
             format,
             false,
@@ -1058,6 +1069,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                             &*shared.obarray,
                             shared.dynamic.as_slice(),
                             &*shared.buffers,
+                            shared.recursive_command_loop_depth(),
                             result,
                             &val,
                             true,
@@ -1204,6 +1216,7 @@ fn expand_mode_line_percent_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
+    command_loop_depth: usize,
     value: &Value,
     result: &mut ModeLineRendered,
 ) {
@@ -1358,8 +1371,13 @@ fn expand_mode_line_percent_in_state(
                 append_spec("U");
                 index += 1;
             }
-            Some('[') | Some(']') => {
-                append_spec("");
+            Some(c @ ('[' | ']')) => {
+                let repeated = match (c, command_loop_depth) {
+                    ('[', depth) if depth > 5 => "[[[... ".to_string(),
+                    (']', depth) if depth > 5 => " ...]]]".to_string(),
+                    (bracket, depth) => std::iter::repeat_n(bracket, depth).collect(),
+                };
+                append_spec(&repeated);
                 index += 1;
             }
             Some('e') => {

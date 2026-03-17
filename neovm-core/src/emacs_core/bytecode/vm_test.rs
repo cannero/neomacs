@@ -5032,6 +5032,22 @@ fn vm_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
 }
 
 #[test]
+fn vm_format_mode_line_recursive_depth_specs_match_gnu() {
+    assert_eq!(
+        vm_eval_with_init_str(r#"(format-mode-line "%[|%]")"#, |eval| {
+            eval.command_loop.recursive_depth = 3;
+        }),
+        r#"OK "[[[|]]]""#
+    );
+    assert_eq!(
+        vm_eval_with_init_str(r#"(format-mode-line "%[|%]")"#, |eval| {
+            eval.command_loop.recursive_depth = 6;
+        }),
+        r#"OK "[[[... | ...]]]""#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(
