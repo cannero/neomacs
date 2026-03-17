@@ -869,25 +869,9 @@ pub(crate) fn finish_read_string_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    let prompt = args[0];
-
-    // Build args for read-from-minibuffer:
-    // (read-from-minibuffer PROMPT INITIAL nil nil HIST DEFAULT INHERIT-INPUT-METHOD)
-    let initial = args.get(1).copied().unwrap_or(Value::Nil);
-    let history = args.get(2).copied().unwrap_or(Value::Nil);
-    let default = args.get(3).copied().unwrap_or(Value::Nil);
-    let inherit = args.get(4).copied().unwrap_or(Value::Nil);
-
-    let minibuffer_args = [
-        prompt,
-        initial,
-        Value::Nil,
-        Value::Nil,
-        history,
-        default,
-        inherit,
-    ];
-    finish_read_from_minibuffer_in_eval(eval, &minibuffer_args)
+    finish_read_string_with_minibuffer(args, |minibuffer_args| {
+        finish_read_from_minibuffer_in_eval(eval, minibuffer_args)
+    })
 }
 
 pub(crate) fn builtin_read_string_in_runtime(
@@ -915,6 +899,30 @@ pub(crate) fn builtin_read_string_in_runtime(
         inherit,
     ];
     builtin_read_from_minibuffer_in_runtime(runtime, &minibuffer_args)
+}
+
+pub(crate) fn finish_read_string_with_minibuffer(
+    args: &[Value],
+    mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
+    let prompt = args[0];
+
+    // (read-from-minibuffer PROMPT INITIAL nil nil HIST DEFAULT INHERIT-INPUT-METHOD)
+    let initial = args.get(1).copied().unwrap_or(Value::Nil);
+    let history = args.get(2).copied().unwrap_or(Value::Nil);
+    let default = args.get(3).copied().unwrap_or(Value::Nil);
+    let inherit = args.get(4).copied().unwrap_or(Value::Nil);
+
+    let minibuffer_args = [
+        prompt,
+        initial,
+        Value::Nil,
+        Value::Nil,
+        history,
+        default,
+        inherit,
+    ];
+    read_from_minibuffer(&minibuffer_args)
 }
 
 // ---------------------------------------------------------------------------
@@ -1535,6 +1543,15 @@ pub(crate) fn finish_yes_or_no_p_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
+    finish_yes_or_no_p_with_minibuffer(args, |minibuffer_args| {
+        finish_read_from_minibuffer_in_eval(eval, minibuffer_args)
+    })
+}
+
+pub(crate) fn finish_yes_or_no_p_with_minibuffer(
+    args: &[Value],
+    mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
     let prompt_str = if let Value::Str(id) = &args[0] {
         super::value::with_heap(|h| h.get_string(*id).to_owned())
     } else {
@@ -1542,7 +1559,7 @@ pub(crate) fn finish_yes_or_no_p_in_eval(
     };
     loop {
         let full_prompt = format!("{} (yes or no) ", prompt_str);
-        let result = builtin_read_from_minibuffer(eval, vec![Value::string(&full_prompt)])?;
+        let result = read_from_minibuffer(&[Value::string(&full_prompt)])?;
         if let Value::Str(id) = result {
             let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
             match answer.trim() {

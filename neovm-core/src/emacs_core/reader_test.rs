@@ -537,6 +537,36 @@ fn read_string_rejects_more_than_five_args() {
 }
 
 #[test]
+fn finish_read_string_with_minibuffer_builds_expected_args() {
+    let result = finish_read_string_with_minibuffer(
+        &[
+            Value::string("Prompt: "),
+            Value::string("seed"),
+            Value::symbol("hist"),
+            Value::string("fallback"),
+            Value::True,
+        ],
+        |minibuffer_args| {
+            assert_eq!(
+                minibuffer_args,
+                &[
+                    Value::string("Prompt: "),
+                    Value::string("seed"),
+                    Value::Nil,
+                    Value::Nil,
+                    Value::symbol("hist"),
+                    Value::string("fallback"),
+                    Value::True,
+                ]
+            );
+            Ok(Value::string("result"))
+        },
+    )
+    .unwrap();
+    assert_eq!(result, Value::string("result"));
+}
+
+#[test]
 fn read_number_signals_end_of_file_even_with_default() {
     let mut ev = Evaluator::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: "), Value::Int(42)]);
@@ -1004,6 +1034,25 @@ fn yes_or_no_p_rejects_nil_prompt() {
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
     ));
+}
+
+#[test]
+fn finish_yes_or_no_p_with_minibuffer_retries_until_valid_answer() {
+    let mut prompts = Vec::new();
+    let mut answers = [Value::string("maybe"), Value::string(" no ")].into_iter();
+    let result = finish_yes_or_no_p_with_minibuffer(&[Value::string("Confirm?")], |args| {
+        prompts.push(args[0].as_str().unwrap().to_owned());
+        Ok(answers.next().expect("enough answers"))
+    })
+    .unwrap();
+    assert_eq!(result, Value::Nil);
+    assert_eq!(
+        prompts,
+        vec![
+            "Confirm? (yes or no) ".to_string(),
+            "Confirm? (yes or no) ".to_string()
+        ]
+    );
 }
 
 #[test]

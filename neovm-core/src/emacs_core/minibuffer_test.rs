@@ -37,6 +37,79 @@ fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
 }
 
 #[test]
+fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let buf_id = eval.buffers.create_buffer(" target-buffer ");
+    let args = read_buffer_completing_args(
+        &eval.buffers,
+        &[
+            Value::string("Buffer: "),
+            Value::list(vec![Value::Buffer(buf_id), Value::string("fallback")]),
+            Value::True,
+            Value::symbol("predicate"),
+        ],
+    );
+    assert_eq!(args[0], Value::string("Buffer: "));
+    assert_eq!(args[2], Value::symbol("predicate"));
+    assert_eq!(args[3], Value::True);
+    assert_eq!(args[6], Value::string(" target-buffer "));
+    let names = super::value_to_string_list(&args[1]);
+    assert!(names.contains(&" target-buffer ".to_string()));
+}
+
+#[test]
+fn finish_read_command_with_minibuffer_normalizes_default_and_interns_result() {
+    let result = finish_read_command_with_minibuffer(
+        &[
+            Value::string("Command: "),
+            Value::list(vec![
+                Value::symbol("forward-char"),
+                Value::symbol("backward-char"),
+            ]),
+        ],
+        |minibuffer_args| {
+            assert_eq!(
+                minibuffer_args,
+                &[
+                    Value::string("Command: "),
+                    Value::Nil,
+                    Value::Nil,
+                    Value::Nil,
+                    Value::Nil,
+                    Value::string("forward-char"),
+                ]
+            );
+            Ok(Value::string("next-line"))
+        },
+    )
+    .unwrap();
+    assert_eq!(result, Value::symbol("next-line"));
+}
+
+#[test]
+fn finish_read_variable_with_minibuffer_normalizes_default_and_interns_result() {
+    let result = finish_read_variable_with_minibuffer(
+        &[Value::string("Variable: "), Value::symbol("fill-column")],
+        |minibuffer_args| {
+            assert_eq!(
+                minibuffer_args,
+                &[
+                    Value::string("Variable: "),
+                    Value::Nil,
+                    Value::Nil,
+                    Value::Nil,
+                    Value::Nil,
+                    Value::string("fill-column"),
+                ]
+            );
+            Ok(Value::string("tab-width"))
+        },
+    )
+    .unwrap();
+    assert_eq!(result, Value::symbol("tab-width"));
+}
+
+#[test]
 fn prefix_match_basic() {
     let candidates = vec![
         "apple".into(),

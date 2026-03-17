@@ -710,31 +710,7 @@ pub(crate) fn finish_read_buffer_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    let prompt = args[0];
-    let default = normalize_buffer_reader_default(
-        eval.buffer_manager(),
-        args.get(1).copied().unwrap_or(Value::Nil),
-    );
-    let require_match = args.get(2).copied().unwrap_or(Value::Nil);
-    let predicate = args.get(3).copied().unwrap_or(Value::Nil);
-
-    let buf_ids = eval.buffer_manager().buffer_list();
-    let buffer_names: Vec<Value> = buf_ids
-        .iter()
-        .filter_map(|id| eval.buffer_manager().get(*id))
-        .map(|b| Value::string(&b.name))
-        .collect();
-    let collection = Value::list(buffer_names);
-
-    let completing_args = [
-        prompt,
-        collection,
-        predicate,
-        require_match,
-        Value::Nil,
-        Value::Nil,
-        default,
-    ];
+    let completing_args = read_buffer_completing_args(eval.buffer_manager(), args);
     super::reader::finish_completing_read_in_eval(eval, &completing_args)
 }
 
@@ -750,6 +726,32 @@ pub(crate) fn builtin_read_buffer_in_runtime(
     } else {
         Err(end_of_file_stdin_error())
     }
+}
+
+pub(crate) fn read_buffer_completing_args(buffers: &BufferManager, args: &[Value]) -> [Value; 7] {
+    let prompt = args[0];
+    let default =
+        normalize_buffer_reader_default(buffers, args.get(1).copied().unwrap_or(Value::Nil));
+    let require_match = args.get(2).copied().unwrap_or(Value::Nil);
+    let predicate = args.get(3).copied().unwrap_or(Value::Nil);
+
+    let buf_ids = buffers.buffer_list();
+    let buffer_names: Vec<Value> = buf_ids
+        .iter()
+        .filter_map(|id| buffers.get(*id))
+        .map(|b| Value::string(&b.name))
+        .collect();
+    let collection = Value::list(buffer_names);
+
+    [
+        prompt,
+        collection,
+        predicate,
+        require_match,
+        Value::Nil,
+        Value::Nil,
+        default,
+    ]
 }
 
 /// `(read-command PROMPT &optional DEFAULT)`
@@ -768,23 +770,9 @@ pub(crate) fn finish_read_command_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    let prompt = args[0];
-    let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
-
-    let minibuffer_args = [
-        prompt,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        default,
-    ];
-    let result = super::reader::finish_read_from_minibuffer_in_eval(eval, &minibuffer_args)?;
-    if let Value::Str(id) = result {
-        let name = super::value::with_heap(|h| h.get_string(id).to_owned());
-        return Ok(Value::symbol(&name));
-    }
-    Ok(result)
+    finish_read_command_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_eval(eval, minibuffer_args)
+    })
 }
 
 pub(crate) fn builtin_read_command_in_runtime(
@@ -799,6 +787,43 @@ pub(crate) fn builtin_read_command_in_runtime(
     } else {
         Err(end_of_file_stdin_error())
     }
+}
+
+fn symbol_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
+    let prompt = args[0];
+    let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
+    [
+        prompt,
+        Value::Nil,
+        Value::Nil,
+        Value::Nil,
+        Value::Nil,
+        default,
+    ]
+}
+
+fn intern_symbol_reader_result(result: Value) -> Value {
+    if let Value::Str(id) = result {
+        let name = super::value::with_heap(|h| h.get_string(id).to_owned());
+        return Value::symbol(&name);
+    }
+    result
+}
+
+fn finish_symbol_reader_with_minibuffer(
+    args: &[Value],
+    mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
+    let minibuffer_args = symbol_reader_minibuffer_args(args);
+    let result = read_from_minibuffer(&minibuffer_args)?;
+    Ok(intern_symbol_reader_result(result))
+}
+
+pub(crate) fn finish_read_command_with_minibuffer(
+    args: &[Value],
+    read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
+    finish_symbol_reader_with_minibuffer(args, read_from_minibuffer)
 }
 
 /// `(read-variable PROMPT &optional DEFAULT)`
@@ -817,23 +842,9 @@ pub(crate) fn finish_read_variable_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    let prompt = args[0];
-    let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
-
-    let minibuffer_args = [
-        prompt,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        default,
-    ];
-    let result = super::reader::finish_read_from_minibuffer_in_eval(eval, &minibuffer_args)?;
-    if let Value::Str(id) = result {
-        let name = super::value::with_heap(|h| h.get_string(id).to_owned());
-        return Ok(Value::symbol(&name));
-    }
-    Ok(result)
+    finish_read_variable_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_eval(eval, minibuffer_args)
+    })
 }
 
 pub(crate) fn builtin_read_variable_in_runtime(
@@ -848,6 +859,13 @@ pub(crate) fn builtin_read_variable_in_runtime(
     } else {
         Err(end_of_file_stdin_error())
     }
+}
+
+pub(crate) fn finish_read_variable_with_minibuffer(
+    args: &[Value],
+    read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
+    finish_symbol_reader_with_minibuffer(args, read_from_minibuffer)
 }
 
 /// `(try-completion STRING COLLECTION &optional PREDICATE)`
