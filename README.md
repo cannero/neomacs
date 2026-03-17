@@ -1,4 +1,4 @@
-"I started Neomacs because I love Emacs, I respect Emacs, and I want to make it better." — *Eval Exec*
+"I started Neomacs because I love Emacs, I respect Emacs, and I want to evolve the legendary Emacs into the ultimate modern powerhouse." — *Eval Exec*
 
 > ✨ *"While other editors can save your files, only Emacs can save your soul."* ✨
 
