@@ -4636,21 +4636,26 @@ pub(crate) fn builtin_kill_emacs(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_kill_emacs_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("kill-emacs", &args, 0, 2)?;
-
+pub(crate) fn plan_kill_emacs_request(
+    args: &[Value],
+) -> Result<super::eval::ShutdownRequest, Flow> {
+    expect_range_args("kill-emacs", args, 0, 2)?;
     let exit_code = match args.first().copied().unwrap_or(Value::Nil) {
         Value::Int(n) => n as i32,
         Value::Nil | Value::True => 0,
         _ => 0,
     };
     let restart = args.get(1).is_some_and(Value::is_truthy);
+    Ok(super::eval::ShutdownRequest { exit_code, restart })
+}
 
+pub(crate) fn builtin_kill_emacs_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    let request = plan_kill_emacs_request(&args)?;
     let _ = eval.run_hook_if_bound("kill-emacs-hook");
-    eval.request_shutdown(exit_code, restart);
+    eval.request_shutdown(request.exit_code, request.restart);
     Ok(Value::Nil)
 }
 

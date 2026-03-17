@@ -8321,11 +8321,15 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_kill_emacs_shared(&mut self, args: &[Value]) -> EvalResult {
+        let request = crate::emacs_core::builtins::symbols::plan_kill_emacs_request(args)?;
         let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
         self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::builtins::builtin_kill_emacs_eval(eval, call_args)
-        })
+            let _ = eval.run_hook_if_bound("kill-emacs-hook");
+            Ok(Value::Nil)
+        })?;
+        self.shared
+            .request_shutdown(request.exit_code, request.restart);
+        Ok(Value::Nil)
     }
 
     fn builtin_eval_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -8333,8 +8337,12 @@ impl<'a> Vm<'a> {
             self.shared.buffers,
             args.first(),
         )?;
-        self.with_shared_evaluator(args, move |eval| {
-            crate::emacs_core::lread::eval_forms_from_source(eval, &source)
+        crate::emacs_core::lread::eval_forms_from_source_in_runtime(&source, |form| {
+            self.with_shared_evaluator(args, move |eval| {
+                eval.eval(form)?;
+                eval.gc_safe_point();
+                Ok(Value::Nil)
+            })
         })
     }
 
@@ -8344,8 +8352,12 @@ impl<'a> Vm<'a> {
         if source.is_empty() {
             return Ok(Value::Nil);
         }
-        self.with_shared_evaluator(args, move |eval| {
-            crate::emacs_core::lread::eval_forms_from_source(eval, &source)
+        crate::emacs_core::lread::eval_forms_from_source_in_runtime(&source, |form| {
+            self.with_shared_evaluator(args, move |eval| {
+                eval.eval(form)?;
+                eval.gc_safe_point();
+                Ok(Value::Nil)
+            })
         })
     }
 

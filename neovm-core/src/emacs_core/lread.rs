@@ -4,6 +4,7 @@
 //! read-non-nil-coding-system.
 
 use super::error::{EvalResult, Flow, signal};
+use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::value::*;
 use std::path::Path;
@@ -72,9 +73,9 @@ fn strip_reader_prefix(source: &str) -> (&str, bool) {
     }
 }
 
-pub(crate) fn eval_forms_from_source(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn eval_forms_from_source_in_runtime(
     source: &str,
+    mut eval_form: impl FnMut(&Expr) -> EvalResult,
 ) -> EvalResult {
     let (source, shebang_only_line) = strip_reader_prefix(source);
     if shebang_only_line {
@@ -90,10 +91,20 @@ pub(crate) fn eval_forms_from_source(
         )
     })?;
     for form in forms {
-        eval.eval(&form)?;
-        eval.gc_safe_point();
+        eval_form(&form)?;
     }
     Ok(Value::Nil)
+}
+
+pub(crate) fn eval_forms_from_source(
+    eval: &mut super::eval::Evaluator,
+    source: &str,
+) -> EvalResult {
+    eval_forms_from_source_in_runtime(source, |form| {
+        eval.eval(form)?;
+        eval.gc_safe_point();
+        Ok(Value::Nil)
+    })
 }
 
 pub(crate) fn eval_buffer_source_text_in_state(

@@ -253,6 +253,7 @@ pub(crate) struct VmSharedState<'a> {
     pub(crate) recent_input_events: &'a mut Vec<Value>,
     read_command_keys: &'a mut Vec<Value>,
     pub(crate) current_message: &'a mut Option<String>,
+    shutdown_request: &'a mut Option<ShutdownRequest>,
     pub(crate) input_mode_interrupt: &'a mut bool,
     pub(crate) waiting_for_user_input: &'a mut bool,
     modes: &'a mut ModeRegistry,
@@ -309,6 +310,7 @@ impl<'a> VmSharedState<'a> {
         recent_input_events: &'a mut Vec<Value>,
         read_command_keys: &'a mut Vec<Value>,
         current_message: &'a mut Option<String>,
+        shutdown_request: &'a mut Option<ShutdownRequest>,
         input_mode_interrupt: &'a mut bool,
         waiting_for_user_input: &'a mut bool,
         frames: &'a mut FrameManager,
@@ -371,6 +373,7 @@ impl<'a> VmSharedState<'a> {
             recent_input_events,
             read_command_keys,
             current_message,
+            shutdown_request,
             input_mode_interrupt,
             waiting_for_user_input,
             frames,
@@ -417,6 +420,10 @@ impl<'a> VmSharedState<'a> {
         *self.pcase_macroexpand_temp_counter =
             self.pcase_macroexpand_temp_counter.saturating_add(1);
         Value::symbol(format!("x{n}"))
+    }
+
+    pub(crate) fn request_shutdown(&mut self, exit_code: i32, restart: bool) {
+        *self.shutdown_request = Some(ShutdownRequest { exit_code, restart });
     }
 
     pub(crate) fn display_host_mut(&mut self) -> &mut Option<Box<dyn DisplayHost>> {
@@ -488,6 +495,7 @@ impl<'a> VmSharedState<'a> {
             &mut eval.recent_input_events,
             &mut eval.read_command_keys,
             &mut eval.current_message,
+            &mut eval.shutdown_request,
             &mut eval.input_mode_interrupt,
             &mut eval.waiting_for_user_input,
             &mut eval.frames,
