@@ -7509,10 +7509,14 @@ impl<'a> Vm<'a> {
     fn builtin_make_thread_shared(&mut self, args: &[Value]) -> EvalResult {
         let (thread_id, function) =
             crate::emacs_core::threads::prepare_make_thread_in_state(self.shared.threads, args)?;
-        let extra_roots = args.to_vec();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::threads::finish_make_thread_in_eval(eval, thread_id, function)
-        })
+        let saved_current = self.shared.threads.enter_thread(thread_id);
+        let result = self.call_function_with_roots(function, &[]);
+        self.shared.threads.restore_thread(saved_current);
+        crate::emacs_core::threads::finish_make_thread_result_in_state(
+            self.shared.threads,
+            thread_id,
+            result,
+        )
     }
 
     fn builtin_thread_join_shared(&mut self, args: &[Value]) -> EvalResult {

@@ -3155,6 +3155,26 @@ fn vm_make_thread_runs_body_on_shared_runtime() {
 }
 
 #[test]
+fn vm_make_thread_records_join_error_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((worker (make-thread
+                             (lambda ()
+                               (signal 'vm-thread-boom '(99)))
+                             "vm-boom")))
+                 (list
+                  (threadp worker)
+                  (null (thread-live-p worker))
+                  (null (thread-join worker))
+                  (let ((err (thread-last-error)))
+                    (and (consp err)
+                         (eq (car err) 'vm-thread-boom)))))"#
+        ),
+        "OK (t t t t)"
+    );
+}
+
+#[test]
 fn vm_make_process_builtin_uses_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

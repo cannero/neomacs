@@ -561,7 +561,10 @@ pub(crate) fn builtin_make_thread(
     args: Vec<Value>,
 ) -> EvalResult {
     let (thread_id, function) = prepare_make_thread_in_state(&mut eval.threads, &args)?;
-    finish_make_thread_in_eval(eval, thread_id, function)
+    let saved_current = eval.threads.enter_thread(thread_id);
+    let result = eval.apply(function, vec![]);
+    eval.threads.restore_thread(saved_current);
+    finish_make_thread_result_in_state(&mut eval.threads, thread_id, result)
 }
 
 pub(crate) fn prepare_make_thread_in_state(
@@ -599,23 +602,29 @@ pub(crate) fn finish_make_thread_in_eval(
     let saved_current = eval.threads.enter_thread(thread_id);
     let result = eval.apply(function, vec![]);
     eval.threads.restore_thread(saved_current);
+    finish_make_thread_result_in_state(&mut eval.threads, thread_id, result)
+}
 
+pub(crate) fn finish_make_thread_result_in_state(
+    threads: &mut ThreadManager,
+    thread_id: u64,
+    result: EvalResult,
+) -> EvalResult {
     match result {
         Ok(val) => {
-            eval.threads.finish_thread(thread_id, val);
+            threads.finish_thread(thread_id, val);
         }
         Err(Flow::Signal(ref sig)) => {
             let error_val = make_signal_binding_value(sig);
-            eval.threads.signal_thread(thread_id, error_val);
+            threads.signal_thread(thread_id, error_val);
         }
         Err(Flow::Throw { ref tag, ref value }) => {
             let error_val = Value::list(vec![Value::symbol("no-catch"), *tag, *value]);
-            eval.threads.signal_thread(thread_id, error_val);
+            threads.signal_thread(thread_id, error_val);
         }
     }
 
-    Ok(eval
-        .threads
+    Ok(threads
         .thread_handle(thread_id)
         .unwrap_or_else(|| tagged_object_value("thread", thread_id)))
 }
