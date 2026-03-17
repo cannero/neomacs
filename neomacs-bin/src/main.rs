@@ -12,6 +12,7 @@
 mod input_bridge;
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -29,6 +30,137 @@ use neovm_core::emacs_core::intern::resolve_sym;
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::{DisplayHost, Evaluator, GuiFrameHostRequest};
 use neovm_core::window::{FrameId, Window};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EarlyCliAction {
+    PrintHelp { program: String },
+    PrintVersion,
+}
+
+const EARLY_HELP_BODY: &str = concat!(
+    "Run Neomacs, the extensible, customizable, self-documenting real-time\n",
+    "display editor.  The recommended way to start Neomacs for normal editing\n",
+    "is with no options at all.\n",
+    "\n",
+    "Run M-x info RET m emacs RET m emacs invocation RET inside Emacs to\n",
+    "read the main documentation for these command-line arguments.\n",
+    "\n",
+    "Initialization options:\n",
+    "\n",
+    "--batch                     do not do interactive display; implies -q\n",
+    "--chdir DIR                 change to directory DIR\n",
+    "--daemon, --bg-daemon[=NAME] start a (named) server in the background\n",
+    "--fg-daemon[=NAME]          start a (named) server in the foreground\n",
+    "--debug-init                enable Emacs Lisp debugger for init file\n",
+    "--display, -d DISPLAY       use X server DISPLAY\n",
+    "--no-build-details          do not add build details such as time stamps\n",
+    "--no-desktop                do not load a saved desktop\n",
+    "--no-init-file, -q          load neither ~/.emacs nor default.el\n",
+    "--no-loadup, -nl            do not load loadup.el into bare Emacs\n",
+    "--no-site-file              do not load site-start.el\n",
+    "--no-x-resources            do not load X resources\n",
+    "--no-site-lisp, -nsl        do not add site-lisp directories to load-path\n",
+    "--no-splash                 do not display a splash screen on startup\n",
+    "--no-window-system, -nw     do not communicate with X, ignoring $DISPLAY\n",
+    "--init-directory=DIR        use DIR when looking for the Emacs init files.\n",
+    "--quick, -Q                 equivalent to:\n",
+    "                              -q --no-site-file --no-site-lisp --no-splash\n",
+    "                              --no-x-resources\n",
+    "--script FILE               run FILE as an Emacs Lisp script\n",
+    "-x                          to be used in #!/usr/bin/emacs -x\n",
+    "                              and has approximately the same meaning\n",
+    "                              as -Q --script\n",
+    "--terminal, -t DEVICE       use DEVICE for terminal I/O\n",
+    "--user, -u USER             load ~USER/.emacs instead of your own\n",
+    "\n",
+    "Action options:\n",
+    "\n",
+    "FILE                    visit FILE\n",
+    "+LINE                   go to line LINE in next FILE\n",
+    "+LINE:COLUMN            go to line LINE, column COLUMN, in next FILE\n",
+    "--directory, -L DIR     prepend DIR to load-path (with :DIR, append DIR)\n",
+    "--eval EXPR             evaluate Emacs Lisp expression EXPR\n",
+    "--execute EXPR          evaluate Emacs Lisp expression EXPR\n",
+    "--file FILE             visit FILE\n",
+    "--find-file FILE        visit FILE\n",
+    "--funcall, -f FUNC      call Emacs Lisp function FUNC with no arguments\n",
+    "--insert FILE           insert contents of FILE into current buffer\n",
+    "--kill                  exit without asking for confirmation\n",
+    "--load, -l FILE         load Emacs Lisp FILE using the load function\n",
+    "--visit FILE            visit FILE\n",
+    "\n",
+    "Display options:\n",
+    "\n",
+    "--background-color, -bg COLOR   window background color\n",
+    "--basic-display, -D             disable many display features;\n",
+    "                                  used for debugging Emacs\n",
+    "--border-color, -bd COLOR       main border color\n",
+    "--border-width, -bw WIDTH       width of main border\n",
+    "--cursor-color, -cr COLOR       color of the Emacs cursor indicating point\n",
+    "--font, -fn FONT                default font; must be fixed-width\n",
+    "--foreground-color, -fg COLOR   window foreground color\n",
+    "--fullheight, -fh               make the first frame high as the screen\n",
+    "--fullscreen, -fs               make the first frame fullscreen\n",
+    "--fullwidth, -fw                make the first frame wide as the screen\n",
+    "--maximized, -mm                make the first frame maximized\n",
+    "--geometry, -g GEOMETRY         window geometry\n",
+    "--iconic                        start Neomacs in iconified state\n",
+    "--internal-border, -ib WIDTH    width between text and main border\n",
+    "--line-spacing, -lsp PIXELS     additional space to put between lines\n",
+    "--mouse-color, -ms COLOR        mouse cursor color in Neomacs window\n",
+    "--name NAME                     title for initial Neomacs frame\n",
+    "--no-blinking-cursor, -nbc      disable blinking cursor\n",
+    "--reverse-video, -r, -rv        switch foreground and background\n",
+    "--title, -T TITLE               title for initial Neomacs frame\n",
+    "--vertical-scroll-bars, -vb     enable vertical scroll bars\n",
+    "--xrm XRESOURCES                set additional X resources\n",
+    "--parent-id XID                 set parent window\n",
+    "--help                          display this help and exit\n",
+    "--version                       output version information and exit\n",
+    "\n",
+    "You can generally also specify long option names with a single -; for\n",
+    "example, -batch as well as --batch.  You can use any unambiguous\n",
+    "abbreviation for a --option.\n",
+    "\n",
+    "Various environment variables and window system resources also affect\n",
+    "the operation of Neomacs.  See the main documentation.\n",
+    "\n",
+    "Report bugs to https://github.com/eval-exec/neomacs-windows/issues.\n",
+);
+
+fn classify_early_cli_action(args: impl IntoIterator<Item = String>) -> Option<EarlyCliAction> {
+    let mut args = args.into_iter();
+    let program = args.next().unwrap_or_else(|| "neomacs".to_string());
+    for arg in args {
+        if arg == "--" {
+            break;
+        }
+        match arg.as_str() {
+            "--help" | "-help" => {
+                return Some(EarlyCliAction::PrintHelp { program });
+            }
+            "--version" | "-version" => {
+                return Some(EarlyCliAction::PrintVersion);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn render_help_text(program: &str) -> String {
+    let mut out = String::new();
+    let _ = write!(&mut out, "Usage: {program} [OPTION-OR-FILENAME]...\n\n");
+    out.push_str(EARLY_HELP_BODY);
+    out
+}
+
+fn render_version_text() -> String {
+    format!(
+        "Neomacs {}\nStandalone Rust binary for Neomacs (no C dependency)\n",
+        neomacs_display_runtime::VERSION
+    )
+}
 
 struct PrimaryWindowDisplayHost {
     cmd_tx: crossbeam_channel::Sender<RenderCommand>,
@@ -65,6 +197,18 @@ impl DisplayHost for PrimaryWindowDisplayHost {
 }
 
 fn main() {
+    if let Some(action) = classify_early_cli_action(std::env::args()) {
+        match action {
+            EarlyCliAction::PrintHelp { program } => {
+                print!("{}", render_help_text(&program));
+            }
+            EarlyCliAction::PrintVersion => {
+                print!("{}", render_version_text());
+            }
+        }
+        return;
+    }
+
     // 1. Initialize logging
     neomacs_display_runtime::init_logging();
 
@@ -472,8 +616,9 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 #[cfg(test)]
 mod tests {
     use super::{
-        bootstrap_buffers, bootstrap_frame_metrics, configure_gnu_startup_state,
-        current_layout_frame_id, run_gnu_startup, run_layout,
+        EarlyCliAction, bootstrap_buffers, bootstrap_frame_metrics, classify_early_cli_action,
+        configure_gnu_startup_state, current_layout_frame_id, render_help_text,
+        render_version_text, run_gnu_startup, run_layout,
     };
     use neomacs_display_runtime::FrameGlyphBuffer;
     use neomacs_display_runtime::core::frame_glyphs::{FrameGlyph, GlyphRowRole};
@@ -510,6 +655,51 @@ mod tests {
         assert_eq!(current_layout_frame_id(&eval), Some(f1));
         assert!(eval.frame_manager_mut().delete_frame(f1));
         assert_eq!(current_layout_frame_id(&eval), Some(f2));
+    }
+
+    #[test]
+    fn early_cli_handles_gnu_c_owned_help_and_version_options() {
+        assert_eq!(
+            classify_early_cli_action(
+                ["./target/release/neomacs", "--help"]
+                    .into_iter()
+                    .map(str::to_string)
+            ),
+            Some(EarlyCliAction::PrintHelp {
+                program: "./target/release/neomacs".to_string()
+            })
+        );
+        assert_eq!(
+            classify_early_cli_action(
+                ["./target/release/neomacs", "-version"]
+                    .into_iter()
+                    .map(str::to_string)
+            ),
+            Some(EarlyCliAction::PrintVersion)
+        );
+        assert_eq!(
+            classify_early_cli_action(
+                ["./target/release/neomacs", "--", "--help"]
+                    .into_iter()
+                    .map(str::to_string)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn early_cli_help_uses_invoked_program_name_and_gnu_style_usage() {
+        let help = render_help_text("/tmp/neomacs");
+        assert!(help.starts_with("Usage: /tmp/neomacs [OPTION-OR-FILENAME]...\n\n"));
+        assert!(help.contains("--help                          display this help and exit"));
+        assert!(help.contains("--quick, -Q                 equivalent to:"));
+    }
+
+    #[test]
+    fn early_cli_version_reports_neomacs_identity() {
+        let version = render_version_text();
+        assert!(version.starts_with("Neomacs "));
+        assert!(version.contains("Standalone Rust binary for Neomacs"));
     }
 
     #[test]
