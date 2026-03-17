@@ -113,13 +113,22 @@
         let
           pkgs = pkgsFor system;
           craneLib = (crane.mkLib pkgs).overrideToolchain pkgs.rust-neomacs;
-          cleanSrc = lib.cleanSource ./.;
+          cargoSrc = craneLib.cleanCargoSource ./.;
+          packageSrc = builtins.path {
+            path = ./.;
+            name = "neomacs-source";
+            filter = path: _type:
+              let
+                base = builtins.baseNameOf path;
+              in
+              !(builtins.elem base [ ".git" ".direnv" "target" "result" ]);
+          };
           pname = "neomacs";
           version = self.shortRev or self.dirtyShortRev or self.lastModifiedDate or "0.0.1";
           runtimeLibs = commonBuildInputsFor pkgs;
           commonArgs = {
             inherit pname version;
-            src = cleanSrc;
+            src = cargoSrc;
             strictDeps = true;
             cargoExtraArgs = "-p neomacs-bin";
             nativeBuildInputs = commonNativeBuildInputsFor pkgs;
@@ -138,13 +147,19 @@
         in
         craneLib.buildPackage (commonArgs
           // {
+            src = packageSrc;
             inherit cargoArtifacts;
 
             postInstall = ''
+              mkdir -p "$out/share/neomacs"
+              cp -r lisp "$out/share/neomacs/"
+              cp -r etc "$out/share/neomacs/"
+              chmod -R u+w "$out/share/neomacs"
               wrapProgram "$out/bin/neomacs" \
                 --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath runtimeLibs}" \
                 --set-default RUST_LOG info \
                 --set-default NEOMACS_LOG info \
+                --set-default NEOMACS_RUNTIME_ROOT "$out/share/neomacs" \
                 ${lib.concatStringsSep " \\\n                " linuxWrapArgs}
             '';
           });

@@ -2158,15 +2158,88 @@ const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED
     Some(seed) => seed,
     None => "dev",
 };
+const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
+const BOOTSTRAP_CACHE_DIR_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_DIR";
 
-fn bootstrap_dump_path(project_root: &Path, extra_features: &[&str]) -> PathBuf {
+fn compile_time_project_root() -> PathBuf {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest.parent().expect("project root").to_path_buf()
+}
+
+fn is_runtime_root(path: &Path) -> bool {
+    path.join("lisp").is_dir() && path.join("etc").is_dir()
+}
+
+fn runtime_project_root() -> PathBuf {
+    if let Ok(root) = std::env::var(RUNTIME_ROOT_ENV) {
+        let path = PathBuf::from(root);
+        if is_runtime_root(&path) {
+            return path;
+        }
+        tracing::warn!(
+            "{RUNTIME_ROOT_ENV}={} does not contain lisp/ and etc/; falling back",
+            path.display()
+        );
+    }
+
+    let compile_root = compile_time_project_root();
+    if is_runtime_root(&compile_root) {
+        return compile_root;
+    }
+
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(prefix) = exe.parent().and_then(Path::parent)
+    {
+        for candidate in [
+            prefix.join("share/neomacs"),
+            prefix.join("Resources/neomacs"),
+        ] {
+            if is_runtime_root(&candidate) {
+                return candidate;
+            }
+        }
+    }
+
+    panic!(
+        "Neomacs runtime root not found. Set {RUNTIME_ROOT_ENV} to a directory containing lisp/ and etc/."
+    );
+}
+
+fn bootstrap_cache_dir(runtime_root: &Path) -> PathBuf {
+    if let Ok(dir) = std::env::var(BOOTSTRAP_CACHE_DIR_ENV)
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
+    }
+
+    let compile_root = compile_time_project_root();
+    if runtime_root == compile_root {
+        return compile_root.join("target");
+    }
+
+    if let Ok(dir) = std::env::var("XDG_CACHE_HOME")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir).join("neomacs");
+    }
+
+    if let Ok(home) = std::env::var("HOME")
+        && !home.is_empty()
+    {
+        return PathBuf::from(home).join(".cache/neomacs");
+    }
+
+    std::env::temp_dir().join("neomacs")
+}
+
+fn bootstrap_dump_path(runtime_root: &Path, extra_features: &[&str]) -> PathBuf {
     let features = normalized_bootstrap_features(extra_features);
     let suffix = if features.is_empty() {
         String::new()
     } else {
         format!("-{}", features.join("-"))
     };
-    project_root.join("target").join(format!(
+    bootstrap_cache_dir(runtime_root).join(format!(
         "neovm-bootstrap-v{BOOTSTRAP_IMAGE_SCHEMA_VERSION}-{BOOTSTRAP_CACHE_SEED}{suffix}.pdump"
     ))
 }
@@ -2186,16 +2259,15 @@ struct BootstrapCacheWriteLock {
 }
 
 impl BootstrapCacheWriteLock {
-    fn acquire(lock_path: &Path) -> Result<Self, EvalError> {
+    fn acquire(lock_path: &Path) -> Result<Self, String> {
         if let Some(parent) = lock_path.parent()
             && !parent.exists()
         {
-            std::fs::create_dir_all(parent).map_err(|err| EvalError::Signal {
-                symbol: intern("error"),
-                data: vec![Value::string(format!(
+            std::fs::create_dir_all(parent).map_err(|err| {
+                format!(
                     "bootstrap cache lock: failed creating {}: {err}",
                     parent.display()
-                ))],
+                )
             })?;
         }
 
@@ -2207,26 +2279,22 @@ impl BootstrapCacheWriteLock {
                 .read(true)
                 .write(true)
                 .open(lock_path)
-                .map_err(|err| EvalError::Signal {
-                    symbol: intern("error"),
-                    data: vec![Value::string(format!(
+                .map_err(|err| {
+                    format!(
                         "bootstrap cache lock: failed opening {}: {err}",
                         lock_path.display()
-                    ))],
+                    )
                 })?;
 
             // Serialize cache creation/repair across processes while keeping
             // ordinary pdump reads lock-free.
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
             if rc != 0 {
-                return Err(EvalError::Signal {
-                    symbol: intern("error"),
-                    data: vec![Value::string(format!(
+                return Err(format!(
                         "bootstrap cache lock: failed locking {}: {}",
                         lock_path.display(),
                         std::io::Error::last_os_error()
-                    ))],
-                });
+                ));
             }
 
             Ok(Self { file })
@@ -2589,8 +2657,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
     eval: &mut super::eval::Evaluator,
     names: &[&str],
 ) -> Result<(), EvalError> {
-    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().expect("project root");
+    let project_root = runtime_project_root();
     let ldefs_path = project_root.join("lisp/ldefs-boot.el");
     let source = fs::read_to_string(&ldefs_path).map_err(|err| EvalError::Signal {
         symbol: intern("error"),
@@ -3096,9 +3163,8 @@ pub fn create_bootstrap_evaluator() -> Result<super::eval::Evaluator, EvalError>
 pub fn create_bootstrap_evaluator_with_features(
     extra_features: &[&str],
 ) -> Result<super::eval::Evaluator, EvalError> {
-    // Discover the project root (contains lisp/ directory).
-    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().expect("project root");
+    // Discover the runtime root (contains lisp/ and etc/).
+    let project_root = runtime_project_root();
     let lisp_dir = project_root.join("lisp");
     assert!(
         lisp_dir.is_dir(),
@@ -3378,9 +3444,8 @@ pub fn create_bootstrap_evaluator_cached() -> Result<super::eval::Evaluator, Eva
 pub fn create_bootstrap_evaluator_cached_with_features(
     extra_features: &[&str],
 ) -> Result<super::eval::Evaluator, EvalError> {
-    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().expect("project root");
-    let dump_path = bootstrap_dump_path(project_root, extra_features);
+    let project_root = runtime_project_root();
+    let dump_path = bootstrap_dump_path(&project_root, extra_features);
     create_bootstrap_evaluator_cached_at_path(extra_features, &dump_path)
 }
 
@@ -3390,13 +3455,12 @@ fn create_bootstrap_evaluator_cached_at_path(
 ) -> Result<super::eval::Evaluator, EvalError> {
     use super::pdump;
 
-    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().expect("project root");
+    let project_root = runtime_project_root();
 
     // Allow disabling pdump via env var
     if std::env::var("NEOVM_DISABLE_PDUMP").unwrap_or_default() == "1" {
         let mut eval = create_bootstrap_evaluator_with_features(extra_features)?;
-        finalize_cached_bootstrap_eval(&mut eval, project_root)?;
+        finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
         return Ok(eval);
     }
 
@@ -3410,7 +3474,7 @@ fn create_bootstrap_evaluator_cached_at_path(
                     dump_path.display(),
                     start.elapsed()
                 );
-                finalize_cached_bootstrap_eval(&mut eval, project_root)?;
+                finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
 
                 return Ok(eval);
             }
@@ -3420,7 +3484,19 @@ fn create_bootstrap_evaluator_cached_at_path(
         }
     }
 
-    let _write_lock = BootstrapCacheWriteLock::acquire(&bootstrap_dump_lock_path(dump_path))?;
+    let _write_lock = match BootstrapCacheWriteLock::acquire(&bootstrap_dump_lock_path(dump_path)) {
+        Ok(lock) => Some(lock),
+        Err(err) => {
+            tracing::warn!("pdump: cache lock unavailable ({err}), bootstrapping without cache");
+            None
+        }
+    };
+
+    if _write_lock.is_none() {
+        let mut eval = create_bootstrap_evaluator_with_features(extra_features)?;
+        ensure_startup_compat_variables(&mut eval, &project_root);
+        return Ok(eval);
+    }
 
     if dump_path.exists() {
         let start = std::time::Instant::now();
@@ -3431,7 +3507,7 @@ fn create_bootstrap_evaluator_cached_at_path(
                     dump_path.display(),
                     start.elapsed()
                 );
-                finalize_cached_bootstrap_eval(&mut eval, project_root)?;
+                finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
                 return Ok(eval);
             }
             Err(e) => {
@@ -3443,7 +3519,7 @@ fn create_bootstrap_evaluator_cached_at_path(
     // Full bootstrap
     let start = std::time::Instant::now();
     let mut eval = create_bootstrap_evaluator_with_features(extra_features)?;
-    ensure_startup_compat_variables(&mut eval, project_root);
+    ensure_startup_compat_variables(&mut eval, &project_root);
     let bootstrap_time = start.elapsed();
 
     // Save dump for next time.
@@ -3461,21 +3537,23 @@ fn create_bootstrap_evaluator_cached_at_path(
                 dump_start.elapsed(),
                 bootstrap_time,
             );
-            drop(eval);
             let reload_start = std::time::Instant::now();
-            let mut loaded = pdump::load_from_dump(dump_path).map_err(|e| EvalError::Signal {
-                symbol: intern("error"),
-                data: vec![Value::string(format!(
-                    "pdump: failed to reload freshly written bootstrap image: {e}"
-                ))],
-            })?;
-            finalize_cached_bootstrap_eval(&mut loaded, project_root)?;
-            tracing::info!(
-                "pdump: reloaded freshly written bootstrap state from {} ({:.2?})",
-                dump_path.display(),
-                reload_start.elapsed()
-            );
-            return Ok(loaded);
+            match pdump::load_from_dump(dump_path) {
+                Ok(mut loaded) => {
+                    finalize_cached_bootstrap_eval(&mut loaded, &project_root)?;
+                    tracing::info!(
+                        "pdump: reloaded freshly written bootstrap state from {} ({:.2?})",
+                        dump_path.display(),
+                        reload_start.elapsed()
+                    );
+                    return Ok(loaded);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "pdump: failed to reload freshly written bootstrap image ({e}), using in-memory bootstrap"
+                    );
+                }
+            }
         }
         Err(e) => {
             tracing::warn!("pdump: failed to save ({e}), will bootstrap again next time");
