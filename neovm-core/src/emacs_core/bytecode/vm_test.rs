@@ -3803,6 +3803,27 @@ fn vm_remaining_display_stub_tail_uses_direct_dispatch() {
 }
 
 #[test]
+fn vm_image_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((spec (list 'image :type 'png :file "test.png")))
+                 (list
+                  (condition-case err (image-size spec) (error err))
+                  (condition-case err (image-mask-p spec) (error err))
+                  (image-flush spec t)
+                  (image-cache-size)
+                  (image-metadata 1)
+                  (condition-case err (image-metadata spec) (error err))
+                  (imagep spec)
+                  (imagep 1)
+                  (image-transforms-p)
+                  (condition-case err (image-transforms-p 1) (error err))))"#
+        ),
+        r#"OK ((error "Window system frame should be used") (error "Window system frame should be used") nil 0 nil (error "Window system frame should be used") t nil nil (wrong-type-argument frame-live-p 1))"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

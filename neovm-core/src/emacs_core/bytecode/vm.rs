@@ -5687,6 +5687,25 @@ impl<'a> Vm<'a> {
             "lookup-image-map" => Some(crate::emacs_core::xdisp::builtin_lookup_image_map(
                 args.to_vec(),
             )),
+            "image-cache-size" => Some(crate::emacs_core::image::builtin_image_cache_size(
+                args.to_vec(),
+            )),
+            "image-flush" => Some(crate::emacs_core::image::builtin_image_flush(
+                args.to_vec(),
+            )),
+            "image-mask-p" => Some(crate::emacs_core::image::builtin_image_mask_p(
+                args.to_vec(),
+            )),
+            "image-metadata" => Some(crate::emacs_core::image::builtin_image_metadata(
+                args.to_vec(),
+            )),
+            "imagep" => Some(crate::emacs_core::image::builtin_imagep(args.to_vec())),
+            "image-size" => Some(crate::emacs_core::image::builtin_image_size(
+                args.to_vec(),
+            )),
+            "image-transforms-p" => Some(
+                crate::emacs_core::image::builtin_image_transforms_p(args.to_vec()),
+            ),
             "current-bidi-paragraph-direction" => Some(
                 crate::emacs_core::xdisp::builtin_current_bidi_paragraph_direction(
                     args.to_vec(),
