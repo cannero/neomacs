@@ -975,10 +975,18 @@ pub(crate) fn builtin_window_minibuffer_p(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_minibuffer_p_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_minibuffer_p_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-minibuffer-p", &args, 1)?;
-    let (fid, wid) = resolve_window_id_with_pred(eval, args.first(), "window-valid-p")?;
-    let is_minibuffer = eval
-        .frames
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
+    let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
     Ok(Value::bool(is_minibuffer))
@@ -5484,15 +5492,22 @@ pub(crate) fn builtin_window_resize_apply(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_resize_apply_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_resize_apply_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-resize-apply", &args, 2)?;
-    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
     let horflag = args.get(1).is_some_and(Value::is_truthy);
 
     let new_pixel_map = super::builtins::snapshot_window_new_pixel();
     let new_normal_map = super::builtins::snapshot_window_new_normal();
 
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 
@@ -5544,14 +5559,21 @@ pub(crate) fn builtin_window_resize_apply_total(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_window_resize_apply_total_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_resize_apply_total_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("window-resize-apply-total", &args, 2)?;
-    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
     let horflag = args.get(1).is_some_and(Value::is_truthy);
 
     let new_total_map = super::builtins::snapshot_window_new_total();
 
-    let frame = eval
-        .frames
+    let frame = frames
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
 

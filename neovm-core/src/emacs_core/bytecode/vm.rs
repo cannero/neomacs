@@ -6043,6 +6043,9 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "redirect-frame-focus" => Some(
+                crate::emacs_core::builtins::builtin_redirect_frame_focus(args.to_vec()),
+            ),
             "frame-first-window" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_first_window_in_state(
                     self.shared.frames,
@@ -6063,6 +6066,29 @@ impl<'a> Vm<'a> {
             )),
             "split-window-internal" => Some(
                 crate::emacs_core::builtins::builtin_split_window_internal_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-window-new-normal" => Some(
+                crate::emacs_core::builtins::builtin_set_window_new_normal(args.to_vec()),
+            ),
+            "set-window-new-pixel" => Some(
+                crate::emacs_core::builtins::builtin_set_window_new_pixel(args.to_vec()),
+            ),
+            "set-window-new-total" => Some(
+                crate::emacs_core::builtins::builtin_set_window_new_total(args.to_vec()),
+            ),
+            "window-resize-apply" => Some(
+                crate::emacs_core::window_cmds::builtin_window_resize_apply_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-resize-apply-total" => Some(
+                crate::emacs_core::window_cmds::builtin_window_resize_apply_total_in_state(
                     self.shared.frames,
                     self.shared.buffers,
                     args.to_vec(),
@@ -6245,6 +6271,81 @@ impl<'a> Vm<'a> {
                 crate::emacs_core::window_cmds::builtin_window_use_time_in_state(
                     self.shared.frames,
                     self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "frame-ancestor-p" => Some(
+                crate::emacs_core::builtins::builtin_frame_ancestor_p(args.to_vec()),
+            ),
+            "frame--face-hash-table" => Some(
+                crate::emacs_core::builtins::builtin_frame_face_hash_table(args.to_vec()),
+            ),
+            "frame--set-was-invisible" => Some(
+                crate::emacs_core::builtins::builtin_frame_set_was_invisible(args.to_vec()),
+            ),
+            "frame--z-order-lessp" => Some(
+                crate::emacs_core::dispnew::pure::builtin_frame_z_order_lessp(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-after-make-frame" => Some(
+                crate::emacs_core::builtins::builtin_frame_after_make_frame(args.to_vec()),
+            ),
+            "frame-bottom-divider-width" => Some(
+                crate::emacs_core::builtins::builtin_frame_bottom_divider_width(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-child-frame-border-width" => Some(
+                crate::emacs_core::builtins::builtin_frame_child_frame_border_width(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-focus" => Some(crate::emacs_core::builtins::builtin_frame_focus(
+                args.to_vec(),
+            )),
+            "frame-font-cache" => Some(
+                crate::emacs_core::builtins::builtin_frame_font_cache(args.to_vec()),
+            ),
+            "frame-fringe-width" => Some(
+                crate::emacs_core::builtins::builtin_frame_fringe_width(args.to_vec()),
+            ),
+            "frame-internal-border-width" => Some(
+                crate::emacs_core::builtins::builtin_frame_internal_border_width(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-or-buffer-changed-p" => Some(
+                crate::emacs_core::builtins::builtin_frame_or_buffer_changed_p(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-parent" => Some(crate::emacs_core::builtins::builtin_frame_parent(
+                args.to_vec(),
+            )),
+            "frame-pointer-visible-p" => Some(
+                crate::emacs_core::builtins::builtin_frame_pointer_visible_p(args.to_vec()),
+            ),
+            "frame-right-divider-width" => Some(
+                crate::emacs_core::builtins::builtin_frame_right_divider_width(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-scale-factor" => Some(
+                crate::emacs_core::builtins::builtin_frame_scale_factor(args.to_vec()),
+            ),
+            "frame-scroll-bar-height" => Some(
+                crate::emacs_core::builtins::builtin_frame_scroll_bar_height(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-scroll-bar-width" => Some(
+                crate::emacs_core::builtins::builtin_frame_scroll_bar_width(
+                    args.to_vec(),
+                ),
+            ),
+            "frame-window-state-change" => Some(
+                crate::emacs_core::builtins::builtin_frame_window_state_change(
                     args.to_vec(),
                 ),
             ),
@@ -6555,6 +6656,70 @@ impl<'a> Vm<'a> {
                 self.shared.buffers,
                 args.to_vec(),
             )),
+            "window-minibuffer-p" => Some(
+                crate::emacs_core::window_cmds::builtin_window_minibuffer_p_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "window-bottom-divider-width" => Some(
+                crate::emacs_core::builtins::builtin_window_bottom_divider_width(
+                    args.to_vec(),
+                ),
+            ),
+            "window-lines-pixel-dimensions" => Some(
+                crate::emacs_core::builtins::builtin_window_lines_pixel_dimensions(
+                    args.to_vec(),
+                ),
+            ),
+            "window-new-normal" => Some(
+                crate::emacs_core::builtins::builtin_window_new_normal(args.to_vec()),
+            ),
+            "window-new-pixel" => Some(
+                crate::emacs_core::builtins::builtin_window_new_pixel(args.to_vec()),
+            ),
+            "window-new-total" => Some(
+                crate::emacs_core::builtins::builtin_window_new_total(args.to_vec()),
+            ),
+            "window-old-body-pixel-height" => Some(
+                crate::emacs_core::builtins::builtin_window_old_body_pixel_height(
+                    args.to_vec(),
+                ),
+            ),
+            "window-old-body-pixel-width" => Some(
+                crate::emacs_core::builtins::builtin_window_old_body_pixel_width(
+                    args.to_vec(),
+                ),
+            ),
+            "window-old-pixel-height" => Some(
+                crate::emacs_core::builtins::builtin_window_old_pixel_height(
+                    args.to_vec(),
+                ),
+            ),
+            "window-old-pixel-width" => Some(
+                crate::emacs_core::builtins::builtin_window_old_pixel_width(
+                    args.to_vec(),
+                ),
+            ),
+            "window-right-divider-width" => Some(
+                crate::emacs_core::builtins::builtin_window_right_divider_width(
+                    args.to_vec(),
+                ),
+            ),
+            "window-scroll-bar-height" => Some(
+                crate::emacs_core::builtins::builtin_window_scroll_bar_height(
+                    args.to_vec(),
+                ),
+            ),
+            "window-scroll-bar-width" => Some(
+                crate::emacs_core::builtins::builtin_window_scroll_bar_width(
+                    args.to_vec(),
+                ),
+            ),
+            "window-tab-line-height" => Some(
+                crate::emacs_core::builtins::builtin_window_tab_line_height(args.to_vec()),
+            ),
             "select-window" => Some(
                 crate::emacs_core::window_cmds::builtin_select_window_in_state(
                     self.shared.frames,

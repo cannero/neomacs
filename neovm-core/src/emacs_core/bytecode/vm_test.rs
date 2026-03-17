@@ -1368,6 +1368,72 @@ fn vm_window_tree_and_list_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_resize_and_metric_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((w (selected-window))
+                      (m (minibuffer-window))
+                      (f (selected-frame)))
+                  (list
+                   (window-minibuffer-p w)
+                   (window-minibuffer-p m)
+                   (window-resize-apply f)
+                   (window-resize-apply-total f)
+                   (set-window-new-normal w 0.5)
+                   (window-new-normal w)
+                   (set-window-new-pixel w 20)
+                   (window-new-pixel w)
+                   (set-window-new-total w 10)
+                   (window-new-total w)
+                   (window-bottom-divider-width w)
+                   (window-lines-pixel-dimensions w)
+                   (window-old-body-pixel-height w)
+                   (window-old-body-pixel-width w)
+                   (window-old-pixel-height w)
+                   (window-old-pixel-width w)
+                   (window-right-divider-width w)
+                   (window-scroll-bar-height w)
+                   (window-scroll-bar-width w)
+                   (window-tab-line-height w)
+                   (frame-ancestor-p f f)
+                   (frame-bottom-divider-width f)
+                   (frame-child-frame-border-width f)
+                   (frame-focus f)
+                   (frame-fringe-width f)
+                   (frame-internal-border-width f)
+                   (frame-parent f)
+                   (frame-pointer-visible-p f)
+                   (frame-right-divider-width f)
+                   (frame-scale-factor f)
+                   (frame-scroll-bar-height f)
+                   (frame-scroll-bar-width f)
+                   (redirect-frame-focus f f)))"#
+        ),
+        "OK (nil t t t 0.5 0.5 20 20 10 10 0 nil 0 0 0 0 0 0 0 0 nil 0 0 nil 0 0 nil t 0 1.0 0 0 nil)"
+    );
+}
+
+#[test]
+fn vm_remaining_frame_stub_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (list
+                  (hash-table-p (frame--face-hash-table))
+                  (frame--set-was-invisible f t)
+                  (frame-after-make-frame f nil)
+                  (frame-font-cache f)
+                  (frame-or-buffer-changed-p)
+                  (frame-or-buffer-changed-p nil)
+                  (condition-case err (frame-or-buffer-changed-p 'vm-missing-var) (error (car err)))
+                  (frame-window-state-change f)
+                  (frame--z-order-lessp f f)))"#
+        ),
+        "OK (t t nil nil t nil void-variable nil nil)"
+    );
+}
+
+#[test]
 fn vm_window_selection_and_buffer_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_with_init_str(
