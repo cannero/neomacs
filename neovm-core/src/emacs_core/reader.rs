@@ -123,12 +123,15 @@ struct ActiveMinibufferWindowState {
     previous_active_minibuffer_window: Option<crate::window::WindowId>,
 }
 
-fn activate_minibuffer_window(
-    eval: &mut super::eval::Evaluator,
+fn activate_minibuffer_window_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    minibuffer_selected_window: &mut Option<crate::window::WindowId>,
+    active_minibuffer_window: &mut Option<crate::window::WindowId>,
     minibuf_id: crate::buffer::BufferId,
 ) -> Option<ActiveMinibufferWindowState> {
-    let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
-    let frame = eval.frame_manager().get(frame_id)?;
+    let frame_id = super::window_cmds::ensure_selected_frame_id_in_state(frames, buffers);
+    let frame = frames.get(frame_id)?;
     let minibuffer_window_id = frame.minibuffer_window?;
     let previous_selected_window = frame.selected_window;
     let mut previous_minibuffer_buffer = None;
@@ -153,27 +156,42 @@ fn activate_minibuffer_window(
         previous_minibuffer_buffer,
         previous_minibuffer_window_start,
         previous_minibuffer_point,
-        previous_minibuffer_selected_window: eval.minibuffer_selected_window,
-        previous_active_minibuffer_window: eval.active_minibuffer_window,
+        previous_minibuffer_selected_window: *minibuffer_selected_window,
+        previous_active_minibuffer_window: *active_minibuffer_window,
     };
 
-    if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
+    if let Some(frame) = frames.get_mut(frame_id) {
         if let Some(window) = frame.find_window_mut(minibuffer_window_id) {
             window.set_buffer(minibuf_id);
         }
         let _ = frame.select_window(minibuffer_window_id);
     }
-    eval.buffer_manager_mut().set_current(minibuf_id);
-    eval.minibuffer_selected_window = Some(previous_selected_window);
-    eval.active_minibuffer_window = Some(minibuffer_window_id);
+    buffers.set_current(minibuf_id);
+    *minibuffer_selected_window = Some(previous_selected_window);
+    *active_minibuffer_window = Some(minibuffer_window_id);
     Some(saved)
 }
 
-fn restore_minibuffer_window(
+fn activate_minibuffer_window(
     eval: &mut super::eval::Evaluator,
+    minibuf_id: crate::buffer::BufferId,
+) -> Option<ActiveMinibufferWindowState> {
+    activate_minibuffer_window_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        &mut eval.minibuffer_selected_window,
+        &mut eval.active_minibuffer_window,
+        minibuf_id,
+    )
+}
+
+fn restore_minibuffer_window_in_state(
+    frames: &mut crate::window::FrameManager,
+    minibuffer_selected_window: &mut Option<crate::window::WindowId>,
+    active_minibuffer_window: &mut Option<crate::window::WindowId>,
     saved: ActiveMinibufferWindowState,
 ) {
-    if let Some(frame) = eval.frame_manager_mut().get_mut(saved.frame_id) {
+    if let Some(frame) = frames.get_mut(saved.frame_id) {
         if let Some(window) = frame.find_window_mut(saved.minibuffer_window_id) {
             if let Some(prev_buffer_id) = saved.previous_minibuffer_buffer {
                 window.set_buffer(prev_buffer_id);
@@ -190,8 +208,20 @@ fn restore_minibuffer_window(
         }
         let _ = frame.select_window(saved.previous_selected_window);
     }
-    eval.minibuffer_selected_window = saved.previous_minibuffer_selected_window;
-    eval.active_minibuffer_window = saved.previous_active_minibuffer_window;
+    *minibuffer_selected_window = saved.previous_minibuffer_selected_window;
+    *active_minibuffer_window = saved.previous_active_minibuffer_window;
+}
+
+fn restore_minibuffer_window(
+    eval: &mut super::eval::Evaluator,
+    saved: ActiveMinibufferWindowState,
+) {
+    restore_minibuffer_window_in_state(
+        &mut eval.frames,
+        &mut eval.minibuffer_selected_window,
+        &mut eval.active_minibuffer_window,
+        saved,
+    )
 }
 
 fn signal_invalid_read_syntax_in_buffer(
@@ -653,8 +683,25 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    let prompt = expect_string(&args[0])?;
-    read_from_minibuffer_interactive(eval, &prompt, &args)
+    let eval_ptr = std::ptr::NonNull::from(&mut *eval);
+    finish_read_from_minibuffer_in_state_with_recursive_edit(
+        &mut eval.obarray,
+        &mut eval.buffers,
+        &mut eval.frames,
+        &mut eval.minibuffers,
+        &mut eval.current_local_map,
+        &mut eval.minibuffer_selected_window,
+        &mut eval.active_minibuffer_window,
+        eval.command_loop.recursive_depth,
+        args,
+        move || unsafe {
+            eval_ptr
+                .as_ptr()
+                .as_mut()
+                .unwrap()
+                .minibuffer_command_loop_inner()
+        },
+    )
 }
 
 pub(crate) fn builtin_read_from_minibuffer_in_runtime(
@@ -675,20 +722,25 @@ pub(crate) fn builtin_read_from_minibuffer_in_runtime(
     }
 }
 
-/// Interactive read-from-minibuffer implementation.
+/// Shared runtime setup/teardown for `read-from-minibuffer`.
 ///
-/// Mirrors GNU Emacs `read_minibuf()` in minibuf.c:
-/// 1. Save current buffer/keymap state
-/// 2. Set up *Minibuf-N* buffer with prompt
-/// 3. Set local keymap (minibuffer-local-map or KEYMAP arg)
-/// 4. Enter recursive edit (command loop runs in minibuffer)
-/// 5. User presses RET → exit-minibuffer → throw 'exit
-/// 6. Read buffer contents after prompt, restore state, return string
-fn read_from_minibuffer_interactive(
-    eval: &mut super::eval::Evaluator,
-    prompt: &str,
+/// GNU's `read_minibuf` is a C/runtime path that only enters the command
+/// loop for the actual recursive edit. This helper mirrors that shape: it
+/// performs buffer/window setup and final result handling in shared runtime
+/// state, and delegates only the recursive edit itself to the callback.
+pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
+    obarray: &mut super::symbol::Obarray,
+    buffers: &mut crate::buffer::BufferManager,
+    frames: &mut crate::window::FrameManager,
+    minibuffers: &mut crate::emacs_core::minibuffer::MinibufferManager,
+    current_local_map: &mut Value,
+    minibuffer_selected_window: &mut Option<crate::window::WindowId>,
+    active_minibuffer_window: &mut Option<crate::window::WindowId>,
+    recursive_depth: usize,
     args: &[Value],
+    mut run_recursive_edit: impl FnMut() -> EvalResult,
 ) -> EvalResult {
+    let prompt = expect_string(&args[0])?;
     // Extract optional arguments
     let initial_input = args.get(1).and_then(|v| match v {
         Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
@@ -700,26 +752,25 @@ fn read_from_minibuffer_interactive(
     let default_val = args.get(5).copied().unwrap_or(Value::Nil);
 
     // Save state
-    let saved_local_map = eval.current_local_map;
-    let saved_buffer_id = eval.buffer_manager().current_buffer().map(|b| b.id);
+    let saved_local_map = *current_local_map;
+    let saved_buffer_id = buffers.current_buffer().map(|b| b.id);
 
     // Find or create *Minibuf-N* buffer
-    let minibuf_depth = eval.minibuffers.depth() + 1;
+    let minibuf_depth = minibuffers.depth() + 1;
     let minibuf_name = format!(" *Minibuf-{}*", minibuf_depth);
-    let minibuf_id = eval
-        .buffer_manager()
+    let minibuf_id = buffers
         .find_buffer_by_name(&minibuf_name)
-        .unwrap_or_else(|| eval.buffer_manager_mut().create_buffer(&minibuf_name));
+        .unwrap_or_else(|| buffers.create_buffer(&minibuf_name));
 
     // Clear the minibuffer buffer and insert prompt + initial input
     let prompt_byte_len;
     {
-        let buf = eval.buffer_manager_mut().get_mut(minibuf_id).unwrap();
+        let buf = buffers.get_mut(minibuf_id).unwrap();
         let text_len = buf.text.len();
         if text_len > 0 {
             buf.text.delete_range(0, text_len);
         }
-        buf.text.insert_str(0, prompt);
+        buf.text.insert_str(0, &prompt);
         prompt_byte_len = prompt.len();
         if let Some(ref initial) = initial_input {
             buf.text.insert_str(prompt_byte_len, initial);
@@ -729,61 +780,61 @@ fn read_from_minibuffer_interactive(
         buf.goto_byte(total_len); // cursor at end of initial input
     }
 
-    let active_minibuffer_window = activate_minibuffer_window(eval, minibuf_id);
-    if active_minibuffer_window.is_none() {
+    let active_window_state = activate_minibuffer_window_in_state(
+        frames,
+        buffers,
+        minibuffer_selected_window,
+        active_minibuffer_window,
+        minibuf_id,
+    );
+    if active_window_state.is_none() {
         // Batch/no-frame fallback: still switch current buffer so tests without
         // a realized GUI frame can exercise the minibuffer logic.
-        eval.buffer_manager_mut().set_current(minibuf_id);
+        buffers.set_current(minibuf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
         prompt,
         minibuf_id,
-        eval.buffer_manager().current_buffer_id(),
-        eval.active_minibuffer_window,
-        eval.frame_manager()
-            .selected_frame()
-            .map(|frame| frame.selected_window)
+        buffers.current_buffer_id(),
+        *active_minibuffer_window,
+        frames.selected_frame().map(|frame| frame.selected_window)
     );
 
-    let enable_recursive = eval
-        .obarray()
+    let enable_recursive = obarray
         .symbol_value("enable-recursive-minibuffers")
         .copied()
         .unwrap_or(Value::Nil)
         .is_truthy();
-    eval.minibuffers.set_enable_recursive(enable_recursive);
-    let state = eval.minibuffers.read_from_minibuffer(
+    minibuffers.set_enable_recursive(enable_recursive);
+    let state = minibuffers.read_from_minibuffer(
         minibuf_id,
-        prompt,
+        &prompt,
         initial_input.as_deref(),
         history_name.as_deref(),
     )?;
-    state.command_loop_depth = eval.command_loop.recursive_depth;
+    state.command_loop_depth = recursive_depth;
 
     // Set local keymap: use KEYMAP arg if provided, otherwise minibuffer-local-map
     let minibuf_keymap = if !keymap_arg.is_nil() {
         keymap_arg
     } else {
-        eval.obarray()
+        obarray
             .symbol_value("minibuffer-local-map")
             .copied()
             .unwrap_or(Value::Nil)
     };
-    eval.current_local_map = minibuf_keymap;
+    *current_local_map = minibuf_keymap;
 
     // Set minibuffer-related variables
-    eval.assign("minibuffer-prompt", Value::string(prompt));
-    eval.assign(
-        "minibuffer-depth",
-        Value::Int(eval.minibuffers.depth() as i64),
-    );
+    obarray.set_symbol_value("minibuffer-prompt", Value::string(prompt));
+    obarray.set_symbol_value("minibuffer-depth", Value::Int(minibuf_depth as i64));
 
-    // Enter recursive edit — the command loop runs until exit-minibuffer throws 'exit
-    let edit_result = eval.minibuffer_command_loop_inner();
+    // Enter recursive edit — the command loop runs until exit-minibuffer throws 'exit.
+    let edit_result = run_recursive_edit();
 
     // Read the minibuffer contents (everything after the prompt)
-    let result_string = if let Some(buf) = eval.buffer_manager().get(minibuf_id) {
+    let result_string = if let Some(buf) = buffers.get(minibuf_id) {
         let total_len = buf.text.len();
         if total_len > prompt_byte_len {
             buf.buffer_substring(prompt_byte_len, total_len)
@@ -796,40 +847,40 @@ fn read_from_minibuffer_interactive(
 
     match &edit_result {
         Ok(_) => {
-            let _ = eval.minibuffers.exit_minibuffer();
+            let _ = minibuffers.exit_minibuffer();
         }
         Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") => {
             if value.is_truthy() {
-                eval.minibuffers.abort_minibuffer();
+                minibuffers.abort_minibuffer();
             } else {
-                let _ = eval.minibuffers.exit_minibuffer();
+                let _ = minibuffers.exit_minibuffer();
             }
         }
         Err(_) => {
-            eval.minibuffers.abort_minibuffer();
+            minibuffers.abort_minibuffer();
         }
     }
 
     // Restore state
-    eval.current_local_map = saved_local_map;
-    if let Some(saved) = active_minibuffer_window {
-        restore_minibuffer_window(eval, saved);
+    *current_local_map = saved_local_map;
+    if let Some(saved) = active_window_state {
+        restore_minibuffer_window_in_state(
+            frames,
+            minibuffer_selected_window,
+            active_minibuffer_window,
+            saved,
+        );
     }
     if let Some(buf_id) = saved_buffer_id {
-        eval.buffer_manager_mut().set_current(buf_id);
+        buffers.set_current(buf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",
-        eval.buffer_manager().current_buffer_id(),
-        eval.active_minibuffer_window,
-        eval.frame_manager()
-            .selected_frame()
-            .map(|frame| frame.selected_window)
+        buffers.current_buffer_id(),
+        *active_minibuffer_window,
+        frames.selected_frame().map(|frame| frame.selected_window)
     );
-    eval.assign(
-        "minibuffer-depth",
-        Value::Int(eval.minibuffers.depth() as i64),
-    );
+    obarray.set_symbol_value("minibuffer-depth", Value::Int(minibuffers.depth() as i64));
 
     // Handle the recursive edit result
     match edit_result {
@@ -839,8 +890,10 @@ fn read_from_minibuffer_interactive(
             if !read_arg.is_nil() && !result_string.is_empty() {
                 // READ is non-nil: parse the result string as a Lisp expression
                 // (like calling (read STRING)) and return the parsed object.
-                let read_result =
-                    builtin_read_from_string(eval, vec![Value::string(&result_string)])?;
+                let read_result = builtin_read_from_string_in_state(
+                    obarray,
+                    vec![Value::string(&result_string)],
+                )?;
                 // read-from-string returns (OBJECT . END-POS), extract OBJECT
                 if let Value::Cons(id) = read_result {
                     let snap = super::value::read_cons(id);

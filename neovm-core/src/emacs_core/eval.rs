@@ -253,6 +253,8 @@ pub(crate) struct VmSharedState<'a> {
     pub(crate) recent_input_events: &'a mut Vec<Value>,
     read_command_keys: &'a mut Vec<Value>,
     pub(crate) current_message: &'a mut Option<String>,
+    pub(crate) minibuffer_selected_window: &'a mut Option<crate::window::WindowId>,
+    pub(crate) active_minibuffer_window: &'a mut Option<crate::window::WindowId>,
     shutdown_request: &'a mut Option<ShutdownRequest>,
     pub(crate) input_mode_interrupt: &'a mut bool,
     pub(crate) waiting_for_user_input: &'a mut bool,
@@ -311,6 +313,8 @@ impl<'a> VmSharedState<'a> {
         recent_input_events: &'a mut Vec<Value>,
         read_command_keys: &'a mut Vec<Value>,
         current_message: &'a mut Option<String>,
+        minibuffer_selected_window: &'a mut Option<crate::window::WindowId>,
+        active_minibuffer_window: &'a mut Option<crate::window::WindowId>,
         shutdown_request: &'a mut Option<ShutdownRequest>,
         input_mode_interrupt: &'a mut bool,
         waiting_for_user_input: &'a mut bool,
@@ -375,6 +379,8 @@ impl<'a> VmSharedState<'a> {
             recent_input_events,
             read_command_keys,
             current_message,
+            minibuffer_selected_window,
+            active_minibuffer_window,
             shutdown_request,
             input_mode_interrupt,
             waiting_for_user_input,
@@ -416,6 +422,10 @@ impl<'a> VmSharedState<'a> {
 
     pub(crate) fn read_command_keys(&self) -> &[Value] {
         self.read_command_keys.as_slice()
+    }
+
+    pub(crate) fn recursive_command_loop_depth(&self) -> usize {
+        self.command_loop.recursive_depth
     }
 
     pub(crate) fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
@@ -591,6 +601,8 @@ impl<'a> VmSharedState<'a> {
             &mut eval.recent_input_events,
             &mut eval.read_command_keys,
             &mut eval.current_message,
+            &mut eval.minibuffer_selected_window,
+            &mut eval.active_minibuffer_window,
             &mut eval.shutdown_request,
             &mut eval.input_mode_interrupt,
             &mut eval.waiting_for_user_input,

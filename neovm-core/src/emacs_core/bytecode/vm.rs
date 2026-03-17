@@ -8385,10 +8385,25 @@ impl<'a> Vm<'a> {
     fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::reader::builtin_read_from_minibuffer_in_runtime(&self.shared, args)?;
         let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::reader::finish_read_from_minibuffer_in_eval(eval, &call_args)
-        })
+        let gc_roots = self.gc_roots.clone();
+        let parent_eval = self.shared.parent_eval_ptr();
+        let recursive_depth = self.shared.recursive_command_loop_depth();
+        crate::emacs_core::reader::finish_read_from_minibuffer_in_state_with_recursive_edit(
+            &mut *self.shared.obarray,
+            &mut *self.shared.buffers,
+            &mut *self.shared.frames,
+            &mut *self.shared.minibuffers,
+            &mut *self.shared.current_local_map,
+            &mut *self.shared.minibuffer_selected_window,
+            &mut *self.shared.active_minibuffer_window,
+            recursive_depth,
+            args,
+            move || {
+                with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, |eval| {
+                    eval.minibuffer_command_loop_inner()
+                })
+            },
+        )
     }
 
     fn builtin_call_interactively_shared(&mut self, args: &[Value]) -> EvalResult {
