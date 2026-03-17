@@ -836,6 +836,34 @@ mod tests {
     }
 
     #[test]
+    fn gnu_startup_runtime_load_path_finds_mail_rfc6068() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms("(locate-library \"rfc6068\")")
+            .expect("parse locate-library startup probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("locate-library startup probe should evaluate");
+        let path = result
+            .as_str()
+            .expect("locate-library should return a resolved path string after startup");
+        assert!(
+            path.ends_with("/mail/rfc6068.el"),
+            "expected GNU mail runtime path, got {path}"
+        );
+    }
+
+    #[test]
     fn gnu_startup_renders_echo_message_into_minibuffer_row() {
         let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
             .expect("cached bootstrap evaluator");

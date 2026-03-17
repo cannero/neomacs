@@ -163,7 +163,6 @@ lisp/leim/quail/quick-cns.el
 lisp/leim/quail/tsang-b5.el
 lisp/leim/quail/tsang-cns.el
 lisp/mh-e/mh-autoloads.el
-lisp/subdirs.el
 
 # Dependencies.
 deps/
