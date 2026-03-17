@@ -3775,6 +3775,28 @@ fn vm_composition_and_compute_motion_builtins_use_direct_dispatch() {
 }
 
 #[test]
+fn vm_char_table_and_copy_syntax_table_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let* ((parent (make-char-table 'syntax-table nil))
+                        (table (make-char-table 'syntax-table 'default)))
+                   (set-char-table-parent table parent)
+                   (set-char-table-range table ?a 'word)
+                   (list
+                    (char-table-p table)
+                    (eq (char-table-parent table) parent)
+                    (eq (char-table-range table ?a) 'word)
+                    (eq (char-table-subtype table) 'syntax-table)))
+                 (let ((table (copy-syntax-table)))
+                   (and (char-table-p table)
+                        (eq (char-table-subtype table) 'syntax-table))))"#
+        ),
+        "OK ((t t t t) t)"
+    );
+}
+
+#[test]
 fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
     assert_eq!(
         vm_eval_str(

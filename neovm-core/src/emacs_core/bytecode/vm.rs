@@ -3699,6 +3699,25 @@ impl<'a> Vm<'a> {
             ),
             "decode-char" => Some(crate::emacs_core::charset::builtin_decode_char(args.to_vec())),
             "encode-char" => Some(crate::emacs_core::charset::builtin_encode_char(args.to_vec())),
+            "make-char-table" => Some(crate::emacs_core::chartable::builtin_make_char_table_in_state(
+                &*self.shared.obarray,
+                args.to_vec(),
+            )),
+            "char-table-p" => Some(crate::emacs_core::chartable::builtin_char_table_p(
+                args.to_vec(),
+            )),
+            "char-table-range" => Some(crate::emacs_core::chartable::builtin_char_table_range(
+                args.to_vec(),
+            )),
+            "char-table-parent" => Some(crate::emacs_core::chartable::builtin_char_table_parent(
+                args.to_vec(),
+            )),
+            "set-char-table-parent" => Some(
+                crate::emacs_core::chartable::builtin_set_char_table_parent(args.to_vec()),
+            ),
+            "char-table-subtype" => Some(
+                crate::emacs_core::chartable::builtin_char_table_subtype(args.to_vec()),
+            ),
             "set-char-table-range" => Some(
                 crate::emacs_core::chartable::builtin_set_char_table_range(args.to_vec()),
             ),
@@ -3708,6 +3727,9 @@ impl<'a> Vm<'a> {
             "set-char-table-extra-slot" => Some(
                 crate::emacs_core::chartable::builtin_set_char_table_extra_slot(args.to_vec()),
             ),
+            "copy-syntax-table" => Some(crate::emacs_core::syntax::builtin_copy_syntax_table(
+                args.to_vec(),
+            )),
             "current-indentation" => Some(self.builtin_current_indentation_shared(args)),
             "indent-to" => Some(self.builtin_indent_to_shared(args)),
             "current-column" => Some(self.builtin_current_column_shared(args)),
