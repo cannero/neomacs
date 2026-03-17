@@ -4881,6 +4881,35 @@ fn vm_format_mode_line_symbol_conditional_uses_only_selected_branch() {
 }
 
 #[test]
+fn vm_format_mode_line_string_valued_symbols_render_literally() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-fmt-mode-line-literal")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (setq mode-name "%b")
+                 (format-mode-line '("%b " mode-name)))"#
+        ),
+        r#"OK "vm-fmt-mode-line-literal %b""#
+    );
+}
+
+#[test]
+fn vm_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "xy")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (format-mode-line '((5 "%b") "!" (-1 "%b"))))"#
+        ),
+        r#"OK "xy   !x""#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

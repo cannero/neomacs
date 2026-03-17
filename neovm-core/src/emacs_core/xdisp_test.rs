@@ -282,6 +282,59 @@ fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
 }
 
 #[test]
+fn test_format_mode_line_string_valued_symbols_render_literally() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let other_id = eval.buffers.create_buffer("*mode-line-literal*");
+    eval.buffers
+        .set_buffer_local_property(other_id, "mode-name", Value::string("%b"))
+        .expect("mode-name local should set");
+
+    let rendered = builtin_format_mode_line_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.frames,
+        &mut eval.buffers,
+        vec![
+            Value::list(vec![Value::string("%b "), Value::symbol("mode-name")]),
+            Value::Nil,
+            Value::Nil,
+            Value::Buffer(other_id),
+        ],
+    )
+    .expect("format-mode-line shared state")
+    .expect("string-valued symbols should not require eval");
+
+    assert_eq!(rendered, Value::string("*mode-line-literal* %b"));
+}
+
+#[test]
+fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let other_id = eval.buffers.create_buffer("xy");
+
+    let rendered = builtin_format_mode_line_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.frames,
+        &mut eval.buffers,
+        vec![
+            Value::list(vec![
+                Value::list(vec![Value::Int(5), Value::string("%b")]),
+                Value::string("!"),
+                Value::list(vec![Value::Int(-1), Value::string("%b")]),
+            ]),
+            Value::Nil,
+            Value::Nil,
+            Value::Buffer(other_id),
+        ],
+    )
+    .expect("format-mode-line shared state")
+    .expect("fixnum elements should not require eval");
+
+    assert_eq!(rendered, Value::string("xy   !x"));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

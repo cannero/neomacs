@@ -299,6 +299,43 @@ fn mode_line_conditional_branch(cdr: Value, branch_is_then: bool) -> Option<Valu
     }
 }
 
+fn append_mode_line_rendered_segment(
+    result: &mut String,
+    rendered: &str,
+    field_width: i64,
+    precision: i64,
+) {
+    let mut segment = if precision > 0 {
+        rendered
+            .chars()
+            .take(precision as usize)
+            .collect::<String>()
+    } else {
+        rendered.to_owned()
+    };
+    let rendered_len = segment.chars().count() as i64;
+    if field_width > 0 && rendered_len < field_width {
+        segment.extend(std::iter::repeat_n(
+            ' ',
+            (field_width - rendered_len) as usize,
+        ));
+    }
+    result.push_str(&segment);
+}
+
+fn append_mode_line_string_in_state(
+    buffers: &crate::buffer::BufferManager,
+    result: &mut String,
+    value: &str,
+    literal: bool,
+) {
+    if literal {
+        result.push_str(value);
+    } else {
+        expand_mode_line_percent_in_state(buffers, value, result);
+    }
+}
+
 /// Recursively process a mode-line format spec, appending output to `result`.
 ///
 /// FORMAT can be:
@@ -323,7 +360,7 @@ fn format_mode_line_recursive(
 
         Value::Str(_) => {
             if let Some(fmt_str) = format.as_str() {
-                expand_mode_line_percent_in_state(&eval.buffers, fmt_str, result);
+                append_mode_line_string_in_state(&eval.buffers, result, fmt_str, false);
             }
         }
 
@@ -348,7 +385,11 @@ fn format_mode_line_recursive(
                     name,
                 ) && !val.is_nil()
                 {
-                    format_mode_line_recursive(eval, &val, result, depth + 1);
+                    if let Some(text) = val.as_str() {
+                        append_mode_line_string_in_state(&eval.buffers, result, text, true);
+                    } else {
+                        format_mode_line_recursive(eval, &val, result, depth + 1);
+                    }
                 }
             }
         }
@@ -374,6 +415,18 @@ fn format_mode_line_recursive(
                     let elt = cdr.cons_car();
                     format_mode_line_recursive(eval, &elt, result, depth + 1);
                 }
+                return;
+            }
+
+            if let Value::Int(lim) = car {
+                let mut nested = String::new();
+                format_mode_line_recursive(eval, &cdr, &mut nested, depth + 1);
+                append_mode_line_rendered_segment(
+                    result,
+                    &nested,
+                    if lim > 0 { lim } else { 0 },
+                    if lim < 0 { -lim } else { 0 },
+                );
                 return;
             }
 
@@ -431,7 +484,7 @@ fn format_mode_line_recursive_in_state(
 
         Value::Str(_) => {
             if let Some(fmt_str) = format.as_str() {
-                expand_mode_line_percent_in_state(buffers, fmt_str, result);
+                append_mode_line_string_in_state(buffers, result, fmt_str, false);
             }
         }
 
@@ -445,16 +498,19 @@ fn format_mode_line_recursive_in_state(
                 }
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
-                    && format_mode_line_recursive_in_state(
+                {
+                    if let Some(text) = val.as_str() {
+                        append_mode_line_string_in_state(buffers, result, text, true);
+                    } else if format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
                         &val,
                         result,
                         depth + 1,
-                    )
-                {
-                    return true;
+                    ) {
+                        return true;
+                    }
                 }
             }
         }
@@ -480,6 +536,25 @@ fn format_mode_line_recursive_in_state(
                     );
                 }
                 return false;
+            }
+
+            if let Value::Int(lim) = car {
+                let mut nested = String::new();
+                let needs_eval = format_mode_line_recursive_in_state(
+                    obarray,
+                    dynamic,
+                    buffers,
+                    &cdr,
+                    &mut nested,
+                    depth + 1,
+                );
+                append_mode_line_rendered_segment(
+                    result,
+                    &nested,
+                    if lim > 0 { lim } else { 0 },
+                    if lim < 0 { -lim } else { 0 },
+                );
+                return needs_eval;
             }
 
             if car.is_symbol() && !car.is_symbol_named("t") {
@@ -548,7 +623,7 @@ fn format_mode_line_recursive_in_state_with_eval(
 
         Value::Str(_) => {
             if let Some(fmt_str) = format.as_str() {
-                expand_mode_line_percent_in_state(buffers, fmt_str, result);
+                append_mode_line_string_in_state(buffers, result, fmt_str, false);
             }
         }
 
@@ -563,15 +638,19 @@ fn format_mode_line_recursive_in_state_with_eval(
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
                 {
-                    format_mode_line_recursive_in_state_with_eval(
-                        obarray,
-                        dynamic,
-                        buffers,
-                        &val,
-                        result,
-                        depth + 1,
-                        eval_form,
-                    )?;
+                    if let Some(text) = val.as_str() {
+                        append_mode_line_string_in_state(buffers, result, text, true);
+                    } else {
+                        format_mode_line_recursive_in_state_with_eval(
+                            obarray,
+                            dynamic,
+                            buffers,
+                            &val,
+                            result,
+                            depth + 1,
+                            eval_form,
+                        )?;
+                    }
                 }
             }
         }
@@ -610,6 +689,26 @@ fn format_mode_line_recursive_in_state_with_eval(
                         eval_form,
                     )?;
                 }
+                return Ok(());
+            }
+
+            if let Value::Int(lim) = car {
+                let mut nested = String::new();
+                format_mode_line_recursive_in_state_with_eval(
+                    obarray,
+                    dynamic,
+                    buffers,
+                    &cdr,
+                    &mut nested,
+                    depth + 1,
+                    eval_form,
+                )?;
+                append_mode_line_rendered_segment(
+                    result,
+                    &nested,
+                    if lim > 0 { lim } else { 0 },
+                    if lim < 0 { -lim } else { 0 },
+                );
                 return Ok(());
             }
 
@@ -678,7 +777,7 @@ fn format_mode_line_recursive_in_vm_runtime(
 
         Value::Str(_) => {
             if let Some(fmt_str) = format.as_str() {
-                expand_mode_line_percent_in_state(&*shared.buffers, fmt_str, result);
+                append_mode_line_string_in_state(&*shared.buffers, result, fmt_str, false);
             }
         }
 
@@ -699,14 +798,18 @@ fn format_mode_line_recursive_in_vm_runtime(
                 if let Some(val) = value
                     && !val.is_nil()
                 {
-                    format_mode_line_recursive_in_vm_runtime(
-                        shared,
-                        vm_gc_roots,
-                        args_roots,
-                        &val,
-                        result,
-                        depth + 1,
-                    )?;
+                    if let Some(text) = val.as_str() {
+                        append_mode_line_string_in_state(&*shared.buffers, result, text, true);
+                    } else {
+                        format_mode_line_recursive_in_vm_runtime(
+                            shared,
+                            vm_gc_roots,
+                            args_roots,
+                            &val,
+                            result,
+                            depth + 1,
+                        )?;
+                    }
                 }
             }
         }
@@ -749,6 +852,25 @@ fn format_mode_line_recursive_in_vm_runtime(
                         depth + 1,
                     )?;
                 }
+                return Ok(());
+            }
+
+            if let Value::Int(lim) = car {
+                let mut nested = String::new();
+                format_mode_line_recursive_in_vm_runtime(
+                    shared,
+                    vm_gc_roots,
+                    args_roots,
+                    &cdr,
+                    &mut nested,
+                    depth + 1,
+                )?;
+                append_mode_line_rendered_segment(
+                    result,
+                    &nested,
+                    if lim > 0 { lim } else { 0 },
+                    if lim < 0 { -lim } else { 0 },
+                );
                 return Ok(());
             }
 
