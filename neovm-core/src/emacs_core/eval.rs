@@ -2854,6 +2854,12 @@ impl Evaluator {
                 self.assign("last-command-event", *last);
             }
             self.read_command_keys = keys;
+            tracing::debug!(
+                "command_loop_1: binding={} current_buffer={:?} active_minibuffer_window={:?}",
+                self.this_command_name_for_log(),
+                self.buffers.current_buffer_id(),
+                self.active_minibuffer_window
+            );
 
             // Run pre-command-hook
             let _ = self.run_hook_if_bound("pre-command-hook");
@@ -3352,6 +3358,12 @@ impl Evaluator {
             self.buffers.restore_outermost_restrictions(saved);
             self.redisplay_fn = Some(f);
         }
+    }
+
+    fn this_command_name_for_log(&self) -> String {
+        self.eval_symbol("this-command")
+            .map(|value| format!("{}", value))
+            .unwrap_or_else(|_| "<unbound>".to_string())
     }
 
     /// Perform a full mark-and-sweep garbage collection.

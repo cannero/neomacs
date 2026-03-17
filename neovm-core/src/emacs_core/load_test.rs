@@ -913,6 +913,40 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
 }
 
 #[test]
+fn bootstrap_runtime_list_buffers_command_path_matches_gnu() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (list-buffers)
+                 'ok)
+             (error err))"#,
+    );
+
+    assert_eq!(rendered, "OK ok");
+}
+
+#[test]
+fn bootstrap_runtime_buffer_file_name_variable_defaults_to_nil() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-current-buffer "*scratch*"
+             (condition-case err
+                 (list buffer-file-name (buffer-file-name))
+               (error err)))"#,
+    );
+
+    assert_eq!(rendered, "OK (nil nil)");
+}
+
+#[test]
 fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");

@@ -158,6 +158,14 @@ impl Buffer {
             RuntimeBindingValue::Bound(Value::Nil),
         );
         properties.insert(
+            "buffer-file-name".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "buffer-file-truename".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
             "buffer-undo-list".to_string(),
             RuntimeBindingValue::Bound(Value::Nil),
         );
@@ -685,11 +693,21 @@ impl Buffer {
     // -- Buffer-local variables ----------------------------------------------
 
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
+        if name == "buffer-file-name" {
+            self.file_name = match &value {
+                Value::Str(_) => value.as_str_owned(),
+                Value::Nil => None,
+                _ => self.file_name.take(),
+            };
+        }
         self.properties
             .insert(name.to_string(), RuntimeBindingValue::Bound(value));
     }
 
     pub fn set_buffer_local_void(&mut self, name: &str) {
+        if name == "buffer-file-name" {
+            self.file_name = None;
+        }
         self.properties
             .insert(name.to_string(), RuntimeBindingValue::Void);
     }
@@ -701,6 +719,12 @@ impl Buffer {
     }
 
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
+        if name == "buffer-file-name" {
+            return Some(match &self.file_name {
+                Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
+                None => RuntimeBindingValue::Bound(Value::Nil),
+            });
+        }
         self.properties.get(name).copied()
     }
 
@@ -1403,7 +1427,30 @@ impl BufferManager {
     }
 
     pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {
-        self.buffers.get_mut(&id)?.file_name = file_name;
+        let buf = self.buffers.get_mut(&id)?;
+        buf.file_name = file_name.clone();
+        match file_name {
+            Some(file_name) => {
+                buf.properties.insert(
+                    "buffer-file-name".to_string(),
+                    RuntimeBindingValue::Bound(Value::string(&file_name)),
+                );
+                buf.properties.insert(
+                    "buffer-file-truename".to_string(),
+                    RuntimeBindingValue::Bound(Value::string(&file_name)),
+                );
+            }
+            None => {
+                buf.properties.insert(
+                    "buffer-file-name".to_string(),
+                    RuntimeBindingValue::Bound(Value::Nil),
+                );
+                buf.properties.insert(
+                    "buffer-file-truename".to_string(),
+                    RuntimeBindingValue::Bound(Value::Nil),
+                );
+            }
+        }
         Some(())
     }
 
@@ -2421,7 +2468,25 @@ mod tests {
             buf.buffer_local_value("mode-name"),
             Some(Value::string("Fundamental"))
         );
+        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
         assert_eq!(buf.buffer_local_value("buffer-undo-list"), Some(Value::Nil));
+    }
+
+    #[test]
+    fn buffer_file_name_variable_tracks_slot_backed_state() {
+        let mut buf = Buffer::new(BufferId(1), "test".into());
+        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
+
+        buf.set_buffer_local("buffer-file-name", Value::string("/tmp/demo.txt"));
+        assert_eq!(buf.file_name.as_deref(), Some("/tmp/demo.txt"));
+        assert_eq!(
+            buf.buffer_local_value("buffer-file-name"),
+            Some(Value::string("/tmp/demo.txt"))
+        );
+
+        buf.set_buffer_local("buffer-file-name", Value::Nil);
+        assert_eq!(buf.file_name, None);
+        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
     }
 
     // -----------------------------------------------------------------------

@@ -735,6 +735,16 @@ fn read_from_minibuffer_interactive(
         // a realized GUI frame can exercise the minibuffer logic.
         eval.buffer_manager_mut().set_current(minibuf_id);
     }
+    tracing::debug!(
+        "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
+        prompt,
+        minibuf_id,
+        eval.buffer_manager().current_buffer_id(),
+        eval.active_minibuffer_window,
+        eval.frame_manager()
+            .selected_frame()
+            .map(|frame| frame.selected_window)
+    );
 
     let enable_recursive = eval
         .obarray()
@@ -808,6 +818,14 @@ fn read_from_minibuffer_interactive(
     if let Some(buf_id) = saved_buffer_id {
         eval.buffer_manager_mut().set_current(buf_id);
     }
+    tracing::debug!(
+        "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",
+        eval.buffer_manager().current_buffer_id(),
+        eval.active_minibuffer_window,
+        eval.frame_manager()
+            .selected_frame()
+            .map(|frame| frame.selected_window)
+    );
     eval.assign(
         "minibuffer-depth",
         Value::Int(eval.minibuffers.depth() as i64),
