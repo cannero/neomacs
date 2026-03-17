@@ -1658,6 +1658,18 @@ pub(crate) fn finish_call_interactively_in_eval(
     eval: &mut Evaluator,
     mut plan: CallInteractivelyPlan,
 ) -> EvalResult {
+    let (func, call_args) = resolve_call_interactively_target_and_args_in_eval(eval, &mut plan)?;
+
+    eval.interactive.push_interactive_call(true);
+    let result = eval.apply(func, call_args);
+    eval.interactive.pop_interactive_call();
+    result
+}
+
+pub(crate) fn resolve_call_interactively_target_and_args_in_eval(
+    eval: &mut Evaluator,
+    plan: &mut CallInteractivelyPlan,
+) -> Result<(Value, Vec<Value>), Flow> {
     let func = normalize_command_callable(eval, plan.func)?;
     let call_args = resolve_interactive_invocation_args(
         eval,
@@ -1666,11 +1678,7 @@ pub(crate) fn finish_call_interactively_in_eval(
         CommandInvocationKind::CallInteractively,
         &mut plan.context,
     )?;
-
-    eval.interactive.push_interactive_call(true);
-    let result = eval.apply(func, call_args);
-    eval.interactive.pop_interactive_call();
-    result
+    Ok((func, call_args))
 }
 
 fn last_command_event_char(eval: &Evaluator) -> Option<char> {

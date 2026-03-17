@@ -8227,9 +8227,16 @@ impl<'a> Vm<'a> {
             args,
         )?;
         let extra_roots = args.to_vec();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::interactive::finish_call_interactively_in_eval(eval, plan)
-        })
+        let mut plan = plan;
+        let (function, call_args) = self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_eval(
+                eval, &mut plan,
+            )
+        })?;
+        self.shared.interactive.push_interactive_call(true);
+        let result = self.call_function_with_roots(function, &call_args);
+        self.shared.interactive.pop_interactive_call();
+        result
     }
 
     fn builtin_assoc_shared(&mut self, args: &[Value]) -> EvalResult {
