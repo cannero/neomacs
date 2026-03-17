@@ -5048,6 +5048,44 @@ fn vm_format_mode_line_recursive_depth_specs_match_gnu() {
 }
 
 #[test]
+fn vm_format_mode_line_size_and_process_specs_match_gnu() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-mode-line-metadata")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert (make-string 1536 ?x))
+                 (list (format-mode-line "%i|%I|%s")
+                       (progn
+                         (format-mode-line "%i|%I|%s"))))"#,
+            |eval| {
+                eval.processes.create_process(
+                    "vm-mode-line-proc".into(),
+                    Some("vm-mode-line-metadata".into()),
+                    "cat".into(),
+                    vec![],
+                );
+            }
+        ),
+        r#"OK ("1536|1.5k|run" "1536|1.5k|run")"#
+    );
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-mode-line-no-process")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert (make-string 1536 ?x))
+                 (format-mode-line "%i|%I|%s"))"#
+        ),
+        r#"OK "1536|1.5k|no process""#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

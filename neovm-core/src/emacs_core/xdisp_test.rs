@@ -165,6 +165,7 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
         eval.dynamic.as_slice(),
         &eval.frames,
         &mut eval.buffers,
+        &eval.processes,
         vec![
             Value::list(vec![
                 Value::string("%b "),
@@ -225,6 +226,7 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
         eval.dynamic.as_slice(),
         &eval.frames,
         &mut eval.buffers,
+        &eval.processes,
         &[
             Value::list(vec![
                 Value::string("%b "),
@@ -297,6 +299,7 @@ fn test_format_mode_line_string_valued_symbols_render_literally() {
         eval.dynamic.as_slice(),
         &eval.frames,
         &mut eval.buffers,
+        &eval.processes,
         vec![
             Value::list(vec![Value::string("%b "), Value::symbol("mode-name")]),
             Value::Nil,
@@ -320,6 +323,7 @@ fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
         eval.dynamic.as_slice(),
         &eval.frames,
         &mut eval.buffers,
+        &eval.processes,
         vec![
             Value::list(vec![
                 Value::list(vec![Value::Int(5), Value::string("%b")]),
@@ -347,6 +351,7 @@ fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics()
         eval.dynamic.as_slice(),
         &eval.frames,
         &mut eval.buffers,
+        &eval.processes,
         vec![
             Value::string("%5b|%-|%2*"),
             Value::Nil,
@@ -607,6 +612,31 @@ fn test_format_mode_line_recursive_depth_specs_match_gnu() {
     let deep =
         builtin_format_mode_line_eval(&mut eval, vec![Value::string("%[|%]")]).expect("depth 6");
     assert_eq!(deep, Value::string("[[[... | ...]]]"));
+}
+
+#[test]
+fn test_format_mode_line_size_and_process_specs_match_gnu() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("mode-line-metadata");
+    eval.buffers.set_current(buffer_id);
+    {
+        let buffer = eval.buffers.get_mut(buffer_id).expect("buffer");
+        buffer.insert(&"x".repeat(1536));
+    }
+
+    let no_process =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%i|%I|%s")]).expect("specs");
+    assert_eq!(no_process, Value::string("1536|1.5k|no process"));
+
+    eval.processes.create_process(
+        "mode-line-proc".into(),
+        Some("mode-line-metadata".into()),
+        "cat".into(),
+        vec![],
+    );
+    let with_process =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%i|%I|%s")]).expect("specs");
+    assert_eq!(with_process, Value::string("1536|1.5k|run"));
 }
 
 #[test]

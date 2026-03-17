@@ -107,6 +107,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
     dynamic: &[OrderedRuntimeBindingMap],
     frames: &crate::window::FrameManager,
     buffers: &mut crate::buffer::BufferManager,
+    processes: &crate::emacs_core::process::ProcessManager,
     args: Vec<Value>,
 ) -> Result<Option<Value>, Flow> {
     expect_args_range("format-mode-line", &args, 1, 4)?;
@@ -133,6 +134,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
         obarray,
         dynamic,
         &*buffers,
+        processes,
         &format_val,
         &mut result,
         0,
@@ -192,6 +194,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
     dynamic: &[OrderedRuntimeBindingMap],
     frames: &crate::window::FrameManager,
     buffers: &mut crate::buffer::BufferManager,
+    processes: &crate::emacs_core::process::ProcessManager,
     args: &[Value],
     mut eval_form: impl FnMut(&Value, &crate::buffer::BufferManager) -> Result<Value, Flow>,
 ) -> EvalResult {
@@ -215,6 +218,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
             obarray,
             dynamic,
             &*buffers,
+            processes,
             &format_val,
             &mut result,
             0,
@@ -290,6 +294,90 @@ fn mode_line_symbol_value_in_state(
     }
 
     obarray.symbol_value(name).copied()
+}
+
+fn mode_line_human_readable_size(mut quotient: usize) -> String {
+    const POWER_LETTER: [char; 11] = ['\0', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'R', 'Q'];
+
+    let mut tenths = None;
+    let mut exponent = 0_usize;
+
+    if quotient >= 1000 {
+        let mut remainder: usize;
+        loop {
+            remainder = quotient % 1000;
+            quotient /= 1000;
+            exponent += 1;
+            if quotient < 1000 {
+                break;
+            }
+        }
+
+        if quotient <= 9 {
+            let rounded_tenths = remainder / 100;
+            if remainder % 100 >= 50 {
+                if rounded_tenths < 9 {
+                    tenths = Some(rounded_tenths + 1);
+                } else {
+                    quotient += 1;
+                    if quotient < 10 {
+                        tenths = Some(0);
+                    } else {
+                        tenths = None;
+                    }
+                }
+            } else {
+                tenths = Some(rounded_tenths);
+            }
+        } else if remainder >= 500 {
+            if quotient < 999 {
+                quotient += 1;
+            } else {
+                quotient = 1;
+                exponent += 1;
+                tenths = Some(0);
+            }
+        }
+    }
+
+    let mut rendered = quotient.to_string();
+    if let Some(tenths) = tenths {
+        rendered.push('.');
+        rendered.push(char::from(b'0' + tenths as u8));
+    }
+    let suffix = POWER_LETTER[exponent];
+    if suffix != '\0' {
+        rendered.push(suffix);
+    }
+    rendered
+}
+
+fn mode_line_process_status_in_state(
+    buffers: &crate::buffer::BufferManager,
+    processes: &crate::emacs_core::process::ProcessManager,
+) -> &'static str {
+    let Some(buffer_name) = buffers.current_buffer().map(|buffer| buffer.name.as_str()) else {
+        return "no process";
+    };
+    let Some(process_id) = processes.find_by_buffer_name(buffer_name) else {
+        return "no process";
+    };
+    let Some(process) = processes.get_any(process_id) else {
+        return "no process";
+    };
+    match process.status {
+        crate::emacs_core::process::ProcessStatus::Run => match process.kind {
+            crate::emacs_core::process::ProcessKind::Network => "listen",
+            crate::emacs_core::process::ProcessKind::Pipe => "open",
+            _ => "run",
+        },
+        crate::emacs_core::process::ProcessStatus::Stop => "stop",
+        crate::emacs_core::process::ProcessStatus::Exit(_) => "exit",
+        crate::emacs_core::process::ProcessStatus::Signal(_) => match process.kind {
+            crate::emacs_core::process::ProcessKind::Real => "signal",
+            _ => "closed",
+        },
+    }
 }
 
 fn mode_line_symbol_is_risky(obarray: &crate::emacs_core::symbol::Obarray, name: &str) -> bool {
@@ -521,6 +609,7 @@ fn append_mode_line_string_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
+    processes: &crate::emacs_core::process::ProcessManager,
     command_loop_depth: usize,
     result: &mut ModeLineRendered,
     value: &Value,
@@ -536,6 +625,7 @@ fn append_mode_line_string_in_state(
             obarray,
             dynamic,
             buffers,
+            processes,
             command_loop_depth,
             value,
             result,
@@ -570,6 +660,7 @@ fn format_mode_line_recursive(
             &eval.obarray,
             &eval.dynamic,
             &eval.buffers,
+            &eval.processes,
             eval.command_loop.recursive_depth,
             result,
             format,
@@ -602,6 +693,7 @@ fn format_mode_line_recursive(
                             &eval.obarray,
                             &eval.dynamic,
                             &eval.buffers,
+                            &eval.processes,
                             eval.command_loop.recursive_depth,
                             result,
                             &val,
@@ -704,6 +796,7 @@ fn format_mode_line_recursive_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
+    processes: &crate::emacs_core::process::ProcessManager,
     format: &Value,
     result: &mut ModeLineRendered,
     depth: usize,
@@ -716,9 +809,9 @@ fn format_mode_line_recursive_in_state(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => {
-            append_mode_line_string_in_state(obarray, dynamic, buffers, 0, result, format, false)
-        }
+        Value::Str(_) => append_mode_line_string_in_state(
+            obarray, dynamic, buffers, processes, 0, result, format, false,
+        ),
 
         Value::Int(_) => {}
 
@@ -733,12 +826,13 @@ fn format_mode_line_recursive_in_state(
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
-                            obarray, dynamic, buffers, 0, result, &val, true,
+                            obarray, dynamic, buffers, processes, 0, result, &val, true,
                         );
                     } else if format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         &val,
                         result,
                         depth + 1,
@@ -772,6 +866,7 @@ fn format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         &elt,
                         &mut nested,
                         depth + 1,
@@ -790,6 +885,7 @@ fn format_mode_line_recursive_in_state(
                     obarray,
                     dynamic,
                     buffers,
+                    processes,
                     &cdr,
                     &mut nested,
                     depth + 1,
@@ -818,6 +914,7 @@ fn format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         &branch,
                         result,
                         depth + 1,
@@ -833,6 +930,7 @@ fn format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         elem,
                         result,
                         depth + 1,
@@ -856,6 +954,7 @@ fn format_mode_line_recursive_in_state_with_eval(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
+    processes: &crate::emacs_core::process::ProcessManager,
     format: &Value,
     result: &mut ModeLineRendered,
     depth: usize,
@@ -869,9 +968,9 @@ fn format_mode_line_recursive_in_state_with_eval(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => {
-            append_mode_line_string_in_state(obarray, dynamic, buffers, 0, result, format, false)
-        }
+        Value::Str(_) => append_mode_line_string_in_state(
+            obarray, dynamic, buffers, processes, 0, result, format, false,
+        ),
 
         Value::Int(_) => {}
 
@@ -886,13 +985,14 @@ fn format_mode_line_recursive_in_state_with_eval(
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
-                            obarray, dynamic, buffers, 0, result, &val, true,
+                            obarray, dynamic, buffers, processes, 0, result, &val, true,
                         );
                     } else {
                         format_mode_line_recursive_in_state_with_eval(
                             obarray,
                             dynamic,
                             buffers,
+                            processes,
                             &val,
                             result,
                             depth + 1,
@@ -919,6 +1019,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         &val,
                         result,
                         depth + 1,
@@ -940,6 +1041,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         &elt,
                         &mut nested,
                         depth + 1,
@@ -958,6 +1060,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                     obarray,
                     dynamic,
                     buffers,
+                    processes,
                     &cdr,
                     &mut nested,
                     depth + 1,
@@ -987,6 +1090,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         &branch,
                         result,
                         depth + 1,
@@ -1003,6 +1107,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         obarray,
                         dynamic,
                         buffers,
+                        processes,
                         elem,
                         result,
                         depth + 1,
@@ -1041,6 +1146,7 @@ fn format_mode_line_recursive_in_vm_runtime(
             &*shared.obarray,
             shared.dynamic.as_slice(),
             &*shared.buffers,
+            &*shared.processes,
             shared.recursive_command_loop_depth(),
             result,
             format,
@@ -1069,6 +1175,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                             &*shared.obarray,
                             shared.dynamic.as_slice(),
                             &*shared.buffers,
+                            &*shared.processes,
                             shared.recursive_command_loop_depth(),
                             result,
                             &val,
@@ -1216,6 +1323,7 @@ fn expand_mode_line_percent_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
+    processes: &crate::emacs_core::process::ProcessManager,
     command_loop_depth: usize,
     value: &Value,
     result: &mut ModeLineRendered,
@@ -1290,6 +1398,20 @@ fn expand_mode_line_percent_in_state(
                 append_spec(file_name);
                 index += 1;
             }
+            Some('i') => {
+                let size = buf
+                    .map(|buffer| buffer.zv.saturating_sub(buffer.begv))
+                    .unwrap_or(0);
+                append_spec(&size.to_string());
+                index += 1;
+            }
+            Some('I') => {
+                let size = buf
+                    .map(|buffer| buffer.zv.saturating_sub(buffer.begv))
+                    .unwrap_or(0);
+                append_spec(&mode_line_human_readable_size(size));
+                index += 1;
+            }
             Some('F') => {
                 append_spec("Neomacs");
                 index += 1;
@@ -1328,6 +1450,10 @@ fn expand_mode_line_percent_in_state(
             }
             Some('n') => {
                 append_spec(if narrowed { " Narrow" } else { "" });
+                index += 1;
+            }
+            Some('s') => {
+                append_spec(mode_line_process_status_in_state(buffers, processes));
                 index += 1;
             }
             Some('l') => {
