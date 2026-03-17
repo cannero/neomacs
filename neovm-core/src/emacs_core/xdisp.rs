@@ -949,51 +949,57 @@ fn expand_mode_line_percent_in_state(
     let mut chars = fmt_str.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '%' {
-            if chars.peek() == Some(&'-') {
-                chars.next();
-            }
+            let mut field_width = 0_i64;
             while chars.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                chars.next();
+                let digit = chars.next().expect("peeked digit");
+                field_width = field_width * 10 + i64::from(digit as u8 - b'0');
             }
+            let mut append_spec = |value: &str| {
+                append_mode_line_rendered_segment(result, value, field_width, 0);
+            };
             match chars.next() {
-                Some('b') => result.push_str(buf_name),
-                Some('f') => result.push_str(file_name),
-                Some('F') => result.push_str("Neomacs"),
-                Some('*') => result.push(if modified { '*' } else { '-' }),
-                Some('+') => result.push(if modified { '+' } else { '-' }),
-                Some('-') => result.push('-'),
-                Some('%') => result.push('%'),
-                Some('n') => {}
-                Some('l') => result.push_str(&line_num.to_string()),
-                Some('c') => result.push_str(&col_num.to_string()),
+                Some('b') => append_spec(buf_name),
+                Some('f') => append_spec(file_name),
+                Some('F') => append_spec("Neomacs"),
+                Some('*') => append_spec(if modified { "*" } else { "-" }),
+                Some('+') => append_spec(if modified { "+" } else { "-" }),
+                Some('-') => append_spec("--"),
+                Some('%') => append_spec("%"),
+                Some('n') => append_spec(""),
+                Some('l') => append_spec(&line_num.to_string()),
+                Some('c') => append_spec(&col_num.to_string()),
                 Some('p') | Some('P') => {
-                    if let Some(b) = buf {
+                    let percent = if let Some(b) = buf {
                         let total = b.text.len();
                         if total == 0 {
-                            result.push_str("All");
+                            "All".to_owned()
                         } else {
                             let pct = (b.pt * 100) / total;
                             if pct == 0 {
-                                result.push_str("Top");
+                                "Top".to_owned()
                             } else if pct >= 99 {
-                                result.push_str("Bot");
+                                "Bot".to_owned()
                             } else {
-                                result.push_str(&format!("{}%", pct));
+                                format!("{}%", pct)
                             }
                         }
-                    }
+                    } else {
+                        String::new()
+                    };
+                    append_spec(&percent);
                 }
-                Some('z') => result.push_str("U"),
-                Some('@') => result.push('-'),
-                Some('Z') => result.push_str("U"),
-                Some('[') | Some(']') => {}
-                Some('e') => {}
-                Some(' ') => result.push(' '),
+                Some('z') => append_spec("U"),
+                Some('@') => append_spec("-"),
+                Some('Z') => append_spec("U"),
+                Some('[') | Some(']') => append_spec(""),
+                Some('e') => append_spec(""),
+                Some(' ') => append_spec(" "),
                 Some(c) => {
-                    result.push('%');
-                    result.push(c);
+                    let mut unknown = String::from("%");
+                    unknown.push(c);
+                    append_spec(&unknown);
                 }
-                None => result.push('%'),
+                None => append_spec("%"),
             }
         } else {
             result.push(ch);

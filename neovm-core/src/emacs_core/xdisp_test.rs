@@ -335,6 +335,29 @@ fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
 }
 
 #[test]
+fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let other_id = eval.buffers.create_buffer("xy");
+
+    let rendered = builtin_format_mode_line_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.frames,
+        &mut eval.buffers,
+        vec![
+            Value::string("%5b|%-|%2*"),
+            Value::Nil,
+            Value::Nil,
+            Value::Buffer(other_id),
+        ],
+    )
+    .expect("format-mode-line shared state")
+    .expect("percent specs should not require eval");
+
+    assert_eq!(rendered, Value::string("xy   |--|- "));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

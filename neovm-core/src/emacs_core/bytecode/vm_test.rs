@@ -4910,6 +4910,20 @@ fn vm_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
 }
 
 #[test]
+fn vm_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "xy")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (format-mode-line "%5b|%-|%2*"))"#
+        ),
+        r#"OK "xy   |--|- ""#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(
