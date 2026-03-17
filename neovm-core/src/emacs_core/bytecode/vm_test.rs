@@ -4938,6 +4938,20 @@ fn vm_format_mode_line_respects_risky_local_variable_for_eval_forms() {
 }
 
 #[test]
+fn vm_format_mode_line_propertize_preserves_text_properties() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((s (format-mode-line '(:propertize "abc" face bold help-echo "h")))
+                      (props (text-properties-at 1 s)))
+                 (list (substring-no-properties s)
+                       (plist-get props 'face)
+                       (plist-get props 'help-echo)))"#
+        ),
+        r#"OK ("abc" bold "h")"#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

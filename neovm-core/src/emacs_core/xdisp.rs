@@ -19,7 +19,8 @@ use super::chartable::{make_char_table_value, make_char_table_with_extra_slots};
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
-use crate::buffer::BufferId;
+use crate::buffer::{BufferId, TextPropertyTable};
+use crate::encoding::char_to_byte_pos;
 use crate::window::{FrameId, Window, WindowId};
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
     }
 
     let format_val = args[0];
-    let mut result = String::new();
+    let mut result = ModeLineRendered::default();
     let needs_eval = format_mode_line_recursive_in_state(
         obarray,
         dynamic,
@@ -144,7 +145,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
     if needs_eval {
         Ok(None)
     } else {
-        Ok(Some(Value::string(&result)))
+        Ok(Some(result.into_value()))
     }
 }
 
@@ -173,9 +174,9 @@ pub(crate) fn finish_format_mode_line_in_eval(
         Value::string("")
     } else {
         let format_val = args[0];
-        let mut result = String::new();
+        let mut result = ModeLineRendered::default();
         format_mode_line_recursive(eval, &format_val, &mut result, 0, false);
-        Value::string(&result)
+        result.into_value()
     };
 
     if let Some(buffer_id) = saved_buffer {
@@ -206,7 +207,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
         Value::string("")
     } else {
         let format_val = args[0];
-        let mut result = String::new();
+        let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_state_with_eval(
             obarray,
             dynamic,
@@ -217,7 +218,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
             false,
             &mut eval_form,
         )?;
-        Value::string(&result)
+        result.into_value()
     };
 
     if let Some(buffer_id) = saved_buffer {
@@ -246,7 +247,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
         Value::string("")
     } else {
         let format_val = args[0];
-        let mut result = String::new();
+        let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_vm_runtime(
             shared,
             vm_gc_roots,
@@ -256,7 +257,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
             0,
             false,
         )?;
-        Value::string(&result)
+        result.into_value()
     };
 
     if let Some(buffer_id) = saved_buffer {
@@ -308,40 +309,131 @@ fn mode_line_conditional_branch(cdr: Value, branch_is_then: bool) -> Option<Valu
     }
 }
 
+#[derive(Clone, Default)]
+struct ModeLineRendered {
+    text: String,
+    text_props: TextPropertyTable,
+}
+
+impl ModeLineRendered {
+    fn plain(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            text_props: TextPropertyTable::new(),
+        }
+    }
+
+    fn append_rendered(&mut self, other: &Self) {
+        let byte_offset = self.text.len();
+        self.text.push_str(&other.text);
+        self.text_props
+            .append_shifted(&other.text_props, byte_offset);
+    }
+
+    fn append_string_value_preserving_props(&mut self, value: &Value) {
+        let Some(text) = value.as_str() else {
+            return;
+        };
+        let byte_offset = self.text.len();
+        self.text.push_str(text);
+        if let Value::Str(id) = value
+            && let Some(props) = get_string_text_properties_table(*id)
+        {
+            self.text_props.append_shifted(&props, byte_offset);
+        }
+    }
+
+    fn push_plain_char(&mut self, ch: char) {
+        self.text.push(ch);
+    }
+
+    fn char_len(&self) -> usize {
+        self.text.chars().count()
+    }
+
+    fn slice_chars(&self, precision: usize) -> Self {
+        let byte_end = char_to_byte_pos(&self.text, precision);
+        Self {
+            text: self.text.chars().take(precision).collect(),
+            text_props: self.text_props.slice(0, byte_end),
+        }
+    }
+
+    fn pad_with_first_properties(&mut self, padding_chars: usize) {
+        if padding_chars == 0 {
+            return;
+        }
+        let first_props = (!self.text.is_empty())
+            .then(|| self.text_props.get_properties(0))
+            .filter(|props| !props.is_empty());
+        let start = self.text.len();
+        self.text.extend(std::iter::repeat_n(' ', padding_chars));
+        let end = self.text.len();
+        if let Some(props) = first_props {
+            for (name, value) in props {
+                self.text_props.put_property(start, end, &name, value);
+            }
+        }
+    }
+
+    fn overlay_properties(&mut self, props: Value) {
+        if self.text.is_empty() {
+            return;
+        }
+        let Some(items) = list_to_vec(&props) else {
+            return;
+        };
+        for chunk in items.chunks(2) {
+            if chunk.len() != 2 {
+                continue;
+            }
+            if let Some(name) = chunk[0].as_symbol_name() {
+                self.text_props
+                    .put_property(0, self.text.len(), name, chunk[1]);
+            }
+        }
+    }
+
+    fn into_value(self) -> Value {
+        let value = Value::string(self.text);
+        if let Value::Str(id) = value {
+            set_string_text_properties_table(id, self.text_props);
+        }
+        value
+    }
+}
+
 fn append_mode_line_rendered_segment(
-    result: &mut String,
-    rendered: &str,
+    result: &mut ModeLineRendered,
+    rendered: &ModeLineRendered,
     field_width: i64,
     precision: i64,
 ) {
     let mut segment = if precision > 0 {
-        rendered
-            .chars()
-            .take(precision as usize)
-            .collect::<String>()
+        rendered.slice_chars(precision as usize)
     } else {
-        rendered.to_owned()
+        rendered.clone()
     };
-    let rendered_len = segment.chars().count() as i64;
+    let rendered_len = segment.char_len() as i64;
     if field_width > 0 && rendered_len < field_width {
-        segment.extend(std::iter::repeat_n(
-            ' ',
-            (field_width - rendered_len) as usize,
-        ));
+        segment.pad_with_first_properties((field_width - rendered_len) as usize);
     }
-    result.push_str(&segment);
+    result.append_rendered(&segment);
 }
 
 fn append_mode_line_string_in_state(
     buffers: &crate::buffer::BufferManager,
-    result: &mut String,
-    value: &str,
+    result: &mut ModeLineRendered,
+    value: &Value,
     literal: bool,
 ) {
-    if literal {
-        result.push_str(value);
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    if literal || !text.contains('%') {
+        result.append_string_value_preserving_props(value);
     } else {
-        expand_mode_line_percent_in_state(buffers, value, result);
+        expand_mode_line_percent_in_state(buffers, text, result);
     }
 }
 
@@ -352,12 +444,12 @@ fn append_mode_line_string_in_state(
 /// - A symbol: look up its value, recursively format
 /// - A list: process each element in sequence
 /// - `(:eval FORM)`: evaluate FORM, use result as format
-/// - `(:propertize ELT PROPS...)`: process ELT (ignore text properties)
+/// - `(:propertize ELT PROPS...)`: process ELT and apply text properties
 /// - A cons `(SYMBOL . REST)`: if SYMBOL's value is non-nil, process REST
 fn format_mode_line_recursive(
     eval: &mut super::eval::Evaluator,
     format: &Value,
-    result: &mut String,
+    result: &mut ModeLineRendered,
     depth: usize,
     risky: bool,
 ) {
@@ -368,11 +460,7 @@ fn format_mode_line_recursive(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => {
-            if let Some(fmt_str) = format.as_str() {
-                append_mode_line_string_in_state(&eval.buffers, result, fmt_str, false);
-            }
-        }
+        Value::Str(_) => append_mode_line_string_in_state(&eval.buffers, result, format, false),
 
         Value::Int(n) => {
             // Integer in mode-line-format: if positive, specifies minimum
@@ -385,7 +473,7 @@ fn format_mode_line_recursive(
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
                 if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push(' ');
+                    result.push_plain_char(' ');
                     return;
                 }
                 if let Some(val) = mode_line_symbol_value_in_state(
@@ -395,8 +483,8 @@ fn format_mode_line_recursive(
                     name,
                 ) && !val.is_nil()
                 {
-                    if let Some(text) = val.as_str() {
-                        append_mode_line_string_in_state(&eval.buffers, result, text, true);
+                    if val.as_str().is_some() {
+                        append_mode_line_string_in_state(&eval.buffers, result, &val, true);
                     } else {
                         format_mode_line_recursive(
                             eval,
@@ -428,20 +516,23 @@ fn format_mode_line_recursive(
                 return;
             }
 
-            // (:propertize ELT PROPS...) — process ELT, ignore properties
+            // (:propertize ELT PROPS...) — process ELT and apply properties
             if car.is_symbol_named(":propertize") {
                 if risky {
                     return;
                 }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
-                    format_mode_line_recursive(eval, &elt, result, depth + 1, risky);
+                    let mut nested = ModeLineRendered::default();
+                    format_mode_line_recursive(eval, &elt, &mut nested, depth + 1, risky);
+                    nested.overlay_properties(cdr.cons_cdr());
+                    result.append_rendered(&nested);
                 }
                 return;
             }
 
             if let Value::Int(lim) = car {
-                let mut nested = String::new();
+                let mut nested = ModeLineRendered::default();
                 format_mode_line_recursive(eval, &cdr, &mut nested, depth + 1, risky);
                 append_mode_line_rendered_segment(
                     result,
@@ -482,9 +573,7 @@ fn format_mode_line_recursive(
 
         _ => {
             // Unknown format type — try to get a string representation
-            if let Some(s) = format.as_str() {
-                result.push_str(s);
-            }
+            result.append_string_value_preserving_props(format);
         }
     }
 }
@@ -494,7 +583,7 @@ fn format_mode_line_recursive_in_state(
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     format: &Value,
-    result: &mut String,
+    result: &mut ModeLineRendered,
     depth: usize,
     risky: bool,
 ) -> bool {
@@ -505,25 +594,21 @@ fn format_mode_line_recursive_in_state(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => {
-            if let Some(fmt_str) = format.as_str() {
-                append_mode_line_string_in_state(buffers, result, fmt_str, false);
-            }
-        }
+        Value::Str(_) => append_mode_line_string_in_state(buffers, result, format, false),
 
         Value::Int(_) => {}
 
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
                 if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push(' ');
+                    result.push_plain_char(' ');
                     return false;
                 }
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
                 {
-                    if let Some(text) = val.as_str() {
-                        append_mode_line_string_in_state(buffers, result, text, true);
+                    if val.as_str().is_some() {
+                        append_mode_line_string_in_state(buffers, result, &val, true);
                     } else if format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
@@ -556,21 +641,25 @@ fn format_mode_line_recursive_in_state(
                 }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
-                    return format_mode_line_recursive_in_state(
+                    let mut nested = ModeLineRendered::default();
+                    let needs_eval = format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
                         &elt,
-                        result,
+                        &mut nested,
                         depth + 1,
                         risky,
                     );
+                    nested.overlay_properties(cdr.cons_cdr());
+                    result.append_rendered(&nested);
+                    return needs_eval;
                 }
                 return false;
             }
 
             if let Value::Int(lim) = car {
-                let mut nested = String::new();
+                let mut nested = ModeLineRendered::default();
                 let needs_eval = format_mode_line_recursive_in_state(
                     obarray,
                     dynamic,
@@ -630,9 +719,7 @@ fn format_mode_line_recursive_in_state(
         }
 
         _ => {
-            if let Some(s) = format.as_str() {
-                result.push_str(s);
-            }
+            result.append_string_value_preserving_props(format);
         }
     }
 
@@ -644,7 +731,7 @@ fn format_mode_line_recursive_in_state_with_eval(
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     format: &Value,
-    result: &mut String,
+    result: &mut ModeLineRendered,
     depth: usize,
     risky: bool,
     eval_form: &mut impl FnMut(&Value, &crate::buffer::BufferManager) -> Result<Value, Flow>,
@@ -656,25 +743,21 @@ fn format_mode_line_recursive_in_state_with_eval(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => {
-            if let Some(fmt_str) = format.as_str() {
-                append_mode_line_string_in_state(buffers, result, fmt_str, false);
-            }
-        }
+        Value::Str(_) => append_mode_line_string_in_state(buffers, result, format, false),
 
         Value::Int(_) => {}
 
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
                 if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push(' ');
+                    result.push_plain_char(' ');
                     return Ok(());
                 }
                 if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                     && !val.is_nil()
                 {
-                    if let Some(text) = val.as_str() {
-                        append_mode_line_string_in_state(buffers, result, text, true);
+                    if val.as_str().is_some() {
+                        append_mode_line_string_in_state(buffers, result, &val, true);
                     } else {
                         format_mode_line_recursive_in_state_with_eval(
                             obarray,
@@ -722,22 +805,25 @@ fn format_mode_line_recursive_in_state_with_eval(
                 }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
+                    let mut nested = ModeLineRendered::default();
                     format_mode_line_recursive_in_state_with_eval(
                         obarray,
                         dynamic,
                         buffers,
                         &elt,
-                        result,
+                        &mut nested,
                         depth + 1,
                         risky,
                         eval_form,
                     )?;
+                    nested.overlay_properties(cdr.cons_cdr());
+                    result.append_rendered(&nested);
                 }
                 return Ok(());
             }
 
             if let Value::Int(lim) = car {
-                let mut nested = String::new();
+                let mut nested = ModeLineRendered::default();
                 format_mode_line_recursive_in_state_with_eval(
                     obarray,
                     dynamic,
@@ -798,9 +884,7 @@ fn format_mode_line_recursive_in_state_with_eval(
         }
 
         _ => {
-            if let Some(s) = format.as_str() {
-                result.push_str(s);
-            }
+            result.append_string_value_preserving_props(format);
         }
     }
 
@@ -812,7 +896,7 @@ fn format_mode_line_recursive_in_vm_runtime(
     vm_gc_roots: &[Value],
     args_roots: &[Value],
     format: &Value,
-    result: &mut String,
+    result: &mut ModeLineRendered,
     depth: usize,
     risky: bool,
 ) -> Result<(), Flow> {
@@ -823,18 +907,14 @@ fn format_mode_line_recursive_in_vm_runtime(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => {
-            if let Some(fmt_str) = format.as_str() {
-                append_mode_line_string_in_state(&*shared.buffers, result, fmt_str, false);
-            }
-        }
+        Value::Str(_) => append_mode_line_string_in_state(&*shared.buffers, result, format, false),
 
         Value::Int(_) => {}
 
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
                 if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
-                    result.push(' ');
+                    result.push_plain_char(' ');
                     return Ok(());
                 }
                 let value = {
@@ -846,8 +926,8 @@ fn format_mode_line_recursive_in_vm_runtime(
                 if let Some(val) = value
                     && !val.is_nil()
                 {
-                    if let Some(text) = val.as_str() {
-                        append_mode_line_string_in_state(&*shared.buffers, result, text, true);
+                    if val.as_str().is_some() {
+                        append_mode_line_string_in_state(&*shared.buffers, result, &val, true);
                     } else {
                         format_mode_line_recursive_in_vm_runtime(
                             shared,
@@ -899,21 +979,24 @@ fn format_mode_line_recursive_in_vm_runtime(
                 }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
+                    let mut nested = ModeLineRendered::default();
                     format_mode_line_recursive_in_vm_runtime(
                         shared,
                         vm_gc_roots,
                         args_roots,
                         &elt,
-                        result,
+                        &mut nested,
                         depth + 1,
                         risky,
                     )?;
+                    nested.overlay_properties(cdr.cons_cdr());
+                    result.append_rendered(&nested);
                 }
                 return Ok(());
             }
 
             if let Value::Int(lim) = car {
-                let mut nested = String::new();
+                let mut nested = ModeLineRendered::default();
                 format_mode_line_recursive_in_vm_runtime(
                     shared,
                     vm_gc_roots,
@@ -976,9 +1059,7 @@ fn format_mode_line_recursive_in_vm_runtime(
         }
 
         _ => {
-            if let Some(s) = format.as_str() {
-                result.push_str(s);
-            }
+            result.append_string_value_preserving_props(format);
         }
     }
 
@@ -988,7 +1069,7 @@ fn format_mode_line_recursive_in_vm_runtime(
 fn expand_mode_line_percent_in_state(
     buffers: &crate::buffer::BufferManager,
     fmt_str: &str,
-    result: &mut String,
+    result: &mut ModeLineRendered,
 ) {
     let buf = buffers.current_buffer();
     let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
@@ -1015,7 +1096,12 @@ fn expand_mode_line_percent_in_state(
                 field_width = field_width * 10 + i64::from(digit as u8 - b'0');
             }
             let mut append_spec = |value: &str| {
-                append_mode_line_rendered_segment(result, value, field_width, 0);
+                append_mode_line_rendered_segment(
+                    result,
+                    &ModeLineRendered::plain(value),
+                    field_width,
+                    0,
+                );
             };
             match chars.next() {
                 Some('b') => append_spec(buf_name),
@@ -1062,7 +1148,7 @@ fn expand_mode_line_percent_in_state(
                 None => append_spec("%"),
             }
         } else {
-            result.push(ch);
+            result.push_plain_char(ch);
         }
     }
 }

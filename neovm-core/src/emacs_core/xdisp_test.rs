@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::value::get_string_text_properties_table;
 
 #[test]
 fn test_format_mode_line() {
@@ -383,6 +384,37 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
 
     assert_eq!(suppressed, Value::string(""));
     assert_eq!(allowed, Value::string("ok"));
+}
+
+#[test]
+fn test_format_mode_line_propertize_preserves_text_properties() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![Value::list(vec![
+            Value::symbol(":propertize"),
+            Value::string("abc"),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+            Value::symbol("help-echo"),
+            Value::string("h"),
+        ])],
+    )
+    .expect("format-mode-line propertize");
+
+    assert_eq!(rendered.as_str(), Some("abc"));
+    let Value::Str(id) = rendered else {
+        panic!("expected string result");
+    };
+    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    assert_eq!(
+        props.get_property(0, "face").copied(),
+        Some(Value::symbol("bold"))
+    );
+    assert_eq!(
+        props.get_property(0, "help-echo").copied(),
+        Some(Value::string("h"))
+    );
 }
 
 #[test]
