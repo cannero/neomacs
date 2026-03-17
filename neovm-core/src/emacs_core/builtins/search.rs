@@ -854,7 +854,6 @@ pub(crate) fn builtin_match_beginning_with_state(
                     } else if let Some(buf) = md
                         .searched_buffer
                         .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
-                        .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
                     {
                         if *start <= buf.text.len() {
                             let pos = buf.text.byte_to_char(*start) as i64 + 1;
@@ -910,7 +909,6 @@ pub(crate) fn builtin_match_end_with_state(
                     } else if let Some(buf) = md
                         .searched_buffer
                         .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
-                        .or_else(|| buffers.and_then(|bufs| bufs.current_buffer()))
                     {
                         if *end <= buf.text.len() {
                             let pos = buf.text.byte_to_char(*end) as i64 + 1;
@@ -949,12 +947,8 @@ pub(crate) fn builtin_match_data_with_state(
         return Ok(Value::Nil);
     };
     let integers = args.first().is_some_and(|arg| arg.is_truthy());
-    let current_buffer_id = if md.searched_string.is_none() {
-        md.searched_buffer.or_else(|| {
-            buffers
-                .as_ref()
-                .and_then(|bufs| bufs.current_buffer().map(|buffer| buffer.id))
-        })
+    let searched_buffer_id = if md.searched_string.is_none() {
+        md.searched_buffer
     } else {
         None
     };
@@ -975,7 +969,7 @@ pub(crate) fn builtin_match_data_with_state(
                     continue;
                 }
 
-                let buffer_positions = current_buffer_id.and_then(|buffer_id| {
+                let buffer_positions = searched_buffer_id.and_then(|buffer_id| {
                     buffers.as_deref().and_then(|bufs| {
                         bufs.get(buffer_id).and_then(|buffer| {
                             if *start <= *end && *end <= buffer.text.len() {
@@ -1002,7 +996,7 @@ pub(crate) fn builtin_match_data_with_state(
                 }
 
                 if let (Some((start_pos, end_pos)), Some(bufs), Some(buffer_id)) =
-                    (buffer_positions, buffers.as_deref_mut(), current_buffer_id)
+                    (buffer_positions, buffers.as_deref_mut(), searched_buffer_id)
                 {
                     flat.push(super::marker::make_registered_buffer_marker(
                         bufs, buffer_id, start_pos, false,
@@ -1024,11 +1018,42 @@ pub(crate) fn builtin_match_data_with_state(
     }
 
     if integers && md.searched_string.is_none() {
-        if let Some(buffer_id) = current_buffer_id {
+        if let Some(buffer_id) = searched_buffer_id {
             flat.push(Value::Buffer(buffer_id));
         }
     }
     Ok(Value::list(flat))
+}
+
+fn match_data_item_buffer_id_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    value: &Value,
+) -> Option<crate::buffer::BufferId> {
+    match value {
+        Value::Buffer(buffer_id) => Some(*buffer_id),
+        marker if super::marker::is_marker(marker) => super::marker::marker_logical_fields(marker)
+            .and_then(|(buffer_name, _, _)| buffer_name)
+            .and_then(|buffer_name| buffers.find_buffer_by_name(&buffer_name)),
+        _ => None,
+    }
+}
+
+fn expect_match_data_item_in_manager(
+    buffers: &crate::buffer::BufferManager,
+    value: &Value,
+) -> Result<(i64, Option<crate::buffer::BufferId>), Flow> {
+    match value {
+        Value::Int(n) => Ok((*n, None)),
+        Value::Char(c) => Ok((*c as i64, None)),
+        marker if super::marker::is_marker(marker) => Ok((
+            super::marker::marker_position_as_int_with_buffers(buffers, marker)?,
+            match_data_item_buffer_id_in_manager(buffers, marker),
+        )),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *other],
+        )),
+    }
 }
 
 pub(crate) fn builtin_match_data_eval(
@@ -1039,6 +1064,7 @@ pub(crate) fn builtin_match_data_eval(
 }
 
 pub(crate) fn builtin_set_match_data_with_state(
+    buffers: &crate::buffer::BufferManager,
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
@@ -1061,9 +1087,20 @@ pub(crate) fn builtin_set_match_data_with_state(
     let items = list_to_vec(&args[0])
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), args[0]]))?;
 
-    let mut groups: Vec<Option<(usize, usize)>> = Vec::with_capacity(items.len() / 2);
+    let explicit_buffer_id = if items.len() % 2 == 1 {
+        items.last().and_then(|value| match value {
+            Value::Buffer(buffer_id) => Some(*buffer_id),
+            _ => None,
+        })
+    } else {
+        None
+    };
+    let pair_len = items.len() - usize::from(explicit_buffer_id.is_some());
+
+    let mut groups: Vec<Option<(usize, usize)>> = Vec::with_capacity(pair_len / 2);
+    let mut searched_buffer = explicit_buffer_id;
     let mut i = 0usize;
-    while i + 1 < items.len() {
+    while i + 1 < pair_len {
         let start_v = &items[i];
         let end_v = &items[i + 1];
 
@@ -1073,8 +1110,11 @@ pub(crate) fn builtin_set_match_data_with_state(
             continue;
         }
 
-        let start = expect_integer_or_marker(start_v)?;
-        let end = expect_integer_or_marker(end_v)?;
+        let (start, start_buffer) = expect_match_data_item_in_manager(buffers, start_v)?;
+        let (end, end_buffer) = expect_match_data_item_in_manager(buffers, end_v)?;
+        if searched_buffer.is_none() {
+            searched_buffer = start_buffer.or(end_buffer);
+        }
 
         // Emacs treats negative marker positions as an end sentinel and
         // truncates remaining groups.
@@ -1089,10 +1129,20 @@ pub(crate) fn builtin_set_match_data_with_state(
     if groups.is_empty() {
         *match_data = None;
     } else {
+        if let Some(buffer_id) = searched_buffer
+            && let Some(buffer) = buffers.get(buffer_id)
+        {
+            for group in groups.iter_mut() {
+                if let Some((start, end)) = group {
+                    *start = buffer.lisp_pos_to_byte(*start as i64);
+                    *end = buffer.lisp_pos_to_byte(*end as i64);
+                }
+            }
+        }
         *match_data = Some(super::regex::MatchData {
             groups,
             searched_string: None,
-            searched_buffer: None,
+            searched_buffer,
         });
     }
 
@@ -1103,7 +1153,7 @@ pub(crate) fn builtin_set_match_data_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_match_data_with_state(&mut eval.match_data, &args)
+    builtin_set_match_data_with_state(&eval.buffers, &mut eval.match_data, &args)
 }
 
 fn translate_match_data(match_data: &mut Option<super::regex::MatchData>, delta: i64) {

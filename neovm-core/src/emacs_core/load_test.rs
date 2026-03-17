@@ -1021,6 +1021,35 @@ fn bootstrap_runtime_cd_accepts_existing_abbreviated_directory_like_gnu() {
     assert_eq!(rendered, "OK (t t t)");
 }
 
+#[test]
+fn bootstrap_runtime_find_file_handles_multibyte_markdown_like_gnu() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let target = project_root.join("docs/rust-display-engine.md");
+    let target_str = target.to_string_lossy();
+
+    let rendered = eval_rendered(
+        &mut eval,
+        &format!(
+            r#"(condition-case err
+                   (progn
+                     (find-file "{}")
+                     (list (buffer-name)
+                           (> (buffer-size) 0)
+                           (integerp
+                            (string-match-p "Redesign Opportunities"
+                                            (buffer-string)))))
+                 (error err))"#,
+            target_str
+        ),
+    );
+
+    assert_eq!(rendered, "OK (\"rust-display-engine.md\" t t)");
+}
+
 fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");

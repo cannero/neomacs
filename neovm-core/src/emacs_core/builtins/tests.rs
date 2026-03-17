@@ -5692,6 +5692,27 @@ fn match_data_round_trip_with_nil_groups() {
 }
 
 #[test]
+fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu() {
+    let result = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (insert "a—b")
+             (goto-char (point-min))
+             (re-search-forward "—" nil t)
+             (let ((saved (match-data t)))
+               (with-temp-buffer
+                 (insert "other")
+                 (set-match-data saved)
+                 (list (bufferp (car (last saved)))
+                       (equal (match-data t) saved)
+                       (match-beginning 0)
+                       (match-end 0)
+                       (match-string 0)))))"#,
+    );
+
+    assert_eq!(result[0], r#"OK (t t 2 3 "t")"#);
+}
+
+#[test]
 fn match_beginning_end_return_nil_without_match_data() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
     builtin_set_match_data_eval(&mut eval, vec![Value::Nil]).expect("set-match-data nil");

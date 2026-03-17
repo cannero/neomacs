@@ -7949,6 +7949,7 @@ impl<'a> Vm<'a> {
             ),
             "set-match-data" => Some(
                 crate::emacs_core::builtins::search::builtin_set_match_data_with_state(
+                    self.shared.buffers,
                     self.shared.match_data,
                     args,
                 ),

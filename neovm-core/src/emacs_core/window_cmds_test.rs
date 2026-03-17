@@ -3006,3 +3006,25 @@ fn scroll_and_recenter_use_selected_window_state() {
     );
     assert_eq!(results[0], "OK (5 3 3 2 7)");
 }
+
+#[test]
+fn scroll_up_down_updates_window_start_for_multibyte_content() {
+    let results = eval_with_frame(
+        "(let ((w (selected-window)))
+           (with-current-buffer (window-buffer w)
+             (erase-buffer)
+             (dotimes (i 120)
+               (insert (format \"L%03d — multibyte scrolling line\\n\" i))))
+           (set-window-point w 1)
+           (set-window-start w 1)
+           (let ((before (window-start w)))
+             (scroll-up 10)
+             (let ((after-up (window-start w)))
+               (scroll-down 5)
+               (list (= before 1)
+                     (> after-up before)
+                     (< (window-start w) after-up)
+                     (= (window-start w) (window-point w))))))",
+    );
+    assert_eq!(results[0], "OK (t t t t)");
+}

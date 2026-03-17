@@ -4141,11 +4141,16 @@ fn scroll_by_lines_in_state(
 
     let point_lisp = buf.text.byte_to_char(pos) + 1;
     let _ = buffers.goto_buffer_byte(buffer_id, pos);
-    if let Some(Window::Leaf { point, .. }) = frames
+    if let Some(Window::Leaf {
+        point,
+        window_start,
+        ..
+    }) = frames
         .get_mut(fid)
         .and_then(|frame| frame.find_window_mut(wid))
     {
         *point = point_lisp;
+        *window_start = point_lisp;
     }
     Ok(Value::Nil)
 }
