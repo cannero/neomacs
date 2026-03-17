@@ -6452,7 +6452,7 @@ impl<'a> Vm<'a> {
             let extra_roots = args.to_vec();
             let call_args = extra_roots.clone();
             self.with_shared_evaluator(&extra_roots, move |eval| {
-                crate::emacs_core::xdisp::builtin_format_mode_line_eval(eval, call_args)
+                crate::emacs_core::xdisp::finish_format_mode_line_in_eval(eval, &call_args)
             })
         }
     }

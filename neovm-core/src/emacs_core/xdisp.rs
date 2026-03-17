@@ -151,17 +151,14 @@ pub(crate) fn builtin_format_mode_line_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    if let Some(value) = builtin_format_mode_line_in_state(
-        &eval.obarray,
-        eval.dynamic.as_slice(),
-        &eval.frames,
-        &mut eval.buffers,
-        args.clone(),
-    )? {
-        return Ok(value);
-    }
+    finish_format_mode_line_in_eval(eval, &args)
+}
 
-    expect_args_range("format-mode-line", &args, 1, 4)?;
+pub(crate) fn finish_format_mode_line_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
+    expect_args_range("format-mode-line", args, 1, 4)?;
     validate_optional_window_designator(eval, args.get(2), "windowp")?;
     validate_optional_buffer_designator(eval, args.get(3))?;
 
@@ -171,14 +168,19 @@ pub(crate) fn builtin_format_mode_line_eval(
         eval.buffers.set_current(buffer_id);
     }
 
-    let format_val = args[0];
-    let mut result = String::new();
-    format_mode_line_recursive(eval, &format_val, &mut result, 0);
+    let result = if args[0].is_nil() {
+        Value::string("")
+    } else {
+        let format_val = args[0];
+        let mut result = String::new();
+        format_mode_line_recursive(eval, &format_val, &mut result, 0);
+        Value::string(&result)
+    };
 
     if let Some(buffer_id) = saved_buffer {
         eval.buffers.set_current(buffer_id);
     }
-    Ok(Value::string(&result))
+    Ok(result)
 }
 
 fn mode_line_symbol_value_in_state(
