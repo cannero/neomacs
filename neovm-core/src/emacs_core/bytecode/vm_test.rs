@@ -1321,6 +1321,24 @@ fn vm_interactive_minibuffer_query_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_call_interactively_uses_shared_runtime_planning() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (fset 'vm-ci-shared-target '(lambda (x) (interactive (list 7)) x))
+               (fset 'vm-ci-shared-alias 'vm-ci-shared-target)
+               (list
+                 (call-interactively 'vm-ci-shared-alias)
+                 (interactive)
+                 (condition-case err
+                     (call-interactively 'vm-ci-shared-target nil '(1 2))
+                   (wrong-type-argument (car err)))))"
+        ),
+        "OK (7 nil wrong-type-argument)"
+    );
+}
+
+#[test]
 fn vm_window_metadata_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

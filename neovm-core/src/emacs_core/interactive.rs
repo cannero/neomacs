@@ -269,37 +269,13 @@ fn expect_optional_command_keys_vector(keys: Option<&Value>) -> Result<(), Flow>
 /// Call FUNCTION interactively, reading arguments according to its
 /// interactive spec.
 pub(crate) fn builtin_call_interactively(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_min_args("call-interactively", &args, 1)?;
-    expect_max_args("call-interactively", &args, 3)?;
-    expect_optional_command_keys_vector(args.get(2))?;
-
-    let func_val = &args[0];
-    if !command_designator_p(eval, func_val) {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("commandp"), *func_val],
-        ));
-    }
-    let Some((resolved_name, func)) = resolve_command_target(eval, func_val) else {
-        return Err(signal("void-function", vec![*func_val]));
+    let plan = {
+        let obarray = &eval.obarray;
+        let interactive = &eval.interactive;
+        let read_command_keys = eval.read_command_keys();
+        plan_call_interactively_in_state(obarray, interactive, read_command_keys, &args)?
     };
-    let func = normalize_command_callable(eval, func)?;
-    let mut context = InteractiveInvocationContext::from_keys_arg(eval, args.get(2));
-    let call_args = resolve_interactive_invocation_args(
-        eval,
-        &resolved_name,
-        &func,
-        CommandInvocationKind::CallInteractively,
-        &mut context,
-    )?;
-
-    // Mark as interactive call
-    eval.interactive.push_interactive_call(true);
-
-    let result = eval.apply(func, call_args);
-
-    eval.interactive.pop_interactive_call();
-    result
+    finish_call_interactively_in_eval(eval, plan)
 }
 
 /// `(interactive-p)` -> t if the calling function was called interactively.
@@ -978,6 +954,10 @@ struct InteractiveInvocationContext {
 
 impl InteractiveInvocationContext {
     fn from_keys_arg(eval: &Evaluator, keys: Option<&Value>) -> Self {
+        Self::from_keys_arg_in_state(eval.read_command_keys(), keys)
+    }
+
+    fn from_keys_arg_in_state(read_command_keys: &[Value], keys: Option<&Value>) -> Self {
         let mut context = Self::default();
         if let Some(Value::Vector(values)) = keys {
             let values = with_heap(|h| h.get_vector(*values).clone());
@@ -987,8 +967,8 @@ impl InteractiveInvocationContext {
                 return context;
             }
         }
-        if !eval.read_command_keys().is_empty() {
-            context.command_keys = eval.read_command_keys().to_vec();
+        if !read_command_keys.is_empty() {
+            context.command_keys = read_command_keys.to_vec();
             context.has_command_keys_context = true;
         }
         context
@@ -1613,8 +1593,17 @@ fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<V
 }
 
 fn resolve_command_target(eval: &Evaluator, designator: &Value) -> Option<(String, Value)> {
+    resolve_command_target_in_state(&eval.obarray, designator)
+}
+
+fn resolve_command_target_in_state(
+    obarray: &Obarray,
+    designator: &Value,
+) -> Option<(String, Value)> {
     if let Some(name) = designator.as_symbol_name() {
-        if let Some((resolved_name, value)) = resolve_function_designator_symbol(eval, name) {
+        if let Some((resolved_name, value)) =
+            resolve_function_designator_symbol_in_state(obarray, name)
+        {
             return Some((resolved_name, value));
         }
         if builtin_command_name(name) {
@@ -1628,6 +1617,60 @@ fn resolve_command_target(eval: &Evaluator, designator: &Value) -> Option<(Strin
         Value::Keyword(id) => Some((resolve_sym(*id).to_owned(), *designator)),
         _ => Some(("<anonymous>".to_string(), *designator)),
     }
+}
+
+pub(crate) struct CallInteractivelyPlan {
+    resolved_name: String,
+    func: Value,
+    context: InteractiveInvocationContext,
+}
+
+pub(crate) fn plan_call_interactively_in_state(
+    obarray: &Obarray,
+    interactive: &InteractiveRegistry,
+    read_command_keys: &[Value],
+    args: &[Value],
+) -> Result<CallInteractivelyPlan, Flow> {
+    expect_min_args("call-interactively", args, 1)?;
+    expect_max_args("call-interactively", args, 3)?;
+    expect_optional_command_keys_vector(args.get(2))?;
+
+    let func_val = args[0];
+    if !command_designator_p_in_state(obarray, interactive, &func_val, false) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("commandp"), func_val],
+        ));
+    }
+    let Some((resolved_name, func)) = resolve_command_target_in_state(obarray, &func_val) else {
+        return Err(signal("void-function", vec![func_val]));
+    };
+    let context =
+        InteractiveInvocationContext::from_keys_arg_in_state(read_command_keys, args.get(2));
+    Ok(CallInteractivelyPlan {
+        resolved_name,
+        func,
+        context,
+    })
+}
+
+pub(crate) fn finish_call_interactively_in_eval(
+    eval: &mut Evaluator,
+    mut plan: CallInteractivelyPlan,
+) -> EvalResult {
+    let func = normalize_command_callable(eval, plan.func)?;
+    let call_args = resolve_interactive_invocation_args(
+        eval,
+        &plan.resolved_name,
+        &func,
+        CommandInvocationKind::CallInteractively,
+        &mut plan.context,
+    )?;
+
+    eval.interactive.push_interactive_call(true);
+    let result = eval.apply(func, call_args);
+    eval.interactive.pop_interactive_call();
+    result
 }
 
 fn last_command_event_char(eval: &Evaluator) -> Option<char> {

@@ -3519,6 +3519,8 @@ impl<'a> Vm<'a> {
                 }
                 return self.call_function(args[0], args[1..].to_vec());
             }
+            "call-interactively" => return self.builtin_call_interactively_shared(&args),
+            "interactive" => return Ok(Value::Nil),
             "%%defvar" => {
                 // args: [init_value, symbol_name]
                 if args.len() >= 2 {
@@ -8171,6 +8173,19 @@ impl<'a> Vm<'a> {
         let call_args = extra_roots.clone();
         self.with_shared_evaluator(&extra_roots, move |eval| {
             crate::emacs_core::reader::finish_read_from_minibuffer_in_eval(eval, &call_args)
+        })
+    }
+
+    fn builtin_call_interactively_shared(&mut self, args: &[Value]) -> EvalResult {
+        let plan = crate::emacs_core::interactive::plan_call_interactively_in_state(
+            &*self.shared.obarray,
+            &*self.shared.interactive,
+            self.shared.read_command_keys(),
+            args,
+        )?;
+        let extra_roots = args.to_vec();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::interactive::finish_call_interactively_in_eval(eval, plan)
         })
     }
 
