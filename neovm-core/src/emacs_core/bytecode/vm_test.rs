@@ -3714,6 +3714,29 @@ fn vm_x_frame_property_and_tty_stub_builtins_use_direct_dispatch() {
 }
 
 #[test]
+fn vm_remaining_display_stub_tail_uses_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (setq initial-window-system 'neomacs)
+                 (list
+                  (condition-case err (x-display-set-last-user-time nil f) (error err))
+                  (x-load-color-file "/definitely/not/found")
+                  (display--line-is-continued-p)
+                  (display--update-for-mouse-movement 1 2)
+                  (x-begin-drag 'drag)
+                  (x-double-buffered-p)
+                  (x-double-buffered-p f)
+                  (x-menu-bar-open-internal)
+                  (x-menu-bar-open-internal f)
+                  (x-scroll-bar-foreground 'foo)
+                  (x-scroll-bar-background 'bar)))"#
+        ),
+        r#"OK ((error "Window system frame should be used") nil nil nil nil nil nil nil nil nil nil)"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

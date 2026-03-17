@@ -5252,6 +5252,9 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "x-load-color-file" => Some(crate::emacs_core::font::builtin_x_load_color_file(
+                args.to_vec(),
+            )),
             "x-get-resource" => Some(self.builtin_x_get_resource_shared(args)),
             "x-list-fonts" => Some(self.builtin_x_list_fonts_shared(args)),
             "x-display-list" => Some(crate::emacs_core::display::builtin_x_display_list(
@@ -5344,6 +5347,29 @@ impl<'a> Vm<'a> {
             "x-uses-old-gtk-dialog" => Some(
                 crate::emacs_core::display::builtin_x_uses_old_gtk_dialog(args.to_vec()),
             ),
+            "x-begin-drag" => Some(
+                crate::emacs_core::builtins::symbols::builtin_x_begin_drag(args.to_vec()),
+            ),
+            "x-double-buffered-p" => Some(
+                crate::emacs_core::builtins::symbols::builtin_x_double_buffered_p(
+                    args.to_vec(),
+                ),
+            ),
+            "x-menu-bar-open-internal" => Some(
+                crate::emacs_core::builtins::symbols::builtin_x_menu_bar_open_internal(
+                    args.to_vec(),
+                ),
+            ),
+            "x-scroll-bar-foreground" => Some(
+                crate::emacs_core::builtins::builtin_x_scroll_bar_foreground(
+                    args.to_vec(),
+                ),
+            ),
+            "x-scroll-bar-background" => Some(
+                crate::emacs_core::builtins::builtin_x_scroll_bar_background(
+                    args.to_vec(),
+                ),
+            ),
             "x-get-modifier-masks" => Some(
                 crate::emacs_core::display::builtin_x_get_modifier_masks_in_state(
                     &*self.shared.frames,
@@ -5415,6 +5441,12 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "x-server-vendor" => Some(self.builtin_x_server_vendor_shared(args)),
+            "x-display-set-last-user-time" => Some(
+                crate::emacs_core::display::builtin_x_display_set_last_user_time_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "x-server-version" => Some(crate::emacs_core::display::builtin_x_server_version_in_state(
                 self.shared.frames,
                 args.to_vec(),
@@ -5690,6 +5722,16 @@ impl<'a> Vm<'a> {
             ),
             "long-line-optimizations-p" => Some(
                 crate::emacs_core::xdisp::builtin_long_line_optimizations_p(args.to_vec()),
+            ),
+            "display--line-is-continued-p" => Some(
+                crate::emacs_core::builtins::builtin_display_line_is_continued_p(
+                    args.to_vec(),
+                ),
+            ),
+            "display--update-for-mouse-movement" => Some(
+                crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
+                    args.to_vec(),
+                ),
             ),
             "file-name-directory" => Some(
                 crate::emacs_core::fileio::builtin_file_name_directory(args.to_vec()),

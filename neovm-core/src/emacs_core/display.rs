@@ -2050,6 +2050,18 @@ pub(crate) fn builtin_x_display_set_last_user_time_eval(
     x_optional_display_query_error_eval(eval, "x-display-set-last-user-time", query_args)
 }
 
+pub(crate) fn builtin_x_display_set_last_user_time_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-display-set-last-user-time", &args, 1, 2)?;
+    if matches!(args.get(1), Some(Value::Frame(_))) {
+        return Err(x_window_system_frame_error());
+    }
+    let query_args: Vec<Value> = args.get(1).cloned().into_iter().collect();
+    x_optional_display_query_error_in_state(frames, "x-display-set-last-user-time", query_args)
+}
+
 /// (x-open-connection DISPLAY &optional XRM-STRING MUST-SUCCEED) -> nil
 /// In batch/no-X context this reports a display-open failure.
 pub(crate) fn builtin_x_open_connection(args: Vec<Value>) -> EvalResult {
