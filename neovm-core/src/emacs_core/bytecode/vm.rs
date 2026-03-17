@@ -2482,6 +2482,45 @@ impl<'a> Vm<'a> {
         Ok(Value::Nil)
     }
 
+    fn builtin_call_last_kbd_macro_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (macro_events, count) = {
+            let kmacro = self.shared.kmacro_mut();
+            crate::emacs_core::kmacro::plan_call_last_kbd_macro(kmacro, args)?
+        };
+        let self_insert = self
+            .shared
+            .obarray
+            .symbol_function("self-insert-command")
+            .cloned();
+        self.shared.kmacro_mut().executing = true;
+        let result = crate::emacs_core::kmacro::execute_kbd_macro_events(
+            self_insert,
+            &macro_events,
+            count,
+            |func, call_args| self.call_function_with_roots(func, &call_args),
+        );
+        self.shared.kmacro_mut().executing = false;
+        result
+    }
+
+    fn builtin_execute_kbd_macro_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (macro_events, count) = crate::emacs_core::kmacro::plan_execute_kbd_macro(args)?;
+        let self_insert = self
+            .shared
+            .obarray
+            .symbol_function("self-insert-command")
+            .cloned();
+        self.shared.kmacro_mut().executing = true;
+        let result = crate::emacs_core::kmacro::execute_kbd_macro_events(
+            self_insert,
+            &macro_events,
+            count,
+            |func, call_args| self.call_function_with_roots(func, &call_args),
+        );
+        self.shared.kmacro_mut().executing = false;
+        result
+    }
+
     fn builtin_command_remapping_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::interactive::builtin_command_remapping_in_state(
             &*self.shared.obarray,
@@ -4490,6 +4529,22 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "start-kbd-macro" => Some(crate::emacs_core::kmacro::builtin_start_kbd_macro_in_state(
+                self.shared.kmacro_mut(),
+                args.to_vec(),
+            )),
+            "end-kbd-macro" => Some(crate::emacs_core::kmacro::builtin_end_kbd_macro_in_state(
+                self.shared.kmacro_mut(),
+                args.to_vec(),
+            )),
+            "call-last-kbd-macro" => Some(self.builtin_call_last_kbd_macro_shared(args)),
+            "execute-kbd-macro" => Some(self.builtin_execute_kbd_macro_shared(args)),
+            "store-kbd-macro-event" => Some(
+                crate::emacs_core::kmacro::builtin_store_kbd_macro_event_in_state(
+                    self.shared.kmacro_mut(),
+                    args.to_vec(),
+                ),
+            ),
             "cancel-kbd-macro-events" => Some(
                 crate::emacs_core::builtins::builtin_cancel_kbd_macro_events(args.to_vec()),
             ),
@@ -5489,6 +5544,26 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "send-string-to-terminal" => Some(
+                crate::emacs_core::dispnew::pure::builtin_send_string_to_terminal_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-show-cursor" => Some(
+                crate::emacs_core::dispnew::pure::builtin_internal_show_cursor_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-show-cursor-p" => Some(
+                crate::emacs_core::dispnew::pure::builtin_internal_show_cursor_p_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "x-send-client-message" => Some(
                 crate::emacs_core::display::builtin_x_send_client_message(args.to_vec()),
             ),
@@ -6064,8 +6139,22 @@ impl<'a> Vm<'a> {
                 &*self.shared.buffers,
                 args.to_vec(),
             )),
+            "set-file-acl" => Some(crate::emacs_core::fileio::builtin_set_file_acl_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
             "file-selinux-context" => Some(
                 crate::emacs_core::fileio::builtin_file_selinux_context_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-file-selinux-context" => Some(
+                crate::emacs_core::fileio::builtin_set_file_selinux_context_in_state(
                     &*self.shared.obarray,
                     self.shared.dynamic.as_slice(),
                     &*self.shared.buffers,

@@ -1818,6 +1818,19 @@ pub(crate) fn builtin_set_file_acl(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_set_file_acl_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-file-acl", &args, 2)?;
+    let filename = expect_string_strict(&args[0])?;
+    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let _acl = &args[1];
+    Ok(Value::Nil)
+}
+
 /// (file-locked-p FILENAME) -> locker info or nil
 pub(crate) fn builtin_file_locked_p(args: Vec<Value>) -> EvalResult {
     expect_args("file-locked-p", &args, 1)?;
@@ -1886,6 +1899,19 @@ pub(crate) fn builtin_file_selinux_context_eval(eval: &Evaluator, args: Vec<Valu
 pub(crate) fn builtin_set_file_selinux_context(args: Vec<Value>) -> EvalResult {
     expect_args("set-file-selinux-context", &args, 2)?;
     let _filename = expect_string_strict(&args[0])?;
+    let _context = &args[1];
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_set_file_selinux_context_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-file-selinux-context", &args, 2)?;
+    let filename = expect_string_strict(&args[0])?;
+    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let _context = &args[1];
     Ok(Value::Nil)
 }

@@ -8,6 +8,7 @@ use crate::emacs_core::display::{expect_frame_designator, live_frame_designator_
 use crate::emacs_core::error::{EvalResult, Flow, signal};
 use crate::emacs_core::terminal::pure::{
     expect_terminal_designator, expect_terminal_designator_eval,
+    expect_terminal_designator_in_state,
 };
 use crate::emacs_core::value::*;
 use crate::window::WindowId;
@@ -105,6 +106,28 @@ fn expect_window_designator_eval(
     }
 }
 
+fn live_window_designator_p_in_state(frames: &crate::window::FrameManager, value: &Value) -> bool {
+    match value {
+        Value::Window(id) => frames.find_window_frame_id(WindowId(*id)).is_some(),
+        Value::Int(id) if *id >= 0 => frames.find_window_frame_id(WindowId(*id as u64)).is_some(),
+        _ => false,
+    }
+}
+
+fn expect_window_designator_in_state(
+    frames: &crate::window::FrameManager,
+    value: &Value,
+) -> Result<(), Flow> {
+    if value.is_nil() || live_window_designator_p_in_state(frames, value) {
+        Ok(())
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("windowp"), *value],
+        ))
+    }
+}
+
 fn window_id_from_window_designator(value: &Value) -> Option<WindowId> {
     match value {
         Value::Window(id) => Some(WindowId(*id)),
@@ -118,12 +141,33 @@ fn selected_window_id(eval: &mut crate::emacs_core::eval::Evaluator) -> Option<W
     eval.frames.get(frame_id).map(|frame| frame.selected_window)
 }
 
+fn selected_window_id_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+) -> Option<WindowId> {
+    let frame_id =
+        crate::emacs_core::window_cmds::ensure_selected_frame_id_in_state(frames, buffers);
+    frames.get(frame_id).map(|frame| frame.selected_window)
+}
+
 fn resolve_internal_show_cursor_window_id(
     eval: &mut crate::emacs_core::eval::Evaluator,
     value: &Value,
 ) -> Option<WindowId> {
     if value.is_nil() {
         selected_window_id(eval)
+    } else {
+        window_id_from_window_designator(value)
+    }
+}
+
+fn resolve_internal_show_cursor_window_id_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    value: &Value,
+) -> Option<WindowId> {
+    if value.is_nil() {
+        selected_window_id_in_state(frames, buffers)
     } else {
         window_id_from_window_designator(value)
     }
@@ -252,6 +296,25 @@ pub(crate) fn builtin_send_string_to_terminal_eval(
     }
 }
 
+pub(crate) fn builtin_send_string_to_terminal_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("send-string-to-terminal", &args, 1, 2)?;
+    match &args[0] {
+        Value::Str(_) => {
+            if let Some(terminal) = args.get(1) {
+                expect_terminal_designator_in_state(frames, terminal)?;
+            }
+            Ok(Value::Nil)
+        }
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *other],
+        )),
+    }
+}
+
 /// (internal-show-cursor WINDOW SHOW) -> nil
 pub(crate) fn builtin_internal_show_cursor(args: Vec<Value>) -> EvalResult {
     expect_args("internal-show-cursor", &args, 2)?;
@@ -271,6 +334,24 @@ pub(crate) fn builtin_internal_show_cursor_eval(
     expect_window_designator_eval(eval, &args[0])?;
     let visible = !args[1].is_nil();
     if let Some(window_id) = resolve_internal_show_cursor_window_id(eval, &args[0]) {
+        set_window_cursor_visible(window_id, visible);
+    } else {
+        CURSOR_VISIBLE.with(|slot| slot.set(visible));
+    }
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_internal_show_cursor_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("internal-show-cursor", &args, 2)?;
+    expect_window_designator_in_state(frames, &args[0])?;
+    let visible = !args[1].is_nil();
+    if let Some(window_id) =
+        resolve_internal_show_cursor_window_id_in_state(frames, buffers, &args[0])
+    {
         set_window_cursor_visible(window_id, visible);
     } else {
         CURSOR_VISIBLE.with(|slot| slot.set(visible));
@@ -300,6 +381,24 @@ pub(crate) fn builtin_internal_show_cursor_p_eval(
     }
     let query_window = args.first().unwrap_or(&Value::Nil);
     if let Some(window_id) = resolve_internal_show_cursor_window_id(eval, query_window) {
+        return Ok(Value::bool(window_cursor_visible(window_id)));
+    }
+    Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))
+}
+
+pub(crate) fn builtin_internal_show_cursor_p_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("internal-show-cursor-p", &args, 0, 1)?;
+    if let Some(window) = args.first() {
+        expect_window_designator_in_state(frames, window)?;
+    }
+    let query_window = args.first().unwrap_or(&Value::Nil);
+    if let Some(window_id) =
+        resolve_internal_show_cursor_window_id_in_state(frames, buffers, query_window)
+    {
         return Ok(Value::bool(window_cursor_visible(window_id)));
     }
     Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))

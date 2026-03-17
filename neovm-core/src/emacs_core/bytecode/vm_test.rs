@@ -353,6 +353,24 @@ fn vm_variable_watcher_management_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_kmacro_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (start-kbd-macro nil nil)
+               (store-kbd-macro-event 'ignore)
+               (end-kbd-macro)
+               (list
+                 (condition-case nil (progn (call-last-kbd-macro) t) (error nil))
+                 (condition-case nil
+                     (progn (execute-kbd-macro [ignore]) t)
+                   (error nil))))"
+        ),
+        "OK (t t)"
+    );
+}
+
+#[test]
 fn vm_varset_triggers_variable_watcher_callbacks() {
     assert_eq!(
         vm_eval_str(
@@ -3718,6 +3736,39 @@ fn vm_file_metadata_tail_and_coding_scan_builtins_use_direct_dispatch() {
     let _ = std::fs::remove_dir_all(&base);
 
     assert_eq!(result, r#"OK (448 nil t t)"#);
+}
+
+#[test]
+fn vm_file_setters_and_display_stubs_use_direct_dispatch() {
+    let base = std::env::temp_dir().join(format!("neovm-vm-file-setters-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).expect("create base");
+    let base_str = format!("{}/", base.to_string_lossy());
+
+    let result = vm_eval_with_init_str(
+        r#"(list
+             (set-file-acl "alpha.txt" "user::rw-")
+             (set-file-selinux-context "alpha.txt" '(nil nil nil nil))
+             (send-string-to-terminal "" (selected-frame))
+             (progn
+               (internal-show-cursor nil nil)
+               (internal-show-cursor-p))
+             (progn
+               (internal-show-cursor (selected-window) t)
+               (internal-show-cursor-p (selected-window))))"#,
+        |eval| {
+            eval.obarray
+                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            eval.buffers
+                .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+                .expect("buffer local default-directory should set");
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(result, r#"OK (nil nil nil nil t)"#);
 }
 
 #[test]

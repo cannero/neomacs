@@ -518,6 +518,10 @@ impl<'a> VmSharedState<'a> {
         )
     }
 
+    pub(crate) fn kmacro_mut(&mut self) -> &mut KmacroManager {
+        self.kmacro
+    }
+
     pub(crate) fn begin_lambda_call(
         &mut self,
         lambda: &LambdaData,

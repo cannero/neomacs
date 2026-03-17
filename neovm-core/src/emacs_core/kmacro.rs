@@ -220,6 +220,102 @@ pub(crate) fn builtin_defining_kbd_macro(
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_start_kbd_macro_in_state(
+    kmacro: &mut KmacroManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("start-kbd-macro", &args, 2)?;
+    if kmacro.recording {
+        return Err(signal(
+            "error",
+            vec![Value::string("Already defining a keyboard macro")],
+        ));
+    }
+    let append = args.first().is_some_and(|v| v.is_truthy());
+    kmacro.start_recording(append);
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_end_kbd_macro_in_state(
+    kmacro: &mut KmacroManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("end-kbd-macro", &args, 2)?;
+    if !kmacro.recording {
+        return Err(signal(
+            "error",
+            vec![Value::string("Not defining a keyboard macro")],
+        ));
+    }
+    kmacro.stop_recording();
+    Ok(Value::Nil)
+}
+
+pub(crate) fn plan_call_last_kbd_macro(
+    kmacro: &KmacroManager,
+    args: &[Value],
+) -> Result<(Vec<Value>, i64), Flow> {
+    expect_max_args("call-last-kbd-macro", args, 2)?;
+    let repeat = if args.is_empty() {
+        1i64
+    } else {
+        expect_int(&args[0]).unwrap_or(1)
+    };
+
+    let macro_keys = kmacro.last_macro.clone().ok_or_else(|| {
+        signal(
+            "error",
+            vec![Value::string("No keyboard macro has been defined")],
+        )
+    })?;
+
+    Ok((macro_keys, repeat))
+}
+
+pub(crate) fn plan_execute_kbd_macro(args: &[Value]) -> Result<(Vec<Value>, i64), Flow> {
+    expect_min_args("execute-kbd-macro", args, 1)?;
+    expect_max_args("execute-kbd-macro", args, 3)?;
+    let count = if args.len() >= 2 {
+        expect_int(&args[1]).unwrap_or(1)
+    } else {
+        1
+    };
+    Ok((resolve_macro_events(&args[0])?, count))
+}
+
+pub(crate) fn execute_kbd_macro_events(
+    self_insert_command: Option<Value>,
+    macro_events: &[Value],
+    count: i64,
+    mut call: impl FnMut(Value, Vec<Value>) -> EvalResult,
+) -> EvalResult {
+    for _ in 0..count {
+        for event in macro_events {
+            match event {
+                Value::Symbol(id) => {
+                    let func = Value::symbol(resolve_sym(*id));
+                    let _ = call(func, vec![])?;
+                }
+                _ => {
+                    if let Some(func) = self_insert_command {
+                        let _ = call(func, vec![Value::Int(1)])?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_store_kbd_macro_event_in_state(
+    kmacro: &mut KmacroManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("store-kbd-macro-event", &args, 1)?;
+    kmacro.store_event(args[0]);
+    Ok(Value::Nil)
+}
+
 /// (start-kbd-macro &optional APPEND NO-EXEC) -> nil
 ///
 /// Start recording a keyboard macro.  With non-nil APPEND, append to
@@ -230,16 +326,7 @@ pub(crate) fn builtin_start_kbd_macro(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("start-kbd-macro", &args, 2)?;
-    if eval.kmacro.recording {
-        return Err(signal(
-            "error",
-            vec![Value::string("Already defining a keyboard macro")],
-        ));
-    }
-    let append = args.first().is_some_and(|v| v.is_truthy());
-    eval.kmacro.start_recording(append);
-    Ok(Value::Nil)
+    builtin_start_kbd_macro_in_state(&mut eval.kmacro, args)
 }
 
 /// (end-kbd-macro &optional REPEAT LOOPFUNC) -> nil
@@ -251,15 +338,7 @@ pub(crate) fn builtin_end_kbd_macro(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("end-kbd-macro", &args, 2)?;
-    if !eval.kmacro.recording {
-        return Err(signal(
-            "error",
-            vec![Value::string("Not defining a keyboard macro")],
-        ));
-    }
-    eval.kmacro.stop_recording();
-    Ok(Value::Nil)
+    builtin_end_kbd_macro_in_state(&mut eval.kmacro, args)
 }
 
 /// (call-last-kbd-macro &optional REPEAT LOOPFUNC) -> nil
@@ -271,52 +350,14 @@ pub(crate) fn builtin_call_last_kbd_macro(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("call-last-kbd-macro", &args, 2)?;
-    let repeat = if args.is_empty() {
-        1i64
-    } else {
-        expect_int(&args[0]).unwrap_or(1)
-    };
-
-    let macro_keys = match &eval.kmacro.last_macro {
-        Some(keys) => keys.clone(),
-        None => {
-            return Err(signal(
-                "error",
-                vec![Value::string("No keyboard macro has been defined")],
-            ));
-        }
-    };
-
+    let (macro_keys, repeat) = plan_call_last_kbd_macro(&eval.kmacro, &args)?;
+    let self_insert = eval.obarray.symbol_function("self-insert-command").cloned();
     eval.kmacro.executing = true;
-    for _ in 0..repeat {
-        for event in &macro_keys {
-            // Try to call the event as a command.  If it is a symbol,
-            // funcall it; otherwise treat it as a self-insert character.
-            match event {
-                Value::Symbol(id) => {
-                    let func = Value::symbol(resolve_sym(*id));
-                    if let Err(err) = eval.apply(func, vec![]) {
-                        eval.kmacro.executing = false;
-                        return Err(err);
-                    }
-                }
-                _ => {
-                    // For character events, attempt self-insert-command
-                    // by looking it up; if unavailable, just ignore.
-                    if let Some(func) = eval.obarray.symbol_function("self-insert-command").cloned()
-                    {
-                        if let Err(err) = eval.apply(func, vec![Value::Int(1)]) {
-                            eval.kmacro.executing = false;
-                            return Err(err);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let result = execute_kbd_macro_events(self_insert, &macro_keys, repeat, |func, call_args| {
+        eval.apply(func, call_args)
+    });
     eval.kmacro.executing = false;
-    Ok(Value::Nil)
+    result
 }
 
 /// (execute-kbd-macro MACRO &optional COUNT LOOPFUNC) -> nil
@@ -327,43 +368,14 @@ pub(crate) fn builtin_execute_kbd_macro(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("execute-kbd-macro", &args, 1)?;
-    expect_max_args("execute-kbd-macro", &args, 3)?;
-
-    let count = if args.len() >= 2 {
-        expect_int(&args[1]).unwrap_or(1)
-    } else {
-        1
-    };
-
-    // Resolve the macro value.
-    let macro_events = resolve_macro_events(&args[0])?;
-
+    let (macro_events, count) = plan_execute_kbd_macro(&args)?;
+    let self_insert = eval.obarray.symbol_function("self-insert-command").cloned();
     eval.kmacro.executing = true;
-    for _ in 0..count {
-        for event in &macro_events {
-            match event {
-                Value::Symbol(id) => {
-                    let func = Value::symbol(resolve_sym(*id));
-                    if let Err(err) = eval.apply(func, vec![]) {
-                        eval.kmacro.executing = false;
-                        return Err(err);
-                    }
-                }
-                _ => {
-                    if let Some(func) = eval.obarray.symbol_function("self-insert-command").cloned()
-                    {
-                        if let Err(err) = eval.apply(func, vec![Value::Int(1)]) {
-                            eval.kmacro.executing = false;
-                            return Err(err);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let result = execute_kbd_macro_events(self_insert, &macro_events, count, |func, call_args| {
+        eval.apply(func, call_args)
+    });
     eval.kmacro.executing = false;
-    Ok(Value::Nil)
+    result
 }
 
 /// (name-last-kbd-macro SYMBOL) -> nil
@@ -522,9 +534,7 @@ pub(crate) fn builtin_store_kbd_macro_event(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("store-kbd-macro-event", &args, 1)?;
-    eval.kmacro.store_event(args[0]);
-    Ok(Value::Nil)
+    builtin_store_kbd_macro_event_in_state(&mut eval.kmacro, args)
 }
 
 // ===========================================================================
