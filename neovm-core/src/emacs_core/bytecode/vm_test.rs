@@ -3565,6 +3565,26 @@ fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
 }
 
 #[test]
+fn vm_xdisp_query_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (invisible-p 1)
+                 (invisible-p -1)
+                 (line-pixel-height)
+                 (lookup-image-map 'map 10 20)
+                 (current-bidi-paragraph-direction)
+                 (bidi-resolved-levels 0)
+                 (line-number-display-width t)
+                 (long-line-optimizations-p)
+                 (condition-case err (move-point-visually 1) (error err))
+                 (condition-case err (move-to-window-line 0) (error err)))"#
+        ),
+        r#"OK (nil t 1 nil left-to-right nil 0 nil (args-out-of-range 1 1) (error "move-to-window-line called from unrelated buffer"))"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

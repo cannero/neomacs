@@ -5260,6 +5260,10 @@ impl<'a> Vm<'a> {
             "resume-tty" => Some(self.builtin_resume_tty_shared(args)),
             "x-create-frame" => Some(self.builtin_x_create_frame_shared(args)),
             "format-mode-line" => Some(self.builtin_format_mode_line_shared(args)),
+            "invisible-p" => Some(crate::emacs_core::xdisp::builtin_invisible_p(args.to_vec())),
+            "line-pixel-height" => Some(crate::emacs_core::xdisp::builtin_line_pixel_height(
+                args.to_vec(),
+            )),
             "window-text-pixel-size" => Some(
                 crate::emacs_core::xdisp::builtin_window_text_pixel_size_in_state(
                     self.shared.frames,
@@ -5281,6 +5285,23 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "move-point-visually" => Some(
+                crate::emacs_core::xdisp::builtin_move_point_visually(args.to_vec()),
+            ),
+            "lookup-image-map" => Some(crate::emacs_core::xdisp::builtin_lookup_image_map(
+                args.to_vec(),
+            )),
+            "current-bidi-paragraph-direction" => Some(
+                crate::emacs_core::xdisp::builtin_current_bidi_paragraph_direction(
+                    args.to_vec(),
+                ),
+            ),
+            "bidi-resolved-levels" => Some(
+                crate::emacs_core::xdisp::builtin_bidi_resolved_levels(args.to_vec()),
+            ),
+            "move-to-window-line" => Some(
+                crate::emacs_core::xdisp::builtin_move_to_window_line(args.to_vec()),
+            ),
             "coordinates-in-window-p" => Some(
                 crate::emacs_core::builtins::builtin_coordinates_in_window_p_in_state(
                     self.shared.frames,
@@ -5298,6 +5319,12 @@ impl<'a> Vm<'a> {
                 self.shared.buffers,
                 args.to_vec(),
             )),
+            "line-number-display-width" => Some(
+                crate::emacs_core::xdisp::builtin_line_number_display_width(args.to_vec()),
+            ),
+            "long-line-optimizations-p" => Some(
+                crate::emacs_core::xdisp::builtin_long_line_optimizations_p(args.to_vec()),
+            ),
             "file-name-directory" => Some(
                 crate::emacs_core::fileio::builtin_file_name_directory(args.to_vec()),
             ),
