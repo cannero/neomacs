@@ -3843,6 +3843,41 @@ fn vm_font_face_frame_sensitive_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_font_stub_tail_uses_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r##"(list
+                 (null (clear-face-cache))
+                 (vectorp (face-attributes-as-vector nil))
+                 (condition-case nil
+                     (font-at 1 (selected-window))
+                   (error t))
+                 (condition-case nil
+                     (font-face-attributes nil)
+                   (error t))
+                 (condition-case nil
+                     (font-get-glyphs nil 0 1)
+                   (wrong-type-argument t))
+                 (null (font-get-system-font))
+                 (null (font-get-system-normal-font))
+                 (null (font-has-char-p (font-spec :family "Mono") ?a))
+                 (null (font-info "Mono"))
+                 (null (font-match-p (font-spec) (font-spec)))
+                 (null (font-shape-gstring [0] 0))
+                 (condition-case nil
+                     (font-variation-glyphs nil ?a)
+                   (wrong-type-argument t))
+                 (null (fontset-font nil ?a))
+                 (condition-case nil
+                     (fontset-info nil)
+                   (error t))
+                 (equal (fontset-list) (fontset-list-all)))"##
+        ),
+        r#"OK (t t t t t t t t t t t t t t t)"#
+    );
+}
+
+#[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

@@ -1,5 +1,6 @@
 use super::*;
 use crate::buffer::BufferManager;
+use crate::window::{FrameManager, WindowId};
 
 // =========================================================================
 // fontset.c gap-fill stubs
@@ -1481,11 +1482,68 @@ pub(crate) fn builtin_face_attributes_as_vector(args: Vec<Value>) -> EvalResult 
     Ok(unspecified_face_attributes_vector())
 }
 
+fn expect_window_live_or_nil_in_state(frames: &FrameManager, value: &Value) -> Result<(), Flow> {
+    if value.is_nil() {
+        return Ok(());
+    }
+    let live = match value {
+        Value::Window(id) => frames.is_live_window_id(WindowId(*id)),
+        Value::Int(id) if *id >= 0 => frames.is_live_window_id(WindowId(*id as u64)),
+        _ => false,
+    };
+    if live {
+        Ok(())
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("window-live-p"), *value],
+        ))
+    }
+}
+
 pub(crate) fn builtin_font_at(args: Vec<Value>) -> EvalResult {
     expect_range_args("font-at", &args, 1, 3)?;
 
     if let Some(window) = args.get(1) {
         expect_window_live_or_nil(window)?;
+    }
+
+    if let Some(string_value) = args.get(2) {
+        if !string_value.is_nil() {
+            let Value::Str(s) = string_value else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), *string_value],
+                ));
+            };
+            let pos = match args[0] {
+                Value::Int(n) => n,
+                Value::Char(c) => c as i64,
+                _ => 1,
+            };
+            return Err(signal(
+                "args-out-of-range",
+                vec![
+                    Value::string(with_heap(|h| h.get_string(*s).to_owned())),
+                    Value::Int(pos),
+                ],
+            ));
+        }
+    }
+
+    Err(signal(
+        "error",
+        vec![Value::string(
+            "Specified window is not displaying the current buffer",
+        )],
+    ))
+}
+
+pub(crate) fn builtin_font_at_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
+    expect_range_args("font-at", &args, 1, 3)?;
+
+    if let Some(window) = args.get(1) {
+        expect_window_live_or_nil_in_state(frames, window)?;
     }
 
     if let Some(string_value) = args.get(2) {

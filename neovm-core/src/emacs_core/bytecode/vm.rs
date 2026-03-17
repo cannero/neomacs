@@ -5533,6 +5533,53 @@ impl<'a> Vm<'a> {
             "color-distance" => Some(crate::emacs_core::font::builtin_color_distance(
                 args.to_vec(),
             )),
+            "clear-face-cache" => Some(
+                crate::emacs_core::builtins::builtin_clear_face_cache(args.to_vec()),
+            ),
+            "face-attributes-as-vector" => Some(
+                crate::emacs_core::builtins::builtin_face_attributes_as_vector(args.to_vec()),
+            ),
+            "font-at" => Some(crate::emacs_core::builtins::builtin_font_at_in_state(
+                &*self.shared.frames,
+                args.to_vec(),
+            )),
+            "font-face-attributes" => Some(
+                crate::emacs_core::builtins::builtin_font_face_attributes(args.to_vec()),
+            ),
+            "font-get-glyphs" => Some(
+                crate::emacs_core::builtins::builtin_font_get_glyphs(args.to_vec()),
+            ),
+            "font-get-system-font" => Some(
+                crate::emacs_core::builtins::builtin_font_get_system_font(args.to_vec()),
+            ),
+            "font-get-system-normal-font" => Some(
+                crate::emacs_core::builtins::builtin_font_get_system_normal_font(args.to_vec()),
+            ),
+            "font-has-char-p" => Some(
+                crate::emacs_core::builtins::builtin_font_has_char_p(args.to_vec()),
+            ),
+            "font-info" => Some(crate::emacs_core::builtins::builtin_font_info(args.to_vec())),
+            "font-match-p" => Some(
+                crate::emacs_core::builtins::builtin_font_match_p(args.to_vec()),
+            ),
+            "font-shape-gstring" => Some(
+                crate::emacs_core::builtins::builtin_font_shape_gstring(args.to_vec()),
+            ),
+            "font-variation-glyphs" => Some(
+                crate::emacs_core::builtins::builtin_font_variation_glyphs(args.to_vec()),
+            ),
+            "fontset-font" => Some(
+                crate::emacs_core::builtins::builtin_fontset_font(args.to_vec()),
+            ),
+            "fontset-info" => Some(
+                crate::emacs_core::builtins::builtin_fontset_info(args.to_vec()),
+            ),
+            "fontset-list" => Some(
+                crate::emacs_core::builtins::builtin_fontset_list(args.to_vec()),
+            ),
+            "fontset-list-all" => Some(
+                crate::emacs_core::builtins::builtin_fontset_list_all(args.to_vec()),
+            ),
             "face-id" => Some(crate::emacs_core::font::builtin_face_id(args.to_vec())),
             "face-font" => Some(crate::emacs_core::font::builtin_face_font(args.to_vec())),
             "internal-face-x-get-resource" => Some(
