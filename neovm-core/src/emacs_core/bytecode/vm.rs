@@ -7949,6 +7949,42 @@ impl<'a> Vm<'a> {
             "dbus-message-internal" => Some(
                 crate::emacs_core::dbus::builtin_dbus_message_internal(args.to_vec()),
             ),
+            "backtrace--frames-from-thread" => Some(
+                crate::emacs_core::misc::builtin_backtrace_frames_from_thread_in_state(
+                    &*self.shared.threads,
+                    args.to_vec(),
+                ),
+            ),
+            "backtrace--locals" => Some(
+                crate::emacs_core::misc::builtin_backtrace_locals_in_state(args.to_vec()),
+            ),
+            "backtrace-debug" => Some(
+                crate::emacs_core::misc::builtin_backtrace_debug_in_state(args.to_vec()),
+            ),
+            "backtrace-eval" => Some(
+                crate::emacs_core::misc::builtin_backtrace_eval_in_state(args.to_vec()),
+            ),
+            "backtrace-frame--internal" => Some(
+                crate::emacs_core::misc::builtin_backtrace_frame_internal_in_state(args.to_vec()),
+            ),
+            "recursion-depth" => Some(crate::emacs_core::misc::builtin_recursion_depth_in_state(
+                self.shared.dynamic.len(),
+                args.to_vec(),
+            )),
+            "documentation" => Some(self.builtin_documentation_shared(args)),
+            "documentation-stringp" => Some(
+                crate::emacs_core::builtins::builtin_documentation_stringp(args.to_vec()),
+            ),
+            "documentation-property" => Some(self.builtin_documentation_property_shared(args)),
+            "describe-buffer-bindings" => Some(
+                crate::emacs_core::builtins::builtin_describe_buffer_bindings(args.to_vec()),
+            ),
+            "describe-vector" => Some(
+                crate::emacs_core::builtins::builtin_describe_vector(args.to_vec()),
+            ),
+            "help--describe-vector" => Some(
+                crate::emacs_core::builtins::builtin_help_describe_vector(args.to_vec()),
+            ),
             "command-error-default-function" => Some(
                 crate::emacs_core::builtins::builtin_command_error_default_function(
                     args.to_vec(),
@@ -8062,6 +8098,40 @@ impl<'a> Vm<'a> {
         let result = f(self);
         self.shared.dynamic.pop();
         result
+    }
+
+    fn builtin_documentation_shared(&mut self, args: &[Value]) -> EvalResult {
+        let args_roots = args.to_vec();
+        let gc_roots = self.gc_roots.clone();
+        let parent_eval = self.shared.parent_eval_ptr();
+        crate::emacs_core::doc::builtin_documentation_in_obarray(
+            &*self.shared.obarray,
+            args.to_vec(),
+            |value| {
+                let mut extra_roots = args_roots.clone();
+                extra_roots.push(value);
+                with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, move |eval| {
+                    eval.eval_value(&value)
+                })
+            },
+        )
+    }
+
+    fn builtin_documentation_property_shared(&mut self, args: &[Value]) -> EvalResult {
+        let args_roots = args.to_vec();
+        let gc_roots = self.gc_roots.clone();
+        let parent_eval = self.shared.parent_eval_ptr();
+        crate::emacs_core::doc::builtin_documentation_property_in_obarray(
+            &*self.shared.obarray,
+            args.to_vec(),
+            |value| {
+                let mut extra_roots = args_roots.clone();
+                extra_roots.push(value);
+                with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, move |eval| {
+                    eval.eval_value(&value)
+                })
+            },
+        )
     }
 
     fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {

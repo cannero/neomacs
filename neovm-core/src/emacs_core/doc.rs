@@ -53,25 +53,38 @@ pub(crate) fn builtin_documentation(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let obarray = eval.obarray() as *const super::symbol::Obarray;
+    // Safety: the evaluator owns the obarray for the duration of this call.
+    builtin_documentation_in_obarray(unsafe { &*obarray }, args, |value| eval.eval_value(&value))
+}
+
+pub(crate) fn builtin_documentation_in_obarray(
+    obarray: &super::symbol::Obarray,
+    args: Vec<Value>,
+    mut eval_value: impl FnMut(Value) -> EvalResult,
+) -> EvalResult {
     expect_min_max_args("documentation", &args, 1, 2)?;
 
     // For symbols, Emacs consults the `function-documentation` property first.
     // This can produce docs even when the function cell is non-callable.
     if let Some(name) = args[0].as_symbol_name() {
         let name = name.to_string();
-        if let Some(prop) = eval
-            .obarray
+        if let Some(prop) = obarray
             .get_property(&name, "function-documentation")
             .cloned()
         {
-            return eval_documentation_property_value(eval, prop);
+            return eval_documentation_property_value_in_obarray(obarray, prop, &mut eval_value);
         }
 
-        let mut func_val =
-            super::builtins::builtin_symbol_function(eval, vec![Value::symbol(name.clone())])?;
+        let mut func_val = super::builtins::symbols::builtin_symbol_function_in_obarray(
+            obarray,
+            vec![Value::symbol(name.clone())],
+        )?;
         if let Some(alias_name) = func_val.as_symbol_name() {
-            let indirect =
-                super::builtins::builtin_indirect_function(eval, vec![Value::symbol(alias_name)])?;
+            let indirect = super::builtins::symbols::builtin_indirect_function_in_obarray(
+                obarray,
+                vec![Value::symbol(alias_name)],
+            )?;
             if !indirect.is_nil() {
                 func_val = indirect;
             }
@@ -216,16 +229,17 @@ fn quoted_macro_invalid_designator(function: &Value) -> Option<EvalResult> {
     Some(Err(signal("invalid-function", vec![payload])))
 }
 
-fn eval_documentation_property_value(
-    eval: &mut super::eval::Evaluator,
+fn eval_documentation_property_value_in_obarray(
+    obarray: &super::symbol::Obarray,
     value: Value,
+    eval_value: &mut impl FnMut(Value) -> EvalResult,
 ) -> EvalResult {
     if let Some(text) = value.as_str() {
         return Ok(Value::string(text));
     }
 
     if let Some((file, position)) = compiled_doc_ref(&value) {
-        return load_compiled_doc_string(eval, &file, position);
+        return load_compiled_doc_string(obarray, &file, position);
     }
 
     // Integer doc offsets require DOC-file lookup; return nil when unresolved.
@@ -233,7 +247,7 @@ fn eval_documentation_property_value(
         return Ok(Value::Nil);
     }
 
-    eval.eval_value(&value)
+    eval_value(value)
 }
 
 fn compiled_doc_ref(value: &Value) -> Option<(String, i64)> {
@@ -244,14 +258,13 @@ fn compiled_doc_ref(value: &Value) -> Option<(String, i64)> {
     Some((pair.car.as_str_owned()?, pair.cdr.as_int()?))
 }
 
-fn resolve_compiled_doc_path(eval: &super::eval::Evaluator, file: &str) -> PathBuf {
+fn resolve_compiled_doc_path(obarray: &super::symbol::Obarray, file: &str) -> PathBuf {
     let path = Path::new(file);
     if path.is_absolute() {
         return path.to_path_buf();
     }
 
-    let lisp_dir = eval
-        .obarray
+    let lisp_dir = obarray
         .symbol_value("lisp-directory")
         .and_then(Value::as_str_owned);
     if let Some(dir) = lisp_dir {
@@ -324,12 +337,12 @@ fn decode_compiled_doc_bytes(bytes: &[u8]) -> EvalResult {
 }
 
 fn load_compiled_doc_string(
-    eval: &super::eval::Evaluator,
+    obarray: &super::symbol::Obarray,
     file: &str,
     position: i64,
 ) -> EvalResult {
     let position = position.unsigned_abs();
-    let resolved = resolve_compiled_doc_path(eval, file);
+    let resolved = resolve_compiled_doc_path(obarray, file);
     let mut handle = match File::open(&resolved) {
         Ok(file_handle) => file_handle,
         Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
@@ -10465,6 +10478,18 @@ pub(crate) fn builtin_documentation_property_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    let obarray = eval.obarray() as *const super::symbol::Obarray;
+    // Safety: the evaluator owns the obarray for the duration of this call.
+    builtin_documentation_property_in_obarray(unsafe { &*obarray }, args, |value| {
+        eval.eval_value(&value)
+    })
+}
+
+pub(crate) fn builtin_documentation_property_in_obarray(
+    obarray: &super::symbol::Obarray,
+    args: Vec<Value>,
+    mut eval_value: impl FnMut(Value) -> EvalResult,
+) -> EvalResult {
     expect_min_max_args("documentation-property", &args, 2, 3)?;
 
     let sym = args[0].as_symbol_name().ok_or_else(|| {
@@ -10479,7 +10504,7 @@ pub(crate) fn builtin_documentation_property_eval(
     };
     let raw = args.get(2).is_some_and(Value::is_truthy);
 
-    match eval.obarray.get_property(sym, prop).cloned() {
+    match obarray.get_property(sym, prop).cloned() {
         Some(value) if startup_variable_doc_offset_symbol(sym, prop, &value) => {
             let base_doc = startup_variable_doc_stub(sym)
                 .map(ToString::to_string)
@@ -10502,7 +10527,9 @@ pub(crate) fn builtin_documentation_property_eval(
             };
             Ok(Value::string(doc))
         }
-        Some(value) => eval_documentation_property_value(eval, value),
+        Some(value) => {
+            eval_documentation_property_value_in_obarray(obarray, value, &mut eval_value)
+        }
         _ => Ok(Value::Nil),
     }
 }

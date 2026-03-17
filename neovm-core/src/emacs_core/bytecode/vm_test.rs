@@ -6615,3 +6615,40 @@ fn vm_commandp_uses_shared_command_metadata_state() {
         "OK (t nil t nil t nil t nil t)"
     );
 }
+
+#[test]
+fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (put 'vm-doc-shared 'variable-documentation '(identity \"doc\"))
+               (list
+                 (stringp (documentation 'car))
+                 (documentation-property 'vm-doc-shared 'variable-documentation)
+                 (documentation-stringp '(\"DOC\" . 7))
+                 (describe-buffer-bindings (current-buffer))
+                 (condition-case err
+                     (describe-vector [1] 'display-buffer)
+                   (void-function (car err)))
+                 (help--describe-vector nil nil nil nil nil nil nil)))"
+        ),
+        "OK (t \"doc\" t nil void-function nil)"
+    );
+}
+
+#[test]
+fn vm_backtrace_and_recursion_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(let ((thread (current-thread)))
+               (list
+                 (car (car (backtrace--frames-from-thread thread)))
+                 (backtrace--locals 1)
+                 (backtrace-debug 1 2)
+                 (backtrace-eval 1 2)
+                 (backtrace-frame--internal nil 0 nil)
+                 (integerp (recursion-depth))))"
+        ),
+        "OK (t nil 1 nil nil t)"
+    );
+}
