@@ -5468,8 +5468,36 @@ impl<'a> Vm<'a> {
             "font-xlfd-name" => Some(crate::emacs_core::font::builtin_font_xlfd_name(
                 args.to_vec(),
             )),
+            "close-font" => Some(crate::emacs_core::font::builtin_close_font_in_state(
+                &*self.shared.frames,
+                args.to_vec(),
+            )),
+            "internal-make-lisp-face" => Some(
+                crate::emacs_core::font::builtin_internal_make_lisp_face_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "internal-lisp-face-p" => Some(
                 crate::emacs_core::font::builtin_internal_lisp_face_p(args.to_vec()),
+            ),
+            "internal-copy-lisp-face" => Some(
+                crate::emacs_core::font::builtin_internal_copy_lisp_face_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-set-lisp-face-attribute" => Some(
+                crate::emacs_core::font::builtin_internal_set_lisp_face_attribute_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-get-lisp-face-attribute" => Some(
+                crate::emacs_core::font::builtin_internal_get_lisp_face_attribute_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
             ),
             "internal-lisp-face-attribute-values" => Some(
                 crate::emacs_core::font::builtin_internal_lisp_face_attribute_values(
@@ -5515,6 +5543,12 @@ impl<'a> Vm<'a> {
             ),
             "internal-set-alternative-font-family-alist" => Some(
                 crate::emacs_core::font::builtin_internal_set_alternative_font_family_alist(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-merge-in-global-face" => Some(
+                crate::emacs_core::font::builtin_internal_merge_in_global_face_in_state(
+                    &*self.shared.frames,
                     args.to_vec(),
                 ),
             ),

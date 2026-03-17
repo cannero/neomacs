@@ -3823,6 +3823,26 @@ fn vm_font_face_and_color_builtins_use_direct_dispatch() {
 }
 
 #[test]
+fn vm_font_face_frame_sensitive_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r##"(let* ((f (selected-frame))
+                       (face 'vm-runtime-face))
+                  (list
+                    (vectorp (internal-make-lisp-face face f))
+                    (eq (internal-copy-lisp-face 'default face f f) face)
+                    (eq (internal-set-lisp-face-attribute face :foreground "red" f) face)
+                    (equal (internal-get-lisp-face-attribute face :foreground f) "red")
+                    (progn
+                      (internal-set-lisp-face-attribute face :foreground "blue" t)
+                      (internal-merge-in-global-face face f)
+                      (equal (internal-get-lisp-face-attribute face :foreground f) "blue"))))"##
+        ),
+        r#"OK (t t t t t)"#
+    );
+}
+
+#[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

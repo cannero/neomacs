@@ -683,6 +683,19 @@ pub(crate) fn builtin_close_font(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_close_font_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
+    expect_min_args("close-font", &args, 1)?;
+    expect_max_args("close-font", &args, 2)?;
+    if !is_font_object(&args[0]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("font-object"), args[0]],
+        ));
+    }
+    expect_optional_frame_designator_in_state(frames, args.get(1))?;
+    Ok(Value::Nil)
+}
+
 // ===========================================================================
 // Face builtins (pure)
 // ===========================================================================
@@ -1553,6 +1566,19 @@ pub(crate) fn builtin_internal_make_lisp_face(args: Vec<Value>) -> EvalResult {
     Ok(make_lisp_face_vector())
 }
 
+pub(crate) fn builtin_internal_make_lisp_face_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("internal-make-lisp-face", &args, 1)?;
+    expect_max_args("internal-make-lisp-face", &args, 2)?;
+    let face_name = require_symbol_face_name(&args[0])?;
+    expect_optional_frame_designator_in_state(frames, args.get(1))?;
+    mark_created_lisp_face(&face_name);
+    clear_face_overrides(&face_name, true);
+    Ok(make_lisp_face_vector())
+}
+
 /// `(internal-copy-lisp-face FROM TO FRAME NEW-FRAME)` -- copy defaults overrides to
 /// `TO` and return `TO`.
 pub(crate) fn builtin_internal_copy_lisp_face(args: Vec<Value>) -> EvalResult {
@@ -1567,6 +1593,35 @@ pub(crate) fn builtin_internal_copy_lisp_face(args: Vec<Value>) -> EvalResult {
         ));
     }
     if !copy_defaults_domain && !args[3].is_nil() && !frame_device_designator_p(&args[3]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), args[3]],
+        ));
+    }
+    let from_name = resolve_copy_source_face_symbol(&args[0])?;
+    mark_created_lisp_face(&to_name);
+    copy_defaults_overrides(&from_name, &to_name);
+    Ok(args[1])
+}
+
+pub(crate) fn builtin_internal_copy_lisp_face_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("internal-copy-lisp-face", &args, 4)?;
+    let _ = require_symbol_face_name(&args[0])?;
+    let to_name = require_symbol_face_name(&args[1])?;
+    let copy_defaults_domain = matches!(args[2], Value::True);
+    if !copy_defaults_domain && !live_frame_designator_in_state(frames, &args[2]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), args[2]],
+        ));
+    }
+    if !copy_defaults_domain
+        && !args[3].is_nil()
+        && !live_frame_designator_in_state(frames, &args[3])
+    {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[3]],
@@ -1626,6 +1681,55 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(args: Vec<Value>) -> Eval
     Ok(*face)
 }
 
+pub(crate) fn builtin_internal_set_lisp_face_attribute_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("internal-set-lisp-face-attribute", &args, 3)?;
+    expect_max_args("internal-set-lisp-face-attribute", &args, 4)?;
+    let face = &args[0];
+    let face_name = require_symbol_face_name(face)?;
+    let attr_name = normalize_set_face_attribute_name(&args[1])?;
+    let value = args[2];
+
+    let apply_set = |defaults_frame: bool| -> Result<(), Flow> {
+        if defaults_frame {
+            if !face_exists_for_domain(&face_name, true) {
+                if face.is_nil() {
+                    return Err(signal("error", vec![Value::string("Invalid face")]));
+                }
+                return Err(signal("error", vec![Value::string("Invalid face"), *face]));
+            }
+        } else if !face_exists_for_domain(&face_name, false) {
+            mark_selected_created_lisp_face(&face_name);
+            mark_created_lisp_face(&face_name);
+        }
+
+        let (canonical_attr, canonical_value) =
+            normalize_face_attr_for_set(&face_name, &attr_name, value)?;
+        set_face_override(&face_name, &canonical_attr, canonical_value, defaults_frame);
+        Ok(())
+    };
+
+    match args.get(3) {
+        None | Some(Value::Nil) => apply_set(false)?,
+        Some(Value::True) => apply_set(true)?,
+        Some(Value::Int(0)) => {
+            apply_set(true)?;
+            apply_set(false)?;
+        }
+        Some(frame) if live_frame_designator_in_state(frames, frame) => apply_set(false)?,
+        Some(other) => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("frame-live-p"), *other],
+            ));
+        }
+    }
+
+    Ok(*face)
+}
+
 /// `(internal-get-lisp-face-attribute FACE ATTR &optional FRAME)` -- batch
 /// semantics-compatible face attribute query for core predefined faces.
 pub(crate) fn builtin_internal_get_lisp_face_attribute(args: Vec<Value>) -> EvalResult {
@@ -1650,6 +1754,38 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(args: Vec<Value>) -> Eval
 
     let face_name = resolve_face_name_for_domain(&args[0], defaults_frame)?;
 
+    let attr_name = normalize_face_attribute_name(&args[1])?;
+    Ok(lisp_face_attribute_value(
+        &face_name,
+        &attr_name,
+        defaults_frame,
+    ))
+}
+
+pub(crate) fn builtin_internal_get_lisp_face_attribute_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("internal-get-lisp-face-attribute", &args, 2)?;
+    expect_max_args("internal-get-lisp-face-attribute", &args, 3)?;
+    let defaults_frame = if let Some(frame) = args.get(2) {
+        if frame.is_nil() {
+            false
+        } else if matches!(frame, Value::True) {
+            true
+        } else if live_frame_designator_in_state(frames, frame) {
+            false
+        } else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("frame-live-p"), *frame],
+            ));
+        }
+    } else {
+        false
+    };
+
+    let face_name = resolve_face_name_for_domain(&args[0], defaults_frame)?;
     let attr_name = normalize_face_attribute_name(&args[1])?;
     Ok(lisp_face_attribute_value(
         &face_name,
@@ -1710,6 +1846,26 @@ pub(crate) fn builtin_internal_lisp_face_empty_p(args: Vec<Value>) -> EvalResult
 pub(crate) fn builtin_internal_merge_in_global_face(args: Vec<Value>) -> EvalResult {
     expect_args("internal-merge-in-global-face", &args, 2)?;
     if !frame_device_designator_p(&args[1]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), args[1]],
+        ));
+    }
+    let face_name = resolve_face_name_for_merge(&args[0])?;
+    if !KNOWN_FACES.contains(&face_name.as_str()) {
+        mark_created_lisp_face(&face_name);
+        mark_selected_created_lisp_face(&face_name);
+    }
+    merge_defaults_overrides_into_selected(&face_name);
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_internal_merge_in_global_face_in_state(
+    frames: &FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("internal-merge-in-global-face", &args, 2)?;
+    if !live_frame_designator_in_state(frames, &args[1]) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[1]],
