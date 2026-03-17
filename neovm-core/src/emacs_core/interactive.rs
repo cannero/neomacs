@@ -1034,11 +1034,19 @@ fn prefix_numeric_value(value: &Value) -> i64 {
 }
 
 fn interactive_prefix_raw_arg(eval: &Evaluator, kind: CommandInvocationKind) -> Value {
+    interactive_prefix_raw_arg_in_state(&eval.obarray, eval.dynamic.as_slice(), kind)
+}
+
+fn interactive_prefix_raw_arg_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    kind: CommandInvocationKind,
+) -> Value {
     let symbol = match kind {
         CommandInvocationKind::CallInteractively => "current-prefix-arg",
         CommandInvocationKind::CommandExecute => "prefix-arg",
     };
-    dynamic_or_global_symbol_value(eval, symbol).unwrap_or(Value::Nil)
+    dynamic_or_global_symbol_value_in_state(obarray, dynamic, symbol).unwrap_or(Value::Nil)
 }
 
 fn interactive_prefix_numeric_arg(eval: &Evaluator, kind: CommandInvocationKind) -> Value {
@@ -1046,12 +1054,27 @@ fn interactive_prefix_numeric_arg(eval: &Evaluator, kind: CommandInvocationKind)
     Value::Int(prefix_numeric_value(&raw))
 }
 
+fn interactive_prefix_numeric_arg_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    kind: CommandInvocationKind,
+) -> Value {
+    let raw = interactive_prefix_raw_arg_in_state(obarray, dynamic, kind);
+    Value::Int(prefix_numeric_value(&raw))
+}
+
 fn interactive_region_args(
     eval: &Evaluator,
     missing_mark_signal: &str,
 ) -> Result<Vec<Value>, Flow> {
-    let buf = eval
-        .buffers
+    interactive_region_args_in_buffers(&eval.buffers, missing_mark_signal)
+}
+
+fn interactive_region_args_in_buffers(
+    buffers: &crate::buffer::BufferManager,
+    missing_mark_signal: &str,
+) -> Result<Vec<Value>, Flow> {
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let mark = buf.mark().ok_or_else(|| {
@@ -1072,8 +1095,11 @@ fn interactive_region_args(
 }
 
 fn interactive_point_arg(eval: &Evaluator) -> Result<Value, Flow> {
-    let buf = eval
-        .buffers
+    interactive_point_arg_in_buffers(&eval.buffers)
+}
+
+fn interactive_point_arg_in_buffers(buffers: &crate::buffer::BufferManager) -> Result<Value, Flow> {
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let point_char = buf.point_char() as i64 + 1;
@@ -1081,14 +1107,119 @@ fn interactive_point_arg(eval: &Evaluator) -> Result<Value, Flow> {
 }
 
 fn interactive_mark_arg(eval: &Evaluator) -> Result<Value, Flow> {
-    let buf = eval
-        .buffers
+    interactive_mark_arg_in_buffers(&eval.buffers)
+}
+
+fn interactive_mark_arg_in_buffers(buffers: &crate::buffer::BufferManager) -> Result<Value, Flow> {
+    let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     buf.mark()
         .ok_or_else(|| signal("error", vec![Value::string("The mark is not set now")]))?;
     let mark_char = buf.mark_char().expect("mark byte/char stay in sync") as i64 + 1;
     Ok(Value::Int(mark_char))
+}
+
+fn interactive_string_code_returns_no_args_without_eval(code: &str) -> bool {
+    let parsed = parse_interactive_code_entries(code);
+    parsed.prefix_flags.is_empty() && parsed.entries.is_empty()
+}
+
+fn default_command_execute_args_in_state(
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    name: &str,
+) -> Result<Vec<Value>, Flow> {
+    match name {
+        "self-insert-command"
+        | "delete-char"
+        | "kill-word"
+        | "backward-kill-word"
+        | "downcase-word"
+        | "upcase-word"
+        | "capitalize-word"
+        | "transpose-lines"
+        | "transpose-paragraphs"
+        | "transpose-sentences"
+        | "transpose-sexps"
+        | "transpose-words"
+        | "forward-char"
+        | "backward-char"
+        | "beginning-of-line"
+        | "end-of-line"
+        | "move-beginning-of-line"
+        | "move-end-of-line"
+        | "forward-word"
+        | "backward-word"
+        | "forward-paragraph"
+        | "backward-paragraph"
+        | "forward-sentence"
+        | "backward-sentence"
+        | "forward-sexp"
+        | "backward-sexp"
+        | "scroll-up-command"
+        | "scroll-down-command" => Ok(vec![Value::Int(1)]),
+        "kill-region" => interactive_region_args_in_buffers(buffers, "user-error"),
+        "kill-ring-save" => interactive_region_args_in_buffers(buffers, "error"),
+        "copy-region-as-kill" => interactive_region_args_in_buffers(buffers, "error"),
+        "set-mark-command" => Ok(vec![Value::Nil]),
+        "split-window-below" | "split-window-right" => {
+            let win = frames
+                .selected_frame()
+                .map(|f| Value::Window(f.selected_window.0))
+                .unwrap_or(Value::Nil);
+            Ok(vec![Value::Nil, win])
+        }
+        "capitalize-region" => interactive_region_args_in_buffers(buffers, "error"),
+        "upcase-initials-region" => interactive_region_args_in_buffers(buffers, "error"),
+        "upcase-region" | "downcase-region" => Err(signal(
+            "args-out-of-range",
+            vec![Value::string(""), Value::Int(0)],
+        )),
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn default_call_interactively_args_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    name: &str,
+) -> Result<Vec<Value>, Flow> {
+    match name {
+        "self-insert-command"
+        | "delete-char"
+        | "kill-word"
+        | "backward-kill-word"
+        | "downcase-word"
+        | "upcase-word"
+        | "capitalize-word"
+        | "transpose-lines"
+        | "transpose-paragraphs"
+        | "transpose-sentences"
+        | "transpose-sexps"
+        | "transpose-words"
+        | "forward-char"
+        | "backward-char"
+        | "beginning-of-line"
+        | "end-of-line"
+        | "move-beginning-of-line"
+        | "move-end-of-line" => Ok(vec![interactive_prefix_numeric_arg_in_state(
+            obarray,
+            dynamic,
+            CommandInvocationKind::CallInteractively,
+        )]),
+        "set-mark-command" => Ok(vec![interactive_prefix_raw_arg_in_state(
+            obarray,
+            dynamic,
+            CommandInvocationKind::CallInteractively,
+        )]),
+        "upcase-region" | "downcase-region" | "capitalize-region" => {
+            interactive_region_args_in_buffers(buffers, "error")
+        }
+        _ => default_command_execute_args_in_state(buffers, frames, name),
+    }
 }
 
 fn interactive_read_expression_arg(eval: &mut Evaluator, prompt: String) -> Result<Value, Flow> {
@@ -1510,89 +1641,17 @@ fn normalize_command_callable(eval: &mut Evaluator, value: Value) -> Result<Valu
 }
 
 fn default_command_execute_args(eval: &Evaluator, name: &str) -> Result<Vec<Value>, Flow> {
-    match name {
-        "self-insert-command"
-        | "delete-char"
-        | "kill-word"
-        | "backward-kill-word"
-        | "downcase-word"
-        | "upcase-word"
-        | "capitalize-word"
-        | "transpose-lines"
-        | "transpose-paragraphs"
-        | "transpose-sentences"
-        | "transpose-sexps"
-        | "transpose-words"
-        | "forward-char"
-        | "backward-char"
-        | "beginning-of-line"
-        | "end-of-line"
-        | "move-beginning-of-line"
-        | "move-end-of-line"
-        | "forward-word"
-        | "backward-word"
-        | "forward-paragraph"
-        | "backward-paragraph"
-        | "forward-sentence"
-        | "backward-sentence"
-        | "forward-sexp"
-        | "backward-sexp"
-        | "scroll-up-command"
-        | "scroll-down-command" => Ok(vec![Value::Int(1)]),
-        "kill-region" => interactive_region_args(eval, "user-error"),
-        "kill-ring-save" => interactive_region_args(eval, "error"),
-        "copy-region-as-kill" => interactive_region_args(eval, "error"),
-        "set-mark-command" => Ok(vec![Value::Nil]),
-        "split-window-below" | "split-window-right" => {
-            // (interactive `(,(when current-prefix-arg ...) ,(selected-window)))
-            let win = eval
-                .frames
-                .selected_frame()
-                .map(|f| Value::Window(f.selected_window.0))
-                .unwrap_or(Value::Nil);
-            Ok(vec![Value::Nil, win])
-        }
-        "capitalize-region" => interactive_region_args(eval, "error"),
-        "upcase-initials-region" => interactive_region_args(eval, "error"),
-        "upcase-region" | "downcase-region" => Err(signal(
-            "args-out-of-range",
-            vec![Value::string(""), Value::Int(0)],
-        )),
-        _ => Ok(Vec::new()),
-    }
+    default_command_execute_args_in_state(&eval.buffers, &eval.frames, name)
 }
 
 fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<Value>, Flow> {
-    match name {
-        "self-insert-command"
-        | "delete-char"
-        | "kill-word"
-        | "backward-kill-word"
-        | "downcase-word"
-        | "upcase-word"
-        | "capitalize-word"
-        | "transpose-lines"
-        | "transpose-paragraphs"
-        | "transpose-sentences"
-        | "transpose-sexps"
-        | "transpose-words"
-        | "forward-char"
-        | "backward-char"
-        | "beginning-of-line"
-        | "end-of-line"
-        | "move-beginning-of-line"
-        | "move-end-of-line" => Ok(vec![interactive_prefix_numeric_arg(
-            eval,
-            CommandInvocationKind::CallInteractively,
-        )]),
-        "set-mark-command" => Ok(vec![
-            dynamic_or_global_symbol_value(eval, "current-prefix-arg").unwrap_or(Value::Nil),
-        ]),
-        "upcase-region" | "downcase-region" | "capitalize-region" => {
-            interactive_region_args(eval, "error")
-        }
-        _ => default_command_execute_args(eval, name),
-    }
+    default_call_interactively_args_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        &eval.frames,
+        name,
+    )
 }
 
 fn resolve_command_target(eval: &Evaluator, designator: &Value) -> Option<(String, Value)> {
@@ -1682,6 +1741,77 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_eval(
         &mut plan.context,
     )?;
     Ok((func, call_args))
+}
+
+pub(crate) fn resolve_call_interactively_target_and_args_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    frames: &crate::window::FrameManager,
+    interactive: &InteractiveRegistry,
+    plan: &CallInteractivelyPlan,
+) -> Result<Option<(Value, Vec<Value>)>, Flow> {
+    let func = plan.func;
+    if let Some(code) = interactive
+        .get_spec(&plan.resolved_name)
+        .map(|spec| spec.code.as_str())
+    {
+        if interactive_string_code_returns_no_args_without_eval(code) {
+            return Ok(Some((func, Vec::new())));
+        }
+        return Ok(None);
+    }
+
+    if let Some(lambda) = func.get_lambda_data()
+        && let Some(spec) = parsed_interactive_spec_from_lambda(lambda)
+    {
+        return match spec {
+            ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
+            ParsedInteractiveSpec::StringCode(code)
+                if interactive_string_code_returns_no_args_without_eval(&code) =>
+            {
+                Ok(Some((func, Vec::new())))
+            }
+            _ => Ok(None),
+        };
+    }
+
+    if let Some(bc) = func.get_bytecode_data()
+        && let Some(spec) = &bc.interactive
+    {
+        let spec_val = if let Value::Vector(vid) = spec {
+            super::value::with_heap(|h| {
+                if h.vector_len(*vid) > 0 {
+                    h.vector_ref(*vid, 0)
+                } else {
+                    *spec
+                }
+            })
+        } else {
+            *spec
+        };
+        if spec_val.is_nil() {
+            return Ok(Some((func, Vec::new())));
+        }
+        if let Some(code) = spec_val.as_str() {
+            if interactive_string_code_returns_no_args_without_eval(code) {
+                return Ok(Some((func, Vec::new())));
+            }
+            return Ok(None);
+        }
+        return Ok(None);
+    }
+
+    Ok(Some((
+        func,
+        default_call_interactively_args_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            frames,
+            &plan.resolved_name,
+        )?,
+    )))
 }
 
 fn last_command_event_char(eval: &Evaluator) -> Option<char> {

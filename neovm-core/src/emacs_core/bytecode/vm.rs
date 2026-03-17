@@ -8418,11 +8418,23 @@ impl<'a> Vm<'a> {
         if crate::emacs_core::interactive::callable_form_needs_instantiation(&plan.func) {
             plan.func = self.instantiate_callable_cons_form(plan.func)?;
         }
-        let (function, call_args) = self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_eval(
-                eval, &mut plan,
-            )
-        })?;
+        let (function, call_args) = if let Some((function, call_args)) =
+            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                &*self.shared.frames,
+                &*self.shared.interactive,
+                &plan,
+            )? {
+            (function, call_args)
+        } else {
+            self.with_shared_evaluator(&extra_roots, move |eval| {
+                crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_eval(
+                    eval, &mut plan,
+                )
+            })?
+        };
         self.shared.interactive.push_interactive_call(true);
         let result = self.call_function_with_roots(function, &call_args);
         self.shared.interactive.pop_interactive_call();

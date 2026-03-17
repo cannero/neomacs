@@ -923,6 +923,80 @@ fn commandp_true_for_quoted_lambda_with_interactive_form() {
     assert!(result.unwrap().is_truthy());
 }
 
+#[test]
+fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
+    let mut ev = Evaluator::new();
+    ev.obarray
+        .set_symbol_value("current-prefix-arg", Value::list(vec![Value::Int(4)]));
+
+    let builtin_plan = plan_call_interactively_in_state(
+        ev.obarray(),
+        &ev.interactive,
+        ev.read_command_keys(),
+        &[Value::symbol("forward-char")],
+    )
+    .expect("plan builtin default interactive command");
+    let (_, builtin_args) = resolve_call_interactively_target_and_args_in_state(
+        ev.obarray(),
+        ev.dynamic.as_slice(),
+        &ev.buffers,
+        &ev.frames,
+        &ev.interactive,
+        &builtin_plan,
+    )
+    .expect("resolve builtin default args")
+    .expect("shared-state builtin default path");
+    assert_eq!(builtin_args, vec![Value::Int(4)]);
+
+    let lambda_forms =
+        super::super::parser::parse_forms("(lambda () (interactive) 1)").expect("parse lambda");
+    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+    let lambda_plan = plan_call_interactively_in_state(
+        ev.obarray(),
+        &ev.interactive,
+        ev.read_command_keys(),
+        &[lambda],
+    )
+    .expect("plan interactive lambda");
+    let (_, lambda_args) = resolve_call_interactively_target_and_args_in_state(
+        ev.obarray(),
+        ev.dynamic.as_slice(),
+        &ev.buffers,
+        &ev.frames,
+        &ev.interactive,
+        &lambda_plan,
+    )
+    .expect("resolve lambda args")
+    .expect("shared-state no-arg lambda path");
+    assert!(lambda_args.is_empty());
+}
+
+#[test]
+fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
+    let mut ev = Evaluator::new();
+    let lambda_forms =
+        super::super::parser::parse_forms("(lambda (x) (interactive \"sPrompt: \") x)")
+            .expect("parse prompting lambda");
+    let lambda = ev.eval(&lambda_forms[0]).expect("eval prompting lambda");
+    let plan = plan_call_interactively_in_state(
+        ev.obarray(),
+        &ev.interactive,
+        ev.read_command_keys(),
+        &[lambda],
+    )
+    .expect("plan prompting lambda");
+    let resolved = resolve_call_interactively_target_and_args_in_state(
+        ev.obarray(),
+        ev.dynamic.as_slice(),
+        &ev.buffers,
+        &ev.frames,
+        &ev.interactive,
+        &plan,
+    )
+    .expect("resolve prompting lambda");
+    assert!(resolved.is_none());
+}
+
 // -------------------------------------------------------------------
 // interactive-p / called-interactively-p
 // -------------------------------------------------------------------
