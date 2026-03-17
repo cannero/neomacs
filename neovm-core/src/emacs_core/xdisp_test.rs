@@ -471,6 +471,34 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
 }
 
 #[test]
+fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("status-buffer");
+    eval.buffers.set_current(buffer_id);
+    {
+        let buffer = eval.buffers.get_mut(buffer_id).expect("buffer");
+        buffer.insert("abc");
+        buffer.set_modified(true);
+        buffer.set_buffer_local("buffer-read-only", Value::True);
+    }
+
+    let status =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%*|%+|%&")]).expect("status");
+    assert_eq!(status, Value::string("%|*|*"));
+
+    {
+        let buffer = eval.buffers.get_mut(buffer_id).expect("buffer");
+        buffer.set_buffer_local("buffer-read-only", Value::Nil);
+        buffer.set_modified(false);
+        buffer.narrow_to_region(1, 2);
+    }
+
+    let narrowed =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%n")]).expect("narrow");
+    assert_eq!(narrowed, Value::string(" Narrow"));
+}
+
+#[test]
 fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_face() {
     let mut eval = super::super::eval::Evaluator::new();
     let rendered = builtin_format_mode_line_eval(

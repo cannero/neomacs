@@ -518,6 +518,8 @@ fn append_mode_line_rendered_segment(
 }
 
 fn append_mode_line_string_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     result: &mut ModeLineRendered,
     value: &Value,
@@ -529,7 +531,7 @@ fn append_mode_line_string_in_state(
     if literal || !text.contains('%') {
         result.append_string_value_preserving_props(value);
     } else {
-        expand_mode_line_percent_in_state(buffers, value, result);
+        expand_mode_line_percent_in_state(obarray, dynamic, buffers, value, result);
     }
 }
 
@@ -556,7 +558,14 @@ fn format_mode_line_recursive(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(&eval.buffers, result, format, false),
+        Value::Str(_) => append_mode_line_string_in_state(
+            &eval.obarray,
+            &eval.dynamic,
+            &eval.buffers,
+            result,
+            format,
+            false,
+        ),
 
         Value::Int(n) => {
             // Integer in mode-line-format: if positive, specifies minimum
@@ -580,7 +589,14 @@ fn format_mode_line_recursive(
                 ) && !val.is_nil()
                 {
                     if val.as_str().is_some() {
-                        append_mode_line_string_in_state(&eval.buffers, result, &val, true);
+                        append_mode_line_string_in_state(
+                            &eval.obarray,
+                            &eval.dynamic,
+                            &eval.buffers,
+                            result,
+                            &val,
+                            true,
+                        );
                     } else {
                         format_mode_line_recursive(
                             eval,
@@ -690,7 +706,9 @@ fn format_mode_line_recursive_in_state(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(buffers, result, format, false),
+        Value::Str(_) => {
+            append_mode_line_string_in_state(obarray, dynamic, buffers, result, format, false)
+        }
 
         Value::Int(_) => {}
 
@@ -704,7 +722,9 @@ fn format_mode_line_recursive_in_state(
                     && !val.is_nil()
                 {
                     if val.as_str().is_some() {
-                        append_mode_line_string_in_state(buffers, result, &val, true);
+                        append_mode_line_string_in_state(
+                            obarray, dynamic, buffers, result, &val, true,
+                        );
                     } else if format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
@@ -839,7 +859,9 @@ fn format_mode_line_recursive_in_state_with_eval(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(buffers, result, format, false),
+        Value::Str(_) => {
+            append_mode_line_string_in_state(obarray, dynamic, buffers, result, format, false)
+        }
 
         Value::Int(_) => {}
 
@@ -853,7 +875,9 @@ fn format_mode_line_recursive_in_state_with_eval(
                     && !val.is_nil()
                 {
                     if val.as_str().is_some() {
-                        append_mode_line_string_in_state(buffers, result, &val, true);
+                        append_mode_line_string_in_state(
+                            obarray, dynamic, buffers, result, &val, true,
+                        );
                     } else {
                         format_mode_line_recursive_in_state_with_eval(
                             obarray,
@@ -1003,7 +1027,14 @@ fn format_mode_line_recursive_in_vm_runtime(
     match format {
         Value::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(&*shared.buffers, result, format, false),
+        Value::Str(_) => append_mode_line_string_in_state(
+            &*shared.obarray,
+            shared.dynamic.as_slice(),
+            &*shared.buffers,
+            result,
+            format,
+            false,
+        ),
 
         Value::Int(_) => {}
 
@@ -1023,7 +1054,14 @@ fn format_mode_line_recursive_in_vm_runtime(
                     && !val.is_nil()
                 {
                     if val.as_str().is_some() {
-                        append_mode_line_string_in_state(&*shared.buffers, result, &val, true);
+                        append_mode_line_string_in_state(
+                            &*shared.obarray,
+                            shared.dynamic.as_slice(),
+                            &*shared.buffers,
+                            result,
+                            &val,
+                            true,
+                        );
                     } else {
                         format_mode_line_recursive_in_vm_runtime(
                             shared,
@@ -1163,6 +1201,8 @@ fn format_mode_line_recursive_in_vm_runtime(
 }
 
 fn expand_mode_line_percent_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     value: &Value,
     result: &mut ModeLineRendered,
@@ -1174,6 +1214,10 @@ fn expand_mode_line_percent_in_state(
     let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
     let file_name = buf.and_then(|b| b.file_name.as_deref()).unwrap_or("");
     let modified = buf.map(|b| b.is_modified()).unwrap_or(false);
+    let read_only = buf.is_some_and(|b| {
+        crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, b)
+    });
+    let narrowed = buf.is_some_and(|b| b.begv > 0 || b.zv < b.text.len());
 
     let (line_num, col_num) = if let Some(b) = buf {
         let pt = b.pt;
@@ -1238,11 +1282,27 @@ fn expand_mode_line_percent_in_state(
                 index += 1;
             }
             Some('*') => {
-                append_spec(if modified { "*" } else { "-" });
+                append_spec(if read_only {
+                    "%"
+                } else if modified {
+                    "*"
+                } else {
+                    "-"
+                });
                 index += 1;
             }
             Some('+') => {
-                append_spec(if modified { "+" } else { "-" });
+                append_spec(if modified {
+                    "*"
+                } else if read_only {
+                    "%"
+                } else {
+                    "-"
+                });
+                index += 1;
+            }
+            Some('&') => {
+                append_spec(if modified { "*" } else { "-" });
                 index += 1;
             }
             Some('-') => {
@@ -1254,7 +1314,7 @@ fn expand_mode_line_percent_in_state(
                 index += 1;
             }
             Some('n') => {
-                append_spec("");
+                append_spec(if narrowed { " Narrow" } else { "" });
                 index += 1;
             }
             Some('l') => {

@@ -4974,6 +4974,27 @@ fn vm_format_mode_line_percent_specs_preserve_source_string_text_properties() {
 }
 
 #[test]
+fn vm_format_mode_line_status_specs_match_gnu_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-status-buffer")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert "abc")
+                 (setq buffer-read-only t)
+                 (let ((status (format-mode-line "%*|%+|%&")))
+                   (setq buffer-read-only nil)
+                   (set-buffer-modified-p nil)
+                   (narrow-to-region 2 3)
+                   (list status (format-mode-line "%n"))))"#
+        ),
+        r#"OK ("%|*|*" " Narrow")"#
+    );
+}
+
+#[test]
 fn vm_format_mode_line_face_argument_merges_explicit_faces_and_can_drop_props() {
     assert_eq!(
         vm_eval_str(
