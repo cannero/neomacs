@@ -1020,50 +1020,76 @@ pub(crate) fn builtin_read_number(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("read-number", &args, 1)?;
-    expect_max_args("read-number", &args, 3)?;
+    builtin_read_number_in_runtime(eval, &args)?;
+    finish_read_number_in_eval(eval, &args)
+}
+
+pub(crate) fn builtin_read_number_in_runtime(
+    runtime: &impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<(), Flow> {
+    expect_min_args("read-number", args, 1)?;
+    expect_max_args("read-number", args, 3)?;
     let prompt = args[0];
     expect_string(&prompt)?;
-    if let Some(default) = args.get(1) {
-        if !default.is_nil() {
-            expect_number(default)?;
-        }
+    if let Some(default) = args.get(1)
+        && !default.is_nil()
+    {
+        expect_number(default)?;
     }
+    if runtime.has_input_receiver() {
+        Ok(())
+    } else {
+        Err(stdin_end_of_file_error())
+    }
+}
 
-    // Interactive mode: use read-from-minibuffer with READ=t
-    if eval.input_rx.is_some() {
-        let default_val = args.get(1).copied().unwrap_or(Value::Nil);
-        let result = builtin_read_from_minibuffer(
-            eval,
-            vec![
-                prompt,
-                Value::Nil,
-                Value::Nil,
-                Value::True,
-                Value::Nil,
-                default_val,
-            ],
-        )?;
-        // Validate result is a number
-        match result {
-            Value::Int(_) | Value::Float(..) => return Ok(result),
-            _ => {
-                return Err(signal("error", vec![Value::string("Not a number")]));
-            }
-        }
-    }
+fn read_number_minibuffer_args(args: &[Value]) -> [Value; 6] {
+    let prompt = args[0];
+    let default_val = args.get(1).copied().unwrap_or(Value::Nil);
+    [
+        prompt,
+        Value::Nil,
+        Value::Nil,
+        Value::True,
+        Value::Nil,
+        default_val,
+    ]
+}
 
-    // Batch mode
-    if eval.peek_unread_command_event().is_some() {
-        return Err(signal(
-            "end-of-file",
-            vec![Value::string("Error reading from stdin")],
-        ));
+fn validate_read_number_result(result: Value) -> EvalResult {
+    match result {
+        Value::Int(_) | Value::Float(..) => Ok(result),
+        _ => Err(signal("error", vec![Value::string("Not a number")])),
     }
-    Err(signal(
-        "end-of-file",
-        vec![Value::string("Error reading from stdin")],
-    ))
+}
+
+pub(crate) fn finish_read_number_with_minibuffer(
+    args: &[Value],
+    mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
+    let minibuffer_args = read_number_minibuffer_args(args);
+    validate_read_number_result(read_from_minibuffer(&minibuffer_args)?)
+}
+
+pub(crate) fn finish_read_number_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
+    finish_read_number_with_minibuffer(args, |minibuffer_args| {
+        finish_read_from_minibuffer_in_eval(eval, minibuffer_args)
+    })
+}
+
+pub(crate) fn finish_read_number_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_read_number_in_runtime(shared, args)?;
+    finish_read_number_with_minibuffer(args, |minibuffer_args| {
+        finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, minibuffer_args)
+    })
 }
 
 // ---------------------------------------------------------------------------

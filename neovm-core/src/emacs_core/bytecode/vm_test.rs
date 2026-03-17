@@ -1468,19 +1468,63 @@ fn vm_call_interactively_handles_prompt_driven_batch_specs_on_shared_runtime() {
                      (call-interactively '(lambda (x) (interactive "CCommand: ") x))
                    (error (car err)))
                  (condition-case err
+                     (call-interactively '(lambda (x) (interactive "DDirectory: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "fFind file: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "FFind file: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "GFind file: ") x))
+                   (error (car err)))
+                 (condition-case err
                      (call-interactively '(lambda (x) (interactive "sString: ") x))
                    (error (car err)))
                  (condition-case err
                      (call-interactively '(lambda (x) (interactive "MInherited: ") x))
                    (error (car err)))
                  (condition-case err
+                     (call-interactively '(lambda (x) (interactive "nNumber: ") x))
+                   (error (car err)))
+                 (condition-case err
                      (call-interactively '(lambda (x) (interactive "SSymbol: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "zCoding: ") x))
                    (error (car err)))
                  (condition-case err
                      (call-interactively '(lambda (x) (interactive "vVariable: ") x))
                    (error (car err))))"#
         ),
-        "OK (97 end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file)"
+        "OK (97 end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file)"
+    );
+}
+
+#[test]
+fn vm_call_interactively_handles_number_and_optional_coding_prompt_cases_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((current-prefix-arg '(4))
+                       (prefix-arg nil))
+                   (call-interactively '(lambda (n) (interactive "NNumber: ") n)))
+                 (let ((current-prefix-arg nil)
+                       (prefix-arg nil))
+                   (condition-case err
+                       (call-interactively '(lambda (n) (interactive "NNumber: ") n))
+                     (error (car err))))
+                 (let ((unread-command-events (list 97)))
+                   (list
+                    (call-interactively '(lambda (c) (interactive "ZCoding: ") c))
+                    unread-command-events))
+                 (let ((current-prefix-arg '(4)))
+                   (condition-case err
+                       (call-interactively '(lambda (c) (interactive "ZCoding: ") c))
+                     (error (car err)))))"#
+        ),
+        "OK (4 end-of-file (nil (97)) nil)"
     );
 }
 

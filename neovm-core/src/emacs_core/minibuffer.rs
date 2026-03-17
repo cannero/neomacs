@@ -592,52 +592,8 @@ pub(crate) fn builtin_read_file_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("read-file-name", &args, 1)?;
-    expect_max_args("read-file-name", &args, 6)?;
-    let _prompt = expect_string(&args[0])?;
-    if let Some(dir) = args.get(1) {
-        if !dir.is_nil() {
-            let _ = expect_string(dir)?;
-        }
-    }
-    if let Some(default) = args.get(2) {
-        if !default.is_nil() {
-            let _ = expect_string(default)?;
-        }
-    }
-    if let Some(initial) = args.get(4) {
-        if !initial.is_nil() {
-            let _ = expect_string(initial)?;
-        }
-    }
-
-    // Interactive mode: use read-from-minibuffer with initial input
-    if eval.input_rx.is_some() {
-        let prompt = args[0];
-        let initial = args.get(4).copied().unwrap_or(Value::Nil);
-        let default = args.get(2).copied().unwrap_or(Value::Nil);
-
-        // If no initial input but DIR is provided, use DIR as initial
-        let effective_initial = if initial.is_nil() {
-            args.get(1).copied().unwrap_or(Value::Nil)
-        } else {
-            initial
-        };
-
-        return super::reader::builtin_read_from_minibuffer(
-            eval,
-            vec![
-                prompt,
-                effective_initial,
-                Value::Nil,
-                Value::Nil,
-                Value::Nil,
-                default,
-            ],
-        );
-    }
-
-    Err(end_of_file_stdin_error())
+    builtin_read_file_name_in_runtime(eval, &args)?;
+    finish_read_file_name_in_eval(eval, &args)
 }
 
 /// `(read-directory-name PROMPT &optional DIR DEFAULT MUSTMATCH INITIAL)`
@@ -648,50 +604,129 @@ pub(crate) fn builtin_read_directory_name(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("read-directory-name", &args, 1)?;
-    expect_max_args("read-directory-name", &args, 5)?;
+    builtin_read_directory_name_in_runtime(eval, &args)?;
+    finish_read_directory_name_in_eval(eval, &args)
+}
+
+fn validate_file_name_reader_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
+    expect_min_args(name, args, 1)?;
+    expect_max_args(name, args, max)?;
     let _prompt = expect_string(&args[0])?;
-    if let Some(dir) = args.get(1) {
-        if !dir.is_nil() {
-            let _ = expect_string(dir)?;
-        }
+    if let Some(dir) = args.get(1)
+        && !dir.is_nil()
+    {
+        let _ = expect_string(dir)?;
     }
-    if let Some(default) = args.get(2) {
-        if !default.is_nil() {
-            let _ = expect_string(default)?;
-        }
+    if let Some(default) = args.get(2)
+        && !default.is_nil()
+    {
+        let _ = expect_string(default)?;
     }
-    if let Some(initial) = args.get(4) {
-        if !initial.is_nil() {
-            let _ = expect_string(initial)?;
-        }
+    if let Some(initial) = args.get(4)
+        && !initial.is_nil()
+    {
+        let _ = expect_string(initial)?;
     }
+    Ok(())
+}
 
-    // Interactive mode: use read-from-minibuffer
-    if eval.input_rx.is_some() {
-        let prompt = args[0];
-        let initial = args.get(4).copied().unwrap_or(Value::Nil);
-        let default = args.get(2).copied().unwrap_or(Value::Nil);
-        let effective_initial = if initial.is_nil() {
-            args.get(1).copied().unwrap_or(Value::Nil)
-        } else {
-            initial
-        };
+fn file_name_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
+    let prompt = args[0];
+    let initial = args.get(4).copied().unwrap_or(Value::Nil);
+    let default = args.get(2).copied().unwrap_or(Value::Nil);
+    let effective_initial = if initial.is_nil() {
+        args.get(1).copied().unwrap_or(Value::Nil)
+    } else {
+        initial
+    };
+    [
+        prompt,
+        effective_initial,
+        Value::Nil,
+        Value::Nil,
+        Value::Nil,
+        default,
+    ]
+}
 
-        return super::reader::builtin_read_from_minibuffer(
-            eval,
-            vec![
-                prompt,
-                effective_initial,
-                Value::Nil,
-                Value::Nil,
-                Value::Nil,
-                default,
-            ],
-        );
+pub(crate) fn builtin_read_file_name_in_runtime(
+    runtime: &impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<(), Flow> {
+    validate_file_name_reader_args("read-file-name", args, 6)?;
+    if runtime.has_input_receiver() {
+        Ok(())
+    } else {
+        Err(end_of_file_stdin_error())
     }
+}
 
-    Err(end_of_file_stdin_error())
+pub(crate) fn finish_read_file_name_with_minibuffer(
+    args: &[Value],
+    mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
+    let minibuffer_args = file_name_reader_minibuffer_args(args);
+    read_from_minibuffer(&minibuffer_args)
+}
+
+pub(crate) fn finish_read_file_name_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
+    finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_eval(eval, minibuffer_args)
+    })
+}
+
+pub(crate) fn finish_read_file_name_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_read_file_name_in_runtime(shared, args)?;
+    finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+            shared,
+            vm_gc_roots,
+            minibuffer_args,
+        )
+    })
+}
+
+pub(crate) fn builtin_read_directory_name_in_runtime(
+    runtime: &impl KeyboardInputRuntime,
+    args: &[Value],
+) -> Result<(), Flow> {
+    validate_file_name_reader_args("read-directory-name", args, 5)?;
+    if runtime.has_input_receiver() {
+        Ok(())
+    } else {
+        Err(end_of_file_stdin_error())
+    }
+}
+
+pub(crate) fn finish_read_directory_name_in_eval(
+    eval: &mut super::eval::Evaluator,
+    args: &[Value],
+) -> EvalResult {
+    finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_eval(eval, minibuffer_args)
+    })
+}
+
+pub(crate) fn finish_read_directory_name_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_read_directory_name_in_runtime(shared, args)?;
+    finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+            shared,
+            vm_gc_roots,
+            minibuffer_args,
+        )
+    })
 }
 
 /// `(read-buffer PROMPT &optional DEFAULT REQUIRE-MATCH PREDICATE)`

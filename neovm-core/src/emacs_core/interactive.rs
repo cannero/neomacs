@@ -1405,6 +1405,14 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 args.push(arg);
             }
             'd' => args.push(interactive_point_arg_in_buffers(shared.buffers)?),
+            'D' => {
+                let letter_args = [Value::string(prompt)];
+                args.push(super::minibuffer::finish_read_directory_name_in_vm_runtime(
+                    shared,
+                    vm_gc_roots,
+                    &letter_args,
+                )?);
+            }
             'e' => {
                 if let Some(event) = interactive_next_event_with_parameters_in_state(
                     &mut *shared.obarray,
@@ -1420,6 +1428,22 @@ fn interactive_args_from_string_code_in_vm_runtime(
                         )],
                     ));
                 }
+            }
+            'f' => {
+                let letter_args = [Value::string(prompt), Value::Nil, Value::Nil, Value::True];
+                args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
+                    shared,
+                    vm_gc_roots,
+                    &letter_args,
+                )?);
+            }
+            'F' | 'G' => {
+                let letter_args = [Value::string(prompt)];
+                args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
+                    shared,
+                    vm_gc_roots,
+                    &letter_args,
+                )?);
             }
             'i' => args.push(Value::Nil),
             'k' => {
@@ -1476,9 +1500,15 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     kind,
                 );
                 if raw.is_nil() {
-                    return Ok(None);
+                    let letter_args = [Value::string(prompt)];
+                    args.push(super::reader::finish_read_number_in_vm_runtime(
+                        shared,
+                        vm_gc_roots,
+                        &letter_args,
+                    )?);
+                } else {
+                    args.push(Value::Int(prefix_numeric_value(&raw)));
                 }
-                args.push(Value::Int(prefix_numeric_value(&raw)));
             }
             'p' => args.push(interactive_prefix_numeric_arg_in_state(
                 &*shared.obarray,
@@ -1491,6 +1521,14 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 kind,
             )),
             'r' => args.extend(interactive_region_args_in_buffers(shared.buffers, "error")?),
+            'n' => {
+                let letter_args = [Value::string(prompt)];
+                args.push(super::reader::finish_read_number_in_vm_runtime(
+                    shared,
+                    vm_gc_roots,
+                    &letter_args,
+                )?);
+            }
             's' => {
                 let letter_args = [Value::string(prompt)];
                 super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
@@ -1539,6 +1577,9 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     },
                 )?);
             }
+            'z' => args.push(super::lread::builtin_read_coding_system(vec![
+                Value::string(prompt),
+            ])?),
             'Z' => {
                 let raw = interactive_prefix_raw_arg_in_state(
                     &*shared.obarray,
@@ -1548,7 +1589,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 if raw.is_nil() {
                     args.push(Value::Nil);
                 } else {
-                    return Ok(None);
+                    args.push(interactive_read_coding_system_optional_arg(prompt)?);
                 }
             }
             _ => return Ok(None),
