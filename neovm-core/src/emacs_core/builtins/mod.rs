@@ -412,7 +412,7 @@ pub(crate) mod symbols;
 pub(crate) use buffers::*;
 pub(crate) use higher_order::*;
 pub(crate) use hooks::*;
-use keymaps::*;
+pub(crate) use keymaps::*;
 pub(crate) use misc_eval::*;
 pub(crate) use search::*;
 pub(crate) use stubs::*;

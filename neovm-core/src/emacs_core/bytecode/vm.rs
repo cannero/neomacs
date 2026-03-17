@@ -7768,6 +7768,214 @@ impl<'a> Vm<'a> {
             "find-charset-region" => Some(self.builtin_find_charset_region_shared(args)),
             "charset-after" => Some(self.builtin_charset_after_shared(args)),
             "compose-region-internal" => Some(self.builtin_compose_region_internal_shared(args)),
+            "base64-encode-string" => Some(crate::emacs_core::fns::builtin_base64_encode_string(
+                args.to_vec(),
+            )),
+            "base64-decode-string" => Some(crate::emacs_core::fns::builtin_base64_decode_string(
+                args.to_vec(),
+            )),
+            "base64url-encode-string" => Some(
+                crate::emacs_core::fns::builtin_base64url_encode_string(args.to_vec()),
+            ),
+            "base64-encode-region" => Some(
+                crate::emacs_core::fns::builtin_base64_encode_region_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "base64url-encode-region" => Some(
+                crate::emacs_core::fns::builtin_base64url_encode_region_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "base64-decode-region" => Some(
+                crate::emacs_core::fns::builtin_base64_decode_region_in_manager(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "json-serialize" => Some(crate::emacs_core::json::builtin_json_serialize(
+                args.to_vec(),
+            )),
+            "json-parse-string" => Some(crate::emacs_core::json::builtin_json_parse_string(
+                args.to_vec(),
+            )),
+            "json-parse-buffer" => Some(crate::emacs_core::json::builtin_json_parse_buffer_in_manager(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "json-insert" => Some(crate::emacs_core::json::builtin_json_insert_in_manager(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "ccl-program-p" => Some(
+                crate::emacs_core::builtins::symbols::builtin_ccl_program_p_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "ccl-execute" => Some(
+                crate::emacs_core::builtins::symbols::builtin_ccl_execute_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "ccl-execute-on-string" => Some(
+                crate::emacs_core::builtins::symbols::builtin_ccl_execute_on_string_in_obarray(
+                    &*self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "register-ccl-program" => Some(
+                crate::emacs_core::builtins::symbols::builtin_register_ccl_program_in_obarray(
+                    self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "register-code-conversion-map" => Some(
+                crate::emacs_core::builtins::symbols::builtin_register_code_conversion_map_in_obarray(
+                    self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "comp--compile-ctxt-to-file0" => Some(
+                crate::emacs_core::comp::builtin_comp_compile_ctxt_to_file0(args.to_vec()),
+            ),
+            "comp--init-ctxt" => Some(crate::emacs_core::comp::builtin_comp_init_ctxt(
+                args.to_vec(),
+            )),
+            "comp--install-trampoline" => Some(
+                crate::emacs_core::comp::builtin_comp_install_trampoline(args.to_vec()),
+            ),
+            "comp--late-register-subr" => Some(
+                crate::emacs_core::comp::builtin_comp_late_register_subr(args.to_vec()),
+            ),
+            "comp--register-lambda" => Some(
+                crate::emacs_core::comp::builtin_comp_register_lambda(args.to_vec()),
+            ),
+            "comp--register-subr" => Some(
+                crate::emacs_core::comp::builtin_comp_register_subr(args.to_vec()),
+            ),
+            "comp--release-ctxt" => Some(crate::emacs_core::comp::builtin_comp_release_ctxt(
+                args.to_vec(),
+            )),
+            "comp--subr-signature" => Some(
+                crate::emacs_core::comp::builtin_comp_subr_signature(args.to_vec()),
+            ),
+            "comp-el-to-eln-filename" => Some(
+                crate::emacs_core::comp::builtin_comp_el_to_eln_filename(args.to_vec()),
+            ),
+            "comp-el-to-eln-rel-filename" => Some(
+                crate::emacs_core::comp::builtin_comp_el_to_eln_rel_filename(args.to_vec()),
+            ),
+            "comp-libgccjit-version" => Some(
+                crate::emacs_core::comp::builtin_comp_libgccjit_version(args.to_vec()),
+            ),
+            "comp-native-compiler-options-effective-p" => Some(
+                crate::emacs_core::comp::builtin_comp_native_compiler_options_effective_p(
+                    args.to_vec(),
+                ),
+            ),
+            "comp-native-driver-options-effective-p" => Some(
+                crate::emacs_core::comp::builtin_comp_native_driver_options_effective_p(
+                    args.to_vec(),
+                ),
+            ),
+            "dbus--init-bus" => Some(crate::emacs_core::dbus::builtin_dbus_init_bus(
+                args.to_vec(),
+            )),
+            "dbus-get-unique-name" => Some(
+                crate::emacs_core::dbus::builtin_dbus_get_unique_name(args.to_vec()),
+            ),
+            "dbus-message-internal" => Some(
+                crate::emacs_core::dbus::builtin_dbus_message_internal(args.to_vec()),
+            ),
+            "command-error-default-function" => Some(
+                crate::emacs_core::builtins::builtin_command_error_default_function(
+                    args.to_vec(),
+                ),
+            ),
+            "event-convert-list" => Some(
+                crate::emacs_core::builtins::builtin_event_convert_list(args.to_vec()),
+            ),
+            "get-load-suffixes" => Some(crate::emacs_core::lread::builtin_get_load_suffixes(
+                args.to_vec(),
+            )),
+            "clear-image-cache" => Some(crate::emacs_core::image::builtin_clear_image_cache(
+                args.to_vec(),
+            )),
+            "gpm-mouse-start" => Some(
+                crate::emacs_core::builtins::builtin_gpm_mouse_start(args.to_vec()),
+            ),
+            "gpm-mouse-stop" => Some(
+                crate::emacs_core::builtins::builtin_gpm_mouse_stop(args.to_vec()),
+            ),
+            "handle-save-session" => Some(
+                crate::emacs_core::builtins::builtin_handle_save_session(args.to_vec()),
+            ),
+            "handle-switch-frame" => Some(
+                crate::emacs_core::builtins::builtin_handle_switch_frame(args.to_vec()),
+            ),
+            "init-image-library" => Some(
+                crate::emacs_core::builtins::builtin_init_image_library(args.to_vec()),
+            ),
+            "find-operation-coding-system" => Some(
+                crate::emacs_core::builtins::symbols::builtin_find_operation_coding_system(
+                    args.to_vec(),
+                ),
+            ),
+            "internal--track-mouse" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_track_mouse(args.to_vec()),
+            ),
+            "internal-char-font" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_char_font(args.to_vec()),
+            ),
+            "internal-complete-buffer" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_complete_buffer(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-describe-syntax-value" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_describe_syntax_value(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-event-symbol-parse-modifiers" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_event_symbol_parse_modifiers(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-handle-focus-in" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_handle_focus_in(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-stack-stats" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_stack_stats(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-subr-documentation" => Some(
+                crate::emacs_core::builtins::symbols::builtin_internal_subr_documentation(
+                    args.to_vec(),
+                ),
+            ),
+            "dump-emacs-portable" => Some(
+                crate::emacs_core::builtins::symbols::builtin_dump_emacs_portable(
+                    args.to_vec(),
+                ),
+            ),
+            "dump-emacs-portable--sort-predicate" => Some(
+                crate::emacs_core::builtins::symbols::builtin_dump_emacs_portable_sort_predicate(
+                    args.to_vec(),
+                ),
+            ),
+            "dump-emacs-portable--sort-predicate-copied" => Some(
+                crate::emacs_core::builtins::symbols::builtin_dump_emacs_portable_sort_predicate_copied(
+                    args.to_vec(),
+                ),
+            ),
             _ => None,
         }
     }

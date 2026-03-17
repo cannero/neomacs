@@ -900,41 +900,67 @@ pub(super) fn builtin_register_code_conversion_map_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_register_code_conversion_map_in_obarray(eval.obarray_mut(), args)
+}
+
+pub(crate) fn builtin_register_code_conversion_map_in_obarray(
+    obarray: &mut Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() == 2 {
-        preflight_symbol_plist_put(eval, &args[0], "code-conversion-map")?;
+        preflight_symbol_plist_put_in_obarray(
+            obarray,
+            expect_symbol_id(&args[0])?,
+            "code-conversion-map",
+        )?;
     }
     let map_id = super::ccl::builtin_register_code_conversion_map(args.clone())?;
 
-    let _ = builtin_put(
-        eval,
+    let _ = builtin_put_in_obarray(
+        obarray,
         vec![args[0], Value::symbol("code-conversion-map"), args[1]],
     )?;
-    let _ = builtin_put(
-        eval,
+    let _ = builtin_put_in_obarray(
+        obarray,
         vec![args[0], Value::symbol("code-conversion-map-id"), map_id],
     )?;
 
     Ok(map_id)
 }
 
-fn symbol_has_valid_ccl_program_idx(
-    eval: &mut super::eval::Evaluator,
+fn symbol_has_valid_ccl_program_idx_in_obarray(
+    obarray: &Obarray,
     symbol: &Value,
 ) -> Result<bool, Flow> {
     if !symbol.is_symbol() {
         return Ok(false);
     }
-    let idx = builtin_get(eval, vec![*symbol, Value::symbol("ccl-program-idx")])?;
+    let symbol = expect_symbol_id(symbol)?;
+    let idx = obarray
+        .get_property_id(symbol, intern("ccl-program-idx"))
+        .copied()
+        .unwrap_or(Value::Nil);
     Ok(idx.as_int().is_some_and(|n| n >= 0))
+}
+
+fn symbol_has_valid_ccl_program_idx(
+    eval: &mut super::eval::Evaluator,
+    symbol: &Value,
+) -> Result<bool, Flow> {
+    symbol_has_valid_ccl_program_idx_in_obarray(eval.obarray(), symbol)
 }
 
 pub(super) fn builtin_ccl_program_p_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_ccl_program_p_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_ccl_program_p_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     if args.len() == 1 && args[0].is_symbol() {
-        return Ok(Value::bool(symbol_has_valid_ccl_program_idx(
-            eval, &args[0],
+        return Ok(Value::bool(symbol_has_valid_ccl_program_idx_in_obarray(
+            obarray, &args[0],
         )?));
     }
     super::ccl::builtin_ccl_program_p(args)
@@ -944,8 +970,12 @@ pub(super) fn builtin_ccl_execute_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_ccl_execute_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_ccl_execute_in_obarray(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     if args.first().is_some_and(Value::is_symbol)
-        && !symbol_has_valid_ccl_program_idx(eval, &args[0])?
+        && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
         let mut forced = args.clone();
         forced[0] = Value::Int(0);
@@ -958,8 +988,15 @@ pub(super) fn builtin_ccl_execute_on_string_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_ccl_execute_on_string_in_obarray(eval.obarray(), args)
+}
+
+pub(crate) fn builtin_ccl_execute_on_string_in_obarray(
+    obarray: &Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.first().is_some_and(Value::is_symbol)
-        && !symbol_has_valid_ccl_program_idx(eval, &args[0])?
+        && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
         let mut forced = args.clone();
         forced[0] = Value::Int(0);
@@ -972,6 +1009,13 @@ pub(super) fn builtin_register_ccl_program_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_register_ccl_program_in_obarray(eval.obarray_mut(), args)
+}
+
+pub(crate) fn builtin_register_ccl_program_in_obarray(
+    obarray: &mut Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     let was_registered = args
         .first()
         .and_then(Value::as_symbol_name)
@@ -982,8 +1026,8 @@ pub(super) fn builtin_register_ccl_program_eval(
         return Ok(program_id);
     }
 
-    let publish = builtin_put(
-        eval,
+    let publish = builtin_put_in_obarray(
+        obarray,
         vec![args[0], Value::symbol("ccl-program-idx"), program_id],
     );
     if let Err(err) = publish {

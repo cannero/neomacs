@@ -3977,6 +3977,102 @@ fn vm_native_stub_clusters_use_direct_dispatch() {
 }
 
 #[test]
+fn vm_base64_json_ccl_and_runtime_clusters_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (equal (base64-encode-string "Hi") "SGk=")
+                 (equal (base64-decode-string "SGk=") "Hi")
+                 (equal (base64url-encode-string "hi" t) "aGk")
+                 (equal (json-serialize [1 2 3]) "[1,2,3]")
+                 (equal (json-parse-string "{\"a\":1}" :object-type 'alist)
+                        '((a . 1)))
+                 (integerp (register-ccl-program 'vm-bytecode-direct-ccl [10 0 0]))
+                 (ccl-program-p 'vm-bytecode-direct-ccl)
+                 (condition-case nil
+                     (ccl-execute 'vm-bytecode-direct-ccl [0 0 0 0 0 0 0 0])
+                   (error t))
+                 (condition-case nil
+                     (ccl-execute-on-string
+                      'vm-bytecode-direct-ccl
+                      [0 0 0 0 0 0 0 0 0]
+                      "abc")
+                   (error t))
+                 (integerp (register-code-conversion-map 'vm-bytecode-direct-map [0]))
+                 (comp--init-ctxt)
+                 (null (comp--install-trampoline 'a 'b))
+                 (null (comp--late-register-subr nil nil nil nil nil nil nil))
+                 (null (comp--register-lambda nil nil nil nil nil nil nil))
+                 (null (comp--register-subr nil nil nil nil nil nil nil))
+                 (comp--release-ctxt)
+                 (equal (comp-libgccjit-version) '(14 3 0))
+                 (comp-native-compiler-options-effective-p)
+                 (comp-native-driver-options-effective-p)
+                 (= (dbus--init-bus :session) 2)
+                 (eq
+                  (condition-case err
+                      (dbus-get-unique-name :session)
+                    (dbus-error (car err)))
+                  'dbus-error)
+                 (null (dbus-message-internal 2 :dest :path :iface :member))
+                 (consp (get-load-suffixes))
+                 (null (command-error-default-function nil nil nil))
+                 (equal
+                  (single-key-description (event-convert-list '(control ?x)))
+                  "C-x")
+                 (null (find-operation-coding-system 'write-region "x"))
+                 (condition-case nil (gpm-mouse-start) (error t))
+                 (null (gpm-mouse-stop))
+                 (null (handle-save-session nil))
+                 (null (handle-switch-frame (selected-frame)))
+                 (null (init-image-library nil))
+                 (condition-case nil (clear-image-cache nil) (error t))
+                 (null (internal--track-mouse nil))
+                 (null (internal-complete-buffer "" nil nil))
+                 (equal (internal-describe-syntax-value 7) 7)
+                 (condition-case nil (internal-handle-focus-in nil) (error t))
+                 (null (internal-stack-stats))
+                 (internal-subr-documentation 'car)
+                 (null (dump-emacs-portable "x"))
+                 (null (dump-emacs-portable--sort-predicate nil nil))
+                 (null (dump-emacs-portable--sort-predicate-copied nil nil)))"#
+        ),
+        r#"OK (t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t)"#
+    );
+}
+
+#[test]
+fn vm_base64_region_and_json_buffer_builtins_use_shared_current_buffer_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(with-current-buffer (get-buffer-create " *vm-base64-json*")
+                 (erase-buffer)
+                 (insert "Hi")
+                 (let ((encoded-len (base64-encode-region (point-min) (point-max)))
+                       (encoded (buffer-string)))
+                   (goto-char (point-min))
+                   (let ((decoded-len (base64-decode-region (point-min) (point-max)))
+                         (decoded (buffer-string)))
+                     (erase-buffer)
+                     (insert "{\"a\":1} tail")
+                     (goto-char (point-min))
+                     (let ((parsed (json-parse-buffer :object-type 'alist))
+                           (parse-point (point)))
+                       (erase-buffer)
+                       (json-insert [1 2 3])
+                       (list encoded-len
+                             encoded
+                             decoded-len
+                             decoded
+                             parsed
+                             parse-point
+                             (buffer-string))))))"#
+        ),
+        r#"OK (4 "SGk=" 2 "Hi" ((a . 1)) 8 "[1,2,3]")"#
+    );
+}
+
+#[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

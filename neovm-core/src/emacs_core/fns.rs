@@ -273,19 +273,17 @@ pub(crate) fn builtin_base64url_decode_string(args: Vec<Value>) -> EvalResult {
     }
 }
 
-fn normalize_current_buffer_region_bounds(
-    eval: &super::eval::Evaluator,
+pub(crate) fn normalize_current_buffer_region_bounds_in_manager(
+    buffers: &BufferManager,
     start_arg: &Value,
     end_arg: &Value,
 ) -> Result<(crate::buffer::BufferId, usize, usize), Flow> {
-    let buffer_id = eval
-        .buffers
+    let buffer_id = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .id;
 
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
 
@@ -315,17 +313,55 @@ fn normalize_current_buffer_region_bounds(
     Ok((buffer_id, start_byte, end_byte))
 }
 
+fn normalize_current_buffer_region_bounds(
+    eval: &super::eval::Evaluator,
+    start_arg: &Value,
+    end_arg: &Value,
+) -> Result<(crate::buffer::BufferId, usize, usize), Flow> {
+    normalize_current_buffer_region_bounds_in_manager(&eval.buffers, start_arg, end_arg)
+}
+
+pub(crate) fn read_buffer_region_in_manager(
+    buffers: &BufferManager,
+    buffer_id: crate::buffer::BufferId,
+    start_byte: usize,
+    end_byte: usize,
+) -> Result<String, Flow> {
+    let buf = buffers
+        .get(buffer_id)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    Ok(buf.buffer_substring(start_byte, end_byte))
+}
+
 fn read_buffer_region(
     eval: &super::eval::Evaluator,
     buffer_id: crate::buffer::BufferId,
     start_byte: usize,
     end_byte: usize,
 ) -> Result<String, Flow> {
-    let buf = eval
-        .buffers
-        .get(buffer_id)
+    read_buffer_region_in_manager(&eval.buffers, buffer_id, start_byte, end_byte)
+}
+
+pub(crate) fn replace_buffer_region_in_manager(
+    buffers: &mut BufferManager,
+    buffer_id: crate::buffer::BufferId,
+    start_byte: usize,
+    end_byte: usize,
+    replacement: &str,
+) -> Result<(), Flow> {
+    buffers
+        .goto_buffer_byte(buffer_id, start_byte)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    Ok(buf.buffer_substring(start_byte, end_byte))
+    buffers
+        .delete_buffer_region(buffer_id, start_byte, end_byte)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    buffers
+        .goto_buffer_byte(buffer_id, start_byte)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    buffers
+        .insert_into_buffer(buffer_id, replacement)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    Ok(())
 }
 
 fn replace_buffer_region(
@@ -335,19 +371,27 @@ fn replace_buffer_region(
     end_byte: usize,
     replacement: &str,
 ) -> Result<(), Flow> {
-    eval.buffers
-        .goto_buffer_byte(buffer_id, start_byte)
-        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    eval.buffers
-        .delete_buffer_region(buffer_id, start_byte, end_byte)
-        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    eval.buffers
-        .goto_buffer_byte(buffer_id, start_byte)
-        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    eval.buffers
-        .insert_into_buffer(buffer_id, replacement)
-        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
-    Ok(())
+    replace_buffer_region_in_manager(
+        &mut eval.buffers,
+        buffer_id,
+        start_byte,
+        end_byte,
+        replacement,
+    )
+}
+
+pub(crate) fn builtin_base64_encode_region_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("base64-encode-region", &args, 2, 3)?;
+    let (buffer_id, start_byte, end_byte) =
+        normalize_current_buffer_region_bounds_in_manager(buffers, &args[0], &args[1])?;
+    let source = read_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte)?;
+    let no_line_break = args.get(2).is_some_and(|v| v.is_truthy());
+    let encoded = base64_encode(source.as_bytes(), B64_STD, true, !no_line_break);
+    replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, &encoded)?;
+    Ok(Value::Int(encoded.len() as i64))
 }
 
 /// (base64-encode-region START END &optional NO-LINE-BREAK)
@@ -355,13 +399,20 @@ pub(crate) fn builtin_base64_encode_region_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("base64-encode-region", &args, 2, 3)?;
+    builtin_base64_encode_region_in_manager(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_base64url_encode_region_in_manager(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("base64url-encode-region", &args, 2, 3)?;
     let (buffer_id, start_byte, end_byte) =
-        normalize_current_buffer_region_bounds(eval, &args[0], &args[1])?;
-    let source = read_buffer_region(eval, buffer_id, start_byte, end_byte)?;
-    let no_line_break = args.get(2).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(source.as_bytes(), B64_STD, true, !no_line_break);
-    replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
+        normalize_current_buffer_region_bounds_in_manager(buffers, &args[0], &args[1])?;
+    let source = read_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte)?;
+    let no_pad = args.get(2).is_some_and(|v| v.is_truthy());
+    let encoded = base64_encode(source.as_bytes(), B64_URL, !no_pad, false);
+    replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, &encoded)?;
     Ok(Value::Int(encoded.len() as i64))
 }
 
@@ -370,25 +421,17 @@ pub(crate) fn builtin_base64url_encode_region_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("base64url-encode-region", &args, 2, 3)?;
-    let (buffer_id, start_byte, end_byte) =
-        normalize_current_buffer_region_bounds(eval, &args[0], &args[1])?;
-    let source = read_buffer_region(eval, buffer_id, start_byte, end_byte)?;
-    let no_pad = args.get(2).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(source.as_bytes(), B64_URL, !no_pad, false);
-    replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
-    Ok(Value::Int(encoded.len() as i64))
+    builtin_base64url_encode_region_in_manager(&mut eval.buffers, args)
 }
 
-/// (base64-decode-region START END &optional BASE64URL NOERROR)
-pub(crate) fn builtin_base64_decode_region_eval(
-    eval: &mut super::eval::Evaluator,
+pub(crate) fn builtin_base64_decode_region_in_manager(
+    buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("base64-decode-region", &args, 2, 4)?;
     let (buffer_id, start_byte, end_byte) =
-        normalize_current_buffer_region_bounds(eval, &args[0], &args[1])?;
-    let source = read_buffer_region(eval, buffer_id, start_byte, end_byte)?;
+        normalize_current_buffer_region_bounds_in_manager(buffers, &args[0], &args[1])?;
+    let source = read_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte)?;
     let use_url = args.get(2).is_some_and(|v| v.is_truthy());
     let noerror = args.get(3).is_some_and(|v| v.is_truthy());
     let table = if use_url {
@@ -400,15 +443,23 @@ pub(crate) fn builtin_base64_decode_region_eval(
     match base64_decode(&source, &table) {
         Ok(bytes) => {
             let decoded = String::from_utf8_lossy(&bytes).into_owned();
-            replace_buffer_region(eval, buffer_id, start_byte, end_byte, &decoded)?;
+            replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, &decoded)?;
             Ok(Value::Int(bytes.len() as i64))
         }
         Err(()) if noerror => {
-            replace_buffer_region(eval, buffer_id, start_byte, end_byte, "")?;
+            replace_buffer_region_in_manager(buffers, buffer_id, start_byte, end_byte, "")?;
             Ok(Value::Int(0))
         }
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),
     }
+}
+
+/// (base64-decode-region START END &optional BASE64URL NOERROR)
+pub(crate) fn builtin_base64_decode_region_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_base64_decode_region_in_manager(&mut eval.buffers, args)
 }
 
 // ---------------------------------------------------------------------------

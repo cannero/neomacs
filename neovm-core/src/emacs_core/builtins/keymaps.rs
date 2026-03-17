@@ -829,7 +829,7 @@ pub(crate) fn builtin_keymapp_in_obarray(obarray: &Obarray, args: &[Value]) -> E
 }
 
 /// `(event-convert-list EVENT-DESC)` -> event object or nil
-pub(super) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
     expect_args("event-convert-list", &args, 1)?;
     let Some(items) = list_to_vec(&args[0]) else {
         return Ok(Value::Nil);
