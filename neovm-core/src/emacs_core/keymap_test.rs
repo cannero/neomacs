@@ -229,6 +229,77 @@ fn keyboard_escape_encodes_to_emacs_escape_prefix_char() {
 }
 
 #[test]
+fn keyboard_return_encodes_to_emacs_carriage_return() {
+    let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
+        crate::keyboard::NamedKey::Return,
+    ));
+    assert_eq!(
+        key_event_to_emacs_event(&event),
+        Value::Int('\r' as i64),
+        "physical Return should enter GNU RET/C-m through event 13"
+    );
+}
+
+#[test]
+fn keyboard_meta_return_encodes_to_emacs_meta_carriage_return() {
+    let event = KeyEvent::from(crate::keyboard::KeyEvent::named_with_mods(
+        crate::keyboard::NamedKey::Return,
+        crate::keyboard::Modifiers::meta(),
+    ));
+    assert_eq!(
+        key_event_to_emacs_event(&event),
+        Value::Int(0x08000000 | '\r' as i64),
+        "Meta+Return should be encoded as meta-bit plus RET/C-m"
+    );
+}
+
+#[test]
+fn keyboard_tab_encodes_to_emacs_tab_char() {
+    let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
+        crate::keyboard::NamedKey::Tab,
+    ));
+    assert_eq!(
+        key_event_to_emacs_event(&event),
+        Value::Int('\t' as i64),
+        "physical Tab should enter GNU TAB through event 9"
+    );
+}
+
+#[test]
+fn format_key_event_renders_gnu_control_char_names() {
+    assert_eq!(
+        format_key_event(&KeyEvent::Char {
+            code: '\r',
+            ctrl: false,
+            meta: true,
+            shift: false,
+            super_: false,
+        }),
+        "M-RET"
+    );
+    assert_eq!(
+        format_key_event(&KeyEvent::Char {
+            code: '\t',
+            ctrl: false,
+            meta: false,
+            shift: false,
+            super_: false,
+        }),
+        "TAB"
+    );
+    assert_eq!(
+        format_key_event(&KeyEvent::Char {
+            code: '\u{7f}',
+            ctrl: false,
+            meta: false,
+            shift: false,
+            super_: false,
+        }),
+        "DEL"
+    );
+}
+
+#[test]
 fn format_key_sequence_roundtrip() {
     let desc = "C-x C-f";
     let keys = parse_key_description(desc).unwrap();

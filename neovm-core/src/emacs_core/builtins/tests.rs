@@ -3916,13 +3916,12 @@ fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
 
 #[test]
 fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
-    let prompt_end = dispatch_builtin_pure("minibuffer-prompt-end", vec![])
-        .expect("builtin minibuffer-prompt-end should resolve")
-        .expect("builtin minibuffer-prompt-end should evaluate");
-    assert_eq!(prompt_end, Value::Int(1));
+    assert!(
+        dispatch_builtin_pure("minibuffer-prompt-end", vec![]).is_none(),
+        "minibuffer-prompt-end should use eval-aware minibuffer state"
+    );
 
     for (name, args) in vec![
-        ("minibuffer-innermost-command-loop-p", vec![]),
         ("next-frame", vec![]),
         ("next-frame", vec![Value::Nil, Value::Nil]),
         ("previous-frame", vec![]),
@@ -4685,10 +4684,14 @@ fn pure_dispatch_x_display_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() {
-    let innermost = dispatch_builtin_pure("innermost-minibuffer-p", vec![])
-        .expect("builtin innermost-minibuffer-p should resolve")
-        .expect("builtin innermost-minibuffer-p should evaluate");
-    assert!(innermost.is_nil());
+    assert!(
+        dispatch_builtin_pure("minibuffer-innermost-command-loop-p", vec![]).is_none(),
+        "minibuffer-innermost-command-loop-p should use eval-aware minibuffer state"
+    );
+    assert!(
+        dispatch_builtin_pure("innermost-minibuffer-p", vec![]).is_none(),
+        "innermost-minibuffer-p should use eval-aware minibuffer state"
+    );
 
     let interactive_ignore =
         dispatch_builtin_pure("interactive-form", vec![Value::symbol("ignore")])

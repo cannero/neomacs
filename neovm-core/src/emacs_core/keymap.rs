@@ -345,6 +345,15 @@ pub fn format_key_event(event: &KeyEvent) -> String {
         KeyEvent::Char { code: ' ', .. } => {
             parts.push_str("SPC");
         }
+        KeyEvent::Char { code: '\r', .. } => {
+            parts.push_str("RET");
+        }
+        KeyEvent::Char { code: '\t', .. } => {
+            parts.push_str("TAB");
+        }
+        KeyEvent::Char { code: '\u{7f}', .. } => {
+            parts.push_str("DEL");
+        }
         KeyEvent::Char { code: '\u{1b}', .. } => {
             parts.push_str("ESC");
         }
@@ -726,6 +735,26 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             shift,
             super_,
         } => {
+            if let Some(base) = match name.as_str() {
+                "return" => Some('\r' as i64),
+                "tab" => Some('\t' as i64),
+                _ => None,
+            } {
+                let mut bits = base;
+                if *ctrl {
+                    bits |= KEY_CHAR_CTRL;
+                }
+                if *meta {
+                    bits |= KEY_CHAR_META;
+                }
+                if *shift {
+                    bits |= KEY_CHAR_SHIFT;
+                }
+                if *super_ {
+                    bits |= KEY_CHAR_SUPER;
+                }
+                return Value::Int(bits);
+            }
             let mut prefix = String::new();
             if *ctrl {
                 prefix.push_str("C-");

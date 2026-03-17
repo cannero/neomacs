@@ -704,8 +704,8 @@ fn read_from_minibuffer_interactive(
     let saved_buffer_id = eval.buffer_manager().current_buffer().map(|b| b.id);
 
     // Find or create *Minibuf-N* buffer
-    let depth = eval.command_loop.recursive_depth;
-    let minibuf_name = format!(" *Minibuf-{}*", depth);
+    let minibuf_depth = eval.minibuffers.depth() + 1;
+    let minibuf_name = format!(" *Minibuf-{}*", minibuf_depth);
     let minibuf_id = eval
         .buffer_manager()
         .find_buffer_by_name(&minibuf_name)
@@ -743,12 +743,13 @@ fn read_from_minibuffer_interactive(
         .unwrap_or(Value::Nil)
         .is_truthy();
     eval.minibuffers.set_enable_recursive(enable_recursive);
-    let _ = eval.minibuffers.read_from_minibuffer(
+    let state = eval.minibuffers.read_from_minibuffer(
         minibuf_id,
         prompt,
         initial_input.as_deref(),
         history_name.as_deref(),
     )?;
+    state.command_loop_depth = eval.command_loop.recursive_depth;
 
     // Set local keymap: use KEYMAP arg if provided, otherwise minibuffer-local-map
     let minibuf_keymap = if !keymap_arg.is_nil() {
@@ -769,7 +770,7 @@ fn read_from_minibuffer_interactive(
     );
 
     // Enter recursive edit — the command loop runs until exit-minibuffer throws 'exit
-    let edit_result = eval.recursive_edit_inner();
+    let edit_result = eval.minibuffer_command_loop_inner();
 
     // Read the minibuffer contents (everything after the prompt)
     let result_string = if let Some(buf) = eval.buffer_manager().get(minibuf_id) {

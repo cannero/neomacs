@@ -2213,6 +2213,12 @@ pub(crate) fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
     }
 }
 
+pub(crate) fn is_global_obarray_proxy(eval: &super::eval::Evaluator, value: &Value) -> bool {
+    eval.obarray()
+        .symbol_value("obarray")
+        .is_some_and(|proxy| *proxy == *value)
+}
+
 pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_min_args("intern", &args, 1)?;
     expect_max_args("intern", &args, 2)?;
@@ -2227,7 +2233,10 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Evaluator, args: Vec<Val
     let name = expect_string(&args[0])?;
 
     // Custom obarray path
-    if let Some(Value::Vector(vec_id)) = args.get(1).filter(|v| !v.is_nil()) {
+    if let Some(Value::Vector(vec_id)) = args
+        .get(1)
+        .filter(|v| !v.is_nil() && !is_global_obarray_proxy(eval, v))
+    {
         let vec_id = *vec_id;
         let vec_len = with_heap(|h| h.get_vector(vec_id).len());
         if vec_len == 0 {
@@ -2259,6 +2268,13 @@ pub(crate) fn builtin_intern_soft(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    if let Some(obarray) = args.get(1).filter(|v| !v.is_nil()) {
+        if is_global_obarray_proxy(eval, obarray) {
+            let mut global_args = args;
+            global_args.truncate(1);
+            return builtin_intern_soft_in_obarray(eval.obarray(), global_args);
+        }
+    }
     builtin_intern_soft_in_obarray(eval.obarray(), args)
 }
 
@@ -2328,7 +2344,7 @@ pub(crate) fn builtin_obarray_make(args: Vec<Value>) -> EvalResult {
     Ok(Value::vector(vec![Value::Nil; size]))
 }
 
-pub(super) fn expect_obarray_vector_id(value: &Value) -> Result<ObjId, Flow> {
+pub(crate) fn expect_obarray_vector_id(value: &Value) -> Result<ObjId, Flow> {
     let Value::Vector(id) = value else {
         return Err(signal(
             "wrong-type-argument",

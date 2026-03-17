@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use crate::buffer::{BufferId, BufferManager};
 
 use super::error::{EvalResult, Flow, signal};
+use super::hashtab::hash_key_to_visible_value;
 use super::intern::resolve_sym;
 use super::reader::KeyboardInputRuntime;
 use super::value::{Value, read_cons, with_heap};
@@ -43,6 +44,17 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
+        Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Result<(), Flow> {
+    if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol(name), Value::Int(args.len() as i64)],
@@ -185,6 +197,8 @@ pub struct MinibufferState {
     pub active: bool,
     /// Recursive minibuffer depth at which this state was entered.
     pub depth: usize,
+    /// Command-loop depth active when this minibuffer was entered.
+    pub command_loop_depth: usize,
 }
 
 impl MinibufferState {
@@ -205,6 +219,7 @@ impl MinibufferState {
             default_value: None,
             active: true,
             depth,
+            command_loop_depth: 0,
         }
     }
 }
@@ -923,6 +938,37 @@ pub(crate) fn builtin_minibuffer_prompt_in_state(
         .unwrap_or(Value::Nil))
 }
 
+pub(crate) fn builtin_minibuffer_prompt_end_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_minibuffer_prompt_end_in_state(&eval.minibuffers, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_minibuffer_prompt_end_in_state(
+    minibuffers: &MinibufferManager,
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("minibuffer-prompt-end", &args, 0)?;
+
+    let Some(buffer) = buffers.current_buffer() else {
+        return Ok(Value::Int(1));
+    };
+    let point_min = buffer.point_min_char() as i64 + 1;
+
+    let Some(state) = minibuffers.current() else {
+        return Ok(Value::Int(point_min));
+    };
+    if state.buffer_id != buffer.id {
+        return Ok(Value::Int(point_min));
+    }
+
+    let prompt_end_byte = state.prompt_end.min(buffer.text.len());
+    let prompt_end_char = buffer.text.byte_to_char(prompt_end_byte) as i64 + 1;
+    Ok(Value::Int(prompt_end_char.max(point_min)))
+}
+
 /// `(minibuffer-contents)` — returns the current minibuffer contents.
 ///
 /// In non-interactive batch mode, Emacs exposes current buffer contents.
@@ -1020,6 +1066,61 @@ pub(crate) fn builtin_minibufferp_in_state(
             .get(buffer_id)
             .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name));
     Ok(Value::bool(if live_only { is_live } else { is_minibuffer }))
+}
+
+pub(crate) fn builtin_minibuffer_innermost_command_loop_p_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_minibuffer_innermost_command_loop_p_in_state(
+        &eval.minibuffers,
+        &eval.buffers,
+        eval.command_loop.recursive_depth,
+        args,
+    )
+}
+
+pub(crate) fn builtin_minibuffer_innermost_command_loop_p_in_state(
+    minibuffers: &MinibufferManager,
+    buffers: &BufferManager,
+    recursive_depth: usize,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("minibuffer-innermost-command-loop-p", &args, 0, 1)?;
+    let Some(buffer_id) = resolve_minibuffer_buffer_arg(buffers, args.first())? else {
+        return Ok(Value::Nil);
+    };
+    let command_loop_depth = minibuffers
+        .state_stack
+        .iter()
+        .find(|state| state.buffer_id == buffer_id)
+        .map(|state| state.command_loop_depth);
+    Ok(Value::bool(
+        command_loop_depth.is_some_and(|depth| depth == recursive_depth),
+    ))
+}
+
+pub(crate) fn builtin_innermost_minibuffer_p_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_innermost_minibuffer_p_in_state(&eval.minibuffers, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_innermost_minibuffer_p_in_state(
+    minibuffers: &MinibufferManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("innermost-minibuffer-p", &args, 0, 1)?;
+    let Some(buffer_id) = resolve_minibuffer_buffer_arg(buffers, args.first())? else {
+        return Ok(Value::Nil);
+    };
+    Ok(Value::bool(
+        minibuffers
+            .current()
+            .is_some_and(|state| state.buffer_id == buffer_id),
+    ))
 }
 
 fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
@@ -1249,6 +1350,254 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
         }
         _ => Vec::new(),
     }
+}
+
+#[derive(Clone)]
+struct CompletionCandidate {
+    completion: String,
+    predicate_arg: Value,
+    predicate_extra_arg: Option<Value>,
+}
+
+fn completion_string_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_owned()),
+        Value::Nil => Some("nil".to_owned()),
+        Value::True => Some("t".to_owned()),
+        _ => None,
+    }
+}
+
+fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCandidate> {
+    let items = match super::value::list_to_vec(collection) {
+        Some(items) => items,
+        None => return Vec::new(),
+    };
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let key = match item {
+                Value::Cons(cell) => read_cons(cell).car,
+                other => other,
+            };
+            completion_string_from_value(&key).map(|completion| CompletionCandidate {
+                completion,
+                predicate_arg: item,
+                predicate_extra_arg: None,
+            })
+        })
+        .collect()
+}
+
+fn completion_candidates_from_vector_value(collection: &Value) -> Vec<CompletionCandidate> {
+    let Value::Vector(id) = collection else {
+        return Vec::new();
+    };
+    let items = with_heap(|h| h.get_vector(*id).clone());
+    items
+        .into_iter()
+        .filter_map(|item| {
+            completion_string_from_value(&item).map(|completion| CompletionCandidate {
+                completion,
+                predicate_arg: item,
+                predicate_extra_arg: None,
+            })
+        })
+        .collect()
+}
+
+fn completion_candidates_from_global_obarray(
+    eval: &super::eval::Evaluator,
+) -> Vec<CompletionCandidate> {
+    let mut names: Vec<String> = eval
+        .obarray()
+        .all_symbols()
+        .into_iter()
+        .map(|name| name.to_owned())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .map(|name| CompletionCandidate {
+            completion: name.clone(),
+            predicate_arg: Value::symbol(name),
+            predicate_extra_arg: None,
+        })
+        .collect()
+}
+
+fn completion_candidates_from_custom_obarray(vec_id: crate::gc::ObjId) -> Vec<CompletionCandidate> {
+    let slots = with_heap(|h| h.get_vector(vec_id).clone());
+    let mut candidates = Vec::new();
+    for slot in slots {
+        let mut current = slot;
+        loop {
+            match current {
+                Value::Nil => break,
+                Value::Cons(cell) => {
+                    let pair = read_cons(cell);
+                    if let Some(completion) = completion_string_from_value(&pair.car) {
+                        candidates.push(CompletionCandidate {
+                            completion,
+                            predicate_arg: pair.car,
+                            predicate_extra_arg: None,
+                        });
+                    }
+                    current = pair.cdr;
+                }
+                _ => break,
+            }
+        }
+    }
+    candidates
+}
+
+fn completion_candidates_from_hash_table(table_id: crate::gc::ObjId) -> Vec<CompletionCandidate> {
+    let table = with_heap(|h| h.get_hash_table(table_id).clone());
+    let mut candidates = Vec::new();
+    for key in &table.insertion_order {
+        let Some(value) = table.data.get(key).copied() else {
+            continue;
+        };
+        let visible_key = hash_key_to_visible_value(&table, key);
+        if let Some(completion) = completion_string_from_value(&visible_key) {
+            candidates.push(CompletionCandidate {
+                completion,
+                predicate_arg: visible_key,
+                predicate_extra_arg: Some(value),
+            });
+        }
+    }
+    candidates
+}
+
+fn completion_candidates_from_collection(
+    eval: &super::eval::Evaluator,
+    collection: &Value,
+) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
+    Ok(match collection {
+        Value::Nil | Value::Cons(_) => Some(completion_candidates_from_list_value(collection)),
+        Value::HashTable(table_id) => Some(completion_candidates_from_hash_table(*table_id)),
+        Value::Vector(_) if super::builtins::symbols::is_global_obarray_proxy(eval, collection) => {
+            Some(completion_candidates_from_global_obarray(eval))
+        }
+        Value::Vector(vec_id) => {
+            super::builtins::symbols::expect_obarray_vector_id(collection)?;
+            Some(completion_candidates_from_custom_obarray(*vec_id))
+        }
+        _ => None,
+    })
+}
+
+fn completion_predicate_matches(
+    eval: &mut super::eval::Evaluator,
+    predicate: Value,
+    candidate: &CompletionCandidate,
+) -> Result<bool, Flow> {
+    if predicate.is_nil() {
+        return Ok(true);
+    }
+    let result = match candidate.predicate_extra_arg {
+        Some(extra) => eval.apply(predicate, vec![candidate.predicate_arg, extra])?,
+        None => eval.apply(predicate, vec![candidate.predicate_arg])?,
+    };
+    Ok(result.is_truthy())
+}
+
+fn completion_matches_prefix(prefix: &str, completion: &str) -> bool {
+    completion.starts_with(prefix)
+}
+
+pub(crate) fn builtin_try_completion_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("try-completion", &args, 2)?;
+    expect_max_args("try-completion", &args, 3)?;
+    let string = expect_string(&args[0])?;
+    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let collection = args[1];
+
+    let Some(candidates) = completion_candidates_from_collection(eval, &collection)? else {
+        return eval.apply(collection, vec![args[0], predicate, Value::Nil]);
+    };
+
+    let mut matches = Vec::new();
+    for candidate in &candidates {
+        if !completion_matches_prefix(&string, &candidate.completion) {
+            continue;
+        }
+        if completion_predicate_matches(eval, predicate, candidate)? {
+            matches.push(candidate.completion.clone());
+        }
+    }
+
+    if matches.is_empty() {
+        return Ok(Value::Nil);
+    }
+    if matches.len() == 1 && matches[0] == string {
+        return Ok(Value::True);
+    }
+    match compute_common_prefix(&matches) {
+        Some(prefix) => Ok(Value::string(prefix)),
+        None => Ok(Value::Nil),
+    }
+}
+
+pub(crate) fn builtin_all_completions_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("all-completions", &args, 2)?;
+    expect_max_args("all-completions", &args, 4)?;
+    let string = expect_string(&args[0])?;
+    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let collection = args[1];
+
+    let Some(candidates) = completion_candidates_from_collection(eval, &collection)? else {
+        return eval.apply(collection, vec![args[0], predicate, Value::True]);
+    };
+
+    let mut matches = Vec::new();
+    for candidate in &candidates {
+        if !completion_matches_prefix(&string, &candidate.completion) {
+            continue;
+        }
+        if completion_predicate_matches(eval, predicate, candidate)? {
+            matches.push(Value::string(candidate.completion.clone()));
+        }
+    }
+    Ok(Value::list(matches))
+}
+
+pub(crate) fn builtin_test_completion_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("test-completion", &args, 2)?;
+    expect_max_args("test-completion", &args, 3)?;
+    let string = expect_string(&args[0])?;
+    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let collection = args[1];
+
+    let Some(candidates) = completion_candidates_from_collection(eval, &collection)? else {
+        return eval.apply(
+            collection,
+            vec![args[0], predicate, Value::symbol("lambda")],
+        );
+    };
+
+    for candidate in &candidates {
+        if candidate.completion != string {
+            continue;
+        }
+        if completion_predicate_matches(eval, predicate, candidate)? {
+            return Ok(Value::True);
+        }
+    }
+    Ok(Value::Nil)
 }
 
 fn end_of_file_stdin_error() -> Flow {

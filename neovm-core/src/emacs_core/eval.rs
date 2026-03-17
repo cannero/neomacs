@@ -1389,22 +1389,12 @@ impl Evaluator {
         let completion_in_region_mode_map = make_sparse_list_keymap();
         let completion_list_mode_map = make_sparse_list_keymap();
         let minibuffer_local_map = make_sparse_list_keymap();
-        let minibuffer_local_completion_map = make_sparse_list_keymap();
-        let minibuffer_local_filename_completion_map = make_sparse_list_keymap();
-        let minibuffer_local_must_match_map = make_sparse_list_keymap();
-        let minibuffer_local_ns_map = make_sparse_list_keymap();
-        let minibuffer_local_shell_command_map = make_sparse_list_keymap();
-        let minibuffer_local_isearch_map = make_sparse_list_keymap();
-        let minibuffer_inactive_mode_map = make_sparse_list_keymap();
-        let minibuffer_mode_map = make_sparse_list_keymap();
-        let minibuffer_visible_completions_map = make_sparse_list_keymap();
+        // Keep only the base minibuffer map here.  GNU Lisp mutates this map in
+        // minibuffer.el, while the derived minibuffer/read maps are defined in
+        // Lisp via defvar/defvar-keymap.  Prebinding those derived maps here
+        // prevents GNU's Lisp definitions from installing their real bindings.
         let read_expression_map = make_sparse_list_keymap();
         let read_expression_internal_map = make_sparse_list_keymap();
-        let read_char_from_minibuffer_map = make_sparse_list_keymap();
-        let read_extended_command_mode_map = make_sparse_list_keymap();
-        let read_regexp_map = make_sparse_list_keymap();
-        let read_key_empty_map = make_sparse_list_keymap();
-        let read_key_full_map = make_list_keymap();
         // Standard keymaps required by loadup.el files (normally created by C code)
         // `global-map`, `esc-map`, and `ctl-x-map` are defined in GNU subr.el,
         // so keep them unbound here and let the Lisp `defvar` initializers run.
@@ -1420,25 +1410,8 @@ impl Evaluator {
         let input_decode_map = make_sparse_list_keymap();
         let local_function_key_map = make_sparse_list_keymap();
 
-        list_keymap_set_parent(minibuffer_local_completion_map, minibuffer_local_map);
-        list_keymap_set_parent(
-            minibuffer_local_filename_completion_map,
-            minibuffer_local_completion_map,
-        );
-        list_keymap_set_parent(
-            minibuffer_local_must_match_map,
-            minibuffer_local_completion_map,
-        );
-        list_keymap_set_parent(minibuffer_local_ns_map, minibuffer_local_map);
-        list_keymap_set_parent(minibuffer_local_shell_command_map, minibuffer_local_map);
-        list_keymap_set_parent(minibuffer_local_isearch_map, minibuffer_local_map);
-        list_keymap_set_parent(minibuffer_mode_map, minibuffer_local_map);
         list_keymap_set_parent(read_expression_map, minibuffer_local_map);
         list_keymap_set_parent(read_expression_internal_map, read_expression_map);
-        list_keymap_set_parent(read_char_from_minibuffer_map, minibuffer_local_map);
-        list_keymap_set_parent(read_extended_command_mode_map, minibuffer_local_map);
-        list_keymap_set_parent(read_regexp_map, minibuffer_local_map);
-        list_keymap_set_parent(minibuffer_visible_completions_map, completion_list_mode_map);
 
         let standard_syntax_table = super::syntax::builtin_standard_syntax_table(Vec::new())
             .expect("startup seeding requires standard syntax table");
@@ -1841,23 +1814,8 @@ impl Evaluator {
             "read-answer-map--memoize",
             Value::hash_table(HashTableTest::Equal),
         );
-        obarray.set_symbol_value(
-            "read-char-from-minibuffer-map",
-            read_char_from_minibuffer_map,
-        );
-        obarray.set_symbol_value(
-            "read-char-from-minibuffer-map-hash",
-            Value::hash_table(HashTableTest::Equal),
-        );
         obarray.set_symbol_value("read-expression-map", read_expression_map);
         obarray.set_symbol_value("read--expression-map", read_expression_internal_map);
-        obarray.set_symbol_value(
-            "read-extended-command-mode-map",
-            read_extended_command_mode_map,
-        );
-        obarray.set_symbol_value("read-key-empty-map", read_key_empty_map);
-        obarray.set_symbol_value("read-key-full-map", read_key_full_map);
-        obarray.set_symbol_value("read-regexp-map", read_regexp_map);
         obarray.set_symbol_value("read-extended-command-mode", Value::Nil);
         obarray.set_symbol_value("read-extended-command-mode-hook", Value::Nil);
         obarray.set_symbol_value("read-extended-command-predicate", Value::Nil);
@@ -1882,7 +1840,6 @@ impl Evaluator {
             Value::symbol("minibuffer-inactive-mode-abbrev-table"),
         );
         obarray.set_symbol_value("minibuffer-inactive-mode-hook", Value::Nil);
-        obarray.set_symbol_value("minibuffer-inactive-mode-map", minibuffer_inactive_mode_map);
         obarray.set_symbol_value(
             "minibuffer-inactive-mode-syntax-table",
             standard_syntax_table,
@@ -1892,27 +1849,8 @@ impl Evaluator {
             Value::symbol("minibuffer-mode-abbrev-table"),
         );
         obarray.set_symbol_value("minibuffer-mode-hook", Value::Nil);
-        obarray.set_symbol_value("minibuffer-mode-map", minibuffer_mode_map);
         obarray.set_symbol_value("minibuffer-local-map", minibuffer_local_map);
-        obarray.set_symbol_value(
-            "minibuffer-local-completion-map",
-            minibuffer_local_completion_map,
-        );
-        obarray.set_symbol_value(
-            "minibuffer-local-filename-completion-map",
-            minibuffer_local_filename_completion_map,
-        );
         obarray.set_symbol_value("minibuffer-local-filename-syntax", standard_syntax_table);
-        obarray.set_symbol_value("minibuffer-local-isearch-map", minibuffer_local_isearch_map);
-        obarray.set_symbol_value(
-            "minibuffer-local-must-match-map",
-            minibuffer_local_must_match_map,
-        );
-        obarray.set_symbol_value("minibuffer-local-ns-map", minibuffer_local_ns_map);
-        obarray.set_symbol_value(
-            "minibuffer-local-shell-command-map",
-            minibuffer_local_shell_command_map,
-        );
         obarray.set_symbol_value("minibuffer-history", Value::Nil);
         obarray.set_symbol_value(
             "minibuffer-history-variable",
@@ -1985,10 +1923,6 @@ impl Evaluator {
         obarray.set_symbol_value("minibuffer-scroll-window", Value::Nil);
         obarray.set_symbol_value("minibuffer-visible-completions", Value::Nil);
         obarray.set_symbol_value("minibuffer-visible-completions--always-bind", Value::Nil);
-        obarray.set_symbol_value(
-            "minibuffer-visible-completions-map",
-            minibuffer_visible_completions_map,
-        );
         obarray.set_symbol_value("minibuffer-depth-indicate-mode", Value::Nil);
         obarray.set_symbol_value(
             "minibuffer-default-prompt-format",
@@ -2756,13 +2690,24 @@ impl Evaluator {
 
     #[tracing::instrument(skip_all, fields(depth = self.command_loop.recursive_depth, has_input = self.input_rx.is_some()))]
     pub(crate) fn recursive_edit_inner(&mut self) -> EvalResult {
+        self.run_exit_wrapped_command_loop(true)
+    }
+
+    #[tracing::instrument(skip_all, fields(depth = self.command_loop.recursive_depth, has_input = self.input_rx.is_some()))]
+    pub(crate) fn minibuffer_command_loop_inner(&mut self) -> EvalResult {
+        self.run_exit_wrapped_command_loop(false)
+    }
+
+    fn run_exit_wrapped_command_loop(&mut self, increment_depth: bool) -> EvalResult {
         // Batch mode: no interactive input, return immediately.
         if self.input_rx.is_none() {
             tracing::info!("recursive_edit_inner: batch mode, returning immediately");
             return Ok(Value::Nil);
         }
 
-        self.command_loop.recursive_depth += 1;
+        if increment_depth {
+            self.command_loop.recursive_depth += 1;
+        }
 
         // Register catch tag for 'exit (mirrors keyboard.c catch handler).
         let exit_tag = Value::symbol("exit");
@@ -2771,7 +2716,9 @@ impl Evaluator {
         let result = self.command_loop_inner();
 
         self.catch_tags.pop();
-        self.command_loop.recursive_depth -= 1;
+        if increment_depth {
+            self.command_loop.recursive_depth -= 1;
+        }
 
         match result {
             Ok(val) => Ok(val),
@@ -2823,9 +2770,12 @@ impl Evaluator {
         loop {
             match self.command_loop_1() {
                 Ok(val) => return Ok(val),
-                Err(Flow::Throw { .. }) => {
-                    // Throws propagate (exit, top-level, etc.)
-                    return Err(self.command_loop_1().unwrap_err());
+                Err(flow @ Flow::Throw { .. }) => {
+                    // Throws propagate (exit, top-level, etc.) without
+                    // re-entering the command loop.  Re-running command_loop_1
+                    // here traps minibuffer exit throws and blocks waiting for
+                    // another key instead of unwinding like GNU Emacs.
+                    return Err(flow);
                 }
                 Err(Flow::Signal(sig)) => {
                     // Error in command loop — display and restart.

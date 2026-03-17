@@ -3695,9 +3695,7 @@ impl<'a> Vm<'a> {
             "read-command" => Some(self.builtin_read_command_shared(args)),
             "read-variable" => Some(self.builtin_read_variable_shared(args)),
             "try-completion" => Some(self.builtin_try_completion_shared(args)),
-            "all-completions" => Some(crate::emacs_core::minibuffer::builtin_all_completions(
-                args.to_vec(),
-            )),
+            "all-completions" => Some(self.builtin_all_completions_shared(args)),
             "test-completion" => Some(self.builtin_test_completion_shared(args)),
             "input-pending-p" => Some(self.builtin_input_pending_p_shared(args)),
             "discard-input" => Some(self.builtin_discard_input_shared(args)),
@@ -7174,7 +7172,19 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_try_completion_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::minibuffer::builtin_try_completion(args.to_vec())
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::minibuffer::builtin_try_completion_eval(eval, call_args)
+        })
+    }
+
+    fn builtin_all_completions_shared(&mut self, args: &[Value]) -> EvalResult {
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::minibuffer::builtin_all_completions_eval(eval, call_args)
+        })
     }
 
     fn builtin_file_name_completion_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -7236,7 +7246,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_test_completion_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::minibuffer::builtin_test_completion(args.to_vec())
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::minibuffer::builtin_test_completion_eval(eval, call_args)
+        })
     }
 
     fn builtin_input_pending_p_shared(&mut self, args: &[Value]) -> EvalResult {

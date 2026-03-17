@@ -734,7 +734,10 @@ pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Evaluator, args: Vec<Valu
     let func = args[0];
 
     // Custom obarray path
-    if let Some(Value::Vector(vec_id)) = args.get(1).filter(|v| !v.is_nil()) {
+    if let Some(Value::Vector(vec_id)) = args
+        .get(1)
+        .filter(|v| !v.is_nil() && !super::builtins::symbols::is_global_obarray_proxy(eval, v))
+    {
         let vec_id = *vec_id;
         // Collect all symbols from all buckets
         let all_slots = with_heap(|h| h.get_vector(vec_id).clone());

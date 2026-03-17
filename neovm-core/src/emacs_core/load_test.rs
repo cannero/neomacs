@@ -7,9 +7,24 @@ use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct CacheWriteFailGuard;
+
+static TEST_TRACING_INIT: Once = Once::new();
+
+fn init_test_tracing() {
+    TEST_TRACING_INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug")),
+            )
+            .try_init();
+    });
+}
 
 impl CacheWriteFailGuard {
     fn set(phase: u8) -> Self {
@@ -759,6 +774,141 @@ fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
     assert_eq!(
         rendered,
         "OK (ESC-prefix execute-extended-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-emacs)"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (lookup-key minibuffer-local-map "\r")
+             (lookup-key minibuffer-local-completion-map (kbd "RET"))
+             (lookup-key minibuffer-local-must-match-map (kbd "RET"))
+             (lookup-key read-extended-command-mode-map (kbd "M-X")))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (exit-minibuffer minibuffer-completion-exit minibuffer-complete-and-exit execute-extended-command-cycle)"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_global_obarray_proxy_preserves_completion_semantics() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (defun neo-obarray-probe ()
+               (interactive))
+             (list
+               (obarrayp obarray)
+               (intern-soft "neo-obarray-probe" obarray)
+               (try-completion "neo-obarray-probe" obarray #'commandp)
+               (test-completion "neo-obarray-probe" obarray #'commandp)
+               (not (null (member "neo-obarray-probe"
+                                  (all-completions "neo-obarray"
+                                                   obarray
+                                                   #'commandp))))))"#,
+    );
+    assert_eq!(rendered, "OK (t neo-obarray-probe t t t)");
+}
+
+#[test]
+fn bootstrap_runtime_execute_extended_command_exits_minibuffer_on_ret() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = parse_forms(
+        r#"(progn
+             (setq neo-ret-probe-ran nil)
+             (defun neo-ret-probe ()
+               (interactive)
+               (setq neo-ret-probe-ran t)))"#,
+    )
+    .expect("parse execute-extended-command RET probe");
+    let _ = eval.eval_forms(&setup);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    for ch in "neo-ret-probe".chars() {
+        eval.command_loop
+            .unread_events
+            .push_back(crate::keyboard::KeyEvent::char(ch));
+    }
+    eval.command_loop
+        .unread_events
+        .push_back(crate::keyboard::KeyEvent::named(
+            crate::keyboard::NamedKey::Return,
+        ));
+
+    let result = eval
+        .apply(Value::symbol("execute-extended-command"), vec![Value::Nil])
+        .expect("execute-extended-command should return after RET");
+    assert_eq!(result, Value::Nil);
+    assert!(
+        eval.eval_symbol("neo-ret-probe-ran")
+            .expect("probe var should exist")
+            .is_truthy(),
+        "expected RET to exit the minibuffer and run the command"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = parse_forms(
+        r#"(progn
+             (setq neo-ret-probe-ran nil)
+             (defun neo-ret-probe ()
+               (interactive)
+               (setq neo-ret-probe-ran t)
+               (exit-recursive-edit)))"#,
+    )
+    .expect("parse command-loop M-x RET probe");
+    let _ = eval.eval_forms(&setup);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-x");
+    for ch in "neo-ret-probe".chars() {
+        tx.send(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    tx.send(crate::keyboard::InputEvent::CloseRequested)
+        .expect("queue close request");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("command loop should exit normally");
+    assert_eq!(result, Value::Nil);
+    assert!(
+        eval.eval_symbol("neo-ret-probe-ran")
+            .expect("probe var should exist")
+            .is_truthy(),
+        "expected M-x command RET path to run the command before shutdown fallback"
     );
 }
 

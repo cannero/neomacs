@@ -2180,9 +2180,15 @@ pub(crate) fn dispatch_builtin(
         "read-buffer" => return Some(super::minibuffer::builtin_read_buffer(eval, args)),
         "read-command" => return Some(super::minibuffer::builtin_read_command(eval, args)),
         "read-variable" => return Some(super::minibuffer::builtin_read_variable(eval, args)),
-        "try-completion" => return Some(super::minibuffer::builtin_try_completion(args)),
-        "all-completions" => return Some(super::minibuffer::builtin_all_completions(args)),
-        "test-completion" => return Some(super::minibuffer::builtin_test_completion(args)),
+        "try-completion" => {
+            return Some(super::minibuffer::builtin_try_completion_eval(eval, args));
+        }
+        "all-completions" => {
+            return Some(super::minibuffer::builtin_all_completions_eval(eval, args));
+        }
+        "test-completion" => {
+            return Some(super::minibuffer::builtin_test_completion_eval(eval, args));
+        }
         "input-pending-p" => return Some(super::reader::builtin_input_pending_p(eval, args)),
         "discard-input" => return Some(super::reader::builtin_discard_input(eval, args)),
         "current-input-mode" => return Some(super::reader::builtin_current_input_mode(eval, args)),
@@ -2212,6 +2218,21 @@ pub(crate) fn dispatch_builtin(
         "minibufferp" => return Some(super::minibuffer::builtin_minibufferp_eval(eval, args)),
         "minibuffer-prompt" => {
             return Some(super::minibuffer::builtin_minibuffer_prompt_eval(
+                eval, args,
+            ));
+        }
+        "minibuffer-prompt-end" => {
+            return Some(super::minibuffer::builtin_minibuffer_prompt_end_eval(
+                eval, args,
+            ));
+        }
+        "minibuffer-innermost-command-loop-p" => {
+            return Some(
+                super::minibuffer::builtin_minibuffer_innermost_command_loop_p_eval(eval, args),
+            );
+        }
+        "innermost-minibuffer-p" => {
+            return Some(super::minibuffer::builtin_innermost_minibuffer_p_eval(
                 eval, args,
             ));
         }
@@ -3114,8 +3135,8 @@ pub(crate) fn dispatch_builtin(
         "make-terminal-frame" => super::terminal::pure::builtin_make_terminal_frame(args),
         "menu-bar-menu-at-x-y" => builtin_menu_bar_menu_at_x_y(args),
         "menu-or-popup-active-p" => builtin_menu_or_popup_active_p(args),
-        "minibuffer-innermost-command-loop-p" => builtin_minibuffer_innermost_command_loop_p(args),
-        "minibuffer-prompt-end" => builtin_minibuffer_prompt_end(args),
+        "minibuffer-innermost-command-loop-p" => return None,
+        "minibuffer-prompt-end" => return None,
         "module-load" => builtin_module_load(args),
         "mouse-pixel-position" => builtin_mouse_pixel_position(args),
         "mouse-position" => builtin_mouse_position(args),
@@ -3219,7 +3240,7 @@ pub(crate) fn dispatch_builtin(
         "xw-color-defined-p" => builtin_xw_color_defined_p(args),
         "xw-color-values" => builtin_xw_color_values(args),
         "xw-display-color-p" => builtin_xw_display_color_p(args),
-        "innermost-minibuffer-p" => builtin_innermost_minibuffer_p(args),
+        "innermost-minibuffer-p" => return None,
         "interactive-form" => builtin_interactive_form(args),
         "inotify-add-watch" => builtin_inotify_add_watch(args),
         "inotify-allocated-p" => builtin_inotify_allocated_p(args),
@@ -3930,8 +3951,8 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "make-terminal-frame" => super::terminal::pure::builtin_make_terminal_frame(args),
         "menu-bar-menu-at-x-y" => builtin_menu_bar_menu_at_x_y(args),
         "menu-or-popup-active-p" => builtin_menu_or_popup_active_p(args),
-        "minibuffer-innermost-command-loop-p" => builtin_minibuffer_innermost_command_loop_p(args),
-        "minibuffer-prompt-end" => builtin_minibuffer_prompt_end(args),
+        "minibuffer-innermost-command-loop-p" => return None,
+        "minibuffer-prompt-end" => return None,
         "module-load" => builtin_module_load(args),
         "mouse-pixel-position" => builtin_mouse_pixel_position(args),
         "mouse-position" => builtin_mouse_position(args),
@@ -4035,7 +4056,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "xw-color-defined-p" => builtin_xw_color_defined_p(args),
         "xw-color-values" => builtin_xw_color_values(args),
         "xw-display-color-p" => builtin_xw_display_color_p(args),
-        "innermost-minibuffer-p" => builtin_innermost_minibuffer_p(args),
+        "innermost-minibuffer-p" => return None,
         "interactive-form" => builtin_interactive_form(args),
         "inotify-add-watch" => builtin_inotify_add_watch(args),
         "inotify-allocated-p" => builtin_inotify_allocated_p(args),
