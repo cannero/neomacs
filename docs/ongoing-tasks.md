@@ -4,10 +4,11 @@ This is an auto-updating log for incremental NeoVM rewrite slices that should ke
 
 ## Current focus areas
 1. **Bootstrap fidelity** – prioritize faithful GNU-style bootstrap/loadup/runtime surface so upstream Lisp libraries (`cl-lib`, `gv`, `seq`, `nadvice`, etc.) remain the semantic source of truth. Treat Rust-side library compatibility buckets and bootstrap sentinels as deletion-target debt. See `docs/plans/2026-03-15-bootstrap-fidelity-design.md`.
-2. **Compatibility slices** – keep expanding `test/neovm/vm-compat` cases (window/frame semantics, timers, inputs, display primitives). Every addition must gate on `check-all-neovm` and matching Oracle TSVs.
-3. **Rust-only backend** – the legacy Emacs C backend and build tree are removed. New work should assume `neomacs-bin` + `neovm-core` + `neomacs-display-runtime` are the only supported runtime path.
-4. **Concurrency model** – reinforce the isolate-first scheduler (`neovm-worker`), message passing, and Specpdl isolation across isolates while keeping the host/VM boundary clean.
-5. **Platform guidance** – expand README platform notes and link to issue #22 for macOS, plus consider creating future follow-ups for Windows/other hosts once a stable build path exists.
+2. **Keyboard/input fidelity** – move toward one canonical GNU-compatible input normalization layer in `neovm-core`, then add harnessed `winit`-level tests so GUI input bugs do not depend on `xdotool` as the primary oracle. See `docs/plans/2026-03-17-keyboard-input-fidelity-design.md`.
+3. **Compatibility slices** – keep expanding `test/neovm/vm-compat` cases (window/frame semantics, timers, inputs, display primitives). Every addition must gate on `check-all-neovm` and matching Oracle TSVs.
+4. **Rust-only backend** – the legacy Emacs C backend and build tree are removed. New work should assume `neomacs-bin` + `neovm-core` + `neomacs-display-runtime` are the only supported runtime path.
+5. **Concurrency model** – reinforce the isolate-first scheduler (`neovm-worker`), message passing, and Specpdl isolation across isolates while keeping the host/VM boundary clean.
+6. **Platform guidance** – expand README platform notes and link to issue #22 for macOS, plus consider creating future follow-ups for Windows/other hosts once a stable build path exists.
 
 ## Next actionable move
 - Start a bootstrap-fidelity slice: add dedicated oracle checks for `require 'cl-lib`, `require 'gv`, `require 'seq`, and `require 'cl-generic`, then remove one real bootstrap shim by fixing the blocker rather than adding another compatibility layer.
