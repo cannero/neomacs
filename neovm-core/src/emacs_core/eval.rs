@@ -219,9 +219,8 @@ impl InterpretedClosureTrimCacheEntry {
 /// must share to match GNU Emacs's single-runtime model.
 ///
 /// This bundle is also the correct GC/root boundary for VM fallback into
-/// evaluator paths.  Keep a raw pointer to the parent evaluator as well so
-/// VM/evaluator crossings can run on the same runtime instead of rebuilding a
-/// temporary evaluator shell.
+/// evaluator paths. Keep a raw pointer to the parent evaluator so VM-side
+/// semantic boundaries can enter the real evaluator on the same runtime.
 pub(crate) struct VmSharedState<'a> {
     pub(crate) obarray: &'a mut Obarray,
     pub(crate) dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
@@ -1632,10 +1631,6 @@ impl Evaluator {
         ev.interpreted_closure_filter_fn = None;
         ev.interpreted_closure_trim_cache.clear();
         ev
-    }
-
-    pub(crate) fn new_preserving_thread_locals() -> Self {
-        Self::new_inner(false)
     }
 
     fn new_inner(reset_thread_locals: bool) -> Self {
