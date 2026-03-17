@@ -8421,12 +8421,13 @@ impl<'a> Vm<'a> {
         }
         let (function, call_args) = if let Some((function, call_args)) =
             crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_state(
-                &*self.shared.obarray,
-                self.shared.dynamic.as_slice(),
-                &*self.shared.buffers,
+                &mut *self.shared.obarray,
+                self.shared.dynamic,
+                self.shared.buffers,
+                &*self.shared.custom,
                 &*self.shared.frames,
                 &*self.shared.interactive,
-                &plan,
+                &mut plan,
             )? {
             (function, call_args)
         } else {

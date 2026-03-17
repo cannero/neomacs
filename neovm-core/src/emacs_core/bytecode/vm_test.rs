@@ -1387,6 +1387,36 @@ fn vm_call_interactively_instantiates_raw_lambda_commands_on_shared_runtime() {
 }
 
 #[test]
+fn vm_call_interactively_handles_simple_string_specs_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(let ((current-prefix-arg '(4))
+                     (evt (list 'mouse-1 (list (list (selected-window) (point) '(0 . 0) 0)))))
+                 (call-interactively
+                  '(lambda (raw num pt mk beg end evt up ignored)
+                     (interactive "P
+p
+d
+m
+r
+e
+U
+i")
+                     (list raw num pt mk beg end (car evt) up ignored))
+                  nil
+                  (vector evt)))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("current buffer");
+                let _ = eval.buffers.replace_buffer_contents(current, "abcd");
+                let _ = eval.buffers.goto_buffer_byte(current, 2);
+                let _ = eval.buffers.set_buffer_mark(current, 1);
+            }
+        ),
+        "OK ((4) 4 3 2 2 3 mouse-1 nil nil)"
+    );
+}
+
+#[test]
 fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
     assert_eq!(
         vm_eval_with_init_str(

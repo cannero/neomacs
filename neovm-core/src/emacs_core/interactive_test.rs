@@ -929,7 +929,7 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     ev.obarray
         .set_symbol_value("current-prefix-arg", Value::list(vec![Value::Int(4)]));
 
-    let builtin_plan = plan_call_interactively_in_state(
+    let mut builtin_plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
         ev.read_command_keys(),
@@ -937,12 +937,13 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     )
     .expect("plan builtin default interactive command");
     let (_, builtin_args) = resolve_call_interactively_target_and_args_in_state(
-        ev.obarray(),
-        ev.dynamic.as_slice(),
-        &ev.buffers,
+        &mut ev.obarray,
+        &mut ev.dynamic,
+        &mut ev.buffers,
+        &ev.custom,
         &ev.frames,
         &ev.interactive,
-        &builtin_plan,
+        &mut builtin_plan,
     )
     .expect("resolve builtin default args")
     .expect("shared-state builtin default path");
@@ -951,7 +952,7 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     let lambda_forms =
         super::super::parser::parse_forms("(lambda () (interactive) 1)").expect("parse lambda");
     let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
-    let lambda_plan = plan_call_interactively_in_state(
+    let mut lambda_plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
         ev.read_command_keys(),
@@ -959,12 +960,13 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     )
     .expect("plan interactive lambda");
     let (_, lambda_args) = resolve_call_interactively_target_and_args_in_state(
-        ev.obarray(),
-        ev.dynamic.as_slice(),
-        &ev.buffers,
+        &mut ev.obarray,
+        &mut ev.dynamic,
+        &mut ev.buffers,
+        &ev.custom,
         &ev.frames,
         &ev.interactive,
-        &lambda_plan,
+        &mut lambda_plan,
     )
     .expect("resolve lambda args")
     .expect("shared-state no-arg lambda path");
@@ -978,7 +980,7 @@ fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
         super::super::parser::parse_forms("(lambda (x) (interactive \"sPrompt: \") x)")
             .expect("parse prompting lambda");
     let lambda = ev.eval(&lambda_forms[0]).expect("eval prompting lambda");
-    let plan = plan_call_interactively_in_state(
+    let mut plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
         ev.read_command_keys(),
@@ -986,15 +988,118 @@ fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
     )
     .expect("plan prompting lambda");
     let resolved = resolve_call_interactively_target_and_args_in_state(
-        ev.obarray(),
-        ev.dynamic.as_slice(),
-        &ev.buffers,
+        &mut ev.obarray,
+        &mut ev.dynamic,
+        &mut ev.buffers,
+        &ev.custom,
         &ev.frames,
         &ev.interactive,
-        &plan,
+        &mut plan,
     )
     .expect("resolve prompting lambda");
     assert!(resolved.is_none());
+}
+
+#[test]
+fn call_interactively_state_resolution_handles_simple_string_codes_without_eval() {
+    let mut ev = Evaluator::new();
+    ev.obarray
+        .set_symbol_value("current-prefix-arg", Value::list(vec![Value::Int(4)]));
+    let current = ev.buffers.current_buffer_id().expect("current buffer");
+    let _ = ev.buffers.replace_buffer_contents(current, "abcd");
+    let _ = ev.buffers.goto_buffer_byte(current, 2);
+    let _ = ev.buffers.set_buffer_mark(current, 1);
+
+    let evt_forms = super::super::parser::parse_forms(
+        "(list 'mouse-1 (list (list (selected-window) (point) '(0 . 0) 0)))",
+    )
+    .expect("parse event");
+    let event = ev.eval(&evt_forms[0]).expect("eval event");
+    let lambda_forms = super::super::parser::parse_forms(
+        "(lambda (raw num pt mk beg end evt up ignored)
+           (interactive \"P
+p
+d
+m
+r
+e
+U
+i\")
+           (list raw num pt mk beg end evt up ignored))",
+    )
+    .expect("parse lambda");
+    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+    let mut plan = plan_call_interactively_in_state(
+        ev.obarray(),
+        &ev.interactive,
+        ev.read_command_keys(),
+        &[lambda, Value::Nil, Value::vector(vec![event])],
+    )
+    .expect("plan simple string-code lambda");
+    let (_, args) = resolve_call_interactively_target_and_args_in_state(
+        &mut ev.obarray,
+        &mut ev.dynamic,
+        &mut ev.buffers,
+        &ev.custom,
+        &ev.frames,
+        &ev.interactive,
+        &mut plan,
+    )
+    .expect("resolve simple string-code args")
+    .expect("shared-state simple string-code path");
+    assert_eq!(
+        args,
+        vec![
+            Value::list(vec![Value::Int(4)]),
+            Value::Int(4),
+            Value::Int(3),
+            Value::Int(2),
+            Value::Int(2),
+            Value::Int(3),
+            event,
+            Value::Nil,
+            Value::Nil,
+        ]
+    );
+}
+
+#[test]
+fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state() {
+    let mut ev = Evaluator::new();
+    let current = ev.buffers.current_buffer_id().expect("current buffer");
+    let _ = ev.buffers.replace_buffer_contents(current, "abcd");
+    let _ = ev.buffers.goto_buffer_byte(current, 2);
+    ev.obarray
+        .set_symbol_value("this-command-keys-shift-translated", Value::True);
+    ev.obarray
+        .set_symbol_value("shift-select-mode", Value::True);
+
+    let lambda_forms = super::super::parser::parse_forms("(lambda (pt) (interactive \"^d\") pt)")
+        .expect("parse lambda");
+    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+    let mut plan = plan_call_interactively_in_state(
+        ev.obarray(),
+        &ev.interactive,
+        ev.read_command_keys(),
+        &[lambda],
+    )
+    .expect("plan shift-selection lambda");
+    let (_, args) = resolve_call_interactively_target_and_args_in_state(
+        &mut ev.obarray,
+        &mut ev.dynamic,
+        &mut ev.buffers,
+        &ev.custom,
+        &ev.frames,
+        &ev.interactive,
+        &mut plan,
+    )
+    .expect("resolve shift-selection args")
+    .expect("shared-state shift-selection path");
+    assert_eq!(args, vec![Value::Int(3)]);
+
+    let buf = ev.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.mark(), Some(2));
+    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::True));
 }
 
 // -------------------------------------------------------------------

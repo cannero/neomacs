@@ -998,8 +998,22 @@ fn dynamic_buffer_or_global_symbol_value(
     buf: &crate::buffer::Buffer,
     name: &str,
 ) -> Option<Value> {
+    dynamic_buffer_or_global_symbol_value_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        buf,
+        name,
+    )
+}
+
+fn dynamic_buffer_or_global_symbol_value_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buf: &crate::buffer::Buffer,
+    name: &str,
+) -> Option<Value> {
     let name_id = intern(name);
-    for frame in eval.dynamic.iter().rev() {
+    for frame in dynamic.iter().rev() {
         if let Some(v) = frame.get(&name_id) {
             return Some(*v);
         }
@@ -1007,7 +1021,7 @@ fn dynamic_buffer_or_global_symbol_value(
     if let Some(v) = buf.get_buffer_local(name) {
         return Some(*v);
     }
-    eval.obarray.symbol_value(name).cloned()
+    obarray.symbol_value(name).cloned()
 }
 
 fn prefix_numeric_value(value: &Value) -> i64 {
@@ -1125,6 +1139,92 @@ fn interactive_string_code_returns_no_args_without_eval(code: &str) -> bool {
     parsed.prefix_flags.is_empty() && parsed.entries.is_empty()
 }
 
+fn interactive_last_input_event_with_parameters_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+) -> Option<Value> {
+    let event = dynamic_or_global_symbol_value_in_state(obarray, dynamic, "last-input-event")?;
+    interactive_event_with_parameters_p(&event).then_some(event)
+}
+
+fn interactive_next_event_with_parameters_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    context: &mut InteractiveInvocationContext,
+) -> Option<Value> {
+    if context.has_command_keys_context {
+        return interactive_next_event_with_parameters_from_keys(context);
+    }
+    interactive_last_input_event_with_parameters_in_state(obarray, dynamic)
+}
+
+fn interactive_args_from_string_code_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    buffers: &mut crate::buffer::BufferManager,
+    custom: &crate::emacs_core::custom::CustomManager,
+    code: &str,
+    kind: CommandInvocationKind,
+    context: &mut InteractiveInvocationContext,
+) -> Result<Option<Vec<Value>>, Flow> {
+    let parsed = parse_interactive_code_entries(code);
+    interactive_apply_prefix_flags_in_state(
+        obarray,
+        dynamic.as_mut_slice(),
+        buffers,
+        custom,
+        &parsed.prefix_flags,
+    )?;
+    if parsed.entries.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+
+    let mut args = Vec::new();
+    for (letter, _prompt) in parsed.entries {
+        match letter {
+            'd' => args.push(interactive_point_arg_in_buffers(buffers)?),
+            'e' => {
+                if let Some(event) =
+                    interactive_next_event_with_parameters_in_state(obarray, dynamic, context)
+                {
+                    args.push(event);
+                } else {
+                    return Err(signal(
+                        "error",
+                        vec![Value::string(
+                            "command must be bound to an event with parameters",
+                        )],
+                    ));
+                }
+            }
+            'i' => args.push(Value::Nil),
+            'm' => args.push(interactive_mark_arg_in_buffers(buffers)?),
+            'N' => {
+                let raw = interactive_prefix_raw_arg_in_state(obarray, dynamic.as_slice(), kind);
+                if raw.is_nil() {
+                    return Ok(None);
+                }
+                args.push(Value::Int(prefix_numeric_value(&raw)));
+            }
+            'p' => args.push(interactive_prefix_numeric_arg_in_state(
+                obarray,
+                dynamic.as_slice(),
+                kind,
+            )),
+            'P' => args.push(interactive_prefix_raw_arg_in_state(
+                obarray,
+                dynamic.as_slice(),
+                kind,
+            )),
+            'r' => args.extend(interactive_region_args_in_buffers(buffers, "error")?),
+            'U' => args.push(Value::Nil),
+            _ => return Ok(None),
+        }
+    }
+
+    Ok(Some(args))
+}
+
 fn default_command_execute_args_in_state(
     buffers: &crate::buffer::BufferManager,
     frames: &crate::window::FrameManager,
@@ -1236,64 +1336,122 @@ fn interactive_read_coding_system_optional_arg(prompt: String) -> Result<Value, 
 }
 
 fn interactive_buffer_read_only_active(eval: &Evaluator, buf: &crate::buffer::Buffer) -> bool {
+    interactive_buffer_read_only_active_in_state(&eval.obarray, eval.dynamic.as_slice(), buf)
+}
+
+fn interactive_buffer_read_only_active_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buf: &crate::buffer::Buffer,
+) -> bool {
     if buf.read_only {
         return true;
     }
-    dynamic_buffer_or_global_symbol_value(eval, buf, "buffer-read-only")
+    dynamic_buffer_or_global_symbol_value_in_state(obarray, dynamic, buf, "buffer-read-only")
         .is_some_and(|v| v.is_truthy())
 }
 
 fn interactive_require_writable_current_buffer(eval: &Evaluator) -> Result<(), Flow> {
-    let Some(buf) = eval.buffers.current_buffer() else {
+    interactive_require_writable_current_buffer_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+    )
+}
+
+fn interactive_require_writable_current_buffer_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+) -> Result<(), Flow> {
+    let Some(buf) = buffers.current_buffer() else {
         return Ok(());
     };
-    if dynamic_buffer_or_global_symbol_value(eval, buf, "inhibit-read-only")
+    if dynamic_buffer_or_global_symbol_value_in_state(obarray, dynamic, buf, "inhibit-read-only")
         .is_some_and(|v| v.is_truthy())
     {
         return Ok(());
     }
-    if interactive_buffer_read_only_active(eval, buf) {
+    if interactive_buffer_read_only_active_in_state(obarray, dynamic, buf) {
         return Err(signal("buffer-read-only", vec![Value::string(&buf.name)]));
     }
     Ok(())
 }
 
 fn interactive_apply_shift_selection_prefix(eval: &mut Evaluator) {
-    let shifted = dynamic_or_global_symbol_value(eval, "this-command-keys-shift-translated")
-        .is_some_and(|v| v.is_truthy());
+    interactive_apply_shift_selection_prefix_in_state(
+        &mut eval.obarray,
+        eval.dynamic.as_mut_slice(),
+        &mut eval.buffers,
+        &eval.custom,
+    );
+}
+
+fn interactive_apply_shift_selection_prefix_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut [OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    custom: &crate::emacs_core::custom::CustomManager,
+) {
+    let shifted = dynamic_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        "this-command-keys-shift-translated",
+    )
+    .is_some_and(|v| v.is_truthy());
     let shift_select_mode =
-        dynamic_or_global_symbol_value(eval, "shift-select-mode").is_some_and(|v| v.is_truthy());
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "shift-select-mode")
+            .is_some_and(|v| v.is_truthy());
     if !shifted || !shift_select_mode {
         return;
     }
 
     let mut mark_activated = false;
-    if let Some(current_id) = eval.buffers.current_buffer_id() {
-        let point = eval
-            .buffers
-            .get(current_id)
-            .map(|buf| buf.point())
-            .unwrap_or(0);
-        let _ = eval.buffers.set_buffer_mark(current_id, point);
-        let _ = eval
-            .buffers
-            .set_buffer_local_property(current_id, "mark-active", Value::True);
+    if let Some(current_id) = buffers.current_buffer_id() {
+        let point = buffers.get(current_id).map(|buf| buf.point()).unwrap_or(0);
+        let _ = buffers.set_buffer_mark(current_id, point);
+        let _ = buffers.set_buffer_local_property(current_id, "mark-active", Value::True);
         mark_activated = true;
     }
     if mark_activated {
-        eval.assign("mark-active", Value::True);
+        let _ = super::eval::set_runtime_binding_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            custom,
+            intern("mark-active"),
+            Value::True,
+        );
     }
 }
 
 fn interactive_apply_prefix_flags(eval: &mut Evaluator, prefix_flags: &[char]) -> Result<(), Flow> {
+    interactive_apply_prefix_flags_in_state(
+        &mut eval.obarray,
+        eval.dynamic.as_mut_slice(),
+        &mut eval.buffers,
+        &eval.custom,
+        prefix_flags,
+    )
+}
+
+fn interactive_apply_prefix_flags_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut [OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    custom: &crate::emacs_core::custom::CustomManager,
+    prefix_flags: &[char],
+) -> Result<(), Flow> {
     for prefix_flag in prefix_flags {
         match prefix_flag {
-            '*' => interactive_require_writable_current_buffer(eval)?,
+            '*' => interactive_require_writable_current_buffer_in_state(obarray, dynamic, buffers)?,
             '@' => {
                 // Selecting the window from the first mouse event requires command-loop
                 // event context; current batch paths have no such events yet.
             }
-            '^' => interactive_apply_shift_selection_prefix(eval),
+            '^' => {
+                interactive_apply_shift_selection_prefix_in_state(obarray, dynamic, buffers, custom)
+            }
             _ => {}
         }
     }
@@ -1744,20 +1902,29 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_eval(
 }
 
 pub(crate) fn resolve_call_interactively_target_and_args_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
+    obarray: &mut Obarray,
+    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    buffers: &mut crate::buffer::BufferManager,
+    custom: &crate::emacs_core::custom::CustomManager,
     frames: &crate::window::FrameManager,
     interactive: &InteractiveRegistry,
-    plan: &CallInteractivelyPlan,
+    plan: &mut CallInteractivelyPlan,
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
     if let Some(code) = interactive
         .get_spec(&plan.resolved_name)
         .map(|spec| spec.code.as_str())
     {
-        if interactive_string_code_returns_no_args_without_eval(code) {
-            return Ok(Some((func, Vec::new())));
+        if let Some(args) = interactive_args_from_string_code_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            custom,
+            code,
+            CommandInvocationKind::CallInteractively,
+            &mut plan.context,
+        )? {
+            return Ok(Some((func, args)));
         }
         return Ok(None);
     }
@@ -1767,11 +1934,16 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     {
         return match spec {
             ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
-            ParsedInteractiveSpec::StringCode(code)
-                if interactive_string_code_returns_no_args_without_eval(&code) =>
-            {
-                Ok(Some((func, Vec::new())))
-            }
+            ParsedInteractiveSpec::StringCode(code) => interactive_args_from_string_code_in_state(
+                obarray,
+                dynamic,
+                buffers,
+                custom,
+                &code,
+                CommandInvocationKind::CallInteractively,
+                &mut plan.context,
+            )
+            .map(|maybe_args| maybe_args.map(|args| (func, args))),
             _ => Ok(None),
         };
     }
@@ -1794,8 +1966,16 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
             return Ok(Some((func, Vec::new())));
         }
         if let Some(code) = spec_val.as_str() {
-            if interactive_string_code_returns_no_args_without_eval(code) {
-                return Ok(Some((func, Vec::new())));
+            if let Some(args) = interactive_args_from_string_code_in_state(
+                obarray,
+                dynamic,
+                buffers,
+                custom,
+                code,
+                CommandInvocationKind::CallInteractively,
+                &mut plan.context,
+            )? {
+                return Ok(Some((func, args)));
             }
             return Ok(None);
         }
@@ -1806,7 +1986,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
         func,
         default_call_interactively_args_in_state(
             obarray,
-            dynamic,
+            dynamic.as_slice(),
             buffers,
             frames,
             &plan.resolved_name,
