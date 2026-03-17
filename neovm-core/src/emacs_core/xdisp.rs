@@ -353,6 +353,36 @@ impl ModeLineRendered {
         }
     }
 
+    fn append_string_char_slice_preserving_props(
+        &mut self,
+        value: &Value,
+        start_char: usize,
+        end_char: usize,
+    ) {
+        if start_char >= end_char {
+            return;
+        }
+        let Some(text) = value.as_str() else {
+            return;
+        };
+        let byte_start = char_to_byte_pos(text, start_char);
+        let byte_end = char_to_byte_pos(text, end_char);
+        let byte_offset = self.text.len();
+        self.text.push_str(
+            &text
+                .chars()
+                .skip(start_char)
+                .take(end_char - start_char)
+                .collect::<String>(),
+        );
+        if let Value::Str(id) = value
+            && let Some(props) = get_string_text_properties_table(*id)
+        {
+            self.text_props
+                .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+        }
+    }
+
     fn push_plain_char(&mut self, ch: char) {
         self.text.push(ch);
     }
@@ -391,6 +421,16 @@ impl ModeLineRendered {
                 self.text_props
                     .put_property(0, self.text.len(), name, chunk[1]);
             }
+        }
+    }
+
+    fn overlay_property_map(&mut self, props: std::collections::HashMap<String, Value>) {
+        if self.text.is_empty() || props.is_empty() {
+            return;
+        }
+        for (name, value) in props {
+            self.text_props
+                .put_property(0, self.text.len(), &name, value);
         }
     }
 
@@ -489,7 +529,7 @@ fn append_mode_line_string_in_state(
     if literal || !text.contains('%') {
         result.append_string_value_preserving_props(value);
     } else {
-        expand_mode_line_percent_in_state(buffers, text, result);
+        expand_mode_line_percent_in_state(buffers, value, result);
     }
 }
 
@@ -1124,9 +1164,12 @@ fn format_mode_line_recursive_in_vm_runtime(
 
 fn expand_mode_line_percent_in_state(
     buffers: &crate::buffer::BufferManager,
-    fmt_str: &str,
+    value: &Value,
     result: &mut ModeLineRendered,
 ) {
+    let Some(fmt_str) = value.as_str() else {
+        return;
+    };
     let buf = buffers.current_buffer();
     let buf_name = buf.map(|b| b.name.as_str()).unwrap_or("*scratch*");
     let file_name = buf.and_then(|b| b.file_name.as_deref()).unwrap_or("");
@@ -1143,69 +1186,144 @@ fn expand_mode_line_percent_in_state(
         (1, 0)
     };
 
-    let mut chars = fmt_str.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '%' {
-            let mut field_width = 0_i64;
-            while chars.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                let digit = chars.next().expect("peeked digit");
-                field_width = field_width * 10 + i64::from(digit as u8 - b'0');
-            }
-            let mut append_spec = |value: &str| {
-                append_mode_line_rendered_segment(
-                    result,
-                    &ModeLineRendered::plain(value),
-                    field_width,
-                    0,
-                );
-            };
-            match chars.next() {
-                Some('b') => append_spec(buf_name),
-                Some('f') => append_spec(file_name),
-                Some('F') => append_spec("Neomacs"),
-                Some('*') => append_spec(if modified { "*" } else { "-" }),
-                Some('+') => append_spec(if modified { "+" } else { "-" }),
-                Some('-') => append_spec("--"),
-                Some('%') => append_spec("%"),
-                Some('n') => append_spec(""),
-                Some('l') => append_spec(&line_num.to_string()),
-                Some('c') => append_spec(&col_num.to_string()),
-                Some('p') | Some('P') => {
-                    let percent = if let Some(b) = buf {
-                        let total = b.text.len();
-                        if total == 0 {
-                            "All".to_owned()
-                        } else {
-                            let pct = (b.pt * 100) / total;
-                            if pct == 0 {
-                                "Top".to_owned()
-                            } else if pct >= 99 {
-                                "Bot".to_owned()
-                            } else {
-                                format!("{}%", pct)
-                            }
-                        }
-                    } else {
-                        String::new()
-                    };
-                    append_spec(&percent);
-                }
-                Some('z') => append_spec("U"),
-                Some('@') => append_spec("-"),
-                Some('Z') => append_spec("U"),
-                Some('[') | Some(']') => append_spec(""),
-                Some('e') => append_spec(""),
-                Some(' ') => append_spec(" "),
-                Some(c) => {
-                    let mut unknown = String::from("%");
-                    unknown.push(c);
-                    append_spec(&unknown);
-                }
-                None => append_spec("%"),
-            }
-        } else {
-            result.push_plain_char(ch);
+    let chars: Vec<char> = fmt_str.chars().collect();
+    let mut index = 0;
+    let mut literal_start = 0;
+
+    while index < chars.len() {
+        if chars[index] != '%' {
+            index += 1;
+            continue;
         }
+
+        if literal_start < index {
+            result.append_string_char_slice_preserving_props(value, literal_start, index);
+        }
+
+        let percent_char_pos = index;
+        index += 1;
+
+        let mut field_width = 0_i64;
+        while index < chars.len() && chars[index].is_ascii_digit() {
+            let digit = chars[index] as u8;
+            field_width = field_width * 10 + i64::from(digit - b'0');
+            index += 1;
+        }
+
+        let props_at_percent = if let Value::Str(id) = value {
+            get_string_text_properties_table(*id)
+                .map(|table| table.get_properties(char_to_byte_pos(fmt_str, percent_char_pos)))
+                .unwrap_or_default()
+        } else {
+            Default::default()
+        };
+
+        let mut append_spec = |spec: &str| {
+            let mut segment = ModeLineRendered::plain(spec);
+            segment.overlay_property_map(props_at_percent.clone());
+            append_mode_line_rendered_segment(result, &segment, field_width, 0);
+        };
+
+        match chars.get(index).copied() {
+            Some('b') => {
+                append_spec(buf_name);
+                index += 1;
+            }
+            Some('f') => {
+                append_spec(file_name);
+                index += 1;
+            }
+            Some('F') => {
+                append_spec("Neomacs");
+                index += 1;
+            }
+            Some('*') => {
+                append_spec(if modified { "*" } else { "-" });
+                index += 1;
+            }
+            Some('+') => {
+                append_spec(if modified { "+" } else { "-" });
+                index += 1;
+            }
+            Some('-') => {
+                append_spec("--");
+                index += 1;
+            }
+            Some('%') => {
+                append_spec("%");
+                index += 1;
+            }
+            Some('n') => {
+                append_spec("");
+                index += 1;
+            }
+            Some('l') => {
+                append_spec(&line_num.to_string());
+                index += 1;
+            }
+            Some('c') => {
+                append_spec(&col_num.to_string());
+                index += 1;
+            }
+            Some('p') | Some('P') => {
+                let percent = if let Some(b) = buf {
+                    let total = b.text.len();
+                    if total == 0 {
+                        "All".to_owned()
+                    } else {
+                        let pct = (b.pt * 100) / total;
+                        if pct == 0 {
+                            "Top".to_owned()
+                        } else if pct >= 99 {
+                            "Bot".to_owned()
+                        } else {
+                            format!("{}%", pct)
+                        }
+                    }
+                } else {
+                    String::new()
+                };
+                append_spec(&percent);
+                index += 1;
+            }
+            Some('z') => {
+                append_spec("U");
+                index += 1;
+            }
+            Some('@') => {
+                append_spec("-");
+                index += 1;
+            }
+            Some('Z') => {
+                append_spec("U");
+                index += 1;
+            }
+            Some('[') | Some(']') => {
+                append_spec("");
+                index += 1;
+            }
+            Some('e') => {
+                append_spec("");
+                index += 1;
+            }
+            Some(' ') => {
+                append_spec(" ");
+                index += 1;
+            }
+            Some(c) => {
+                let mut unknown = String::from("%");
+                unknown.push(c);
+                append_spec(&unknown);
+                index += 1;
+            }
+            None => append_spec("%"),
+        }
+
+        literal_start = index;
+    }
+
+    if literal_start < chars.len() {
+        result.append_string_char_slice_preserving_props(value, literal_start, chars.len());
     }
 }
 

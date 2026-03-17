@@ -4952,6 +4952,28 @@ fn vm_format_mode_line_propertize_preserves_text_properties() {
 }
 
 #[test]
+fn vm_format_mode_line_percent_specs_preserve_source_string_text_properties() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-prop-buffer")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (let* ((fmt (propertize "%b!" 'face 'bold 'help-echo "h"))
+                        (s (format-mode-line fmt))
+                        (props0 (text-properties-at 0 s))
+                        (props1 (text-properties-at (1- (length s)) s)))
+                   (list (substring-no-properties s)
+                         (plist-get props0 'face)
+                         (plist-get props0 'help-echo)
+                         (plist-get props1 'face)
+                         (plist-get props1 'help-echo))))"#
+        ),
+        r#"OK ("vm-prop-buffer!" bold "h" bold "h")"#
+    );
+}
+
+#[test]
 fn vm_format_mode_line_face_argument_merges_explicit_faces_and_can_drop_props() {
     assert_eq!(
         vm_eval_str(

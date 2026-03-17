@@ -1,5 +1,7 @@
 use super::*;
-use crate::emacs_core::value::get_string_text_properties_table;
+use crate::emacs_core::value::{
+    StringTextPropertyRun, get_string_text_properties_table, set_string_text_properties,
+};
 
 #[test]
 fn test_format_mode_line() {
@@ -413,6 +415,57 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
     );
     assert_eq!(
         props.get_property(0, "help-echo").copied(),
+        Some(Value::string("h"))
+    );
+}
+
+#[test]
+fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("fmt-prop-buffer");
+    eval.buffers.set_current(buffer_id);
+
+    let format = Value::string("%b!");
+    let Value::Str(id) = format else {
+        panic!("expected string format");
+    };
+    set_string_text_properties(
+        id,
+        vec![StringTextPropertyRun {
+            start: 0,
+            end: 3,
+            plist: Value::list(vec![
+                Value::symbol("face"),
+                Value::symbol("bold"),
+                Value::symbol("help-echo"),
+                Value::string("h"),
+            ]),
+        }],
+    );
+
+    let rendered =
+        builtin_format_mode_line_eval(&mut eval, vec![format]).expect("format-mode-line props");
+
+    assert_eq!(rendered.as_str(), Some("fmt-prop-buffer!"));
+    let Value::Str(id) = rendered else {
+        panic!("expected string result");
+    };
+    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    assert_eq!(
+        props.get_property(0, "face").copied(),
+        Some(Value::symbol("bold"))
+    );
+    assert_eq!(
+        props.get_property(0, "help-echo").copied(),
+        Some(Value::string("h"))
+    );
+    let last_byte = "fmt-prop-buffer".len();
+    assert_eq!(
+        props.get_property(last_byte, "face").copied(),
+        Some(Value::symbol("bold"))
+    );
+    assert_eq!(
+        props.get_property(last_byte, "help-echo").copied(),
         Some(Value::string("h"))
     );
 }
