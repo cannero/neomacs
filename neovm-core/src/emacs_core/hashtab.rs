@@ -73,6 +73,15 @@ fn validate_optional_obarray_arg(args: &[Value]) -> Result<(), Flow> {
     Ok(())
 }
 
+fn is_global_obarray_proxy_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    value: &Value,
+) -> bool {
+    obarray
+        .symbol_value("obarray")
+        .is_some_and(|proxy| *proxy == *value)
+}
+
 /// Convert a `HashKey` back into a `Value`.
 fn hash_key_to_value(key: &HashKey) -> Value {
     match key {
@@ -697,9 +706,28 @@ pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalRes
 
 /// (maphash FUNCTION TABLE) — call FUNCTION with each (KEY VALUE) pair.
 pub(crate) fn builtin_maphash(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    let (func, entries) = collect_maphash_entries(args)?;
+    for (key, val) in entries {
+        eval.apply(func, vec![key, val])?;
+    }
+    Ok(Value::Nil)
+}
+
+/// (mapatoms FUNCTION &optional OBARRAY) — call FUNCTION with each interned symbol.
+pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    let (func, symbols) = collect_mapatoms_symbols(eval.obarray(), args)?;
+    for sym in symbols {
+        eval.apply(func, vec![sym])?;
+    }
+    Ok(Value::Nil)
+}
+
+pub(crate) fn collect_maphash_entries(
+    args: Vec<Value>,
+) -> Result<(Value, Vec<(Value, Value)>), Flow> {
     expect_args("maphash", &args, 2)?;
     let func = args[0];
-    let entries: Vec<(Value, Value)> = match &args[1] {
+    let entries = match &args[1] {
         Value::HashTable(ht) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             table
@@ -720,27 +748,23 @@ pub(crate) fn builtin_maphash(eval: &mut super::eval::Evaluator, args: Vec<Value
             ));
         }
     };
-    for (key, val) in entries {
-        eval.apply(func, vec![key, val])?;
-    }
-    Ok(Value::Nil)
+    Ok((func, entries))
 }
 
-/// (mapatoms FUNCTION &optional OBARRAY) — call FUNCTION with each interned symbol.
-pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn collect_mapatoms_symbols(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    args: Vec<Value>,
+) -> Result<(Value, Vec<Value>), Flow> {
     expect_min_args("mapatoms", &args, 1)?;
     expect_max_args("mapatoms", &args, 2)?;
     validate_optional_obarray_arg(&args)?;
     let func = args[0];
 
-    // Custom obarray path
     if let Some(Value::Vector(vec_id)) = args
         .get(1)
-        .filter(|v| !v.is_nil() && !super::builtins::symbols::is_global_obarray_proxy(eval, v))
+        .filter(|v| !v.is_nil() && !is_global_obarray_proxy_in_state(obarray, v))
     {
-        let vec_id = *vec_id;
-        // Collect all symbols from all buckets
-        let all_slots = with_heap(|h| h.get_vector(vec_id).clone());
+        let all_slots = with_heap(|h| h.get_vector(*vec_id).clone());
         let mut symbols = Vec::new();
         for slot in &all_slots {
             let mut current = *slot;
@@ -756,23 +780,15 @@ pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Evaluator, args: Vec<Valu
                 }
             }
         }
-        for sym in symbols {
-            eval.apply(func, vec![sym])?;
-        }
-        return Ok(Value::Nil);
+        return Ok((func, symbols));
     }
 
-    // Global obarray path
-    let symbols: Vec<String> = eval
-        .obarray
+    let symbols = obarray
         .all_symbols()
         .iter()
-        .map(|s| s.to_string())
+        .map(|s| Value::symbol(s.to_string()))
         .collect();
-    for sym in symbols {
-        eval.apply(func, vec![Value::symbol(sym)])?;
-    }
-    Ok(Value::Nil)
+    Ok((func, symbols))
 }
 
 /// (unintern NAME &optional OBARRAY) — remove symbol from obarray.

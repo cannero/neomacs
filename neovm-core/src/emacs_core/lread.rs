@@ -72,7 +72,10 @@ fn strip_reader_prefix(source: &str) -> (&str, bool) {
     }
 }
 
-fn eval_forms_from_source(eval: &mut super::eval::Evaluator, source: &str) -> EvalResult {
+pub(crate) fn eval_forms_from_source(
+    eval: &mut super::eval::Evaluator,
+    source: &str,
+) -> EvalResult {
     let (source, shebang_only_line) = strip_reader_prefix(source);
     if shebang_only_line {
         return Err(signal("end-of-file", vec![]));
@@ -93,20 +96,19 @@ fn eval_forms_from_source(eval: &mut super::eval::Evaluator, source: &str) -> Ev
     Ok(Value::Nil)
 }
 
-fn eval_buffer_source_text(
-    eval: &super::eval::Evaluator,
+pub(crate) fn eval_buffer_source_text_in_state(
+    buffers: &crate::buffer::BufferManager,
     arg: Option<&Value>,
 ) -> Result<String, Flow> {
     let buffer_id = match arg {
-        None | Some(Value::Nil) => eval
-            .buffers
+        None | Some(Value::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
         Some(Value::Buffer(id)) => *id,
         Some(Value::Str(id)) => {
             let name = with_heap(|h| h.get_string(*id).to_owned());
-            eval.buffers
+            buffers
                 .find_buffer_by_name(&name)
                 .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))?
         }
@@ -117,37 +119,21 @@ fn eval_buffer_source_text(
             ));
         }
     };
-    eval.buffers
+    buffers
         .get(buffer_id)
         .map(|buffer| buffer.buffer_string())
         .ok_or_else(|| signal("error", vec![Value::string("No such buffer")]))
 }
 
-/// `(eval-buffer &optional BUFFER PRINTFLAG FILENAME UNIBYTE DO-ALLOW-PRINT)`
-///
-/// Evaluate all forms from BUFFER (or current buffer) and return nil.
-pub(crate) fn builtin_eval_buffer(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("eval-buffer", &args, 5)?;
-    let source = eval_buffer_source_text(eval, args.first())?;
-    eval_forms_from_source(eval, &source)
-}
-
-/// `(eval-region START END &optional PRINTFLAG READ-FUNCTION)`
-///
-/// Evaluate forms in the [START, END) region of the current buffer.
-pub(crate) fn builtin_eval_region(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("eval-region", &args, 2)?;
-    expect_max_args("eval-region", &args, 4)?;
+pub(crate) fn eval_region_source_text_in_state(
+    buffers: &crate::buffer::BufferManager,
+    args: &[Value],
+) -> Result<String, Flow> {
+    expect_min_args("eval-region", args, 2)?;
+    expect_max_args("eval-region", args, 4)?;
 
     let (source, start_char_pos, end_char_pos) = {
-        let buffer = eval
-            .buffers
+        let buffer = buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -170,7 +156,7 @@ pub(crate) fn builtin_eval_region(
         }
 
         if raw_start >= raw_end {
-            return Ok(Value::Nil);
+            return Ok(String::new());
         }
 
         let start_byte = buffer.text.char_to_byte((raw_start - 1) as usize);
@@ -183,6 +169,32 @@ pub(crate) fn builtin_eval_region(
     };
 
     if start_char_pos >= end_char_pos {
+        return Ok(String::new());
+    }
+    Ok(source)
+}
+
+/// `(eval-buffer &optional BUFFER PRINTFLAG FILENAME UNIBYTE DO-ALLOW-PRINT)`
+///
+/// Evaluate all forms from BUFFER (or current buffer) and return nil.
+pub(crate) fn builtin_eval_buffer(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("eval-buffer", &args, 5)?;
+    let source = eval_buffer_source_text_in_state(&eval.buffers, args.first())?;
+    eval_forms_from_source(eval, &source)
+}
+
+/// `(eval-region START END &optional PRINTFLAG READ-FUNCTION)`
+///
+/// Evaluate forms in the [START, END) region of the current buffer.
+pub(crate) fn builtin_eval_region(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    let source = eval_region_source_text_in_state(&eval.buffers, &args)?;
+    if source.is_empty() {
         return Ok(Value::Nil);
     }
     eval_forms_from_source(eval, &source)

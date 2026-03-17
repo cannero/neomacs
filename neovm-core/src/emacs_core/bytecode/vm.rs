@@ -7983,6 +7983,11 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "eval-buffer" => Some(self.builtin_eval_buffer_shared(args)),
+            "eval-region" => Some(self.builtin_eval_region_shared(args)),
+            "macroexpand" => Some(self.builtin_macroexpand_shared(args)),
+            "mapatoms" => Some(self.builtin_mapatoms_shared(args)),
+            "maphash" => Some(self.builtin_maphash_shared(args)),
             "backtrace--frames-from-thread" => Some(
                 crate::emacs_core::misc::builtin_backtrace_frames_from_thread_in_state(
                     &*self.shared.threads,
@@ -8259,6 +8264,54 @@ impl<'a> Vm<'a> {
         self.with_shared_evaluator(&extra_roots, move |eval| {
             crate::emacs_core::builtins::builtin_kill_emacs_eval(eval, call_args)
         })
+    }
+
+    fn builtin_eval_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
+        let source = crate::emacs_core::lread::eval_buffer_source_text_in_state(
+            self.shared.buffers,
+            args.first(),
+        )?;
+        self.with_shared_evaluator(args, move |eval| {
+            crate::emacs_core::lread::eval_forms_from_source(eval, &source)
+        })
+    }
+
+    fn builtin_eval_region_shared(&mut self, args: &[Value]) -> EvalResult {
+        let source =
+            crate::emacs_core::lread::eval_region_source_text_in_state(self.shared.buffers, args)?;
+        if source.is_empty() {
+            return Ok(Value::Nil);
+        }
+        self.with_shared_evaluator(args, move |eval| {
+            crate::emacs_core::lread::eval_forms_from_source(eval, &source)
+        })
+    }
+
+    fn builtin_macroexpand_shared(&mut self, args: &[Value]) -> EvalResult {
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::builtins::builtin_macroexpand_eval(eval, call_args)
+        })
+    }
+
+    fn builtin_mapatoms_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (func, symbols) = crate::emacs_core::hashtab::collect_mapatoms_symbols(
+            &*self.shared.obarray,
+            args.to_vec(),
+        )?;
+        for sym in symbols {
+            self.call_function_with_roots(func, &[sym])?;
+        }
+        Ok(Value::Nil)
+    }
+
+    fn builtin_maphash_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (func, entries) = crate::emacs_core::hashtab::collect_maphash_entries(args.to_vec())?;
+        for (key, value) in entries {
+            self.call_function_with_roots(func, &[key, value])?;
+        }
+        Ok(Value::Nil)
     }
 
     fn builtin_read_string_shared(&mut self, args: &[Value]) -> EvalResult {

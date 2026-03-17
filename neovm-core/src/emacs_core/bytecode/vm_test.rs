@@ -1435,6 +1435,82 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
 }
 
 #[test]
+fn vm_eval_and_macroexpand_tail_use_localized_shared_paths() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            "(progn (setq vm-eval-buffer-target nil) (eval-buffer (current-buffer)) vm-eval-buffer-target)",
+            |eval| {
+                let current = eval
+                    .buffers
+                    .current_buffer_id()
+                    .expect("current buffer should exist");
+                eval.buffers
+                    .replace_buffer_contents(current, "(setq vm-eval-buffer-target 17)\n");
+            },
+        ),
+        "OK 17"
+    );
+
+    let region_source = "(setq vm-eval-region-target 23)\n(setq vm-eval-region-tail 99)\n";
+    let region_end = region_source
+        .lines()
+        .next()
+        .expect("first form should exist")
+        .chars()
+        .count() as i64
+        + 2;
+    let region_form = format!(
+        "(progn (setq vm-eval-region-target nil) (setq vm-eval-region-tail nil) (eval-region 1 {}) (list vm-eval-region-target vm-eval-region-tail))",
+        region_end
+    );
+    assert_eq!(
+        vm_eval_with_init_str(&region_form, |eval| {
+            let current = eval
+                .buffers
+                .current_buffer_id()
+                .expect("current buffer should exist");
+            eval.buffers.replace_buffer_contents(current, region_source);
+        }),
+        "OK (23 nil)"
+    );
+
+    assert_eq!(
+        vm_eval_str("(macroexpand '(when t 7 8))"),
+        "OK (if t (progn 7 8))"
+    );
+}
+
+#[test]
+fn vm_mapatoms_and_maphash_use_shared_runtime_callbacks() {
+    assert_eq!(
+        vm_eval_str(
+            "(list
+               (let ((h (make-hash-table :test 'eq))
+                     (acc 0))
+                 (puthash 'a 1 h)
+                 (puthash 'b 2 h)
+                 (maphash (lambda (_k v) (setq acc (+ acc v))) h)
+                 acc)
+               (let ((seen nil))
+                 (intern \"vm-mapatoms-default\")
+                 (mapatoms (lambda (sym)
+                             (when (eq sym 'vm-mapatoms-default)
+                               (setq seen t))))
+                 seen)
+               (let* ((ob (make-vector 7 0))
+                      (target (intern \"vm-mapatoms-custom\" ob))
+                     (seen nil))
+                 (mapatoms (lambda (sym)
+                             (when (eq sym target)
+                               (setq seen t)))
+                           ob)
+                 seen))"
+        ),
+        "OK (3 t t)"
+    );
+}
+
+#[test]
 fn vm_window_metadata_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
