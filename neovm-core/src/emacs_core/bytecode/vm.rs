@@ -127,6 +127,16 @@ impl<'a> Vm<'a> {
         result
     }
 
+    fn with_macro_expansion_scope<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, Flow>,
+    ) -> Result<T, Flow> {
+        let state = self.shared.begin_macro_expansion_scope();
+        let result = f(self);
+        self.shared.finish_macro_expansion_scope(state);
+        result
+    }
+
     fn collect_handler_roots(handlers: &[Handler], out: &mut Vec<Value>) {
         for handler in handlers {
             match handler {
@@ -8320,11 +8330,7 @@ impl<'a> Vm<'a> {
 
     fn builtin_kill_emacs_shared(&mut self, args: &[Value]) -> EvalResult {
         let request = crate::emacs_core::builtins::symbols::plan_kill_emacs_request(args)?;
-        let extra_roots = args.to_vec();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            let _ = eval.run_hook_if_bound("kill-emacs-hook");
-            Ok(Value::Nil)
-        })?;
+        self.builtin_run_hooks_shared(&[Value::symbol("kill-emacs-hook")])?;
         self.shared
             .request_shutdown(request.exit_code, request.restart);
         Ok(Value::Nil)
@@ -9132,8 +9138,8 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         extra_roots.push(form);
         extra_roots.push(function);
         extra_roots.extend(args.iter().copied());
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            eval.with_macro_expansion_scope(|eval| eval.apply(function, args))
+        self.with_extra_roots(&extra_roots, move |vm| {
+            vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))
         })
     }
 }

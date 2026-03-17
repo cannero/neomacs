@@ -663,6 +663,28 @@ impl<'a> VmSharedState<'a> {
         );
     }
 
+    pub(crate) fn begin_macro_expansion_scope(&mut self) -> ActiveMacroExpansionScopeState {
+        begin_macro_expansion_scope_in_state(
+            self.obarray,
+            self.dynamic,
+            self.buffers,
+            &*self.custom,
+            *self.lexenv,
+            self.temp_roots,
+        )
+    }
+
+    pub(crate) fn finish_macro_expansion_scope(&mut self, state: ActiveMacroExpansionScopeState) {
+        finish_macro_expansion_scope_in_state(
+            self.obarray,
+            self.dynamic,
+            self.buffers,
+            &*self.custom,
+            self.temp_roots,
+            state,
+        );
+    }
+
     pub(crate) fn with_parent_evaluator<T>(&mut self, f: impl FnOnce(&mut Evaluator) -> T) -> T {
         // Safety: `parent_eval` points at the evaluator that created this
         // shared state and stays alive for the entire VM lifetime. VM/evaluator
@@ -1241,6 +1263,12 @@ pub(crate) struct ActiveLambdaCallState {
     saved_lexical_mode: Option<bool>,
 }
 
+pub(crate) struct ActiveMacroExpansionScopeState {
+    saved_temp_roots_len: usize,
+    old_lexical: bool,
+    old_dynvars: Value,
+}
+
 fn bind_lexical_value_rooted_in_state(
     lexenv: &mut Value,
     temp_roots: &mut Vec<Value>,
@@ -1369,6 +1397,79 @@ fn finish_lambda_call_in_state(
     } else {
         dynamic.pop();
     }
+    temp_roots.truncate(state.saved_temp_roots_len);
+}
+
+fn begin_macro_expansion_scope_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    buffers: &mut BufferManager,
+    custom: &CustomManager,
+    lexenv: Value,
+    temp_roots: &mut Vec<Value>,
+) -> ActiveMacroExpansionScopeState {
+    let saved_temp_roots_len = temp_roots.len();
+    let old_lexical = obarray
+        .symbol_value("lexical-binding")
+        .is_some_and(|value| value.is_truthy());
+    let old_dynvars = obarray
+        .symbol_value("macroexp--dynvars")
+        .cloned()
+        .unwrap_or(Value::Nil);
+    temp_roots.push(old_dynvars);
+
+    let mut dynvars = old_dynvars;
+    for sym in lexenv_bare_symbols(lexenv) {
+        let name = resolve_sym(sym);
+        if name == "t" || name == "nil" {
+            continue;
+        }
+        dynvars = Value::cons(Value::Symbol(sym), dynvars);
+    }
+    for frame in dynamic.iter().rev() {
+        for (sym, _) in frame.iter() {
+            let name = resolve_sym(*sym);
+            if name == "t" || name == "nil" {
+                continue;
+            }
+            dynvars = Value::cons(Value::Symbol(*sym), dynvars);
+        }
+    }
+
+    obarray.set_symbol_value("lexical-binding", Value::bool(!lexenv.is_nil()));
+    set_runtime_binding_in_state(
+        obarray,
+        dynamic.as_mut_slice(),
+        buffers,
+        custom,
+        intern("macroexp--dynvars"),
+        dynvars,
+    );
+
+    ActiveMacroExpansionScopeState {
+        saved_temp_roots_len,
+        old_lexical,
+        old_dynvars,
+    }
+}
+
+fn finish_macro_expansion_scope_in_state(
+    obarray: &mut Obarray,
+    dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    buffers: &mut BufferManager,
+    custom: &CustomManager,
+    temp_roots: &mut Vec<Value>,
+    state: ActiveMacroExpansionScopeState,
+) {
+    set_runtime_binding_in_state(
+        obarray,
+        dynamic.as_mut_slice(),
+        buffers,
+        custom,
+        intern("macroexp--dynvars"),
+        state.old_dynvars,
+    );
+    obarray.set_symbol_value("lexical-binding", Value::bool(state.old_lexical));
     temp_roots.truncate(state.saved_temp_roots_len);
 }
 
@@ -7298,39 +7399,23 @@ impl Evaluator {
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        let saved_roots = self.save_temp_roots();
-        let old_lexical = self.lexical_binding();
-        let old_dynvars = self
-            .obarray()
-            .symbol_value("macroexp--dynvars")
-            .cloned()
-            .unwrap_or(Value::Nil);
-        self.push_temp_root(old_dynvars);
-
-        let mut dynvars = old_dynvars;
-        for sym in lexenv_bare_symbols(self.lexenv) {
-            let name = resolve_sym(sym);
-            if name == "t" || name == "nil" {
-                continue;
-            }
-            dynvars = Value::cons(Value::Symbol(sym), dynvars);
-        }
-        for frame in self.dynamic.iter().rev() {
-            for (sym, _) in frame.iter() {
-                let name = resolve_sym(*sym);
-                if name == "t" || name == "nil" {
-                    continue;
-                }
-                dynvars = Value::cons(Value::Symbol(*sym), dynvars);
-            }
-        }
-
-        self.set_lexical_binding(!self.lexenv.is_nil());
-        self.set_variable("macroexp--dynvars", dynvars);
+        let state = begin_macro_expansion_scope_in_state(
+            &mut self.obarray,
+            &mut self.dynamic,
+            &mut self.buffers,
+            &self.custom,
+            self.lexenv,
+            &mut self.temp_roots,
+        );
         let result = f(self);
-        self.set_variable("macroexp--dynvars", old_dynvars);
-        self.set_lexical_binding(old_lexical);
-        self.restore_temp_roots(saved_roots);
+        finish_macro_expansion_scope_in_state(
+            &mut self.obarray,
+            &mut self.dynamic,
+            &mut self.buffers,
+            &self.custom,
+            &mut self.temp_roots,
+            state,
+        );
         result
     }
 

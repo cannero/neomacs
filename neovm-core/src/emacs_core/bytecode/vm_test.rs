@@ -1496,6 +1496,21 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
 }
 
 #[test]
+fn vm_kill_emacs_runs_hooks_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (setq vm-kill-hook-log nil)
+               (setq kill-emacs-hook
+                     (list (lambda () (setq vm-kill-hook-log 'ran))))
+               (kill-emacs 3)
+               vm-kill-hook-log)"
+        ),
+        "OK ran"
+    );
+}
+
+#[test]
 fn vm_eval_and_macroexpand_tail_use_localized_shared_paths() {
     assert_eq!(
         vm_eval_with_init_str(
