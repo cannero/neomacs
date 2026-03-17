@@ -44,6 +44,14 @@ fn bootstrap_eval_one(src: &str) -> String {
     bootstrap_eval_all(src).into_iter().next().expect("result")
 }
 
+#[test]
+fn eval_with_explicit_lexenv_restores_outer_lexenv() {
+    assert_eq!(
+        eval_one("(let ((x 41)) (list (eval 'x '((x . 7))) x))"),
+        "OK (7 41)"
+    );
+}
+
 fn load_minimal_backquote_runtime(eval: &mut Evaluator) {
     use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
 

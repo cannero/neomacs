@@ -3429,9 +3429,10 @@ impl<'a> Vm<'a> {
         }
         let form = args[0];
         let lexical_arg = args.get(1).copied();
-        self.with_shared_evaluator(extra_roots, move |eval| {
-            eval.eval_value_with_lexical_arg(form, lexical_arg)
-        })
+        let state = self.shared.begin_eval_with_lexical_arg(lexical_arg)?;
+        let result = self.with_shared_evaluator(extra_roots, move |eval| eval.eval_value(&form));
+        self.shared.finish_eval_with_lexical_arg(state);
+        result
     }
 
     /// Execute a compiled function without param binding (for inline compilation).

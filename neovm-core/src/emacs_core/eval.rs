@@ -428,6 +428,22 @@ impl<'a> VmSharedState<'a> {
         self.command_loop.recursive_depth
     }
 
+    pub(crate) fn begin_eval_with_lexical_arg(
+        &mut self,
+        lexical_arg: Option<Value>,
+    ) -> Result<ActiveEvalLexicalArgState, Flow> {
+        begin_eval_with_lexical_arg_in_state(
+            self.obarray,
+            self.lexenv,
+            self.saved_lexenvs,
+            lexical_arg,
+        )
+    }
+
+    pub(crate) fn finish_eval_with_lexical_arg(&mut self, state: ActiveEvalLexicalArgState) {
+        finish_eval_with_lexical_arg_in_state(self.obarray, self.lexenv, self.saved_lexenvs, state);
+    }
+
     pub(crate) fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
         let n = *self.pcase_macroexpand_temp_counter;
         *self.pcase_macroexpand_temp_counter =
@@ -1267,6 +1283,51 @@ pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option
     }
 
     Ok((true, Some(arg)))
+}
+
+fn lexical_binding_in_obarray(obarray: &Obarray) -> bool {
+    obarray
+        .symbol_value("lexical-binding")
+        .is_some_and(|v| v.is_truthy())
+}
+
+pub(crate) struct ActiveEvalLexicalArgState {
+    saved_lexical_mode: bool,
+    has_saved_lexenv: bool,
+}
+
+pub(crate) fn begin_eval_with_lexical_arg_in_state(
+    obarray: &mut Obarray,
+    lexenv: &mut Value,
+    saved_lexenvs: &mut Vec<Value>,
+    lexical_arg: Option<Value>,
+) -> Result<ActiveEvalLexicalArgState, Flow> {
+    let (use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
+    let saved_lexical_mode = lexical_binding_in_obarray(obarray);
+    obarray.set_symbol_value("lexical-binding", Value::bool(use_lexical));
+    let has_saved_lexenv = if let Some(env) = lexenv_value {
+        saved_lexenvs.push(*lexenv);
+        *lexenv = env;
+        true
+    } else {
+        false
+    };
+    Ok(ActiveEvalLexicalArgState {
+        saved_lexical_mode,
+        has_saved_lexenv,
+    })
+}
+
+pub(crate) fn finish_eval_with_lexical_arg_in_state(
+    obarray: &mut Obarray,
+    lexenv: &mut Value,
+    saved_lexenvs: &mut Vec<Value>,
+    state: ActiveEvalLexicalArgState,
+) {
+    if state.has_saved_lexenv {
+        *lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
+    }
+    obarray.set_symbol_value("lexical-binding", Value::bool(state.saved_lexical_mode));
 }
 
 pub(crate) struct ActiveLambdaCallState {
@@ -3813,19 +3874,19 @@ impl Evaluator {
         form: Value,
         lexical_arg: Option<Value>,
     ) -> EvalResult {
-        let (use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
-        let saved_mode = self.lexical_binding();
-        self.set_lexical_binding(use_lexical);
-        let saved_lexenv = if let Some(env) = lexenv_value {
-            Some(std::mem::replace(&mut self.lexenv, env))
-        } else {
-            None
-        };
+        let state = begin_eval_with_lexical_arg_in_state(
+            &mut self.obarray,
+            &mut self.lexenv,
+            &mut self.saved_lexenvs,
+            lexical_arg,
+        )?;
         let result = self.eval_value(&form);
-        if let Some(old) = saved_lexenv {
-            self.lexenv = old;
-        }
-        self.set_lexical_binding(saved_mode);
+        finish_eval_with_lexical_arg_in_state(
+            &mut self.obarray,
+            &mut self.lexenv,
+            &mut self.saved_lexenvs,
+            state,
+        );
         result
     }
 
