@@ -735,6 +735,35 @@ pub(crate) fn plan_load_in_state(
     }
 }
 
+pub(crate) fn builtin_load_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> Result<Value, Flow> {
+    if args.is_empty() {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("load"), Value::Int(0)],
+        ));
+    }
+
+    match plan_load_in_state(
+        &*shared.obarray,
+        args[0],
+        args.get(1).copied(),
+        args.get(3).copied(),
+        args.get(4).copied(),
+    )? {
+        LoadPlan::Return(value) => Ok(value),
+        LoadPlan::Load { path } => {
+            let extra_roots = args.to_vec();
+            shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+                eval.load_file_internal(&path)
+            })
+        }
+    }
+}
+
 const ELISP_CACHE_MAGIC: &str = "NEOVM-ELISP-CACHE-V1";
 const ELISP_CACHE_SCHEMA: &str = "schema=1";
 const ELISP_CACHE_VM_VERSION: &str = env!("CARGO_PKG_VERSION");

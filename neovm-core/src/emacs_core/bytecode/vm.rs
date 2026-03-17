@@ -3089,7 +3089,12 @@ impl<'a> Vm<'a> {
                     extra_roots.push(target);
                     extra_roots.extend(args.iter().copied());
                     extra_roots.extend(load_args.iter().copied());
-                    target = self.autoload_do_load_with_vm_bridge(load_args, &extra_roots)?;
+                    target = crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
+                        &mut self.shared,
+                        &self.gc_roots,
+                        &load_args,
+                        &extra_roots,
+                    )?;
                 }
             }
         }
@@ -3318,10 +3323,13 @@ impl<'a> Vm<'a> {
                         autoload_roots.push(Value::Symbol(id));
                         autoload_roots.push(func);
                         autoload_roots.extend(args.iter().copied());
-                        let loaded = self.autoload_do_load_with_vm_bridge(
-                            vec![func, Value::Symbol(id)],
-                            &autoload_roots,
-                        )?;
+                        let loaded =
+                            crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
+                                &mut self.shared,
+                                &self.gc_roots,
+                                &[func, Value::Symbol(id)],
+                                &autoload_roots,
+                            )?;
                         return self.call_function(loaded, args);
                     }
                     return self.call_function(func, args);
@@ -3346,93 +3354,6 @@ impl<'a> Vm<'a> {
             }
             _ => Err(signal("invalid-function", vec![func_val])),
         }
-    }
-
-    fn autoload_do_load_with_vm_bridge(
-        &mut self,
-        args: Vec<Value>,
-        extra_roots: &[Value],
-    ) -> EvalResult {
-        match crate::emacs_core::autoload::plan_autoload_do_load_in_state(
-            &*self.shared.obarray,
-            &args,
-        )? {
-            crate::emacs_core::autoload::AutoloadDoLoadPlan::Return(value) => Ok(value),
-            crate::emacs_core::autoload::AutoloadDoLoadPlan::Load { file, funname } => {
-                let path = crate::emacs_core::autoload::resolve_autoload_load_path(
-                    &*self.shared.obarray,
-                    &file,
-                )?;
-                self.with_shared_evaluator(extra_roots, move |eval| {
-                    eval.load_file_internal(&path)
-                })?;
-                crate::emacs_core::autoload::finish_autoload_do_load_in_state(
-                    &*self.shared.obarray,
-                    funname.as_deref(),
-                )
-            }
-        }
-    }
-
-    fn require_with_vm_bridge(&mut self, args: Vec<Value>, extra_roots: &[Value]) -> EvalResult {
-        match crate::emacs_core::eval::plan_require_in_state(
-            &*self.shared.obarray,
-            &*self.shared.features,
-            &*self.shared.require_stack,
-            args.first().copied().unwrap_or(Value::Nil),
-            args.get(1).copied(),
-            args.get(2).copied(),
-        )? {
-            crate::emacs_core::eval::RequirePlan::Return(value) => Ok(value),
-            crate::emacs_core::eval::RequirePlan::Load { sym_id, name, path } => {
-                self.shared.require_stack.push(sym_id);
-                let result = self
-                    .with_shared_evaluator(extra_roots, move |eval| eval.load_file_internal(&path));
-                let _ = self.shared.require_stack.pop();
-                result?;
-                crate::emacs_core::eval::finish_require_in_state(
-                    &*self.shared.features,
-                    sym_id,
-                    &name,
-                )
-            }
-        }
-    }
-
-    fn load_with_vm_bridge(&mut self, args: Vec<Value>, extra_roots: &[Value]) -> EvalResult {
-        if args.is_empty() {
-            return Err(signal(
-                "wrong-number-of-arguments",
-                vec![Value::symbol("load"), Value::Int(0)],
-            ));
-        }
-        match crate::emacs_core::load::plan_load_in_state(
-            &*self.shared.obarray,
-            args[0],
-            args.get(1).copied(),
-            args.get(3).copied(),
-            args.get(4).copied(),
-        )? {
-            crate::emacs_core::load::LoadPlan::Return(value) => Ok(value),
-            crate::emacs_core::load::LoadPlan::Load { path } => {
-                self.with_shared_evaluator(extra_roots, move |eval| eval.load_file_internal(&path))
-            }
-        }
-    }
-
-    fn eval_with_vm_bridge(&mut self, args: Vec<Value>, extra_roots: &[Value]) -> EvalResult {
-        if !(1..=2).contains(&args.len()) {
-            return Err(signal(
-                "wrong-number-of-arguments",
-                vec![Value::symbol("eval"), Value::Int(args.len() as i64)],
-            ));
-        }
-        let form = args[0];
-        let lexical_arg = args.get(1).copied();
-        let state = self.shared.begin_eval_with_lexical_arg(lexical_arg)?;
-        let result = self.with_shared_evaluator(extra_roots, move |eval| eval.eval_value(&form));
-        self.shared.finish_eval_with_lexical_arg(state);
-        result
     }
 
     /// Execute a compiled function without param binding (for inline compilation).
@@ -5150,13 +5071,29 @@ impl<'a> Vm<'a> {
                 self.shared.features,
                 args.to_vec(),
             )),
-            "eval" => Some(self.eval_with_vm_bridge(args.to_vec(), args)),
-            "load" => Some(self.load_with_vm_bridge(args.to_vec(), args)),
-            "autoload-do-load" => Some(self.autoload_do_load_with_vm_bridge(
-                args.to_vec(),
+            "eval" => Some(crate::emacs_core::eval::builtin_eval_in_vm_runtime(
+                &mut self.shared,
+                &self.gc_roots,
                 args,
             )),
-            "require" => Some(self.require_with_vm_bridge(args.to_vec(), args)),
+            "load" => Some(crate::emacs_core::load::builtin_load_in_vm_runtime(
+                &mut self.shared,
+                &self.gc_roots,
+                args,
+            )),
+            "autoload-do-load" => Some(
+                crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
+                    &mut self.shared,
+                    &self.gc_roots,
+                    args,
+                    args,
+                ),
+            ),
+            "require" => Some(crate::emacs_core::eval::builtin_require_in_vm_runtime(
+                &mut self.shared,
+                &self.gc_roots,
+                args,
+            )),
             "symbol-file" => Some(crate::emacs_core::autoload::builtin_symbol_file_in_state(
                 &*self.shared.obarray,
                 &*self.shared.autoloads,
@@ -8163,8 +8100,16 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
-            "eval-buffer" => Some(self.builtin_eval_buffer_shared(args)),
-            "eval-region" => Some(self.builtin_eval_region_shared(args)),
+            "eval-buffer" => Some(crate::emacs_core::lread::builtin_eval_buffer_in_vm_runtime(
+                &mut self.shared,
+                &self.gc_roots,
+                args,
+            )),
+            "eval-region" => Some(crate::emacs_core::lread::builtin_eval_region_in_vm_runtime(
+                &mut self.shared,
+                &self.gc_roots,
+                args,
+            )),
             "macroexpand" => Some(self.builtin_macroexpand_shared(args)),
             "mapatoms" => Some(self.builtin_mapatoms_shared(args)),
             "maphash" => Some(self.builtin_maphash_shared(args)),
@@ -8298,12 +8243,8 @@ impl<'a> Vm<'a> {
         extra_roots: &[Value],
         f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator) -> T,
     ) -> T {
-        with_parent_evaluator_roots(
-            self.shared.parent_eval_ptr(),
-            &self.gc_roots,
-            extra_roots,
-            f,
-        )
+        self.shared
+            .with_parent_evaluator_vm_roots(&self.gc_roots, extra_roots, f)
     }
 
     fn with_default_directory_binding<T>(
@@ -8495,35 +8436,6 @@ impl<'a> Vm<'a> {
         self.shared
             .request_shutdown(request.exit_code, request.restart);
         Ok(Value::Nil)
-    }
-
-    fn builtin_eval_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
-        let source = crate::emacs_core::lread::eval_buffer_source_text_in_state(
-            self.shared.buffers,
-            args.first(),
-        )?;
-        crate::emacs_core::lread::eval_forms_from_source_in_runtime(&source, |form| {
-            self.with_shared_evaluator(args, move |eval| eval.eval(form))
-                .map(|_| {
-                    self.shared.gc_safe_point();
-                    Value::Nil
-                })
-        })
-    }
-
-    fn builtin_eval_region_shared(&mut self, args: &[Value]) -> EvalResult {
-        let source =
-            crate::emacs_core::lread::eval_region_source_text_in_state(self.shared.buffers, args)?;
-        if source.is_empty() {
-            return Ok(Value::Nil);
-        }
-        crate::emacs_core::lread::eval_forms_from_source_in_runtime(&source, |form| {
-            self.with_shared_evaluator(args, move |eval| eval.eval(form))
-                .map(|_| {
-                    self.shared.gc_safe_point();
-                    Value::Nil
-                })
-        })
     }
 
     fn builtin_macroexpand_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -9247,7 +9159,12 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
         let args = vec![autoload, head, Value::symbol("macro")];
         let extra_roots = args.clone();
-        let _ = self.autoload_do_load_with_vm_bridge(args, &extra_roots)?;
+        let _ = crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
+            &args,
+            &extra_roots,
+        )?;
         Ok(())
     }
 
@@ -9264,30 +9181,6 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         self.with_extra_roots(&extra_roots, move |vm| {
             vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))
         })
-    }
-}
-
-fn with_parent_evaluator_roots<T>(
-    mut parent_eval: std::ptr::NonNull<crate::emacs_core::eval::Evaluator>,
-    gc_roots: &[Value],
-    extra_roots: &[Value],
-    f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator) -> T,
-) -> T {
-    // Safety: `parent_eval` points at the evaluator that created the VM shared
-    // state and outlives the VM. Callers ensure evaluator crossings are
-    // serialized.
-    unsafe {
-        let eval = parent_eval.as_mut();
-        let saved_temp_roots = eval.save_temp_roots();
-        for root in gc_roots {
-            eval.push_temp_root(*root);
-        }
-        for root in extra_roots {
-            eval.push_temp_root(*root);
-        }
-        let result = f(eval);
-        eval.restore_temp_roots(saved_temp_roots);
-        result
     }
 }
 

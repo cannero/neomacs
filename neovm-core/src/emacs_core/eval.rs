@@ -720,6 +720,26 @@ impl<'a> VmSharedState<'a> {
         unsafe { f(self.parent_eval.as_mut()) }
     }
 
+    pub(crate) fn with_parent_evaluator_vm_roots<T>(
+        &mut self,
+        vm_gc_roots: &[Value],
+        extra_roots: &[Value],
+        f: impl FnOnce(&mut Evaluator) -> T,
+    ) -> T {
+        self.with_parent_evaluator(|eval| {
+            let saved_temp_roots = eval.save_temp_roots();
+            for root in vm_gc_roots {
+                eval.push_temp_root(*root);
+            }
+            for root in extra_roots {
+                eval.push_temp_root(*root);
+            }
+            let result = f(eval);
+            eval.restore_temp_roots(saved_temp_roots);
+            result
+        })
+    }
+
     pub(crate) fn parent_eval_ptr(&self) -> std::ptr::NonNull<Evaluator> {
         self.parent_eval
     }
@@ -1259,6 +1279,34 @@ pub(crate) fn finish_require_in_state(features: &[SymId], sym_id: SymId, name: &
     }
 }
 
+pub(crate) fn builtin_require_in_vm_runtime(
+    shared: &mut VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    match plan_require_in_state(
+        &*shared.obarray,
+        &*shared.features,
+        &*shared.require_stack,
+        args.first().copied().unwrap_or(Value::Nil),
+        args.get(1).copied(),
+        args.get(2).copied(),
+    )? {
+        RequirePlan::Return(value) => Ok(value),
+        RequirePlan::Load { sym_id, name, path } => {
+            shared.require_stack.push(sym_id);
+            let extra_roots = args.to_vec();
+            let result =
+                shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+                    eval.load_file_internal(&path)
+                });
+            let _ = shared.require_stack.pop();
+            result?;
+            finish_require_in_state(&*shared.features, sym_id, &name)
+        }
+    }
+}
+
 pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option<Value>), Flow> {
     let Some(arg) = arg else {
         return Ok((false, None));
@@ -1327,6 +1375,27 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
         *lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
     }
     obarray.set_symbol_value("lexical-binding", Value::bool(state.saved_lexical_mode));
+}
+
+pub(crate) fn builtin_eval_in_vm_runtime(
+    shared: &mut VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    if !(1..=2).contains(&args.len()) {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("eval"), Value::Int(args.len() as i64)],
+        ));
+    }
+
+    let form = args[0];
+    let lexical_arg = args.get(1).copied();
+    let state = shared.begin_eval_with_lexical_arg(lexical_arg)?;
+    let result = shared
+        .with_parent_evaluator_vm_roots(vm_gc_roots, args, move |eval| eval.eval_value(&form));
+    shared.finish_eval_with_lexical_arg(state);
+    result
 }
 
 pub(crate) struct ActiveLambdaCallState {

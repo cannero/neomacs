@@ -360,6 +360,24 @@ pub(crate) fn builtin_autoload_do_load(
     }
 }
 
+pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+    extra_roots: &[Value],
+) -> EvalResult {
+    match plan_autoload_do_load_in_state(&*shared.obarray, args)? {
+        AutoloadDoLoadPlan::Return(value) => Ok(value),
+        AutoloadDoLoadPlan::Load { file, funname } => {
+            let path = resolve_autoload_load_path(&*shared.obarray, &file)?;
+            shared.with_parent_evaluator_vm_roots(vm_gc_roots, extra_roots, move |eval| {
+                eval.load_file_internal(&path)
+            })?;
+            finish_autoload_do_load_in_state(&*shared.obarray, funname.as_deref())
+        }
+    }
+}
+
 pub(crate) fn register_autoload_in_state(
     obarray: &mut Obarray,
     autoloads: &mut AutoloadManager,

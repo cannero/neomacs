@@ -211,6 +211,36 @@ pub(crate) fn builtin_eval_region(
     eval_forms_from_source(eval, &source)
 }
 
+pub(crate) fn builtin_eval_buffer_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    let source = eval_buffer_source_text_in_state(shared.buffers, args.first())?;
+    eval_forms_from_source_in_runtime(&source, |form| {
+        shared.with_parent_evaluator_vm_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
+        shared.gc_safe_point();
+        Ok(Value::Nil)
+    })
+}
+
+pub(crate) fn builtin_eval_region_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    let source = eval_region_source_text_in_state(shared.buffers, args)?;
+    if source.is_empty() {
+        return Ok(Value::Nil);
+    }
+
+    eval_forms_from_source_in_runtime(&source, |form| {
+        shared.with_parent_evaluator_vm_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
+        shared.gc_safe_point();
+        Ok(Value::Nil)
+    })
+}
+
 fn event_to_int(event: &Value) -> Option<i64> {
     match event {
         Value::Int(n) => Some(*n),
