@@ -3715,6 +3715,45 @@ fn vm_font_face_and_color_builtins_use_direct_dispatch() {
 }
 
 #[test]
+fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((orig (category-table))
+                      (tmp (make-category-table))
+                      (other (get-buffer-create "*vm-category*")))
+                 (list
+                   (case-table-p (current-case-table))
+                   (category-table-p orig)
+                   (progn
+                     (set-buffer other)
+                     (set-category-table tmp)
+                     (eq (category-table) tmp))
+                   (progn
+                     (set-buffer (get-buffer-create "*scratch*"))
+                     (not (eq (category-table) tmp)))
+                   (progn
+                     (define-category ?x "doc")
+                     (equal (category-docstring ?x) "doc"))
+                   (string= (category-set-mnemonics (make-category-set "xa")) "ax")
+                   (characterp (get-unused-category))
+                   (charsetp 'ascii)
+                   (eq (char-charset ?A) 'ascii)
+                   (equal (find-charset-string "é") '(unicode-bmp))
+                   (integerp (charset-id-internal 'ascii))
+                   (consp (charset-priority-list))
+                   (progn
+                     (set-charset-priority 'ascii)
+                     (equal (charset-priority-list t) '(ascii)))
+                   (null (define-charset-alias 'latin-1 'ascii))
+                   (charsetp 'latin-1)
+                   (null (declare-equiv-charset 1 94 ?A 'ascii))
+                   (null (clear-charset-maps))))"#
+        ),
+        "OK (t t t t t t t t t t t t t t t t t)"
+    );
+}
+
+#[test]
 fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
     assert_eq!(
         vm_eval_str(

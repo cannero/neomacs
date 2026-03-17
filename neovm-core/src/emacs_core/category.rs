@@ -318,14 +318,14 @@ fn category_table_pointer_eq(lhs: &Value, rhs: &Value) -> bool {
     }
 }
 
-fn current_buffer_category_table(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
+fn current_buffer_category_table_in_buffers(
+    buffers: &mut crate::buffer::BufferManager,
+) -> Result<Value, Flow> {
     let fallback = ensure_standard_category_table()?;
-    let current_id = eval
-        .buffers
+    let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
@@ -335,24 +335,30 @@ fn current_buffer_category_table(eval: &mut super::eval::Evaluator) -> Result<Va
         }
     }
 
-    let _ = eval
-        .buffers
-        .set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, fallback);
+    let _ = buffers.set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, fallback);
     Ok(fallback)
+}
+
+fn current_buffer_category_table(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
+    current_buffer_category_table_in_buffers(&mut eval.buffers)
+}
+
+fn set_current_buffer_category_table_in_buffers(
+    buffers: &mut crate::buffer::BufferManager,
+    table: Value,
+) -> Result<(), Flow> {
+    let current_id = buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let _ = buffers.set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, table);
+    Ok(())
 }
 
 fn set_current_buffer_category_table(
     eval: &mut super::eval::Evaluator,
     table: Value,
 ) -> Result<(), Flow> {
-    let current_id = eval
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval
-        .buffers
-        .set_buffer_local_property(current_id, CATEGORY_TABLE_PROPERTY, table);
-    Ok(())
+    set_current_buffer_category_table_in_buffers(&mut eval.buffers, table)
 }
 
 // ===========================================================================
@@ -677,6 +683,13 @@ pub(crate) fn builtin_define_category_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_define_category_in_manager(&mut eval.category_manager, args)
+}
+
+pub(crate) fn builtin_define_category_in_manager(
+    category_manager: &mut CategoryManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("define-category", &args, 2)?;
     expect_max_args("define-category", &args, 3)?;
 
@@ -702,7 +715,7 @@ pub(crate) fn builtin_define_category_eval(
     }
 
     // TABLE (arg 2) is currently ignored; category tables are not first-class.
-    eval.category_manager
+    category_manager
         .current_mut()
         .define_category(cat, &docstring)
         .map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
@@ -718,6 +731,13 @@ pub(crate) fn builtin_category_docstring_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_category_docstring_in_manager(&eval.category_manager, args)
+}
+
+pub(crate) fn builtin_category_docstring_in_manager(
+    category_manager: &CategoryManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("category-docstring", &args, 1)?;
     expect_max_args("category-docstring", &args, 2)?;
 
@@ -725,7 +745,7 @@ pub(crate) fn builtin_category_docstring_eval(
     // TABLE (arg 1) is currently ignored; category tables are not first-class.
     let _ = args.get(1);
 
-    match eval.category_manager.current().category_docstring(cat) {
+    match category_manager.current().category_docstring(cat) {
         Some(doc) => Ok(Value::string(doc)),
         None => Ok(Value::Nil),
     }
@@ -738,11 +758,18 @@ pub(crate) fn builtin_get_unused_category_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_unused_category_in_manager(&eval.category_manager, args)
+}
+
+pub(crate) fn builtin_get_unused_category_in_manager(
+    category_manager: &CategoryManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("get-unused-category", &args, 1)?;
     // TABLE (arg 0) is currently ignored; category tables are not first-class.
     let _ = args.first();
 
-    match eval.category_manager.current().get_unused_category() {
+    match category_manager.current().get_unused_category() {
         Some(cat) => Ok(Value::Char(cat)),
         None => Ok(Value::Nil),
     }
@@ -792,8 +819,15 @@ pub(crate) fn builtin_category_table_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_category_table_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_category_table_in_buffers(
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("category-table", &args, 0)?;
-    current_buffer_category_table(eval)
+    current_buffer_category_table_in_buffers(buffers)
 }
 
 /// `(standard-category-table)` (evaluator-backed).
@@ -814,10 +848,17 @@ pub(crate) fn builtin_set_category_table_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_set_category_table_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_category_table_in_buffers(
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-category-table", &args, 1)?;
 
     let installed = if args[0].is_nil() {
-        let current = current_buffer_category_table(eval)?;
+        let current = current_buffer_category_table_in_buffers(buffers)?;
         let standard = ensure_standard_category_table()?;
         if category_table_pointer_eq(&current, &standard) {
             standard
@@ -834,7 +875,7 @@ pub(crate) fn builtin_set_category_table_eval(
         args[0]
     };
 
-    set_current_buffer_category_table(eval, installed)?;
+    set_current_buffer_category_table_in_buffers(buffers, installed)?;
     Ok(installed)
 }
 

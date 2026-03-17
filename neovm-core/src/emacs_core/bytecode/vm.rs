@@ -3550,11 +3550,75 @@ impl<'a> Vm<'a> {
                 self.shared.category_manager,
                 args.to_vec(),
             )),
+            "get-unused-category" => Some(
+                crate::emacs_core::category::builtin_get_unused_category_in_manager(
+                    self.shared.category_manager,
+                    args.to_vec(),
+                ),
+            ),
             "modify-category-entry" => Some(
                 crate::emacs_core::category::modify_category_entry_in_manager(
                     self.shared.category_manager,
                     args,
                 ),
+            ),
+            "define-category" => Some(
+                crate::emacs_core::category::builtin_define_category_in_manager(
+                    self.shared.category_manager,
+                    args.to_vec(),
+                ),
+            ),
+            "category-docstring" => Some(
+                crate::emacs_core::category::builtin_category_docstring_in_manager(
+                    self.shared.category_manager,
+                    args.to_vec(),
+                ),
+            ),
+            "category-table-p" => Some(
+                crate::emacs_core::category::builtin_category_table_p(args.to_vec()),
+            ),
+            "make-category-table" => Some(
+                crate::emacs_core::category::builtin_make_category_table(args.to_vec()),
+            ),
+            "copy-category-table" => Some(
+                crate::emacs_core::category::builtin_copy_category_table(args.to_vec()),
+            ),
+            "category-set-mnemonics" => Some(
+                crate::emacs_core::category::builtin_category_set_mnemonics(args.to_vec()),
+            ),
+            "case-table-p" => Some(
+                crate::emacs_core::casetab::builtin_case_table_p(args.to_vec()),
+            ),
+            "charsetp" => Some(crate::emacs_core::charset::builtin_charsetp(args.to_vec())),
+            "charset-priority-list" => Some(
+                crate::emacs_core::charset::builtin_charset_priority_list(args.to_vec()),
+            ),
+            "set-charset-priority" => Some(
+                crate::emacs_core::charset::builtin_set_charset_priority(args.to_vec()),
+            ),
+            "char-charset" => Some(
+                crate::emacs_core::charset::builtin_char_charset(args.to_vec()),
+            ),
+            "charset-plist" => Some(
+                crate::emacs_core::charset::builtin_charset_plist(args.to_vec()),
+            ),
+            "charset-id-internal" => Some(
+                crate::emacs_core::charset::builtin_charset_id_internal(args.to_vec()),
+            ),
+            "define-charset-internal" => Some(
+                crate::emacs_core::charset::builtin_define_charset_internal(args.to_vec()),
+            ),
+            "declare-equiv-charset" => Some(
+                crate::emacs_core::charset::builtin_declare_equiv_charset(args.to_vec()),
+            ),
+            "define-charset-alias" => Some(
+                crate::emacs_core::charset::builtin_define_charset_alias(args.to_vec()),
+            ),
+            "find-charset-string" => Some(
+                crate::emacs_core::charset::builtin_find_charset_string(args.to_vec()),
+            ),
+            "clear-charset-maps" => Some(
+                crate::emacs_core::charset::builtin_clear_charset_maps(args.to_vec()),
             ),
             "modify-syntax-entry" => Some(
                 crate::emacs_core::syntax::modify_syntax_entry_in_buffers(self.shared.buffers, args),
@@ -4262,6 +4326,18 @@ impl<'a> Vm<'a> {
             "set-standard-case-table" => Some(self.builtin_set_standard_case_table_shared(args)),
             "standard-category-table" => Some(
                 crate::emacs_core::category::builtin_standard_category_table(args.to_vec()),
+            ),
+            "category-table" => Some(
+                crate::emacs_core::category::builtin_category_table_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "set-category-table" => Some(
+                crate::emacs_core::category::builtin_set_category_table_in_buffers(
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
             ),
             "current-global-map" => Some(
                 builtins::expect_args("current-global-map", args, 0)
