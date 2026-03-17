@@ -4239,14 +4239,21 @@ pub(crate) fn builtin_internal_handle_focus_in(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-pub(crate) fn builtin_internal_make_var_non_special_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+pub(crate) fn builtin_internal_make_var_non_special_in_obarray(
+    obarray: &mut crate::emacs_core::symbol::Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal-make-var-non-special", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    eval.obarray_mut().make_non_special_id(symbol);
+    obarray.make_non_special_id(symbol);
     Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_internal_make_var_non_special_eval(
+    eval: &mut crate::emacs_core::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_internal_make_var_non_special_in_obarray(eval.obarray_mut(), args)
 }
 
 pub(crate) fn builtin_internal_set_lisp_face_attribute_from_resource(

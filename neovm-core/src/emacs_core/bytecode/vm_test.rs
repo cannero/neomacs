@@ -4073,6 +4073,39 @@ fn vm_base64_region_and_json_buffer_builtins_use_shared_current_buffer_state() {
 }
 
 #[test]
+fn vm_internal_utility_builtins_use_direct_and_shared_state_paths() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(with-current-buffer (get-buffer-create " *vm-internal-utils*")
+                 (erase-buffer)
+                 (insert "abc")
+                 (list
+                  (equal (field-string-no-properties) "abc")
+                  (let ((table (make-hash-table :test 'eq)))
+                    (puthash 'a 1 table)
+                    (list
+                     (consp (internal--hash-table-buckets table))
+                     (consp (internal--hash-table-histogram table))
+                     (integerp (internal--hash-table-index-size table))))
+                  (let ((ob (make-vector 4 nil)))
+                    (listp (internal--obarray-buckets ob)))
+                  (null (internal--set-buffer-modified-tick 1 (current-buffer)))
+                  (progn
+                    (defvar vm-bytecode-internal-nonspecial nil)
+                    (let ((before (special-variable-p 'vm-bytecode-internal-nonspecial)))
+                      (internal-make-var-non-special 'vm-bytecode-internal-nonspecial)
+                      (list before
+                            (special-variable-p 'vm-bytecode-internal-nonspecial))))
+                  (eq
+                   (internal-set-lisp-face-attribute-from-resource
+                    'default :weight "bold")
+                   'default)))"#
+        ),
+        r#"OK (t (t t t) t t (t nil) t)"#
+    );
+}
+
+#[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

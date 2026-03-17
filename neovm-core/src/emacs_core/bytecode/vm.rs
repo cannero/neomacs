@@ -7768,6 +7768,38 @@ impl<'a> Vm<'a> {
             "find-charset-region" => Some(self.builtin_find_charset_region_shared(args)),
             "charset-after" => Some(self.builtin_charset_after_shared(args)),
             "compose-region-internal" => Some(self.builtin_compose_region_internal_shared(args)),
+            "internal--hash-table-buckets" => Some(
+                crate::emacs_core::hashtab::builtin_internal_hash_table_buckets(args.to_vec()),
+            ),
+            "internal--hash-table-histogram" => Some(
+                crate::emacs_core::hashtab::builtin_internal_hash_table_histogram(
+                    args.to_vec(),
+                ),
+            ),
+            "internal--hash-table-index-size" => Some(
+                crate::emacs_core::hashtab::builtin_internal_hash_table_index_size(
+                    args.to_vec(),
+                ),
+            ),
+            "internal--obarray-buckets" => Some(
+                crate::emacs_core::builtins::builtin_internal_obarray_buckets(args.to_vec()),
+            ),
+            "internal--set-buffer-modified-tick" => Some(
+                crate::emacs_core::builtins::builtin_internal_set_buffer_modified_tick(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-make-var-non-special" => Some(
+                crate::emacs_core::builtins::builtin_internal_make_var_non_special_in_obarray(
+                    self.shared.obarray,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-set-lisp-face-attribute-from-resource" => Some(
+                crate::emacs_core::builtins::builtin_internal_set_lisp_face_attribute_from_resource(
+                    args.to_vec(),
+                ),
+            ),
             "base64-encode-string" => Some(crate::emacs_core::fns::builtin_base64_encode_string(
                 args.to_vec(),
             )),
