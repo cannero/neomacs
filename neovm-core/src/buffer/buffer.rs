@@ -166,6 +166,10 @@ impl Buffer {
             RuntimeBindingValue::Bound(Value::Nil),
         );
         properties.insert(
+            "buffer-invisibility-spec".to_string(),
+            RuntimeBindingValue::Bound(Value::True),
+        );
+        properties.insert(
             "buffer-undo-list".to_string(),
             RuntimeBindingValue::Bound(Value::Nil),
         );
@@ -2469,6 +2473,10 @@ mod tests {
             Some(Value::string("Fundamental"))
         );
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
+        assert_eq!(
+            buf.buffer_local_value("buffer-invisibility-spec"),
+            Some(Value::True)
+        );
         assert_eq!(buf.buffer_local_value("buffer-undo-list"), Some(Value::Nil));
     }
 

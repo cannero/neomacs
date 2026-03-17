@@ -947,6 +947,24 @@ fn bootstrap_runtime_buffer_file_name_variable_defaults_to_nil() {
 }
 
 #[test]
+fn bootstrap_runtime_add_to_invisibility_spec_matches_gnu_default_t() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-current-buffer (get-buffer-create "*inv*")
+             (condition-case err
+                 (progn
+                   (add-to-invisibility-spec '(dired . t))
+                   buffer-invisibility-spec)
+               (error err)))"#,
+    );
+
+    assert_eq!(rendered, "OK ((dired . t) t)");
+}
+
+#[test]
 fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
