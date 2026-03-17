@@ -1569,6 +1569,18 @@ fn vm_macroexpand_environment_lambda_uses_localized_shared_callbacks() {
 }
 
 #[test]
+fn vm_raw_lambda_and_closure_callables_use_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            "(list
+               (funcall '(lambda (x) x) 7)
+               (funcall '(closure ((x . 5)) (y) (+ x y)) 3))"
+        ),
+        "OK (7 8)"
+    );
+}
+
+#[test]
 fn vm_mapatoms_and_maphash_use_shared_runtime_callbacks() {
     assert_eq!(
         vm_eval_str(

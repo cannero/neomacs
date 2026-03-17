@@ -3123,6 +3123,163 @@ impl<'a> Vm<'a> {
         )
     }
 
+    fn visible_variable_value_or_nil(&self, name: &str) -> Value {
+        let name_id = intern(name);
+        let is_dynamically_special = self.shared.obarray.is_special_id(name_id)
+            && !self.shared.obarray.is_constant_id(name_id);
+        if !is_dynamically_special
+            && !lexenv_declares_special(*self.shared.lexenv, name_id)
+            && let Some(value) = lexenv_lookup(*self.shared.lexenv, name_id)
+        {
+            return value;
+        }
+        if let Some(binding) = lookup_runtime_binding(self.shared.dynamic.as_slice(), name_id) {
+            return binding.as_value().unwrap_or(Value::Nil);
+        }
+        if let Some(buffer) = self.shared.buffers.current_buffer()
+            && let Some(binding) = buffer.get_buffer_local_binding(name)
+        {
+            return binding.as_value().unwrap_or(Value::Nil);
+        }
+        if let Some(value) = self.shared.obarray.symbol_value(name).copied() {
+            return value;
+        }
+        if name == "nil" {
+            return Value::Nil;
+        }
+        if name == "t" {
+            return Value::True;
+        }
+        Value::Nil
+    }
+
+    fn instantiate_callable_cons_form(&mut self, function: Value) -> EvalResult {
+        let items =
+            list_to_vec(&function).ok_or_else(|| signal("invalid-function", vec![function]))?;
+        let Some(head_name) = items.first().and_then(Value::as_symbol_name) else {
+            return Err(signal("invalid-function", vec![function]));
+        };
+
+        let (env_value, params_value, mut body_start) = match head_name {
+            "lambda" => {
+                let Some(params_value) = items.get(1).copied() else {
+                    return Err(signal("invalid-function", vec![function]));
+                };
+                let env_value = if self
+                    .shared
+                    .obarray
+                    .symbol_value("lexical-binding")
+                    .is_some_and(|value| value.is_truthy())
+                    || !self.shared.lexenv.is_nil()
+                {
+                    if self.shared.lexenv.is_nil() {
+                        Value::list(vec![Value::True])
+                    } else {
+                        *self.shared.lexenv
+                    }
+                } else {
+                    Value::Nil
+                };
+                (env_value, params_value, 2)
+            }
+            "closure" => {
+                let (Some(env_value), Some(params_value)) =
+                    (items.get(1).copied(), items.get(2).copied())
+                else {
+                    return Err(signal("invalid-function", vec![function]));
+                };
+                (env_value, params_value, 3)
+            }
+            _ => return Err(signal("invalid-function", vec![function])),
+        };
+
+        let docstring_value = if matches!(items.get(body_start), Some(Value::Str(_)))
+            && items.get(body_start + 1).is_some()
+        {
+            let value = items[body_start];
+            body_start += 1;
+            value
+        } else {
+            Value::Nil
+        };
+
+        let mut doc_form_value = Value::Nil;
+        if let Some(item) = items.get(body_start)
+            && let Some(entry) = list_to_vec(item)
+            && entry.len() == 2
+            && entry[0].as_symbol_name() == Some(":documentation")
+        {
+            doc_form_value = entry[1];
+            body_start += 1;
+        }
+
+        while let Some(item) = items.get(body_start) {
+            let Some(declare) = list_to_vec(item) else {
+                break;
+            };
+            if declare
+                .first()
+                .and_then(Value::as_symbol_name)
+                .is_some_and(|name| name == "declare")
+            {
+                body_start += 1;
+            } else {
+                break;
+            }
+        }
+
+        let body_value = if body_start >= items.len() {
+            Value::Nil
+        } else {
+            Value::list(items[body_start..].to_vec())
+        };
+        let closure_doc_value = if !doc_form_value.is_nil() {
+            doc_form_value
+        } else {
+            docstring_value
+        };
+        let iform_value = Value::Nil;
+
+        let mut extra_roots = vec![
+            function,
+            params_value,
+            body_value,
+            env_value,
+            closure_doc_value,
+            iform_value,
+        ];
+
+        if head_name == "lambda" && !env_value.is_nil() {
+            let closure_hook =
+                self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
+            if !closure_hook.is_nil() {
+                extra_roots.push(closure_hook);
+                return self.with_extra_roots(&extra_roots, |vm| {
+                    vm.call_function_with_roots(
+                        closure_hook,
+                        &[
+                            params_value,
+                            body_value,
+                            env_value,
+                            closure_doc_value,
+                            iform_value,
+                        ],
+                    )
+                });
+            }
+        }
+
+        self.with_extra_roots(&extra_roots, |_vm| {
+            crate::emacs_core::builtins::symbols::make_interpreted_closure_from_parts(
+                &params_value,
+                &body_value,
+                &env_value,
+                Some(&closure_doc_value),
+                Some(&iform_value),
+            )
+        })
+    }
+
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
         match func_val {
             Value::ByteCode(_) => {
@@ -3171,6 +3328,21 @@ impl<'a> Vm<'a> {
                 }
                 // Try builtin
                 self.dispatch_vm_builtin(name, args)
+            }
+            function @ Value::Cons(_) => {
+                if crate::emacs_core::autoload::is_autoload_value(&function) {
+                    Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("symbolp"), function],
+                    ))
+                } else if function.cons_car().is_symbol_named("lambda")
+                    || function.cons_car().is_symbol_named("closure")
+                {
+                    let callable = self.instantiate_callable_cons_form(function)?;
+                    self.call_function(callable, args)
+                } else {
+                    Err(signal("invalid-function", vec![function]))
+                }
             }
             _ => Err(signal("invalid-function", vec![func_val])),
         }
@@ -9119,13 +9291,6 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
 
     fn is_global_function_placeholder(&self, symbol: SymId) -> bool {
         self.shared.obarray.symbol_function_id(symbol).is_none()
-    }
-
-    fn eval_environment_lambda_form(&mut self, binding: &Value) -> Result<Value, Flow> {
-        let binding_value = *binding;
-        self.with_shared_evaluator(&[binding_value], move |eval| {
-            eval.eval_value(&binding_value)
-        })
     }
 
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {

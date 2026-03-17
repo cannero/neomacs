@@ -42,7 +42,6 @@ pub(crate) trait MacroexpandRuntime {
     fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value;
     fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)>;
     fn is_global_function_placeholder(&self, symbol: SymId) -> bool;
-    fn eval_environment_lambda_form(&mut self, binding: &Value) -> Result<Value, Flow>;
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow>;
     fn apply_macro_function(
         &mut self,
@@ -63,10 +62,6 @@ impl MacroexpandRuntime for super::eval::Evaluator {
 
     fn is_global_function_placeholder(&self, symbol: SymId) -> bool {
         self.obarray().symbol_function_id(symbol).is_none()
-    }
-
-    fn eval_environment_lambda_form(&mut self, binding: &Value) -> Result<Value, Flow> {
-        self.eval_value(binding)
     }
 
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
@@ -1158,13 +1153,7 @@ fn macroexpand_environment_binding_by_id(env: &Value, target: SymId) -> Option<V
     }
 }
 
-fn macroexpand_environment_callable<R: MacroexpandRuntime>(
-    runtime: &mut R,
-    binding: &Value,
-) -> Result<Value, Flow> {
-    if is_lambda_form_list(binding) {
-        return runtime.eval_environment_lambda_form(binding);
-    }
+fn macroexpand_environment_callable(binding: &Value) -> Result<Value, Flow> {
     Ok(*binding)
 }
 
@@ -2047,7 +2036,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
         if let Some(binding) = macroexpand_environment_binding_by_id(env, head_id) {
             env_bound = true;
             if !binding.is_nil() {
-                function = Some(macroexpand_environment_callable(runtime, &binding)?);
+                function = Some(macroexpand_environment_callable(&binding)?);
             }
         }
     }
