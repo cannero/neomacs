@@ -3591,10 +3591,6 @@ impl<'a> Vm<'a> {
         if let Some(result) = builtins::dispatch_builtin_pure(name, args.clone()) {
             return result.map_err(|flow| normalize_vm_builtin_error(name, flow));
         }
-        if let Some(result) = self.dispatch_vm_builtin_eval(name, args.clone()) {
-            return result.map_err(|flow| normalize_vm_builtin_error(name, flow));
-        }
-
         Err(signal("void-function", vec![Value::symbol(name)]))
     }
 
@@ -9087,38 +9083,6 @@ impl<'a> Vm<'a> {
         crate::emacs_core::reader::finish_yes_or_no_p_with_minibuffer(args, |minibuffer_args| {
             self.builtin_read_from_minibuffer_shared(minibuffer_args)
         })
-    }
-
-    /// Dispatch builtins that still require evaluator entry on the shared
-    /// runtime.
-    fn dispatch_vm_builtin_eval(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {
-        let trace_vm_builtins = std::env::var_os("NEOVM_TRACE_VM_BUILTINS").is_some();
-        let trace_load_file_name = if trace_vm_builtins {
-            self.shared
-                .obarray
-                .symbol_value("load-file-name")
-                .and_then(|value| value.as_str().map(str::to_owned))
-                .unwrap_or_else(|| "<unknown>".to_string())
-        } else {
-            String::new()
-        };
-        let trace_start = trace_vm_builtins.then(std::time::Instant::now);
-        let extra_roots = args.clone();
-        let result = self.with_shared_evaluator(&extra_roots, move |eval| {
-            builtins::dispatch_builtin(eval, name, args)
-        });
-        if let Some(start) = trace_start {
-            let elapsed = start.elapsed();
-            if elapsed.as_millis() > 0 {
-                tracing::info!(
-                    "VM-BUILTIN-EVAL file={} name={} elapsed={:.2?}",
-                    trace_load_file_name,
-                    name,
-                    elapsed
-                );
-            }
-        }
-        result
     }
 }
 

@@ -4,6 +4,7 @@ use crate::emacs_core::eval::{Evaluator, VmSharedState};
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
 use crate::window::SplitDirection;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn new_vm(eval: &mut Evaluator) -> Vm<'_> {
@@ -69,6 +70,42 @@ fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Evaluator)) -> String
         }
     }
     crate::emacs_core::error::format_eval_result(&Ok(last))
+}
+
+fn quoted_dispatch_names(source: &str, predicate: impl Fn(&str) -> bool) -> BTreeSet<String> {
+    source
+        .lines()
+        .filter(|line| predicate(line))
+        .filter_map(|line| {
+            let start = line.find('"')?;
+            let rest = &line[start + 1..];
+            let end = rest.find('"')?;
+            Some(rest[..end].to_string())
+        })
+        .collect()
+}
+
+#[test]
+fn vm_direct_dispatch_covers_all_dispatch_builtin_names() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let builtins_mod = std::fs::read_to_string(manifest.join("src/emacs_core/builtins/mod.rs"))
+        .expect("read builtins/mod.rs");
+    let vm_source = std::fs::read_to_string(manifest.join("src/emacs_core/bytecode/vm.rs"))
+        .expect("read vm.rs");
+
+    let builtin_names = quoted_dispatch_names(&builtins_mod, |line| {
+        line.contains("=> return Some(") || line.contains("=> Some(")
+    });
+    let vm_names = quoted_dispatch_names(&vm_source, |line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with('"') && trimmed.contains("\" =>")
+    });
+
+    let missing: Vec<_> = builtin_names.difference(&vm_names).cloned().collect();
+    assert!(
+        missing.is_empty(),
+        "VM dispatch is missing builtin names: {missing:?}"
+    );
 }
 
 #[test]
