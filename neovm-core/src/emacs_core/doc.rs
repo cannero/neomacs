@@ -99,6 +99,35 @@ pub(crate) fn builtin_documentation_in_obarray(
     function_doc_or_error(args[0])
 }
 
+pub(crate) fn builtin_documentation_in_vm_runtime(
+    shared: &super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: Vec<Value>,
+) -> EvalResult {
+    let args_roots = args.clone();
+    let mut parent_eval = shared.parent_eval_ptr();
+    builtin_documentation_in_obarray(&*shared.obarray, args, |value| {
+        let mut extra_roots = args_roots.clone();
+        extra_roots.push(value);
+        // Safety: `parent_eval` points at the evaluator that owns the shared
+        // runtime and outlives this callback. The VM/evaluator crossing only
+        // evaluates the deferred documentation form on that same runtime.
+        unsafe {
+            let eval = parent_eval.as_mut();
+            let saved_temp_roots = eval.save_temp_roots();
+            for root in vm_gc_roots {
+                eval.push_temp_root(*root);
+            }
+            for root in &extra_roots {
+                eval.push_temp_root(*root);
+            }
+            let result = eval.eval_value(&value);
+            eval.restore_temp_roots(saved_temp_roots);
+            result
+        }
+    })
+}
+
 fn function_doc_or_error(func_val: Value) -> EvalResult {
     if let Some(result) = quoted_lambda_documentation(&func_val) {
         return result;
@@ -10532,6 +10561,35 @@ pub(crate) fn builtin_documentation_property_in_obarray(
         }
         _ => Ok(Value::Nil),
     }
+}
+
+pub(crate) fn builtin_documentation_property_in_vm_runtime(
+    shared: &super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: Vec<Value>,
+) -> EvalResult {
+    let args_roots = args.clone();
+    let mut parent_eval = shared.parent_eval_ptr();
+    builtin_documentation_property_in_obarray(&*shared.obarray, args, |value| {
+        let mut extra_roots = args_roots.clone();
+        extra_roots.push(value);
+        // Safety: `parent_eval` points at the evaluator that owns the shared
+        // runtime and outlives this callback. The VM/evaluator crossing only
+        // evaluates the deferred documentation property form.
+        unsafe {
+            let eval = parent_eval.as_mut();
+            let saved_temp_roots = eval.save_temp_roots();
+            for root in vm_gc_roots {
+                eval.push_temp_root(*root);
+            }
+            for root in &extra_roots {
+                eval.push_temp_root(*root);
+            }
+            let result = eval.eval_value(&value);
+            eval.restore_temp_roots(saved_temp_roots);
+            result
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------

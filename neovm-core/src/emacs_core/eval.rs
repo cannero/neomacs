@@ -720,31 +720,6 @@ impl<'a> VmSharedState<'a> {
         unsafe { f(self.parent_eval.as_mut()) }
     }
 
-    pub(crate) fn with_parent_evaluator_roots<T>(
-        &mut self,
-        vm_gc_roots: &[Value],
-        extra_roots: &[Value],
-        f: impl FnOnce(&mut Evaluator) -> T,
-    ) -> T {
-        // Safety: `parent_eval` points at the evaluator that created this
-        // shared state and stays alive for the entire VM lifetime. VM/evaluator
-        // crossings are serialized through `&mut self`, and this temporarily
-        // roots VM-visible values in the parent evaluator before entering it.
-        unsafe {
-            let eval = self.parent_eval.as_mut();
-            let saved_temp_roots = eval.save_temp_roots();
-            for root in vm_gc_roots {
-                eval.push_temp_root(*root);
-            }
-            for root in extra_roots {
-                eval.push_temp_root(*root);
-            }
-            let result = f(eval);
-            eval.restore_temp_roots(saved_temp_roots);
-            result
-        }
-    }
-
     pub(crate) fn parent_eval_ptr(&self) -> std::ptr::NonNull<Evaluator> {
         self.parent_eval
     }

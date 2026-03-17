@@ -8320,68 +8320,27 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_documentation_shared(&mut self, args: &[Value]) -> EvalResult {
-        let args_roots = args.to_vec();
-        let gc_roots = self.gc_roots.clone();
-        let parent_eval = self.shared.parent_eval_ptr();
-        crate::emacs_core::doc::builtin_documentation_in_obarray(
-            &*self.shared.obarray,
+        crate::emacs_core::doc::builtin_documentation_in_vm_runtime(
+            &self.shared,
+            &self.gc_roots,
             args.to_vec(),
-            |value| {
-                let mut extra_roots = args_roots.clone();
-                extra_roots.push(value);
-                with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, move |eval| {
-                    eval.eval_value(&value)
-                })
-            },
         )
     }
 
     fn builtin_documentation_property_shared(&mut self, args: &[Value]) -> EvalResult {
-        let args_roots = args.to_vec();
-        let gc_roots = self.gc_roots.clone();
-        let parent_eval = self.shared.parent_eval_ptr();
-        crate::emacs_core::doc::builtin_documentation_property_in_obarray(
-            &*self.shared.obarray,
+        crate::emacs_core::doc::builtin_documentation_property_in_vm_runtime(
+            &self.shared,
+            &self.gc_roots,
             args.to_vec(),
-            |value| {
-                let mut extra_roots = args_roots.clone();
-                extra_roots.push(value);
-                with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, move |eval| {
-                    eval.eval_value(&value)
-                })
-            },
         )
     }
 
     fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
-        if let Some(value) = crate::emacs_core::xdisp::builtin_format_mode_line_in_state(
-            &*self.shared.obarray,
-            self.shared.dynamic.as_slice(),
-            &*self.shared.frames,
-            &mut *self.shared.buffers,
-            args.to_vec(),
-        )? {
-            Ok(value)
-        } else {
-            let args_roots = args.to_vec();
-            let gc_roots = self.gc_roots.clone();
-            let parent_eval = self.shared.parent_eval_ptr();
-            crate::emacs_core::xdisp::finish_format_mode_line_in_state_with_eval(
-                &*self.shared.obarray,
-                self.shared.dynamic.as_slice(),
-                &*self.shared.frames,
-                &mut *self.shared.buffers,
-                args,
-                |form, _buffers| {
-                    let form_val = *form;
-                    let mut extra_roots = args_roots.clone();
-                    extra_roots.push(form_val);
-                    with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, move |eval| {
-                        eval.eval_value(&form_val)
-                    })
-                },
-            )
-        }
+        crate::emacs_core::xdisp::builtin_format_mode_line_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
+            args,
+        )
     }
 
     fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -9260,10 +9219,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_yes_or_no_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::builtin_yes_or_no_p_in_runtime(&self.shared, args)?;
-        crate::emacs_core::reader::finish_yes_or_no_p_with_minibuffer(args, |minibuffer_args| {
-            self.builtin_read_from_minibuffer_shared(minibuffer_args)
-        })
+        crate::emacs_core::reader::finish_yes_or_no_p_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
+            args,
+        )
     }
 }
 

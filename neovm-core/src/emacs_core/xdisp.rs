@@ -224,6 +224,54 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
     Ok(result)
 }
 
+pub(crate) fn builtin_format_mode_line_in_vm_runtime(
+    shared: &mut crate::emacs_core::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    if let Some(value) = builtin_format_mode_line_in_state(
+        &*shared.obarray,
+        shared.dynamic.as_slice(),
+        &*shared.frames,
+        &mut *shared.buffers,
+        args.to_vec(),
+    )? {
+        return Ok(value);
+    }
+
+    let args_roots = args.to_vec();
+    let mut parent_eval = shared.parent_eval_ptr();
+    finish_format_mode_line_in_state_with_eval(
+        &*shared.obarray,
+        shared.dynamic.as_slice(),
+        &*shared.frames,
+        &mut *shared.buffers,
+        args,
+        |form, _buffers| {
+            let form_val = *form;
+            let mut extra_roots = args_roots.clone();
+            extra_roots.push(form_val);
+            // Safety: `parent_eval` points at the evaluator that owns the
+            // shared runtime and outlives this callback. The crossing is only
+            // used for actual `:eval` forms that GNU also evaluates at render
+            // time.
+            unsafe {
+                let eval = parent_eval.as_mut();
+                let saved_temp_roots = eval.save_temp_roots();
+                for root in vm_gc_roots {
+                    eval.push_temp_root(*root);
+                }
+                for root in &extra_roots {
+                    eval.push_temp_root(*root);
+                }
+                let result = eval.eval_value(&form_val);
+                eval.restore_temp_roots(saved_temp_roots);
+                result
+            }
+        },
+    )
+}
+
 fn mode_line_symbol_value_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],

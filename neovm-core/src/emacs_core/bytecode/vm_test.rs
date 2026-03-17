@@ -1485,6 +1485,21 @@ fn vm_call_interactively_handles_prompt_driven_batch_specs_on_shared_runtime() {
 }
 
 #[test]
+fn vm_yes_or_no_p_uses_shared_runtime_batch_path() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((unread-command-events '(121)))
+                 (list
+                  (condition-case err
+                      (yes-or-no-p "Confirm? ")
+                    (error (car err)))
+                  unread-command-events))"#
+        ),
+        "OK (end-of-file (121))"
+    );
+}
+
+#[test]
 fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
     assert_eq!(
         vm_eval_with_init_str(

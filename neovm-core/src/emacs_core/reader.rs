@@ -1795,6 +1795,17 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
     }
 }
 
+pub(crate) fn finish_yes_or_no_p_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_yes_or_no_p_in_runtime(shared, args)?;
+    finish_yes_or_no_p_with_minibuffer(args, |minibuffer_args| {
+        finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, minibuffer_args)
+    })
+}
+
 pub(crate) fn builtin_yes_or_no_p_in_runtime(
     runtime: &impl KeyboardInputRuntime,
     args: &[Value],
