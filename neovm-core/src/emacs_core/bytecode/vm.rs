@@ -5255,7 +5255,166 @@ impl<'a> Vm<'a> {
             "x-get-resource" => Some(self.builtin_x_get_resource_shared(args)),
             "x-list-fonts" => Some(self.builtin_x_list_fonts_shared(args)),
             "x-server-vendor" => Some(self.builtin_x_server_vendor_shared(args)),
+            "x-server-version" => Some(crate::emacs_core::display::builtin_x_server_version_in_state(
+                self.shared.frames,
+                args.to_vec(),
+            )),
+            "x-server-max-request-size" => Some(
+                crate::emacs_core::display::builtin_x_server_max_request_size_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-server-input-extension-version" => Some(
+                crate::emacs_core::display::builtin_x_server_input_extension_version_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-grayscale-p" => Some(
+                crate::emacs_core::display::builtin_x_display_grayscale_p_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-backing-store" => Some(
+                crate::emacs_core::display::builtin_x_display_backing_store_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-color-cells" => Some(
+                crate::emacs_core::display::builtin_x_display_color_cells_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-mm-height" => Some(
+                crate::emacs_core::display::builtin_x_display_mm_height_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-mm-width" => Some(
+                crate::emacs_core::display::builtin_x_display_mm_width_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-monitor-attributes-list" => Some(
+                crate::emacs_core::display::builtin_x_display_monitor_attributes_list_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-pixel-width" => Some(
+                crate::emacs_core::display::builtin_x_display_pixel_width_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-pixel-height" => Some(
+                crate::emacs_core::display::builtin_x_display_pixel_height_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-planes" => Some(
+                crate::emacs_core::display::builtin_x_display_planes_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-save-under" => Some(
+                crate::emacs_core::display::builtin_x_display_save_under_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-screens" => Some(
+                crate::emacs_core::display::builtin_x_display_screens_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-display-visual-class" => Some(
+                crate::emacs_core::display::builtin_x_display_visual_class_in_state(
+                    self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "terminal-name" => Some(
+                crate::emacs_core::terminal::pure::builtin_terminal_name_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "terminal-list" => Some(crate::emacs_core::terminal::pure::builtin_terminal_list(
+                args.to_vec(),
+            )),
+            "frame-terminal" => Some(
+                crate::emacs_core::terminal::pure::builtin_frame_terminal_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "terminal-live-p" => Some(
+                crate::emacs_core::terminal::pure::builtin_terminal_live_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "terminal-parameter" => Some(
+                crate::emacs_core::terminal::pure::builtin_terminal_parameter_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "terminal-parameters" => Some(
+                crate::emacs_core::terminal::pure::builtin_terminal_parameters_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "set-terminal-parameter" => Some(
+                crate::emacs_core::terminal::pure::builtin_set_terminal_parameter_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "tty-type" => Some(self.builtin_tty_type_shared(args)),
+            "tty-top-frame" => Some(
+                crate::emacs_core::terminal::pure::builtin_tty_top_frame_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "tty-display-color-p" => Some(
+                crate::emacs_core::terminal::pure::builtin_tty_display_color_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "tty-display-color-cells" => Some(
+                crate::emacs_core::terminal::pure::builtin_tty_display_color_cells_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "tty-no-underline" => Some(
+                crate::emacs_core::terminal::pure::builtin_tty_no_underline_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "controlling-tty-p" => Some(
+                crate::emacs_core::terminal::pure::builtin_controlling_tty_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "suspend-tty" => Some(self.builtin_suspend_tty_shared(args)),
             "resume-tty" => Some(self.builtin_resume_tty_shared(args)),
             "x-create-frame" => Some(self.builtin_x_create_frame_shared(args)),

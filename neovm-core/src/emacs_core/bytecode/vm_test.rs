@@ -3585,6 +3585,56 @@ fn vm_xdisp_query_builtins_use_direct_dispatch() {
 }
 
 #[test]
+fn vm_terminal_query_builtins_accept_live_frame_designators() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (list
+                  (terminal-name f)
+                  (terminal-live-p f)
+                  (terminal-live-p (frame-terminal f))
+                  (terminal-live-p (car (terminal-list)))
+                  (set-terminal-parameter f 'vm-terminal-query-test 7)
+                  (terminal-parameter f 'vm-terminal-query-test)
+                  (cdr (assq 'vm-terminal-query-test (terminal-parameters f)))
+                  (tty-top-frame f)
+                  (tty-display-color-p f)
+                  (tty-display-color-cells f)
+                  (tty-no-underline f)
+                  (controlling-tty-p f)))"#
+        ),
+        r#"OK ("initial_terminal" t t t nil 7 7 nil nil 0 nil nil)"#
+    );
+}
+
+#[test]
+fn vm_x_display_query_builtins_accept_live_frame_designators() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (setq window-system 'neomacs)
+                 (list
+                  (condition-case err (x-display-pixel-width f) (error err))
+                  (condition-case err (x-display-pixel-height f) (error err))
+                  (condition-case err (x-server-version f) (error err))
+                  (condition-case err (x-server-max-request-size f) (error err))
+                  (x-display-grayscale-p f)
+                  (condition-case err (x-display-backing-store f) (error err))
+                  (condition-case err (x-display-color-cells f) (error err))
+                  (condition-case err (x-display-mm-height f) (error err))
+                  (condition-case err (x-display-mm-width f) (error err))
+                  (condition-case err (x-display-monitor-attributes-list f) (error err))
+                  (condition-case err (x-display-planes f) (error err))
+                  (condition-case err (x-display-save-under f) (error err))
+                  (condition-case err (x-display-screens f) (error err))
+                  (condition-case err (x-display-visual-class f) (error err))
+                  (condition-case err (x-server-input-extension-version f) (error err))))"#
+        ),
+        r#"OK ((error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used"))"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

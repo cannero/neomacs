@@ -1549,6 +1549,13 @@ pub(crate) fn builtin_x_server_version_eval(
     x_optional_display_query_error_eval(eval, "x-server-version", args)
 }
 
+pub(crate) fn builtin_x_server_version_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-server-version", args)
+}
+
 /// (x-server-max-request-size &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_server_max_request_size(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-server-max-request-size", &args)
@@ -1560,6 +1567,13 @@ pub(crate) fn builtin_x_server_max_request_size_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-max-request-size", args)
+}
+
+pub(crate) fn builtin_x_server_max_request_size_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-server-max-request-size", args)
 }
 
 /// (x-display-grayscale-p &optional DISPLAY) -> error in batch/no-X context.
@@ -1581,6 +1595,23 @@ pub(crate) fn builtin_x_display_grayscale_p_eval(
     x_optional_display_query_error_eval(eval, "x-display-grayscale-p", args)
 }
 
+pub(crate) fn builtin_x_display_grayscale_p_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-display-grayscale-p", &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p_in_state(frames, display)
+            && neomacs_window_system_active_in_state(obarray, dynamic)
+        {
+            return Ok(Value::Nil);
+        }
+    }
+    x_optional_display_query_error_in_state(frames, "x-display-grayscale-p", args)
+}
+
 /// (x-display-backing-store &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_display_backing_store(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-backing-store", &args)
@@ -1592,6 +1623,13 @@ pub(crate) fn builtin_x_display_backing_store_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-backing-store", args)
+}
+
+pub(crate) fn builtin_x_display_backing_store_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-backing-store", args)
 }
 
 /// (x-display-color-cells &optional DISPLAY) -> error in batch/no-X context.
@@ -1607,6 +1645,13 @@ pub(crate) fn builtin_x_display_color_cells_eval(
     x_optional_display_query_error_eval(eval, "x-display-color-cells", args)
 }
 
+pub(crate) fn builtin_x_display_color_cells_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-color-cells", args)
+}
+
 /// (x-display-mm-height &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_display_mm_height(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-mm-height", &args)
@@ -1618,6 +1663,13 @@ pub(crate) fn builtin_x_display_mm_height_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-mm-height", args)
+}
+
+pub(crate) fn builtin_x_display_mm_height_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-mm-height", args)
 }
 
 /// (x-display-mm-width &optional DISPLAY) -> error in batch/no-X context.
@@ -1633,6 +1685,13 @@ pub(crate) fn builtin_x_display_mm_width_eval(
     x_optional_display_query_error_eval(eval, "x-display-mm-width", args)
 }
 
+pub(crate) fn builtin_x_display_mm_width_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-mm-width", args)
+}
+
 /// (x-display-monitor-attributes-list &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_display_monitor_attributes_list(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-monitor-attributes-list", &args)
@@ -1644,6 +1703,13 @@ pub(crate) fn builtin_x_display_monitor_attributes_list_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-monitor-attributes-list", args)
+}
+
+pub(crate) fn builtin_x_display_monitor_attributes_list_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-monitor-attributes-list", args)
 }
 
 /// (x-display-planes &optional DISPLAY) -> error in batch/no-X context.
@@ -1659,6 +1725,13 @@ pub(crate) fn builtin_x_display_planes_eval(
     x_optional_display_query_error_eval(eval, "x-display-planes", args)
 }
 
+pub(crate) fn builtin_x_display_planes_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-planes", args)
+}
+
 /// (x-display-save-under &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_display_save_under(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-save-under", &args)
@@ -1670,6 +1743,13 @@ pub(crate) fn builtin_x_display_save_under_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-save-under", args)
+}
+
+pub(crate) fn builtin_x_display_save_under_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-save-under", args)
 }
 
 /// (x-display-screens &optional DISPLAY) -> error in batch/no-X context.
@@ -1685,6 +1765,13 @@ pub(crate) fn builtin_x_display_screens_eval(
     x_optional_display_query_error_eval(eval, "x-display-screens", args)
 }
 
+pub(crate) fn builtin_x_display_screens_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-screens", args)
+}
+
 /// (x-display-visual-class &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_display_visual_class(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-visual-class", &args)
@@ -1698,6 +1785,13 @@ pub(crate) fn builtin_x_display_visual_class_eval(
     x_optional_display_query_error_eval(eval, "x-display-visual-class", args)
 }
 
+pub(crate) fn builtin_x_display_visual_class_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-display-visual-class", args)
+}
+
 /// (x-server-input-extension-version &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_server_input_extension_version(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-server-input-extension-version", &args)
@@ -1709,6 +1803,13 @@ pub(crate) fn builtin_x_server_input_extension_version_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-input-extension-version", args)
+}
+
+pub(crate) fn builtin_x_server_input_extension_version_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    x_optional_display_query_error_in_state(frames, "x-server-input-extension-version", args)
 }
 
 /// (x-server-vendor &optional DISPLAY) -> error in batch/no-X context.
@@ -1890,6 +1991,22 @@ pub(crate) fn builtin_x_display_pixel_width_eval(
     builtin_x_display_pixel_width(args)
 }
 
+pub(crate) fn builtin_x_display_pixel_width_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-display-pixel-width", &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p_in_state(frames, display) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Window system frame should be used")],
+            ));
+        }
+    }
+    builtin_x_display_pixel_width(args)
+}
+
 /// (x-display-pixel-height &optional TERMINAL)
 ///
 /// Batch/no-X semantics: signal X-not-in-use, invalid frame designator, or
@@ -1933,6 +2050,22 @@ pub(crate) fn builtin_x_display_pixel_height_eval(
     expect_max_args("x-display-pixel-height", &args, 1)?;
     if let Some(display) = args.first() {
         if live_frame_designator_p(eval, display) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Window system frame should be used")],
+            ));
+        }
+    }
+    builtin_x_display_pixel_height(args)
+}
+
+pub(crate) fn builtin_x_display_pixel_height_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-display-pixel-height", &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p_in_state(frames, display) {
             return Err(signal(
                 "error",
                 vec![Value::string("Window system frame should be used")],
