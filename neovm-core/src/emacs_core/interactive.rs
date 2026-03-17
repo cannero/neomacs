@@ -1724,9 +1724,12 @@ fn interactive_read_expression_arg_in_vm_runtime(
     vm_gc_roots: &[Value],
     prompt: String,
 ) -> Result<Value, Flow> {
-    shared.with_parent_evaluator_vm_roots(vm_gc_roots, &[], move |eval| {
-        interactive_read_expression_arg(eval, prompt)
-    })
+    let input = super::reader::finish_read_from_minibuffer_in_vm_runtime(
+        shared,
+        vm_gc_roots,
+        &[Value::string(prompt)],
+    )?;
+    super::reader::builtin_read_in_state(&*shared.obarray, &mut *shared.buffers, vec![input])
 }
 
 fn interactive_eval_expression_arg_in_vm_runtime(
