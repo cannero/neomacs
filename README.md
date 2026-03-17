@@ -12,7 +12,7 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge" alt="License: GPL-3.0"/></a>
 </p>
 
-**[Sponsor Neomacs](https://github.com/sponsors/eval-exec):** Neomacs is a long-term project that takes significant ongoing work to build, test, and maintain. If you want to support its development, please consider sponsoring it on [GitHub Sponsors](https://github.com/sponsors/eval-exec).
+**[❤️ Sponsor Neomacs](https://github.com/sponsors/eval-exec):** Neomacs is a long-term project that takes significant ongoing work to build, test, and maintain. If you want to support its development, please consider sponsoring it on [❤️ GitHub Sponsors](https://github.com/sponsors/eval-exec).
 
 > **Note:** Neomacs is in active alpha development. Expect rough edges, breaking changes, and missing features. Contributions and bug reports are very welcome!
 
