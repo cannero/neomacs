@@ -8385,26 +8385,10 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::builtin_read_from_minibuffer_in_runtime(&self.shared, args)?;
-        let extra_roots = args.to_vec();
-        let gc_roots = self.gc_roots.clone();
-        let parent_eval = self.shared.parent_eval_ptr();
-        let recursive_depth = self.shared.recursive_command_loop_depth();
-        crate::emacs_core::reader::finish_read_from_minibuffer_in_state_with_recursive_edit(
-            &mut *self.shared.obarray,
-            &mut *self.shared.buffers,
-            &mut *self.shared.frames,
-            &mut *self.shared.minibuffers,
-            &mut *self.shared.current_local_map,
-            &mut *self.shared.minibuffer_selected_window,
-            &mut *self.shared.active_minibuffer_window,
-            recursive_depth,
+        crate::emacs_core::reader::finish_read_from_minibuffer_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
             args,
-            move || {
-                with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, |eval| {
-                    eval.minibuffer_command_loop_inner()
-                })
-            },
         )
     }
 
@@ -8420,9 +8404,10 @@ impl<'a> Vm<'a> {
             plan.func = self.instantiate_callable_cons_form(plan.func)?;
         }
         let (function, call_args) = if let Some((function, call_args)) =
-            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_vm_batch_runtime(
+            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_vm_runtime(
                 &mut self.shared,
                 &mut plan,
+                &self.gc_roots,
             )? {
             (function, call_args)
         } else if let Some((function, call_args)) =
@@ -8613,46 +8598,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::builtin_completing_read_in_runtime(&self.shared, args)?;
-        let minibuffer_args =
-            crate::emacs_core::reader::completing_read_minibuffer_args(&*self.shared.obarray, args);
-        crate::emacs_core::eval::set_runtime_binding_in_state(
-            self.shared.obarray,
-            self.shared.dynamic.as_mut_slice(),
-            self.shared.buffers,
-            &*self.shared.custom,
-            intern("minibuffer-completion-table"),
-            args[1],
-        );
-        crate::emacs_core::eval::set_runtime_binding_in_state(
-            self.shared.obarray,
-            self.shared.dynamic.as_mut_slice(),
-            self.shared.buffers,
-            &*self.shared.custom,
-            intern("minibuffer-completion-predicate"),
-            args.get(2).copied().unwrap_or(Value::Nil),
-        );
-        let result = self.builtin_read_from_minibuffer_shared(&minibuffer_args);
-        let cleanup = {
-            crate::emacs_core::eval::set_runtime_binding_in_state(
-                self.shared.obarray,
-                self.shared.dynamic.as_mut_slice(),
-                self.shared.buffers,
-                &*self.shared.custom,
-                intern("minibuffer-completion-table"),
-                Value::Nil,
-            );
-            crate::emacs_core::eval::set_runtime_binding_in_state(
-                self.shared.obarray,
-                self.shared.dynamic.as_mut_slice(),
-                self.shared.buffers,
-                &*self.shared.custom,
-                intern("minibuffer-completion-predicate"),
-                Value::Nil,
-            );
-            Ok(())
-        };
-        merge_result_with_cleanup(result, cleanup)
+        crate::emacs_core::reader::finish_completing_read_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
+            args,
+        )
     }
 
     fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {

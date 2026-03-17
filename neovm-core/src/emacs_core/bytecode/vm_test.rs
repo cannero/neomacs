@@ -1449,6 +1449,42 @@ U") (list keys up)))))"#
 }
 
 #[test]
+fn vm_call_interactively_handles_prompt_driven_batch_specs_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (let ((unread-command-events (list 97)))
+                   (call-interactively '(lambda (x) (interactive "cChar: ") x)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "aFunction: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "bBuffer: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "BAny buffer: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "CCommand: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "sString: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "MInherited: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "SSymbol: ") x))
+                   (error (car err)))
+                 (condition-case err
+                     (call-interactively '(lambda (x) (interactive "vVariable: ") x))
+                   (error (car err))))"#
+        ),
+        "OK (97 end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file end-of-file)"
+    );
+}
+
+#[test]
 fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
     assert_eq!(
         vm_eval_with_init_str(

@@ -1333,26 +1333,13 @@ fn interactive_args_from_string_code_in_state(
     Ok(Some(args))
 }
 
-fn interactive_string_code_supported_in_vm_batch_runtime(code: &str) -> bool {
-    let parsed = parse_interactive_code_entries(code);
-    parsed.entries.iter().all(|(letter, _)| {
-        matches!(
-            letter,
-            'c' | 'd' | 'e' | 'i' | 'k' | 'K' | 'm' | 'N' | 'p' | 'P' | 'r' | 'U' | 'Z'
-        )
-    })
-}
-
-fn interactive_args_from_string_code_in_vm_batch_runtime(
+fn interactive_args_from_string_code_in_vm_runtime(
     shared: &mut super::eval::VmSharedState<'_>,
     code: &str,
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
+    vm_gc_roots: &[Value],
 ) -> Result<Option<Vec<Value>>, Flow> {
-    if shared.has_input_receiver() || !interactive_string_code_supported_in_vm_batch_runtime(code) {
-        return Ok(None);
-    }
-
     let parsed = parse_interactive_code_entries(code);
     interactive_apply_prefix_flags_in_state(
         &mut *shared.obarray,
@@ -1368,10 +1355,53 @@ fn interactive_args_from_string_code_in_vm_batch_runtime(
     let mut args = Vec::new();
     for (letter, prompt) in parsed.entries {
         match letter {
+            'a' | 'C' => {
+                let letter_args = [Value::string(prompt)];
+                super::minibuffer::builtin_read_command_in_runtime(shared, &letter_args)?;
+                args.push(super::minibuffer::finish_read_command_with_minibuffer(
+                    &letter_args,
+                    |minibuffer_args| {
+                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                            shared,
+                            vm_gc_roots,
+                            minibuffer_args,
+                        )
+                    },
+                )?);
+            }
+            'b' => {
+                let letter_args = [Value::string(prompt), Value::Nil, Value::True];
+                super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
+                let completing_args = {
+                    super::minibuffer::read_buffer_completing_args(&*shared.buffers, &letter_args)
+                };
+                args.push(super::reader::finish_completing_read_in_vm_runtime(
+                    shared,
+                    vm_gc_roots,
+                    &completing_args,
+                )?);
+            }
+            'B' => {
+                let letter_args = [Value::string(prompt), Value::Nil, Value::Nil];
+                super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
+                let completing_args = {
+                    super::minibuffer::read_buffer_completing_args(&*shared.buffers, &letter_args)
+                };
+                args.push(super::reader::finish_completing_read_in_vm_runtime(
+                    shared,
+                    vm_gc_roots,
+                    &completing_args,
+                )?);
+            }
             'c' => {
-                let arg =
-                    super::reader::builtin_read_char_in_runtime(shared, &[Value::string(prompt)])?
-                        .expect("batch VM read-char should resolve without evaluator");
+                let letter_args = [Value::string(prompt)];
+                let arg = if let Some(arg) =
+                    super::reader::builtin_read_char_in_runtime(shared, &letter_args)?
+                {
+                    arg
+                } else {
+                    super::reader::finish_read_char_interactive_in_runtime(shared, &letter_args)?
+                };
                 args.push(arg);
             }
             'd' => args.push(interactive_point_arg_in_buffers(shared.buffers)?),
@@ -1393,22 +1423,50 @@ fn interactive_args_from_string_code_in_vm_batch_runtime(
             }
             'i' => args.push(Value::Nil),
             'k' => {
-                let arg = super::reader::builtin_read_key_sequence_in_runtime(
-                    shared,
-                    &[Value::string(prompt)],
-                )?
-                .expect("batch VM read-key-sequence should resolve without evaluator");
+                let letter_args = [Value::string(prompt)];
+                let arg = if let Some(arg) =
+                    super::reader::builtin_read_key_sequence_in_runtime(shared, &letter_args)?
+                {
+                    arg
+                } else {
+                    super::reader::finish_read_key_sequence_interactive_in_runtime(shared)?
+                };
                 interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
                 args.push(arg);
             }
             'K' => {
-                let arg = super::reader::builtin_read_key_sequence_vector_in_runtime(
-                    shared,
-                    &[Value::string(prompt)],
-                )?
-                .expect("batch VM read-key-sequence-vector should resolve without evaluator");
+                let letter_args = [Value::string(prompt)];
+                let arg = if let Some(arg) =
+                    super::reader::builtin_read_key_sequence_vector_in_runtime(
+                        shared,
+                        &letter_args,
+                    )? {
+                    arg
+                } else {
+                    super::reader::finish_read_key_sequence_vector_interactive_in_runtime(shared)?
+                };
                 interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
                 args.push(arg);
+            }
+            'M' => {
+                let letter_args = [
+                    Value::string(prompt),
+                    Value::Nil,
+                    Value::Nil,
+                    Value::Nil,
+                    Value::True,
+                ];
+                super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
+                args.push(super::reader::finish_read_string_with_minibuffer(
+                    &letter_args,
+                    |minibuffer_args| {
+                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                            shared,
+                            vm_gc_roots,
+                            minibuffer_args,
+                        )
+                    },
+                )?);
             }
             'm' => args.push(interactive_mark_arg_in_buffers(shared.buffers)?),
             'N' => {
@@ -1433,7 +1491,54 @@ fn interactive_args_from_string_code_in_vm_batch_runtime(
                 kind,
             )),
             'r' => args.extend(interactive_region_args_in_buffers(shared.buffers, "error")?),
+            's' => {
+                let letter_args = [Value::string(prompt)];
+                super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
+                args.push(super::reader::finish_read_string_with_minibuffer(
+                    &letter_args,
+                    |minibuffer_args| {
+                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                            shared,
+                            vm_gc_roots,
+                            minibuffer_args,
+                        )
+                    },
+                )?);
+            }
+            'S' => {
+                let letter_args = [Value::string(prompt)];
+                super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
+                let sym_name = super::reader::finish_read_string_with_minibuffer(
+                    &letter_args,
+                    |minibuffer_args| {
+                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                            shared,
+                            vm_gc_roots,
+                            minibuffer_args,
+                        )
+                    },
+                )?;
+                if let Some(name) = sym_name.as_str() {
+                    args.push(Value::symbol(name));
+                } else {
+                    return Ok(None);
+                }
+            }
             'U' => args.push(interactive_u_arg(context)),
+            'v' => {
+                let letter_args = [Value::string(prompt)];
+                super::minibuffer::builtin_read_variable_in_runtime(shared, &letter_args)?;
+                args.push(super::minibuffer::finish_read_variable_with_minibuffer(
+                    &letter_args,
+                    |minibuffer_args| {
+                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                            shared,
+                            vm_gc_roots,
+                            minibuffer_args,
+                        )
+                    },
+                )?);
+            }
             'Z' => {
                 let raw = interactive_prefix_raw_arg_in_state(
                     &*shared.obarray,
@@ -2246,9 +2351,10 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     )))
 }
 
-pub(crate) fn resolve_call_interactively_target_and_args_in_vm_batch_runtime(
+pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     shared: &mut super::eval::VmSharedState<'_>,
     plan: &mut CallInteractivelyPlan,
+    vm_gc_roots: &[Value],
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
     if let Some(code) = shared
@@ -2256,11 +2362,12 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_batch_runtime(
         .get_spec(&plan.resolved_name)
         .map(|spec| spec.code.clone())
     {
-        if let Some(args) = interactive_args_from_string_code_in_vm_batch_runtime(
+        if let Some(args) = interactive_args_from_string_code_in_vm_runtime(
             shared,
             &code,
             CommandInvocationKind::CallInteractively,
             &mut plan.context,
+            vm_gc_roots,
         )? {
             return Ok(Some((func, args)));
         }
@@ -2273,11 +2380,12 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_batch_runtime(
         return match spec {
             ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
             ParsedInteractiveSpec::StringCode(code) => {
-                interactive_args_from_string_code_in_vm_batch_runtime(
+                interactive_args_from_string_code_in_vm_runtime(
                     shared,
                     &code,
                     CommandInvocationKind::CallInteractively,
                     &mut plan.context,
+                    vm_gc_roots,
                 )
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
@@ -2303,11 +2411,12 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_batch_runtime(
             return Ok(Some((func, Vec::new())));
         }
         if let Some(code) = spec_val.as_str() {
-            if let Some(args) = interactive_args_from_string_code_in_vm_batch_runtime(
+            if let Some(args) = interactive_args_from_string_code_in_vm_runtime(
                 shared,
                 code,
                 CommandInvocationKind::CallInteractively,
                 &mut plan.context,
+                vm_gc_roots,
             )? {
                 return Ok(Some((func, args)));
             }

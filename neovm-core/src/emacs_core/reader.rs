@@ -1111,6 +1111,137 @@ pub(crate) fn builtin_completing_read_in_runtime(
     }
 }
 
+pub(crate) fn finish_completing_read_in_state_with_minibuffer(
+    obarray: &mut Obarray,
+    dynamic: &mut [OrderedRuntimeBindingMap],
+    buffers: &mut crate::buffer::BufferManager,
+    custom: &crate::emacs_core::custom::CustomManager,
+    args: &[Value],
+    mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
+) -> EvalResult {
+    let minibuffer_args = completing_read_minibuffer_args(obarray, args);
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        custom,
+        intern("minibuffer-completion-table"),
+        args[1],
+    );
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        custom,
+        intern("minibuffer-completion-predicate"),
+        args.get(2).copied().unwrap_or(Value::Nil),
+    );
+
+    let result = read_from_minibuffer(&minibuffer_args);
+
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        custom,
+        intern("minibuffer-completion-table"),
+        Value::Nil,
+    );
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        custom,
+        intern("minibuffer-completion-predicate"),
+        Value::Nil,
+    );
+
+    result
+}
+
+pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_read_from_minibuffer_in_runtime(shared, args)?;
+    let extra_roots = args.to_vec();
+    let recursive_depth = shared.recursive_command_loop_depth();
+    let mut parent_eval = shared.parent_eval_ptr();
+    finish_read_from_minibuffer_in_state_with_recursive_edit(
+        &mut *shared.obarray,
+        &mut *shared.buffers,
+        &mut *shared.frames,
+        &mut *shared.minibuffers,
+        &mut *shared.current_local_map,
+        &mut *shared.minibuffer_selected_window,
+        &mut *shared.active_minibuffer_window,
+        recursive_depth,
+        args,
+        move || {
+            // Safety: `parent_eval` is the evaluator that owns the shared VM
+            // runtime and outlives this callback. The recursive minibuffer
+            // transition is serialized through the outer `&mut VmSharedState`.
+            unsafe {
+                let eval = parent_eval.as_mut();
+                let saved_temp_roots = eval.save_temp_roots();
+                for root in vm_gc_roots {
+                    eval.push_temp_root(*root);
+                }
+                for root in &extra_roots {
+                    eval.push_temp_root(*root);
+                }
+                let result = eval.minibuffer_command_loop_inner();
+                eval.restore_temp_roots(saved_temp_roots);
+                result
+            }
+        },
+    )
+}
+
+pub(crate) fn finish_completing_read_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_completing_read_in_runtime(shared, args)?;
+    let minibuffer_args = completing_read_minibuffer_args(&*shared.obarray, args);
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        shared.obarray,
+        shared.dynamic.as_mut_slice(),
+        shared.buffers,
+        &*shared.custom,
+        intern("minibuffer-completion-table"),
+        args[1],
+    );
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        shared.obarray,
+        shared.dynamic.as_mut_slice(),
+        shared.buffers,
+        &*shared.custom,
+        intern("minibuffer-completion-predicate"),
+        args.get(2).copied().unwrap_or(Value::Nil),
+    );
+    let result = finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, &minibuffer_args);
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        shared.obarray,
+        shared.dynamic.as_mut_slice(),
+        shared.buffers,
+        &*shared.custom,
+        intern("minibuffer-completion-table"),
+        Value::Nil,
+    );
+    let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
+        shared.obarray,
+        shared.dynamic.as_mut_slice(),
+        shared.buffers,
+        &*shared.custom,
+        intern("minibuffer-completion-predicate"),
+        Value::Nil,
+    );
+    result
+}
+
 pub(crate) fn completing_read_minibuffer_args(obarray: &Obarray, args: &[Value]) -> [Value; 7] {
     let prompt = args[0];
     let require_match = args.get(3).copied().unwrap_or(Value::Nil);
