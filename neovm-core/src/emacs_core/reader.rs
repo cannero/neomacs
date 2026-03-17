@@ -1202,31 +1202,180 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     args: &[Value],
 ) -> EvalResult {
     builtin_read_from_minibuffer_in_runtime(shared, args)?;
-    let extra_roots = args.to_vec();
+    let prompt = expect_string(&args[0])?;
+    let initial_input = args.get(1).and_then(|v| match v {
+        Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+        _ => None,
+    });
+    let keymap_arg = args.get(2).copied().unwrap_or(Value::Nil);
+    let read_arg = args.get(3).copied().unwrap_or(Value::Nil);
+    let history_name = minibuffer_history_name(args.get(4));
+    let default_val = args.get(5).copied().unwrap_or(Value::Nil);
+
+    let saved_local_map = *shared.current_local_map;
+    let saved_buffer_id = shared.buffers.current_buffer().map(|b| b.id);
     let recursive_depth = shared.recursive_command_loop_depth();
-    let parent_eval = shared.parent_eval_ptr();
-    finish_read_from_minibuffer_in_state_with_recursive_edit(
-        &mut *shared.obarray,
-        &mut *shared.buffers,
+
+    let minibuf_depth = shared.minibuffers.depth() + 1;
+    let minibuf_name = format!(" *Minibuf-{}*", minibuf_depth);
+    let minibuf_id = shared
+        .buffers
+        .find_buffer_by_name(&minibuf_name)
+        .unwrap_or_else(|| shared.buffers.create_buffer(&minibuf_name));
+
+    let prompt_byte_len;
+    {
+        let buf = shared.buffers.get_mut(minibuf_id).unwrap();
+        let text_len = buf.text.len();
+        if text_len > 0 {
+            buf.text.delete_range(0, text_len);
+        }
+        buf.text.insert_str(0, &prompt);
+        prompt_byte_len = prompt.len();
+        if let Some(ref initial) = initial_input {
+            buf.text.insert_str(prompt_byte_len, initial);
+        }
+        let total_len = buf.text.len();
+        buf.widen();
+        buf.goto_byte(total_len);
+    }
+
+    let active_window_state = activate_minibuffer_window_in_state(
         &mut *shared.frames,
-        &mut *shared.minibuffers,
-        &mut *shared.current_local_map,
+        &mut *shared.buffers,
         &mut *shared.minibuffer_selected_window,
         &mut *shared.active_minibuffer_window,
-        recursive_depth,
-        args,
-        move || {
-            // `shared` is already lending minibuffer/window state into the
-            // recursive-edit setup above, so this localized raw helper is the
-            // remaining borrow-safe way to enter the parent evaluator here.
-            super::eval::with_parent_evaluator_vm_roots_ptr(
-                parent_eval,
-                vm_gc_roots,
-                &extra_roots,
-                |eval| eval.minibuffer_command_loop_inner(),
-            )
-        },
-    )
+        minibuf_id,
+    );
+    if active_window_state.is_none() {
+        shared.buffers.set_current(minibuf_id);
+    }
+    tracing::debug!(
+        "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
+        prompt,
+        minibuf_id,
+        shared.buffers.current_buffer_id(),
+        *shared.active_minibuffer_window,
+        shared
+            .frames
+            .selected_frame()
+            .map(|frame| frame.selected_window)
+    );
+
+    let enable_recursive = shared
+        .obarray
+        .symbol_value("enable-recursive-minibuffers")
+        .copied()
+        .unwrap_or(Value::Nil)
+        .is_truthy();
+    shared.minibuffers.set_enable_recursive(enable_recursive);
+    {
+        let state = shared.minibuffers.read_from_minibuffer(
+            minibuf_id,
+            &prompt,
+            initial_input.as_deref(),
+            history_name.as_deref(),
+        )?;
+        state.command_loop_depth = recursive_depth;
+    }
+
+    let minibuf_keymap = if !keymap_arg.is_nil() {
+        keymap_arg
+    } else {
+        shared
+            .obarray
+            .symbol_value("minibuffer-local-map")
+            .copied()
+            .unwrap_or(Value::Nil)
+    };
+    *shared.current_local_map = minibuf_keymap;
+    shared
+        .obarray
+        .set_symbol_value("minibuffer-prompt", Value::string(&prompt));
+    shared
+        .obarray
+        .set_symbol_value("minibuffer-depth", Value::Int(minibuf_depth as i64));
+
+    let extra_roots = args.to_vec();
+    let edit_result = shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, |eval| {
+        eval.minibuffer_command_loop_inner()
+    });
+
+    let result_string = if let Some(buf) = shared.buffers.get(minibuf_id) {
+        let total_len = buf.text.len();
+        if total_len > prompt_byte_len {
+            buf.buffer_substring(prompt_byte_len, total_len)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    match &edit_result {
+        Ok(_) => {
+            let _ = shared.minibuffers.exit_minibuffer();
+        }
+        Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") => {
+            if value.is_truthy() {
+                shared.minibuffers.abort_minibuffer();
+            } else {
+                let _ = shared.minibuffers.exit_minibuffer();
+            }
+        }
+        Err(_) => {
+            shared.minibuffers.abort_minibuffer();
+        }
+    }
+
+    *shared.current_local_map = saved_local_map;
+    if let Some(saved) = active_window_state {
+        restore_minibuffer_window_in_state(
+            &mut *shared.frames,
+            &mut *shared.minibuffer_selected_window,
+            &mut *shared.active_minibuffer_window,
+            saved,
+        );
+    }
+    if let Some(buf_id) = saved_buffer_id {
+        shared.buffers.set_current(buf_id);
+    }
+    tracing::debug!(
+        "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",
+        shared.buffers.current_buffer_id(),
+        *shared.active_minibuffer_window,
+        shared
+            .frames
+            .selected_frame()
+            .map(|frame| frame.selected_window)
+    );
+    shared.obarray.set_symbol_value(
+        "minibuffer-depth",
+        Value::Int(shared.minibuffers.depth() as i64),
+    );
+
+    match edit_result {
+        Ok(_) | Err(Flow::Throw { .. }) => {
+            if !read_arg.is_nil() && !result_string.is_empty() {
+                let read_result = builtin_read_from_string_in_state(
+                    shared.obarray,
+                    vec![Value::string(&result_string)],
+                )?;
+                if let Value::Cons(id) = read_result {
+                    let snap = super::value::read_cons(id);
+                    return Ok(snap.car);
+                }
+                return Ok(read_result);
+            }
+
+            if result_string.is_empty() && !default_val.is_nil() {
+                return Ok(default_val);
+            }
+
+            Ok(Value::string(result_string))
+        }
+        Err(flow) => Err(flow),
+    }
 }
 
 pub(crate) fn finish_completing_read_in_vm_runtime(

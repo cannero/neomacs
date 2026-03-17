@@ -726,11 +726,23 @@ impl<'a> VmSharedState<'a> {
         extra_roots: &[Value],
         f: impl FnOnce(&mut Evaluator) -> T,
     ) -> T {
-        with_parent_evaluator_vm_roots_ptr(self.parent_eval, vm_gc_roots, extra_roots, f)
-    }
-
-    pub(crate) fn parent_eval_ptr(&self) -> std::ptr::NonNull<Evaluator> {
-        self.parent_eval
+        // Safety: `parent_eval` points at the evaluator that owns this shared
+        // VM runtime and outlives the callback. Callers are serialized through
+        // `&mut self`, so no shared-state field is accessed while the parent
+        // evaluator callback is active.
+        unsafe {
+            let eval = self.parent_eval.as_mut();
+            let saved_temp_roots = eval.save_temp_roots();
+            for root in vm_gc_roots {
+                eval.push_temp_root(*root);
+            }
+            for root in extra_roots {
+                eval.push_temp_root(*root);
+            }
+            let result = f(eval);
+            eval.restore_temp_roots(saved_temp_roots);
+            result
+        }
     }
 
     pub(crate) fn has_input_receiver(&self) -> bool {
@@ -843,30 +855,6 @@ impl<'a> VmSharedState<'a> {
             intern("unread-command-events"),
             Value::list(vec![event]),
         );
-    }
-}
-
-pub(crate) fn with_parent_evaluator_vm_roots_ptr<T>(
-    mut parent_eval: std::ptr::NonNull<Evaluator>,
-    vm_gc_roots: &[Value],
-    extra_roots: &[Value],
-    f: impl FnOnce(&mut Evaluator) -> T,
-) -> T {
-    // Safety: `parent_eval` points at the evaluator that owns the shared VM
-    // runtime and outlives these callbacks. Callers ensure crossings are
-    // serialized against the surrounding shared-runtime borrows.
-    unsafe {
-        let eval = parent_eval.as_mut();
-        let saved_temp_roots = eval.save_temp_roots();
-        for root in vm_gc_roots {
-            eval.push_temp_root(*root);
-        }
-        for root in extra_roots {
-            eval.push_temp_root(*root);
-        }
-        let result = f(eval);
-        eval.restore_temp_roots(saved_temp_roots);
-        result
     }
 }
 

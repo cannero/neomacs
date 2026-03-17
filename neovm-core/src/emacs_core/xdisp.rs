@@ -229,39 +229,37 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
-    if let Some(value) = builtin_format_mode_line_in_state(
-        &*shared.obarray,
-        shared.dynamic.as_slice(),
-        &*shared.frames,
-        &mut *shared.buffers,
-        args.to_vec(),
-    )? {
-        return Ok(value);
+    expect_args_range("format-mode-line", args, 1, 4)?;
+    validate_optional_window_designator_in_state(&*shared.frames, args.get(2), "windowp")?;
+    validate_optional_buffer_designator_in_state(&*shared.buffers, args.get(3))?;
+
+    let target_buffer =
+        resolve_mode_line_buffer_in_state(&*shared.frames, args.get(2), args.get(3));
+    let saved_buffer = shared.buffers.current_buffer_id();
+    if let Some(buffer_id) = target_buffer {
+        shared.buffers.set_current(buffer_id);
     }
 
-    let args_roots = args.to_vec();
-    let parent_eval = shared.parent_eval_ptr();
-    finish_format_mode_line_in_state_with_eval(
-        &*shared.obarray,
-        shared.dynamic.as_slice(),
-        &*shared.frames,
-        &mut *shared.buffers,
-        args,
-        |form, _buffers| {
-            let form_val = *form;
-            let mut extra_roots = args_roots.clone();
-            extra_roots.push(form_val);
-            // `buffers` is already borrowed for the mode-line walk, so keep
-            // this raw parent-evaluator bridge narrowly scoped to the `:eval`
-            // callback rather than reintroducing a wider shared-state fallback.
-            crate::emacs_core::eval::with_parent_evaluator_vm_roots_ptr(
-                parent_eval,
-                vm_gc_roots,
-                &extra_roots,
-                move |eval| eval.eval_value(&form_val),
-            )
-        },
-    )
+    let result = if args[0].is_nil() {
+        Value::string("")
+    } else {
+        let format_val = args[0];
+        let mut result = String::new();
+        format_mode_line_recursive_in_vm_runtime(
+            shared,
+            vm_gc_roots,
+            args,
+            &format_val,
+            &mut result,
+            0,
+        )?;
+        Value::string(&result)
+    };
+
+    if let Some(buffer_id) = saved_buffer {
+        shared.buffers.set_current(buffer_id);
+    }
+    Ok(result)
 }
 
 fn mode_line_symbol_value_in_state(
@@ -620,6 +618,143 @@ fn format_mode_line_recursive_in_state_with_eval(
                         result,
                         depth + 1,
                         eval_form,
+                    )?;
+                }
+            }
+        }
+
+        _ => {
+            if let Some(s) = format.as_str() {
+                result.push_str(s);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn format_mode_line_recursive_in_vm_runtime(
+    shared: &mut crate::emacs_core::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args_roots: &[Value],
+    format: &Value,
+    result: &mut String,
+    depth: usize,
+) -> Result<(), Flow> {
+    if depth > 20 {
+        return Ok(());
+    }
+
+    match format {
+        Value::Nil => {}
+
+        Value::Str(_) => {
+            if let Some(fmt_str) = format.as_str() {
+                expand_mode_line_percent_in_state(&*shared.buffers, fmt_str, result);
+            }
+        }
+
+        Value::Int(_) => {}
+
+        _ if format.is_symbol() => {
+            if let Some(name) = format.as_symbol_name() {
+                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
+                    result.push(' ');
+                    return Ok(());
+                }
+                let value = {
+                    let obarray = &*shared.obarray;
+                    let dynamic = shared.dynamic.as_slice();
+                    let buffers = &*shared.buffers;
+                    mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
+                };
+                if let Some(val) = value
+                    && !val.is_nil()
+                {
+                    format_mode_line_recursive_in_vm_runtime(
+                        shared,
+                        vm_gc_roots,
+                        args_roots,
+                        &val,
+                        result,
+                        depth + 1,
+                    )?;
+                }
+            }
+        }
+
+        _ if format.is_cons() => {
+            let car = format.cons_car();
+            let cdr = format.cons_cdr();
+
+            if car.is_symbol_named(":eval") {
+                if cdr.is_cons() {
+                    let form_val = cdr.cons_car();
+                    let mut extra_roots = args_roots.to_vec();
+                    extra_roots.push(form_val);
+                    let val = shared.with_parent_evaluator_vm_roots(
+                        vm_gc_roots,
+                        &extra_roots,
+                        move |eval| eval.eval_value(&form_val),
+                    )?;
+                    format_mode_line_recursive_in_vm_runtime(
+                        shared,
+                        vm_gc_roots,
+                        args_roots,
+                        &val,
+                        result,
+                        depth + 1,
+                    )?;
+                }
+                return Ok(());
+            }
+
+            if car.is_symbol_named(":propertize") {
+                if cdr.is_cons() {
+                    let elt = cdr.cons_car();
+                    format_mode_line_recursive_in_vm_runtime(
+                        shared,
+                        vm_gc_roots,
+                        args_roots,
+                        &elt,
+                        result,
+                        depth + 1,
+                    )?;
+                }
+                return Ok(());
+            }
+
+            if car.is_symbol() && !car.is_symbol_named("t") {
+                if let Some(sym_name) = car.as_symbol_name() {
+                    let value = {
+                        let obarray = &*shared.obarray;
+                        let dynamic = shared.dynamic.as_slice();
+                        let buffers = &*shared.buffers;
+                        mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
+                    };
+                    if value.is_some_and(|value| value.is_truthy()) {
+                        format_mode_line_recursive_in_vm_runtime(
+                            shared,
+                            vm_gc_roots,
+                            args_roots,
+                            &cdr,
+                            result,
+                            depth + 1,
+                        )?;
+                    }
+                }
+                return Ok(());
+            }
+
+            if let Some(elements) = list_to_vec(format) {
+                for elem in &elements {
+                    format_mode_line_recursive_in_vm_runtime(
+                        shared,
+                        vm_gc_roots,
+                        args_roots,
+                        elem,
+                        result,
+                        depth + 1,
                     )?;
                 }
             }
