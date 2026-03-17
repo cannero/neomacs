@@ -3908,6 +3908,75 @@ fn vm_sqlite_stub_runtime_uses_direct_dispatch() {
 }
 
 #[test]
+fn vm_native_stub_clusters_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r##"(list
+                 (null (debug-timer-check))
+                 (let ((w (inotify-add-watch "/tmp" nil nil)))
+                   (list (consp w)
+                         (inotify-valid-p w)
+                         (inotify-rm-watch w)))
+                 (null (inotify-watch-list))
+                 (null (inotify-allocated-p))
+                 (null (dbus-make-inhibitor-lock "session" "app"))
+                 (null (dbus-close-inhibitor-lock nil))
+                 (null (dbus-registered-inhibitor-locks))
+                 (null (lcms2-available-p))
+                 (null (lcms-cie-de2000 nil nil))
+                 (null (lcms-xyz->jch nil))
+                 (null (lcms-jch->xyz nil))
+                 (null (lcms-jch->jab nil))
+                 (null (lcms-jab->jch nil))
+                 (null (lcms-cam02-ucs nil nil))
+                 (null (lcms-temp->white-point nil))
+                 (null (treesit-grammar-location nil))
+                 (null (treesit-tracking-line-column-p))
+                 (null (treesit-parser-tracking-line-column-p nil))
+                 (null (treesit-query-eagerly-compiled-p nil))
+                 (null (treesit-query-source nil))
+                 (= (treesit-parser-embed-level nil) 0)
+                 (null (treesit-parser-set-embed-level nil 0))
+                 (null (treesit-parse-string "" nil))
+                 (null (treesit-parser-changed-regions nil))
+                 (null (treesit--linecol-at nil))
+                 (null (treesit--linecol-cache-set nil nil nil))
+                 (null (treesit--linecol-cache))
+                 (null (neomacs-frame-geometry))
+                 (null (neomacs-frame-edges))
+                 (equal (neomacs-mouse-absolute-pixel-position) '(0 . 0))
+                 (null (neomacs-set-mouse-absolute-pixel-position 0 0))
+                 (null (neomacs-display-monitor-attributes-list))
+                 (null (neomacs-clipboard-set "x"))
+                 (null (neomacs-clipboard-get))
+                 (null (neomacs-primary-selection-set "x"))
+                 (null (neomacs-primary-selection-get))
+                 (equal (neomacs-core-backend) "rust")
+                 (equal (gnutls-available-p) '(gnutls))
+                 (equal (gnutls-ciphers) '(AES-256-GCM))
+                 (equal (gnutls-digests) '(SHA256))
+                 (equal (gnutls-macs) '(AEAD))
+                 (gnutls-errorp nil)
+                 (equal (gnutls-error-string 0) "Success.")
+                 (null (gnutls-error-fatalp 1))
+                 (null (gnutls-peer-status-warning-describe nil))
+                 (null (gnutls-asynchronous-parameters nil nil))
+                 (null (gnutls-boot t nil nil))
+                 (null (gnutls-bye t nil))
+                 (null (gnutls-deinit t))
+                 (equal (gnutls-format-certificate "x") "Certificate")
+                 (null (gnutls-get-initstage t))
+                 (equal (gnutls-hash-digest 'sha256 "x") "digest")
+                 (equal (gnutls-hash-mac 'sha256 "k" "x") "mac")
+                 (null (gnutls-peer-status t))
+                 (null (gnutls-symmetric-decrypt nil nil nil nil))
+                 (null (gnutls-symmetric-encrypt nil nil nil nil)))"##
+        ),
+        r#"OK (t (t t t) t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t)"#
+    );
+}
+
+#[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

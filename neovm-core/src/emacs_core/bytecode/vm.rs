@@ -5629,6 +5629,210 @@ impl<'a> Vm<'a> {
             "sqlite-load-extension" => Some(
                 crate::emacs_core::builtins::builtin_sqlite_load_extension(args.to_vec()),
             ),
+            "debug-timer-check" => Some(
+                crate::emacs_core::builtins::builtin_debug_timer_check(args.to_vec()),
+            ),
+            "inotify-add-watch" => Some(
+                crate::emacs_core::builtins::builtin_inotify_add_watch(args.to_vec()),
+            ),
+            "inotify-allocated-p" => Some(
+                crate::emacs_core::builtins::builtin_inotify_allocated_p(args.to_vec()),
+            ),
+            "inotify-rm-watch" => Some(
+                crate::emacs_core::builtins::builtin_inotify_rm_watch(args.to_vec()),
+            ),
+            "inotify-valid-p" => Some(
+                crate::emacs_core::builtins::builtin_inotify_valid_p(args.to_vec()),
+            ),
+            "inotify-watch-list" => Some(
+                crate::emacs_core::builtins::builtin_inotify_watch_list(args.to_vec()),
+            ),
+            "dbus-make-inhibitor-lock" => Some(
+                crate::emacs_core::builtins::builtin_dbus_make_inhibitor_lock(args.to_vec()),
+            ),
+            "dbus-close-inhibitor-lock" => Some(
+                crate::emacs_core::builtins::builtin_dbus_close_inhibitor_lock(args.to_vec()),
+            ),
+            "dbus-registered-inhibitor-locks" => Some(
+                crate::emacs_core::builtins::builtin_dbus_registered_inhibitor_locks(
+                    args.to_vec(),
+                ),
+            ),
+            "lcms2-available-p" => Some(
+                crate::emacs_core::builtins::builtin_lcms2_available_p(args.to_vec()),
+            ),
+            "lcms-cie-de2000" => Some(
+                crate::emacs_core::builtins::builtin_lcms_cie_de2000(args.to_vec()),
+            ),
+            "lcms-xyz->jch" => Some(
+                crate::emacs_core::builtins::builtin_lcms_xyz_to_jch(args.to_vec()),
+            ),
+            "lcms-jch->xyz" => Some(
+                crate::emacs_core::builtins::builtin_lcms_jch_to_xyz(args.to_vec()),
+            ),
+            "lcms-jch->jab" => Some(
+                crate::emacs_core::builtins::builtin_lcms_jch_to_jab(args.to_vec()),
+            ),
+            "lcms-jab->jch" => Some(
+                crate::emacs_core::builtins::builtin_lcms_jab_to_jch(args.to_vec()),
+            ),
+            "lcms-cam02-ucs" => Some(
+                crate::emacs_core::builtins::builtin_lcms_cam02_ucs(args.to_vec()),
+            ),
+            "lcms-temp->white-point" => Some(
+                crate::emacs_core::builtins::builtin_lcms_temp_to_white_point(args.to_vec()),
+            ),
+            "treesit-grammar-location" => Some(
+                crate::emacs_core::builtins::builtin_treesit_grammar_location(args.to_vec()),
+            ),
+            "treesit-tracking-line-column-p" => Some(
+                crate::emacs_core::builtins::builtin_treesit_tracking_line_column_p(
+                    args.to_vec(),
+                ),
+            ),
+            "treesit-parser-tracking-line-column-p" => Some(
+                crate::emacs_core::builtins::builtin_treesit_parser_tracking_line_column_p(
+                    args.to_vec(),
+                ),
+            ),
+            "treesit-query-eagerly-compiled-p" => Some(
+                crate::emacs_core::builtins::builtin_treesit_query_eagerly_compiled_p(
+                    args.to_vec(),
+                ),
+            ),
+            "treesit-query-source" => Some(
+                crate::emacs_core::builtins::builtin_treesit_query_source(args.to_vec()),
+            ),
+            "treesit-parser-embed-level" => Some(
+                crate::emacs_core::builtins::builtin_treesit_parser_embed_level(args.to_vec()),
+            ),
+            "treesit-parser-set-embed-level" => Some(
+                crate::emacs_core::builtins::builtin_treesit_parser_set_embed_level(
+                    args.to_vec(),
+                ),
+            ),
+            "treesit-parse-string" => Some(
+                crate::emacs_core::builtins::builtin_treesit_parse_string(args.to_vec()),
+            ),
+            "treesit-parser-changed-regions" => Some(
+                crate::emacs_core::builtins::builtin_treesit_parser_changed_regions(
+                    args.to_vec(),
+                ),
+            ),
+            "treesit--linecol-at" => Some(
+                crate::emacs_core::builtins::builtin_treesit_linecol_at(args.to_vec()),
+            ),
+            "treesit--linecol-cache-set" => Some(
+                crate::emacs_core::builtins::builtin_treesit_linecol_cache_set(args.to_vec()),
+            ),
+            "treesit--linecol-cache" => Some(
+                crate::emacs_core::builtins::builtin_treesit_linecol_cache(args.to_vec()),
+            ),
+            "neomacs-frame-geometry" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_frame_geometry(args.to_vec()),
+            ),
+            "neomacs-frame-edges" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_frame_edges(args.to_vec()),
+            ),
+            "neomacs-mouse-absolute-pixel-position" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_mouse_absolute_pixel_position(
+                    args.to_vec(),
+                ),
+            ),
+            "neomacs-set-mouse-absolute-pixel-position" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_set_mouse_absolute_pixel_position(
+                    args.to_vec(),
+                ),
+            ),
+            "neomacs-display-monitor-attributes-list" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_display_monitor_attributes_list(
+                    args.to_vec(),
+                ),
+            ),
+            "neomacs-clipboard-set" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_clipboard_set(args.to_vec()),
+            ),
+            "neomacs-clipboard-get" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_clipboard_get(args.to_vec()),
+            ),
+            "neomacs-primary-selection-set" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_primary_selection_set(
+                    args.to_vec(),
+                ),
+            ),
+            "neomacs-primary-selection-get" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_primary_selection_get(
+                    args.to_vec(),
+                ),
+            ),
+            "neomacs-core-backend" => Some(
+                crate::emacs_core::builtins::builtin_neomacs_core_backend(args.to_vec()),
+            ),
+            "gnutls-available-p" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_available_p(args.to_vec()),
+            ),
+            "gnutls-asynchronous-parameters" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_asynchronous_parameters(
+                    args.to_vec(),
+                ),
+            ),
+            "gnutls-boot" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_boot(args.to_vec()),
+            ),
+            "gnutls-bye" => Some(crate::emacs_core::builtins::builtin_gnutls_bye(args.to_vec())),
+            "gnutls-ciphers" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_ciphers(args.to_vec()),
+            ),
+            "gnutls-deinit" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_deinit(args.to_vec()),
+            ),
+            "gnutls-digests" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_digests(args.to_vec()),
+            ),
+            "gnutls-error-fatalp" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_error_fatalp(args.to_vec()),
+            ),
+            "gnutls-error-string" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_error_string(args.to_vec()),
+            ),
+            "gnutls-errorp" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_errorp(args.to_vec()),
+            ),
+            "gnutls-format-certificate" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_format_certificate(
+                    args.to_vec(),
+                ),
+            ),
+            "gnutls-get-initstage" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_get_initstage(args.to_vec()),
+            ),
+            "gnutls-hash-digest" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_hash_digest(args.to_vec()),
+            ),
+            "gnutls-hash-mac" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_hash_mac(args.to_vec()),
+            ),
+            "gnutls-macs" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_macs(args.to_vec()),
+            ),
+            "gnutls-peer-status" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_peer_status(args.to_vec()),
+            ),
+            "gnutls-peer-status-warning-describe" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_peer_status_warning_describe(
+                    args.to_vec(),
+                ),
+            ),
+            "gnutls-symmetric-decrypt" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_symmetric_decrypt(
+                    args.to_vec(),
+                ),
+            ),
+            "gnutls-symmetric-encrypt" => Some(
+                crate::emacs_core::builtins::builtin_gnutls_symmetric_encrypt(
+                    args.to_vec(),
+                ),
+            ),
             "face-id" => Some(crate::emacs_core::font::builtin_face_id(args.to_vec())),
             "face-font" => Some(crate::emacs_core::font::builtin_face_font(args.to_vec())),
             "internal-face-x-get-resource" => Some(
