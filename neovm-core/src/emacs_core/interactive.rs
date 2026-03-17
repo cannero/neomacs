@@ -2138,6 +2138,45 @@ fn resolve_interactive_invocation_args(
     }
 }
 
+fn eval_interactive_form_expr_in_vm_runtime(
+    shared: &super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    form: &Expr,
+) -> Result<Vec<Value>, Flow> {
+    let mut parent_eval = shared.parent_eval_ptr();
+    let value = unsafe {
+        let eval = parent_eval.as_mut();
+        let saved_temp_roots = eval.save_temp_roots();
+        for root in vm_gc_roots {
+            eval.push_temp_root(*root);
+        }
+        let result = eval.eval(form);
+        eval.restore_temp_roots(saved_temp_roots);
+        result
+    }?;
+    interactive_form_value_to_args(value)
+}
+
+fn eval_interactive_form_value_in_vm_runtime(
+    shared: &super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    form: Value,
+) -> Result<Vec<Value>, Flow> {
+    let mut parent_eval = shared.parent_eval_ptr();
+    let value = unsafe {
+        let eval = parent_eval.as_mut();
+        let saved_temp_roots = eval.save_temp_roots();
+        for root in vm_gc_roots {
+            eval.push_temp_root(*root);
+        }
+        eval.push_temp_root(form);
+        let result = eval.eval_value(&form);
+        eval.restore_temp_roots(saved_temp_roots);
+        result
+    }?;
+    interactive_form_value_to_args(value)
+}
+
 pub(crate) fn callable_form_needs_instantiation(value: &Value) -> bool {
     let Some(items) = value_list_to_vec(value) else {
         return false;
@@ -2389,7 +2428,10 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                 )
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
-            _ => Ok(None),
+            ParsedInteractiveSpec::Form(form) => {
+                eval_interactive_form_expr_in_vm_runtime(shared, vm_gc_roots, &form)
+                    .map(|args| Some((func, args)))
+            }
         };
     }
 
@@ -2422,7 +2464,8 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
             }
             return Ok(None);
         }
-        return Ok(None);
+        return eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, spec_val)
+            .map(|args| Some((func, args)));
     }
 
     Ok(None)
