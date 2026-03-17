@@ -5298,6 +5298,18 @@ impl<'a> Vm<'a> {
                 self.shared.buffers,
                 args.to_vec(),
             )),
+            "file-name-directory" => Some(
+                crate::emacs_core::fileio::builtin_file_name_directory(args.to_vec()),
+            ),
+            "file-name-nondirectory" => Some(
+                crate::emacs_core::fileio::builtin_file_name_nondirectory(args.to_vec()),
+            ),
+            "file-name-absolute-p" => Some(
+                crate::emacs_core::fileio::builtin_file_name_absolute_p(args.to_vec()),
+            ),
+            "directory-name-p" => Some(
+                crate::emacs_core::fileio::builtin_directory_name_p(args.to_vec()),
+            ),
             "access-file" => Some(crate::emacs_core::fileio::builtin_access_file_in_state(
                 &*self.shared.obarray,
                 self.shared.dynamic.as_slice(),

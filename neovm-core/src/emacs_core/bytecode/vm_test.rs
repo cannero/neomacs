@@ -3301,6 +3301,24 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_file_name_helper_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (file-name-directory "/tmp/example.txt")
+                 (file-name-nondirectory "/tmp/example.txt")
+                 (directory-file-name "/tmp/example/")
+                 (file-name-concat "/tmp" "example" "child")
+                 (file-name-absolute-p "/tmp/example.txt")
+                 (file-name-absolute-p "example.txt")
+                 (directory-name-p "/tmp/example/")
+                 (directory-name-p "/tmp/example"))"#
+        ),
+        r#"OK ("/tmp/" "example.txt" "/tmp/example" "/tmp/example/child" t nil t nil)"#
+    );
+}
+
+#[test]
 fn vm_dired_builtins_use_shared_default_directory_state() {
     let base =
         std::env::temp_dir().join(format!("neovm-vm-dired-default-dir-{}", std::process::id()));
