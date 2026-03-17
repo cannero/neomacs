@@ -8314,10 +8314,8 @@ impl<'a> Vm<'a> {
 
     fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("garbage-collect", args, 0)?;
-        self.with_shared_evaluator(args, move |eval| {
-            eval.gc_collect();
-            crate::emacs_core::builtins_extra::builtin_garbage_collect(vec![])
-        })
+        self.shared.gc_collect();
+        crate::emacs_core::builtins_extra::builtin_garbage_collect(vec![])
     }
 
     fn builtin_kill_emacs_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -8338,11 +8336,11 @@ impl<'a> Vm<'a> {
             args.first(),
         )?;
         crate::emacs_core::lread::eval_forms_from_source_in_runtime(&source, |form| {
-            self.with_shared_evaluator(args, move |eval| {
-                eval.eval(form)?;
-                eval.gc_safe_point();
-                Ok(Value::Nil)
-            })
+            self.with_shared_evaluator(args, move |eval| eval.eval(form))
+                .map(|_| {
+                    self.shared.gc_safe_point();
+                    Value::Nil
+                })
         })
     }
 
@@ -8353,11 +8351,11 @@ impl<'a> Vm<'a> {
             return Ok(Value::Nil);
         }
         crate::emacs_core::lread::eval_forms_from_source_in_runtime(&source, |form| {
-            self.with_shared_evaluator(args, move |eval| {
-                eval.eval(form)?;
-                eval.gc_safe_point();
-                Ok(Value::Nil)
-            })
+            self.with_shared_evaluator(args, move |eval| eval.eval(form))
+                .map(|_| {
+                    self.shared.gc_safe_point();
+                    Value::Nil
+                })
         })
     }
 

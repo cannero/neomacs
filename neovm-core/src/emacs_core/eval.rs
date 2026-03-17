@@ -265,6 +265,7 @@ pub(crate) struct VmSharedState<'a> {
     wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
     redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
     display_host: &'a mut Option<Box<dyn DisplayHost>>,
+    heap: &'a mut LispHeap,
     face_table: &'a mut FaceTable,
     gc_pending: &'a mut bool,
     gc_count: &'a mut u64,
@@ -323,6 +324,7 @@ impl<'a> VmSharedState<'a> {
         #[cfg(unix)] wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
         redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
         display_host: &'a mut Option<Box<dyn DisplayHost>>,
+        heap: &'a mut LispHeap,
         coding_systems: &'a mut CodingSystemManager,
         face_table: &'a mut FaceTable,
         depth: &'a mut usize,
@@ -387,6 +389,7 @@ impl<'a> VmSharedState<'a> {
             wakeup_fd,
             redisplay_fn,
             display_host,
+            heap,
             coding_systems,
             face_table,
             depth,
@@ -424,6 +427,99 @@ impl<'a> VmSharedState<'a> {
 
     pub(crate) fn request_shutdown(&mut self, exit_code: i32, restart: bool) {
         *self.shutdown_request = Some(ShutdownRequest { exit_code, restart });
+    }
+
+    fn collect_roots(&self) -> Vec<Value> {
+        let mut roots = Vec::new();
+
+        roots.extend(self.temp_roots.iter().copied());
+        roots.extend(self.catch_tags.iter().copied());
+        roots.extend(self.recent_input_events.iter().copied());
+        roots.extend(self.read_command_keys.iter().copied());
+        for scope in self.dynamic.iter() {
+            roots.extend(scope.values().copied());
+        }
+        roots.push(*self.lexenv);
+        for saved_env in self.saved_lexenvs.iter() {
+            roots.push(*saved_env);
+        }
+
+        roots.extend(self.literal_cache.values().copied());
+        for (expr, _fingerprint) in self.macro_expansion_cache.values() {
+            expr.collect_opaque_values(&mut roots);
+        }
+        if let Some(filter_fn) = *self.interpreted_closure_filter_fn {
+            roots.push(filter_fn);
+        }
+        for entries in self.interpreted_closure_trim_cache.values() {
+            for entry in entries {
+                for expr in entry.trimmed_body.iter() {
+                    expr.collect_opaque_values(&mut roots);
+                }
+            }
+        }
+
+        for cache in self.named_call_cache.iter() {
+            if let NamedCallTarget::Obarray(val) = &cache.target {
+                roots.push(*val);
+            }
+        }
+        collect_thread_local_gc_roots(&mut roots);
+
+        if !self.current_local_map.is_nil() {
+            roots.push(*self.current_local_map);
+        }
+
+        self.obarray.trace_roots(&mut roots);
+        self.processes.trace_roots(&mut roots);
+        self.timers.trace_roots(&mut roots);
+        self.watchers.trace_roots(&mut roots);
+        self.registers.trace_roots(&mut roots);
+        self.custom.trace_roots(&mut roots);
+        self.autoloads.trace_roots(&mut roots);
+        self.buffers.trace_roots(&mut roots);
+        self.threads.trace_roots(&mut roots);
+        self.kmacro.trace_roots(&mut roots);
+        self.modes.trace_roots(&mut roots);
+        self.frames.trace_roots(&mut roots);
+
+        roots
+    }
+
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub(crate) fn gc_collect(&mut self) {
+        let roots = self.collect_roots();
+        self.heap.collect(roots.into_iter());
+        *self.gc_pending = false;
+        *self.gc_count += 1;
+    }
+
+    pub(crate) fn gc_safe_point(&mut self) {
+        if *self.gc_stress {
+            if *self.gc_pending || self.heap.should_collect() || *self.gc_stress {
+                self.gc_collect();
+            }
+            return;
+        }
+
+        if self.heap.is_marking() {
+            let done = self.heap.mark_some(Evaluator::MARK_WORK_LIMIT);
+            if done {
+                let roots = self.collect_roots();
+                self.heap.rescan_roots(roots.into_iter());
+                self.heap.finish_collection();
+                *self.gc_count += 1;
+            }
+        } else if *self.gc_pending || self.heap.should_collect() {
+            let roots = self.collect_roots();
+            self.heap.begin_marking(roots.into_iter());
+            *self.gc_pending = false;
+            let done = self.heap.mark_some(Evaluator::MARK_WORK_LIMIT);
+            if done {
+                self.heap.finish_collection();
+                *self.gc_count += 1;
+            }
+        }
     }
 
     pub(crate) fn display_host_mut(&mut self) -> &mut Option<Box<dyn DisplayHost>> {
@@ -509,6 +605,7 @@ impl<'a> VmSharedState<'a> {
             &mut eval.wakeup_fd,
             &mut eval.redisplay_fn,
             &mut eval.display_host,
+            eval.heap.as_mut(),
             &mut eval.coding_systems,
             &mut eval.face_table,
             &mut eval.depth,
