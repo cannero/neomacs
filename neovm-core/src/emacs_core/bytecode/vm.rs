@@ -3766,6 +3766,28 @@ impl<'a> Vm<'a> {
             "set-time-zone-rule" => Some(
                 crate::emacs_core::timefns::builtin_set_time_zone_rule(args.to_vec()),
             ),
+            "daemonp" => Some(crate::emacs_core::builtins::builtin_daemonp(args.to_vec())),
+            "daemon-initialized" => Some(
+                crate::emacs_core::builtins::builtin_daemon_initialized(args.to_vec()),
+            ),
+            "flush-standard-output" => Some(
+                crate::emacs_core::builtins::builtin_flush_standard_output(args.to_vec()),
+            ),
+            "force-mode-line-update" => Some(
+                crate::emacs_core::builtins::builtin_force_mode_line_update(args.to_vec()),
+            ),
+            "force-window-update" => Some(
+                crate::emacs_core::dispnew::pure::builtin_force_window_update(args.to_vec()),
+            ),
+            "invocation-directory" => Some(
+                crate::emacs_core::builtins::builtin_invocation_directory(args.to_vec()),
+            ),
+            "invocation-name" => Some(
+                crate::emacs_core::builtins::builtin_invocation_name(args.to_vec()),
+            ),
+            "emacs-pid" => Some(crate::emacs_core::builtins_extra::builtin_emacs_pid(
+                args.to_vec(),
+            )),
             "format" => Some(self.builtin_format_shared(args)),
             "format-message" => Some(self.builtin_format_message_shared(args)),
             "message" => Some(self.builtin_message_shared(args)),

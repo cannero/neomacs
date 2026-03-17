@@ -2092,6 +2092,26 @@ fn vm_time_builtins_use_direct_timefns_dispatch() {
 }
 
 #[test]
+fn vm_misc_runtime_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (null (daemonp))
+                 (condition-case err
+                     (daemon-initialized)
+                   (error (eq (car err) 'error)))
+                 (null (flush-standard-output))
+                 (equal (force-mode-line-update 'foo) 'foo)
+                 (force-window-update)
+                 (stringp (invocation-directory))
+                 (stringp (invocation-name))
+                 (integerp (emacs-pid)))"#
+        ),
+        r#"OK (t t t t t t t t)"#
+    );
+}
+
+#[test]
 fn vm_minibuffer_reader_frontends_use_shared_runtime_batch_eof_path() {
     assert_eq!(
         vm_eval_str(
