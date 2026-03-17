@@ -2062,6 +2062,36 @@ fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_time_builtins_use_direct_timefns_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (length (current-time))
+                 (consp (current-cpu-time))
+                 (null (current-idle-time))
+                 (consp (get-internal-run-time))
+                 (let ((f (float-time '(0 1 500000 0))))
+                   (and (> f 1.4) (< f 1.6)))
+                 (equal (time-add '(0 1 200000 0) '(0 2 900000 0))
+                        '(0 4 100000 0))
+                 (equal (time-subtract '(0 3 100000 0) '(0 1 200000 0))
+                        '(0 1 900000 0))
+                 (time-less-p '(0 1 0 0) '(0 2 0 0))
+                 (time-equal-p '(0 1 0 0) '(0 1 0 0))
+                 (equal (current-time-string '(0 0 0 0) t)
+                        "Thu Jan  1 00:00:00 1970")
+                 (equal (current-time-zone nil t) '(0 "GMT"))
+                 (equal (encode-time '(0 0 0 1 1 1970 nil nil 0))
+                        '(0 0))
+                 (equal (decode-time '(0 0 0 0) t)
+                        '(0 0 0 1 1 1970 4 nil 0))
+                 (equal (time-convert '(0 42 0 0) 'integer) 42))"#
+        ),
+        r#"OK (4 t t t t t t t t t t t t t)"#
+    );
+}
+
+#[test]
 fn vm_minibuffer_reader_frontends_use_shared_runtime_batch_eof_path() {
     assert_eq!(
         vm_eval_str(

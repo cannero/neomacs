@@ -3733,6 +3733,39 @@ impl<'a> Vm<'a> {
             "recent-keys" => Some(self.builtin_recent_keys_shared(args)),
             "yes-or-no-p" => Some(self.builtin_yes_or_no_p_shared(args)),
             "current-message" => Some(self.builtin_current_message_shared(args)),
+            "current-time" => Some(crate::emacs_core::timefns::builtin_current_time(args.to_vec())),
+            "current-cpu-time" => {
+                Some(crate::emacs_core::builtins::builtin_current_cpu_time(args.to_vec()))
+            }
+            "current-idle-time" => {
+                Some(crate::emacs_core::builtins::builtin_current_idle_time(args.to_vec()))
+            }
+            "get-internal-run-time" => Some(
+                crate::emacs_core::builtins::builtin_get_internal_run_time(args.to_vec()),
+            ),
+            "float-time" => Some(crate::emacs_core::timefns::builtin_float_time(args.to_vec())),
+            "time-add" => Some(crate::emacs_core::timefns::builtin_time_add(args.to_vec())),
+            "time-subtract" => Some(
+                crate::emacs_core::timefns::builtin_time_subtract(args.to_vec()),
+            ),
+            "time-less-p" => Some(crate::emacs_core::timefns::builtin_time_less_p(args.to_vec())),
+            "time-equal-p" => {
+                Some(crate::emacs_core::timefns::builtin_time_equal_p(args.to_vec()))
+            }
+            "current-time-string" => Some(
+                crate::emacs_core::timefns::builtin_current_time_string(args.to_vec()),
+            ),
+            "current-time-zone" => Some(
+                crate::emacs_core::timefns::builtin_current_time_zone(args.to_vec()),
+            ),
+            "encode-time" => Some(crate::emacs_core::timefns::builtin_encode_time(args.to_vec())),
+            "decode-time" => Some(crate::emacs_core::timefns::builtin_decode_time(args.to_vec())),
+            "time-convert" => Some(
+                crate::emacs_core::timefns::builtin_time_convert(args.to_vec()),
+            ),
+            "set-time-zone-rule" => Some(
+                crate::emacs_core::timefns::builtin_set_time_zone_rule(args.to_vec()),
+            ),
             "format" => Some(self.builtin_format_shared(args)),
             "format-message" => Some(self.builtin_format_message_shared(args)),
             "message" => Some(self.builtin_message_shared(args)),

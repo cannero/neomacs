@@ -1497,21 +1497,6 @@ pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
     super::syntax::builtin_string_to_syntax(args)
 }
 
-pub(crate) fn builtin_current_time(args: Vec<Value>) -> EvalResult {
-    expect_args("current-time", &args, 0)?;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs() as i64;
-    let usecs = dur.subsec_micros() as i64;
-    Ok(Value::list(vec![
-        Value::Int(secs >> 16),
-        Value::Int(secs & 0xFFFF),
-        Value::Int(usecs),
-    ]))
-}
-
 pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     expect_args("current-cpu-time", &args, 0)?;
     use std::sync::OnceLock;
@@ -1526,55 +1511,4 @@ pub(crate) fn builtin_current_idle_time(args: Vec<Value>) -> EvalResult {
     expect_args("current-idle-time", &args, 0)?;
     // Batch mode does not track UI idle duration; Oracle returns nil here.
     Ok(Value::Nil)
-}
-
-fn number_or_marker_to_f64(value: NumberOrMarker) -> f64 {
-    match value {
-        NumberOrMarker::Int(n) => n as f64,
-        NumberOrMarker::Float(f) => f,
-    }
-}
-
-fn decode_float_time_arg(value: &Value) -> Result<f64, Flow> {
-    let invalid_time_spec = || signal("error", vec![Value::string("Invalid time specification")]);
-    let parse_number = |v: &Value| expect_number_or_marker(v).map(number_or_marker_to_f64);
-
-    match value {
-        Value::Cons(_) => {
-            let items = list_to_vec(value).ok_or_else(invalid_time_spec)?;
-            if items.len() < 2 {
-                return Err(invalid_time_spec());
-            }
-
-            let high = parse_number(&items[0]).map_err(|_| invalid_time_spec())?;
-            let low = parse_number(&items[1]).map_err(|_| invalid_time_spec())?;
-            let mut seconds = high * 65536.0 + low;
-            if let Some(usec) = items.get(2) {
-                seconds += parse_number(usec).map_err(|_| invalid_time_spec())? / 1_000_000.0;
-            }
-            if let Some(psec) = items.get(3) {
-                seconds +=
-                    parse_number(psec).map_err(|_| invalid_time_spec())? / 1_000_000_000_000.0;
-            }
-            Ok(seconds)
-        }
-        _ => Ok(parse_number(value).map_err(|_| invalid_time_spec())?),
-    }
-}
-
-pub(crate) fn builtin_float_time(args: Vec<Value>) -> EvalResult {
-    expect_max_args("float-time", &args, 1)?;
-    if let Some(specified_time) = args.first() {
-        if !specified_time.is_nil() {
-            return Ok(Value::Float(
-                decode_float_time_arg(specified_time)?,
-                next_float_id(),
-            ));
-        }
-    }
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    Ok(Value::Float(dur.as_secs_f64(), next_float_id()))
 }
