@@ -1828,7 +1828,18 @@ pub(crate) fn builtin_read_key_sequence_vector(
     if let Some(value) = builtin_read_key_sequence_vector_in_runtime(eval, &args)? {
         return Ok(value);
     }
-    eval.clear_read_command_keys();
+    finish_read_key_sequence_vector_interactive_in_runtime(eval)
+}
+
+pub(crate) fn finish_read_key_sequence_vector_interactive_in_runtime(
+    runtime: &mut impl KeyboardInputRuntime,
+) -> EvalResult {
+    if runtime.has_input_receiver() {
+        let (keys, _binding) = runtime.read_key_sequence_blocking()?;
+        return Ok(Value::vector(keys));
+    }
+
+    runtime.clear_read_command_keys();
     Ok(Value::vector(vec![]))
 }
 

@@ -5,6 +5,7 @@ use crate::emacs_core::load::{
 };
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
+use std::collections::VecDeque;
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
@@ -1734,6 +1735,70 @@ fn read_key_sequence_vector_returns_empty_vector() {
         Value::Vector(v) => assert!(with_heap(|h| h.get_vector(v).is_empty())),
         other => panic!("expected vector, got {other:?}"),
     }
+}
+
+#[derive(Default)]
+struct BlockingKeySequenceRuntime {
+    unread: VecDeque<Value>,
+    read_command_keys: Vec<Value>,
+    blocking_keys: Vec<Value>,
+}
+
+impl KeyboardInputRuntime for BlockingKeySequenceRuntime {
+    fn pop_unread_command_event(&mut self) -> Option<Value> {
+        self.unread.pop_front()
+    }
+
+    fn peek_unread_command_event(&self) -> Option<Value> {
+        self.unread.front().copied()
+    }
+
+    fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
+        self.unread.clear();
+        self.unread.push_back(event);
+    }
+
+    fn record_input_event(&mut self, _event: Value) {}
+
+    fn record_nonmenu_input_event(&mut self, _event: Value) {}
+
+    fn set_read_command_keys(&mut self, keys: Vec<Value>) {
+        self.read_command_keys = keys;
+    }
+
+    fn clear_read_command_keys(&mut self) {
+        self.read_command_keys.clear();
+    }
+
+    fn read_command_keys(&self) -> &[Value] {
+        &self.read_command_keys
+    }
+
+    fn has_input_receiver(&self) -> bool {
+        true
+    }
+
+    fn read_char_blocking(&mut self) -> Result<Value, Flow> {
+        unreachable!("read-char should not be used in this test runtime")
+    }
+
+    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow> {
+        Ok((self.blocking_keys.clone(), Value::Nil))
+    }
+}
+
+#[test]
+fn read_key_sequence_vector_interactive_runtime_returns_blocking_sequence() {
+    let mut runtime = BlockingKeySequenceRuntime {
+        blocking_keys: vec![Value::Int(97), Value::symbol("f1")],
+        ..Default::default()
+    };
+    let result =
+        finish_read_key_sequence_vector_interactive_in_runtime(&mut runtime).expect("vector read");
+    assert_eq!(
+        result,
+        Value::vector(vec![Value::Int(97), Value::symbol("f1")])
+    );
 }
 
 #[test]
