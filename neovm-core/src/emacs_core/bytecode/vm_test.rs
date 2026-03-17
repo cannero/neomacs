@@ -3678,6 +3678,42 @@ fn vm_x_connection_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_x_frame_property_and_tty_stub_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (setq initial-window-system 'neomacs)
+                 (list
+                  (x-frame-edges f)
+                  (x-frame-geometry f)
+                  (condition-case err (x-frame-list-z-order f) (error err))
+                  (condition-case err (x-frame-restack f f) (error err))
+                  (condition-case err (x-export-frames f) (error err))
+                  (condition-case err (x-get-modifier-masks f) (error err))
+                  (x-family-fonts nil f)
+                  (x-mouse-absolute-pixel-position)
+                  (x-set-mouse-absolute-pixel-position 1 2)
+                  (x-internal-focus-input-context f)
+                  (condition-case err (x-wm-set-size-hint f) (error err))
+                  (condition-case err (x-get-atom-name 'WM_CLASS f) (error err))
+                  (condition-case err (x-window-property "WM_NAME" f) (error err))
+                  (condition-case err (x-window-property-attributes "WM_NAME" f) (error err))
+                  (tty--output-buffer-size f)
+                  (tty--set-output-buffer-size f 7)
+                  (tty-display-pixel-height f)
+                  (tty-display-pixel-width f)
+                  (tty-frame-at 0 0)
+                  (tty-frame-edges f nil)
+                  (tty-frame-geometry f)
+                  (tty-frame-list-z-order f)
+                  (tty-frame-restack f f t)
+                  (tty-suppress-bold-inverse-default-colors f)))"#
+        ),
+        r#"OK (nil nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") nil nil nil nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") 0 nil 0 0 nil nil nil nil nil nil)"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

@@ -335,6 +335,23 @@ fn expect_optional_window_system_frame_arg(value: &Value) -> Result<(), Flow> {
     }
 }
 
+fn expect_optional_window_system_frame_arg_in_state(
+    frames: &crate::window::FrameManager,
+    value: &Value,
+) -> Result<(), Flow> {
+    if value.is_nil()
+        || matches!(value, Value::Frame(_))
+        || live_frame_designator_p_in_state(frames, value)
+    {
+        Ok(())
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), *value],
+        ))
+    }
+}
+
 fn parse_geometry_unsigned(bytes: &[u8], index: &mut usize) -> Option<i64> {
     let start = *index;
     while *index < bytes.len() && bytes[*index].is_ascii_digit() {
@@ -921,6 +938,19 @@ pub(crate) fn builtin_x_frame_edges(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_x_frame_edges_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-frame-edges", &args, 2)?;
+    if let Some(frame) = args.first() {
+        if live_frame_designator_p_in_state(frames, frame) {
+            return Ok(Value::Nil);
+        }
+    }
+    builtin_x_frame_edges(args)
+}
+
 /// (x-frame-geometry &optional FRAME) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_frame_geometry(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-frame-geometry", &args, 1)?;
@@ -935,6 +965,19 @@ pub(crate) fn builtin_x_frame_geometry(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_x_frame_geometry_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-frame-geometry", &args, 1)?;
+    if let Some(frame) = args.first() {
+        if live_frame_designator_p_in_state(frames, frame) {
+            return Ok(Value::Nil);
+        }
+    }
+    builtin_x_frame_geometry(args)
+}
+
 /// (x-frame-list-z-order &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_frame_list_z_order(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-frame-list-z-order", &args, 1)?;
@@ -942,6 +985,19 @@ pub(crate) fn builtin_x_frame_list_z_order(args: Vec<Value>) -> EvalResult {
         None => Err(x_windows_not_initialized_error()),
         Some(display) => Err(x_display_query_first_arg_error(display)),
     }
+}
+
+pub(crate) fn builtin_x_frame_list_z_order_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-frame-list-z-order", &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p_in_state(frames, display) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    builtin_x_frame_list_z_order(args)
 }
 
 /// (x-frame-restack FRAME1 FRAME2 &optional ABOVE) -> error in batch/no-X context.
@@ -952,6 +1008,13 @@ pub(crate) fn builtin_x_frame_list_z_order(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_x_frame_restack(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-frame-restack", &args, 2, 3)?;
     Err(x_window_system_frame_error())
+}
+
+pub(crate) fn builtin_x_frame_restack_in_state(
+    _frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_x_frame_restack(args)
 }
 
 /// (x-mouse-absolute-pixel-position) -> nil in batch/no-X context.
@@ -1195,6 +1258,19 @@ pub(crate) fn builtin_x_export_frames(args: Vec<Value>) -> EvalResult {
     }
 }
 
+pub(crate) fn builtin_x_export_frames_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-export-frames", &args, 2)?;
+    if let Some(frame) = args.first() {
+        if frame.is_nil() || live_frame_designator_p_in_state(frames, frame) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    builtin_x_export_frames(args)
+}
+
 /// (x-focus-frame FRAME &optional NO-ACTIVATE) -> error in batch/no-X context.
 pub(crate) fn builtin_x_focus_frame(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-focus-frame", &args, 1, 2)?;
@@ -1207,6 +1283,17 @@ pub(crate) fn builtin_x_focus_frame(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("frame-live-p"), *frame],
         ))
     }
+}
+
+pub(crate) fn builtin_x_focus_frame_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-focus-frame", &args, 1, 2)?;
+    if live_frame_designator_p_in_state(frames, &args[0]) {
+        return Err(x_window_system_frame_error());
+    }
+    builtin_x_focus_frame(args)
 }
 
 /// (x-get-clipboard) -> nil in batch/no-X context.
@@ -1224,6 +1311,19 @@ pub(crate) fn builtin_x_get_modifier_masks(args: Vec<Value>) -> EvalResult {
         Some(Value::Frame(_)) => Err(x_window_system_frame_error()),
         Some(display) => Err(x_display_query_first_arg_error(display)),
     }
+}
+
+pub(crate) fn builtin_x_get_modifier_masks_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-get-modifier-masks", &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p_in_state(frames, display) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    builtin_x_get_modifier_masks(args)
 }
 
 /// (x-hide-tip) -> nil in batch/no-X context.
@@ -1266,6 +1366,13 @@ pub(crate) fn builtin_x_internal_focus_input_context(args: Vec<Value>) -> EvalRe
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_x_internal_focus_input_context_in_state(
+    _frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_x_internal_focus_input_context(args)
+}
+
 /// (x-wm-set-size-hint &optional FRAME) -> error in batch/no-X context.
 pub(crate) fn builtin_x_wm_set_size_hint(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-wm-set-size-hint", &args, 1)?;
@@ -1280,6 +1387,20 @@ pub(crate) fn builtin_x_wm_set_size_hint(args: Vec<Value>) -> EvalResult {
     }
 }
 
+pub(crate) fn builtin_x_wm_set_size_hint_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-wm-set-size-hint", &args, 1)?;
+    match args.first() {
+        None => Err(x_window_system_frame_error()),
+        Some(frame) if frame.is_nil() || live_frame_designator_p_in_state(frames, frame) => {
+            Err(x_window_system_frame_error())
+        }
+        Some(_) => builtin_x_wm_set_size_hint(args),
+    }
+}
+
 /// (x-backspace-delete-keys-p &optional FRAME) -> error in batch/no-X context.
 pub(crate) fn builtin_x_backspace_delete_keys_p(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-backspace-delete-keys-p", &args, 1)?;
@@ -1287,6 +1408,19 @@ pub(crate) fn builtin_x_backspace_delete_keys_p(args: Vec<Value>) -> EvalResult 
         expect_optional_window_system_frame_arg(frame)?;
     }
     Err(x_window_system_frame_error())
+}
+
+pub(crate) fn builtin_x_backspace_delete_keys_p_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-backspace-delete-keys-p", &args, 1)?;
+    if let Some(frame) = args.first() {
+        if live_frame_designator_p_in_state(frames, frame) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    builtin_x_backspace_delete_keys_p(args)
 }
 
 /// (x-family-fonts &optional FAMILY FRAME) -> nil in batch/no-X context.
@@ -1306,6 +1440,28 @@ pub(crate) fn builtin_x_family_fonts(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_x_family_fonts_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("x-family-fonts", &args, 2)?;
+    if let Some(frame) = args.get(1) {
+        if live_frame_designator_p_in_state(frames, frame) {
+            if let Some(family) = args.first() {
+                if !family.is_nil() && !family.is_string() {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("stringp"), *family],
+                    ));
+                }
+            }
+            return Ok(Value::Nil);
+        }
+        expect_optional_window_system_frame_arg_in_state(frames, frame)?;
+    }
+    builtin_x_family_fonts(args)
+}
+
 /// (x-get-atom-name ATOM &optional FRAME) -> error in batch/no-X context.
 pub(crate) fn builtin_x_get_atom_name(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-get-atom-name", &args, 1, 2)?;
@@ -1313,6 +1469,19 @@ pub(crate) fn builtin_x_get_atom_name(args: Vec<Value>) -> EvalResult {
         expect_optional_window_system_frame_arg(frame)?;
     }
     Err(x_window_system_frame_error())
+}
+
+pub(crate) fn builtin_x_get_atom_name_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-get-atom-name", &args, 1, 2)?;
+    if let Some(frame) = args.get(1) {
+        if live_frame_designator_p_in_state(frames, frame) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    builtin_x_get_atom_name(args)
 }
 
 /// (x-get-resource ATTRIBUTE CLASS &optional COMPONENT SUBCLASS) -> error in batch/no-X context.
@@ -1527,6 +1696,19 @@ pub(crate) fn builtin_x_window_property(args: Vec<Value>) -> EvalResult {
     Err(x_window_system_frame_error())
 }
 
+pub(crate) fn builtin_x_window_property_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-window-property", &args, 1, 6)?;
+    if let Some(frame) = args.get(1) {
+        if live_frame_designator_p_in_state(frames, frame) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    builtin_x_window_property(args)
+}
+
 /// (x-window-property-attributes PROPERTY &optional FRAME TYPE) -> error in batch/no-X context.
 pub(crate) fn builtin_x_window_property_attributes(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-window-property-attributes", &args, 1, 3)?;
@@ -1534,6 +1716,19 @@ pub(crate) fn builtin_x_window_property_attributes(args: Vec<Value>) -> EvalResu
         expect_optional_window_system_frame_arg(frame)?;
     }
     Err(x_window_system_frame_error())
+}
+
+pub(crate) fn builtin_x_window_property_attributes_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-window-property-attributes", &args, 1, 3)?;
+    if let Some(frame) = args.get(1) {
+        if live_frame_designator_p_in_state(frames, frame) {
+            return Err(x_window_system_frame_error());
+        }
+    }
+    builtin_x_window_property_attributes(args)
 }
 
 /// (x-server-version &optional DISPLAY) -> error in batch/no-X context.

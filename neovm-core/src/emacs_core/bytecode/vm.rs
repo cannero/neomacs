@@ -5273,6 +5273,12 @@ impl<'a> Vm<'a> {
             "x-send-client-message" => Some(
                 crate::emacs_core::display::builtin_x_send_client_message(args.to_vec()),
             ),
+            "x-export-frames" => Some(
+                crate::emacs_core::display::builtin_x_export_frames_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "x-popup-dialog" => Some(crate::emacs_core::display::builtin_x_popup_dialog(
                 args.to_vec(),
             )),
@@ -5288,17 +5294,26 @@ impl<'a> Vm<'a> {
             "x-register-dnd-atom" => Some(
                 crate::emacs_core::display::builtin_x_register_dnd_atom(args.to_vec()),
             ),
-            "x-focus-frame" => Some(crate::emacs_core::display::builtin_x_focus_frame(
-                args.to_vec(),
-            )),
+            "x-focus-frame" => Some(
+                crate::emacs_core::display::builtin_x_focus_frame_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "x-hide-tip" => Some(crate::emacs_core::display::builtin_x_hide_tip(args.to_vec())),
             "x-show-tip" => Some(crate::emacs_core::display::builtin_x_show_tip(args.to_vec())),
             "x-backspace-delete-keys-p" => Some(
-                crate::emacs_core::display::builtin_x_backspace_delete_keys_p(args.to_vec()),
+                crate::emacs_core::display::builtin_x_backspace_delete_keys_p_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
             ),
-            "x-get-atom-name" => Some(crate::emacs_core::display::builtin_x_get_atom_name(
-                args.to_vec(),
-            )),
+            "x-get-atom-name" => Some(
+                crate::emacs_core::display::builtin_x_get_atom_name_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "x-parse-geometry" => Some(crate::emacs_core::display::builtin_x_parse_geometry(
                 args.to_vec(),
             )),
@@ -5328,6 +5343,76 @@ impl<'a> Vm<'a> {
             ),
             "x-uses-old-gtk-dialog" => Some(
                 crate::emacs_core::display::builtin_x_uses_old_gtk_dialog(args.to_vec()),
+            ),
+            "x-get-modifier-masks" => Some(
+                crate::emacs_core::display::builtin_x_get_modifier_masks_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-frame-edges" => Some(
+                crate::emacs_core::display::builtin_x_frame_edges_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-frame-geometry" => Some(
+                crate::emacs_core::display::builtin_x_frame_geometry_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-frame-list-z-order" => Some(
+                crate::emacs_core::display::builtin_x_frame_list_z_order_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-frame-restack" => Some(
+                crate::emacs_core::display::builtin_x_frame_restack_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-family-fonts" => Some(
+                crate::emacs_core::display::builtin_x_family_fonts_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-mouse-absolute-pixel-position" => Some(
+                crate::emacs_core::display::builtin_x_mouse_absolute_pixel_position(
+                    args.to_vec(),
+                ),
+            ),
+            "x-internal-focus-input-context" => Some(
+                crate::emacs_core::display::builtin_x_internal_focus_input_context_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-set-mouse-absolute-pixel-position" => Some(
+                crate::emacs_core::display::builtin_x_set_mouse_absolute_pixel_position(
+                    args.to_vec(),
+                ),
+            ),
+            "x-window-property" => Some(
+                crate::emacs_core::display::builtin_x_window_property_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-window-property-attributes" => Some(
+                crate::emacs_core::display::builtin_x_window_property_attributes_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "x-wm-set-size-hint" => Some(
+                crate::emacs_core::display::builtin_x_wm_set_size_hint_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
             ),
             "x-server-vendor" => Some(self.builtin_x_server_vendor_shared(args)),
             "x-server-version" => Some(crate::emacs_core::display::builtin_x_server_version_in_state(
@@ -5492,6 +5577,48 @@ impl<'a> Vm<'a> {
             ),
             "suspend-tty" => Some(self.builtin_suspend_tty_shared(args)),
             "resume-tty" => Some(self.builtin_resume_tty_shared(args)),
+            "tty--output-buffer-size" => Some(
+                crate::emacs_core::builtins::symbols::builtin_tty_output_buffer_size(
+                    args.to_vec(),
+                ),
+            ),
+            "tty--set-output-buffer-size" => Some(
+                crate::emacs_core::builtins::symbols::builtin_tty_set_output_buffer_size(
+                    args.to_vec(),
+                ),
+            ),
+            "tty-display-pixel-height" => Some(
+                crate::emacs_core::builtins::builtin_tty_display_pixel_height(
+                    args.to_vec(),
+                ),
+            ),
+            "tty-display-pixel-width" => Some(
+                crate::emacs_core::builtins::builtin_tty_display_pixel_width(
+                    args.to_vec(),
+                ),
+            ),
+            "tty-frame-at" => Some(
+                crate::emacs_core::builtins::builtin_tty_frame_at(args.to_vec()),
+            ),
+            "tty-frame-edges" => Some(
+                crate::emacs_core::builtins::builtin_tty_frame_edges(args.to_vec()),
+            ),
+            "tty-frame-geometry" => Some(
+                crate::emacs_core::builtins::builtin_tty_frame_geometry(args.to_vec()),
+            ),
+            "tty-frame-list-z-order" => Some(
+                crate::emacs_core::builtins::builtin_tty_frame_list_z_order(
+                    args.to_vec(),
+                ),
+            ),
+            "tty-frame-restack" => Some(
+                crate::emacs_core::builtins::builtin_tty_frame_restack(args.to_vec()),
+            ),
+            "tty-suppress-bold-inverse-default-colors" => Some(
+                crate::emacs_core::builtins::symbols::builtin_tty_suppress_bold_inverse_default_colors(
+                    args.to_vec(),
+                ),
+            ),
             "x-create-frame" => Some(self.builtin_x_create_frame_shared(args)),
             "format-mode-line" => Some(self.builtin_format_mode_line_shared(args)),
             "display-supports-face-attributes-p" => Some(
