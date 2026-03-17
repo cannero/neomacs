@@ -5244,9 +5244,74 @@ impl<'a> Vm<'a> {
                 &*self.shared.frames,
                 args.to_vec(),
             )),
+            "fontp" => Some(crate::emacs_core::font::builtin_fontp(args.to_vec())),
+            "font-spec" => Some(crate::emacs_core::font::builtin_font_spec(args.to_vec())),
+            "font-get" => Some(crate::emacs_core::font::builtin_font_get(args.to_vec())),
+            "font-put" => Some(crate::emacs_core::font::builtin_font_put(args.to_vec())),
+            "clear-font-cache" => Some(crate::emacs_core::font::builtin_clear_font_cache(
+                args.to_vec(),
+            )),
             "font-family-list" => Some(
                 crate::emacs_core::font::builtin_font_family_list_in_state(
                     &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
+            "font-xlfd-name" => Some(crate::emacs_core::font::builtin_font_xlfd_name(
+                args.to_vec(),
+            )),
+            "internal-lisp-face-p" => Some(
+                crate::emacs_core::font::builtin_internal_lisp_face_p(args.to_vec()),
+            ),
+            "internal-lisp-face-attribute-values" => Some(
+                crate::emacs_core::font::builtin_internal_lisp_face_attribute_values(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-lisp-face-equal-p" => Some(
+                crate::emacs_core::font::builtin_internal_lisp_face_equal_p(args.to_vec()),
+            ),
+            "internal-lisp-face-empty-p" => Some(
+                crate::emacs_core::font::builtin_internal_lisp_face_empty_p(args.to_vec()),
+            ),
+            "face-attribute-relative-p" => Some(
+                crate::emacs_core::font::builtin_face_attribute_relative_p(args.to_vec()),
+            ),
+            "merge-face-attribute" => Some(
+                crate::emacs_core::font::builtin_merge_face_attribute(args.to_vec()),
+            ),
+            "face-list" => Some(crate::emacs_core::font::builtin_face_list(args.to_vec())),
+            "color-defined-p" => Some(crate::emacs_core::font::builtin_color_defined_p(
+                args.to_vec(),
+            )),
+            "color-values" => Some(crate::emacs_core::font::builtin_color_values(args.to_vec())),
+            "color-values-from-color-spec" => Some(
+                crate::emacs_core::font::builtin_color_values_from_color_spec(args.to_vec()),
+            ),
+            "color-gray-p" => Some(crate::emacs_core::font::builtin_color_gray_p(
+                args.to_vec(),
+            )),
+            "color-supported-p" => Some(crate::emacs_core::font::builtin_color_supported_p(
+                args.to_vec(),
+            )),
+            "color-distance" => Some(crate::emacs_core::font::builtin_color_distance(
+                args.to_vec(),
+            )),
+            "face-id" => Some(crate::emacs_core::font::builtin_face_id(args.to_vec())),
+            "face-font" => Some(crate::emacs_core::font::builtin_face_font(args.to_vec())),
+            "internal-face-x-get-resource" => Some(
+                crate::emacs_core::font::builtin_internal_face_x_get_resource(args.to_vec()),
+            ),
+            "internal-set-font-selection-order" => Some(
+                crate::emacs_core::font::builtin_internal_set_font_selection_order(args.to_vec()),
+            ),
+            "internal-set-alternative-font-family-alist" => Some(
+                crate::emacs_core::font::builtin_internal_set_alternative_font_family_alist(
+                    args.to_vec(),
+                ),
+            ),
+            "internal-set-alternative-font-registry-alist" => Some(
+                crate::emacs_core::font::builtin_internal_set_alternative_font_registry_alist(
                     args.to_vec(),
                 ),
             ),

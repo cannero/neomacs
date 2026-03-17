@@ -3677,6 +3677,44 @@ fn vm_font_builtins_accept_live_frame_designators_on_shared_state() {
 }
 
 #[test]
+fn vm_font_face_and_color_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r##"(list
+                 (fontp (font-spec :family "Mono"))
+                 (let ((f (font-spec :family "Mono")))
+                   (font-put f :weight 'bold)
+                   (font-get f :weight))
+                 (stringp (font-xlfd-name (font-spec :family "Mono")))
+                 (vectorp (internal-lisp-face-p 'default))
+                 (equal (internal-lisp-face-attribute-values :underline) '(t nil))
+                 (internal-lisp-face-equal-p 'default 'default)
+                 (null (internal-lisp-face-empty-p 'default))
+                 (face-attribute-relative-p :height 1.1)
+                 (merge-face-attribute :weight 'unspecified 'bold)
+                 (consp (memq 'default (face-list)))
+                 (color-defined-p "#111122223333")
+                 (equal (color-values "black") '(0 0 0))
+                 (equal (color-values-from-color-spec "#111122223333")
+                        '(4369 8738 13107))
+                 (color-gray-p "#111111")
+                 (color-supported-p "red")
+                 (> (color-distance "black" "white") 0)
+                 (integerp (face-id 'default))
+                 (null (face-font 'default))
+                 (null (internal-face-x-get-resource "font" "Font"))
+                 (null (internal-set-font-selection-order
+                        '(:width :height :weight :slant)))
+                 (equal (internal-set-alternative-font-family-alist '(("Foo" "Bar")))
+                        '((Foo Bar)))
+                 (equal (internal-set-alternative-font-registry-alist '((1 2)))
+                        '((1 2))))"##
+        ),
+        r#"OK (t bold t t t t t t bold t t t t t t t t t t t t t)"#
+    );
+}
+
+#[test]
 fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
     assert_eq!(
         vm_eval_str(
