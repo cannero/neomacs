@@ -226,11 +226,18 @@ pub(crate) fn finish_read_event_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    if eval.has_input_receiver() {
-        let event = eval.read_char()?;
+    finish_read_event_interactive_in_runtime(eval, args)
+}
+
+pub(crate) fn finish_read_event_interactive_in_runtime(
+    runtime: &mut impl super::reader::KeyboardInputRuntime,
+    args: &[Value],
+) -> EvalResult {
+    if runtime.has_input_receiver() {
+        let event = runtime.read_char_blocking()?;
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
-        if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
-            eval.set_read_command_keys(vec![event]);
+        if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+            runtime.set_read_command_keys(vec![event]);
         }
         if let Some(n) = event_to_int(&event) {
             return Ok(Value::Int(n));
@@ -261,17 +268,23 @@ pub(crate) fn finish_read_char_exclusive_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    if eval.has_input_receiver() {
+    finish_read_char_exclusive_interactive_in_runtime(eval, args)
+}
+
+pub(crate) fn finish_read_char_exclusive_interactive_in_runtime(
+    runtime: &mut impl super::reader::KeyboardInputRuntime,
+    args: &[Value],
+) -> EvalResult {
+    if runtime.has_input_receiver() {
         loop {
-            let event = eval.read_char()?;
+            let event = runtime.read_char_blocking()?;
             let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
             if let Some(n) = event_to_int(&event) {
-                if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
-                    eval.set_read_command_keys(vec![event]);
+                if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+                    runtime.set_read_command_keys(vec![event]);
                 }
                 return Ok(Value::Int(n));
             }
-            // Non-character event: discard and keep reading
         }
     }
 

@@ -1111,6 +1111,8 @@ pub(crate) trait KeyboardInputRuntime {
     fn clear_read_command_keys(&mut self);
     fn read_command_keys(&self) -> &[Value];
     fn has_input_receiver(&self) -> bool;
+    fn read_char_blocking(&mut self) -> Result<Value, Flow>;
+    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow>;
 }
 
 impl KeyboardInputRuntime for super::eval::Evaluator {
@@ -1149,6 +1151,14 @@ impl KeyboardInputRuntime for super::eval::Evaluator {
     fn has_input_receiver(&self) -> bool {
         super::eval::Evaluator::has_input_receiver(self)
     }
+
+    fn read_char_blocking(&mut self) -> Result<Value, Flow> {
+        super::eval::Evaluator::read_char(self)
+    }
+
+    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow> {
+        super::eval::Evaluator::read_key_sequence(self)
+    }
 }
 
 impl KeyboardInputRuntime for super::eval::VmSharedState<'_> {
@@ -1186,6 +1196,14 @@ impl KeyboardInputRuntime for super::eval::VmSharedState<'_> {
 
     fn has_input_receiver(&self) -> bool {
         super::eval::VmSharedState::has_input_receiver(self)
+    }
+
+    fn read_char_blocking(&mut self) -> Result<Value, Flow> {
+        super::eval::VmSharedState::with_parent_evaluator(self, |eval| eval.read_char())
+    }
+
+    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow> {
+        super::eval::VmSharedState::with_parent_evaluator(self, |eval| eval.read_key_sequence())
     }
 }
 
@@ -1615,18 +1633,24 @@ pub(crate) fn finish_read_char_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    if eval.has_input_receiver() {
-        let event = eval.read_char()?;
+    finish_read_char_interactive_in_runtime(eval, args)
+}
+
+pub(crate) fn finish_read_char_interactive_in_runtime(
+    runtime: &mut impl KeyboardInputRuntime,
+    args: &[Value],
+) -> EvalResult {
+    if runtime.has_input_receiver() {
+        let event = runtime.read_char_blocking()?;
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if let Some(n) = event_to_int(&event) {
-            if eval.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
-                eval.set_read_command_keys(vec![event]);
+            if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
+                runtime.set_read_command_keys(vec![event]);
             }
             return Ok(Value::Int(n));
         }
-        // Non-character event: push back and signal error
-        eval.assign("unread-command-events", Value::list(vec![event]));
-        eval.record_input_event(event);
+        runtime.replace_unread_command_event_with_singleton(event);
+        runtime.record_input_event(event);
         return Err(non_character_input_event_error());
     }
 
@@ -1694,8 +1718,14 @@ pub(crate) fn builtin_read_key_sequence(
 }
 
 pub(crate) fn finish_read_key_sequence_in_eval(eval: &mut super::eval::Evaluator) -> EvalResult {
-    if eval.has_input_receiver() {
-        let (keys, _binding) = eval.read_key_sequence()?;
+    finish_read_key_sequence_interactive_in_runtime(eval)
+}
+
+pub(crate) fn finish_read_key_sequence_interactive_in_runtime(
+    runtime: &mut impl KeyboardInputRuntime,
+) -> EvalResult {
+    if runtime.has_input_receiver() {
+        let (keys, _binding) = runtime.read_key_sequence_blocking()?;
         let mut chars_only = true;
         let mut s = String::new();
         for k in &keys {
@@ -1712,7 +1742,7 @@ pub(crate) fn finish_read_key_sequence_in_eval(eval: &mut super::eval::Evaluator
         return Ok(Value::vector(keys));
     }
 
-    eval.clear_read_command_keys();
+    runtime.clear_read_command_keys();
     Ok(Value::string(""))
 }
 

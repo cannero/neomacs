@@ -7432,11 +7432,7 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::reader::finish_read_char_in_eval(eval, &call_args)
-        })
+        crate::emacs_core::reader::finish_read_char_interactive_in_runtime(&mut self.shared, args)
     }
 
     fn builtin_read_from_string_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -7460,11 +7456,7 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::lread::finish_read_event_in_eval(eval, &call_args)
-        })
+        crate::emacs_core::lread::finish_read_event_interactive_in_runtime(&mut self.shared, args)
     }
 
     fn builtin_read_char_exclusive_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -7474,11 +7466,10 @@ impl<'a> Vm<'a> {
         )? {
             return Ok(value);
         }
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::lread::finish_read_char_exclusive_in_eval(eval, &call_args)
-        })
+        crate::emacs_core::lread::finish_read_char_exclusive_interactive_in_runtime(
+            &mut self.shared,
+            args,
+        )
     }
 
     fn builtin_read_key_sequence_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -7487,10 +7478,7 @@ impl<'a> Vm<'a> {
         {
             return Ok(value);
         }
-        let extra_roots = args.to_vec();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::reader::finish_read_key_sequence_in_eval(eval)
-        })
+        crate::emacs_core::reader::finish_read_key_sequence_interactive_in_runtime(&mut self.shared)
     }
 
     fn builtin_read_key_sequence_vector_shared(&mut self, args: &[Value]) -> EvalResult {
