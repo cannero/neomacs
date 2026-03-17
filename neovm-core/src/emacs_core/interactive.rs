@@ -2230,30 +2230,22 @@ fn resolve_interactive_invocation_args(
 }
 
 fn eval_interactive_form_expr_in_vm_runtime(
-    shared: &super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::VmSharedState<'_>,
     vm_gc_roots: &[Value],
     form: &Expr,
 ) -> Result<Vec<Value>, Flow> {
-    let value = super::eval::with_parent_evaluator_vm_roots_ptr(
-        shared.parent_eval_ptr(),
-        vm_gc_roots,
-        &[],
-        move |eval| eval.eval(form),
-    )?;
+    let value =
+        shared.with_parent_evaluator_vm_roots(vm_gc_roots, &[], move |eval| eval.eval(form))?;
     interactive_form_value_to_args(value)
 }
 
 fn eval_interactive_form_value_in_vm_runtime(
-    shared: &super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::VmSharedState<'_>,
     vm_gc_roots: &[Value],
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
-    let value = super::eval::with_parent_evaluator_vm_roots_ptr(
-        shared.parent_eval_ptr(),
-        vm_gc_roots,
-        &[form],
-        move |eval| eval.eval_value(&form),
-    )?;
+    let value = shared
+        .with_parent_evaluator_vm_roots(vm_gc_roots, &[form], move |eval| eval.eval_value(&form))?;
     interactive_form_value_to_args(value)
 }
 
