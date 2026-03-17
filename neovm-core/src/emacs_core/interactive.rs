@@ -3180,26 +3180,23 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Evaluator, args: Vec<Value>) 
 
     let keymaps = if let Some(keymap_arg) = args.get(1) {
         if keymap_arg.is_nil() {
-            let gm = get_global_keymap(eval);
-            if !is_list_keymap(&gm) {
-                return Ok(Value::Nil);
-            }
-            vec![gm]
+            where_is_internal_active_keymaps(eval)
         } else {
-            where_is_internal_keymaps(eval, keymap_arg)?
+            where_is_internal_explicit_keymaps(eval, keymap_arg)?
         }
     } else {
-        let gm = get_global_keymap(eval);
-        if !is_list_keymap(&gm) {
+        let keymaps = where_is_internal_active_keymaps(eval);
+        if keymaps.is_empty() {
             return Ok(Value::Nil);
         }
-        vec![gm]
+        keymaps
     };
 
     let mut sequences = Vec::new();
     for keymap in &keymaps {
         let mut prefix = Vec::new();
         if collect_where_is_sequences_value(
+            eval.obarray(),
             keymap,
             definition,
             &mut prefix,
@@ -3731,6 +3728,46 @@ fn where_is_internal_keymaps(eval: &Evaluator, value: &Value) -> Result<Vec<Valu
     Ok(vec![expect_keymap_value(eval, value)?])
 }
 
+fn where_is_internal_explicit_keymaps(eval: &Evaluator, value: &Value) -> Result<Vec<Value>, Flow> {
+    if is_list_keymap(value) {
+        let keymap = expect_keymap_value(eval, value)?;
+        let mut keymaps = vec![keymap];
+        let global_map = get_global_keymap(eval);
+        if is_list_keymap(&global_map) && global_map != keymap {
+            keymaps.push(global_map);
+        }
+        return Ok(keymaps);
+    }
+
+    if let Some(items) = list_to_vec(value) {
+        let mut keymaps = Vec::with_capacity(items.len());
+        for item in items {
+            keymaps.push(expect_keymap_value(eval, &item)?);
+        }
+        return Ok(keymaps);
+    }
+
+    let keymap = expect_keymap_value(eval, value)?;
+    let mut keymaps = vec![keymap];
+    let global_map = get_global_keymap(eval);
+    if is_list_keymap(&global_map) && global_map != keymap {
+        keymaps.push(global_map);
+    }
+    Ok(keymaps)
+}
+
+fn where_is_internal_active_keymaps(eval: &mut Evaluator) -> Vec<Value> {
+    match super::builtins::keymaps::builtin_current_active_maps_in_state(
+        &mut eval.obarray,
+        eval.dynamic.as_slice(),
+        eval.current_local_map,
+        &[],
+    ) {
+        Ok(value) => list_to_vec(&value).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
 fn lookup_keymap_with_partial_value(keymap: &Value, events: &[KeyEvent]) -> Value {
     if events.is_empty() {
         return *keymap;
@@ -3775,6 +3812,7 @@ fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {
 }
 
 fn collect_where_is_sequences_value(
+    obarray: &Obarray,
     keymap: &Value,
     definition: &Value,
     prefix: &mut Vec<Value>,
@@ -3813,9 +3851,10 @@ fn collect_where_is_sequences_value(
 
     for (event, binding) in bindings {
         prefix.push(event);
-        if is_list_keymap(&binding) {
+        if let Some(prefix_keymap) = where_is_binding_prefix_keymap(obarray, &binding) {
             if collect_where_is_sequences_value(
-                &binding,
+                obarray,
+                &prefix_keymap,
                 definition,
                 prefix,
                 out,
@@ -3838,13 +3877,34 @@ fn collect_where_is_sequences_value(
     // Check parent keymap
     let parent = super::keymap::list_keymap_parent(keymap);
     if is_list_keymap(&parent) {
-        if collect_where_is_sequences_value(&parent, definition, prefix, out, first_only, depth + 1)
-        {
+        if collect_where_is_sequences_value(
+            obarray,
+            &parent,
+            definition,
+            prefix,
+            out,
+            first_only,
+            depth + 1,
+        ) {
             return true;
         }
     }
 
     false
+}
+
+fn where_is_binding_prefix_keymap(obarray: &Obarray, binding: &Value) -> Option<Value> {
+    if is_list_keymap(binding) {
+        return Some(*binding);
+    }
+
+    let sym_name = binding.as_symbol_name()?;
+    let func = obarray.indirect_function(sym_name)?;
+    if is_list_keymap(&func) {
+        Some(func)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

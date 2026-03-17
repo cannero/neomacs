@@ -1766,10 +1766,12 @@ impl Evaluator {
         let read_expression_map = make_sparse_list_keymap();
         let read_expression_internal_map = make_sparse_list_keymap();
         // Standard keymaps required by loadup.el files (normally created by C code)
-        // `global-map`, `esc-map`, and `ctl-x-map` are defined in GNU subr.el,
-        // so keep them unbound here and let the Lisp `defvar` initializers run.
+        // `global-map`, `esc-map`, `ctl-x-map`, and `help-map` are defined in GNU Lisp,
+        // so keep them unbound here and let the Lisp `defvar` / `defvar-keymap`
+        // initializers run.  Prebinding them here causes GNU definitions like
+        // help.el's `defvar-keymap help-map ...` to skip installing their real
+        // bindings.
         let special_event_map = make_sparse_list_keymap();
-        let help_map = make_sparse_list_keymap();
         let mode_line_window_dedicated_keymap = make_sparse_list_keymap();
         let indent_rigidly_map = make_sparse_list_keymap();
         let text_mode_map = make_sparse_list_keymap();
@@ -2391,7 +2393,6 @@ impl Evaluator {
 
         // Standard keymaps (C creates these in keyboard.c:init_kboard)
         obarray.set_symbol_value("special-event-map", special_event_map);
-        obarray.set_symbol_value("help-map", help_map);
         obarray.set_symbol_value(
             "mode-line-window-dedicated-keymap",
             mode_line_window_dedicated_keymap,

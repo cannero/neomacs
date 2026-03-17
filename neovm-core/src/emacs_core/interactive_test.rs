@@ -3826,6 +3826,79 @@ fn where_is_internal_non_definition_returns_nil() {
 }
 
 #[test]
+fn where_is_internal_follows_symbol_function_prefix_maps_like_gnu_help_command() {
+    let result = eval_one(
+        r#"(let ((m (make-keymap))
+                 (prefix (make-sparse-keymap)))
+             (define-key prefix [1] 'about-emacs)
+             (fset 'test-where-is-prefix prefix)
+             (define-key m [8] 'test-where-is-prefix)
+             (list (keymapp (symbol-function 'test-where-is-prefix))
+                   (equal (where-is-internal 'about-emacs prefix t) [1])
+                   (equal (where-is-internal 'about-emacs m t) [8 1])
+                   (equal (key-description (where-is-internal 'about-emacs m t))
+                          "C-h C-a")))"#,
+    );
+    assert_eq!(result, "OK (t t t t)");
+}
+
+#[test]
+fn bootstrap_define_keymap_populates_help_style_bindings() {
+    let result = bootstrap_eval_all(
+        r#"(let ((m (define-keymap
+                      "C-a" #'about-emacs
+                      "a" #'describe-bindings
+                      "RET" #'view-order-manuals)))
+             (list (lookup-key m [1])
+                   (lookup-key m [97])
+                   (lookup-key m [13])))"#,
+    )
+    .into_iter()
+    .next()
+    .expect("bootstrap define-keymap result");
+    assert_eq!(
+        result,
+        "OK (about-emacs describe-bindings view-order-manuals)"
+    );
+}
+
+#[test]
+fn bootstrap_defvar_keymap_and_fset_share_populated_keymap_object() {
+    let result = bootstrap_eval_all(
+        r#"(progn
+             (defvar-keymap test-help-map
+               "C-a" #'about-emacs
+               "a" #'describe-bindings)
+             (fset 'test-help-command test-help-map)
+             (list (lookup-key test-help-map [1])
+                   (lookup-key (symbol-function 'test-help-command) [1])
+                   (eq test-help-map (symbol-function 'test-help-command))))"#,
+    )
+    .into_iter()
+    .next()
+    .expect("bootstrap defvar-keymap result");
+    assert_eq!(result, "OK (about-emacs about-emacs t)");
+}
+
+#[test]
+fn bootstrap_runtime_help_map_and_help_command_are_populated_like_gnu() {
+    let result = bootstrap_eval_all(
+        r#"(list (lookup-key help-map [1])
+                 (lookup-key help-map [97])
+                 (lookup-key (current-global-map) [8])
+                 (lookup-key (current-global-map) [8 1])
+                 (lookup-key (symbol-function 'help-command) [1]))"#,
+    )
+    .into_iter()
+    .next()
+    .expect("bootstrap help-map result");
+    assert_eq!(
+        result,
+        "OK (about-emacs apropos-command help-command about-emacs about-emacs)"
+    );
+}
+
+#[test]
 fn command_modes_extracts_modes_and_preserves_arity_checks() {
     assert_eq!(eval_one("(command-modes 'ignore)"), "OK nil");
     assert_eq!(eval_one("(command-modes nil)"), "OK nil");

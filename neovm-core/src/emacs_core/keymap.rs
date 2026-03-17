@@ -1114,8 +1114,10 @@ where
     while let Value::Cons(entry_cell) = cursor {
         let entry = read_cons(entry_cell);
 
-        // Skip char-tables (we'd need to enumerate them, which is complex)
-        // For now, only iterate alist entries
+        if super::chartable::is_char_table(&entry.car) {
+            super::chartable::for_each_non_nil_char_table_run(&entry.car, &mut f);
+        }
+
         if let Value::Cons(binding_cell) = entry.car {
             let binding = read_cons(binding_cell);
             f(binding.car, binding.cdr);

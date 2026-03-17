@@ -727,6 +727,22 @@ fn run_key(start: i64, end: i64) -> Value {
     }
 }
 
+pub(crate) fn for_each_non_nil_char_table_run<F>(table: &Value, mut f: F)
+where
+    F: FnMut(Value, Value),
+{
+    if !is_char_table(table) {
+        return;
+    }
+
+    for run in ct_effective_runs(table) {
+        if run.value.is_nil() {
+            continue;
+        }
+        f(run_key(run.start, run.end), run.value);
+    }
+}
+
 const GNU_CHAR_TABLE_CONTENT_BLOCKS: i64 = 64;
 const GNU_CHAR_TABLE_BLOCK_CHARS: i64 = 1 << 16;
 

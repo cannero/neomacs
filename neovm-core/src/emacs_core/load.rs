@@ -2150,10 +2150,10 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly. V10 invalidates earlier caches because the `neomacs`
-// feature now mirrors loadup.el by loading `term/common-win` and
-// `term/neomacs-win` into the dumped bootstrap image.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 11;
+// represent correctly. V12 invalidates earlier caches because Rust no longer
+// prebinds GNU Lisp-owned `help-map`, allowing help.el to install the real
+// `C-h` help prefix bindings during bootstrap.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 12;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",
@@ -2291,9 +2291,9 @@ impl BootstrapCacheWriteLock {
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
             if rc != 0 {
                 return Err(format!(
-                        "bootstrap cache lock: failed locking {}: {}",
-                        lock_path.display(),
-                        std::io::Error::last_os_error()
+                    "bootstrap cache lock: failed locking {}: {}",
+                    lock_path.display(),
+                    std::io::Error::last_os_error()
                 ));
             }
 

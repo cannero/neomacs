@@ -802,14 +802,17 @@ mod tests {
 
         run_gnu_startup(&mut eval);
 
-        let forms = parse_forms("(list (current-message) (startup-echo-area-message))")
-            .expect("parse startup echo probe");
+        let forms = parse_forms(
+            "(list (current-message)
+                   (substring-no-properties (startup-echo-area-message)))",
+        )
+        .expect("parse startup echo probe");
         let result = eval
             .eval_expr(&forms[0])
             .expect("startup echo probe should evaluate");
         assert_eq!(
             print_value_with_eval(&mut eval, &result),
-            "(\"For information about GNU Emacs and the GNU system, type C-h C-a.\" \"For information about GNU Emacs and the GNU system, type C-h C-a.\")"
+            "(nil \"For information about GNU Emacs and the GNU system, type C-h C-a.\")"
         );
     }
 
@@ -860,6 +863,37 @@ mod tests {
         assert!(
             path.ends_with("/mail/rfc6068.el"),
             "expected GNU mail runtime path, got {path}"
+        );
+    }
+
+    #[test]
+    fn gnu_startup_where_is_internal_finds_about_emacs_on_help_prefix() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640);
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            "(list
+               (lookup-key help-map [1])
+               (lookup-key (symbol-function 'help-command) [1])
+               (lookup-key (current-global-map) [8])
+               (lookup-key (current-global-map) [8 1]))",
+        )
+        .expect("parse startup help-prefix probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup help-prefix probe should evaluate");
+        assert_eq!(
+            print_value_with_eval(&mut eval, &result),
+            "(about-emacs about-emacs help-command about-emacs)"
         );
     }
 
