@@ -55,15 +55,33 @@ pub(crate) fn builtin_documentation(
 ) -> EvalResult {
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
-    builtin_documentation_in_obarray(unsafe { &*obarray }, args, |value| eval.eval_value(&value))
+    let plan = builtin_documentation_plan_in_obarray(unsafe { &*obarray }, args)?;
+    execute_documentation_plan(plan, |value| eval.eval_value(&value))
 }
 
-pub(crate) fn builtin_documentation_in_obarray(
-    obarray: &super::symbol::Obarray,
-    args: Vec<Value>,
+enum DocumentationPlan {
+    Final(Value),
+    Eval(Value),
+}
+
+fn execute_documentation_plan(
+    plan: DocumentationPlan,
     mut eval_value: impl FnMut(Value) -> EvalResult,
 ) -> EvalResult {
+    match plan {
+        DocumentationPlan::Final(value) => Ok(value),
+        DocumentationPlan::Eval(value) => eval_value(value),
+    }
+}
+
+fn builtin_documentation_plan_in_obarray(
+    obarray: &super::symbol::Obarray,
+    args: Vec<Value>,
+) -> Result<DocumentationPlan, Flow> {
     expect_min_max_args("documentation", &args, 1, 2)?;
+    let lisp_directory = obarray
+        .symbol_value("lisp-directory")
+        .and_then(Value::as_str_owned);
 
     // For symbols, Emacs consults the `function-documentation` property first.
     // This can produce docs even when the function cell is non-callable.
@@ -73,7 +91,7 @@ pub(crate) fn builtin_documentation_in_obarray(
             .get_property(&name, "function-documentation")
             .cloned()
         {
-            return eval_documentation_property_value_in_obarray(obarray, prop, &mut eval_value);
+            return documentation_plan_from_property_value(lisp_directory.as_deref(), prop);
         }
 
         let mut func_val = super::builtins::symbols::builtin_symbol_function_in_obarray(
@@ -93,28 +111,25 @@ pub(crate) fn builtin_documentation_in_obarray(
             return Err(signal("void-function", vec![Value::symbol(name)]));
         }
 
-        return function_doc_or_error(func_val);
+        return function_doc_or_error(func_val).map(DocumentationPlan::Final);
     }
 
-    function_doc_or_error(args[0])
+    function_doc_or_error(args[0]).map(DocumentationPlan::Final)
 }
 
 pub(crate) fn builtin_documentation_in_vm_runtime(
-    shared: &super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::VmSharedState<'_>,
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let args_roots = args.clone();
-    let parent_eval = shared.parent_eval_ptr();
-    builtin_documentation_in_obarray(&*shared.obarray, args, |value| {
+    let plan = builtin_documentation_plan_in_obarray(&*shared.obarray, args)?;
+    execute_documentation_plan(plan, |value| {
         let mut extra_roots = args_roots.clone();
         extra_roots.push(value);
-        super::eval::with_parent_evaluator_vm_roots_ptr(
-            parent_eval,
-            vm_gc_roots,
-            &extra_roots,
-            move |eval| eval.eval_value(&value),
-        )
+        shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+            eval.eval_value(&value)
+        })
     })
 }
 
@@ -248,25 +263,25 @@ fn quoted_macro_invalid_designator(function: &Value) -> Option<EvalResult> {
     Some(Err(signal("invalid-function", vec![payload])))
 }
 
-fn eval_documentation_property_value_in_obarray(
-    obarray: &super::symbol::Obarray,
+fn documentation_plan_from_property_value(
+    lisp_directory: Option<&str>,
     value: Value,
-    eval_value: &mut impl FnMut(Value) -> EvalResult,
-) -> EvalResult {
+) -> Result<DocumentationPlan, Flow> {
     if let Some(text) = value.as_str() {
-        return Ok(Value::string(text));
+        return Ok(DocumentationPlan::Final(Value::string(text)));
     }
 
     if let Some((file, position)) = compiled_doc_ref(&value) {
-        return load_compiled_doc_string(obarray, &file, position);
+        return load_compiled_doc_string(lisp_directory, &file, position)
+            .map(DocumentationPlan::Final);
     }
 
     // Integer doc offsets require DOC-file lookup; return nil when unresolved.
     if matches!(value, Value::Int(_)) {
-        return Ok(Value::Nil);
+        return Ok(DocumentationPlan::Final(Value::Nil));
     }
 
-    eval_value(value)
+    Ok(DocumentationPlan::Eval(value))
 }
 
 fn compiled_doc_ref(value: &Value) -> Option<(String, i64)> {
@@ -277,17 +292,14 @@ fn compiled_doc_ref(value: &Value) -> Option<(String, i64)> {
     Some((pair.car.as_str_owned()?, pair.cdr.as_int()?))
 }
 
-fn resolve_compiled_doc_path(obarray: &super::symbol::Obarray, file: &str) -> PathBuf {
+fn resolve_compiled_doc_path(lisp_directory: Option<&str>, file: &str) -> PathBuf {
     let path = Path::new(file);
     if path.is_absolute() {
         return path.to_path_buf();
     }
 
-    let lisp_dir = obarray
-        .symbol_value("lisp-directory")
-        .and_then(Value::as_str_owned);
-    if let Some(dir) = lisp_dir {
-        return Path::new(&dir).join(path);
+    if let Some(dir) = lisp_directory {
+        return Path::new(dir).join(path);
     }
 
     path.to_path_buf()
@@ -355,13 +367,9 @@ fn decode_compiled_doc_bytes(bytes: &[u8]) -> EvalResult {
     Ok(Value::string(super::load::decode_emacs_utf8(&out)))
 }
 
-fn load_compiled_doc_string(
-    obarray: &super::symbol::Obarray,
-    file: &str,
-    position: i64,
-) -> EvalResult {
+fn load_compiled_doc_string(lisp_directory: Option<&str>, file: &str, position: i64) -> EvalResult {
     let position = position.unsigned_abs();
-    let resolved = resolve_compiled_doc_path(obarray, file);
+    let resolved = resolve_compiled_doc_path(lisp_directory, file);
     let mut handle = match File::open(&resolved) {
         Ok(file_handle) => file_handle,
         Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
@@ -10499,17 +10507,18 @@ pub(crate) fn builtin_documentation_property_eval(
 ) -> EvalResult {
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
-    builtin_documentation_property_in_obarray(unsafe { &*obarray }, args, |value| {
-        eval.eval_value(&value)
-    })
+    let plan = builtin_documentation_property_plan_in_obarray(unsafe { &*obarray }, args)?;
+    execute_documentation_plan(plan, |value| eval.eval_value(&value))
 }
 
-pub(crate) fn builtin_documentation_property_in_obarray(
+fn builtin_documentation_property_plan_in_obarray(
     obarray: &super::symbol::Obarray,
     args: Vec<Value>,
-    mut eval_value: impl FnMut(Value) -> EvalResult,
-) -> EvalResult {
+) -> Result<DocumentationPlan, Flow> {
     expect_min_max_args("documentation-property", &args, 2, 3)?;
+    let lisp_directory = obarray
+        .symbol_value("lisp-directory")
+        .and_then(Value::as_str_owned);
 
     let sym = args[0].as_symbol_name().ok_or_else(|| {
         signal(
@@ -10519,7 +10528,7 @@ pub(crate) fn builtin_documentation_property_in_obarray(
     })?;
 
     let Some(prop) = args[1].as_symbol_name() else {
-        return Ok(Value::Nil);
+        return Ok(DocumentationPlan::Final(Value::Nil));
     };
     let raw = args.get(2).is_some_and(Value::is_truthy);
 
@@ -10533,7 +10542,7 @@ pub(crate) fn builtin_documentation_property_in_obarray(
             } else {
                 startup_doc_quote_style_display(&base_doc)
             };
-            Ok(Value::string(doc))
+            Ok(DocumentationPlan::Final(Value::string(doc)))
         }
         Some(value) if startup_variable_doc_string_symbol(sym, prop, &value) => {
             let text = value
@@ -10544,31 +10553,26 @@ pub(crate) fn builtin_documentation_property_in_obarray(
             } else {
                 startup_doc_quote_style_display(text)
             };
-            Ok(Value::string(doc))
+            Ok(DocumentationPlan::Final(Value::string(doc)))
         }
-        Some(value) => {
-            eval_documentation_property_value_in_obarray(obarray, value, &mut eval_value)
-        }
-        _ => Ok(Value::Nil),
+        Some(value) => documentation_plan_from_property_value(lisp_directory.as_deref(), value),
+        _ => Ok(DocumentationPlan::Final(Value::Nil)),
     }
 }
 
 pub(crate) fn builtin_documentation_property_in_vm_runtime(
-    shared: &super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::VmSharedState<'_>,
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let args_roots = args.clone();
-    let parent_eval = shared.parent_eval_ptr();
-    builtin_documentation_property_in_obarray(&*shared.obarray, args, |value| {
+    let plan = builtin_documentation_property_plan_in_obarray(&*shared.obarray, args)?;
+    execute_documentation_plan(plan, |value| {
         let mut extra_roots = args_roots.clone();
         extra_roots.push(value);
-        super::eval::with_parent_evaluator_vm_roots_ptr(
-            parent_eval,
-            vm_gc_roots,
-            &extra_roots,
-            move |eval| eval.eval_value(&value),
-        )
+        shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+            eval.eval_value(&value)
+        })
     })
 }
 
