@@ -859,6 +859,72 @@ fn write_print_output_to_target(
             let _ = buffers.insert_into_buffer(id, text);
             Ok(())
         }
+        other if super::marker::is_marker(&other) => {
+            let Some((Some(buffer_name), _, _)) = super::marker::marker_logical_fields(&other)
+            else {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Marker does not point anywhere")],
+                ));
+            };
+            let Some(buffer_id) = buffers.find_buffer_by_name(&buffer_name) else {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Marker does not point anywhere")],
+                ));
+            };
+            let marker_pos = super::marker::marker_position_as_int_with_buffers(buffers, &other)?;
+            let Some(buffer) = buffers.get(buffer_id) else {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Output buffer no longer exists")],
+                ));
+            };
+            let min_pos = buffer.point_min_char() as i64 + 1;
+            let max_pos = buffer.point_max_char() as i64 + 1;
+            if marker_pos < min_pos || marker_pos > max_pos {
+                return Err(signal(
+                    "error",
+                    vec![Value::string(
+                        "Marker is outside the accessible part of the buffer",
+                    )],
+                ));
+            }
+            let marker_byte = buffer.lisp_pos_to_byte(marker_pos);
+            let saved_current = buffers.current_buffer_id();
+            let saved_point = saved_current.and_then(|id| buffers.get(id).map(|buf| buf.point()));
+
+            buffers.set_current(buffer_id);
+            let _ = buffers.goto_buffer_byte(buffer_id, marker_byte);
+            let _ = buffers.insert_into_buffer(buffer_id, text);
+
+            let new_marker_pos = buffers
+                .get(buffer_id)
+                .map(|buf| buf.point_char() as i64 + 1)
+                .ok_or_else(|| {
+                    signal(
+                        "error",
+                        vec![Value::string("Output buffer no longer exists")],
+                    )
+                })?;
+            let _ = super::marker::builtin_set_marker_in_buffers(
+                buffers,
+                vec![other, Value::Int(new_marker_pos), Value::Buffer(buffer_id)],
+            )?;
+
+            if let Some(saved_id) = saved_current {
+                buffers.set_current(saved_id);
+                if let Some(old_point) = saved_point {
+                    let restore_point = if saved_id == buffer_id && old_point >= marker_byte {
+                        old_point + text.len()
+                    } else {
+                        old_point
+                    };
+                    let _ = buffers.goto_buffer_byte(saved_id, restore_point);
+                }
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -867,7 +933,7 @@ pub(crate) fn print_target_is_direct(target: Value) -> bool {
     matches!(
         target,
         Value::True | Value::Nil | Value::Buffer(_) | Value::Str(_)
-    )
+    ) || super::marker::is_marker(&target)
 }
 
 pub(crate) fn dispatch_print_callback_chars(
@@ -1386,10 +1452,7 @@ pub(crate) fn builtin_terpri_in_state(
 ) -> Result<Option<Value>, Flow> {
     expect_max_args("terpri", &args, 2)?;
     let target = resolve_print_target_in_state(obarray, dynamic, args.first());
-    if matches!(
-        target,
-        Value::True | Value::Nil | Value::Buffer(_) | Value::Str(_)
-    ) {
+    if print_target_is_direct(target) {
         write_print_output_to_target(buffers, target, "\n")?;
         return Ok(Some(Value::True));
     }
@@ -1498,10 +1561,7 @@ pub(crate) fn builtin_write_char_in_state(
     let char_code = expect_fixnum(&args[0])?;
     let target = resolve_print_target_in_state(obarray, dynamic, args.get(1));
 
-    if matches!(
-        target,
-        Value::True | Value::Nil | Value::Buffer(_) | Value::Str(_)
-    ) {
+    if print_target_is_direct(target) {
         if let Some(text) = write_char_rendered_text(char_code) {
             write_print_output_to_target(buffers, target, &text)?;
         }

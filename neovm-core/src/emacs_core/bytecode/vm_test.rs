@@ -2233,6 +2233,36 @@ fn vm_princ_prin1_and_print_callable_targets_stream_gnu_char_callbacks() {
 }
 
 #[test]
+fn vm_marker_print_targets_insert_and_restore_like_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((orig (current-buffer))
+                      (obuf (get-buffer-create "*vm-marker-print*")))
+                 (with-current-buffer obuf
+                   (erase-buffer)
+                   (insert "xy")
+                   (goto-char 2))
+                 (let ((m (with-current-buffer obuf (point-marker))))
+                   (list
+                    (progn
+                      (princ "ab" m)
+                      (with-current-buffer obuf
+                        (list (buffer-string) (point) (marker-position m))))
+                    (progn
+                      (write-char 67 m)
+                      (with-current-buffer obuf
+                        (list (buffer-string) (point) (marker-position m))))
+                    (progn
+                      (terpri m)
+                      (with-current-buffer obuf
+                        (list (buffer-string) (point) (marker-position m))))
+                    (eq (current-buffer) orig))))"#
+        ),
+        "OK ((\"xaby\" 4 4) (\"xabCy\" 5 5) (\"xabC\ny\" 6 6) t)"
+    );
+}
+
+#[test]
 fn vm_case_table_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_str(

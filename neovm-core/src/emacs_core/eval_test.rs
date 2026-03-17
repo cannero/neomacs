@@ -115,6 +115,37 @@ fn callable_print_targets_stream_gnu_char_callbacks() {
 }
 
 #[test]
+fn marker_print_targets_insert_and_restore_like_gnu() {
+    assert_eq!(
+        eval_one(
+            r#"(let* ((orig (current-buffer))
+                      (obuf (get-buffer-create "*vm-marker-print*")))
+                 (with-current-buffer obuf
+                   (erase-buffer)
+                   (insert "xy")
+                   (goto-char 2))
+                 (let ((m (with-current-buffer obuf (point-marker))))
+                   (list
+                    (progn
+                      (princ "ab" m)
+                      (with-current-buffer obuf
+                        (list (buffer-string) (point) (marker-position m))))
+                    (progn
+                      (write-char 67 m)
+                      (with-current-buffer obuf
+                        (list (buffer-string) (point) (marker-position m))))
+                    (progn
+                      (terpri m)
+                      (with-current-buffer obuf
+                        (list (buffer-string) (point) (marker-position m))))
+                    (eq (current-buffer) orig)
+                    (point))))"#
+        ),
+        "OK ((\"xaby\" 4 4) (\"xabCy\" 5 5) (\"xabC\ny\" 6 6) t 1)"
+    );
+}
+
+#[test]
 fn basic_arithmetic() {
     assert_eq!(eval_one("(+ 1 2)"), "OK 3");
     assert_eq!(eval_one("(- 10 3)"), "OK 7");
