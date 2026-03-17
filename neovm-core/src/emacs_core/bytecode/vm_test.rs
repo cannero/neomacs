@@ -2206,6 +2206,33 @@ fn vm_write_char_and_terpri_callable_targets_use_shared_runtime_callback() {
 }
 
 #[test]
+fn vm_princ_prin1_and_print_callable_targets_stream_gnu_char_callbacks() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq vm-print-calls nil)
+                 (fset 'vm-print-target
+                       (lambda (ch)
+                         (setq vm-print-calls (cons ch vm-print-calls))))
+                 (list
+                  (progn
+                    (setq vm-print-calls nil)
+                    (princ "ab" 'vm-print-target)
+                    vm-print-calls)
+                  (progn
+                    (setq vm-print-calls nil)
+                    (prin1 '(1 . 2) 'vm-print-target)
+                    vm-print-calls)
+                  (progn
+                    (setq vm-print-calls nil)
+                    (print 'foo 'vm-print-target)
+                    vm-print-calls)))"#
+        ),
+        "OK ((98 97) (41 50 32 46 32 49 40) (10 111 111 102 10))"
+    );
+}
+
+#[test]
 fn vm_case_table_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_str(

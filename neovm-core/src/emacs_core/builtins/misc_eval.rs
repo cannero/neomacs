@@ -863,6 +863,23 @@ fn write_print_output_to_target(
     }
 }
 
+pub(crate) fn print_target_is_direct(target: Value) -> bool {
+    matches!(
+        target,
+        Value::True | Value::Nil | Value::Buffer(_) | Value::Str(_)
+    )
+}
+
+pub(crate) fn dispatch_print_callback_chars(
+    text: &str,
+    mut emit_char: impl FnMut(Value) -> Result<(), Flow>,
+) -> Result<(), Flow> {
+    for ch in text.chars() {
+        emit_char(Value::Int(ch as i64))?;
+    }
+    Ok(())
+}
+
 fn write_print_output(
     eval: &mut super::eval::Evaluator,
     printcharfun: Option<&Value>,
@@ -1158,14 +1175,33 @@ pub(crate) fn builtin_princ_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_princ_in_state(
+    expect_min_args("princ", &args, 1)?;
+    let target = resolve_print_target(eval, args.get(1));
+    if print_target_is_direct(target) {
+        return builtin_princ_in_state(
+            &eval.obarray,
+            &eval.dynamic,
+            &mut eval.buffers,
+            &eval.frames,
+            &eval.threads,
+            args,
+        );
+    }
+
+    let text = print_value_princ_in_state(
         &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
+        &eval.buffers,
         &eval.frames,
         &eval.threads,
-        args,
-    )
+        &args[0],
+    );
+    let saved_roots = eval.save_temp_roots();
+    eval.push_temp_root(target);
+    let callback_result =
+        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    eval.restore_temp_roots(saved_roots);
+    callback_result?;
+    Ok(args[0])
 }
 
 pub(crate) fn builtin_princ_in_state(
@@ -1186,14 +1222,33 @@ pub(crate) fn builtin_prin1_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_prin1_in_state(
+    expect_min_args("prin1", &args, 1)?;
+    let target = resolve_print_target(eval, args.get(1));
+    if print_target_is_direct(target) {
+        return builtin_prin1_in_state(
+            &eval.obarray,
+            &eval.dynamic,
+            &mut eval.buffers,
+            &eval.frames,
+            &eval.threads,
+            args,
+        );
+    }
+
+    let text = super::error::print_value_in_state(
         &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
+        &eval.buffers,
         &eval.frames,
         &eval.threads,
-        args,
-    )
+        &args[0],
+    );
+    let saved_roots = eval.save_temp_roots();
+    eval.push_temp_root(target);
+    let callback_result =
+        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    eval.restore_temp_roots(saved_roots);
+    callback_result?;
+    Ok(args[0])
 }
 
 pub(crate) fn builtin_prin1_in_state(
@@ -1257,14 +1312,36 @@ pub(crate) fn builtin_print_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_print_in_state(
+    expect_min_args("print", &args, 1)?;
+    let target = resolve_print_target(eval, args.get(1));
+    if print_target_is_direct(target) {
+        return builtin_print_in_state(
+            &eval.obarray,
+            &eval.dynamic,
+            &mut eval.buffers,
+            &eval.frames,
+            &eval.threads,
+            args,
+        );
+    }
+
+    let mut text = String::new();
+    text.push('\n');
+    text.push_str(&super::error::print_value_in_state(
         &eval.obarray,
-        &eval.dynamic,
-        &mut eval.buffers,
+        &eval.buffers,
         &eval.frames,
         &eval.threads,
-        args,
-    )
+        &args[0],
+    ));
+    text.push('\n');
+    let saved_roots = eval.save_temp_roots();
+    eval.push_temp_root(target);
+    let callback_result =
+        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    eval.restore_temp_roots(saved_roots);
+    callback_result?;
+    Ok(args[0])
 }
 
 pub(crate) fn builtin_print_in_state(

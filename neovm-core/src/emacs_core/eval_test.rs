@@ -88,6 +88,33 @@ fn evaluator_drop_clears_owned_thread_locals() {
 }
 
 #[test]
+fn callable_print_targets_stream_gnu_char_callbacks() {
+    assert_eq!(
+        eval_one(
+            r#"(progn
+                 (setq vm-print-calls nil)
+                 (fset 'vm-print-target
+                       (lambda (ch)
+                         (setq vm-print-calls (cons ch vm-print-calls))))
+                 (list
+                  (progn
+                    (setq vm-print-calls nil)
+                    (princ "ab" 'vm-print-target)
+                    vm-print-calls)
+                  (progn
+                    (setq vm-print-calls nil)
+                    (prin1 '(1 . 2) 'vm-print-target)
+                    vm-print-calls)
+                  (progn
+                    (setq vm-print-calls nil)
+                    (print 'foo 'vm-print-target)
+                    vm-print-calls)))"#
+        ),
+        "OK ((98 97) (41 50 32 46 32 49 40) (10 111 111 102 10))"
+    );
+}
+
+#[test]
 fn basic_arithmetic() {
     assert_eq!(eval_one("(+ 1 2)"), "OK 3");
     assert_eq!(eval_one("(- 10 3)"), "OK 7");
