@@ -194,6 +194,8 @@ pub struct WindowParams {
     pub cursor_type: u8,
     /// Cursor bar width (for bar cursor)
     pub cursor_bar_width: i32,
+    /// Cursor color in sRGB pixel format.
+    pub cursor_color: u32,
 
     /// Fringe widths in pixels
     pub left_fringe_width: f32,
@@ -651,6 +653,7 @@ mod tests {
             tab_line_height: 0.0,
             cursor_type: 0,
             cursor_bar_width: 2,
+            cursor_color: 0x00000000,
             left_fringe_width: 8.0,
             right_fringe_width: 8.0,
             indicate_empty_lines: 0,
@@ -714,6 +717,7 @@ mod tests {
             tab_line_height: 0.0,
             cursor_type: 0,
             cursor_bar_width: 2,
+            cursor_color: 0x00000000,
             left_fringe_width: 0.0,
             right_fringe_width: 0.0,
             indicate_empty_lines: 0,
@@ -769,6 +773,7 @@ mod tests {
             tab_line_height: 20.0,
             cursor_type: 1,
             cursor_bar_width: 3,
+            cursor_color: 0x00000000,
             left_fringe_width: 10.0,
             right_fringe_width: 10.0,
             indicate_empty_lines: 1,

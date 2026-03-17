@@ -111,6 +111,150 @@ pub(crate) fn buffer_selective_display(buffer: &Buffer) -> i32 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CursorSpec {
+    cursor_type: u8,
+    bar_width: i32,
+}
+
+fn parse_color_pixel(value: &Value) -> Option<u32> {
+    value
+        .as_str_owned()
+        .or_else(|| value.as_symbol_name().map(str::to_string))
+        .and_then(|spec| NeoColor::parse(&spec))
+        .map(|color| color_to_pixel(&color))
+}
+
+fn parse_cursor_spec(value: &Value) -> Option<CursorSpec> {
+    if value.is_nil() {
+        return None;
+    }
+
+    if *value == Value::True || value.is_symbol_named("box") {
+        return Some(CursorSpec {
+            cursor_type: 0,
+            bar_width: 1,
+        });
+    }
+    if value.is_symbol_named("hollow") {
+        return Some(CursorSpec {
+            cursor_type: 3,
+            bar_width: 1,
+        });
+    }
+    if value.is_symbol_named("bar") {
+        return Some(CursorSpec {
+            cursor_type: 1,
+            bar_width: 2,
+        });
+    }
+    if value.is_symbol_named("hbar") {
+        return Some(CursorSpec {
+            cursor_type: 2,
+            bar_width: 2,
+        });
+    }
+    if matches!(value, Value::Cons(_)) {
+        let car = value.cons_car();
+        let cdr = value.cons_cdr();
+        let bar_width = cdr.as_int().unwrap_or(1).max(0) as i32;
+        if car.is_symbol_named("box") {
+            return Some(CursorSpec {
+                cursor_type: 0,
+                bar_width,
+            });
+        }
+        if car.is_symbol_named("bar") {
+            return Some(CursorSpec {
+                cursor_type: 1,
+                bar_width,
+            });
+        }
+        if car.is_symbol_named("hbar") {
+            return Some(CursorSpec {
+                cursor_type: 2,
+                bar_width,
+            });
+        }
+    }
+
+    Some(CursorSpec {
+        cursor_type: 3,
+        bar_width: 1,
+    })
+}
+
+fn frame_cursor_spec(frame: &Frame) -> CursorSpec {
+    frame
+        .parameters
+        .get("cursor-type")
+        .and_then(parse_cursor_spec)
+        .unwrap_or(CursorSpec {
+            cursor_type: 0,
+            bar_width: 1,
+        })
+}
+
+fn default_cursor_color_pixel(face_table: &FaceTable) -> u32 {
+    face_table
+        .resolve("cursor")
+        .background
+        .or_else(|| face_table.resolve("default").foreground)
+        .map(|color| color_to_pixel(&color))
+        .unwrap_or(0x000000)
+}
+
+fn frame_cursor_color_pixel(frame: &Frame, face_table: &FaceTable) -> u32 {
+    frame
+        .parameters
+        .get("cursor-color")
+        .and_then(parse_color_pixel)
+        .unwrap_or_else(|| default_cursor_color_pixel(face_table))
+}
+
+fn effective_cursor_spec(
+    frame: &Frame,
+    buffer: &Buffer,
+    is_selected: bool,
+    is_minibuffer: bool,
+    window_cursor_type: Value,
+) -> Option<CursorSpec> {
+    let base = if window_cursor_type != Value::True {
+        parse_cursor_spec(&window_cursor_type)
+    } else if let Some(buffer_cursor_type) = buffer_local_value(buffer, "cursor-type") {
+        if *buffer_cursor_type == Value::True {
+            Some(frame_cursor_spec(frame))
+        } else {
+            parse_cursor_spec(buffer_cursor_type)
+        }
+    } else {
+        Some(frame_cursor_spec(frame))
+    }?;
+
+    if is_selected {
+        return Some(base);
+    }
+
+    if is_minibuffer {
+        return None;
+    }
+
+    let alt_cursor = buffer_local_value(buffer, "cursor-in-non-selected-windows");
+    if let Some(value) = alt_cursor
+        && *value != Value::True
+    {
+        return parse_cursor_spec(value);
+    }
+
+    let mut adjusted = base;
+    match adjusted.cursor_type {
+        0 => adjusted.cursor_type = 3,
+        1 | 2 if adjusted.bar_width > 1 => adjusted.bar_width -= 1,
+        _ => {}
+    }
+    Some(adjusted)
+}
+
 /// Build `WindowParams` from neovm-core window + buffer + frame data.
 ///
 /// `is_selected` indicates whether this window is the frame's selected window.
@@ -121,8 +265,10 @@ pub fn window_params_from_neovm(
     window: &Window,
     buffer: &Buffer,
     frame: &Frame,
+    face_table: &FaceTable,
     is_selected: bool,
     is_minibuffer: bool,
+    window_cursor_type: Value,
 ) -> Option<WindowParams> {
     // Only leaf windows can be laid out.
     let (win_id, _buf_id, bounds, window_start, _point, hscroll, margins, fringes) = match window {
@@ -151,6 +297,15 @@ pub fn window_params_from_neovm(
 
     let char_width = frame.char_width;
     let char_height = frame.char_height;
+    let default_face = face_table.resolve("default");
+    let default_fg = default_face
+        .foreground
+        .map(|color| color_to_pixel(&color))
+        .unwrap_or(0x000000);
+    let default_bg = default_face
+        .background
+        .map(|color| color_to_pixel(&color))
+        .unwrap_or(0x00FFFFFF);
 
     // Convert neovm-core Rect to display Rect (same fields, different types).
     let display_bounds = Rect::new(bounds.x, bounds.y, bounds.width, bounds.height);
@@ -173,12 +328,20 @@ pub fn window_params_from_neovm(
     // Mode-line: non-minibuffer windows get one line of mode-line.
     let mode_line_height = if is_minibuffer { 0.0 } else { char_height };
 
-    // Match Emacs echo-area/minibuffer behavior conservatively for this path:
-    // hide cursor in non-selected minibuffer windows.
-    let mini_nonselected_no_cursor = is_minibuffer && !is_selected;
-    let cursor_type = if mini_nonselected_no_cursor { 4 } else { 0 };
     let cursor_in_non_selected =
         buffer_local_bool_default(buffer, "cursor-in-non-selected-windows", true);
+    let cursor_spec = effective_cursor_spec(
+        frame,
+        buffer,
+        is_selected,
+        is_minibuffer,
+        window_cursor_type,
+    )
+    .unwrap_or(CursorSpec {
+        cursor_type: 4,
+        bar_width: 1,
+    });
+    let cursor_color = frame_cursor_color_pixel(frame, face_table);
 
     // Header-line: show if header-line-format is non-nil
     let header_line_height = if buffer_local_bool(buffer, "header-line-format") {
@@ -201,7 +364,9 @@ pub fn window_params_from_neovm(
         text_bounds,
         selected: is_selected,
         is_minibuffer,
-        window_start: window_start as i64,
+        // Window::window_start tracks GNU marker positions (1-based).
+        // Normalize to the layout engine's internal 0-based char positions.
+        window_start: window_start.saturating_sub(1) as i64,
         window_end: 0, // filled after layout
         // Use buffer.pt (authoritative point) rather than the Window's
         // cached copy, which may be stale after self-insert-command etc.
@@ -217,8 +382,8 @@ pub fn window_params_from_neovm(
             .iter()
             .filter_map(|v| v.as_int().map(|n| n as i32))
             .collect(),
-        default_fg: 0x00000000, // black text (default face foreground)
-        default_bg: 0x00FFFFFF, // white background (default face background)
+        default_fg,
+        default_bg,
         char_width,
         char_height,
         font_pixel_size: frame.font_pixel_size,
@@ -228,8 +393,9 @@ pub fn window_params_from_neovm(
         mode_line_height,
         header_line_height,
         tab_line_height,
-        cursor_type,
-        cursor_bar_width: 2,
+        cursor_type: cursor_spec.cursor_type,
+        cursor_bar_width: cursor_spec.bar_width,
+        cursor_color,
         left_fringe_width: left_fringe,
         right_fringe_width: right_fringe,
         indicate_empty_lines: 0,
@@ -284,7 +450,25 @@ pub fn collect_layout_params(
             continue;
         };
         let is_selected = frame.selected_window == *win_id;
-        if let Some(wp) = window_params_from_neovm(window, buffer, frame, is_selected, false) {
+        let window_cursor_type = evaluator.frame_manager().window_cursor_type(*win_id);
+        if let Some(wp) = window_params_from_neovm(
+            window,
+            buffer,
+            frame,
+            evaluator.face_table(),
+            is_selected,
+            false,
+            window_cursor_type,
+        ) {
+            tracing::debug!(
+                "layout window cursor: win={} selected={} minibuffer=false type={} width={} color=#{:06x} window-cursor-type={:?}",
+                wp.window_id,
+                wp.selected,
+                wp.cursor_type,
+                wp.cursor_bar_width,
+                wp.cursor_color,
+                window_cursor_type,
+            );
             window_params.push(wp);
         }
     }
@@ -295,8 +479,25 @@ pub fn collect_layout_params(
         let buffer = buf_id.and_then(|id| evaluator.buffer_manager().get(id));
         if let Some(buffer) = buffer {
             let is_selected = frame.selected_window == mini_leaf.id();
-            if let Some(wp) = window_params_from_neovm(mini_leaf, buffer, frame, is_selected, true)
-            {
+            let window_cursor_type = evaluator.frame_manager().window_cursor_type(mini_leaf.id());
+            if let Some(wp) = window_params_from_neovm(
+                mini_leaf,
+                buffer,
+                frame,
+                evaluator.face_table(),
+                is_selected,
+                true,
+                window_cursor_type,
+            ) {
+                tracing::debug!(
+                    "layout window cursor: win={} selected={} minibuffer=true type={} width={} color=#{:06x} window-cursor-type={:?}",
+                    wp.window_id,
+                    wp.selected,
+                    wp.cursor_type,
+                    wp.cursor_bar_width,
+                    wp.cursor_color,
+                    window_cursor_type,
+                );
                 window_params.push(wp);
             }
         }
@@ -320,12 +521,24 @@ impl<'a> RustBufferAccess<'a> {
         Self { buffer }
     }
 
-    /// Convert a character position to a byte position.
+    /// Convert an internal neovm buffer character position to a byte position.
     ///
-    /// `WindowParams` and layout use Lisp character positions, which are
-    /// 1-based. `GapBuffer::char_to_byte()` expects a 0-based character index.
+    /// `WindowParams` used by the pure-Rust layout path carry neovm-core's
+    /// internal character positions, which are 0-based and use an exclusive
+    /// end (`zv_char` / `buffer_size`).
     pub fn charpos_to_bytepos(&self, charpos: i64) -> i64 {
         if charpos <= 0 {
+            return 0;
+        }
+        self.buffer.text.char_to_byte(charpos as usize) as i64
+    }
+
+    /// Convert a GNU Lisp-visible buffer position to a byte position.
+    ///
+    /// GNU Lisp positions are 1-based, so this is only appropriate for
+    /// values coming from Lisp APIs such as `minibuffer-prompt-end`.
+    pub fn lisp_charpos_to_bytepos(&self, charpos: i64) -> i64 {
+        if charpos <= 1 {
             return 0;
         }
         self.buffer.text.char_to_byte((charpos - 1) as usize) as i64
@@ -1121,8 +1334,76 @@ mod tests {
         let buf = evaluator.buffer_manager().get(buf_id).unwrap();
         let frame = evaluator.frame_manager().get(frame_id).unwrap();
 
-        let result = window_params_from_neovm(&internal, &buf, frame, false, false);
+        let result = window_params_from_neovm(
+            &internal,
+            &buf,
+            frame,
+            evaluator.face_table(),
+            false,
+            false,
+            Value::True,
+        );
         assert!(result.is_none(), "Internal windows should return None");
+    }
+
+    #[test]
+    fn test_effective_cursor_spec_prefers_window_cursor_type() {
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator.buffer_manager_mut().create_buffer("*cursor*");
+        let frame_id = evaluator
+            .frame_manager_mut()
+            .create_frame("test", 800, 600, buf_id);
+        let frame = evaluator.frame_manager().get(frame_id).unwrap();
+        let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
+
+        let spec = effective_cursor_spec(
+            frame,
+            buffer,
+            true,
+            false,
+            Value::cons(Value::symbol("bar"), Value::Int(5)),
+        )
+        .unwrap();
+
+        assert_eq!(spec.cursor_type, 1);
+        assert_eq!(spec.bar_width, 5);
+    }
+
+    #[test]
+    fn test_effective_cursor_spec_nonselected_box_becomes_hollow() {
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator.buffer_manager_mut().create_buffer("*cursor*");
+        let frame_id = evaluator
+            .frame_manager_mut()
+            .create_frame("test", 800, 600, buf_id);
+        let frame = evaluator.frame_manager().get(frame_id).unwrap();
+        let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
+
+        let spec = effective_cursor_spec(frame, buffer, false, false, Value::True).unwrap();
+
+        assert_eq!(spec.cursor_type, 3);
+    }
+
+    #[test]
+    fn test_frame_cursor_color_uses_cursor_face_background() {
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator
+            .buffer_manager_mut()
+            .create_buffer("*cursor-color*");
+        let frame_id = evaluator
+            .frame_manager_mut()
+            .create_frame("test", 800, 600, buf_id);
+        let frame = evaluator.frame_manager().get(frame_id).unwrap();
+
+        let cursor_color = frame_cursor_color_pixel(frame, evaluator.face_table());
+        let expected = evaluator
+            .face_table()
+            .resolve("cursor")
+            .background
+            .map(|color| color_to_pixel(&color))
+            .unwrap();
+
+        assert_eq!(cursor_color, expected);
     }
 
     #[test]
@@ -1239,10 +1520,31 @@ mod tests {
         let access = RustBufferAccess::new(buf);
 
         assert_eq!(access.charpos_to_bytepos(0), 0);
-        assert_eq!(access.charpos_to_bytepos(1), 0);
-        assert_eq!(access.charpos_to_bytepos(2), 1);
-        assert_eq!(access.charpos_to_bytepos(3), 2);
+        assert_eq!(access.charpos_to_bytepos(1), 1);
+        assert_eq!(access.charpos_to_bytepos(2), 2);
+        assert_eq!(access.charpos_to_bytepos(3), 3);
         assert_eq!(access.charpos_to_bytepos(4), 3);
+    }
+
+    #[test]
+    fn test_rust_buffer_access_lisp_charpos_to_bytepos() {
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator
+            .buffer_manager_mut()
+            .create_buffer("*test-lisp-pos*");
+        if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+            buf.text.insert_str(0, "abc");
+            buf.zv = buf.text.len();
+        }
+
+        let buf = evaluator.buffer_manager().get(buf_id).unwrap();
+        let access = RustBufferAccess::new(buf);
+
+        assert_eq!(access.lisp_charpos_to_bytepos(0), 0);
+        assert_eq!(access.lisp_charpos_to_bytepos(1), 0);
+        assert_eq!(access.lisp_charpos_to_bytepos(2), 1);
+        assert_eq!(access.lisp_charpos_to_bytepos(3), 2);
+        assert_eq!(access.lisp_charpos_to_bytepos(4), 3);
     }
 
     #[test]

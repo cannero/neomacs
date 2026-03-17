@@ -1047,6 +1047,7 @@ impl LayoutEngine {
                 tab_line_height: wp.tab_line_height,
                 cursor_type: wp.cursor_type,
                 cursor_bar_width: wp.cursor_bar_width,
+                cursor_color: wp.default_fg,
                 left_fringe_width: wp.left_fringe_width,
                 right_fringe_width: wp.right_fringe_width,
                 indicate_empty_lines: wp.indicate_empty_lines,
@@ -3318,8 +3319,21 @@ impl LayoutEngine {
         flush_run(&self.run_buf, frame_glyphs, ligatures);
         self.run_buf.clear();
 
-        // Capture cursor at end-of-buffer position
-        if cursor_info.is_none() && charpos == params.point {
+        let point_is_visible_eob =
+            params.point == params.buffer_size + 1 && charpos == params.buffer_size;
+
+        // Capture cursor at end-of-buffer position.
+        // GNU Emacs shows point at point-max+1 as a real cursor location.
+        if cursor_info.is_none() && (charpos == params.point || point_is_visible_eob) {
+            if point_is_visible_eob {
+                tracing::debug!(
+                    "layout_window_rust: capturing EOB cursor at x={:.1} y={:.1} point={} point-max={}",
+                    x,
+                    y,
+                    params.point,
+                    params.buffer_size
+                );
+            }
             cursor_info = Some((
                 x,
                 y,
@@ -3553,7 +3567,7 @@ impl LayoutEngine {
         // Use cursor_info captured during the main layout loop when available
         // (provides correct per-face metrics for variable-height faces).
         // Falls back to a re-scan with default face metrics otherwise.
-        if params.point >= window_start && params.point <= charpos {
+        if params.point >= window_start && (params.point <= charpos || point_is_visible_eob) {
             let cursor_style = cursor_style_for_window(params);
 
             if let Some((
@@ -3588,6 +3602,16 @@ impl LayoutEngine {
                             style,
                             cursor_fg,
                         );
+
+                        if point_is_visible_eob {
+                            tracing::debug!(
+                                "layout_window_rust: emitting EOB cursor at x={:.1} y={:.1} w={:.1} h={:.1}",
+                                cx,
+                                cy,
+                                cursor_w,
+                                cursor_face_h
+                            );
+                        }
 
                         // For FilledBox cursor, use the renderer's cursor_inverse system
                         // to swap fg/bg of the character under the cursor.
@@ -3808,14 +3832,19 @@ impl LayoutEngine {
                             cursor_w,
                             char_h,
                             style,
-                            default_fg,
+                            Color::from_pixel(params.cursor_color),
                         );
 
                         // For FilledBox cursor, use the renderer's cursor_inverse system
                         // to swap fg/bg of the character under the cursor.
                         if matches!(style, CursorStyle::FilledBox) {
                             frame_glyphs.set_cursor_inverse(
-                                cx, cy, cursor_w, char_h, default_fg, default_bg,
+                                cx,
+                                cy,
+                                cursor_w,
+                                char_h,
+                                Color::from_pixel(params.cursor_color),
+                                default_bg,
                             );
                         }
                     }
@@ -4908,12 +4937,17 @@ impl LayoutEngine {
                         cursor_w,
                         face_h,
                         style,
-                        face_fg,
+                        Color::from_pixel(params.cursor_color),
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
-                            cursor_px, cursor_y, cursor_w, face_h, face_fg, face_bg,
+                            cursor_px,
+                            cursor_y,
+                            cursor_w,
+                            face_h,
+                            Color::from_pixel(params.cursor_color),
+                            default_bg,
                         );
                     }
                 }
@@ -7656,12 +7690,17 @@ impl LayoutEngine {
                         cursor_w,
                         face_h,
                         style,
-                        face_fg,
+                        Color::from_pixel(params.cursor_color),
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
-                            cursor_px, cursor_y, cursor_w, face_h, face_fg, face_bg,
+                            cursor_px,
+                            cursor_y,
+                            cursor_w,
+                            face_h,
+                            Color::from_pixel(params.cursor_color),
+                            default_bg,
                         );
                     }
                 }
@@ -7886,12 +7925,17 @@ impl LayoutEngine {
                         cursor_w,
                         face_h,
                         style,
-                        face_fg,
+                        Color::from_pixel(params.cursor_color),
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
-                            cursor_px, cursor_y, cursor_w, face_h, face_fg, face_bg,
+                            cursor_px,
+                            cursor_y,
+                            cursor_w,
+                            face_h,
+                            Color::from_pixel(params.cursor_color),
+                            default_bg,
                         );
                     }
                 }
@@ -8351,12 +8395,17 @@ impl LayoutEngine {
                         cursor_w,
                         face_h,
                         style,
-                        face_fg,
+                        Color::from_pixel(params.cursor_color),
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
-                            cursor_px, cursor_y, cursor_w, face_h, face_fg, face_bg,
+                            cursor_px,
+                            cursor_y,
+                            cursor_w,
+                            face_h,
+                            Color::from_pixel(params.cursor_color),
+                            default_bg,
                         );
                     }
                 }
@@ -8837,6 +8886,7 @@ mod tests {
             tab_line_height: 0.0,
             cursor_type: 0,
             cursor_bar_width: 2,
+            cursor_color: 0xFFFFFF,
             left_fringe_width: 0.0,
             right_fringe_width: 0.0,
             indicate_empty_lines: 0,
