@@ -2128,6 +2128,50 @@ fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
+fn vm_completion_builtins_use_shared_runtime_callbacks() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (defun neo-vm-completion-target () nil)
+                 (let ((items '("alpha" "alps" "beta"))
+                       (pred (lambda (candidate)
+                               (not (equal candidate "beta")))))
+                   (let ((collection
+                          (lambda (string predicate action)
+                            (cond
+                             ((eq action nil)
+                              (try-completion string items predicate))
+                             ((eq action t)
+                              (all-completions string items predicate))
+                             ((eq action 'lambda)
+                              (test-completion string items predicate))
+                             (t nil)))))
+                     (list
+                      (try-completion
+                       "neo-vm-completion-target"
+                       obarray
+                       (lambda (sym) (eq sym 'neo-vm-completion-target)))
+                     (not
+                       (null
+                        (member "neo-vm-completion-target"
+                                (all-completions
+                                 "neo-vm"
+                                 obarray
+                                 (lambda (sym)
+                                   (eq sym 'neo-vm-completion-target))))))
+                      (try-completion "al" collection pred)))))"#,
+            |eval| {
+                let obarray_proxy = Value::vector(vec![Value::Nil]);
+                eval.obarray.set_symbol_value("obarray", obarray_proxy);
+                eval.obarray
+                    .set_symbol_value("neovm--obarray-object", obarray_proxy);
+            }
+        ),
+        r#"OK (t t "alp")"#
+    );
+}
+
+#[test]
 fn vm_time_builtins_use_direct_timefns_dispatch() {
     assert_eq!(
         vm_eval_str(

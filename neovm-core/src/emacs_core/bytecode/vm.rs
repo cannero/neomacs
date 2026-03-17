@@ -7191,19 +7191,29 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_try_completion_shared(&mut self, args: &[Value]) -> EvalResult {
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::minibuffer::builtin_try_completion_eval(eval, call_args)
-        })
+        let candidates =
+            crate::emacs_core::minibuffer::completion_candidates_from_collection_in_state(
+                &*self.shared.obarray,
+                &args[1],
+            )?;
+        crate::emacs_core::minibuffer::builtin_try_completion_with_candidates(
+            args,
+            candidates,
+            |function, call_args| self.call_function_with_roots(function, &call_args),
+        )
     }
 
     fn builtin_all_completions_shared(&mut self, args: &[Value]) -> EvalResult {
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::minibuffer::builtin_all_completions_eval(eval, call_args)
-        })
+        let candidates =
+            crate::emacs_core::minibuffer::completion_candidates_from_collection_in_state(
+                &*self.shared.obarray,
+                &args[1],
+            )?;
+        crate::emacs_core::minibuffer::builtin_all_completions_with_candidates(
+            args,
+            candidates,
+            |function, call_args| self.call_function_with_roots(function, &call_args),
+        )
     }
 
     fn builtin_file_name_completion_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -7265,11 +7275,16 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_test_completion_shared(&mut self, args: &[Value]) -> EvalResult {
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::minibuffer::builtin_test_completion_eval(eval, call_args)
-        })
+        let candidates =
+            crate::emacs_core::minibuffer::completion_candidates_from_collection_in_state(
+                &*self.shared.obarray,
+                &args[1],
+            )?;
+        crate::emacs_core::minibuffer::builtin_test_completion_with_candidates(
+            args,
+            candidates,
+            |function, call_args| self.call_function_with_roots(function, &call_args),
+        )
     }
 
     fn builtin_input_pending_p_shared(&mut self, args: &[Value]) -> EvalResult {

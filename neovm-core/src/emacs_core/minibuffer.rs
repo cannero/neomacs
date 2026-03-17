@@ -14,6 +14,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::hashtab::hash_key_to_visible_value;
 use super::intern::resolve_sym;
 use super::reader::KeyboardInputRuntime;
+use super::symbol::Obarray;
 use super::value::{Value, read_cons, with_heap};
 
 // ---------------------------------------------------------------------------
@@ -1353,7 +1354,7 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
 }
 
 #[derive(Clone)]
-struct CompletionCandidate {
+pub(crate) struct CompletionCandidate {
     completion: String,
     predicate_arg: Value,
     predicate_extra_arg: Option<Value>,
@@ -1407,11 +1408,16 @@ fn completion_candidates_from_vector_value(collection: &Value) -> Vec<Completion
         .collect()
 }
 
-fn completion_candidates_from_global_obarray(
-    eval: &super::eval::Evaluator,
+fn is_global_obarray_proxy_in_state(obarray: &Obarray, value: &Value) -> bool {
+    obarray
+        .symbol_value("obarray")
+        .is_some_and(|proxy| *proxy == *value)
+}
+
+fn completion_candidates_from_global_obarray_in_state(
+    obarray: &Obarray,
 ) -> Vec<CompletionCandidate> {
-    let mut names: Vec<String> = eval
-        .obarray()
+    let mut names: Vec<String> = obarray
         .all_symbols()
         .into_iter()
         .map(|name| name.to_owned())
@@ -1426,6 +1432,139 @@ fn completion_candidates_from_global_obarray(
             predicate_extra_arg: None,
         })
         .collect()
+}
+
+pub(crate) fn completion_candidates_from_collection_in_state(
+    obarray: &Obarray,
+    collection: &Value,
+) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
+    Ok(match collection {
+        Value::Nil | Value::Cons(_) => Some(completion_candidates_from_list_value(collection)),
+        Value::HashTable(table_id) => Some(completion_candidates_from_hash_table(*table_id)),
+        Value::Vector(_) if is_global_obarray_proxy_in_state(obarray, collection) => {
+            Some(completion_candidates_from_global_obarray_in_state(obarray))
+        }
+        Value::Vector(vec_id) => {
+            super::builtins::symbols::expect_obarray_vector_id(collection)?;
+            Some(completion_candidates_from_custom_obarray(*vec_id))
+        }
+        _ => None,
+    })
+}
+
+fn completion_candidates_from_collection(
+    eval: &super::eval::Evaluator,
+    collection: &Value,
+) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
+    completion_candidates_from_collection_in_state(eval.obarray(), collection)
+}
+
+fn completion_predicate_matches_with(
+    predicate: Value,
+    candidate: &CompletionCandidate,
+    mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
+) -> Result<bool, Flow> {
+    if predicate.is_nil() {
+        return Ok(true);
+    }
+    let result = match candidate.predicate_extra_arg {
+        Some(extra) => apply(predicate, vec![candidate.predicate_arg, extra])?,
+        None => apply(predicate, vec![candidate.predicate_arg])?,
+    };
+    Ok(result.is_truthy())
+}
+
+pub(crate) fn builtin_try_completion_with_candidates(
+    args: &[Value],
+    candidates: Option<Vec<CompletionCandidate>>,
+    mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
+) -> EvalResult {
+    expect_min_args("try-completion", args, 2)?;
+    expect_max_args("try-completion", args, 3)?;
+    let string = expect_string(&args[0])?;
+    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let collection = args[1];
+
+    let Some(candidates) = candidates else {
+        return apply(collection, vec![args[0], predicate, Value::Nil]);
+    };
+
+    let mut matches = Vec::new();
+    for candidate in &candidates {
+        if !completion_matches_prefix(&string, &candidate.completion) {
+            continue;
+        }
+        if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
+            matches.push(candidate.completion.clone());
+        }
+    }
+
+    if matches.is_empty() {
+        return Ok(Value::Nil);
+    }
+    if matches.len() == 1 && matches[0] == string {
+        return Ok(Value::True);
+    }
+    match compute_common_prefix(&matches) {
+        Some(prefix) => Ok(Value::string(prefix)),
+        None => Ok(Value::Nil),
+    }
+}
+
+pub(crate) fn builtin_all_completions_with_candidates(
+    args: &[Value],
+    candidates: Option<Vec<CompletionCandidate>>,
+    mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
+) -> EvalResult {
+    expect_min_args("all-completions", args, 2)?;
+    expect_max_args("all-completions", args, 4)?;
+    let string = expect_string(&args[0])?;
+    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let collection = args[1];
+
+    let Some(candidates) = candidates else {
+        return apply(collection, vec![args[0], predicate, Value::True]);
+    };
+
+    let mut matches = Vec::new();
+    for candidate in &candidates {
+        if !completion_matches_prefix(&string, &candidate.completion) {
+            continue;
+        }
+        if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
+            matches.push(Value::string(candidate.completion.clone()));
+        }
+    }
+    Ok(Value::list(matches))
+}
+
+pub(crate) fn builtin_test_completion_with_candidates(
+    args: &[Value],
+    candidates: Option<Vec<CompletionCandidate>>,
+    mut apply: impl FnMut(Value, Vec<Value>) -> EvalResult,
+) -> EvalResult {
+    expect_min_args("test-completion", args, 2)?;
+    expect_max_args("test-completion", args, 3)?;
+    let string = expect_string(&args[0])?;
+    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let collection = args[1];
+
+    let Some(candidates) = candidates else {
+        return apply(
+            collection,
+            vec![args[0], predicate, Value::symbol("lambda")],
+        );
+    };
+
+    for candidate in &candidates {
+        if candidate.completion != string {
+            continue;
+        }
+        if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
+            return Ok(Value::True);
+        }
+    }
+    Ok(Value::Nil)
 }
 
 fn completion_candidates_from_custom_obarray(vec_id: crate::gc::ObjId) -> Vec<CompletionCandidate> {
@@ -1473,39 +1612,6 @@ fn completion_candidates_from_hash_table(table_id: crate::gc::ObjId) -> Vec<Comp
     candidates
 }
 
-fn completion_candidates_from_collection(
-    eval: &super::eval::Evaluator,
-    collection: &Value,
-) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
-    Ok(match collection {
-        Value::Nil | Value::Cons(_) => Some(completion_candidates_from_list_value(collection)),
-        Value::HashTable(table_id) => Some(completion_candidates_from_hash_table(*table_id)),
-        Value::Vector(_) if super::builtins::symbols::is_global_obarray_proxy(eval, collection) => {
-            Some(completion_candidates_from_global_obarray(eval))
-        }
-        Value::Vector(vec_id) => {
-            super::builtins::symbols::expect_obarray_vector_id(collection)?;
-            Some(completion_candidates_from_custom_obarray(*vec_id))
-        }
-        _ => None,
-    })
-}
-
-fn completion_predicate_matches(
-    eval: &mut super::eval::Evaluator,
-    predicate: Value,
-    candidate: &CompletionCandidate,
-) -> Result<bool, Flow> {
-    if predicate.is_nil() {
-        return Ok(true);
-    }
-    let result = match candidate.predicate_extra_arg {
-        Some(extra) => eval.apply(predicate, vec![candidate.predicate_arg, extra])?,
-        None => eval.apply(predicate, vec![candidate.predicate_arg])?,
-    };
-    Ok(result.is_truthy())
-}
-
 fn completion_matches_prefix(prefix: &str, completion: &str) -> bool {
     completion.starts_with(prefix)
 }
@@ -1514,90 +1620,30 @@ pub(crate) fn builtin_try_completion_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("try-completion", &args, 2)?;
-    expect_max_args("try-completion", &args, 3)?;
-    let string = expect_string(&args[0])?;
-    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
-    let collection = args[1];
-
-    let Some(candidates) = completion_candidates_from_collection(eval, &collection)? else {
-        return eval.apply(collection, vec![args[0], predicate, Value::Nil]);
-    };
-
-    let mut matches = Vec::new();
-    for candidate in &candidates {
-        if !completion_matches_prefix(&string, &candidate.completion) {
-            continue;
-        }
-        if completion_predicate_matches(eval, predicate, candidate)? {
-            matches.push(candidate.completion.clone());
-        }
-    }
-
-    if matches.is_empty() {
-        return Ok(Value::Nil);
-    }
-    if matches.len() == 1 && matches[0] == string {
-        return Ok(Value::True);
-    }
-    match compute_common_prefix(&matches) {
-        Some(prefix) => Ok(Value::string(prefix)),
-        None => Ok(Value::Nil),
-    }
+    let candidates = completion_candidates_from_collection(eval, &args[1])?;
+    builtin_try_completion_with_candidates(&args, candidates, |function, call_args| {
+        eval.apply(function, call_args)
+    })
 }
 
 pub(crate) fn builtin_all_completions_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("all-completions", &args, 2)?;
-    expect_max_args("all-completions", &args, 4)?;
-    let string = expect_string(&args[0])?;
-    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
-    let collection = args[1];
-
-    let Some(candidates) = completion_candidates_from_collection(eval, &collection)? else {
-        return eval.apply(collection, vec![args[0], predicate, Value::True]);
-    };
-
-    let mut matches = Vec::new();
-    for candidate in &candidates {
-        if !completion_matches_prefix(&string, &candidate.completion) {
-            continue;
-        }
-        if completion_predicate_matches(eval, predicate, candidate)? {
-            matches.push(Value::string(candidate.completion.clone()));
-        }
-    }
-    Ok(Value::list(matches))
+    let candidates = completion_candidates_from_collection(eval, &args[1])?;
+    builtin_all_completions_with_candidates(&args, candidates, |function, call_args| {
+        eval.apply(function, call_args)
+    })
 }
 
 pub(crate) fn builtin_test_completion_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("test-completion", &args, 2)?;
-    expect_max_args("test-completion", &args, 3)?;
-    let string = expect_string(&args[0])?;
-    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
-    let collection = args[1];
-
-    let Some(candidates) = completion_candidates_from_collection(eval, &collection)? else {
-        return eval.apply(
-            collection,
-            vec![args[0], predicate, Value::symbol("lambda")],
-        );
-    };
-
-    for candidate in &candidates {
-        if candidate.completion != string {
-            continue;
-        }
-        if completion_predicate_matches(eval, predicate, candidate)? {
-            return Ok(Value::True);
-        }
-    }
-    Ok(Value::Nil)
+    let candidates = completion_candidates_from_collection(eval, &args[1])?;
+    builtin_test_completion_with_candidates(&args, candidates, |function, call_args| {
+        eval.apply(function, call_args)
+    })
 }
 
 fn end_of_file_stdin_error() -> Flow {
