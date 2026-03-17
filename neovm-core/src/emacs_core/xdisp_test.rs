@@ -209,6 +209,43 @@ fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
 }
 
 #[test]
+fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_eval_forms() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
+    let other_id = eval.buffers.create_buffer("*mode-line-shared-eval*");
+    eval.buffers
+        .set_buffer_local_property(other_id, "mode-name", Value::string("Neo"))
+        .expect("mode-name local should set");
+
+    let rendered = finish_format_mode_line_in_state_with_eval(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.frames,
+        &mut eval.buffers,
+        &[
+            Value::list(vec![
+                Value::string("%b "),
+                Value::list(vec![Value::symbol(":eval"), Value::symbol("mode-name")]),
+            ]),
+            Value::Nil,
+            Value::Nil,
+            Value::Buffer(other_id),
+        ],
+        |form, buffers| {
+            assert_eq!(*form, Value::symbol("mode-name"));
+            let buffer = buffers.current_buffer().expect("mode-line buffer");
+            Ok(*buffer
+                .get_buffer_local("mode-name")
+                .expect("buffer-local mode-name"))
+        },
+    )
+    .expect("format-mode-line shared eval");
+
+    assert_eq!(rendered, Value::string("*mode-line-shared-eval* Neo"));
+    assert_eq!(eval.buffers.current_buffer_id(), Some(saved_current));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

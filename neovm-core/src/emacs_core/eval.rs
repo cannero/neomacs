@@ -555,6 +555,10 @@ impl<'a> VmSharedState<'a> {
         unsafe { f(self.parent_eval.as_mut()) }
     }
 
+    pub(crate) fn parent_eval_ptr(&self) -> std::ptr::NonNull<Evaluator> {
+        self.parent_eval
+    }
+
     pub(crate) fn has_input_receiver(&self) -> bool {
         self.input_rx.is_some()
     }

@@ -183,6 +183,47 @@ pub(crate) fn finish_format_mode_line_in_eval(
     Ok(result)
 }
 
+pub(crate) fn finish_format_mode_line_in_state_with_eval(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    frames: &crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: &[Value],
+    mut eval_form: impl FnMut(&Value, &crate::buffer::BufferManager) -> Result<Value, Flow>,
+) -> EvalResult {
+    expect_args_range("format-mode-line", args, 1, 4)?;
+    validate_optional_window_designator_in_state(frames, args.get(2), "windowp")?;
+    validate_optional_buffer_designator_in_state(buffers, args.get(3))?;
+
+    let target_buffer = resolve_mode_line_buffer_in_state(frames, args.get(2), args.get(3));
+    let saved_buffer = buffers.current_buffer_id();
+    if let Some(buffer_id) = target_buffer {
+        buffers.set_current(buffer_id);
+    }
+
+    let result = if args[0].is_nil() {
+        Value::string("")
+    } else {
+        let format_val = args[0];
+        let mut result = String::new();
+        format_mode_line_recursive_in_state_with_eval(
+            obarray,
+            dynamic,
+            &*buffers,
+            &format_val,
+            &mut result,
+            0,
+            &mut eval_form,
+        )?;
+        Value::string(&result)
+    };
+
+    if let Some(buffer_id) = saved_buffer {
+        buffers.set_current(buffer_id);
+    }
+    Ok(result)
+}
+
 fn mode_line_symbol_value_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
@@ -426,6 +467,132 @@ fn format_mode_line_recursive_in_state(
     }
 
     false
+}
+
+fn format_mode_line_recursive_in_state_with_eval(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    format: &Value,
+    result: &mut String,
+    depth: usize,
+    eval_form: &mut impl FnMut(&Value, &crate::buffer::BufferManager) -> Result<Value, Flow>,
+) -> Result<(), Flow> {
+    if depth > 20 {
+        return Ok(());
+    }
+
+    match format {
+        Value::Nil => {}
+
+        Value::Str(_) => {
+            if let Some(fmt_str) = format.as_str() {
+                expand_mode_line_percent_in_state(buffers, fmt_str, result);
+            }
+        }
+
+        Value::Int(_) => {}
+
+        _ if format.is_symbol() => {
+            if let Some(name) = format.as_symbol_name() {
+                if name == "mode-line-front-space" || name == "mode-line-end-spaces" {
+                    result.push(' ');
+                    return Ok(());
+                }
+                if let Some(val) = mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
+                    && !val.is_nil()
+                {
+                    format_mode_line_recursive_in_state_with_eval(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        &val,
+                        result,
+                        depth + 1,
+                        eval_form,
+                    )?;
+                }
+            }
+        }
+
+        _ if format.is_cons() => {
+            let car = format.cons_car();
+            let cdr = format.cons_cdr();
+
+            if car.is_symbol_named(":eval") {
+                if cdr.is_cons() {
+                    let form_val = cdr.cons_car();
+                    let val = eval_form(&form_val, buffers)?;
+                    format_mode_line_recursive_in_state_with_eval(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        &val,
+                        result,
+                        depth + 1,
+                        eval_form,
+                    )?;
+                }
+                return Ok(());
+            }
+
+            if car.is_symbol_named(":propertize") {
+                if cdr.is_cons() {
+                    let elt = cdr.cons_car();
+                    format_mode_line_recursive_in_state_with_eval(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        &elt,
+                        result,
+                        depth + 1,
+                        eval_form,
+                    )?;
+                }
+                return Ok(());
+            }
+
+            if car.is_symbol() && !car.is_symbol_named("t") {
+                if let Some(sym_name) = car.as_symbol_name()
+                    && mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
+                        .is_some_and(|value| value.is_truthy())
+                {
+                    format_mode_line_recursive_in_state_with_eval(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        &cdr,
+                        result,
+                        depth + 1,
+                        eval_form,
+                    )?;
+                }
+                return Ok(());
+            }
+
+            if let Some(elements) = list_to_vec(format) {
+                for elem in &elements {
+                    format_mode_line_recursive_in_state_with_eval(
+                        obarray,
+                        dynamic,
+                        buffers,
+                        elem,
+                        result,
+                        depth + 1,
+                        eval_form,
+                    )?;
+                }
+            }
+        }
+
+        _ => {
+            if let Some(s) = format.as_str() {
+                result.push_str(s);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn expand_mode_line_percent_in_state(

@@ -7109,18 +7109,12 @@ impl<'a> Vm<'a> {
         extra_roots: &[Value],
         f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator) -> T,
     ) -> T {
-        self.shared.with_parent_evaluator(|eval| {
-            let saved_temp_roots = eval.save_temp_roots();
-            for root in &self.gc_roots {
-                eval.push_temp_root(*root);
-            }
-            for root in extra_roots {
-                eval.push_temp_root(*root);
-            }
-            let result = f(eval);
-            eval.restore_temp_roots(saved_temp_roots);
-            result
-        })
+        with_parent_evaluator_roots(
+            self.shared.parent_eval_ptr(),
+            &self.gc_roots,
+            extra_roots,
+            f,
+        )
     }
 
     fn with_default_directory_binding<T>(
@@ -7146,11 +7140,24 @@ impl<'a> Vm<'a> {
         )? {
             Ok(value)
         } else {
-            let extra_roots = args.to_vec();
-            let call_args = extra_roots.clone();
-            self.with_shared_evaluator(&extra_roots, move |eval| {
-                crate::emacs_core::xdisp::finish_format_mode_line_in_eval(eval, &call_args)
-            })
+            let args_roots = args.to_vec();
+            let gc_roots = self.gc_roots.clone();
+            let parent_eval = self.shared.parent_eval_ptr();
+            crate::emacs_core::xdisp::finish_format_mode_line_in_state_with_eval(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.frames,
+                &mut *self.shared.buffers,
+                args,
+                |form, _buffers| {
+                    let form_val = *form;
+                    let mut extra_roots = args_roots.clone();
+                    extra_roots.push(form_val);
+                    with_parent_evaluator_roots(parent_eval, &gc_roots, &extra_roots, move |eval| {
+                        eval.eval_value(&form_val)
+                    })
+                },
+            )
         }
     }
 
@@ -7913,6 +7920,30 @@ impl<'a> Vm<'a> {
                 );
             }
         }
+        result
+    }
+}
+
+fn with_parent_evaluator_roots<T>(
+    mut parent_eval: std::ptr::NonNull<crate::emacs_core::eval::Evaluator>,
+    gc_roots: &[Value],
+    extra_roots: &[Value],
+    f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator) -> T,
+) -> T {
+    // Safety: `parent_eval` points at the evaluator that created the VM shared
+    // state and outlives the VM. Callers ensure evaluator crossings are
+    // serialized.
+    unsafe {
+        let eval = parent_eval.as_mut();
+        let saved_temp_roots = eval.save_temp_roots();
+        for root in gc_roots {
+            eval.push_temp_root(*root);
+        }
+        for root in extra_roots {
+            eval.push_temp_root(*root);
+        }
+        let result = f(eval);
+        eval.restore_temp_roots(saved_temp_roots);
         result
     }
 }
