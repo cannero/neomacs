@@ -996,6 +996,17 @@ pub(crate) fn finish_read_string_with_minibuffer(
     read_from_minibuffer(&minibuffer_args)
 }
 
+pub(crate) fn finish_read_string_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_read_string_in_runtime(shared, args)?;
+    finish_read_string_with_minibuffer(args, |minibuffer_args| {
+        finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, minibuffer_args)
+    })
+}
+
 // ---------------------------------------------------------------------------
 // 7. read-number
 // ---------------------------------------------------------------------------

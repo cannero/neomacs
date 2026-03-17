@@ -826,6 +826,21 @@ pub(crate) fn finish_read_command_with_minibuffer(
     finish_symbol_reader_with_minibuffer(args, read_from_minibuffer)
 }
 
+pub(crate) fn finish_read_command_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_read_command_in_runtime(shared, args)?;
+    finish_read_command_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+            shared,
+            vm_gc_roots,
+            minibuffer_args,
+        )
+    })
+}
+
 /// `(read-variable PROMPT &optional DEFAULT)`
 ///
 /// Read a variable name from the minibuffer.
@@ -866,6 +881,21 @@ pub(crate) fn finish_read_variable_with_minibuffer(
     read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
     finish_symbol_reader_with_minibuffer(args, read_from_minibuffer)
+}
+
+pub(crate) fn finish_read_variable_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    builtin_read_variable_in_runtime(shared, args)?;
+    finish_read_variable_with_minibuffer(args, |minibuffer_args| {
+        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+            shared,
+            vm_gc_roots,
+            minibuffer_args,
+        )
+    })
 }
 
 /// `(try-completion STRING COLLECTION &optional PREDICATE)`

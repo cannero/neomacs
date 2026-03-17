@@ -8550,10 +8550,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::builtin_read_string_in_runtime(&self.shared, args)?;
-        crate::emacs_core::reader::finish_read_string_with_minibuffer(args, |minibuffer_args| {
-            self.builtin_read_from_minibuffer_shared(minibuffer_args)
-        })
+        crate::emacs_core::reader::finish_read_string_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
+            args,
+        )
     }
 
     fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -8638,18 +8639,18 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_command_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::minibuffer::builtin_read_command_in_runtime(&self.shared, args)?;
-        crate::emacs_core::minibuffer::finish_read_command_with_minibuffer(
+        crate::emacs_core::minibuffer::finish_read_command_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
             args,
-            |minibuffer_args| self.builtin_read_from_minibuffer_shared(minibuffer_args),
         )
     }
 
     fn builtin_read_variable_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::minibuffer::builtin_read_variable_in_runtime(&self.shared, args)?;
-        crate::emacs_core::minibuffer::finish_read_variable_with_minibuffer(
+        crate::emacs_core::minibuffer::finish_read_variable_in_vm_runtime(
+            &mut self.shared,
+            &self.gc_roots,
             args,
-            |minibuffer_args| self.builtin_read_from_minibuffer_shared(minibuffer_args),
         )
     }
 
