@@ -567,6 +567,56 @@ fn finish_read_string_with_minibuffer_builds_expected_args() {
 }
 
 #[test]
+fn completing_read_minibuffer_args_choose_completion_keymap_by_require_match() {
+    let mut eval = Evaluator::new();
+    eval.obarray.set_symbol_value(
+        "minibuffer-local-completion-map",
+        Value::symbol("completion-map"),
+    );
+    eval.obarray.set_symbol_value(
+        "minibuffer-local-must-match-map",
+        Value::symbol("must-match-map"),
+    );
+
+    let default_args = completing_read_minibuffer_args(
+        eval.obarray(),
+        &[
+            Value::string("Prompt: "),
+            Value::list(vec![Value::string("alpha")]),
+            Value::Nil,
+            Value::Nil,
+            Value::string("seed"),
+            Value::symbol("hist"),
+            Value::string("fallback"),
+            Value::True,
+        ],
+    );
+    assert_eq!(
+        default_args,
+        [
+            Value::string("Prompt: "),
+            Value::string("seed"),
+            Value::symbol("completion-map"),
+            Value::Nil,
+            Value::symbol("hist"),
+            Value::string("fallback"),
+            Value::True,
+        ]
+    );
+
+    let must_match_args = completing_read_minibuffer_args(
+        eval.obarray(),
+        &[
+            Value::string("Prompt: "),
+            Value::list(vec![Value::string("alpha")]),
+            Value::Nil,
+            Value::True,
+        ],
+    );
+    assert_eq!(must_match_args[2], Value::symbol("must-match-map"));
+}
+
+#[test]
 fn read_number_signals_end_of_file_even_with_default() {
     let mut ev = Evaluator::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: "), Value::Int(42)]);

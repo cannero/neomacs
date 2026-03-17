@@ -7172,11 +7172,45 @@ impl<'a> Vm<'a> {
 
     fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::reader::builtin_completing_read_in_runtime(&self.shared, args)?;
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::reader::finish_completing_read_in_eval(eval, &call_args)
-        })
+        let minibuffer_args =
+            crate::emacs_core::reader::completing_read_minibuffer_args(&*self.shared.obarray, args);
+        crate::emacs_core::eval::set_runtime_binding_in_state(
+            self.shared.obarray,
+            self.shared.dynamic.as_mut_slice(),
+            self.shared.buffers,
+            &*self.shared.custom,
+            intern("minibuffer-completion-table"),
+            args[1],
+        );
+        crate::emacs_core::eval::set_runtime_binding_in_state(
+            self.shared.obarray,
+            self.shared.dynamic.as_mut_slice(),
+            self.shared.buffers,
+            &*self.shared.custom,
+            intern("minibuffer-completion-predicate"),
+            args.get(2).copied().unwrap_or(Value::Nil),
+        );
+        let result = self.builtin_read_from_minibuffer_shared(&minibuffer_args);
+        let cleanup = {
+            crate::emacs_core::eval::set_runtime_binding_in_state(
+                self.shared.obarray,
+                self.shared.dynamic.as_mut_slice(),
+                self.shared.buffers,
+                &*self.shared.custom,
+                intern("minibuffer-completion-table"),
+                Value::Nil,
+            );
+            crate::emacs_core::eval::set_runtime_binding_in_state(
+                self.shared.obarray,
+                self.shared.dynamic.as_mut_slice(),
+                self.shared.buffers,
+                &*self.shared.custom,
+                intern("minibuffer-completion-predicate"),
+                Value::Nil,
+            );
+            Ok(())
+        };
+        merge_result_with_cleanup(result, cleanup)
     }
 
     fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {

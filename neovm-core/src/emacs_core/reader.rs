@@ -1007,39 +1007,12 @@ pub(crate) fn finish_completing_read_in_eval(
     eval: &mut super::eval::Evaluator,
     args: &[Value],
 ) -> EvalResult {
-    let prompt = args[0];
-    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
-    let initial_input = args.get(4).copied().unwrap_or(Value::Nil);
-    let hist = args.get(5).copied().unwrap_or(Value::Nil);
-    let default_val = args.get(6).copied().unwrap_or(Value::Nil);
-    let inherit = args.get(7).copied().unwrap_or(Value::Nil);
-
-    let keymap = if !require_match.is_nil() {
-        eval.obarray()
-            .symbol_value("minibuffer-local-must-match-map")
-            .copied()
-            .unwrap_or(Value::Nil)
-    } else {
-        eval.obarray()
-            .symbol_value("minibuffer-local-completion-map")
-            .copied()
-            .unwrap_or(Value::Nil)
-    };
-
+    let minibuffer_args = completing_read_minibuffer_args(eval.obarray(), args);
     let collection = args[1];
     eval.assign("minibuffer-completion-table", collection);
     let predicate = args.get(2).copied().unwrap_or(Value::Nil);
     eval.assign("minibuffer-completion-predicate", predicate);
 
-    let minibuffer_args = [
-        prompt,
-        initial_input,
-        keymap,
-        Value::Nil,
-        hist,
-        default_val,
-        inherit,
-    ];
     let result = finish_read_from_minibuffer_in_eval(eval, &minibuffer_args);
 
     eval.assign("minibuffer-completion-table", Value::Nil);
@@ -1065,6 +1038,37 @@ pub(crate) fn builtin_completing_read_in_runtime(
     } else {
         Err(stdin_end_of_file_error())
     }
+}
+
+pub(crate) fn completing_read_minibuffer_args(obarray: &Obarray, args: &[Value]) -> [Value; 7] {
+    let prompt = args[0];
+    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    let initial_input = args.get(4).copied().unwrap_or(Value::Nil);
+    let hist = args.get(5).copied().unwrap_or(Value::Nil);
+    let default_val = args.get(6).copied().unwrap_or(Value::Nil);
+    let inherit = args.get(7).copied().unwrap_or(Value::Nil);
+
+    let keymap = if !require_match.is_nil() {
+        obarray
+            .symbol_value("minibuffer-local-must-match-map")
+            .copied()
+            .unwrap_or(Value::Nil)
+    } else {
+        obarray
+            .symbol_value("minibuffer-local-completion-map")
+            .copied()
+            .unwrap_or(Value::Nil)
+    };
+
+    [
+        prompt,
+        initial_input,
+        keymap,
+        Value::Nil,
+        hist,
+        default_val,
+        inherit,
+    ]
 }
 
 fn event_to_int(event: &Value) -> Option<i64> {
