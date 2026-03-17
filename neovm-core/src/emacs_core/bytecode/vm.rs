@@ -5580,6 +5580,55 @@ impl<'a> Vm<'a> {
             "fontset-list-all" => Some(
                 crate::emacs_core::builtins::builtin_fontset_list_all(args.to_vec()),
             ),
+            "sqlite-available-p" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_available_p(args.to_vec()),
+            ),
+            "sqlite-version" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_version(args.to_vec()),
+            ),
+            "sqlitep" => Some(crate::emacs_core::builtins::builtin_sqlitep(args.to_vec())),
+            "sqlite-open" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_open(args.to_vec()),
+            ),
+            "sqlite-close" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_close(args.to_vec()),
+            ),
+            "sqlite-execute" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_execute(args.to_vec()),
+            ),
+            "sqlite-execute-batch" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_execute_batch(args.to_vec()),
+            ),
+            "sqlite-select" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_select(args.to_vec()),
+            ),
+            "sqlite-next" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_next(args.to_vec()),
+            ),
+            "sqlite-more-p" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_more_p(args.to_vec()),
+            ),
+            "sqlite-columns" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_columns(args.to_vec()),
+            ),
+            "sqlite-finalize" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_finalize(args.to_vec()),
+            ),
+            "sqlite-pragma" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_pragma(args.to_vec()),
+            ),
+            "sqlite-commit" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_commit(args.to_vec()),
+            ),
+            "sqlite-rollback" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_rollback(args.to_vec()),
+            ),
+            "sqlite-transaction" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_transaction(args.to_vec()),
+            ),
+            "sqlite-load-extension" => Some(
+                crate::emacs_core::builtins::builtin_sqlite_load_extension(args.to_vec()),
+            ),
             "face-id" => Some(crate::emacs_core::font::builtin_face_id(args.to_vec())),
             "face-font" => Some(crate::emacs_core::font::builtin_face_font(args.to_vec())),
             "internal-face-x-get-resource" => Some(

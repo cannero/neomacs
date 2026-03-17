@@ -3878,6 +3878,36 @@ fn vm_font_stub_tail_uses_direct_dispatch() {
 }
 
 #[test]
+fn vm_sqlite_stub_runtime_uses_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r##"(list
+                 (sqlite-available-p)
+                 (stringp (sqlite-version))
+                 (let ((db (sqlite-open)))
+                  (list
+                    (sqlitep db)
+                    (= (sqlite-execute db "create table t (x integer)") 0)
+                    (null (sqlite-execute-batch db "insert into t values (1);"))
+                    (equal (sqlite-select db "select 1") '((1)))
+                    (null (sqlite-next db))
+                    (null (sqlite-more-p db))
+                    (null (sqlite-columns db))
+                    (null (sqlite-finalize db))
+                    (sqlite-pragma db "foreign_keys")
+                    (null (sqlite-commit db))
+                    (null (sqlite-rollback db))
+                    (sqlite-transaction db)
+                    (condition-case nil
+                        (sqlite-load-extension db "missing")
+                      (sqlite-error t))
+                    (sqlite-close db))))"##
+        ),
+        r#"OK (t t (t t t t t t t t t t t t t t))"#
+    );
+}
+
+#[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
