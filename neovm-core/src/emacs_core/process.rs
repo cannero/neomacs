@@ -2357,6 +2357,14 @@ pub(crate) fn builtin_internal_default_interrupt_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_internal_default_interrupt_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_internal_default_interrupt_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2366,8 +2374,9 @@ pub(crate) fn builtin_internal_default_interrupt_process(
             ],
         ));
     }
-    let (id, ret) = resolve_optional_process_with_explicit_return(eval, args.first())?;
-    if let Some(proc) = eval.processes.get_mut(id) {
+    let (id, ret) =
+        resolve_optional_process_with_explicit_return_in_state(processes, buffers, args.first())?;
+    if let Some(proc) = processes.get_mut(id) {
         proc.status = ProcessStatus::Signal(2);
     }
     Ok(ret)
@@ -2376,6 +2385,14 @@ pub(crate) fn builtin_internal_default_interrupt_process(
 /// (internal-default-signal-process PROCESS SIGNAL &optional CURRENT-GROUP) -> int-or-nil
 pub(crate) fn builtin_internal_default_signal_process(
     eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_internal_default_signal_process_in_state(&mut eval.processes, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_internal_default_signal_process_in_state(
+    processes: &mut ProcessManager,
+    buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("internal-default-signal-process", &args, 2)?;
@@ -2390,9 +2407,9 @@ pub(crate) fn builtin_internal_default_signal_process(
     }
 
     let signal_num = parse_signal_number(&args[1])?;
-    match resolve_signal_process_target(eval, args.first())? {
+    match resolve_signal_process_target_in_state(processes, buffers, args.first())? {
         SignalProcessTarget::Process(id) => {
-            if let Some(proc) = eval.processes.get_mut(id) {
+            if let Some(proc) = processes.get_mut(id) {
                 proc.status = ProcessStatus::Signal(signal_num);
             }
             Ok(Value::Int(0))
@@ -2407,8 +2424,15 @@ pub(crate) fn builtin_internal_default_process_filter(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_internal_default_process_filter_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_internal_default_process_filter_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal-default-process-filter", &args, 2)?;
-    let _id = resolve_process_or_wrong_type_any(eval, &args[0])?;
+    let _id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     Ok(Value::Nil)
 }
 
@@ -2417,8 +2441,15 @@ pub(crate) fn builtin_internal_default_process_sentinel(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_internal_default_process_sentinel_in_state(&eval.processes, args)
+}
+
+pub(crate) fn builtin_internal_default_process_sentinel_in_state(
+    processes: &ProcessManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal-default-process-sentinel", &args, 2)?;
-    let _id = resolve_live_process_or_wrong_type(eval, &args[0])?;
+    let _id = resolve_live_process_or_wrong_type_in_manager(processes, &args[0])?;
     Ok(Value::Nil)
 }
 

@@ -4106,6 +4106,30 @@ fn vm_internal_utility_builtins_use_direct_and_shared_state_paths() {
 }
 
 #[test]
+fn vm_internal_default_process_builtins_use_shared_runtime_state() {
+    let result = vm_eval_with_init_str(
+        r#"(let ((p 1))
+             (list
+              (null (internal-default-process-filter p "chunk"))
+              (null (internal-default-process-sentinel p "done"))
+              (eq (internal-default-interrupt-process p) p)
+              (eq (process-status p) 'signal)
+              (= (internal-default-signal-process p 15) 0)
+              (eq (process-status p) 'signal)))"#,
+        |eval| {
+            let pid = eval.processes.create_process(
+                "vm-default-callback-proc".into(),
+                None,
+                "/bin/cat".into(),
+                vec![],
+            );
+            assert_eq!(pid, 1);
+        },
+    );
+    assert_eq!(result, "OK (t t t t t t)");
+}
+
+#[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

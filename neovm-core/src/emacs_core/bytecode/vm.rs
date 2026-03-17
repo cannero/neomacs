@@ -7800,6 +7800,32 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "internal-default-interrupt-process" => Some(
+                crate::emacs_core::process::builtin_internal_default_interrupt_process_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-default-signal-process" => Some(
+                crate::emacs_core::process::builtin_internal_default_signal_process_in_state(
+                    self.shared.processes,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-default-process-filter" => Some(
+                crate::emacs_core::process::builtin_internal_default_process_filter_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
+            "internal-default-process-sentinel" => Some(
+                crate::emacs_core::process::builtin_internal_default_process_sentinel_in_state(
+                    &*self.shared.processes,
+                    args.to_vec(),
+                ),
+            ),
             "base64-encode-string" => Some(crate::emacs_core::fns::builtin_base64_encode_string(
                 args.to_vec(),
             )),
