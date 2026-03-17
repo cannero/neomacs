@@ -2495,6 +2495,10 @@ pub(crate) fn builtin_print_preprocess(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_print_preprocess_in_state(args)
+}
+
+pub(crate) fn builtin_print_preprocess_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("print--preprocess", &args, 1)?;
     Ok(Value::Nil)
 }

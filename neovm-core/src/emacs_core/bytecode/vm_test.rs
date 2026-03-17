@@ -1339,6 +1339,102 @@ fn vm_call_interactively_uses_shared_runtime_planning() {
 }
 
 #[test]
+fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            "(list
+               (funcall (lambda (x) x) 42)
+               (assoc 'b '((a . 1) (b . 2)) nil)
+               (plist-member '(:a 1 :b 2) :b nil)
+               (ntake 2 '(1 2 3 4))
+               (md5 (current-buffer))
+               (secure-hash 'sha1 (current-buffer))
+               (print--preprocess 'foo)
+               (sleep-for 0))",
+            |eval| {
+                let current = eval
+                    .buffers
+                    .current_buffer_id()
+                    .expect("current buffer should exist");
+                let _ = eval.buffers.insert_into_buffer(current, "abc");
+            },
+        ),
+        "OK (42 (b . 2) (:b 2) (1 2) \"900150983cd24fb0d6963f7d28e17f72\" \"a9993e364706816aba3e25717850c26c9cd0d89d\" nil nil)"
+    );
+}
+
+#[test]
+fn vm_runtime_control_tail_uses_localized_shared_paths() {
+    assert_eq!(vm_eval_str("(listp (garbage-collect))"), "OK t");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let source = dir.path().join("vm-tail-precompile.el");
+    std::fs::write(
+        &source,
+        ";;; -*- lexical-binding: t; -*-\n(setq vm-tail-precompile t)\n",
+    )
+    .expect("write source");
+
+    let source_lisp = source
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let mut eval = Evaluator::new_vm_harness();
+    let kill_only = parse_forms("(kill-emacs 7)").expect("parse");
+    let precompile_only =
+        parse_forms(&format!("(neovm-precompile-file \"{}\")", source_lisp)).expect("parse");
+    let src = format!(
+        "(progn (kill-emacs 7) (neovm-precompile-file \"{}\"))",
+        source_lisp
+    );
+    let forms = parse_forms(&src).expect("parse");
+    let kill_func = Compiler::new(false).compile_toplevel(&kill_only[0]);
+    let precompile_func = Compiler::new(false).compile_toplevel(&precompile_only[0]);
+    let func = Compiler::new(false).compile_toplevel(&forms[0]);
+
+    {
+        let mut vm = new_vm(&mut eval);
+        let kill_result = vm.execute(&kill_func, vec![]);
+        assert!(
+            matches!(kill_result, Ok(Value::Nil)),
+            "compiled kill-emacs should return nil, got {kill_result:?}"
+        );
+    }
+
+    let standalone_cache = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&precompile_func, vec![])
+            .expect("compiled standalone precompile should succeed")
+    };
+    assert!(
+        standalone_cache
+            .as_str()
+            .is_some_and(|path| path.ends_with(".neoc")),
+        "compiled standalone precompile should return cache path, got {standalone_cache:?}"
+    );
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("compiled runtime control tail should succeed")
+    };
+
+    let cache_path = result
+        .as_str()
+        .expect("cache path should be a string")
+        .to_string();
+    assert!(cache_path.ends_with(".neoc"));
+    assert!(std::path::Path::new(&cache_path).exists());
+    assert_eq!(
+        eval.shutdown_request(),
+        Some(crate::emacs_core::eval::ShutdownRequest {
+            exit_code: 7,
+            restart: false,
+        })
+    );
+}
+
+#[test]
 fn vm_window_metadata_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(

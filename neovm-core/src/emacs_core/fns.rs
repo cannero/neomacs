@@ -494,6 +494,10 @@ pub(crate) fn builtin_md5(args: Vec<Value>) -> EvalResult {
 ///
 /// Evaluator-aware implementation that also supports buffer objects.
 pub(crate) fn builtin_md5_eval(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_md5_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_md5_in_state(buffers: &BufferManager, args: Vec<Value>) -> EvalResult {
     expect_range_args("md5", &args, 1, 5)?;
     validate_md5_coding_system_arg(&args)?;
     let object = &args[0];
@@ -503,8 +507,8 @@ pub(crate) fn builtin_md5_eval(eval: &mut super::eval::Evaluator, args: Vec<Valu
             args.get(1),
             args.get(2),
         )?)),
-        Value::Buffer(id) => Ok(Value::string(md5_hex_for_buffer(
-            eval,
+        Value::Buffer(id) => Ok(Value::string(md5_hex_for_buffer_in_manager(
+            buffers,
             *id,
             args.get(1),
             args.get(2),
@@ -668,14 +672,13 @@ fn normalize_md5_buffer_position(
     Ok(raw)
 }
 
-fn hash_slice_for_buffer(
-    eval: &super::eval::Evaluator,
+fn hash_slice_for_buffer_in_manager(
+    buffers: &BufferManager,
     buffer_id: crate::buffer::BufferId,
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let buf = eval
-        .buffers
+    let buf = buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
 
@@ -703,13 +706,13 @@ fn hash_slice_for_buffer(
         .ok_or_else(|| signal("args-out-of-range", vec![start_arg, end_arg]))
 }
 
-fn md5_hex_for_buffer(
-    eval: &super::eval::Evaluator,
+fn md5_hex_for_buffer_in_manager(
+    buffers: &BufferManager,
     buffer_id: crate::buffer::BufferId,
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let slice = hash_slice_for_buffer(eval, buffer_id, start_raw, end_raw)?;
+    let slice = hash_slice_for_buffer_in_manager(buffers, buffer_id, start_raw, end_raw)?;
     Ok(md5_hash(slice.as_bytes()))
 }
 
@@ -864,13 +867,22 @@ pub(crate) fn builtin_secure_hash_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_secure_hash_in_state(&eval.buffers, args)
+}
+
+pub(crate) fn builtin_secure_hash_in_state(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("secure-hash", &args, 2, 5)?;
     let algo_name = secure_hash_algorithm_name(&args[0])?;
 
     let object = &args[1];
     let input = match object {
         Value::Str(_) => hash_slice_for_string(object, args.get(2), args.get(3))?,
-        Value::Buffer(id) => hash_slice_for_buffer(eval, *id, args.get(2), args.get(3))?,
+        Value::Buffer(id) => {
+            hash_slice_for_buffer_in_manager(buffers, *id, args.get(2), args.get(3))?
+        }
         other => {
             return Err(signal(
                 "error",

@@ -3507,6 +3507,15 @@ impl<'a> Vm<'a> {
                 call_args.extend(spread);
                 return self.call_function(func, call_args);
             }
+            "funcall" => {
+                if args.is_empty() {
+                    return Err(signal(
+                        "wrong-number-of-arguments",
+                        vec![Value::symbol("funcall"), Value::Int(args.len() as i64)],
+                    ));
+                }
+                return self.call_function(args[0], args[1..].to_vec());
+            }
             "funcall-interactively" => {
                 if args.is_empty() {
                     return Err(signal(
@@ -7951,6 +7960,29 @@ impl<'a> Vm<'a> {
             "dbus-message-internal" => Some(
                 crate::emacs_core::dbus::builtin_dbus_message_internal(args.to_vec()),
             ),
+            "assoc" => Some(self.builtin_assoc_shared(args)),
+            "plist-member" => Some(self.builtin_plist_member_shared(args)),
+            "ntake" => Some(crate::emacs_core::builtins::builtin_ntake(args.to_vec())),
+            "md5" => Some(crate::emacs_core::fns::builtin_md5_in_state(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "secure-hash" => Some(crate::emacs_core::fns::builtin_secure_hash_in_state(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "garbage-collect" => Some(self.builtin_garbage_collect_shared(args)),
+            "kill-emacs" => Some(self.builtin_kill_emacs_shared(args)),
+            "print--preprocess" => Some(
+                crate::emacs_core::process::builtin_print_preprocess_in_state(args.to_vec()),
+            ),
+            "sleep-for" => Some(crate::emacs_core::timer::builtin_sleep_for(args.to_vec())),
+            "top-level" => Some(crate::emacs_core::minibuffer::builtin_top_level(args.to_vec())),
+            "neovm-precompile-file" => Some(
+                crate::emacs_core::builtins::builtin_neovm_precompile_file_in_state(
+                    args.to_vec(),
+                ),
+            ),
             "backtrace--frames-from-thread" => Some(
                 crate::emacs_core::misc::builtin_backtrace_frames_from_thread_in_state(
                     &*self.shared.threads,
@@ -8186,6 +8218,46 @@ impl<'a> Vm<'a> {
         let extra_roots = args.to_vec();
         self.with_shared_evaluator(&extra_roots, move |eval| {
             crate::emacs_core::interactive::finish_call_interactively_in_eval(eval, plan)
+        })
+    }
+
+    fn builtin_assoc_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_range_args("assoc", args, 2, 3)?;
+        if args.get(2).is_some_and(|value| !value.is_nil()) {
+            let extra_roots = args.to_vec();
+            let call_args = extra_roots.clone();
+            return self.with_shared_evaluator(&extra_roots, move |eval| {
+                crate::emacs_core::builtins::builtin_assoc_eval(eval, call_args)
+            });
+        }
+        crate::emacs_core::builtins::builtin_assoc(vec![args[0], args[1]])
+    }
+
+    fn builtin_plist_member_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_range_args("plist-member", args, 2, 3)?;
+        if args.get(2).is_some_and(|value| !value.is_nil()) {
+            let extra_roots = args.to_vec();
+            let call_args = extra_roots.clone();
+            return self.with_shared_evaluator(&extra_roots, move |eval| {
+                crate::emacs_core::builtins::builtin_plist_member(eval, call_args)
+            });
+        }
+        crate::emacs_core::builtins::builtin_plist_member_in_state(args.to_vec())
+    }
+
+    fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("garbage-collect", args, 0)?;
+        self.with_shared_evaluator(args, move |eval| {
+            eval.gc_collect();
+            crate::emacs_core::builtins_extra::builtin_garbage_collect(vec![])
+        })
+    }
+
+    fn builtin_kill_emacs_shared(&mut self, args: &[Value]) -> EvalResult {
+        let extra_roots = args.to_vec();
+        let call_args = extra_roots.clone();
+        self.with_shared_evaluator(&extra_roots, move |eval| {
+            crate::emacs_core::builtins::builtin_kill_emacs_eval(eval, call_args)
         })
     }
 

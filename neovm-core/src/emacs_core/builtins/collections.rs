@@ -717,12 +717,17 @@ pub(crate) fn builtin_plist_member(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("plist-member", &args, 2, 3)?;
-    let plist = args[0];
-    let prop = args[1];
     let predicate = args
         .get(2)
         .and_then(|value| if value.is_nil() { None } else { Some(*value) });
+    if predicate.is_none() {
+        return builtin_plist_member_in_state(args);
+    }
+
+    expect_range_args("plist-member", &args, 2, 3)?;
+    let plist = args[0];
+    let prop = args[1];
+    let predicate = predicate;
 
     // Root Values that survive across eval.apply() in the loop.
     let saved_roots = eval.save_temp_roots();
@@ -776,4 +781,51 @@ pub(crate) fn builtin_plist_member(
 
     eval.restore_temp_roots(saved_roots);
     result
+}
+
+pub(crate) fn builtin_plist_member_in_state(args: Vec<Value>) -> EvalResult {
+    expect_range_args("plist-member", &args, 2, 3)?;
+    let plist = args[0];
+    let prop = args[1];
+    if args.get(2).is_some_and(|value| !value.is_nil()) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), args[2]],
+        ));
+    }
+
+    let mut cursor = plist;
+    loop {
+        match cursor {
+            Value::Cons(key_cell) => {
+                let (entry_key, entry_rest) = {
+                    let pair = read_cons(key_cell);
+                    (pair.car, pair.cdr)
+                };
+
+                if eq_value(&entry_key, &prop) {
+                    return Ok(Value::Cons(key_cell));
+                }
+
+                match entry_rest {
+                    Value::Cons(value_cell) => {
+                        cursor = with_heap(|h| h.cons_cdr(value_cell));
+                    }
+                    _ => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("plistp"), plist],
+                        ));
+                    }
+                }
+            }
+            Value::Nil => return Ok(Value::Nil),
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("plistp"), plist],
+                ));
+            }
+        }
+    }
 }

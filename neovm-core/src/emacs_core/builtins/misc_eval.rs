@@ -552,6 +552,10 @@ pub(crate) fn builtin_neovm_precompile_file(
     _eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_neovm_precompile_file_in_state(args)
+}
+
+pub(crate) fn builtin_neovm_precompile_file_in_state(args: Vec<Value>) -> EvalResult {
     expect_args("neovm-precompile-file", &args, 1)?;
     let file = expect_string(&args[0])?;
     let path = std::path::Path::new(&file);
