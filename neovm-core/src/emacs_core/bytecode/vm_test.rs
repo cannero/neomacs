@@ -2263,6 +2263,47 @@ fn vm_marker_print_targets_insert_and_restore_like_gnu() {
 }
 
 #[test]
+fn vm_with_current_buffer_restores_outer_point_like_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((orig (current-buffer))
+                      (orig-point (point))
+                      (obuf (get-buffer-create "*vm-wcb*")))
+                 (with-current-buffer obuf
+                   (erase-buffer)
+                   (insert "xy")
+                   (goto-char 2))
+                 (list (eq (current-buffer) orig)
+                       orig-point
+                       (point)
+                       (with-current-buffer obuf (buffer-string))))"#
+        ),
+        "OK (t 1 1 \"xy\")"
+    );
+}
+
+#[test]
+fn vm_save_current_buffer_restores_outer_point_like_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((orig (current-buffer))
+                      (orig-point (point))
+                      (obuf (get-buffer-create "*vm-save-current-buffer*")))
+                 (save-current-buffer
+                   (set-buffer obuf)
+                   (erase-buffer)
+                   (insert "xy")
+                   (goto-char 2))
+                 (list (eq (current-buffer) orig)
+                       orig-point
+                       (point)
+                       (with-current-buffer obuf (buffer-string))))"#
+        ),
+        "OK (t 1 1 \"xy\")"
+    );
+}
+
+#[test]
 fn vm_case_table_builtins_use_shared_buffer_state() {
     assert_eq!(
         vm_eval_str(

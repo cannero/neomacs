@@ -505,16 +505,12 @@ impl Compiler {
                 self.compile_simple_unwind_form(func, Op::SaveRestriction, tail, for_value);
                 true
             }
+            "save-current-buffer" => {
+                self.compile_simple_unwind_form(func, Op::SaveCurrentBuffer, tail, for_value);
+                true
+            }
             "with-current-buffer" => {
-                // Stub: skip buffer arg, compile body
-                if tail.is_empty() {
-                    if for_value {
-                        self.emit_tracked(func, Op::Nil);
-                    }
-                } else {
-                    self.compile_expr(func, &tail[0], false); // eval buffer arg, discard
-                    self.compile_progn(func, &tail[1..], for_value);
-                }
+                self.compile_with_current_buffer(func, tail, for_value);
                 true
             }
             "ignore-errors" => {
@@ -1503,6 +1499,36 @@ impl Compiler {
     ) {
         self.emit_tracked(func, setup);
         self.compile_progn(func, tail, for_value);
+        self.emit_tracked(func, Op::Unbind(1));
+    }
+
+    fn compile_with_current_buffer(
+        &mut self,
+        func: &mut ByteCodeFunction,
+        tail: &[Expr],
+        for_value: bool,
+    ) {
+        if tail.is_empty() {
+            if for_value {
+                self.emit_tracked(func, Op::Nil);
+            }
+            return;
+        }
+
+        self.emit_tracked(func, Op::SaveCurrentBuffer);
+        self.compile_expr(func, &tail[0], true);
+        let set_buffer_name = func.add_symbol("set-buffer");
+        self.emit_tracked(func, Op::CallBuiltin(set_buffer_name, 1));
+
+        if tail.len() == 1 {
+            if !for_value {
+                self.emit_tracked(func, Op::Pop);
+            }
+        } else {
+            self.emit_tracked(func, Op::Pop);
+            self.compile_progn(func, &tail[1..], for_value);
+        }
+
         self.emit_tracked(func, Op::Unbind(1));
     }
 
