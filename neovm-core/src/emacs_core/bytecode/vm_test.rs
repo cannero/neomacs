@@ -1364,6 +1364,30 @@ fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
 }
 
 #[test]
+fn vm_assoc_and_plist_member_predicates_use_shared_runtime_callbacks() {
+    assert_eq!(
+        vm_eval_str(
+            "(list
+               (let ((log nil))
+                 (list
+                   (assoc 'b '((a . 1) (b . 2))
+                          (lambda (entry-key search-key)
+                            (setq log (cons entry-key log))
+                            (eq entry-key search-key)))
+                   log))
+               (let ((log nil))
+                 (list
+                   (plist-member '(:a 1 :b 2) :b
+                                 (lambda (entry-key search-key)
+                                   (setq log (cons entry-key log))
+                                   (eq entry-key search-key)))
+                   log)))"
+        ),
+        "OK (((b . 2) (b a)) ((:b 2) (:b :a)))"
+    );
+}
+
+#[test]
 fn vm_runtime_control_tail_uses_localized_shared_paths() {
     assert_eq!(vm_eval_str("(listp (garbage-collect))"), "OK t");
 

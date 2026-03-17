@@ -8229,10 +8229,40 @@ impl<'a> Vm<'a> {
     fn builtin_assoc_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_range_args("assoc", args, 2, 3)?;
         if args.get(2).is_some_and(|value| !value.is_nil()) {
-            let extra_roots = args.to_vec();
-            let call_args = extra_roots.clone();
-            return self.with_shared_evaluator(&extra_roots, move |eval| {
-                crate::emacs_core::builtins::builtin_assoc_eval(eval, call_args)
+            let key = args[0];
+            let list = args[1];
+            let test_fn = args[2];
+            return self.with_extra_roots(&[key, list, test_fn], |vm| {
+                let mut cursor = list;
+                loop {
+                    match cursor {
+                        Value::Nil => return Ok(Value::Nil),
+                        Value::Cons(cell) => {
+                            let pair = read_cons(cell);
+                            if let Value::Cons(ref entry) = pair.car {
+                                let entry_pair = read_cons(*entry);
+                                let entry_key = entry_pair.car;
+                                let matches = vm.with_extra_roots(
+                                    &[cursor, pair.car, pair.cdr, entry_key],
+                                    |vm| {
+                                        vm.call_function(test_fn, vec![entry_key, key])
+                                            .map(|value| value.is_truthy())
+                                    },
+                                )?;
+                                if matches {
+                                    return Ok(pair.car);
+                                }
+                            }
+                            cursor = pair.cdr;
+                        }
+                        _ => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("listp"), list],
+                            ));
+                        }
+                    }
+                }
             });
         }
         crate::emacs_core::builtins::builtin_assoc(vec![args[0], args[1]])
@@ -8241,10 +8271,46 @@ impl<'a> Vm<'a> {
     fn builtin_plist_member_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_range_args("plist-member", args, 2, 3)?;
         if args.get(2).is_some_and(|value| !value.is_nil()) {
-            let extra_roots = args.to_vec();
-            let call_args = extra_roots.clone();
-            return self.with_shared_evaluator(&extra_roots, move |eval| {
-                crate::emacs_core::builtins::builtin_plist_member(eval, call_args)
+            let plist = args[0];
+            let prop = args[1];
+            let predicate = args[2];
+            return self.with_extra_roots(&[plist, prop, predicate], |vm| {
+                let mut cursor = plist;
+                loop {
+                    match cursor {
+                        Value::Cons(key_cell) => {
+                            let pair = read_cons(key_cell);
+                            let entry_key = pair.car;
+                            let matches =
+                                vm.with_extra_roots(&[cursor, entry_key, pair.cdr], |vm| {
+                                    vm.call_function(predicate, vec![entry_key, prop])
+                                        .map(|value| value.is_truthy())
+                                })?;
+                            if matches {
+                                return Ok(Value::Cons(key_cell));
+                            }
+
+                            match pair.cdr {
+                                Value::Cons(value_cell) => {
+                                    cursor = with_heap(|h| h.cons_cdr(value_cell));
+                                }
+                                _ => {
+                                    return Err(signal(
+                                        "wrong-type-argument",
+                                        vec![Value::symbol("plistp"), plist],
+                                    ));
+                                }
+                            }
+                        }
+                        Value::Nil => return Ok(Value::Nil),
+                        _ => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("plistp"), plist],
+                            ));
+                        }
+                    }
+                }
             });
         }
         crate::emacs_core::builtins::builtin_plist_member_in_state(args.to_vec())
