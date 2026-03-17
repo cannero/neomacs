@@ -3754,6 +3754,27 @@ fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_composition_and_compute_motion_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (equal (compose-string-internal "abc" 0 2 nil nil) "abc")
+                 (null (find-composition-internal 1 nil nil nil))
+                 (vectorp (composition-get-gstring 0 1 nil "ab"))
+                 (null (clear-composition-cache))
+                 (equal (composition-sort-rules '((1 . 2))) '((1 . 2)))
+                 (with-current-buffer (get-buffer-create "*vm-compute-motion*")
+                   (erase-buffer)
+                   (insert "\tX")
+                   (setq tab-width 4)
+                   (equal (compute-motion 1 '(0 . 0) 3 nil 80 nil nil)
+                          '(3 5 0 4 nil))))"#
+        ),
+        "OK (t t t t t t)"
+    );
+}
+
+#[test]
 fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
     assert_eq!(
         vm_eval_str(

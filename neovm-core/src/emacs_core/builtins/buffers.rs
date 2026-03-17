@@ -1686,6 +1686,14 @@ pub(crate) fn builtin_compute_motion(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_compute_motion_in_state(&eval.obarray, &eval.buffers, args)
+}
+
+pub(crate) fn builtin_compute_motion_in_state(
+    obarray: &crate::emacs_core::Obarray,
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("compute-motion", &args, 7)?;
 
     let from = expect_integer_or_marker(&args[0])?;
@@ -1736,8 +1744,7 @@ pub(crate) fn builtin_compute_motion(
     };
 
     // Extract tab-width from obarray.
-    let tab_width = eval
-        .obarray
+    let tab_width = obarray
         .symbol_value("tab-width")
         .and_then(|v| match v {
             Value::Int(n) if *n > 0 => Some(*n as usize),
@@ -1746,7 +1753,7 @@ pub(crate) fn builtin_compute_motion(
         .unwrap_or(8);
 
     // Get buffer text.
-    let Some(buf) = eval.buffers.current_buffer() else {
+    let Some(buf) = buffers.current_buffer() else {
         return Ok(Value::list(vec![
             Value::Int(from),
             Value::Int(from_hpos),

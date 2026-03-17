@@ -3623,6 +3623,28 @@ impl<'a> Vm<'a> {
             "modify-syntax-entry" => Some(
                 crate::emacs_core::syntax::modify_syntax_entry_in_buffers(self.shared.buffers, args),
             ),
+            "compute-motion" => Some(
+                crate::emacs_core::builtins::builtin_compute_motion_in_state(
+                    &*self.shared.obarray,
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
+            "compose-string-internal" => Some(
+                crate::emacs_core::composite::builtin_compose_string_internal(args.to_vec()),
+            ),
+            "find-composition-internal" => Some(
+                crate::emacs_core::composite::builtin_find_composition_internal(args.to_vec()),
+            ),
+            "composition-get-gstring" => Some(
+                crate::emacs_core::composite::builtin_composition_get_gstring(args.to_vec()),
+            ),
+            "clear-composition-cache" => Some(
+                crate::emacs_core::composite::builtin_clear_composition_cache(args.to_vec()),
+            ),
+            "composition-sort-rules" => Some(
+                crate::emacs_core::composite::builtin_composition_sort_rules(args.to_vec()),
+            ),
             "syntax-table" => Some(crate::emacs_core::syntax::builtin_syntax_table_in_buffers(
                 self.shared.buffers,
                 args.to_vec(),
