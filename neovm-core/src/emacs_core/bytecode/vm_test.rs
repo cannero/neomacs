@@ -4860,6 +4860,27 @@ fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
 }
 
 #[test]
+fn vm_format_mode_line_symbol_conditional_uses_only_selected_branch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((mode-line-flag t))
+                 (list
+                  (format-mode-line
+                   '(mode-line-flag
+                     "then"
+                     (:eval (error "boom"))))
+                  (progn
+                    (setq mode-line-flag nil)
+                    (format-mode-line
+                     '(mode-line-flag
+                       (:eval (error "boom"))
+                       "else")))))"#
+        ),
+        r#"OK ("then" "else")"#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

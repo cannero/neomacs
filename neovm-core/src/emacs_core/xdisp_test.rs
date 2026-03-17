@@ -246,6 +246,42 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
 }
 
 #[test]
+fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
+    let mut eval = super::super::eval::Evaluator::new();
+    eval.obarray.set_symbol_value("mode-line-flag", Value::True);
+
+    let then_rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![Value::list(vec![
+            Value::symbol("mode-line-flag"),
+            Value::string("then"),
+            Value::list(vec![
+                Value::symbol(":eval"),
+                Value::list(vec![Value::symbol("error"), Value::string("boom")]),
+            ]),
+        ])],
+    )
+    .expect("format-mode-line should use then branch");
+
+    eval.obarray.set_symbol_value("mode-line-flag", Value::Nil);
+    let else_rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![Value::list(vec![
+            Value::symbol("mode-line-flag"),
+            Value::list(vec![
+                Value::symbol(":eval"),
+                Value::list(vec![Value::symbol("error"), Value::string("boom")]),
+            ]),
+            Value::string("else"),
+        ])],
+    )
+    .expect("format-mode-line should use else branch");
+
+    assert_eq!(then_rendered, Value::string("then"));
+    assert_eq!(else_rendered, Value::string("else"));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

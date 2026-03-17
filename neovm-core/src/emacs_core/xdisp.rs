@@ -284,6 +284,21 @@ fn mode_line_symbol_value_in_state(
     obarray.symbol_value(name).copied()
 }
 
+fn mode_line_conditional_branch(cdr: Value, branch_is_then: bool) -> Option<Value> {
+    if !cdr.is_cons() {
+        return None;
+    }
+    if branch_is_then {
+        return Some(cdr.cons_car());
+    }
+    let else_tail = cdr.cons_cdr();
+    if else_tail.is_cons() {
+        Some(else_tail.cons_car())
+    } else {
+        None
+    }
+}
+
 /// Recursively process a mode-line format spec, appending output to `result`.
 ///
 /// FORMAT can be:
@@ -373,8 +388,11 @@ fn format_mode_line_recursive(
                         sym_name,
                     )
                     .is_some_and(|value| value.is_truthy())
+                    && let Some(branch) = mode_line_conditional_branch(cdr, true)
                 {
-                    format_mode_line_recursive(eval, &cdr, result, depth + 1);
+                    format_mode_line_recursive(eval, &branch, result, depth + 1);
+                } else if let Some(branch) = mode_line_conditional_branch(cdr, false) {
+                    format_mode_line_recursive(eval, &branch, result, depth + 1);
                 }
                 return;
             }
@@ -465,15 +483,20 @@ fn format_mode_line_recursive_in_state(
             }
 
             if car.is_symbol() && !car.is_symbol_named("t") {
-                if let Some(sym_name) = car.as_symbol_name()
+                let branch = if let Some(sym_name) = car.as_symbol_name()
                     && mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
                         .is_some_and(|value| value.is_truthy())
                 {
+                    mode_line_conditional_branch(cdr, true)
+                } else {
+                    mode_line_conditional_branch(cdr, false)
+                };
+                if let Some(branch) = branch {
                     return format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
-                        &cdr,
+                        &branch,
                         result,
                         depth + 1,
                     );
@@ -591,15 +614,20 @@ fn format_mode_line_recursive_in_state_with_eval(
             }
 
             if car.is_symbol() && !car.is_symbol_named("t") {
-                if let Some(sym_name) = car.as_symbol_name()
+                let branch = if let Some(sym_name) = car.as_symbol_name()
                     && mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
                         .is_some_and(|value| value.is_truthy())
                 {
+                    mode_line_conditional_branch(cdr, true)
+                } else {
+                    mode_line_conditional_branch(cdr, false)
+                };
+                if let Some(branch) = branch {
                     format_mode_line_recursive_in_state_with_eval(
                         obarray,
                         dynamic,
                         buffers,
-                        &cdr,
+                        &branch,
                         result,
                         depth + 1,
                         eval_form,
@@ -732,12 +760,17 @@ fn format_mode_line_recursive_in_vm_runtime(
                         let buffers = &*shared.buffers;
                         mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
                     };
-                    if value.is_some_and(|value| value.is_truthy()) {
+                    let branch = if value.is_some_and(|value| value.is_truthy()) {
+                        mode_line_conditional_branch(cdr, true)
+                    } else {
+                        mode_line_conditional_branch(cdr, false)
+                    };
+                    if let Some(branch) = branch {
                         format_mode_line_recursive_in_vm_runtime(
                             shared,
                             vm_gc_roots,
                             args_roots,
-                            &cdr,
+                            &branch,
                             result,
                             depth + 1,
                         )?;
