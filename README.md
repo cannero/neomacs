@@ -12,6 +12,8 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge" alt="License: GPL-3.0"/></a>
 </p>
 
+**Sponsor Neomacs:** Neomacs is a long-term project that takes significant ongoing work to build, test, and maintain. If you want to support its development, please consider sponsoring it on [GitHub Sponsors](https://github.com/sponsors/eval-exec).
+
 > **Note:** Neomacs is in active alpha development. Expect rough edges, breaking changes, and missing features. Contributions and bug reports are very welcome!
 
 > **Fork notice:** Neomacs is a hard fork of GNU Emacs, forked from commit [`705c0e3729`](https://git.savannah.gnu.org/cgit/emacs.git/commit/?id=705c0e3729bf53db9e84ae7c8b932ebc3b2da934). The changes are too invasive to ever be accepted upstream, so we did not preserve the original git history to keep the repository lightweight. If you need the full Emacs git history for reference, open an issue, and we can re-add it.
