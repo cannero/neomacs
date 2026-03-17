@@ -2471,6 +2471,35 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     Ok(None)
 }
 
+pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
+    shared: &mut super::eval::VmSharedState<'_>,
+    plan: &mut CallInteractivelyPlan,
+    vm_gc_roots: &[Value],
+    extra_roots: &[Value],
+) -> Result<(Value, Vec<Value>), Flow> {
+    if let Some((function, call_args)) =
+        resolve_call_interactively_target_and_args_in_vm_runtime(shared, plan, vm_gc_roots)?
+    {
+        return Ok((function, call_args));
+    }
+
+    if let Some((function, call_args)) = resolve_call_interactively_target_and_args_in_state(
+        &mut *shared.obarray,
+        shared.dynamic,
+        shared.buffers,
+        &*shared.custom,
+        &*shared.frames,
+        &*shared.interactive,
+        plan,
+    )? {
+        return Ok((function, call_args));
+    }
+
+    shared.with_parent_evaluator_vm_roots(vm_gc_roots, extra_roots, move |eval| {
+        resolve_call_interactively_target_and_args_in_eval(eval, plan)
+    })
+}
+
 fn last_command_event_char(eval: &Evaluator) -> Option<char> {
     let event = dynamic_or_global_symbol_value(eval, "last-command-event")?;
     match event {

@@ -3300,8 +3300,12 @@ impl<'a> Vm<'a> {
                     .shared
                     .begin_lambda_call(&lambda_data, &args, func_val)?;
                 let body = lambda_data.body.clone();
-                let result = self
-                    .with_shared_evaluator(&extra_roots, move |eval| eval.eval_lambda_body(&body));
+                let result = crate::emacs_core::eval::eval_lambda_body_in_vm_runtime(
+                    &mut self.shared,
+                    &self.gc_roots,
+                    &extra_roots,
+                    body,
+                );
                 self.shared.finish_lambda_call(call_state);
                 result
             }
@@ -8238,15 +8242,6 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn with_shared_evaluator<T>(
-        &mut self,
-        extra_roots: &[Value],
-        f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator) -> T,
-    ) -> T {
-        self.shared
-            .with_parent_evaluator_vm_roots(&self.gc_roots, extra_roots, f)
-    }
-
     fn with_default_directory_binding<T>(
         &mut self,
         directory: &str,
@@ -8303,31 +8298,13 @@ impl<'a> Vm<'a> {
         if crate::emacs_core::interactive::callable_form_needs_instantiation(&plan.func) {
             plan.func = self.instantiate_callable_cons_form(plan.func)?;
         }
-        let (function, call_args) = if let Some((function, call_args)) =
-            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_vm_runtime(
+        let (function, call_args) =
+            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_with_vm_fallback(
                 &mut self.shared,
                 &mut plan,
                 &self.gc_roots,
-            )? {
-            (function, call_args)
-        } else if let Some((function, call_args)) =
-            crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_state(
-                &mut *self.shared.obarray,
-                self.shared.dynamic,
-                self.shared.buffers,
-                &*self.shared.custom,
-                &*self.shared.frames,
-                &*self.shared.interactive,
-                &mut plan,
-            )? {
-            (function, call_args)
-        } else {
-            self.with_shared_evaluator(&extra_roots, move |eval| {
-                crate::emacs_core::interactive::resolve_call_interactively_target_and_args_in_eval(
-                    eval, &mut plan,
-                )
-            })?
-        };
+                &extra_roots,
+            )?;
         self.shared.interactive.push_interactive_call(true);
         let result = self.call_function_with_roots(function, &call_args);
         self.shared.interactive.pop_interactive_call();

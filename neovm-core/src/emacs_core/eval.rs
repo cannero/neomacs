@@ -1398,6 +1398,17 @@ pub(crate) fn builtin_eval_in_vm_runtime(
     result
 }
 
+pub(crate) fn eval_lambda_body_in_vm_runtime(
+    shared: &mut VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    extra_roots: &[Value],
+    body: Rc<Vec<Expr>>,
+) -> EvalResult {
+    shared.with_parent_evaluator_vm_roots(vm_gc_roots, extra_roots, move |eval| {
+        eval.eval_lambda_body(&body)
+    })
+}
+
 pub(crate) struct ActiveLambdaCallState {
     saved_temp_roots_len: usize,
     has_lexenv: bool,
