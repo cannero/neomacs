@@ -3292,6 +3292,43 @@ fn vm_dired_builtins_use_shared_default_directory_state() {
 }
 
 #[test]
+fn vm_file_name_completion_callable_predicate_uses_shared_scan_and_eval_callback() {
+    let base = std::env::temp_dir().join(format!(
+        "neovm-vm-file-name-completion-callable-{}",
+        std::process::id()
+    ));
+    let fixture = base.join("fixtures");
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&fixture).expect("create fixture dir");
+    std::fs::create_dir(fixture.join("adir")).expect("create adir");
+    std::fs::write(fixture.join("alpha.txt"), b"").expect("write alpha");
+    let base_str = format!("{}/", base.to_string_lossy());
+
+    let result = vm_eval_with_init_str(
+        r#"(let ((seen 0))
+             (list (file-name-completion
+                    "a"
+                    "fixtures/"
+                    (lambda (path)
+                      (setq seen (1+ seen))
+                      (file-directory-p path)))
+                   seen))"#,
+        |eval| {
+            eval.obarray
+                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            eval.buffers
+                .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+                .expect("buffer local default-directory should set");
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(result, r#"OK ("adir/" 2)"#);
+}
+
+#[test]
 fn vm_file_metadata_builtins_use_shared_runtime_state() {
     let base = std::env::temp_dir().join(format!("neovm-vm-file-metadata-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);

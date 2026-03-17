@@ -586,22 +586,11 @@ pub(crate) fn builtin_file_name_completion_in_state(
     buffers: &crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("file-name-completion", &args, 2, 3)?;
-
-    let file = expect_string("file-name-completion", &args[0])?;
-    let directory = super::fileio::resolve_filename_in_state(
-        obarray,
-        dynamic,
-        buffers,
-        &expect_string("file-name-completion", &args[1])?,
-    );
+    let plan = prepare_file_name_completion_in_state(obarray, dynamic, buffers, &args)?;
     let predicate = args.get(2);
-    if file.contains('/') {
-        return Ok(Value::Nil);
-    }
-    let completions = collect_file_name_completions(&file, &directory)?;
-    let completions = filter_completions_by_symbol_predicate(predicate, &directory, completions)?;
-    Ok(resolve_file_name_completion(&file, completions))
+    let completions =
+        filter_completions_by_symbol_predicate(predicate, &plan.directory, plan.completions)?;
+    Ok(resolve_file_name_completion(&plan.file, completions))
 }
 
 /// Evaluator-backed variant of `file-name-completion`.
@@ -611,21 +600,20 @@ pub(crate) fn builtin_file_name_completion_eval(
     eval: &mut Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("file-name-completion", &args, 2, 3)?;
-
-    let file = expect_string("file-name-completion", &args[0])?;
-    let directory = super::fileio::resolve_filename_for_eval(
-        eval,
-        &expect_string("file-name-completion", &args[1])?,
-    );
+    let plan = prepare_file_name_completion_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        &args,
+    )?;
     let predicate = args.get(2);
-    if file.contains('/') {
-        return Ok(Value::Nil);
-    }
-    let completions = collect_file_name_completions(&file, &directory)?;
-    let completions =
-        filter_completions_by_eval_predicate(eval, predicate, &directory, completions)?;
-    Ok(resolve_file_name_completion(&file, completions))
+    finish_file_name_completion_with_eval_predicate(
+        eval,
+        predicate,
+        plan.directory,
+        plan.file,
+        plan.completions,
+    )
 }
 
 /// (file-name-all-completions FILE DIRECTORY)
@@ -702,6 +690,52 @@ fn collect_file_name_completions(file: &str, directory: &str) -> Result<Vec<Stri
     }
 
     Ok(completions.into_iter().collect())
+}
+
+pub(crate) struct FileNameCompletionPlan {
+    pub(crate) file: String,
+    pub(crate) directory: String,
+    pub(crate) completions: Vec<String>,
+}
+
+pub(crate) fn prepare_file_name_completion_in_state(
+    obarray: &super::symbol::Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: &[Value],
+) -> Result<FileNameCompletionPlan, Flow> {
+    expect_range_args("file-name-completion", args, 2, 3)?;
+
+    let file = expect_string("file-name-completion", &args[0])?;
+    let directory = super::fileio::resolve_filename_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        &expect_string("file-name-completion", &args[1])?,
+    );
+    let completions = if file.contains('/') {
+        Vec::new()
+    } else {
+        collect_file_name_completions(&file, &directory)?
+    };
+
+    Ok(FileNameCompletionPlan {
+        file,
+        directory,
+        completions,
+    })
+}
+
+pub(crate) fn finish_file_name_completion_with_eval_predicate(
+    eval: &mut Evaluator,
+    predicate: Option<&Value>,
+    directory: String,
+    file: String,
+    completions: Vec<String>,
+) -> EvalResult {
+    let completions =
+        filter_completions_by_eval_predicate(eval, predicate, &directory, completions)?;
+    Ok(resolve_file_name_completion(&file, completions))
 }
 
 fn resolve_file_name_completion(file: &str, completions: Vec<String>) -> Value {

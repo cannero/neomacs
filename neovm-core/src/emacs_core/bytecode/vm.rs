@@ -6439,16 +6439,6 @@ impl<'a> Vm<'a> {
         })
     }
 
-    fn call_eval_builtin_shared(
-        &mut self,
-        args: &[Value],
-        f: impl FnOnce(&mut crate::emacs_core::eval::Evaluator, Vec<Value>) -> EvalResult,
-    ) -> EvalResult {
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| f(eval, call_args))
-    }
-
     fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
         if let Some(value) = crate::emacs_core::xdisp::builtin_format_mode_line_in_state(
             &*self.shared.obarray,
@@ -6459,10 +6449,11 @@ impl<'a> Vm<'a> {
         )? {
             Ok(value)
         } else {
-            self.call_eval_builtin_shared(
-                args,
-                crate::emacs_core::xdisp::builtin_format_mode_line_eval,
-            )
+            let extra_roots = args.to_vec();
+            let call_args = extra_roots.clone();
+            self.with_shared_evaluator(&extra_roots, move |eval| {
+                crate::emacs_core::xdisp::builtin_format_mode_line_eval(eval, call_args)
+            })
         }
     }
 
@@ -6514,10 +6505,24 @@ impl<'a> Vm<'a> {
                     && !matches!(predicate, Value::Symbol(_) | Value::Subr(_))
         );
         if needs_eval_predicate {
-            return self.call_eval_builtin_shared(
-                args,
-                crate::emacs_core::dired::builtin_file_name_completion_eval,
-            );
+            let extra_roots = args.to_vec();
+            let call_args = extra_roots.clone();
+            return self.with_shared_evaluator(&extra_roots, move |eval| {
+                let plan = crate::emacs_core::dired::prepare_file_name_completion_in_state(
+                    &eval.obarray,
+                    eval.dynamic.as_slice(),
+                    &eval.buffers,
+                    &call_args,
+                )?;
+                let predicate = call_args.get(2);
+                crate::emacs_core::dired::finish_file_name_completion_with_eval_predicate(
+                    eval,
+                    predicate,
+                    plan.directory,
+                    plan.file,
+                    plan.completions,
+                )
+            });
         }
         crate::emacs_core::dired::builtin_file_name_completion_in_state(
             &*self.shared.obarray,
