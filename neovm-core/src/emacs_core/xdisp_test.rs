@@ -418,6 +418,102 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
 }
 
 #[test]
+fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_face() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::list(vec![
+                Value::list(vec![
+                    Value::symbol(":propertize"),
+                    Value::string("a"),
+                    Value::symbol("face"),
+                    Value::symbol("italic"),
+                ]),
+                Value::string("b"),
+            ]),
+            Value::symbol("bold"),
+        ],
+    )
+    .expect("format-mode-line face arg");
+
+    assert_eq!(rendered.as_str(), Some("ab"));
+    let Value::Str(id) = rendered else {
+        panic!("expected string result");
+    };
+    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    assert_eq!(
+        props.get_property(0, "face").copied(),
+        Some(Value::list(vec![
+            Value::symbol("italic"),
+            Value::symbol("bold")
+        ]))
+    );
+    assert_eq!(
+        props.get_property(1, "face").copied(),
+        Some(Value::symbol("bold"))
+    );
+}
+
+#[test]
+fn test_format_mode_line_integer_face_argument_discards_text_properties() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::list(vec![
+                Value::symbol(":propertize"),
+                Value::string("abc"),
+                Value::symbol("face"),
+                Value::symbol("bold"),
+                Value::symbol("help-echo"),
+                Value::string("h"),
+            ]),
+            Value::Int(0),
+        ],
+    )
+    .expect("format-mode-line face int");
+
+    assert_eq!(rendered, Value::string("abc"));
+    let Value::Str(id) = rendered else {
+        panic!("expected string result");
+    };
+    assert!(
+        get_string_text_properties_table(id).is_none(),
+        "integer FACE arg should drop text properties"
+    );
+}
+
+#[test]
+fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![Value::list(vec![
+            Value::Int(5),
+            Value::list(vec![
+                Value::symbol(":propertize"),
+                Value::string("x"),
+                Value::symbol("face"),
+                Value::symbol("bold"),
+            ]),
+        ])],
+    )
+    .expect("format-mode-line fixnum padding");
+
+    assert_eq!(rendered.as_str(), Some("x    "));
+    let Value::Str(id) = rendered else {
+        panic!("expected string result");
+    };
+    let props = get_string_text_properties_table(id).expect("mode-line text properties");
+    assert_eq!(
+        props.get_property(0, "face").copied(),
+        Some(Value::symbol("bold"))
+    );
+    assert_eq!(props.get_property(1, "face").copied(), None);
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

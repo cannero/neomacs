@@ -4952,6 +4952,43 @@ fn vm_format_mode_line_propertize_preserves_text_properties() {
 }
 
 #[test]
+fn vm_format_mode_line_face_argument_merges_explicit_faces_and_can_drop_props() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((with-face (format-mode-line
+                                '((:propertize "a" face italic) "b")
+                                'bold))
+                      (with-face-props-0 (text-properties-at 0 with-face))
+                      (with-face-props-1 (text-properties-at 1 with-face))
+                      (no-props (format-mode-line
+                                 '(:propertize "abc" face bold help-echo "h")
+                                 0)))
+                 (list (substring-no-properties with-face)
+                       (plist-get with-face-props-0 'face)
+                       (plist-get with-face-props-1 'face)
+                       (substring-no-properties no-props)
+                       (text-properties-at 0 no-props)))"#
+        ),
+        r#"OK ("ab" (italic bold) bold "abc" nil)"#
+    );
+}
+
+#[test]
+fn vm_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((s (format-mode-line '(5 (:propertize "x" face bold))))
+                      (props0 (text-properties-at 0 s))
+                      (props1 (text-properties-at 1 s)))
+                 (list (substring-no-properties s)
+                       (plist-get props0 'face)
+                       (plist-get props1 'face)))"#
+        ),
+        r#"OK ("x    " bold nil)"#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

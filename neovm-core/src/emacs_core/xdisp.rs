@@ -127,6 +127,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
     }
 
     let format_val = args[0];
+    let face_spec = resolve_mode_line_face_spec(&args);
     let mut result = ModeLineRendered::default();
     let needs_eval = format_mode_line_recursive_in_state(
         obarray,
@@ -145,7 +146,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
     if needs_eval {
         Ok(None)
     } else {
-        Ok(Some(result.into_value()))
+        Ok(Some(result.into_value(face_spec)))
     }
 }
 
@@ -174,9 +175,10 @@ pub(crate) fn finish_format_mode_line_in_eval(
         Value::string("")
     } else {
         let format_val = args[0];
+        let face_spec = resolve_mode_line_face_spec(args);
         let mut result = ModeLineRendered::default();
         format_mode_line_recursive(eval, &format_val, &mut result, 0, false);
-        result.into_value()
+        result.into_value(face_spec)
     };
 
     if let Some(buffer_id) = saved_buffer {
@@ -207,6 +209,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
         Value::string("")
     } else {
         let format_val = args[0];
+        let face_spec = resolve_mode_line_face_spec(args);
         let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_state_with_eval(
             obarray,
@@ -218,7 +221,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
             false,
             &mut eval_form,
         )?;
-        result.into_value()
+        result.into_value(face_spec)
     };
 
     if let Some(buffer_id) = saved_buffer {
@@ -247,6 +250,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
         Value::string("")
     } else {
         let format_val = args[0];
+        let face_spec = resolve_mode_line_face_spec(&args);
         let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_vm_runtime(
             shared,
@@ -257,7 +261,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
             0,
             false,
         )?;
-        result.into_value()
+        result.into_value(face_spec)
     };
 
     if let Some(buffer_id) = saved_buffer {
@@ -315,6 +319,12 @@ struct ModeLineRendered {
     text_props: TextPropertyTable,
 }
 
+#[derive(Clone, Copy)]
+struct ModeLineFaceSpec {
+    no_props: bool,
+    face: Option<Value>,
+}
+
 impl ModeLineRendered {
     fn plain(text: impl Into<String>) -> Self {
         Self {
@@ -359,21 +369,11 @@ impl ModeLineRendered {
         }
     }
 
-    fn pad_with_first_properties(&mut self, padding_chars: usize) {
+    fn pad_plain_spaces(&mut self, padding_chars: usize) {
         if padding_chars == 0 {
             return;
         }
-        let first_props = (!self.text.is_empty())
-            .then(|| self.text_props.get_properties(0))
-            .filter(|props| !props.is_empty());
-        let start = self.text.len();
         self.text.extend(std::iter::repeat_n(' ', padding_chars));
-        let end = self.text.len();
-        if let Some(props) = first_props {
-            for (name, value) in props {
-                self.text_props.put_property(start, end, &name, value);
-            }
-        }
     }
 
     fn overlay_properties(&mut self, props: Value) {
@@ -394,13 +394,69 @@ impl ModeLineRendered {
         }
     }
 
-    fn into_value(self) -> Value {
+    fn apply_default_face(&mut self, face: Value) {
+        if self.text.is_empty() {
+            return;
+        }
+
+        let end = self.text.len();
+        let intervals = self.text_props.intervals().to_vec();
+        let mut cursor = 0;
+
+        for interval in intervals {
+            let start = interval.start.min(end);
+            let interval_end = interval.end.min(end);
+
+            if cursor < start {
+                self.text_props.put_property(cursor, start, "face", face);
+            }
+
+            if start < interval_end {
+                let merged_face = interval
+                    .properties
+                    .get("face")
+                    .copied()
+                    .map(|existing| Value::list(vec![existing, face]))
+                    .unwrap_or(face);
+                self.text_props
+                    .put_property(start, interval_end, "face", merged_face);
+                cursor = interval_end;
+            }
+
+            if cursor >= end {
+                break;
+            }
+        }
+
+        if cursor < end {
+            self.text_props.put_property(cursor, end, "face", face);
+        }
+    }
+
+    fn into_value(mut self, face_spec: ModeLineFaceSpec) -> Value {
+        if face_spec.no_props {
+            return Value::string(self.text);
+        }
+        if let Some(face) = face_spec.face {
+            self.apply_default_face(face);
+        }
         let value = Value::string(self.text);
         if let Value::Str(id) = value {
             set_string_text_properties_table(id, self.text_props);
         }
         value
     }
+}
+
+fn resolve_mode_line_face_spec(args: &[Value]) -> ModeLineFaceSpec {
+    let face = args.get(1).copied().unwrap_or(Value::Nil);
+    let no_props = matches!(face, Value::Int(_));
+    let face = if no_props || face.is_nil() || face.is_symbol_named("default") {
+        None
+    } else {
+        Some(face)
+    };
+    ModeLineFaceSpec { no_props, face }
 }
 
 fn append_mode_line_rendered_segment(
@@ -416,7 +472,7 @@ fn append_mode_line_rendered_segment(
     };
     let rendered_len = segment.char_len() as i64;
     if field_width > 0 && rendered_len < field_width {
-        segment.pad_with_first_properties((field_width - rendered_len) as usize);
+        segment.pad_plain_spaces((field_width - rendered_len) as usize);
     }
     result.append_rendered(&segment);
 }
