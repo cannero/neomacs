@@ -43,6 +43,112 @@
         ];
       };
 
+      commonBuildInputsFor = pkgs: with pkgs; [
+        ncurses
+        gnutls
+        zlib
+        libxml2
+        fontconfig
+        freetype
+        harfbuzz
+        cairo
+        glib
+        gst_all_1.gstreamer
+        gst_all_1.gst-plugins-base
+        gst_all_1.gst-plugins-good
+        gst_all_1.gst-plugins-bad
+        gst_all_1.gst-plugins-ugly
+        gst_all_1.gst-libav
+        gst_all_1.gst-plugins-rs
+        libsoup_3
+        glib-networking
+        libjpeg
+        libtiff
+        giflib
+        libpng
+        librsvg
+        libwebp
+        poppler
+        dbus
+        sqlite
+        tree-sitter
+        gmp
+      ] ++ lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+        gst_all_1.gst-vaapi
+        libva
+        libselinux
+        libgccjit
+        libGL
+        vulkan-loader
+        libxkbcommon
+        mesa
+        libdrm
+        libgbm
+        wayland
+        wayland-protocols
+        wpewebkit
+        libwpe
+        libwpe-fdo
+        weston
+        xdg-dbus-proxy
+        libx11
+        libxcursor
+        libxrandr
+        libxi
+        libxinerama
+      ]);
+
+      commonNativeBuildInputsFor = pkgs: [
+        pkgs.rust-neomacs
+        pkgs.rust-cbindgen
+        pkgs.pkg-config
+        pkgs.autoconf
+        pkgs.automake
+        pkgs.texinfo
+        pkgs.llvmPackages.clang
+        pkgs.makeWrapper
+      ];
+
+      mkNeomacsPackage = system:
+        let
+          pkgs = pkgsFor system;
+          craneLib = (crane.mkLib pkgs).overrideToolchain pkgs.rust-neomacs;
+          cleanSrc = lib.cleanSource ./.;
+          pname = "neomacs";
+          version = self.shortRev or self.dirtyShortRev or self.lastModifiedDate or "0.0.1";
+          runtimeLibs = commonBuildInputsFor pkgs;
+          commonArgs = {
+            inherit pname version;
+            src = cleanSrc;
+            strictDeps = true;
+            cargoExtraArgs = "-p neomacs-bin";
+            nativeBuildInputs = commonNativeBuildInputsFor pkgs;
+            buildInputs = runtimeLibs;
+            doCheck = false;
+          };
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          linuxWrapArgs = lib.optionals pkgs.stdenv.isLinux [
+            "--set-default" "VK_DRIVER_FILES" "$(echo ${pkgs.mesa}/share/vulkan/icd.d/*.json | tr ' ' ':')"
+            "--set-default" "WPE_BACKEND_LIBRARY" "${pkgs.libwpe-fdo}/lib/libWPEBackend-fdo-1.0.so"
+            "--set-default" "GIO_MODULE_DIR" "${pkgs.glib-networking}/lib/gio/modules"
+            "--set-default" "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS" "1"
+            "--set-default" "WEBKIT_USE_SINGLE_WEB_PROCESS" "1"
+            "--prefix" "PATH" ":" "${pkgs.wpewebkit}/libexec/wpe-webkit-2.0"
+          ];
+        in
+        craneLib.buildPackage (commonArgs
+          // {
+            inherit cargoArtifacts;
+
+            postInstall = ''
+              wrapProgram "$out/bin/neomacs" \
+                --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath runtimeLibs}" \
+                --set-default RUST_LOG info \
+                --set-default NEOMACS_LOG info \
+                ${lib.concatStringsSep " \\\n                " linuxWrapArgs}
+            '';
+          });
+
     in {
       # Overlay that provides wpewebkit (Linux only) and rust toolchain
       overlays.default = final: prev: {
@@ -56,7 +162,7 @@
         wpewebkit = nix-wpe-webkit.packages.${final.stdenv.hostPlatform.system}.wpewebkit;
       });
 
-      # Development shell
+    # Development shell
       devShells = forAllSystems (system:
         let
           pkgs = pkgsFor system;
@@ -81,94 +187,8 @@
               pkgs.llvmPackages.clang
             ];
 
-            buildInputs = with pkgs; [
-              # Standard Emacs build dependencies
-              ncurses
-              gnutls
-              zlib
-              libxml2
-
-              # Font support
-              fontconfig
-              freetype
-              harfbuzz
-
-              # Cairo
-              cairo
-
-              # GLib for event loop integration
-              glib
-
-              # GStreamer for video support
-              gst_all_1.gstreamer
-              gst_all_1.gst-plugins-base
-              gst_all_1.gst-plugins-good
-              gst_all_1.gst-plugins-bad
-              gst_all_1.gst-plugins-ugly
-              gst_all_1.gst-libav
-              gst_all_1.gst-plugins-rs
-
-              # libsoup for HTTP
-              libsoup_3
-
-              # GLib networking for TLS/HTTPS support
-              glib-networking
-
-              # Image libraries
-              libjpeg
-              libtiff
-              giflib
-              libpng
-              librsvg
-              libwebp
-
-              # PDF rendering (for pdf-tools epdfinfo server)
-              poppler
-
-              # Other useful libraries
-              dbus
-              sqlite
-              tree-sitter
-
-              # GMP for bignum support
-              gmp
-            ]
-            # Linux-only dependencies
-            ++ lib.optionals isLinux (with pkgs; [
-              gst_all_1.gst-vaapi
-
-              # VA-API for hardware video decoding (used by gst-va plugin)
-              libva
-
-              libselinux
-
-              # For native compilation
-              libgccjit
-
-              # EGL/GPU/Vulkan for WPE and wgpu
-              libGL
-              vulkan-loader
-              libxkbcommon
-              mesa
-              libdrm
-              libgbm
-
-              # Wayland
-              wayland
-              wayland-protocols
-
-              # WPE WebKit
-              wpewebkit
-              libwpe
-              libwpe-fdo
-
-              # Weston for WPE backend
-              weston
-
-              # xdg-dbus-proxy for WebKit sandbox
-              xdg-dbus-proxy
-              gcc
-            ]);
+            buildInputs = commonBuildInputsFor pkgs
+              ++ lib.optionals isLinux (with pkgs; [ gcc ]);
 
             # pkg-config paths for dev headers
             PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig" (with pkgs; [
@@ -345,7 +365,26 @@
         }
       );
 
-      # Legacy nix package removed with the deleted Emacs C build path.
-      packages = forAllSystems (_system: { });
+      packages = forAllSystems (system:
+        let
+          neomacs = mkNeomacsPackage system;
+        in {
+          default = neomacs;
+          neomacs = neomacs;
+        });
+
+      apps = forAllSystems (system:
+        let
+          pkg = self.packages.${system}.default;
+        in {
+          default = {
+            type = "app";
+            program = "${pkg}/bin/neomacs";
+          };
+          neomacs = {
+            type = "app";
+            program = "${pkg}/bin/neomacs";
+          };
+        });
     };
 }
