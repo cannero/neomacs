@@ -6,7 +6,6 @@
 
 use std::ffi::CStr;
 use std::ffi::c_int;
-use std::ffi::c_void;
 
 use super::bidi_layout::reorder_row_bidi;
 use super::emacs_ffi::*;
@@ -17,7 +16,7 @@ use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, FrameGlyphBuffer, GlyphRowRole, StipplePattern, WindowEffectHint, WindowInfo,
+    CursorStyle, FrameGlyphBuffer, GlyphRowRole, WindowEffectHint, WindowInfo,
     WindowTransitionHint, WindowTransitionKind,
 };
 use neomacs_display_protocol::types::{Color, Rect};
@@ -4241,32 +4240,7 @@ impl LayoutEngine {
             },
         );
 
-        // Fetch stipple pattern data if present and not yet cached
-        if face.stipple > 0 && !frame_glyphs.stipple_patterns.contains_key(&face.stipple) {
-            let mut bits_buf = [0u8; 1024]; // max 1024 bytes for stipple bitmap
-            let mut w: c_int = 0;
-            let mut h: c_int = 0;
-            let rc = neomacs_layout_get_stipple_bitmap(
-                frame as *mut c_void,
-                face.stipple,
-                bits_buf.as_mut_ptr(),
-                bits_buf.len() as c_int,
-                &mut w,
-                &mut h,
-            );
-            if rc == 0 && w > 0 && h > 0 {
-                let bytes_per_row = ((w + 7) / 8) as usize;
-                let nbytes = bytes_per_row * h as usize;
-                frame_glyphs.stipple_patterns.insert(
-                    face.stipple,
-                    StipplePattern {
-                        width: w as u32,
-                        height: h as u32,
-                        bits: bits_buf[..nbytes].to_vec(),
-                    },
-                );
-            }
-        }
+        let _ = frame;
     }
 
     /// Apply a backend-neutral status-line face to the glyph buffer.
@@ -4294,34 +4268,7 @@ impl LayoutEngine {
         );
         frame_glyphs.faces.insert(face.face_id, face.render_face());
 
-        if face.stipple > 0 && !frame_glyphs.stipple_patterns.contains_key(&face.stipple) {
-            let Some(frame) = frame else {
-                return;
-            };
-            let mut bits_buf = [0u8; 1024];
-            let mut w: c_int = 0;
-            let mut h: c_int = 0;
-            let rc = neomacs_layout_get_stipple_bitmap(
-                frame as *mut c_void,
-                face.stipple,
-                bits_buf.as_mut_ptr(),
-                bits_buf.len() as c_int,
-                &mut w,
-                &mut h,
-            );
-            if rc == 0 && w > 0 && h > 0 {
-                let bytes_per_row = ((w + 7) / 8) as usize;
-                let nbytes = bytes_per_row * h as usize;
-                frame_glyphs.stipple_patterns.insert(
-                    face.stipple,
-                    StipplePattern {
-                        width: w as u32,
-                        height: h as u32,
-                        bits: bits_buf[..nbytes].to_vec(),
-                    },
-                );
-            }
-        }
+        let _ = frame;
     }
 
     /// Add a stretch glyph, automatically using stipple if the given face has one.
@@ -8715,7 +8662,7 @@ unsafe fn char_advance(
     face_id: u32,
     font_size: i32,
     face_char_w: f32,
-    window: EmacsWindow,
+    _window: EmacsWindow,
     font_family: &str,
     font_weight: u16,
     font_italic: bool,
@@ -8729,28 +8676,21 @@ unsafe fn char_advance(
     };
     let min_grid_advance = char_cols as f32 * face_w;
 
-    // Cosmic-text path: use FontMetricsService for measurement
-    if let Some(svc) = font_metrics_svc {
-        let font_size_f = font_size as f32;
-        let measured = svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
-        return if measured > 0.0 {
-            measured
-        } else {
-            min_grid_advance
-        };
-    }
-
-    // C FFI path (default): use pre-warmed Emacs font metrics
+    let svc = font_metrics_svc.get_or_insert_with(FontMetricsService::new);
+    let font_size_f = if font_size > 0 {
+        font_size as f32
+    } else {
+        face_w.max(1.0)
+    };
     let cp = ch as u32;
     if cp < 128 {
-        // ASCII: use cached widths from pre-warmed font metrics
         let cache_key = (face_id, font_size);
         if !ascii_width_cache.contains_key(&cache_key) {
-            let mut widths = [0.0f32; 128];
-            neomacs_layout_fill_ascii_widths(window, face_id as c_int, widths.as_mut_ptr());
-            for w in widths.iter_mut() {
-                if *w < 0.0 {
-                    *w = face_w;
+            let mut widths =
+                svc.fill_ascii_widths(font_family, font_weight, font_italic, font_size_f);
+            for w in &mut widths {
+                if *w <= 0.0 {
+                    *w = face_w.max(min_grid_advance);
                 }
             }
             ascii_width_cache.insert(cache_key, widths);
@@ -8758,9 +8698,12 @@ unsafe fn char_advance(
         return ascii_width_cache[&cache_key][cp as usize];
     }
 
-    // Non-ASCII: query individually via text_extents()
-    let w = neomacs_layout_char_width(window, cp as c_int, face_id as c_int);
-    if w > 0.0 { w } else { min_grid_advance }
+    let measured = svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
+    if measured > 0.0 {
+        measured
+    } else {
+        min_grid_advance
+    }
 }
 
 /// Render a fringe bitmap at the given position using Border rects.

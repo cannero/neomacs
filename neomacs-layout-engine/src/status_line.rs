@@ -177,6 +177,18 @@ impl StatusLineFace {
         }
     }
 
+    fn with_color_override(&self, face_id: u32, fg: Option<Color>, bg: Option<Color>) -> Self {
+        let mut face = self.clone();
+        face.face_id = face_id;
+        if let Some(color) = fg {
+            face.foreground = color;
+        }
+        if let Some(color) = bg {
+            face.background = color;
+        }
+        face
+    }
+
     pub(crate) fn render_face(&self) -> Face {
         let mut attrs = FaceAttributes::empty();
         if self.font_weight >= 700 {
@@ -746,46 +758,29 @@ impl LayoutEngine {
                     let run = &spec.face_runs[current_run];
                     if run.fg != 0 || run.bg != 0 {
                         if run.face_id != 0 {
-                            if let Some(fr) = frame {
-                                let mut face_ffi = FaceDataFFI::default();
-                                unsafe {
-                                    neomacs_layout_face_by_id(fr, run.face_id as i32, &mut face_ffi)
-                                };
-                                let rf = unsafe { StatusLineFace::from_ffi(&face_ffi) };
-                                frame_glyphs.set_face_with_font(
-                                    run.face_id,
-                                    Color::from_pixel(run.fg),
-                                    Some(Color::from_pixel(run.bg)),
-                                    &rf.font_family,
-                                    rf.font_weight,
-                                    rf.italic,
-                                    rf.font_size,
-                                    rf.underline_style,
-                                    rf.underline_color,
-                                    if rf.strike_through { 1 } else { 0 },
-                                    rf.strike_through_color,
-                                    if rf.overline { 1 } else { 0 },
-                                    rf.overline_color,
-                                    rf.overstrike,
-                                );
-                                frame_glyphs.faces.insert(run.face_id, rf.render_face());
-                                active_run_face = Some(rf);
-                            } else {
-                                frame_glyphs.set_face(
-                                    spec.face.face_id,
-                                    Color::from_pixel(run.fg),
-                                    Some(Color::from_pixel(run.bg)),
-                                    spec.face.font_weight,
-                                    spec.face.italic,
-                                    spec.face.underline_style,
-                                    spec.face.underline_color,
-                                    if spec.face.strike_through { 1 } else { 0 },
-                                    spec.face.strike_through_color,
-                                    if spec.face.overline { 1 } else { 0 },
-                                    spec.face.overline_color,
-                                );
-                                active_run_face = None;
-                            }
+                            let rf = spec.face.with_color_override(
+                                run.face_id,
+                                Some(Color::from_pixel(run.fg)),
+                                Some(Color::from_pixel(run.bg)),
+                            );
+                            frame_glyphs.set_face_with_font(
+                                run.face_id,
+                                rf.foreground,
+                                Some(rf.background),
+                                &rf.font_family,
+                                rf.font_weight,
+                                rf.italic,
+                                rf.font_size,
+                                rf.underline_style,
+                                rf.underline_color,
+                                if rf.strike_through { 1 } else { 0 },
+                                rf.strike_through_color,
+                                if rf.overline { 1 } else { 0 },
+                                rf.overline_color,
+                                rf.overstrike,
+                            );
+                            frame_glyphs.faces.insert(run.face_id, rf.render_face());
+                            active_run_face = Some(rf);
                         } else {
                             frame_glyphs.set_face(
                                 spec.face.face_id,
