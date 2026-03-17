@@ -273,12 +273,12 @@ pub(crate) fn builtin_make_variable_buffer_local(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (obarray, custom) = (&eval.obarray, &mut eval.custom);
+    let (obarray, custom) = (&mut eval.obarray, &mut eval.custom);
     builtin_make_variable_buffer_local_with_state(obarray, custom, args)
 }
 
 pub(crate) fn builtin_make_variable_buffer_local_with_state(
-    obarray: &crate::emacs_core::symbol::Obarray,
+    obarray: &mut crate::emacs_core::symbol::Obarray,
     custom: &mut CustomManager,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -301,6 +301,9 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
     .to_string();
     if obarray.is_constant(&resolved) {
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
+    }
+    if !obarray.boundp(&resolved) {
+        obarray.set_symbol_value(&resolved, Value::Nil);
     }
     custom.make_variable_buffer_local(&resolved);
     Ok(args[0])

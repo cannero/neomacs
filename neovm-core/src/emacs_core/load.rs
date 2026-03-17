@@ -2124,7 +2124,7 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 // represent correctly. V10 invalidates earlier caches because the `neomacs`
 // feature now mirrors loadup.el by loading `term/common-win` and
 // `term/neomacs-win` into the dumped bootstrap image.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 10;
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 11;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",

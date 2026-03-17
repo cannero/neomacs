@@ -527,10 +527,11 @@ fn locate_file_with_path_and_suffixes(
         suffixes.iter().map(|s| s.as_str()).collect()
     };
 
-    let absolute = Path::new(filename).is_absolute();
+    let absolute = crate::emacs_core::fileio::file_name_absolute_p(filename);
     if absolute || path.is_empty() {
+        let expanded = crate::emacs_core::fileio::expand_file_name(filename, None);
         for suffix in &effective_suffixes {
-            let candidate = format!("{filename}{suffix}");
+            let candidate = format!("{expanded}{suffix}");
             if Path::new(&candidate).exists() && predicate_matches_candidate(predicate, &candidate)?
             {
                 return Ok(Some(candidate));
@@ -540,8 +541,7 @@ fn locate_file_with_path_and_suffixes(
     }
 
     for dir in path {
-        let base = Path::new(dir).join(filename);
-        let base = base.to_string_lossy();
+        let base = crate::emacs_core::fileio::expand_file_name(filename, Some(dir));
         for suffix in &effective_suffixes {
             let candidate = format!("{base}{suffix}");
             if Path::new(&candidate).exists() && predicate_matches_candidate(predicate, &candidate)?

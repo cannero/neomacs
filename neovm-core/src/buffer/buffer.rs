@@ -135,6 +135,8 @@ pub struct Buffer {
     pub multibyte: bool,
     /// Associated file path, if any.
     pub file_name: Option<String>,
+    /// Associated auto-save file path, if any.
+    pub auto_save_file_name: Option<String>,
     /// Active markers that track positions across edits.
     pub markers: Vec<MarkerEntry>,
     /// Buffer-local variables (name -> runtime binding state).
@@ -163,6 +165,10 @@ impl Buffer {
         );
         properties.insert(
             "buffer-file-truename".to_string(),
+            RuntimeBindingValue::Bound(Value::Nil),
+        );
+        properties.insert(
+            "buffer-auto-save-file-name".to_string(),
             RuntimeBindingValue::Bound(Value::Nil),
         );
         properties.insert(
@@ -245,6 +251,7 @@ impl Buffer {
             read_only: false,
             multibyte: true,
             file_name: None,
+            auto_save_file_name: None,
             markers: Vec::new(),
             properties,
             text_props: TextPropertyTable::new(),
@@ -704,6 +711,13 @@ impl Buffer {
                 _ => self.file_name.take(),
             };
         }
+        if name == "buffer-auto-save-file-name" {
+            self.auto_save_file_name = match &value {
+                Value::Str(_) => value.as_str_owned(),
+                Value::Nil => None,
+                _ => self.auto_save_file_name.take(),
+            };
+        }
         self.properties
             .insert(name.to_string(), RuntimeBindingValue::Bound(value));
     }
@@ -711,6 +725,9 @@ impl Buffer {
     pub fn set_buffer_local_void(&mut self, name: &str) {
         if name == "buffer-file-name" {
             self.file_name = None;
+        }
+        if name == "buffer-auto-save-file-name" {
+            self.auto_save_file_name = None;
         }
         self.properties
             .insert(name.to_string(), RuntimeBindingValue::Void);
@@ -725,6 +742,12 @@ impl Buffer {
     pub fn get_buffer_local_binding(&self, name: &str) -> Option<RuntimeBindingValue> {
         if name == "buffer-file-name" {
             return Some(match &self.file_name {
+                Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
+                None => RuntimeBindingValue::Bound(Value::Nil),
+            });
+        }
+        if name == "buffer-auto-save-file-name" {
+            return Some(match &self.auto_save_file_name {
                 Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
                 None => RuntimeBindingValue::Bound(Value::Nil),
             });
@@ -2474,6 +2497,10 @@ mod tests {
         );
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
         assert_eq!(
+            buf.buffer_local_value("buffer-auto-save-file-name"),
+            Some(Value::Nil)
+        );
+        assert_eq!(
             buf.buffer_local_value("buffer-invisibility-spec"),
             Some(Value::True)
         );
@@ -2495,6 +2522,32 @@ mod tests {
         buf.set_buffer_local("buffer-file-name", Value::Nil);
         assert_eq!(buf.file_name, None);
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
+    }
+
+    #[test]
+    fn buffer_auto_save_file_name_variable_tracks_slot_backed_state() {
+        let mut buf = Buffer::new(BufferId(1), "test".into());
+        assert_eq!(
+            buf.buffer_local_value("buffer-auto-save-file-name"),
+            Some(Value::Nil)
+        );
+
+        buf.set_buffer_local(
+            "buffer-auto-save-file-name",
+            Value::string("/tmp/#demo.txt#"),
+        );
+        assert_eq!(buf.auto_save_file_name.as_deref(), Some("/tmp/#demo.txt#"));
+        assert_eq!(
+            buf.buffer_local_value("buffer-auto-save-file-name"),
+            Some(Value::string("/tmp/#demo.txt#"))
+        );
+
+        buf.set_buffer_local("buffer-auto-save-file-name", Value::Nil);
+        assert_eq!(buf.auto_save_file_name, None);
+        assert_eq!(
+            buf.buffer_local_value("buffer-auto-save-file-name"),
+            Some(Value::Nil)
+        );
     }
 
     // -----------------------------------------------------------------------

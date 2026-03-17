@@ -947,6 +947,22 @@ fn bootstrap_runtime_buffer_file_name_variable_defaults_to_nil() {
 }
 
 #[test]
+fn bootstrap_runtime_buffer_auto_save_file_name_variable_defaults_to_nil() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(with-current-buffer "*scratch*"
+             (condition-case err
+                 buffer-auto-save-file-name
+               (error err)))"#,
+    );
+
+    assert_eq!(rendered, "OK nil");
+}
+
+#[test]
 fn bootstrap_runtime_add_to_invisibility_spec_matches_gnu_default_t() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -965,6 +981,46 @@ fn bootstrap_runtime_add_to_invisibility_spec_matches_gnu_default_t() {
 }
 
 #[test]
+fn bootstrap_runtime_view_hello_file_command_path_matches_gnu() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (view-hello-file)
+                 (list (buffer-name)
+                       major-mode
+                       buffer-auto-save-file-name
+                       (stringp buffer-file-name)))
+             (error err))"#,
+    );
+
+    assert_eq!(rendered, "OK (\"HELLO\" fundamental-mode nil t)");
+}
+
+#[test]
+fn bootstrap_runtime_cd_accepts_existing_abbreviated_directory_like_gnu() {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(let* ((dir (abbreviate-file-name default-directory))
+                  (expanded (expand-file-name dir)))
+             (list (file-directory-p dir)
+                   (file-accessible-directory-p dir)
+                   (condition-case err
+                       (progn
+                         (cd dir)
+                         (equal default-directory expanded))
+                     (error err))))"#,
+    );
+
+    assert_eq!(rendered, "OK (t t t)");
+}
+
 fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");

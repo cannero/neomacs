@@ -478,6 +478,8 @@ pub struct DumpBuffer {
     pub read_only: bool,
     pub multibyte: bool,
     pub file_name: Option<String>,
+    #[serde(default)]
+    pub auto_save_file_name: Option<String>,
     pub markers: Vec<DumpMarkerEntry>,
     pub properties: Vec<(String, DumpRuntimeBindingValue)>,
     pub text_props: DumpTextPropertyTable,

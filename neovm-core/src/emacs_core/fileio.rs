@@ -3393,6 +3393,7 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("auto-save-list-file-prefix", Value::Nil);
     obarray.set_symbol_value("auto-save-visited-file-name", Value::Nil);
     obarray.set_symbol_value("auto-save-include-big-deletions", Value::Nil);
+    obarray.set_symbol_value("small-temporary-file-directory", Value::Nil);
     obarray.set_symbol_value("write-region-inhibit-fsync", Value::Nil);
     obarray.set_symbol_value("delete-by-moving-to-trash", Value::Nil);
     obarray.set_symbol_value("auto-save-file-name-transforms", Value::Nil);

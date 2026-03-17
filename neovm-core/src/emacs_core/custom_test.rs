@@ -433,6 +433,20 @@ fn make_variable_buffer_local_works() {
 }
 
 #[test]
+fn make_variable_buffer_local_binds_unbound_symbol_to_nil_like_gnu() {
+    let result = eval_all(
+        r#"(progn
+             (makunbound 'vm-mvbl-unbound)
+             (make-variable-buffer-local 'vm-mvbl-unbound)
+             (list (boundp 'vm-mvbl-unbound)
+                   (default-value 'vm-mvbl-unbound)
+                   (with-temp-buffer
+                     (local-variable-p 'vm-mvbl-unbound))))"#,
+    );
+    assert_eq!(result[0], "OK (t nil nil)");
+}
+
+#[test]
 fn make_variable_buffer_local_resolves_alias_for_auto_local_assignment() {
     let result = eval_all(
         r#"(setq vm-mvbl-base 1)

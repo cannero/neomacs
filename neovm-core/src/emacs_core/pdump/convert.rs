@@ -568,6 +568,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         read_only: buf.read_only,
         multibyte: buf.multibyte,
         file_name: buf.file_name.clone(),
+        auto_save_file_name: buf.auto_save_file_name.clone(),
         markers: buf.markers.iter().map(dump_marker).collect(),
         properties: buf
             .properties
@@ -1745,6 +1746,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         read_only: db.read_only,
         multibyte: db.multibyte,
         file_name: db.file_name.clone(),
+        auto_save_file_name: db.auto_save_file_name.clone(),
         markers,
         properties: db
             .properties
