@@ -358,6 +358,34 @@ fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics()
 }
 
 #[test]
+fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
+    let mut eval = super::super::eval::Evaluator::new();
+    eval.obarray.set_symbol_value(
+        "unsafe-mode-line",
+        Value::list(vec![
+            Value::symbol(":eval"),
+            Value::list(vec![Value::symbol("error"), Value::string("boom")]),
+        ]),
+    );
+    eval.obarray.set_symbol_value(
+        "trusted-mode-line",
+        Value::list(vec![Value::symbol(":eval"), Value::string("ok")]),
+    );
+    eval.obarray
+        .put_property("trusted-mode-line", "risky-local-variable", Value::True);
+
+    let suppressed =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::symbol("unsafe-mode-line")])
+            .expect("unsafe mode-line variable should be suppressed");
+    let allowed =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::symbol("trusted-mode-line")])
+            .expect("trusted mode-line variable should evaluate");
+
+    assert_eq!(suppressed, Value::string(""));
+    assert_eq!(allowed, Value::string("ok"));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

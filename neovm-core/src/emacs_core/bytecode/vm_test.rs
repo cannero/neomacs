@@ -4924,6 +4924,20 @@ fn vm_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics() {
 }
 
 #[test]
+fn vm_format_mode_line_respects_risky_local_variable_for_eval_forms() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((unsafe-mode-line '(:eval (error "boom")))
+                      (trusted-mode-line '(:eval "ok")))
+                 (put 'trusted-mode-line 'risky-local-variable t)
+                 (list (format-mode-line 'unsafe-mode-line)
+                       (format-mode-line 'trusted-mode-line)))"#
+        ),
+        r#"OK ("" "ok")"#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

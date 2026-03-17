@@ -134,6 +134,7 @@ pub(crate) fn builtin_format_mode_line_in_state(
         &format_val,
         &mut result,
         0,
+        false,
     );
 
     if let Some(buffer_id) = saved_buffer {
@@ -173,7 +174,7 @@ pub(crate) fn finish_format_mode_line_in_eval(
     } else {
         let format_val = args[0];
         let mut result = String::new();
-        format_mode_line_recursive(eval, &format_val, &mut result, 0);
+        format_mode_line_recursive(eval, &format_val, &mut result, 0, false);
         Value::string(&result)
     };
 
@@ -213,6 +214,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
             &format_val,
             &mut result,
             0,
+            false,
             &mut eval_form,
         )?;
         Value::string(&result)
@@ -252,6 +254,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
             &format_val,
             &mut result,
             0,
+            false,
         )?;
         Value::string(&result)
     };
@@ -282,6 +285,12 @@ fn mode_line_symbol_value_in_state(
     }
 
     obarray.symbol_value(name).copied()
+}
+
+fn mode_line_symbol_is_risky(obarray: &crate::emacs_core::symbol::Obarray, name: &str) -> bool {
+    obarray
+        .get_property(name, "risky-local-variable")
+        .is_some_and(|value| !value.is_nil())
 }
 
 fn mode_line_conditional_branch(cdr: Value, branch_is_then: bool) -> Option<Value> {
@@ -350,6 +359,7 @@ fn format_mode_line_recursive(
     format: &Value,
     result: &mut String,
     depth: usize,
+    risky: bool,
 ) {
     if depth > 20 {
         return; // Guard against infinite recursion
@@ -388,7 +398,13 @@ fn format_mode_line_recursive(
                     if let Some(text) = val.as_str() {
                         append_mode_line_string_in_state(&eval.buffers, result, text, true);
                     } else {
-                        format_mode_line_recursive(eval, &val, result, depth + 1);
+                        format_mode_line_recursive(
+                            eval,
+                            &val,
+                            result,
+                            depth + 1,
+                            risky || !mode_line_symbol_is_risky(&eval.obarray, name),
+                        );
                     }
                 }
             }
@@ -400,10 +416,13 @@ fn format_mode_line_recursive(
 
             // (:eval FORM)
             if car.is_symbol_named(":eval") {
+                if risky {
+                    return;
+                }
                 if cdr.is_cons() {
                     let form_val = cdr.cons_car();
                     if let Ok(val) = eval.eval_value(&form_val) {
-                        format_mode_line_recursive(eval, &val, result, depth + 1);
+                        format_mode_line_recursive(eval, &val, result, depth + 1, risky);
                     }
                 }
                 return;
@@ -411,16 +430,19 @@ fn format_mode_line_recursive(
 
             // (:propertize ELT PROPS...) — process ELT, ignore properties
             if car.is_symbol_named(":propertize") {
+                if risky {
+                    return;
+                }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
-                    format_mode_line_recursive(eval, &elt, result, depth + 1);
+                    format_mode_line_recursive(eval, &elt, result, depth + 1, risky);
                 }
                 return;
             }
 
             if let Value::Int(lim) = car {
                 let mut nested = String::new();
-                format_mode_line_recursive(eval, &cdr, &mut nested, depth + 1);
+                format_mode_line_recursive(eval, &cdr, &mut nested, depth + 1, risky);
                 append_mode_line_rendered_segment(
                     result,
                     &nested,
@@ -443,9 +465,9 @@ fn format_mode_line_recursive(
                     .is_some_and(|value| value.is_truthy())
                     && let Some(branch) = mode_line_conditional_branch(cdr, true)
                 {
-                    format_mode_line_recursive(eval, &branch, result, depth + 1);
+                    format_mode_line_recursive(eval, &branch, result, depth + 1, risky);
                 } else if let Some(branch) = mode_line_conditional_branch(cdr, false) {
-                    format_mode_line_recursive(eval, &branch, result, depth + 1);
+                    format_mode_line_recursive(eval, &branch, result, depth + 1, risky);
                 }
                 return;
             }
@@ -453,7 +475,7 @@ fn format_mode_line_recursive(
             // Regular list: process each element
             if let Some(elements) = list_to_vec(format) {
                 for elem in &elements {
-                    format_mode_line_recursive(eval, elem, result, depth + 1);
+                    format_mode_line_recursive(eval, elem, result, depth + 1, risky);
                 }
             }
         }
@@ -474,6 +496,7 @@ fn format_mode_line_recursive_in_state(
     format: &Value,
     result: &mut String,
     depth: usize,
+    risky: bool,
 ) -> bool {
     if depth > 20 {
         return false;
@@ -508,6 +531,7 @@ fn format_mode_line_recursive_in_state(
                         &val,
                         result,
                         depth + 1,
+                        risky || !mode_line_symbol_is_risky(obarray, name),
                     ) {
                         return true;
                     }
@@ -520,10 +544,16 @@ fn format_mode_line_recursive_in_state(
             let cdr = format.cons_cdr();
 
             if car.is_symbol_named(":eval") {
+                if risky {
+                    return false;
+                }
                 return true;
             }
 
             if car.is_symbol_named(":propertize") {
+                if risky {
+                    return false;
+                }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
                     return format_mode_line_recursive_in_state(
@@ -533,6 +563,7 @@ fn format_mode_line_recursive_in_state(
                         &elt,
                         result,
                         depth + 1,
+                        risky,
                     );
                 }
                 return false;
@@ -547,6 +578,7 @@ fn format_mode_line_recursive_in_state(
                     &cdr,
                     &mut nested,
                     depth + 1,
+                    risky,
                 );
                 append_mode_line_rendered_segment(
                     result,
@@ -574,6 +606,7 @@ fn format_mode_line_recursive_in_state(
                         &branch,
                         result,
                         depth + 1,
+                        risky,
                     );
                 }
                 return false;
@@ -588,6 +621,7 @@ fn format_mode_line_recursive_in_state(
                         elem,
                         result,
                         depth + 1,
+                        risky,
                     ) {
                         return true;
                     }
@@ -612,6 +646,7 @@ fn format_mode_line_recursive_in_state_with_eval(
     format: &Value,
     result: &mut String,
     depth: usize,
+    risky: bool,
     eval_form: &mut impl FnMut(&Value, &crate::buffer::BufferManager) -> Result<Value, Flow>,
 ) -> Result<(), Flow> {
     if depth > 20 {
@@ -648,6 +683,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                             &val,
                             result,
                             depth + 1,
+                            risky || !mode_line_symbol_is_risky(obarray, name),
                             eval_form,
                         )?;
                     }
@@ -660,6 +696,9 @@ fn format_mode_line_recursive_in_state_with_eval(
             let cdr = format.cons_cdr();
 
             if car.is_symbol_named(":eval") {
+                if risky {
+                    return Ok(());
+                }
                 if cdr.is_cons() {
                     let form_val = cdr.cons_car();
                     let val = eval_form(&form_val, buffers)?;
@@ -670,6 +709,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         &val,
                         result,
                         depth + 1,
+                        risky,
                         eval_form,
                     )?;
                 }
@@ -677,6 +717,9 @@ fn format_mode_line_recursive_in_state_with_eval(
             }
 
             if car.is_symbol_named(":propertize") {
+                if risky {
+                    return Ok(());
+                }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
                     format_mode_line_recursive_in_state_with_eval(
@@ -686,6 +729,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         &elt,
                         result,
                         depth + 1,
+                        risky,
                         eval_form,
                     )?;
                 }
@@ -701,6 +745,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                     &cdr,
                     &mut nested,
                     depth + 1,
+                    risky,
                     eval_form,
                 )?;
                 append_mode_line_rendered_segment(
@@ -729,6 +774,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         &branch,
                         result,
                         depth + 1,
+                        risky,
                         eval_form,
                     )?;
                 }
@@ -744,6 +790,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         elem,
                         result,
                         depth + 1,
+                        risky,
                         eval_form,
                     )?;
                 }
@@ -767,6 +814,7 @@ fn format_mode_line_recursive_in_vm_runtime(
     format: &Value,
     result: &mut String,
     depth: usize,
+    risky: bool,
 ) -> Result<(), Flow> {
     if depth > 20 {
         return Ok(());
@@ -808,6 +856,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                             &val,
                             result,
                             depth + 1,
+                            risky || !mode_line_symbol_is_risky(&shared.obarray, name),
                         )?;
                     }
                 }
@@ -819,6 +868,9 @@ fn format_mode_line_recursive_in_vm_runtime(
             let cdr = format.cons_cdr();
 
             if car.is_symbol_named(":eval") {
+                if risky {
+                    return Ok(());
+                }
                 if cdr.is_cons() {
                     let form_val = cdr.cons_car();
                     let mut extra_roots = args_roots.to_vec();
@@ -835,12 +887,16 @@ fn format_mode_line_recursive_in_vm_runtime(
                         &val,
                         result,
                         depth + 1,
+                        risky,
                     )?;
                 }
                 return Ok(());
             }
 
             if car.is_symbol_named(":propertize") {
+                if risky {
+                    return Ok(());
+                }
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
                     format_mode_line_recursive_in_vm_runtime(
@@ -850,6 +906,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                         &elt,
                         result,
                         depth + 1,
+                        risky,
                     )?;
                 }
                 return Ok(());
@@ -864,6 +921,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                     &cdr,
                     &mut nested,
                     depth + 1,
+                    risky,
                 )?;
                 append_mode_line_rendered_segment(
                     result,
@@ -895,6 +953,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                             &branch,
                             result,
                             depth + 1,
+                            risky,
                         )?;
                     }
                 }
@@ -910,6 +969,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                         elem,
                         result,
                         depth + 1,
+                        risky,
                     )?;
                 }
             }
