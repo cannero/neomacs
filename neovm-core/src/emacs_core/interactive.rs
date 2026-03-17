@@ -1521,6 +1521,14 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 kind,
             )),
             'r' => args.extend(interactive_region_args_in_buffers(shared.buffers, "error")?),
+            'R' => {
+                if interactive_use_region_p_in_vm_runtime(shared, vm_gc_roots)? {
+                    args.extend(interactive_region_args_in_buffers(shared.buffers, "error")?);
+                } else {
+                    args.push(Value::Nil);
+                    args.push(Value::Nil);
+                }
+            }
             'n' => {
                 let letter_args = [Value::string(prompt)];
                 args.push(super::reader::finish_read_number_in_vm_runtime(
@@ -1707,6 +1715,17 @@ fn interactive_read_coding_system_optional_arg(prompt: String) -> Result<Value, 
         Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file" => Ok(Value::Nil),
         Err(flow) => Err(flow),
     }
+}
+
+fn interactive_use_region_p_in_vm_runtime(
+    shared: &mut super::eval::VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+) -> Result<bool, Flow> {
+    shared
+        .with_parent_evaluator_vm_roots(vm_gc_roots, &[], |eval| {
+            eval.apply(Value::symbol("use-region-p"), vec![])
+        })
+        .map(|value| value.is_truthy())
 }
 
 fn interactive_buffer_read_only_active(eval: &Evaluator, buf: &crate::buffer::Buffer) -> bool {

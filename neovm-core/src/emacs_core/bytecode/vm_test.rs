@@ -1529,6 +1529,30 @@ fn vm_call_interactively_handles_number_and_optional_coding_prompt_cases_on_shar
 }
 
 #[test]
+fn vm_call_interactively_handles_r_capital_spec_via_use_region_p_on_shared_runtime() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list
+                 (progn
+                   (fset 'use-region-p (lambda () nil))
+                   (call-interactively
+                    '(lambda (beg end) (interactive "R") (list beg end))))
+                 (progn
+                   (fset 'use-region-p (lambda () t))
+                   (call-interactively
+                    '(lambda (beg end) (interactive "R") (list beg end)))))"#,
+            |eval| {
+                let current = eval.buffers.current_buffer_id().expect("current buffer");
+                let _ = eval.buffers.replace_buffer_contents(current, "abcd");
+                let _ = eval.buffers.goto_buffer_byte(current, 2);
+                let _ = eval.buffers.set_buffer_mark(current, 1);
+            },
+        ),
+        "OK ((nil nil) (2 3))"
+    );
+}
+
+#[test]
 fn vm_yes_or_no_p_uses_shared_runtime_batch_path() {
     assert_eq!(
         vm_eval_str(
