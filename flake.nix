@@ -308,6 +308,13 @@
 
               if [ -n "$DISPLAY" ]; then
                 echo "Display: DISPLAY=$DISPLAY  XAUTHORITY=''${XAUTHORITY:-(unset)}"
+                if ! timeout 2s ${pkgs.xdpyinfo}/bin/xdpyinfo >/dev/null 2>&1; then
+                  export NEOMACS_X11_UNUSABLE=1
+                  echo "Warning: X11 display handshake failed for DISPLAY=$DISPLAY."
+                  echo "         GUI clients like winit/Neomacs may hang before the first window appears."
+                  echo "         Run from a working desktop terminal, set a valid DISPLAY/XAUTHORITY,"
+                  echo "         or use a private X server like Xvfb for automated probes."
+                fi
               else
                 echo "Display: (no X11/Wayland display detected)"
               fi

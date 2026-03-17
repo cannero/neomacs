@@ -249,6 +249,10 @@ pub fn run_render_loop(
     // Use any_thread() since we're running on a non-main thread
     #[cfg(target_os = "linux")]
     let event_loop = {
+        tracing::info!(
+            "Render thread building winit event loop (wayland_display_present={})",
+            std::env::var("WAYLAND_DISPLAY").is_ok()
+        );
         let mut builder = EventLoop::builder();
         // Try Wayland first, fall back to X11
         if std::env::var("WAYLAND_DISPLAY").is_ok() {
@@ -256,7 +260,9 @@ pub fn run_render_loop(
         } else {
             EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
         }
-        builder.build().expect("Failed to create event loop")
+        let event_loop = builder.build().expect("Failed to create event loop");
+        tracing::info!("Render thread built winit event loop");
+        event_loop
     };
     #[cfg(not(target_os = "linux"))]
     let event_loop = EventLoop::new().expect("Failed to create event loop");
@@ -277,6 +283,7 @@ pub fn run_render_loop(
         shared_terminals,
     );
 
+    tracing::info!("Render thread entering winit event loop");
     let result = event_loop.run_app(&mut app);
     if let Err(ref e) = result {
         tracing::error!("Event loop error: {:?}", e);

@@ -5,6 +5,16 @@ use winit::window::Window;
 
 impl RenderApp {
     pub(super) fn handle_resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.resumed_seen {
+            tracing::info!(
+                "Render thread resumed: primary_window_exists={} size={}x{} title={:?}",
+                self.window.is_some(),
+                self.width,
+                self.height,
+                self.title
+            );
+            self.resumed_seen = true;
+        }
         if self.window.is_none() {
             // Use LogicalSize so winit applies the display scale
             let attrs = Window::default_attributes()
@@ -12,6 +22,12 @@ impl RenderApp {
                 .with_inner_size(winit::dpi::LogicalSize::new(self.width, self.height))
                 .with_transparent(true);
 
+            tracing::info!(
+                "Render thread creating primary window: logical={}x{} title={:?}",
+                self.width,
+                self.height,
+                self.title
+            );
             match event_loop.create_window(attrs) {
                 Ok(window) => {
                     let window = Arc::new(window);
@@ -99,6 +115,14 @@ impl RenderApp {
     }
 
     pub(super) fn handle_about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.about_to_wait_seen {
+            tracing::info!(
+                "Render thread entered about_to_wait: primary_window_exists={} multi_windows={}",
+                self.window.is_some(),
+                self.multi_windows.count()
+            );
+            self.about_to_wait_seen = true;
+        }
         // Check for shutdown
         if self.process_commands() {
             event_loop.exit();

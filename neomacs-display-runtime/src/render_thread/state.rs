@@ -287,6 +287,8 @@ pub(super) struct RenderApp {
     pub(super) shared_monitors: Option<SharedMonitorInfo>,
     pub(super) monitors_populated: bool,
     pub(super) debug_first_frame_readback_pending: bool,
+    pub(super) resumed_seen: bool,
+    pub(super) about_to_wait_seen: bool,
 }
 
 impl RenderApp {
@@ -387,6 +389,8 @@ impl RenderApp {
                 "NEOMACS_DEBUG_FIRST_FRAME_READBACK",
             )
             .is_some(),
+            resumed_seen: false,
+            about_to_wait_seen: false,
         }
     }
 }
