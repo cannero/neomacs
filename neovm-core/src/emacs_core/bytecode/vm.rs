@@ -2471,6 +2471,17 @@ impl<'a> Vm<'a> {
         }
     }
 
+    fn builtin_map_char_table_shared(&mut self, args: &[Value]) -> EvalResult {
+        builtins::expect_args("map-char-table", args, 2)?;
+        let function = args[0];
+        crate::emacs_core::chartable::for_each_char_table_mapping(&args[1], |key, value| {
+            let call_args = [key, value];
+            let _ = self.call_function_with_roots(function, &call_args)?;
+            Ok(())
+        })?;
+        Ok(Value::Nil)
+    }
+
     fn builtin_command_remapping_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::interactive::builtin_command_remapping_in_state(
             &*self.shared.obarray,
@@ -3730,6 +3741,7 @@ impl<'a> Vm<'a> {
             "copy-syntax-table" => Some(crate::emacs_core::syntax::builtin_copy_syntax_table(
                 args.to_vec(),
             )),
+            "map-char-table" => Some(self.builtin_map_char_table_shared(args)),
             "current-indentation" => Some(self.builtin_current_indentation_shared(args)),
             "indent-to" => Some(self.builtin_indent_to_shared(args)),
             "current-column" => Some(self.builtin_current_column_shared(args)),
@@ -5126,6 +5138,27 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "set-default" => Some(self.builtin_set_default_shared(args)),
+            "add-variable-watcher" => Some(
+                crate::emacs_core::advice::builtin_add_variable_watcher_in_state(
+                    &*self.shared.obarray,
+                    self.shared.watchers,
+                    args.to_vec(),
+                ),
+            ),
+            "remove-variable-watcher" => Some(
+                crate::emacs_core::advice::builtin_remove_variable_watcher_in_state(
+                    &*self.shared.obarray,
+                    self.shared.watchers,
+                    args.to_vec(),
+                ),
+            ),
+            "get-variable-watchers" => Some(
+                crate::emacs_core::advice::builtin_get_variable_watchers_in_state(
+                    &*self.shared.obarray,
+                    &*self.shared.watchers,
+                    args.to_vec(),
+                ),
+            ),
             "make-variable-buffer-local" => Some(
                 crate::emacs_core::custom::builtin_make_variable_buffer_local_with_state(
                     self.shared.obarray,
@@ -6025,6 +6058,20 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "file-acl" => Some(crate::emacs_core::fileio::builtin_file_acl_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "file-selinux-context" => Some(
+                crate::emacs_core::fileio::builtin_file_selinux_context_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    &*self.shared.buffers,
+                    args.to_vec(),
+                ),
+            ),
             "file-system-info" => Some(
                 crate::emacs_core::fileio::builtin_file_system_info_in_state(
                     &*self.shared.obarray,
@@ -6104,6 +6151,12 @@ impl<'a> Vm<'a> {
                     &*self.shared.buffers,
                     args.to_vec(),
                 ),
+            ),
+            "default-file-modes" => Some(crate::emacs_core::fileio::builtin_default_file_modes(
+                args.to_vec(),
+            )),
+            "set-default-file-modes" => Some(
+                crate::emacs_core::fileio::builtin_set_default_file_modes(args.to_vec()),
             ),
             "insert-file-contents" => Some(
                 crate::emacs_core::fileio::builtin_insert_file_contents_in_state(
@@ -7227,6 +7280,13 @@ impl<'a> Vm<'a> {
             "coding-system-priority-list" => Some(
                 crate::emacs_core::coding::builtin_coding_system_priority_list(
                     &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "find-coding-systems-region-internal" => Some(
+                crate::emacs_core::coding::builtin_find_coding_systems_region_internal_in_state(
+                    &*self.shared.coding_systems,
+                    &*self.shared.buffers,
                     args.to_vec(),
                 ),
             ),

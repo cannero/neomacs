@@ -533,11 +533,10 @@ pub(crate) fn builtin_set_char_table_parent(args: Vec<Value>) -> EvalResult {
 /// retains those keys, later internal mutations are observable.  Mirror that
 /// behavior instead of materializing fresh range objects.
 /// Returns nil.
-pub(crate) fn builtin_map_char_table(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_args("map-char-table", &args, 2)?;
-    let func = args[0];
-    let table = &args[1];
-
+pub(crate) fn for_each_char_table_mapping(
+    table: &Value,
+    mut f: impl FnMut(Value, Value) -> Result<(), Flow>,
+) -> Result<(), Flow> {
     match table {
         Value::Vector(_) if is_char_table(table) => {}
         _ => return Err(wrong_type("char-table-p", table)),
@@ -555,8 +554,19 @@ pub(crate) fn builtin_map_char_table(eval: &mut Evaluator, args: Vec<Value>) -> 
         } else {
             shared_range
         };
-        eval.apply(func, vec![key, run.value])?;
+        f(key, run.value)?;
     }
+    Ok(())
+}
+
+pub(crate) fn builtin_map_char_table(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+    expect_args("map-char-table", &args, 2)?;
+    let func = args[0];
+    let table = args[1];
+    for_each_char_table_mapping(&table, |key, value| {
+        let _ = eval.apply(func, vec![key, value])?;
+        Ok(())
+    })?;
     Ok(Value::Nil)
 }
 

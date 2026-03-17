@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use super::intern::resolve_sym;
+use super::symbol::Obarray;
 use super::value::Value;
 use crate::gc::GcTrace;
 
@@ -206,10 +207,26 @@ pub(crate) fn builtin_add_variable_watcher(
     expect_args("add-variable-watcher", &args, 2)?;
 
     let var_name = expect_symbol_name(&args[0])?;
-    let resolved = super::builtins::resolve_variable_alias_name(eval, &var_name)?;
+    let resolved =
+        super::builtins::resolve_variable_alias_name_in_obarray(eval.obarray(), &var_name)?;
     let callback = args[1];
 
     eval.watchers.add_watcher(&resolved, callback);
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_add_variable_watcher_in_state(
+    obarray: &Obarray,
+    watchers: &mut VariableWatcherList,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("add-variable-watcher", &args, 2)?;
+
+    let var_name = expect_symbol_name(&args[0])?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, &var_name)?;
+    let callback = args[1];
+
+    watchers.add_watcher(&resolved, callback);
     Ok(Value::Nil)
 }
 
@@ -223,10 +240,26 @@ pub(crate) fn builtin_remove_variable_watcher(
     expect_args("remove-variable-watcher", &args, 2)?;
 
     let var_name = expect_symbol_name(&args[0])?;
-    let resolved = super::builtins::resolve_variable_alias_name(eval, &var_name)?;
+    let resolved =
+        super::builtins::resolve_variable_alias_name_in_obarray(eval.obarray(), &var_name)?;
     let callback = args[1];
 
     eval.watchers.remove_watcher(&resolved, &callback);
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_remove_variable_watcher_in_state(
+    obarray: &Obarray,
+    watchers: &mut VariableWatcherList,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("remove-variable-watcher", &args, 2)?;
+
+    let var_name = expect_symbol_name(&args[0])?;
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, &var_name)?;
+    let callback = args[1];
+
+    watchers.remove_watcher(&resolved, &callback);
     Ok(Value::Nil)
 }
 
@@ -237,11 +270,19 @@ pub(crate) fn builtin_get_variable_watchers(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_get_variable_watchers_in_state(eval.obarray(), &eval.watchers, args)
+}
+
+pub(crate) fn builtin_get_variable_watchers_in_state(
+    obarray: &Obarray,
+    watchers: &VariableWatcherList,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("get-variable-watchers", &args, 1)?;
 
     let var_name = expect_symbol_name(&args[0])?;
-    let resolved = super::builtins::resolve_variable_alias_name(eval, &var_name)?;
-    Ok(Value::list(eval.watchers.get_watchers(&resolved)))
+    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, &var_name)?;
+    Ok(Value::list(watchers.get_watchers(&resolved)))
 }
 
 // ---------------------------------------------------------------------------

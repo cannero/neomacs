@@ -335,6 +335,24 @@ fn vm_eval_preserves_variable_watcher_registry_across_builtin_dispatch() {
 }
 
 #[test]
+fn vm_variable_watcher_management_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            "(progn
+               (defvar vm-vw-base nil)
+               (defvaralias 'vm-vw-alias 'vm-vw-base)
+               (add-variable-watcher 'vm-vw-alias 'ignore)
+               (list
+                 (get-variable-watchers 'vm-vw-base)
+                 (progn
+                   (remove-variable-watcher 'vm-vw-alias 'ignore)
+                   (get-variable-watchers 'vm-vw-base))))"
+        ),
+        "OK ((ignore) nil)"
+    );
+}
+
+#[test]
 fn vm_varset_triggers_variable_watcher_callbacks() {
     assert_eq!(
         vm_eval_str(
@@ -3664,6 +3682,45 @@ fn vm_file_metadata_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_file_metadata_tail_and_coding_scan_builtins_use_direct_dispatch() {
+    let base = std::env::temp_dir().join(format!(
+        "neovm-vm-file-metadata-tail-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).expect("create base");
+    std::fs::write(base.join("alpha.txt"), b"alpha").expect("write alpha");
+    let base_str = format!("{}/", base.to_string_lossy());
+
+    let result = vm_eval_with_init_str(
+        r#"(let ((orig (default-file-modes)))
+             (prog1
+                 (progn
+                   (erase-buffer)
+                   (set-buffer-multibyte t)
+                   (insert "abc")
+                   (list
+                    (progn (set-default-file-modes #o700) (default-file-modes))
+                    (file-acl "alpha.txt")
+                    (equal (file-selinux-context "alpha.txt") '(nil nil nil nil))
+                    (find-coding-systems-region-internal 1 4)))
+               (set-default-file-modes orig)))"#,
+        |eval| {
+            eval.obarray
+                .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
+            let current = eval.buffers.current_buffer_id().expect("current buffer");
+            eval.buffers
+                .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
+                .expect("buffer local default-directory should set");
+        },
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+
+    assert_eq!(result, r#"OK (448 nil t t)"#);
+}
+
+#[test]
 fn vm_font_builtins_accept_live_frame_designators_on_shared_state() {
     assert_eq!(
         vm_eval_str(
@@ -3793,6 +3850,29 @@ fn vm_char_table_and_copy_syntax_table_builtins_use_direct_dispatch() {
                         (eq (char-table-subtype table) 'syntax-table))))"#
         ),
         "OK ((t t t t) t)"
+    );
+}
+
+#[test]
+fn vm_map_char_table_uses_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((seen nil)
+                     (table (make-char-table 'syntax-table nil)))
+                 (set-char-table-range table ?a 'word)
+                 (set-char-table-range table ?b 'word)
+                 (set-char-table-range table ?z 'symbol)
+                 (map-char-table
+                  (lambda (key val)
+                    (setq seen
+                          (cons (if (consp key)
+                                    (list (car key) (cdr key) val)
+                                  (list key key val))
+                                seen)))
+                  table)
+                 (nreverse seen))"#
+        ),
+        "OK ((97 98 word) (122 122 122))"
     );
 }
 

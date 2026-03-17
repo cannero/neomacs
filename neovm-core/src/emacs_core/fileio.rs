@@ -1793,13 +1793,21 @@ pub(crate) fn builtin_file_acl(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_file_acl_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("file-acl", &args, 1)?;
+    let filename = expect_string_strict(&args[0])?;
+    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    Ok(Value::Nil)
+}
+
 /// Evaluator-aware variant of `file-acl`.
 pub(crate) fn builtin_file_acl_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
-    expect_args("file-acl", &args, 1)?;
-    if let Some(filename) = args.first().and_then(|value| value.as_str()) {
-        let _ = resolve_filename_for_eval(eval, filename);
-    }
-    Ok(Value::Nil)
+    builtin_file_acl_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
 /// (set-file-acl FILENAME ACL) -> nil
@@ -1847,17 +1855,31 @@ pub(crate) fn builtin_file_selinux_context(args: Vec<Value>) -> EvalResult {
     ]))
 }
 
-/// Evaluator-aware variant of `file-selinux-context`.
-pub(crate) fn builtin_file_selinux_context_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_selinux_context_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("file-selinux-context", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let _filename = resolve_filename_for_eval(eval, &filename);
+    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::list(vec![
         Value::Nil,
         Value::Nil,
         Value::Nil,
         Value::Nil,
     ]))
+}
+
+/// Evaluator-aware variant of `file-selinux-context`.
+pub(crate) fn builtin_file_selinux_context_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+    builtin_file_selinux_context_in_state(
+        &eval.obarray,
+        eval.dynamic.as_slice(),
+        &eval.buffers,
+        args,
+    )
 }
 
 /// (set-file-selinux-context FILENAME CONTEXT) -> nil
