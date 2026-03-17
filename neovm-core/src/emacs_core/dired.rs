@@ -733,8 +733,51 @@ pub(crate) fn finish_file_name_completion_with_eval_predicate(
     file: String,
     completions: Vec<String>,
 ) -> EvalResult {
-    let completions =
-        filter_completions_by_eval_predicate(eval, predicate, &directory, completions)?;
+    let Some(predicate) = predicate.copied() else {
+        return Ok(resolve_file_name_completion(&file, completions));
+    };
+    if predicate.is_nil() {
+        return Ok(resolve_file_name_completion(&file, completions));
+    }
+
+    let use_absolute_path = predicate_uses_absolute_file_argument(&eval.obarray, &predicate);
+    let bound_directory = directory.clone();
+    finish_file_name_completion_with_callable_predicate(
+        use_absolute_path,
+        directory,
+        file,
+        completions,
+        |predicate_arg| {
+            with_default_directory_binding(eval, bound_directory.as_str(), |eval| {
+                eval.apply(predicate, vec![predicate_arg])
+            })
+        },
+    )
+}
+
+pub(crate) fn predicate_uses_absolute_file_argument(
+    obarray: &super::symbol::Obarray,
+    predicate: &Value,
+) -> bool {
+    let Some(symbol) = predicate_callable_name(predicate) else {
+        return false;
+    };
+    obarray.symbol_function(symbol).is_none() && is_builtin_path_predicate(symbol)
+}
+
+pub(crate) fn finish_file_name_completion_with_callable_predicate(
+    use_absolute_path: bool,
+    directory: String,
+    file: String,
+    completions: Vec<String>,
+    mut predicate_call: impl FnMut(Value) -> Result<Value, Flow>,
+) -> EvalResult {
+    let completions = filter_completions_by_callable_predicate(
+        use_absolute_path,
+        directory.as_str(),
+        completions,
+        |predicate_arg| predicate_call(predicate_arg),
+    )?;
     Ok(resolve_file_name_completion(&file, completions))
 }
 
@@ -851,26 +894,17 @@ fn symbol_predicate_matches_candidate(
     Ok(true)
 }
 
-fn filter_completions_by_eval_predicate(
-    eval: &mut Evaluator,
-    predicate: Option<&Value>,
+fn filter_completions_by_callable_predicate(
+    use_absolute_path: bool,
     directory: &str,
     completions: Vec<String>,
+    mut predicate_call: impl FnMut(Value) -> Result<Value, Flow>,
 ) -> Result<Vec<String>, Flow> {
-    let Some(predicate) = predicate else {
-        return Ok(completions);
-    };
-    if predicate.is_nil() {
-        return Ok(completions);
-    }
-
     let mut filtered = Vec::new();
     for candidate in completions {
-        let predicate_arg = predicate_argument_for_eval(eval, predicate, directory, &candidate);
-        let keep = with_default_directory_binding(eval, directory, |eval| {
-            eval.apply(*predicate, vec![predicate_arg])
-        })?
-        .is_truthy();
+        let predicate_arg =
+            predicate_argument_for_callable_predicate(use_absolute_path, directory, &candidate);
+        let keep = predicate_call(predicate_arg)?.is_truthy();
         if keep {
             filtered.push(candidate);
         }
@@ -891,20 +925,12 @@ fn with_default_directory_binding<T>(
     result
 }
 
-fn predicate_argument_for_eval(
-    eval: &Evaluator,
-    predicate: &Value,
+fn predicate_argument_for_callable_predicate(
+    use_absolute_path: bool,
     directory: &str,
     candidate: &str,
 ) -> Value {
-    let Some(symbol) = predicate_callable_name(predicate) else {
-        return Value::string(candidate);
-    };
-
-    // NeoVM path predicates currently resolve relative paths against process CWD.
-    // For builtin path predicates, pass an absolute candidate to match Emacs behavior
-    // where relative paths are interpreted under bound `default-directory`.
-    if eval.obarray.symbol_function(symbol).is_none() && is_builtin_path_predicate(symbol) {
+    if use_absolute_path {
         let absolute = std::path::Path::new(directory).join(candidate);
         return Value::string(absolute.to_string_lossy().into_owned());
     }

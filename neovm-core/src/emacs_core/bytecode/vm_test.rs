@@ -2188,7 +2188,7 @@ fn vm_printer_builtins_use_shared_runtime_entry() {
 }
 
 #[test]
-fn vm_write_char_and_terpri_callable_targets_use_shared_eval_body() {
+fn vm_write_char_and_terpri_callable_targets_use_shared_runtime_callback() {
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3360,7 +3360,7 @@ fn vm_dired_builtins_use_shared_default_directory_state() {
 }
 
 #[test]
-fn vm_file_name_completion_callable_predicate_uses_shared_scan_and_eval_callback() {
+fn vm_file_name_completion_callable_predicate_uses_shared_runtime_callback() {
     let base = std::env::temp_dir().join(format!(
         "neovm-vm-file-name-completion-callable-{}",
         std::process::id()

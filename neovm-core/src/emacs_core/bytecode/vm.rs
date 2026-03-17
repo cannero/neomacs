@@ -6506,6 +6506,19 @@ impl<'a> Vm<'a> {
         })
     }
 
+    fn with_default_directory_binding<T>(
+        &mut self,
+        directory: &str,
+        f: impl FnOnce(&mut Self) -> Result<T, Flow>,
+    ) -> Result<T, Flow> {
+        let mut frame = OrderedRuntimeBindingMap::new();
+        frame.insert(intern("default-directory"), Value::string(directory));
+        self.shared.dynamic.push(frame);
+        let result = f(self);
+        self.shared.dynamic.pop();
+        result
+    }
+
     fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
         if let Some(value) = crate::emacs_core::xdisp::builtin_format_mode_line_in_state(
             &*self.shared.obarray,
@@ -6572,24 +6585,29 @@ impl<'a> Vm<'a> {
                     && !matches!(predicate, Value::Symbol(_) | Value::Subr(_))
         );
         if needs_eval_predicate {
-            let extra_roots = args.to_vec();
-            let call_args = extra_roots.clone();
-            return self.with_shared_evaluator(&extra_roots, move |eval| {
-                let plan = crate::emacs_core::dired::prepare_file_name_completion_in_state(
-                    &eval.obarray,
-                    eval.dynamic.as_slice(),
-                    &eval.buffers,
-                    &call_args,
-                )?;
-                let predicate = call_args.get(2);
-                crate::emacs_core::dired::finish_file_name_completion_with_eval_predicate(
-                    eval,
-                    predicate,
-                    plan.directory,
-                    plan.file,
-                    plan.completions,
-                )
-            });
+            let plan = crate::emacs_core::dired::prepare_file_name_completion_in_state(
+                &*self.shared.obarray,
+                self.shared.dynamic.as_slice(),
+                &*self.shared.buffers,
+                args,
+            )?;
+            let predicate = args[2];
+            let use_absolute_path = crate::emacs_core::dired::predicate_uses_absolute_file_argument(
+                &*self.shared.obarray,
+                &predicate,
+            );
+            let bound_directory = plan.directory.clone();
+            return crate::emacs_core::dired::finish_file_name_completion_with_callable_predicate(
+                use_absolute_path,
+                plan.directory,
+                plan.file,
+                plan.completions,
+                |predicate_arg| {
+                    self.with_default_directory_binding(bound_directory.as_str(), |vm| {
+                        vm.call_function_with_roots(predicate, &[predicate_arg])
+                    })
+                },
+            );
         }
         crate::emacs_core::dired::builtin_file_name_completion_in_state(
             &*self.shared.obarray,
@@ -7019,37 +7037,49 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_terpri_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, dynamic, buffers, _, _, _) = self.shared.printer_runtime_state();
-        if let Some(result) = crate::emacs_core::builtins::builtin_terpri_in_state(
-            &*obarray,
-            dynamic.as_slice(),
-            buffers,
-            args.to_vec(),
-        )? {
-            return Ok(result);
-        }
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::builtins::finish_terpri_in_eval(eval, &call_args)
-        })
+        let target = {
+            let (obarray, dynamic, buffers, _, _, _) = self.shared.printer_runtime_state();
+            if let Some(result) = crate::emacs_core::builtins::builtin_terpri_in_state(
+                &*obarray,
+                dynamic.as_slice(),
+                buffers,
+                args.to_vec(),
+            )? {
+                return Ok(result);
+            }
+            crate::emacs_core::builtins::resolve_print_target_in_state(
+                &*obarray,
+                dynamic.as_slice(),
+                args.first(),
+            )
+        };
+        self.call_function_with_roots(target, &[Value::Int('\n' as i64)])?;
+        Ok(Value::True)
     }
 
     fn builtin_write_char_shared(&mut self, args: &[Value]) -> EvalResult {
-        let (obarray, dynamic, buffers, _, _, _) = self.shared.printer_runtime_state();
-        if let Some(result) = crate::emacs_core::builtins::builtin_write_char_in_state(
-            &*obarray,
-            dynamic.as_slice(),
-            buffers,
-            args.to_vec(),
-        )? {
-            return Ok(result);
-        }
-        let extra_roots = args.to_vec();
-        let call_args = extra_roots.clone();
-        self.with_shared_evaluator(&extra_roots, move |eval| {
-            crate::emacs_core::builtins::finish_write_char_in_eval(eval, &call_args)
-        })
+        let target = {
+            let (obarray, dynamic, buffers, _, _, _) = self.shared.printer_runtime_state();
+            if let Some(result) = crate::emacs_core::builtins::builtin_write_char_in_state(
+                &*obarray,
+                dynamic.as_slice(),
+                buffers,
+                args.to_vec(),
+            )? {
+                return Ok(result);
+            }
+            crate::emacs_core::builtins::resolve_print_target_in_state(
+                &*obarray,
+                dynamic.as_slice(),
+                args.get(1),
+            )
+        };
+        let char_code = match crate::emacs_core::builtins::builtin_write_char(args.to_vec())? {
+            Value::Int(n) => n,
+            _ => unreachable!("write-char returns character"),
+        };
+        self.call_function_with_roots(target, &[Value::Int(char_code)])?;
+        Ok(Value::Int(char_code))
     }
 
     fn builtin_redraw_frame_shared(&mut self, args: &[Value]) -> EvalResult {
