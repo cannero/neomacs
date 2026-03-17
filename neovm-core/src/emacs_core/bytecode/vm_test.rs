@@ -3635,6 +3635,33 @@ fn vm_x_display_query_builtins_accept_live_frame_designators() {
 }
 
 #[test]
+fn vm_x_display_stub_builtins_use_direct_dispatch() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(list
+                 (display-supports-face-attributes-p '(:weight bold) 999999)
+                 (x-display-list)
+                 (x-parse-geometry "80x24+10+20")
+                 (x-selection-exists-p 'PRIMARY 'STRING)
+                 (x-selection-owner-p 'PRIMARY 1)
+                 (x-uses-old-gtk-dialog)
+                 (x-disown-selection-internal 'PRIMARY)
+                 (condition-case err (x-register-dnd-atom 'ATOM) (error err))
+                 (condition-case err (x-focus-frame (selected-frame)) (error err))
+                 (condition-case err (x-get-atom-name 'WM_CLASS) (error err))
+                 (condition-case err (x-window-property "WM_NAME") (error err))
+                 (condition-case err (x-window-property-attributes "WM_NAME") (error err))
+                 (condition-case err (x-show-tip "hi") (error err))
+                 (condition-case err (x-translate-coordinates nil 0 0) (error err))
+                 (condition-case err (x-synchronize nil) (error err))
+                 (condition-case err (x-get-selection-internal 'PRIMARY 'STRING) (error err))
+                 (condition-case err (x-own-selection-internal 'PRIMARY "v") (error err)))"#
+        ),
+        r#"OK (nil nil ((height . 24) (width . 80) (top . 20) (left . 10)) nil nil nil nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "X windows are not in use or not initialized") (error "X windows are not in use or not initialized") (error "X selection unavailable for this frame") (error "X selection unavailable for this frame"))"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

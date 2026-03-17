@@ -5254,6 +5254,68 @@ impl<'a> Vm<'a> {
             ),
             "x-get-resource" => Some(self.builtin_x_get_resource_shared(args)),
             "x-list-fonts" => Some(self.builtin_x_list_fonts_shared(args)),
+            "x-display-list" => Some(crate::emacs_core::display::builtin_x_display_list(
+                args.to_vec(),
+            )),
+            "x-send-client-message" => Some(
+                crate::emacs_core::display::builtin_x_send_client_message(args.to_vec()),
+            ),
+            "x-popup-dialog" => Some(crate::emacs_core::display::builtin_x_popup_dialog(
+                args.to_vec(),
+            )),
+            "x-popup-menu" => Some(crate::emacs_core::display::builtin_x_popup_menu(
+                args.to_vec(),
+            )),
+            "x-synchronize" => Some(crate::emacs_core::display::builtin_x_synchronize(
+                args.to_vec(),
+            )),
+            "x-translate-coordinates" => Some(
+                crate::emacs_core::display::builtin_x_translate_coordinates(args.to_vec()),
+            ),
+            "x-register-dnd-atom" => Some(
+                crate::emacs_core::display::builtin_x_register_dnd_atom(args.to_vec()),
+            ),
+            "x-focus-frame" => Some(crate::emacs_core::display::builtin_x_focus_frame(
+                args.to_vec(),
+            )),
+            "x-hide-tip" => Some(crate::emacs_core::display::builtin_x_hide_tip(args.to_vec())),
+            "x-show-tip" => Some(crate::emacs_core::display::builtin_x_show_tip(args.to_vec())),
+            "x-backspace-delete-keys-p" => Some(
+                crate::emacs_core::display::builtin_x_backspace_delete_keys_p(args.to_vec()),
+            ),
+            "x-get-atom-name" => Some(crate::emacs_core::display::builtin_x_get_atom_name(
+                args.to_vec(),
+            )),
+            "x-parse-geometry" => Some(crate::emacs_core::display::builtin_x_parse_geometry(
+                args.to_vec(),
+            )),
+            "x-change-window-property" => Some(
+                crate::emacs_core::display::builtin_x_change_window_property(args.to_vec()),
+            ),
+            "x-delete-window-property" => Some(
+                crate::emacs_core::display::builtin_x_delete_window_property(args.to_vec()),
+            ),
+            "x-disown-selection-internal" => Some(
+                crate::emacs_core::display::builtin_x_disown_selection_internal(args.to_vec()),
+            ),
+            "x-get-local-selection" => Some(
+                crate::emacs_core::display::builtin_x_get_local_selection(args.to_vec()),
+            ),
+            "x-get-selection-internal" => Some(
+                crate::emacs_core::display::builtin_x_get_selection_internal(args.to_vec()),
+            ),
+            "x-own-selection-internal" => Some(
+                crate::emacs_core::display::builtin_x_own_selection_internal(args.to_vec()),
+            ),
+            "x-selection-exists-p" => Some(
+                crate::emacs_core::display::builtin_x_selection_exists_p(args.to_vec()),
+            ),
+            "x-selection-owner-p" => Some(
+                crate::emacs_core::display::builtin_x_selection_owner_p(args.to_vec()),
+            ),
+            "x-uses-old-gtk-dialog" => Some(
+                crate::emacs_core::display::builtin_x_uses_old_gtk_dialog(args.to_vec()),
+            ),
             "x-server-vendor" => Some(self.builtin_x_server_vendor_shared(args)),
             "x-server-version" => Some(crate::emacs_core::display::builtin_x_server_version_in_state(
                 self.shared.frames,
@@ -5419,6 +5481,11 @@ impl<'a> Vm<'a> {
             "resume-tty" => Some(self.builtin_resume_tty_shared(args)),
             "x-create-frame" => Some(self.builtin_x_create_frame_shared(args)),
             "format-mode-line" => Some(self.builtin_format_mode_line_shared(args)),
+            "display-supports-face-attributes-p" => Some(
+                crate::emacs_core::display::builtin_display_supports_face_attributes_p(
+                    args.to_vec(),
+                ),
+            ),
             "invisible-p" => Some(crate::emacs_core::xdisp::builtin_invisible_p(args.to_vec())),
             "line-pixel-height" => Some(crate::emacs_core::xdisp::builtin_line_pixel_height(
                 args.to_vec(),
