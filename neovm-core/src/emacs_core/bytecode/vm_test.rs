@@ -3662,6 +3662,22 @@ fn vm_x_display_stub_builtins_use_direct_dispatch() {
 }
 
 #[test]
+fn vm_x_connection_builtins_use_shared_runtime_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (setq initial-window-system 'neomacs)
+                 (list
+                  (x-open-connection nil)
+                  (condition-case err (x-close-connection f) (error err))
+                  (condition-case err (x-close-connection "x") (error err))
+                  (condition-case err (x-open-connection "x") (error err))))"#
+        ),
+        r#"OK (nil (error "Window system frame should be used") (error "Display x can’t be opened") nil)"#
+    );
+}
+
+#[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
     assert_eq!(
         vm_eval_str(

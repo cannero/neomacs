@@ -1891,6 +1891,18 @@ pub(crate) fn builtin_x_open_connection_eval(
     builtin_x_open_connection(args)
 }
 
+pub(crate) fn builtin_x_open_connection_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("x-open-connection", &args, 1, 3)?;
+    if neomacs_window_system_active_in_state(obarray, dynamic) {
+        return Ok(Value::Nil);
+    }
+    builtin_x_open_connection(args)
+}
+
 /// (x-close-connection DISPLAY) -> nil
 /// In batch/no-X context this signals display/X availability errors.
 pub(crate) fn builtin_x_close_connection(args: Vec<Value>) -> EvalResult {
@@ -1930,6 +1942,22 @@ pub(crate) fn builtin_x_close_connection_eval(
     expect_args("x-close-connection", &args, 1)?;
     if let Some(display) = args.first() {
         if live_frame_designator_p(eval, display) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Window system frame should be used")],
+            ));
+        }
+    }
+    builtin_x_close_connection(args)
+}
+
+pub(crate) fn builtin_x_close_connection_in_state(
+    frames: &crate::window::FrameManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("x-close-connection", &args, 1)?;
+    if let Some(display) = args.first() {
+        if live_frame_designator_p_in_state(frames, display) {
             return Err(signal(
                 "error",
                 vec![Value::string("Window system frame should be used")],

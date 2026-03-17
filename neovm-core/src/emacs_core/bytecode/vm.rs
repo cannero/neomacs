@@ -5257,6 +5257,19 @@ impl<'a> Vm<'a> {
             "x-display-list" => Some(crate::emacs_core::display::builtin_x_display_list(
                 args.to_vec(),
             )),
+            "x-open-connection" => Some(
+                crate::emacs_core::display::builtin_x_open_connection_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    args.to_vec(),
+                ),
+            ),
+            "x-close-connection" => Some(
+                crate::emacs_core::display::builtin_x_close_connection_in_state(
+                    &*self.shared.frames,
+                    args.to_vec(),
+                ),
+            ),
             "x-send-client-message" => Some(
                 crate::emacs_core::display::builtin_x_send_client_message(args.to_vec()),
             ),
