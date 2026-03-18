@@ -7,8 +7,32 @@ use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
 
-fn eval_all(src: &str) -> Vec<String> {
+/// Create evaluator with minimal Elisp shims for interactive testing.
+fn eval_with_interactive_shims() -> Evaluator {
     let mut ev = Evaluator::new();
+    let shims = r#"
+(defun set-mark (pos)
+  (if pos (set-marker (mark-marker) pos (current-buffer)))
+  nil)
+(defun mark (&optional force)
+  (let ((m (mark-marker)))
+    (if (and m (marker-position m)) (marker-position m))))
+(defun macrop (object)
+  (and (consp object) (eq (car object) 'macro)))
+(defun special-form-p (object)
+  nil)
+(defun other-window (count &optional all-frames)
+  nil)
+"#;
+    let forms = parse_forms(shims).expect("parse shims");
+    for form in &forms {
+        let _ = ev.eval_expr(form);
+    }
+    ev
+}
+
+fn eval_all(src: &str) -> Vec<String> {
+    let mut ev = eval_with_interactive_shims();
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -129,6 +153,8 @@ fn gnu_simple_command_execute_eval() -> Evaluator {
         &simple_source,
         "(defun command-execute--query (command)",
     );
+    // Load set-mark (needed by interactive region commands)
+    eval_first_form_after_marker(&mut ev, &simple_source, "(defun set-mark (pos)");
     ev
 }
 
