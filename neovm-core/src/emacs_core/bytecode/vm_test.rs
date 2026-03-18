@@ -442,6 +442,25 @@ fn execute_manual_vm<T>(
     (result, buffers, init_state)
 }
 
+/// Like `execute_manual_vm` but builds the ByteCodeFunction AFTER the
+/// evaluator is initialized, avoiding stale SymId/ObjId issues from
+/// the thread-local heap/interner replacement.
+fn execute_manual_vm_built<T>(
+    build: impl FnOnce(&mut crate::buffer::BufferManager) -> (ByteCodeFunction, T),
+) -> (Value, crate::buffer::BufferManager, T) {
+    let mut eval = Evaluator::new_vm_harness();
+    let (func, init_state) = build(&mut eval.buffers);
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("manual bytecode should execute")
+    };
+
+    let buffers = std::mem::replace(&mut eval.buffers, crate::buffer::BufferManager::new());
+    (result, buffers, init_state)
+}
+
 #[test]
 fn vm_literal_int() {
     assert_eq!(vm_eval_str("42"), "OK 42");
@@ -583,30 +602,29 @@ fn vm_declared_special_setq_updates_dynamic_binding() {
 
 #[test]
 fn vm_unbind_restores_saved_current_buffer() {
-    let mut func = ByteCodeFunction::new(LambdaParams {
-        required: vec![],
-        optional: vec![],
-        rest: None,
-    });
-    let other_buffer_idx = func.add_constant(Value::Nil);
-    let set_buffer_idx = func.add_symbol("set-buffer");
-    func.ops = vec![
-        Op::SaveCurrentBuffer,
-        Op::Constant(other_buffer_idx),
-        Op::CallBuiltin(set_buffer_idx, 1),
-        Op::Pop,
-        Op::Unbind(1),
-        Op::Nil,
-        Op::Return,
-    ];
-    func.max_stack = 2;
-
-    let (result, buffers, saved_buffer) = execute_manual_vm(func, |func, buffers| {
+    let (result, buffers, saved_buffer) = execute_manual_vm_built(|buffers| {
         let saved_buffer = buffers.create_buffer("saved");
         let other_buffer = buffers.create_buffer("other");
-        func.constants[other_buffer_idx as usize] = Value::Buffer(other_buffer);
         buffers.set_current(saved_buffer);
-        saved_buffer
+
+        let mut func = ByteCodeFunction::new(LambdaParams {
+            required: vec![],
+            optional: vec![],
+            rest: None,
+        });
+        let other_buffer_idx = func.add_constant(Value::Buffer(other_buffer));
+        let set_buffer_idx = func.add_symbol("set-buffer");
+        func.ops = vec![
+            Op::SaveCurrentBuffer,
+            Op::Constant(other_buffer_idx),
+            Op::CallBuiltin(set_buffer_idx, 1),
+            Op::Pop,
+            Op::Unbind(1),
+            Op::Nil,
+            Op::Return,
+        ];
+        func.max_stack = 2;
+        (func, saved_buffer)
     });
 
     assert_eq!(result, Value::Nil);
@@ -618,63 +636,46 @@ fn vm_unbind_restores_saved_current_buffer() {
 
 #[test]
 fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
-    let mut noop_func = ByteCodeFunction::new(LambdaParams {
-        required: vec![],
-        optional: vec![],
-        rest: None,
-    });
-    noop_func.ops = vec![Op::Nil, Op::Return];
-    noop_func.max_stack = 1;
-    let noop = Value::make_bytecode(noop_func);
+    let (result, _buffers, _) = execute_manual_vm_built(|_buffers| {
+        let mut noop_func = ByteCodeFunction::new(LambdaParams {
+            required: vec![],
+            optional: vec![],
+            rest: None,
+        });
+        noop_func.ops = vec![Op::Nil, Op::Return];
+        noop_func.max_stack = 1;
+        let noop = Value::make_bytecode(noop_func);
 
-    let mut func = ByteCodeFunction::new(LambdaParams {
-        required: vec![],
-        optional: vec![],
-        rest: None,
+        let mut func = ByteCodeFunction::new(LambdaParams {
+            required: vec![],
+            optional: vec![],
+            rest: None,
+        });
+        let a_idx = func.add_symbol("vm-up-a");
+        let b_idx = func.add_symbol("vm-up-b");
+        let a_val_idx = func.add_constant(Value::Int(7));
+        let b_val_idx = func.add_constant(Value::Int(9));
+        let cleanup_idx = func.add_constant(noop);
+        func.ops = vec![
+            Op::Constant(a_val_idx),
+            Op::VarBind(a_idx),
+            Op::Constant(b_val_idx),
+            Op::VarBind(b_idx),
+            Op::Constant(cleanup_idx),
+            Op::UnwindProtectPop,
+            Op::Unbind(1),
+            Op::VarRef(b_idx),
+            Op::Return,
+        ];
+        func.max_stack = 2;
+        (func, ())
     });
-    let a_idx = func.add_symbol("vm-up-a");
-    let b_idx = func.add_symbol("vm-up-b");
-    let a_val_idx = func.add_constant(Value::Int(7));
-    let b_val_idx = func.add_constant(Value::Int(9));
-    let cleanup_idx = func.add_constant(noop);
-    func.ops = vec![
-        Op::Constant(a_val_idx),
-        Op::VarBind(a_idx),
-        Op::Constant(b_val_idx),
-        Op::VarBind(b_idx),
-        Op::Constant(cleanup_idx),
-        Op::UnwindProtectPop,
-        Op::Unbind(1),
-        Op::VarRef(b_idx),
-        Op::Return,
-    ];
-    func.max_stack = 2;
-
-    let (result, _buffers, _) = execute_manual_vm(func, |_func, _buffers| ());
     assert_eq!(result, Value::Int(9));
 }
 
 #[test]
 fn vm_unbind_restores_saved_excursion_point() {
-    let mut func = ByteCodeFunction::new(LambdaParams {
-        required: vec![],
-        optional: vec![],
-        rest: None,
-    });
-    let goto_target_idx = func.add_constant(Value::Int(5));
-    let goto_char_idx = func.add_symbol("goto-char");
-    func.ops = vec![
-        Op::SaveExcursion,
-        Op::Constant(goto_target_idx),
-        Op::CallBuiltin(goto_char_idx, 1),
-        Op::Pop,
-        Op::Unbind(1),
-        Op::Nil,
-        Op::Return,
-    ];
-    func.max_stack = 2;
-
-    let (result, buffers, (buffer_id, saved_point)) = execute_manual_vm(func, |_func, buffers| {
+    let (result, buffers, (buffer_id, saved_point)) = execute_manual_vm_built(|buffers| {
         let buffer_id = buffers.create_buffer("excursion");
         buffers.set_current(buffer_id);
         {
@@ -683,7 +684,25 @@ fn vm_unbind_restores_saved_excursion_point() {
             buffer.goto_char(2);
         }
         let saved_point = buffers.get(buffer_id).expect("buffer").pt;
-        (buffer_id, saved_point)
+
+        let mut func = ByteCodeFunction::new(LambdaParams {
+            required: vec![],
+            optional: vec![],
+            rest: None,
+        });
+        let goto_target_idx = func.add_constant(Value::Int(5));
+        let goto_char_idx = func.add_symbol("goto-char");
+        func.ops = vec![
+            Op::SaveExcursion,
+            Op::Constant(goto_target_idx),
+            Op::CallBuiltin(goto_char_idx, 1),
+            Op::Pop,
+            Op::Unbind(1),
+            Op::Nil,
+            Op::Return,
+        ];
+        func.max_stack = 2;
+        (func, (buffer_id, saved_point))
     });
 
     assert_eq!(result, Value::Nil);
@@ -696,39 +715,39 @@ fn vm_unbind_restores_saved_excursion_point() {
 
 #[test]
 fn vm_unbind_restores_saved_restriction() {
-    let mut func = ByteCodeFunction::new(LambdaParams {
-        required: vec![],
-        optional: vec![],
-        rest: None,
-    });
-    let beg_idx = func.add_constant(Value::Int(2));
-    let end_idx = func.add_constant(Value::Int(4));
-    let narrow_idx = func.add_symbol("narrow-to-region");
-    func.ops = vec![
-        Op::SaveRestriction,
-        Op::Constant(beg_idx),
-        Op::Constant(end_idx),
-        Op::CallBuiltin(narrow_idx, 2),
-        Op::Pop,
-        Op::Unbind(1),
-        Op::Nil,
-        Op::Return,
-    ];
-    func.max_stack = 3;
+    let (result, buffers, (buffer_id, saved_begv, saved_zv)) = execute_manual_vm_built(|buffers| {
+        let buffer_id = buffers.create_buffer("restriction");
+        buffers.set_current(buffer_id);
+        {
+            let buffer = buffers.get_mut(buffer_id).expect("buffer");
+            buffer.insert("abcdef");
+            buffer.narrow_to_byte_region(1, 5);
+            buffer.goto_byte(3);
+        }
+        let buffer = buffers.get(buffer_id).expect("buffer");
+        let saved = (buffer_id, buffer.begv, buffer.zv);
 
-    let (result, buffers, (buffer_id, saved_begv, saved_zv)) =
-        execute_manual_vm(func, |_func, buffers| {
-            let buffer_id = buffers.create_buffer("restriction");
-            buffers.set_current(buffer_id);
-            {
-                let buffer = buffers.get_mut(buffer_id).expect("buffer");
-                buffer.insert("abcdef");
-                buffer.narrow_to_byte_region(1, 5);
-                buffer.goto_byte(3);
-            }
-            let buffer = buffers.get(buffer_id).expect("buffer");
-            (buffer_id, buffer.begv, buffer.zv)
+        let mut func = ByteCodeFunction::new(LambdaParams {
+            required: vec![],
+            optional: vec![],
+            rest: None,
         });
+        let beg_idx = func.add_constant(Value::Int(2));
+        let end_idx = func.add_constant(Value::Int(4));
+        let narrow_idx = func.add_symbol("narrow-to-region");
+        func.ops = vec![
+            Op::SaveRestriction,
+            Op::Constant(beg_idx),
+            Op::Constant(end_idx),
+            Op::CallBuiltin(narrow_idx, 2),
+            Op::Pop,
+            Op::Unbind(1),
+            Op::Nil,
+            Op::Return,
+        ];
+        func.max_stack = 3;
+        (func, saved)
+    });
 
     assert_eq!(result, Value::Nil);
     let buffer = buffers.get(buffer_id).expect("buffer");
@@ -888,6 +907,10 @@ fn vm_concat() {
 
 #[test]
 fn vm_switch_branches_using_hash_table_jump_table() {
+    // Build all Values AFTER the evaluator is initialized to avoid
+    // stale ObjId/SymId from thread-local heap/interner replacement.
+    let mut eval = Evaluator::new_vm_harness();
+
     let table = Value::hash_table(HashTableTest::Eq);
     let Value::HashTable(table_id) = table else {
         panic!("expected hash table constant");
@@ -921,7 +944,6 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         interactive: None,
     };
 
-    let mut eval = Evaluator::new_vm_harness();
     let mut vm = new_vm(&mut eval);
     let result = vm.execute(&func, vec![]).expect("vm switch should execute");
     assert_eq!(result, Value::Int(20));
