@@ -2016,15 +2016,19 @@ pub(crate) fn builtin_inotify_rm_watch(args: Vec<Value>) -> EvalResult {
 // eval.c gap-fill stubs
 // =========================================================================
 
+/// GNU eval.c:838 — return SYMBOL's toplevel buffer-local value in BUFFER.
+///
+/// "Toplevel" means outside any let binding.  This pure stub returns nil;
+/// a full implementation needs eval access (buffer manager + dynamic stack)
+/// and is dispatched via the eval-backed path in builtins/mod.rs.
 pub(crate) fn builtin_buffer_local_toplevel_value(args: Vec<Value>) -> EvalResult {
     expect_range_args("buffer-local-toplevel-value", &args, 1, 2)?;
-    // Stub: return nil (no buffer-local binding tracking yet)
     Ok(Value::Nil)
 }
 
+/// GNU eval.c:857 — set SYMBOL's toplevel buffer-local value in BUFFER.
 pub(crate) fn builtin_set_buffer_local_toplevel_value(args: Vec<Value>) -> EvalResult {
     expect_range_args("set-buffer-local-toplevel-value", &args, 2, 3)?;
-    // Stub: ignore the set, return the value
     Ok(args[1])
 }
 
@@ -2043,15 +2047,42 @@ pub(crate) fn builtin_internal_delete_indirect_variable(args: Vec<Value>) -> Eva
 // coding.c gap-fill stubs
 // =========================================================================
 
+/// GNU coding.c:10362 — internal-decode-string-utf-8.
+///
+/// These are test/benchmark functions (inside ENABLE_UTF_8_CONVERTER_TEST
+/// in GNU).  NeoVM stores all strings as UTF-8 natively, so decode is a
+/// pass-through.  We validate arguments per GNU to return nil on bad input.
 pub(crate) fn builtin_internal_decode_string_utf_8(args: Vec<Value>) -> EvalResult {
     expect_args("internal-decode-string-utf-8", &args, 7)?;
-    // NeoVM is UTF-8 natively; return the input string as-is
+    // GNU returns nil if STRING is not a string.
+    if args[0].as_str().is_none() {
+        return Ok(Value::Nil);
+    }
+    // GNU: CHECK_FIXNUM(count)
+    if !matches!(args[6], Value::Int(_)) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("fixnump"), args[6]],
+        ));
+    }
+    // NeoVM is UTF-8 natively; return the input string unchanged.
     Ok(args[0])
 }
 
+/// GNU coding.c:10306 — internal-encode-string-utf-8.
+///
+/// Same rationale as decode: NeoVM strings are already UTF-8.
 pub(crate) fn builtin_internal_encode_string_utf_8(args: Vec<Value>) -> EvalResult {
     expect_args("internal-encode-string-utf-8", &args, 7)?;
-    // NeoVM is UTF-8 natively; return the input string as-is
+    if args[0].as_str().is_none() {
+        return Ok(Value::Nil);
+    }
+    if !matches!(args[6], Value::Int(_)) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("fixnump"), args[6]],
+        ));
+    }
     Ok(args[0])
 }
 

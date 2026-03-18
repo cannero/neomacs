@@ -3591,9 +3591,51 @@ pub(crate) fn dispatch_builtin(
         "neomacs-primary-selection-get" => builtin_neomacs_primary_selection_get(args),
         "neomacs-core-backend" => builtin_neomacs_core_backend(args),
 
-        // eval.c gap-fill
-        "buffer-local-toplevel-value" => builtin_buffer_local_toplevel_value(args),
-        "set-buffer-local-toplevel-value" => builtin_set_buffer_local_toplevel_value(args),
+        // eval.c gap-fill — eval-backed for buffer access
+        "buffer-local-toplevel-value" => {
+            // GNU eval.c:838 — return toplevel buffer-local value,
+            // bypassing dynamic let bindings.
+            if let Err(e) =
+                super::builtins::expect_range_args("buffer-local-toplevel-value", &args, 1, 2)
+            {
+                return Some(Err(e));
+            }
+            let Some(sym_name) = args[0].as_symbol_name() else {
+                return Some(Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("symbolp"), args[0]],
+                )));
+            };
+            if let Some(buf) = eval.buffers.current_buffer() {
+                if let Some(val) = buf.get_buffer_local(sym_name) {
+                    return Some(Ok(*val));
+                }
+            }
+            if let Some(val) = eval.obarray.symbol_value(sym_name) {
+                return Some(Ok(*val));
+            }
+            return Some(Err(signal("void-variable", vec![args[0]])));
+        }
+        "set-buffer-local-toplevel-value" => {
+            // GNU eval.c:857 — set toplevel buffer-local value.
+            if let Err(e) =
+                super::builtins::expect_range_args("set-buffer-local-toplevel-value", &args, 2, 3)
+            {
+                return Some(Err(e));
+            }
+            let Some(sym_name) = args[0].as_symbol_name() else {
+                return Some(Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("symbolp"), args[0]],
+                )));
+            };
+            if let Some(bid) = eval.buffers.current_buffer_id() {
+                let _ = eval
+                    .buffers
+                    .set_buffer_local_property(bid, sym_name, args[1]);
+            }
+            return Some(Ok(Value::Nil));
+        }
         "debugger-trap" => builtin_debugger_trap(args),
         "internal-delete-indirect-variable" => builtin_internal_delete_indirect_variable(args),
 
