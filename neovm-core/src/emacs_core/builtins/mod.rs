@@ -3740,6 +3740,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
     Some(match name {
         // Arithmetic (typed subset is dispatched above)
         // Type predicates and equality (typed subset is dispatched above)
+        "signal" => super::errors::builtin_signal(args),
         "integer-or-marker-p" => builtin_integer_or_marker_p(args),
         "number-or-marker-p" => builtin_number_or_marker_p(args),
         "vector-or-char-table-p" => builtin_vector_or_char_table_p(args),
