@@ -2,15 +2,43 @@ use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
-fn eval_one(src: &str) -> String {
+/// Create an evaluator with minimal Elisp shims for process testing.
+/// These shims mirror GNU Emacs Elisp functions that wrap C-level builtins.
+fn eval_with_process_shims() -> Evaluator {
     let mut ev = Evaluator::new();
+    // Define minimal Elisp shims matching GNU Emacs subr.el/env.el
+    let shims = r#"
+(defun getenv (variable &optional frame)
+  (getenv-internal variable))
+(defun setenv (variable &optional value substitute)
+  (setenv-internal variable value t))
+(defun start-process (name buffer program &rest args)
+  (make-process :name name :buffer buffer
+                :command (if program (cons program args))))
+(defun start-process-shell-command (name buffer command)
+  (start-process name buffer shell-file-name
+                 shell-command-switch command))
+(defun shell-command-to-string (command)
+  (with-output-to-string
+    (call-process shell-file-name nil standard-output nil
+                  shell-command-switch command)))
+"#;
+    let forms = parse_forms(shims).expect("parse shims");
+    for form in &forms {
+        let _ = ev.eval_expr(form);
+    }
+    ev
+}
+
+fn eval_one(src: &str) -> String {
+    let mut ev = eval_with_process_shims();
     let forms = parse_forms(src).expect("parse");
     let result = ev.eval_expr(&forms[0]);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = eval_with_process_shims();
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
