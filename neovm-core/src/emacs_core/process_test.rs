@@ -606,28 +606,28 @@ fn shell_command_to_string_with_pipe() {
 
 #[test]
 fn getenv_path() {
-    // PATH should always be set
-    let result = eval_one(r#"(getenv "PATH")"#);
+    // PATH should always be set — use getenv-internal (C builtin)
+    let result = eval_one(r#"(getenv-internal "PATH")"#);
     assert!(result.starts_with("OK \""));
 }
 
 #[test]
 fn getenv_nonexistent() {
-    let result = eval_one(r#"(getenv "NEOVM_DEFINITELY_NOT_SET_12345")"#);
+    let result = eval_one(r#"(getenv-internal "NEOVM_DEFINITELY_NOT_SET_12345")"#);
     assert_eq!(result, "OK nil");
 }
 
 #[test]
 fn getenv_name_must_be_string() {
-    let result = eval_one(r#"(condition-case err (getenv nil) (error err))"#);
+    let result = eval_one(r#"(condition-case err (getenv-internal nil) (error err))"#);
     assert_eq!(result, "OK (wrong-type-argument stringp nil)");
 }
 
 #[test]
-fn getenv_accepts_optional_nil_frame_arg() {
+fn getenv_accepts_optional_nil_env_arg() {
     let result = eval_one(
         r#"(condition-case err
-               (let ((v (getenv "HOME" nil)))
+               (let ((v (getenv-internal "HOME" nil)))
                  (if (stringp v) 'string v))
              (error err))"#,
     );
@@ -635,14 +635,9 @@ fn getenv_accepts_optional_nil_frame_arg() {
 }
 
 #[test]
-fn getenv_rejects_non_nil_frame_arg_before_variable_type_check() {
-    let result = eval_one(r#"(condition-case err (getenv 1 '(x)) (error err))"#);
-    assert_eq!(result, "OK (wrong-type-argument framep (x))");
-}
-
-#[test]
 fn getenv_rejects_more_than_two_args() {
-    let result = eval_one(r#"(condition-case err (getenv "HOME" nil nil) (error (car err)))"#);
+    let result =
+        eval_one(r#"(condition-case err (getenv-internal "HOME" nil nil) (error (car err)))"#);
     assert_eq!(result, "OK wrong-number-of-arguments");
 }
 
