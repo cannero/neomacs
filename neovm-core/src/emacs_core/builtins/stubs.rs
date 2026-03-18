@@ -2011,3 +2011,149 @@ pub(crate) fn builtin_inotify_rm_watch(args: Vec<Value>) -> EvalResult {
     }
     Err(signal("file-notify-error", payload))
 }
+
+// =========================================================================
+// eval.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_buffer_local_toplevel_value(args: Vec<Value>) -> EvalResult {
+    expect_range_args("buffer-local-toplevel-value", &args, 1, 2)?;
+    // Stub: return nil (no buffer-local binding tracking yet)
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_set_buffer_local_toplevel_value(args: Vec<Value>) -> EvalResult {
+    expect_range_args("set-buffer-local-toplevel-value", &args, 2, 3)?;
+    // Stub: ignore the set, return the value
+    Ok(args[1])
+}
+
+pub(crate) fn builtin_debugger_trap(args: Vec<Value>) -> EvalResult {
+    expect_args("debugger-trap", &args, 0)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_internal_delete_indirect_variable(args: Vec<Value>) -> EvalResult {
+    expect_args("internal-delete-indirect-variable", &args, 1)?;
+    // Stub: return the symbol unchanged
+    Ok(args[0])
+}
+
+// =========================================================================
+// coding.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_internal_decode_string_utf_8(args: Vec<Value>) -> EvalResult {
+    expect_args("internal-decode-string-utf-8", &args, 7)?;
+    // NeoVM is UTF-8 natively; return the input string as-is
+    Ok(args[0])
+}
+
+pub(crate) fn builtin_internal_encode_string_utf_8(args: Vec<Value>) -> EvalResult {
+    expect_args("internal-encode-string-utf-8", &args, 7)?;
+    // NeoVM is UTF-8 natively; return the input string as-is
+    Ok(args[0])
+}
+
+// =========================================================================
+// buffer.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_overlay_tree(args: Vec<Value>) -> EvalResult {
+    expect_range_args("overlay-tree", &args, 0, 1)?;
+    Ok(Value::Nil)
+}
+
+// =========================================================================
+// process.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_process_connection(args: Vec<Value>) -> EvalResult {
+    expect_args("process-connection", &args, 1)?;
+    Ok(Value::Nil)
+}
+
+// =========================================================================
+// thread.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_thread_buffer_disposition(args: Vec<Value>) -> EvalResult {
+    expect_args("thread-buffer-disposition", &args, 1)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_thread_set_buffer_disposition(args: Vec<Value>) -> EvalResult {
+    expect_args("thread-set-buffer-disposition", &args, 2)?;
+    // Stub: ignore the set
+    Ok(Value::Nil)
+}
+
+// =========================================================================
+// window.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_window_discard_buffer_from_window(args: Vec<Value>) -> EvalResult {
+    expect_range_args("window-discard-buffer-from-window", &args, 2, 3)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_window_cursor_info(args: Vec<Value>) -> EvalResult {
+    expect_range_args("window-cursor-info", &args, 0, 1)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_combine_windows(args: Vec<Value>) -> EvalResult {
+    expect_args("combine-windows", &args, 2)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_uncombine_window(args: Vec<Value>) -> EvalResult {
+    expect_args("uncombine-window", &args, 1)?;
+    Ok(Value::Nil)
+}
+
+// =========================================================================
+// frame.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_frame_windows_min_size(args: Vec<Value>) -> EvalResult {
+    expect_args("frame-windows-min-size", &args, 4)?;
+    Ok(Value::Int(0))
+}
+
+// =========================================================================
+// xdisp.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_remember_mouse_glyph(args: Vec<Value>) -> EvalResult {
+    expect_args("remember-mouse-glyph", &args, 3)?;
+    Ok(Value::Nil)
+}
+
+// =========================================================================
+// image.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_lookup_image(args: Vec<Value>) -> EvalResult {
+    expect_args("lookup-image", &args, 1)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_imagemagick_types(args: Vec<Value>) -> EvalResult {
+    expect_args("imagemagick-types", &args, 0)?;
+    Ok(Value::Nil)
+}
+
+// =========================================================================
+// font.c gap-fill stubs
+// =========================================================================
+
+pub(crate) fn builtin_font_drive_otf(args: Vec<Value>) -> EvalResult {
+    expect_args("font-drive-otf", &args, 6)?;
+    Ok(Value::Nil)
+}
+
+pub(crate) fn builtin_font_otf_alternates(args: Vec<Value>) -> EvalResult {
+    expect_args("font-otf-alternates", &args, 3)?;
+    Ok(Value::Nil)
+}

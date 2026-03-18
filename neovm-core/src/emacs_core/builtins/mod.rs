@@ -3591,6 +3591,46 @@ pub(crate) fn dispatch_builtin(
         "neomacs-primary-selection-get" => builtin_neomacs_primary_selection_get(args),
         "neomacs-core-backend" => builtin_neomacs_core_backend(args),
 
+        // eval.c gap-fill
+        "buffer-local-toplevel-value" => builtin_buffer_local_toplevel_value(args),
+        "set-buffer-local-toplevel-value" => builtin_set_buffer_local_toplevel_value(args),
+        "debugger-trap" => builtin_debugger_trap(args),
+        "internal-delete-indirect-variable" => builtin_internal_delete_indirect_variable(args),
+
+        // coding.c gap-fill
+        "internal-decode-string-utf-8" => builtin_internal_decode_string_utf_8(args),
+        "internal-encode-string-utf-8" => builtin_internal_encode_string_utf_8(args),
+
+        // buffer.c gap-fill
+        "overlay-tree" => builtin_overlay_tree(args),
+
+        // process.c gap-fill
+        "process-connection" => builtin_process_connection(args),
+
+        // thread.c gap-fill
+        "thread-buffer-disposition" => builtin_thread_buffer_disposition(args),
+        "thread-set-buffer-disposition" => builtin_thread_set_buffer_disposition(args),
+
+        // window.c gap-fill
+        "window-discard-buffer-from-window" => builtin_window_discard_buffer_from_window(args),
+        "window-cursor-info" => builtin_window_cursor_info(args),
+        "combine-windows" => builtin_combine_windows(args),
+        "uncombine-window" => builtin_uncombine_window(args),
+
+        // frame.c gap-fill
+        "frame-windows-min-size" => builtin_frame_windows_min_size(args),
+
+        // xdisp.c gap-fill
+        "remember-mouse-glyph" => builtin_remember_mouse_glyph(args),
+
+        // image.c gap-fill
+        "lookup-image" => builtin_lookup_image(args),
+        "imagemagick-types" => builtin_imagemagick_types(args),
+
+        // font.c gap-fill
+        "font-drive-otf" => builtin_font_drive_otf(args),
+        "font-otf-alternates" => builtin_font_otf_alternates(args),
+
         _ => return None,
     })
 }
@@ -4229,6 +4269,46 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "neomacs-primary-selection-set" => builtin_neomacs_primary_selection_set(args),
         "neomacs-primary-selection-get" => builtin_neomacs_primary_selection_get(args),
         "neomacs-core-backend" => builtin_neomacs_core_backend(args),
+
+        // eval.c gap-fill
+        "buffer-local-toplevel-value" => builtin_buffer_local_toplevel_value(args),
+        "set-buffer-local-toplevel-value" => builtin_set_buffer_local_toplevel_value(args),
+        "debugger-trap" => builtin_debugger_trap(args),
+        "internal-delete-indirect-variable" => builtin_internal_delete_indirect_variable(args),
+
+        // coding.c gap-fill
+        "internal-decode-string-utf-8" => builtin_internal_decode_string_utf_8(args),
+        "internal-encode-string-utf-8" => builtin_internal_encode_string_utf_8(args),
+
+        // buffer.c gap-fill
+        "overlay-tree" => builtin_overlay_tree(args),
+
+        // process.c gap-fill
+        "process-connection" => builtin_process_connection(args),
+
+        // thread.c gap-fill
+        "thread-buffer-disposition" => builtin_thread_buffer_disposition(args),
+        "thread-set-buffer-disposition" => builtin_thread_set_buffer_disposition(args),
+
+        // window.c gap-fill
+        "window-discard-buffer-from-window" => builtin_window_discard_buffer_from_window(args),
+        "window-cursor-info" => builtin_window_cursor_info(args),
+        "combine-windows" => builtin_combine_windows(args),
+        "uncombine-window" => builtin_uncombine_window(args),
+
+        // frame.c gap-fill
+        "frame-windows-min-size" => builtin_frame_windows_min_size(args),
+
+        // xdisp.c gap-fill
+        "remember-mouse-glyph" => builtin_remember_mouse_glyph(args),
+
+        // image.c gap-fill
+        "lookup-image" => builtin_lookup_image(args),
+        "imagemagick-types" => builtin_imagemagick_types(args),
+
+        // font.c gap-fill
+        "font-drive-otf" => builtin_font_drive_otf(args),
+        "font-otf-alternates" => builtin_font_otf_alternates(args),
 
         _ => return None,
     })
