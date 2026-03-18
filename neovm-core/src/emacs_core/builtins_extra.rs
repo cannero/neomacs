@@ -622,9 +622,19 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(system-name)` -> string.
+///
+/// GNU editfns.c:1283 — returns the host name via `gethostname(2)`,
+/// replacing spaces and tabs with `-`.
 pub(crate) fn builtin_system_name(args: Vec<Value>) -> EvalResult {
     expect_args("system-name", &args, 0)?;
-    let name = std::env::var("HOSTNAME").unwrap_or_else(|_| "localhost".to_string());
+    let name = hostname::get()
+        .map(|os| os.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "localhost".to_string());
+    // GNU replaces spaces and tabs with dashes (sysdep.c:1646).
+    let name: String = name
+        .chars()
+        .map(|c| if c == ' ' || c == '\t' { '-' } else { c })
+        .collect();
     Ok(Value::string(name))
 }
 

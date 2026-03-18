@@ -4060,6 +4060,9 @@ impl<'a> Vm<'a> {
             "emacs-pid" => Some(crate::emacs_core::builtins_extra::builtin_emacs_pid(
                 args.to_vec(),
             )),
+            "system-name" => Some(crate::emacs_core::builtins_extra::builtin_system_name(
+                args.to_vec(),
+            )),
             "format" => Some(self.builtin_format_shared(args)),
             "format-message" => Some(self.builtin_format_message_shared(args)),
             "message" => Some(self.builtin_message_shared(args)),

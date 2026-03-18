@@ -17,6 +17,7 @@ strum.workspace = true
 tracing.workspace = true
 stacker.workspace = true
 dns-lookup.workspace = true
+hostname.workspace = true
 network-interface.workspace = true
 libloading.workspace = true
 serde.workspace = true

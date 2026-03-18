@@ -47,6 +47,7 @@ regex = "1"
 strum = { version = "0.26", features = ["derive"] }
 stacker = "0.1"
 dns-lookup = "2"
+hostname = "0.4"
 network-interface = "2"
 libloading = "0.8"
 serde = { version = "1", features = ["derive"] }
