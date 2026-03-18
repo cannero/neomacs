@@ -394,6 +394,8 @@ fn mode_line_process_status_in_state(
             crate::emacs_core::process::ProcessKind::Real => "signal",
             _ => "closed",
         },
+        crate::emacs_core::process::ProcessStatus::Connect => "connect",
+        crate::emacs_core::process::ProcessStatus::Failed => "failed",
     }
 }
 

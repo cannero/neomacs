@@ -38,6 +38,10 @@ pub enum ProcessStatus {
     Stop,
     Exit(i32),
     Signal(i32),
+    /// Async network connection in progress (GNU: Qconnect).
+    Connect,
+    /// Network connection failed (GNU: Qfailed).
+    Failed,
 }
 
 /// Process family used by compatibility helpers.
@@ -1100,6 +1104,8 @@ fn stale_process_not_running_reason(status: &ProcessStatus) -> &'static str {
         ProcessStatus::Exit(_) => "finished",
         ProcessStatus::Stop => "stopped",
         ProcessStatus::Run => "inactive",
+        ProcessStatus::Connect => "connect",
+        ProcessStatus::Failed => "failed",
     }
 }
 
@@ -1406,7 +1412,8 @@ fn process_live_status_value(status: &ProcessStatus, kind: &ProcessKind) -> Valu
             ]),
         },
         ProcessStatus::Stop => Value::list(vec![Value::symbol("stop")]),
-        ProcessStatus::Exit(_) | ProcessStatus::Signal(_) => Value::Nil,
+        ProcessStatus::Connect => Value::list(vec![Value::symbol("connect")]),
+        ProcessStatus::Exit(_) | ProcessStatus::Signal(_) | ProcessStatus::Failed => Value::Nil,
     }
 }
 
@@ -4377,6 +4384,8 @@ pub(crate) fn builtin_process_status_in_state(
                 ProcessKind::Real => Ok(Value::symbol("signal")),
                 _ => Ok(Value::symbol("closed")),
             },
+            ProcessStatus::Connect => Ok(Value::symbol("connect")),
+            ProcessStatus::Failed => Ok(Value::symbol("failed")),
         },
         None => Ok(Value::Nil),
     }
