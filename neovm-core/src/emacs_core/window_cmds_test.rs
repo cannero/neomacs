@@ -627,8 +627,8 @@ fn window_body_height_pixelwise() {
     let r = eval_one_with_frame("(window-body-height nil t)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
-    // Batch mode returns character rows.
-    assert_eq!(val, 36);
+    // PIXELWISE=t returns pixel height (frame 600 - mode-line 16 = 584).
+    assert_eq!(val, 584);
 }
 
 #[test]
@@ -636,8 +636,8 @@ fn window_body_width_pixelwise() {
     let r = eval_one_with_frame("(window-body-width nil t)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
-    // Batch mode returns character columns.
-    assert_eq!(val, 100);
+    // PIXELWISE=t returns pixel width (frame 800).
+    assert_eq!(val, 800);
 }
 
 #[test]
