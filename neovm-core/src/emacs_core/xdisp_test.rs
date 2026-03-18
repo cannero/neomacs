@@ -640,6 +640,173 @@ fn test_format_mode_line_size_and_process_specs_match_gnu() {
 }
 
 #[test]
+fn test_format_mode_line_column_c_and_big_c_specs_match_gnu() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("col-test");
+    eval.buffers.set_current(buffer_id);
+    {
+        let buffer = eval.buffers.get_mut(buffer_id).expect("buffer");
+        buffer.insert("abcdef");
+        buffer.goto_byte(3); // point at column 3 (0-indexed)
+    }
+
+    let rendered =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%c|%C")]).expect("col specs");
+    // %c = 0-indexed column (3), %C = 1-indexed column (4)
+    assert_eq!(rendered, Value::string("3|4"));
+}
+
+#[test]
+fn test_format_mode_line_major_mode_name_spec_matches_gnu() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("mode-test");
+    eval.buffers.set_current(buffer_id);
+    eval.buffers
+        .set_buffer_local_property(buffer_id, "mode-name", Value::string("Emacs-Lisp"))
+        .expect("set mode-name");
+
+    let rendered =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%m")]).expect("mode spec");
+    assert_eq!(rendered, Value::string("Emacs-Lisp"));
+
+    // Default mode-name is "Fundamental"
+    let other_id = eval.buffers.create_buffer("default-mode");
+    eval.buffers.set_current(other_id);
+    let default =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%m")]).expect("default mode");
+    assert_eq!(default, Value::string("Fundamental"));
+}
+
+#[test]
+fn test_format_mode_line_remote_at_spec_matches_gnu() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("remote-test");
+    eval.buffers.set_current(buffer_id);
+
+    // Local directory → "-"
+    eval.obarray
+        .set_symbol_value("default-directory", Value::string("/home/user"));
+    let local =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%@")]).expect("local @");
+    assert_eq!(local, Value::string("-"));
+
+    // Remote (Tramp-style) directory → "@"
+    eval.obarray
+        .set_symbol_value("default-directory", Value::string("/ssh:host:/home/user"));
+    let remote =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%@")]).expect("remote @");
+    assert_eq!(remote, Value::string("@"));
+}
+
+#[test]
+fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("coding-test");
+    eval.buffers.set_current(buffer_id);
+
+    // utf-8-unix → mnemonic 'U', EOL ':'
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "buffer-file-coding-system",
+            Value::symbol("utf-8-unix"),
+        )
+        .expect("set coding");
+    let z =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%z|%Z")]).expect("coding z");
+    assert_eq!(z, Value::string("U|U:"));
+
+    // undecided-dos → mnemonic '-', EOL '\'
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "buffer-file-coding-system",
+            Value::symbol("undecided-dos"),
+        )
+        .expect("set coding dos");
+    let dos =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%z|%Z")]).expect("coding dos");
+    assert_eq!(dos, Value::string("-|-\\"));
+}
+
+#[test]
+fn test_format_mode_line_position_o_and_q_specs() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buffer_id = eval.buffers.create_buffer("pos-test");
+    eval.buffers.set_current(buffer_id);
+
+    // Empty buffer → "All" for %o, "All   " (with trailing spaces) for %q (GNU compat)
+    let empty =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%o|%q")]).expect("empty");
+    assert_eq!(empty, Value::string("All|All   "));
+
+    // With content and no window set, fallback covers full buffer → "All"
+    {
+        let buffer = eval.buffers.get_mut(buffer_id).expect("buffer");
+        buffer.insert(&"x".repeat(100));
+    }
+    let all_visible =
+        builtin_format_mode_line_eval(&mut eval, vec![Value::string("%o|%p")]).expect("all");
+    assert_eq!(all_visible, Value::string("All|All"));
+
+    // Set up frame/window to test partial visibility.
+    let frame_id = eval.frames.create_frame("pos-frame", 80, 24, buffer_id);
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
+    // Window showing middle portion: start=20, simulated visible range [20..80].
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        let window = frame
+            .find_window_mut(selected_window)
+            .expect("selected window");
+        match window {
+            crate::window::Window::Leaf { window_start, .. } => {
+                *window_start = 20;
+            }
+            other => panic!("expected leaf window, got {:?}", other),
+        }
+    }
+
+    let mid = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::string("%o|%p|%P"),
+            Value::Nil,
+            Value::Window(selected_window.0),
+        ],
+    )
+    .expect("mid pos");
+    // %o: toppos=20 > begv=0 → not "Top"; botpos=100 >= zv=100 → "Bottom"
+    // %p: botpos >= zv → pos(20) > begv(0) → "Bottom"
+    // %P: botpos >= zv → toppos(20) > begv(0) → "Bottom"
+    assert_eq!(mid, Value::string("Bottom|Bottom|Bottom"));
+
+    // Window at the very start
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        let window = frame
+            .find_window_mut(selected_window)
+            .expect("selected window");
+        match window {
+            crate::window::Window::Leaf { window_start, .. } => {
+                *window_start = 0;
+            }
+            other => panic!("expected leaf window, got {:?}", other),
+        }
+    }
+    let at_top = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::string("%o|%p"),
+            Value::Nil,
+            Value::Window(selected_window.0),
+        ],
+    )
+    .expect("top pos");
+    // window_start=0 and window_end(=zv)=100 >= zv → All
+    assert_eq!(at_top, Value::string("All|All"));
+}
+
+#[test]
 fn test_invisible_p() {
     let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
     match err {

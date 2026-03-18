@@ -5086,6 +5086,58 @@ fn vm_format_mode_line_size_and_process_specs_match_gnu() {
 }
 
 #[test]
+fn vm_format_mode_line_column_and_mode_specs_match_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-col-mode")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert "abcdef")
+                 (goto-char 4)
+                 (format-mode-line "%c|%C|%m"))"#
+        ),
+        r#"OK "3|4|Fundamental""#
+    );
+}
+
+#[test]
+fn vm_format_mode_line_coding_and_remote_specs_match_gnu() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-coding-remote")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (set (make-local-variable 'buffer-file-coding-system) 'utf-8-unix)
+                 (format-mode-line "%z|%Z|%@"))"#
+        ),
+        r#"OK "U|U:|-""#
+    );
+}
+
+#[test]
+fn vm_format_mode_line_position_o_and_q_specs() {
+    // With content and window covering the full buffer → "All"
+    assert_eq!(
+        vm_eval_str(
+            r#"(let* ((w (selected-window))
+                      (b (get-buffer-create "vm-pos-oq")))
+                 (set-window-buffer w b)
+                 (set-buffer b)
+                 (erase-buffer)
+                 (insert (make-string 100 ?x))
+                 (set-window-start w (point-min) t)
+                 (format-mode-line "%o|%q" nil w))"#
+        ),
+        // window_start=begv, window_end=zv → full buffer visible → All
+        r#"OK "All|All   ""#
+    );
+}
+
+#[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

@@ -129,12 +129,14 @@ pub(crate) fn builtin_format_mode_line_in_state(
 
     let format_val = args[0];
     let face_spec = resolve_mode_line_face_spec(&args);
+    let pctx = build_mode_line_percent_context(frames, &*buffers, obarray, args.get(2));
     let mut result = ModeLineRendered::default();
     let needs_eval = format_mode_line_recursive_in_state(
         obarray,
         dynamic,
         &*buffers,
         processes,
+        &pctx,
         &format_val,
         &mut result,
         0,
@@ -178,8 +180,14 @@ pub(crate) fn finish_format_mode_line_in_eval(
     } else {
         let format_val = args[0];
         let face_spec = resolve_mode_line_face_spec(args);
+        let pctx = build_mode_line_percent_context(
+            &eval.frames,
+            &eval.buffers,
+            &eval.obarray,
+            args.get(2),
+        );
         let mut result = ModeLineRendered::default();
-        format_mode_line_recursive(eval, &format_val, &mut result, 0, false);
+        format_mode_line_recursive(eval, &pctx, &format_val, &mut result, 0, false);
         result.into_value(face_spec)
     };
 
@@ -213,12 +221,14 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
     } else {
         let format_val = args[0];
         let face_spec = resolve_mode_line_face_spec(args);
+        let pctx = build_mode_line_percent_context(frames, &*buffers, obarray, args.get(2));
         let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_state_with_eval(
             obarray,
             dynamic,
             &*buffers,
             processes,
+            &pctx,
             &format_val,
             &mut result,
             0,
@@ -255,11 +265,18 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
     } else {
         let format_val = args[0];
         let face_spec = resolve_mode_line_face_spec(&args);
+        let pctx = build_mode_line_percent_context(
+            &*shared.frames,
+            &*shared.buffers,
+            &*shared.obarray,
+            args.get(2),
+        );
         let mut result = ModeLineRendered::default();
         format_mode_line_recursive_in_vm_runtime(
             shared,
             vm_gc_roots,
             args,
+            &pctx,
             &format_val,
             &mut result,
             0,
@@ -399,6 +416,201 @@ fn mode_line_conditional_branch(cdr: Value, branch_is_then: bool) -> Option<Valu
     } else {
         None
     }
+}
+
+/// Window and frame context for GNU-compatible mode-line percent specs.
+///
+/// Corresponds to the `struct window *w` and `struct frame *f` parameters
+/// in GNU's `decode_mode_spec` (xdisp.c:29083).
+#[derive(Clone, Default)]
+struct ModeLinePercentContext {
+    /// Window start position (character offset of first visible character).
+    /// Corresponds to `marker_position(w->start)` in GNU.
+    window_start: usize,
+    /// Window end position (last visible character position).
+    /// In GNU this is `BUF_Z(b) - w->window_end_pos`.
+    window_end: usize,
+    /// Frame name for `%F`.  GNU: `f->title` then `f->name` then "Emacs".
+    frame_name: String,
+    /// Coding system mnemonic character for `%z`/`%Z`.
+    /// GNU: `CODING_ATTR_MNEMONIC` from the coding system spec.
+    coding_mnemonic: char,
+    /// EOL type string for `%Z` (`:`, `\`, `/`, or undecided).
+    eol_indicator: String,
+}
+
+/// Build a `ModeLinePercentContext` from frame/window/buffer state.
+fn build_mode_line_percent_context(
+    frames: &crate::window::FrameManager,
+    buffers: &crate::buffer::BufferManager,
+    obarray: &crate::emacs_core::symbol::Obarray,
+    window_arg: Option<&Value>,
+) -> ModeLinePercentContext {
+    let mut ctx = ModeLinePercentContext {
+        coding_mnemonic: '-',
+        eol_indicator: ":".to_string(),
+        ..Default::default()
+    };
+
+    // --- Frame name (GNU: f->title, f->name, "Emacs") ---
+    if let Some(frame) = frames.selected_frame() {
+        ctx.frame_name = if !frame.title.is_empty() {
+            frame.title.clone()
+        } else if !frame.name.is_empty() {
+            frame.name.clone()
+        } else {
+            "Neomacs".to_string()
+        };
+    } else {
+        ctx.frame_name = "Neomacs".to_string();
+    }
+
+    // --- Window start/end (GNU: w->start, BUF_Z(b) - w->window_end_pos) ---
+    let resolved_window = resolve_mode_line_window(frames, window_arg);
+    if let Some(window) = resolved_window {
+        if let crate::window::Window::Leaf {
+            window_start,
+            point,
+            ..
+        } = window
+        {
+            // Window positions are 1-indexed (Elisp convention); convert to
+            // 0-indexed to match buffer begv/zv.
+            ctx.window_start = window_start.saturating_sub(1);
+            // We don't track window_end_pos like GNU; approximate with buffer zv.
+            if let Some(buf) = buffers.current_buffer() {
+                ctx.window_end = buf.zv;
+            } else {
+                ctx.window_end = point.saturating_sub(1);
+            }
+        }
+    } else if let Some(buf) = buffers.current_buffer() {
+        // Fallback: use buffer positions when no window is available.
+        ctx.window_start = 0;
+        ctx.window_end = buf.zv;
+    }
+
+    // --- Coding system mnemonic (GNU: decode_mode_spec_coding) ---
+    let cs_name = buffers
+        .current_buffer()
+        .and_then(|b| b.get_buffer_local("buffer-file-coding-system"))
+        .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
+    if let Some(ref name) = cs_name {
+        ctx.coding_mnemonic = coding_system_mnemonic_char(name);
+        ctx.eol_indicator = coding_system_eol_indicator(obarray, name);
+    }
+
+    ctx
+}
+
+/// Resolve the WINDOW argument to an actual Window reference.
+fn resolve_mode_line_window<'a>(
+    frames: &'a crate::window::FrameManager,
+    window_arg: Option<&Value>,
+) -> Option<&'a crate::window::Window> {
+    // Try explicit window argument first.
+    if let Some(windowish) = window_arg {
+        if !windowish.is_nil() {
+            let wid = match windowish {
+                Value::Window(id) => Some(crate::window::WindowId(*id)),
+                Value::Int(id) if *id >= 0 => Some(crate::window::WindowId(*id as u64)),
+                _ => None,
+            };
+            if let Some(wid) = wid {
+                for fid in frames.frame_list() {
+                    if let Some(frame) = frames.get(fid) {
+                        if let Some(window) = frame.find_window(wid) {
+                            return Some(window);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to selected window of selected frame.
+    if let Some(frame) = frames.selected_frame() {
+        let selected = frame.selected_window;
+        return frame.find_window(selected);
+    }
+
+    None
+}
+
+/// Derive coding system mnemonic character from coding system name.
+///
+/// Matches GNU `decode_mode_spec_coding` heuristics for common systems.
+fn coding_system_mnemonic_char(cs_name: &str) -> char {
+    let base = cs_name
+        .strip_suffix("-unix")
+        .or_else(|| cs_name.strip_suffix("-dos"))
+        .or_else(|| cs_name.strip_suffix("-mac"))
+        .unwrap_or(cs_name);
+    match base {
+        "utf-8" | "utf-8-emacs" | "utf-8-auto" | "prefer-utf-8" | "mule-utf-8" => 'U',
+        "undecided" => '-',
+        "raw-text" => '=',
+        "no-conversion" | "binary" => '0',
+        "us-ascii" | "ascii" => '.',
+        "iso-8859-1" | "iso-latin-1" | "latin-1" => '1',
+        "iso-8859-2" | "iso-latin-2" | "latin-2" => '2',
+        "iso-8859-3" | "latin-3" => '3',
+        "iso-8859-4" | "latin-4" => '4',
+        "iso-8859-5" | "latin-5" => '5',
+        "iso-2022-jp" | "junet" => 'J',
+        "euc-jp" => 'E',
+        "shift_jis" | "sjis" => 'S',
+        "iso-2022-kr" => 'K',
+        "euc-kr" => 'e',
+        "gb2312" | "euc-cn" | "cn-gb" => 'C',
+        "big5" => 'B',
+        _ => '-',
+    }
+}
+
+/// Derive EOL type indicator from coding system name, using the
+/// `eol-mnemonic-*` variables from the obarray (matches GNU semantics).
+fn coding_system_eol_indicator(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    cs_name: &str,
+) -> String {
+    let var_name = if cs_name.ends_with("-dos") {
+        "eol-mnemonic-dos"
+    } else if cs_name.ends_with("-mac") {
+        "eol-mnemonic-mac"
+    } else if cs_name.ends_with("-unix") {
+        "eol-mnemonic-unix"
+    } else {
+        "eol-mnemonic-undecided"
+    };
+    obarray
+        .symbol_value(var_name)
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| ":".to_string())
+}
+
+/// Check if a directory path looks like a Tramp remote path.
+///
+/// Tramp paths match `/METHOD:...` where METHOD is a lowercase alpha string.
+fn is_remote_directory(dir: &str) -> bool {
+    if !dir.starts_with('/') {
+        return false;
+    }
+    let rest = &dir[1..];
+    if let Some(colon_pos) = rest.find(':') {
+        colon_pos >= 2 && rest[..colon_pos].bytes().all(|b| b.is_ascii_lowercase())
+    } else {
+        false
+    }
+}
+
+/// Compute GNU `percent99` — percentage capped at 99, rounded up.
+fn percent99(n: usize, d: usize) -> usize {
+    if d == 0 {
+        return 0;
+    }
+    let pct = (d - 1 + 100 * n) / d;
+    pct.min(99)
 }
 
 #[derive(Clone, Default)]
@@ -611,6 +823,7 @@ fn append_mode_line_string_in_state(
     buffers: &crate::buffer::BufferManager,
     processes: &crate::emacs_core::process::ProcessManager,
     command_loop_depth: usize,
+    pctx: &ModeLinePercentContext,
     result: &mut ModeLineRendered,
     value: &Value,
     literal: bool,
@@ -627,6 +840,7 @@ fn append_mode_line_string_in_state(
             buffers,
             processes,
             command_loop_depth,
+            pctx,
             value,
             result,
         );
@@ -644,6 +858,7 @@ fn append_mode_line_string_in_state(
 /// - A cons `(SYMBOL . REST)`: if SYMBOL's value is non-nil, process REST
 fn format_mode_line_recursive(
     eval: &mut super::eval::Evaluator,
+    pctx: &ModeLinePercentContext,
     format: &Value,
     result: &mut ModeLineRendered,
     depth: usize,
@@ -662,16 +877,13 @@ fn format_mode_line_recursive(
             &eval.buffers,
             &eval.processes,
             eval.command_loop.recursive_depth,
+            pctx,
             result,
             format,
             false,
         ),
 
         Value::Int(n) => {
-            // Integer in mode-line-format: if positive, specifies minimum
-            // field width; if negative, max width with truncation.
-            // The actual padding/truncation is applied to subsequent elements
-            // which we don't track here, so just ignore the width spec.
             let _ = n;
         }
 
@@ -695,6 +907,7 @@ fn format_mode_line_recursive(
                             &eval.buffers,
                             &eval.processes,
                             eval.command_loop.recursive_depth,
+                            pctx,
                             result,
                             &val,
                             true,
@@ -702,6 +915,7 @@ fn format_mode_line_recursive(
                     } else {
                         format_mode_line_recursive(
                             eval,
+                            pctx,
                             &val,
                             result,
                             depth + 1,
@@ -716,7 +930,6 @@ fn format_mode_line_recursive(
             let car = format.cons_car();
             let cdr = format.cons_cdr();
 
-            // (:eval FORM)
             if car.is_symbol_named(":eval") {
                 if risky {
                     return;
@@ -724,13 +937,12 @@ fn format_mode_line_recursive(
                 if cdr.is_cons() {
                     let form_val = cdr.cons_car();
                     if let Ok(val) = eval.eval_value(&form_val) {
-                        format_mode_line_recursive(eval, &val, result, depth + 1, risky);
+                        format_mode_line_recursive(eval, pctx, &val, result, depth + 1, risky);
                     }
                 }
                 return;
             }
 
-            // (:propertize ELT PROPS...) — process ELT and apply properties
             if car.is_symbol_named(":propertize") {
                 if risky {
                     return;
@@ -738,7 +950,7 @@ fn format_mode_line_recursive(
                 if cdr.is_cons() {
                     let elt = cdr.cons_car();
                     let mut nested = ModeLineRendered::default();
-                    format_mode_line_recursive(eval, &elt, &mut nested, depth + 1, risky);
+                    format_mode_line_recursive(eval, pctx, &elt, &mut nested, depth + 1, risky);
                     nested.overlay_properties(cdr.cons_cdr());
                     result.append_rendered(&nested);
                 }
@@ -747,7 +959,7 @@ fn format_mode_line_recursive(
 
             if let Value::Int(lim) = car {
                 let mut nested = ModeLineRendered::default();
-                format_mode_line_recursive(eval, &cdr, &mut nested, depth + 1, risky);
+                format_mode_line_recursive(eval, pctx, &cdr, &mut nested, depth + 1, risky);
                 append_mode_line_rendered_segment(
                     result,
                     &nested,
@@ -757,8 +969,6 @@ fn format_mode_line_recursive(
                 return;
             }
 
-            // Check if car is a symbol — conditional semantics:
-            // (SYMBOL . REST) where if SYMBOL's value is non-nil, process REST
             if car.is_symbol() && !car.is_symbol_named("t") {
                 if let Some(sym_name) = car.as_symbol_name()
                     && mode_line_symbol_value_in_state(
@@ -770,23 +980,21 @@ fn format_mode_line_recursive(
                     .is_some_and(|value| value.is_truthy())
                     && let Some(branch) = mode_line_conditional_branch(cdr, true)
                 {
-                    format_mode_line_recursive(eval, &branch, result, depth + 1, risky);
+                    format_mode_line_recursive(eval, pctx, &branch, result, depth + 1, risky);
                 } else if let Some(branch) = mode_line_conditional_branch(cdr, false) {
-                    format_mode_line_recursive(eval, &branch, result, depth + 1, risky);
+                    format_mode_line_recursive(eval, pctx, &branch, result, depth + 1, risky);
                 }
                 return;
             }
 
-            // Regular list: process each element
             if let Some(elements) = list_to_vec(format) {
                 for elem in &elements {
-                    format_mode_line_recursive(eval, elem, result, depth + 1, risky);
+                    format_mode_line_recursive(eval, pctx, elem, result, depth + 1, risky);
                 }
             }
         }
 
         _ => {
-            // Unknown format type — try to get a string representation
             result.append_string_value_preserving_props(format);
         }
     }
@@ -797,6 +1005,7 @@ fn format_mode_line_recursive_in_state(
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     processes: &crate::emacs_core::process::ProcessManager,
+    pctx: &ModeLinePercentContext,
     format: &Value,
     result: &mut ModeLineRendered,
     depth: usize,
@@ -810,7 +1019,7 @@ fn format_mode_line_recursive_in_state(
         Value::Nil => {}
 
         Value::Str(_) => append_mode_line_string_in_state(
-            obarray, dynamic, buffers, processes, 0, result, format, false,
+            obarray, dynamic, buffers, processes, 0, pctx, result, format, false,
         ),
 
         Value::Int(_) => {}
@@ -826,13 +1035,14 @@ fn format_mode_line_recursive_in_state(
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
-                            obarray, dynamic, buffers, processes, 0, result, &val, true,
+                            obarray, dynamic, buffers, processes, 0, pctx, result, &val, true,
                         );
                     } else if format_mode_line_recursive_in_state(
                         obarray,
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         &val,
                         result,
                         depth + 1,
@@ -867,6 +1077,7 @@ fn format_mode_line_recursive_in_state(
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         &elt,
                         &mut nested,
                         depth + 1,
@@ -886,6 +1097,7 @@ fn format_mode_line_recursive_in_state(
                     dynamic,
                     buffers,
                     processes,
+                    pctx,
                     &cdr,
                     &mut nested,
                     depth + 1,
@@ -915,6 +1127,7 @@ fn format_mode_line_recursive_in_state(
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         &branch,
                         result,
                         depth + 1,
@@ -931,6 +1144,7 @@ fn format_mode_line_recursive_in_state(
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         elem,
                         result,
                         depth + 1,
@@ -955,6 +1169,7 @@ fn format_mode_line_recursive_in_state_with_eval(
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     processes: &crate::emacs_core::process::ProcessManager,
+    pctx: &ModeLinePercentContext,
     format: &Value,
     result: &mut ModeLineRendered,
     depth: usize,
@@ -969,7 +1184,7 @@ fn format_mode_line_recursive_in_state_with_eval(
         Value::Nil => {}
 
         Value::Str(_) => append_mode_line_string_in_state(
-            obarray, dynamic, buffers, processes, 0, result, format, false,
+            obarray, dynamic, buffers, processes, 0, pctx, result, format, false,
         ),
 
         Value::Int(_) => {}
@@ -985,7 +1200,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
-                            obarray, dynamic, buffers, processes, 0, result, &val, true,
+                            obarray, dynamic, buffers, processes, 0, pctx, result, &val, true,
                         );
                     } else {
                         format_mode_line_recursive_in_state_with_eval(
@@ -993,6 +1208,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                             dynamic,
                             buffers,
                             processes,
+                            pctx,
                             &val,
                             result,
                             depth + 1,
@@ -1020,6 +1236,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         &val,
                         result,
                         depth + 1,
@@ -1042,6 +1259,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         &elt,
                         &mut nested,
                         depth + 1,
@@ -1061,6 +1279,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                     dynamic,
                     buffers,
                     processes,
+                    pctx,
                     &cdr,
                     &mut nested,
                     depth + 1,
@@ -1091,6 +1310,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         &branch,
                         result,
                         depth + 1,
@@ -1108,6 +1328,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         dynamic,
                         buffers,
                         processes,
+                        pctx,
                         elem,
                         result,
                         depth + 1,
@@ -1130,6 +1351,7 @@ fn format_mode_line_recursive_in_vm_runtime(
     shared: &mut crate::emacs_core::eval::VmSharedState<'_>,
     vm_gc_roots: &[Value],
     args_roots: &[Value],
+    pctx: &ModeLinePercentContext,
     format: &Value,
     result: &mut ModeLineRendered,
     depth: usize,
@@ -1148,6 +1370,7 @@ fn format_mode_line_recursive_in_vm_runtime(
             &*shared.buffers,
             &*shared.processes,
             shared.recursive_command_loop_depth(),
+            pctx,
             result,
             format,
             false,
@@ -1177,6 +1400,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                             &*shared.buffers,
                             &*shared.processes,
                             shared.recursive_command_loop_depth(),
+                            pctx,
                             result,
                             &val,
                             true,
@@ -1186,6 +1410,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                             shared,
                             vm_gc_roots,
                             args_roots,
+                            pctx,
                             &val,
                             result,
                             depth + 1,
@@ -1217,6 +1442,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                         shared,
                         vm_gc_roots,
                         args_roots,
+                        pctx,
                         &val,
                         result,
                         depth + 1,
@@ -1237,6 +1463,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                         shared,
                         vm_gc_roots,
                         args_roots,
+                        pctx,
                         &elt,
                         &mut nested,
                         depth + 1,
@@ -1254,6 +1481,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                     shared,
                     vm_gc_roots,
                     args_roots,
+                    pctx,
                     &cdr,
                     &mut nested,
                     depth + 1,
@@ -1286,6 +1514,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                             shared,
                             vm_gc_roots,
                             args_roots,
+                            pctx,
                             &branch,
                             result,
                             depth + 1,
@@ -1302,6 +1531,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                         shared,
                         vm_gc_roots,
                         args_roots,
+                        pctx,
                         elem,
                         result,
                         depth + 1,
@@ -1325,6 +1555,7 @@ fn expand_mode_line_percent_in_state(
     buffers: &crate::buffer::BufferManager,
     processes: &crate::emacs_core::process::ProcessManager,
     command_loop_depth: usize,
+    pctx: &ModeLinePercentContext,
     value: &Value,
     result: &mut ModeLineRendered,
 ) {
@@ -1413,7 +1644,8 @@ fn expand_mode_line_percent_in_state(
                 index += 1;
             }
             Some('F') => {
-                append_spec("Neomacs");
+                // GNU xdisp.c:29208 — f->title, f->name, or "Emacs".
+                append_spec(&pctx.frame_name);
                 index += 1;
             }
             Some('*') => {
@@ -1464,37 +1696,148 @@ fn expand_mode_line_percent_in_state(
                 append_spec(&col_num.to_string());
                 index += 1;
             }
-            Some('p') | Some('P') => {
-                let percent = if let Some(b) = buf {
-                    let total = b.text.len();
-                    if total == 0 {
-                        "All".to_owned()
-                    } else {
-                        let pct = (b.pt * 100) / total;
-                        if pct == 0 {
-                            "Top".to_owned()
-                        } else if pct >= 99 {
-                            "Bot".to_owned()
+            Some('C') => {
+                // GNU: 1-indexed column number at point.
+                append_spec(&(col_num + 1).to_string());
+                index += 1;
+            }
+            Some('m') => {
+                // GNU: major mode name from buffer-local `mode-name`.
+                let mode_name =
+                    mode_line_symbol_value_in_state(obarray, dynamic, buffers, "mode-name")
+                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                append_spec(&mode_name);
+                index += 1;
+            }
+            Some('p') => {
+                // GNU xdisp.c:29406 — percentage of buffer above window top.
+                // pos = marker_position(w->start), checks window_end_pos.
+                let text = if let Some(b) = buf {
+                    let pos = pctx.window_start;
+                    let botpos = pctx.window_end;
+                    let begv = b.begv;
+                    let zv = b.zv.max(b.begv);
+                    if botpos >= zv {
+                        if pos <= begv {
+                            "All".to_owned()
                         } else {
+                            "Bottom".to_owned()
+                        }
+                    } else if pos <= begv {
+                        "Top".to_owned()
+                    } else {
+                        format!("{}%", percent99(pos - begv, zv - begv))
+                    }
+                } else {
+                    String::new()
+                };
+                append_spec(&text);
+                index += 1;
+            }
+            Some('P') => {
+                // GNU xdisp.c:29425 — percentage of buffer above window bottom.
+                let text = if let Some(b) = buf {
+                    let toppos = pctx.window_start;
+                    let botpos = pctx.window_end;
+                    let begv = b.begv;
+                    let zv = b.zv.max(b.begv);
+                    if botpos >= zv {
+                        if toppos <= begv {
+                            "All".to_owned()
+                        } else {
+                            "Bottom".to_owned()
+                        }
+                    } else {
+                        let pct = percent99(botpos.saturating_sub(begv), zv.saturating_sub(begv));
+                        if toppos <= begv {
                             format!("{}%", pct)
+                        } else {
+                            format!("Top{}%", pct)
                         }
                     }
                 } else {
                     String::new()
                 };
-                append_spec(&percent);
+                append_spec(&text);
+                index += 1;
+            }
+            Some('o') => {
+                // GNU xdisp.c:29386 — degree of travel of window through buffer.
+                let text = if let Some(b) = buf {
+                    let toppos = pctx.window_start;
+                    let botpos = pctx.window_end;
+                    let begv = b.begv;
+                    let zv = b.zv.max(b.begv);
+                    if botpos >= zv {
+                        if toppos <= begv {
+                            "All".to_owned()
+                        } else {
+                            "Bottom".to_owned()
+                        }
+                    } else if toppos <= begv {
+                        "Top".to_owned()
+                    } else {
+                        let top_dist = toppos - begv;
+                        let bot_dist = zv - botpos;
+                        format!("{}%", percent99(top_dist, top_dist + bot_dist))
+                    }
+                } else {
+                    String::new()
+                };
+                append_spec(&text);
+                index += 1;
+            }
+            Some('q') => {
+                // GNU xdisp.c:29445 — percentage offsets of top and bottom of window.
+                let text = if let Some(b) = buf {
+                    let toppos = pctx.window_start;
+                    let botpos = pctx.window_end;
+                    let begv = b.begv;
+                    let zv = b.zv.max(b.begv);
+                    if toppos <= begv && botpos >= zv {
+                        "All   ".to_owned()
+                    } else {
+                        let range = zv.saturating_sub(begv);
+                        let top_pct = if toppos <= begv {
+                            0
+                        } else {
+                            percent99(toppos - begv, range)
+                        };
+                        let bot_pct = if botpos >= zv {
+                            100
+                        } else {
+                            percent99(botpos.saturating_sub(begv), range)
+                        };
+                        if top_pct == bot_pct {
+                            format!("{}%", top_pct)
+                        } else {
+                            format!("{}-{}%", top_pct, bot_pct)
+                        }
+                    }
+                } else {
+                    String::new()
+                };
+                append_spec(&text);
                 index += 1;
             }
             Some('z') => {
-                append_spec("U");
+                // GNU xdisp.c:29494 — coding system mnemonic without EOL indicator.
+                append_spec(&pctx.coding_mnemonic.to_string());
                 index += 1;
             }
             Some('@') => {
-                append_spec("-");
+                // GNU xdisp.c:29477 — "@" if default-directory is remote, "-" otherwise.
+                let remote =
+                    mode_line_symbol_value_in_state(obarray, dynamic, buffers, "default-directory")
+                        .and_then(|v| v.as_str().map(is_remote_directory))
+                        .unwrap_or(false);
+                append_spec(if remote { "@" } else { "-" });
                 index += 1;
             }
             Some('Z') => {
-                append_spec("U");
+                // GNU xdisp.c:29496 — coding system mnemonic WITH EOL indicator.
+                append_spec(&format!("{}{}", pctx.coding_mnemonic, pctx.eol_indicator));
                 index += 1;
             }
             Some(c @ ('[' | ']')) => {
