@@ -8406,7 +8406,14 @@ impl<'a> Vm<'a> {
 
     fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("garbage-collect", args, 0)?;
+        // Push the VM's gc_roots into shared temp_roots so they are
+        // visible to collect_roots() during GC.  This ensures bytecode
+        // constants, stack values, and specpdl entries survive collection.
+        // Matches GNU bytecode.c's mark_bytecode() approach.
+        let saved_temp = self.shared.save_temp_roots_len();
+        self.shared.extend_temp_roots(&self.gc_roots);
         self.shared.gc_collect();
+        self.shared.truncate_temp_roots(saved_temp);
         crate::emacs_core::builtins_extra::builtin_garbage_collect(vec![])
     }
 

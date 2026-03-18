@@ -519,6 +519,21 @@ impl<'a> VmSharedState<'a> {
         *self.gc_count += 1;
     }
 
+    /// Save the current temp_roots length for later restoration.
+    pub(crate) fn save_temp_roots_len(&self) -> usize {
+        self.temp_roots.len()
+    }
+
+    /// Push values into temp_roots so they survive GC.
+    pub(crate) fn extend_temp_roots(&mut self, values: &[Value]) {
+        self.temp_roots.extend(values.iter().copied());
+    }
+
+    /// Restore temp_roots to a previously saved length.
+    pub(crate) fn truncate_temp_roots(&mut self, len: usize) {
+        self.temp_roots.truncate(len);
+    }
+
     pub(crate) fn gc_safe_point(&mut self) {
         if *self.gc_stress {
             if *self.gc_pending || self.heap.should_collect() || *self.gc_stress {
