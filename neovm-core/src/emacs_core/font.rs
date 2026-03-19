@@ -802,15 +802,34 @@ const DISCRETE_BOOLEAN_FACE_ATTRIBUTES: &[&str] = &[
 ];
 const SET_ONLY_FACE_ATTRIBUTES: &[&str] = &[":bold", ":italic"];
 const VALID_FACE_WEIGHTS: &[&str] = &[
+    "thin",
     "ultra-light",
+    "ultralight",
     "extra-light",
+    "extralight",
     "light",
     "semi-light",
+    "semilight",
+    "demilight",
+    "regular",
     "normal",
+    "unspecified",
+    "book",
+    "medium",
     "semi-bold",
+    "semibold",
+    "demibold",
+    "demi-bold",
+    "demi",
     "bold",
     "extra-bold",
+    "extrabold",
     "ultra-bold",
+    "ultrabold",
+    "black",
+    "heavy",
+    "ultra-heavy",
+    "ultraheavy",
 ];
 const VALID_FACE_SLANTS: &[&str] = &[
     "normal",
@@ -821,14 +840,27 @@ const VALID_FACE_SLANTS: &[&str] = &[
 ];
 const VALID_FACE_WIDTHS: &[&str] = &[
     "ultra-condensed",
+    "ultracondensed",
     "extra-condensed",
+    "extracondensed",
     "condensed",
+    "compressed",
+    "narrow",
     "semi-condensed",
+    "semicondensed",
+    "demicondensed",
     "normal",
+    "medium",
+    "regular",
+    "unspecified",
     "semi-expanded",
+    "semiexpanded",
+    "demiexpanded",
     "expanded",
     "extra-expanded",
+    "extraexpanded",
     "ultra-expanded",
+    "ultraexpanded",
 ];
 
 #[derive(Default)]
