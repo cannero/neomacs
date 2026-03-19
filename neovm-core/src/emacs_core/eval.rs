@@ -272,6 +272,7 @@ pub(crate) struct VmSharedState<'a> {
     gc_count: &'a mut u64,
     gc_stress: &'a mut bool,
     temp_roots: &'a mut Vec<Value>,
+    pub(crate) vm_gc_roots: &'a mut Vec<Value>,
     saved_lexenvs: &'a mut Vec<Value>,
     named_call_cache: &'a mut Vec<NamedCallCache>,
     pcase_macroexpand_temp_counter: &'a mut usize,
@@ -336,6 +337,7 @@ impl<'a> VmSharedState<'a> {
         gc_count: &'a mut u64,
         gc_stress: &'a mut bool,
         temp_roots: &'a mut Vec<Value>,
+        vm_gc_roots: &'a mut Vec<Value>,
         catch_tags: &'a mut Vec<Value>,
         saved_lexenvs: &'a mut Vec<Value>,
         named_call_cache: &'a mut Vec<NamedCallCache>,
@@ -403,6 +405,7 @@ impl<'a> VmSharedState<'a> {
             gc_count,
             gc_stress,
             temp_roots,
+            vm_gc_roots,
             catch_tags,
             saved_lexenvs,
             named_call_cache,
@@ -458,6 +461,7 @@ impl<'a> VmSharedState<'a> {
         let mut roots = Vec::new();
 
         roots.extend(self.temp_roots.iter().copied());
+        roots.extend(self.vm_gc_roots.iter().copied());
         roots.extend(self.catch_tags.iter().copied());
         roots.extend(self.recent_input_events.iter().copied());
         roots.extend(self.read_command_keys.iter().copied());
@@ -517,21 +521,6 @@ impl<'a> VmSharedState<'a> {
         self.heap.collect(roots.into_iter());
         *self.gc_pending = false;
         *self.gc_count += 1;
-    }
-
-    /// Save the current temp_roots length for later restoration.
-    pub(crate) fn save_temp_roots_len(&self) -> usize {
-        self.temp_roots.len()
-    }
-
-    /// Push values into temp_roots so they survive GC.
-    pub(crate) fn extend_temp_roots(&mut self, values: &[Value]) {
-        self.temp_roots.extend(values.iter().copied());
-    }
-
-    /// Restore temp_roots to a previously saved length.
-    pub(crate) fn truncate_temp_roots(&mut self, len: usize) {
-        self.temp_roots.truncate(len);
     }
 
     pub(crate) fn gc_safe_point(&mut self) {
@@ -656,6 +645,7 @@ impl<'a> VmSharedState<'a> {
             &mut eval.gc_count,
             &mut eval.gc_stress,
             &mut eval.temp_roots,
+            &mut eval.vm_gc_roots,
             &mut eval.catch_tags,
             &mut eval.saved_lexenvs,
             &mut eval.named_call_cache,
@@ -1153,6 +1143,9 @@ pub struct Evaluator {
     /// Temporary GC roots — Values that must survive collection but aren't
     /// in any other rooted structure (e.g. intermediate results in eval_forms).
     temp_roots: Vec<Value>,
+    /// VM GC roots — Values that must remain GC-visible while the bytecode VM
+    /// crosses into evaluator code that may trigger collection.
+    pub(crate) vm_gc_roots: Vec<Value>,
     /// Active catch tags — tracks all `catch` tags currently on the call stack.
     /// Used by `throw` to determine whether a matching catch exists: if yes,
     /// emit `Flow::Throw`; if no, signal `no-catch` immediately (matching
@@ -2794,6 +2787,7 @@ impl Evaluator {
             gc_count: 0,
             gc_stress: false,
             temp_roots: Vec::new(),
+            vm_gc_roots: Vec::new(),
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
@@ -2900,6 +2894,7 @@ impl Evaluator {
             gc_count: 0,
             gc_stress: false,
             temp_roots: Vec::new(),
+            vm_gc_roots: Vec::new(),
             catch_tags: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
@@ -2931,6 +2926,7 @@ impl Evaluator {
 
         // Direct Evaluator fields
         roots.extend(self.temp_roots.iter().cloned());
+        roots.extend(self.vm_gc_roots.iter().cloned());
         roots.extend(self.catch_tags.iter().cloned());
         roots.extend(self.recent_input_events.iter().cloned());
         roots.extend(self.read_command_keys.iter().cloned());

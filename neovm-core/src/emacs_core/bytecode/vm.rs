@@ -71,9 +71,6 @@ enum VmUnwindEntry {
 /// Operates on an Evaluator's obarray and dynamic binding stack.
 pub struct Vm<'a> {
     shared: VmSharedState<'a>,
-    /// Values that must remain GC-visible while the VM crosses into evaluator
-    /// code that may trigger collection.
-    gc_roots: Vec<Value>,
 }
 
 impl<'a> Vm<'a> {
@@ -82,10 +79,7 @@ impl<'a> Vm<'a> {
     }
 
     pub(crate) fn new(shared: VmSharedState<'a>) -> Self {
-        Self {
-            shared,
-            gc_roots: Vec::new(),
-        }
+        Self { shared }
     }
 
     /// Set the current depth and max_depth (inherited from the Evaluator).
@@ -108,22 +102,24 @@ impl<'a> Vm<'a> {
         extra: &[Value],
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let saved_len = self.gc_roots.len();
-        self.gc_roots.extend(func.constants.iter().copied());
-        self.gc_roots.extend(stack.iter().copied());
-        Self::collect_handler_roots(handlers, &mut self.gc_roots);
-        Self::collect_specpdl_roots(specpdl, &mut self.gc_roots);
-        self.gc_roots.extend(extra.iter().copied());
+        let saved_len = self.shared.vm_gc_roots.len();
+        self.shared
+            .vm_gc_roots
+            .extend(func.constants.iter().copied());
+        self.shared.vm_gc_roots.extend(stack.iter().copied());
+        Self::collect_handler_roots(handlers, &mut self.shared.vm_gc_roots);
+        Self::collect_specpdl_roots(specpdl, &mut self.shared.vm_gc_roots);
+        self.shared.vm_gc_roots.extend(extra.iter().copied());
         let result = f(self);
-        self.gc_roots.truncate(saved_len);
+        self.shared.vm_gc_roots.truncate(saved_len);
         result
     }
 
     fn with_extra_roots<T>(&mut self, extra: &[Value], f: impl FnOnce(&mut Self) -> T) -> T {
-        let saved_len = self.gc_roots.len();
-        self.gc_roots.extend(extra.iter().copied());
+        let saved_len = self.shared.vm_gc_roots.len();
+        self.shared.vm_gc_roots.extend(extra.iter().copied());
         let result = f(self);
-        self.gc_roots.truncate(saved_len);
+        self.shared.vm_gc_roots.truncate(saved_len);
         result
     }
 
@@ -1957,9 +1953,9 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapcar", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        let saved_roots = self.gc_roots.len();
-        self.gc_roots.push(func);
-        self.gc_roots.push(sequence);
+        let saved_roots = self.shared.vm_gc_roots.len();
+        self.shared.vm_gc_roots.push(func);
+        self.shared.vm_gc_roots.push(sequence);
 
         let mut results = Vec::new();
         let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
@@ -1968,7 +1964,7 @@ impl<'a> Vm<'a> {
                 let value =
                     self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
                 results.push(value);
-                self.gc_roots.push(value);
+                self.shared.vm_gc_roots.push(value);
                 Ok(())
             },
         );
@@ -1977,7 +1973,7 @@ impl<'a> Vm<'a> {
             Ok(()) => self.with_extra_roots(&results, |_| Ok(Value::list(results.clone()))),
             Err(flow) => Err(flow),
         };
-        self.gc_roots.truncate(saved_roots);
+        self.shared.vm_gc_roots.truncate(saved_roots);
         out
     }
 
@@ -1985,9 +1981,9 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapc", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        let saved_roots = self.gc_roots.len();
-        self.gc_roots.push(func);
-        self.gc_roots.push(sequence);
+        let saved_roots = self.shared.vm_gc_roots.len();
+        self.shared.vm_gc_roots.push(func);
+        self.shared.vm_gc_roots.push(sequence);
 
         let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
             &sequence,
@@ -1997,7 +1993,7 @@ impl<'a> Vm<'a> {
             },
         );
 
-        self.gc_roots.truncate(saved_roots);
+        self.shared.vm_gc_roots.truncate(saved_roots);
         map_result?;
         Ok(sequence)
     }
@@ -2006,9 +2002,9 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapcan", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        let saved_roots = self.gc_roots.len();
-        self.gc_roots.push(func);
-        self.gc_roots.push(sequence);
+        let saved_roots = self.shared.vm_gc_roots.len();
+        self.shared.vm_gc_roots.push(func);
+        self.shared.vm_gc_roots.push(sequence);
 
         let mut mapped = Vec::new();
         let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
@@ -2017,7 +2013,7 @@ impl<'a> Vm<'a> {
                 let value =
                     self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
                 mapped.push(value);
-                self.gc_roots.push(value);
+                self.shared.vm_gc_roots.push(value);
                 Ok(())
             },
         );
@@ -2028,7 +2024,7 @@ impl<'a> Vm<'a> {
             }),
             Err(flow) => Err(flow),
         };
-        self.gc_roots.truncate(saved_roots);
+        self.shared.vm_gc_roots.truncate(saved_roots);
         out
     }
 
@@ -2037,10 +2033,10 @@ impl<'a> Vm<'a> {
         let func = args[0];
         let sequence = args[1];
         let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
-        let saved_roots = self.gc_roots.len();
-        self.gc_roots.push(func);
-        self.gc_roots.push(sequence);
-        self.gc_roots.push(separator);
+        let saved_roots = self.shared.vm_gc_roots.len();
+        self.shared.vm_gc_roots.push(func);
+        self.shared.vm_gc_roots.push(sequence);
+        self.shared.vm_gc_roots.push(separator);
 
         let mut parts = Vec::new();
         let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
@@ -2049,7 +2045,7 @@ impl<'a> Vm<'a> {
                 let value =
                     self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
                 parts.push(value);
-                self.gc_roots.push(value);
+                self.shared.vm_gc_roots.push(value);
                 Ok(())
             },
         );
@@ -2070,17 +2066,17 @@ impl<'a> Vm<'a> {
             }
             Err(flow) => Err(flow),
         };
-        self.gc_roots.truncate(saved_roots);
+        self.shared.vm_gc_roots.truncate(saved_roots);
         out
     }
 
     fn builtin_sort_fast(&mut self, args: &[Value]) -> EvalResult {
         let options = crate::emacs_core::builtins::higher_order::parse_sort_options(args)?;
         let sequence = args[0];
-        let saved_roots = self.gc_roots.len();
-        self.gc_roots.push(sequence);
-        self.gc_roots.push(options.key_fn);
-        self.gc_roots.push(options.lessp_fn);
+        let saved_roots = self.shared.vm_gc_roots.len();
+        self.shared.vm_gc_roots.push(sequence);
+        self.shared.vm_gc_roots.push(options.key_fn);
+        self.shared.vm_gc_roots.push(options.lessp_fn);
 
         let out = match sequence {
             Value::Nil => Ok(Value::Nil),
@@ -2105,7 +2101,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 for value in &values {
-                    self.gc_roots.push(*value);
+                    self.shared.vm_gc_roots.push(*value);
                 }
                 let mut sorted_values =
                     crate::emacs_core::builtins::higher_order::stable_sort_values_with(
@@ -2127,7 +2123,7 @@ impl<'a> Vm<'a> {
             Value::Vector(v) | Value::Record(v) => {
                 let values = with_heap(|h| h.get_vector(v).clone());
                 for value in &values {
-                    self.gc_roots.push(*value);
+                    self.shared.vm_gc_roots.push(*value);
                 }
                 let sorted_values =
                     crate::emacs_core::builtins::higher_order::stable_sort_values_with(
@@ -2158,7 +2154,7 @@ impl<'a> Vm<'a> {
             )),
         };
 
-        self.gc_roots.truncate(saved_roots);
+        self.shared.vm_gc_roots.truncate(saved_roots);
         out
     }
 
@@ -3091,7 +3087,7 @@ impl<'a> Vm<'a> {
                     extra_roots.extend(load_args.iter().copied());
                     target = crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
                         &mut self.shared,
-                        &self.gc_roots,
+                        &[],
                         &load_args,
                         &extra_roots,
                     )?;
@@ -3302,7 +3298,7 @@ impl<'a> Vm<'a> {
                 let body = lambda_data.body.clone();
                 let result = crate::emacs_core::eval::eval_lambda_body_in_vm_runtime(
                     &mut self.shared,
-                    &self.gc_roots,
+                    &[],
                     &extra_roots,
                     body,
                 );
@@ -3330,7 +3326,7 @@ impl<'a> Vm<'a> {
                         let loaded =
                             crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
                                 &mut self.shared,
-                                &self.gc_roots,
+                                &[],
                                 &[func, Value::Symbol(id)],
                                 &autoload_roots,
                             )?;
@@ -5080,25 +5076,25 @@ impl<'a> Vm<'a> {
             )),
             "eval" => Some(crate::emacs_core::eval::builtin_eval_in_vm_runtime(
                 &mut self.shared,
-                &self.gc_roots,
+                &[],
                 args,
             )),
             "load" => Some(crate::emacs_core::load::builtin_load_in_vm_runtime(
                 &mut self.shared,
-                &self.gc_roots,
+                &[],
                 args,
             )),
             "autoload-do-load" => Some(
                 crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
                     &mut self.shared,
-                    &self.gc_roots,
+                    &[],
                     args,
                     args,
                 ),
             ),
             "require" => Some(crate::emacs_core::eval::builtin_require_in_vm_runtime(
                 &mut self.shared,
-                &self.gc_roots,
+                &[],
                 args,
             )),
             "symbol-file" => Some(crate::emacs_core::autoload::builtin_symbol_file_in_state(
@@ -8109,12 +8105,12 @@ impl<'a> Vm<'a> {
             ),
             "eval-buffer" => Some(crate::emacs_core::lread::builtin_eval_buffer_in_vm_runtime(
                 &mut self.shared,
-                &self.gc_roots,
+                &[],
                 args,
             )),
             "eval-region" => Some(crate::emacs_core::lread::builtin_eval_region_in_vm_runtime(
                 &mut self.shared,
-                &self.gc_roots,
+                &[],
                 args,
             )),
             "macroexpand" => Some(self.builtin_macroexpand_shared(args)),
@@ -8261,7 +8257,7 @@ impl<'a> Vm<'a> {
     fn builtin_documentation_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::doc::builtin_documentation_in_vm_runtime(
             &mut self.shared,
-            &self.gc_roots,
+            &[],
             args.to_vec(),
         )
     }
@@ -8269,7 +8265,7 @@ impl<'a> Vm<'a> {
     fn builtin_documentation_property_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::doc::builtin_documentation_property_in_vm_runtime(
             &mut self.shared,
-            &self.gc_roots,
+            &[],
             args.to_vec(),
         )
     }
@@ -8277,7 +8273,7 @@ impl<'a> Vm<'a> {
     fn builtin_format_mode_line_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::xdisp::builtin_format_mode_line_in_vm_runtime(
             &mut self.shared,
-            &self.gc_roots,
+            &[],
             args,
         )
     }
@@ -8285,7 +8281,7 @@ impl<'a> Vm<'a> {
     fn builtin_read_from_minibuffer_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::reader::finish_read_from_minibuffer_in_vm_runtime(
             &mut self.shared,
-            &self.gc_roots,
+            &[],
             args,
         )
     }
@@ -8305,7 +8301,7 @@ impl<'a> Vm<'a> {
             crate::emacs_core::interactive::resolve_call_interactively_target_and_args_with_vm_fallback(
                 &mut self.shared,
                 &mut plan,
-                &self.gc_roots,
+                &[],
                 &extra_roots,
             )?;
         self.shared.interactive.push_interactive_call(true);
@@ -8406,14 +8402,7 @@ impl<'a> Vm<'a> {
 
     fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("garbage-collect", args, 0)?;
-        // Push the VM's gc_roots into shared temp_roots so they are
-        // visible to collect_roots() during GC.  This ensures bytecode
-        // constants, stack values, and specpdl entries survive collection.
-        // Matches GNU bytecode.c's mark_bytecode() approach.
-        let saved_temp = self.shared.save_temp_roots_len();
-        self.shared.extend_temp_roots(&self.gc_roots);
         self.shared.gc_collect();
-        self.shared.truncate_temp_roots(saved_temp);
         crate::emacs_core::builtins_extra::builtin_garbage_collect(vec![])
     }
 
@@ -8449,19 +8438,11 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_read_string_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::finish_read_string_in_vm_runtime(
-            &mut self.shared,
-            &self.gc_roots,
-            args,
-        )
+        crate::emacs_core::reader::finish_read_string_in_vm_runtime(&mut self.shared, &[], args)
     }
 
     fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::finish_completing_read_in_vm_runtime(
-            &mut self.shared,
-            &self.gc_roots,
-            args,
-        )
+        crate::emacs_core::reader::finish_completing_read_in_vm_runtime(&mut self.shared, &[], args)
     }
 
     fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -8540,7 +8521,7 @@ impl<'a> Vm<'a> {
     fn builtin_read_command_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::minibuffer::finish_read_command_in_vm_runtime(
             &mut self.shared,
-            &self.gc_roots,
+            &[],
             args,
         )
     }
@@ -8548,7 +8529,7 @@ impl<'a> Vm<'a> {
     fn builtin_read_variable_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::minibuffer::finish_read_variable_in_vm_runtime(
             &mut self.shared,
-            &self.gc_roots,
+            &[],
             args,
         )
     }
@@ -9119,11 +9100,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_yes_or_no_p_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::reader::finish_yes_or_no_p_in_vm_runtime(
-            &mut self.shared,
-            &self.gc_roots,
-            args,
-        )
+        crate::emacs_core::reader::finish_yes_or_no_p_in_vm_runtime(&mut self.shared, &[], args)
     }
 }
 
@@ -9148,7 +9125,7 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         let extra_roots = args.clone();
         let _ = crate::emacs_core::autoload::builtin_autoload_do_load_in_vm_runtime(
             &mut self.shared,
-            &self.gc_roots,
+            &[],
             &args,
             &extra_roots,
         )?;
@@ -9186,7 +9163,7 @@ impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
     }
 
     fn root_sort_value(&mut self, value: Value) {
-        self.gc_roots.push(value);
+        self.shared.vm_gc_roots.push(value);
     }
 }
 
