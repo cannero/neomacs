@@ -8146,41 +8146,31 @@ fn format_message_and_message_signal_strict_format_errors() {
     }
 }
 
+/// `user-error` is an Elisp function in GNU (subr.el:535), not a C builtin.
+/// Test it through the bootstrap evaluator which loads subr.el.
 #[test]
 fn user_error_signals_user_error_symbol_and_formatted_message() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
-
-    let err = dispatch_builtin(
-        &mut eval,
-        "user-error",
-        vec![Value::string("oops %s"), Value::string("now")],
+    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
+    crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
+    let forms = crate::emacs_core::parse_forms(
+        r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#,
     )
-    .expect("user-error should resolve")
-    .expect_err("user-error should signal");
-
-    match err {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "user-error");
-            assert_eq!(sig.data, vec![Value::string("oops now")]);
-        }
-        other => panic!("expected signal, got: {other:?}"),
-    }
+    .expect("parse");
+    let result = eval.eval_expr(&forms[0]).expect("eval");
+    let printed = crate::emacs_core::print::print_value(&result);
+    assert_eq!(printed, "(user-error \"oops now\")");
 }
 
 #[test]
 fn user_error_requires_message_argument() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
-    let err = dispatch_builtin(&mut eval, "user-error", vec![])
-        .expect("user-error should resolve")
-        .expect_err("user-error should reject missing message");
-
-    match err {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("user-error"), Value::Int(0)]);
-        }
-        other => panic!("expected signal, got: {other:?}"),
-    }
+    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
+    crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
+    let forms =
+        crate::emacs_core::parse_forms(r#"(condition-case err (user-error) (error (car err)))"#)
+            .expect("parse");
+    let result = eval.eval_expr(&forms[0]).expect("eval");
+    let printed = crate::emacs_core::print::print_value(&result);
+    assert_eq!(printed, "wrong-number-of-arguments");
 }
 
 #[test]
