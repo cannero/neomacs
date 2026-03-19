@@ -4431,7 +4431,15 @@ impl Evaluator {
         // Buffer-local bindings are name-based and must not intercept
         // uninterned symbols that merely share the same print name.
         if resolved_is_canonical && let Some(buf) = self.buffers.current_buffer() {
-            if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
+            // GNU buffer.c:5698 — buffer-undo-list is a DEFVAR_PER_BUFFER
+            // that stores the undo list as a direct Lisp value.  In neomacs,
+            // the Rust UndoList struct must be converted via buffer_local_value()
+            // which calls undo_list.to_value().
+            if resolved_name == "buffer-undo-list" {
+                if let Some(value) = buf.buffer_local_value(resolved_name) {
+                    return Ok(value);
+                }
+            } else if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
                 return binding
                     .as_value()
                     .ok_or_else(|| signal("void-variable", vec![value_from_symbol_id(sym_id)]));
