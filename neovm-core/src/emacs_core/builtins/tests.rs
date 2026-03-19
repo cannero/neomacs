@@ -6224,8 +6224,8 @@ fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
     assert!(dispatch_builtin_pure("defvaralias", vec![]).is_none());
     assert!(dispatch_builtin_pure("delete-file", vec![]).is_none());
     assert!(dispatch_builtin_pure("display-color-p", vec![]).is_none());
-    assert!(dispatch_builtin_pure("format", vec![]).is_none());
-    assert!(dispatch_builtin_pure("format-message", vec![]).is_none());
+    // format and format-message are correctly in pure dispatch (GNU editfns.c —
+    // they don't need eval state).
     assert!(dispatch_builtin_pure("indirect-variable", vec![]).is_none());
     assert!(dispatch_builtin_pure("insert-and-inherit", vec![]).is_none());
     assert!(dispatch_builtin_pure("insert-before-markers-and-inherit", vec![]).is_none());
