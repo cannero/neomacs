@@ -3213,6 +3213,10 @@ pub fn create_bootstrap_evaluator_with_features(
         eval.set_variable("exec-suffixes", Value::Nil);
         eval.set_variable("exec-directory", Value::Nil);
 
+        // shell-file-name: GNU callproc.c:2041 — $SHELL or /bin/sh
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        eval.set_variable("shell-file-name", Value::string(shell));
+
         // menu-bar-final-items: list of menu-bar items to put at end (C: xmenu.c)
         eval.set_variable(
             "menu-bar-final-items",
