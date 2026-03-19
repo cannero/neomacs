@@ -225,6 +225,37 @@ impl FontSlant {
     }
 }
 
+/// Font width (condensed, normal, expanded).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontWidth {
+    UltraCondensed,
+    ExtraCondensed,
+    Condensed,
+    SemiCondensed,
+    Normal,
+    SemiExpanded,
+    Expanded,
+    ExtraExpanded,
+    UltraExpanded,
+}
+
+impl FontWidth {
+    pub fn from_symbol(name: &str) -> Option<Self> {
+        match name {
+            "ultra-condensed" => Some(Self::UltraCondensed),
+            "extra-condensed" => Some(Self::ExtraCondensed),
+            "condensed" | "compressed" | "narrow" => Some(Self::Condensed),
+            "semi-condensed" => Some(Self::SemiCondensed),
+            "normal" | "medium" | "regular" => Some(Self::Normal),
+            "semi-expanded" => Some(Self::SemiExpanded),
+            "expanded" => Some(Self::Expanded),
+            "extra-expanded" => Some(Self::ExtraExpanded),
+            "ultra-expanded" => Some(Self::UltraExpanded),
+            _ => None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Face
 // ---------------------------------------------------------------------------
@@ -252,8 +283,12 @@ pub struct Face {
     pub underline: Option<Underline>,
     /// Overline (true = draw overline).
     pub overline: Option<bool>,
+    /// Overline color (None = use foreground).
+    pub overline_color: Option<Color>,
     /// Strike-through.
     pub strike_through: Option<bool>,
+    /// Strike-through color (None = use foreground).
+    pub strike_through_color: Option<Color>,
     /// Box border.
     pub box_border: Option<BoxBorder>,
     /// Inverse video.
@@ -268,6 +303,12 @@ pub struct Face {
     pub overstrike: bool,
     /// Face documentation.
     pub doc: Option<String>,
+    /// Distant foreground color (used when fg matches bg).
+    pub distant_foreground: Option<Color>,
+    /// Font foundry name.
+    pub foundry: Option<String>,
+    /// Font width (condensed/expanded).
+    pub width: Option<FontWidth>,
 }
 
 /// Height specification.
@@ -315,6 +356,11 @@ impl Face {
             },
             overstrike: overlay.overstrike || self.overstrike,
             doc: overlay.doc.clone().or_else(|| self.doc.clone()),
+            overline_color: overlay.overline_color.or(self.overline_color),
+            strike_through_color: overlay.strike_through_color.or(self.strike_through_color),
+            distant_foreground: overlay.distant_foreground.or(self.distant_foreground),
+            foundry: overlay.foundry.clone().or_else(|| self.foundry.clone()),
+            width: overlay.width.or(self.width),
         }
     }
 

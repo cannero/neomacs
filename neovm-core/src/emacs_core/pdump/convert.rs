@@ -2136,6 +2136,11 @@ fn load_face(df: &DumpFace) -> Face {
         inherit: df.inherit.clone(),
         overstrike: df.overstrike,
         doc: df.doc.clone(),
+        overline_color: None,
+        strike_through_color: None,
+        distant_foreground: None,
+        foundry: None,
+        width: None,
     }
 }
 

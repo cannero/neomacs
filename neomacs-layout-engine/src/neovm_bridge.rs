@@ -7,7 +7,7 @@ use neovm_core::buffer::Buffer;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::emacs_core::{Evaluator, Value};
 use neovm_core::face::{
-    Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight,
+    Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight, FontWidth,
     UnderlineStyle as NeoUnderlineStyle,
 };
 use neovm_core::window::{Frame, FrameId, Window};
@@ -1221,23 +1221,36 @@ impl FaceResolver {
                 }
                 ":underline" => {
                     if let Some(v) = val_item {
-                        if v.is_truthy() {
-                            face.underline = Some(neovm_core::face::Underline {
-                                style: NeoUnderlineStyle::Line,
-                                color: None,
-                                position: None,
-                            });
-                        }
+                        face.underline = Self::parse_underline_value(v);
                     }
                 }
                 ":overline" => {
                     if let Some(v) = val_item {
-                        face.overline = Some(v.is_truthy());
+                        if let Some(s) = v.as_str() {
+                            // Color string
+                            face.overline = Some(true);
+                            face.overline_color =
+                                NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
+                        } else {
+                            face.overline = Some(v.is_truthy());
+                        }
                     }
                 }
                 ":strike-through" => {
                     if let Some(v) = val_item {
-                        face.strike_through = Some(v.is_truthy());
+                        if let Some(s) = v.as_str() {
+                            // Color string
+                            face.strike_through = Some(true);
+                            face.strike_through_color =
+                                NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
+                        } else {
+                            face.strike_through = Some(v.is_truthy());
+                        }
+                    }
+                }
+                ":box" => {
+                    if let Some(v) = val_item {
+                        face.box_border = Self::parse_box_value(v);
                     }
                 }
                 ":inverse-video" => {
@@ -1250,11 +1263,204 @@ impl FaceResolver {
                         face.extend = Some(v.is_truthy());
                     }
                 }
+                ":inherit" => {
+                    if let Some(v) = val_item {
+                        if let Some(name) = v.as_symbol_name() {
+                            if name != "nil" {
+                                face.inherit.push(name.to_string());
+                            }
+                        } else if let Some(names) = list_to_vec(v) {
+                            for n in &names {
+                                if let Some(name) = n.as_symbol_name() {
+                                    if name != "nil" {
+                                        face.inherit.push(name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ":distant-foreground" => {
+                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
+                        if let Some(c) = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)) {
+                            face.distant_foreground = Some(c);
+                        }
+                    }
+                }
+                ":width" => {
+                    if let Some(name) = val_item.and_then(|v| v.as_symbol_name()) {
+                        face.width = neovm_core::face::FontWidth::from_symbol(name);
+                    }
+                }
+                ":foundry" => {
+                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
+                        face.foundry = Some(s.to_string());
+                    }
+                }
                 _ => {}
             }
             i += 2;
         }
         Some(face)
+    }
+
+    /// Parse an `:underline` attribute value.
+    ///
+    /// GNU Emacs supports: `t`, a color string, or a plist
+    /// `(:color COLOR :style STYLE :position POS)`.
+    fn parse_underline_value(val: &Value) -> Option<neovm_core::face::Underline> {
+        use neovm_core::face::Underline;
+        match val {
+            Value::True => Some(Underline {
+                style: NeoUnderlineStyle::Line,
+                color: None,
+                position: None,
+            }),
+            Value::Nil => None,
+            _ if val.as_str().is_some() => {
+                // Color string
+                let s = val.as_str().unwrap();
+                Some(Underline {
+                    style: NeoUnderlineStyle::Line,
+                    color: NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)),
+                    position: None,
+                })
+            }
+            Value::Cons(_) => {
+                // Plist: (:color "red" :style wave :position t)
+                let items = list_to_vec(val)?;
+                let mut style = NeoUnderlineStyle::Line;
+                let mut color = None;
+                let mut position = None;
+                let mut i = 0;
+                while i < items.len() {
+                    let key = items[i].as_symbol_name().unwrap_or("");
+                    let v = items.get(i + 1);
+                    match key {
+                        ":color" => {
+                            if let Some(s) = v.and_then(|v| v.as_str()) {
+                                color = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
+                            }
+                        }
+                        ":style" => {
+                            if let Some(name) = v.and_then(|v| v.as_symbol_name()) {
+                                style = match name {
+                                    "wave" => NeoUnderlineStyle::Wave,
+                                    "double-line" => NeoUnderlineStyle::Line, // TODO: DoubleLine
+                                    "dots" => NeoUnderlineStyle::Dot,
+                                    "dashes" => NeoUnderlineStyle::Dash,
+                                    _ => NeoUnderlineStyle::Line,
+                                };
+                            }
+                        }
+                        ":position" => {
+                            if let Some(v) = v {
+                                if let Value::Int(n) = v {
+                                    position = Some(*n as i32);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    i += 2;
+                }
+                Some(Underline {
+                    style,
+                    color,
+                    position,
+                })
+            }
+            _ => {
+                if val.is_truthy() {
+                    Some(Underline {
+                        style: NeoUnderlineStyle::Line,
+                        color: None,
+                        position: None,
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Parse a `:box` attribute value.
+    ///
+    /// GNU Emacs supports: `t`, a color string, an integer (line width),
+    /// or a plist `(:line-width WIDTH :color COLOR :style STYLE)`.
+    fn parse_box_value(val: &Value) -> Option<neovm_core::face::BoxBorder> {
+        use neovm_core::face::{BoxBorder, BoxStyle};
+        match val {
+            Value::True => Some(BoxBorder {
+                color: None,
+                width: 1,
+                style: BoxStyle::Flat,
+            }),
+            Value::Nil => None,
+            Value::Int(n) => Some(BoxBorder {
+                color: None,
+                width: *n as i32,
+                style: BoxStyle::Flat,
+            }),
+            _ if val.as_str().is_some() => {
+                let s = val.as_str().unwrap();
+                Some(BoxBorder {
+                    color: NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)),
+                    width: 1,
+                    style: BoxStyle::Flat,
+                })
+            }
+            Value::Cons(_) => {
+                let items = list_to_vec(val)?;
+                let mut color = None;
+                let mut width = 1i32;
+                let mut style = BoxStyle::Flat;
+                let mut i = 0;
+                while i < items.len() {
+                    let key = items[i].as_symbol_name().unwrap_or("");
+                    let v = items.get(i + 1);
+                    match key {
+                        ":line-width" => {
+                            if let Some(v) = v {
+                                match v {
+                                    Value::Int(n) => width = *n as i32,
+                                    Value::Cons(cell) => {
+                                        // (H . V) pair — use H
+                                        let pair = neovm_core::emacs_core::value::read_cons(*cell);
+                                        if let Value::Int(n) = pair.car {
+                                            width = n as i32;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        ":color" => {
+                            if let Some(s) = v.and_then(|v| v.as_str()) {
+                                color = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
+                            }
+                        }
+                        ":style" => {
+                            if let Some(name) = v.and_then(|v| v.as_symbol_name()) {
+                                style = match name {
+                                    "released-button" => BoxStyle::Raised,
+                                    "pressed-button" => BoxStyle::Pressed,
+                                    _ => BoxStyle::Flat,
+                                };
+                            }
+                        }
+                        _ => {}
+                    }
+                    i += 2;
+                }
+                Some(BoxBorder {
+                    color,
+                    width,
+                    style,
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Convert a neovm-core `Face` into a fully-realized `ResolvedFace`.
@@ -1312,9 +1518,15 @@ impl FaceResolver {
         if let Some(over) = face.overline {
             rf.overline = over;
         }
+        if let Some(c) = &face.overline_color {
+            rf.overline_color = color_to_pixel(c);
+        }
         // Strike-through
         if let Some(st) = face.strike_through {
             rf.strike_through = st;
+        }
+        if let Some(c) = &face.strike_through_color {
+            rf.strike_through_color = color_to_pixel(c);
         }
         // Box border
         if let Some(bb) = &face.box_border {
