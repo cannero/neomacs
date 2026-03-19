@@ -205,8 +205,18 @@ fn parse_char_literals() {
 
 #[test]
 fn parse_char_literal_single_space_syntax_matches_gnu_emacs() {
+    // GNU reads "? x ?\ty" as 4 forms: (32 x 9 y)
+    // ?<space> = space char, x = symbol, ?\t = tab char, y = symbol
     let forms = parse_forms("? x ?\ty").unwrap();
-    assert_eq!(forms, vec![Expr::Char(' '), Expr::Char('\t')]);
+    assert_eq!(
+        forms,
+        vec![
+            Expr::Char(' '),
+            Expr::Symbol(crate::emacs_core::intern::intern("x")),
+            Expr::Char('\t'),
+            Expr::Symbol(crate::emacs_core::intern::intern("y")),
+        ]
+    );
 }
 
 #[test]

@@ -90,7 +90,8 @@ fn regexp_quote_no_specials() {
 #[test]
 fn regexp_quote_all_specials() {
     let result = builtin_regexp_quote(vec![Value::string(".*+?[]^$\\")]);
-    assert_str(result.unwrap(), "\\.\\*\\+\\?\\[\\]\\^\\$\\\\");
+    // GNU regexp-quote does NOT escape ']' — only '[' is special.
+    assert_str(result.unwrap(), "\\.\\*\\+\\?\\[]\\^\\$\\\\");
 }
 
 #[test]
