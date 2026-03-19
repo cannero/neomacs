@@ -5077,6 +5077,12 @@ pub(crate) fn builtin_x_create_frame_in_state(
         frame
             .parameters
             .insert("window-system".to_string(), Value::symbol("neomacs"));
+        frame
+            .parameters
+            .insert("display-type".to_string(), Value::symbol("color"));
+        frame
+            .parameters
+            .insert("background-mode".to_string(), Value::symbol("light"));
         for (key, value) in parsed.all {
             frame.parameters.insert(key, value);
         }

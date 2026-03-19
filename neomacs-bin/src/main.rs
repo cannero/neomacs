@@ -427,11 +427,17 @@ fn bootstrap_buffers(eval: &mut Evaluator, width: u32, height: u32) -> Bootstrap
         scratch_id
     );
 
-    // Set window-system parameter
+    // Set frame parameters for neomacs GUI
     if let Some(frame) = eval.frame_manager_mut().selected_frame_mut() {
         frame
             .parameters
             .insert("window-system".to_string(), Value::symbol("neomacs"));
+        frame
+            .parameters
+            .insert("display-type".to_string(), Value::symbol("color"));
+        frame
+            .parameters
+            .insert("background-mode".to_string(), Value::symbol("light"));
         frame.title = "Neomacs".to_string();
         frame.font_pixel_size = frame_metrics.font_pixel_size;
         frame.char_width = frame_metrics.char_width;

@@ -1350,6 +1350,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "x-create-frame",
     "x-delete-window-property",
     "x-disown-selection-internal",
+    "display-color-cells",
     "x-export-frames",
     "x-display-backing-store",
     "x-display-color-cells",

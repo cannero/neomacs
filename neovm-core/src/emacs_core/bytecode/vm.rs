@@ -6232,9 +6232,19 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "display-color-cells" => Some(
+                crate::emacs_core::display::builtin_x_display_color_cells_in_state(
+                    self.shared.frames,
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
+                    args.to_vec(),
+                ),
+            ),
             "x-display-color-cells" => Some(
                 crate::emacs_core::display::builtin_x_display_color_cells_in_state(
                     self.shared.frames,
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
                     args.to_vec(),
                 ),
             ),
@@ -6289,6 +6299,8 @@ impl<'a> Vm<'a> {
             "x-display-visual-class" => Some(
                 crate::emacs_core::display::builtin_x_display_visual_class_in_state(
                     self.shared.frames,
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
                     args.to_vec(),
                 ),
             ),

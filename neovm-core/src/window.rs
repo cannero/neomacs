@@ -545,7 +545,12 @@ impl FrameManager {
         let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
         let root = Window::new_leaf(window_id, buffer_id, bounds);
 
-        let frame = Frame::new(frame_id, name.to_string(), width, height, root);
+        let mut frame = Frame::new(frame_id, name.to_string(), width, height, root);
+        // Set default display capabilities for neomacs GUI frames.
+        // Needed by faces.el's face-spec-set-match-display to match
+        // (class color) and (background light) conditions in defface specs.
+        frame.parameters.insert("display-type".to_string(), Value::symbol("color"));
+        frame.parameters.insert("background-mode".to_string(), Value::symbol("light"));
         let selected_wid = frame.selected_window;
         self.frames.insert(frame_id, frame);
         self.note_window_selected(selected_wid);

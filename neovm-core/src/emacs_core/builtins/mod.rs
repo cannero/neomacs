@@ -2060,6 +2060,9 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
+        "display-color-cells" => {
+            return Some(super::display::builtin_display_color_cells_eval(eval, args));
+        }
         "x-display-color-cells" => {
             return Some(super::display::builtin_x_display_color_cells_eval(
                 eval, args,
@@ -2801,6 +2804,7 @@ pub(crate) fn dispatch_builtin(
         "x-server-vendor" => super::display::builtin_x_server_vendor(args),
         "x-display-grayscale-p" => super::display::builtin_x_display_grayscale_p(args),
         "x-display-backing-store" => super::display::builtin_x_display_backing_store(args),
+        "display-color-cells" => super::display::builtin_display_color_cells(args),
         "x-display-color-cells" => super::display::builtin_x_display_color_cells(args),
         "x-display-mm-height" => super::display::builtin_x_display_mm_height(args),
         "x-display-mm-width" => super::display::builtin_x_display_mm_width(args),
