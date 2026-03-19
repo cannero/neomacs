@@ -622,17 +622,15 @@ fn sf_track_mouse_evaluates_body() {
     assert!(eq_value(&result, &Value::Int(99)));
 }
 
-// ----- special form: with-syntax-table -----
+// ----- with-syntax-table (Elisp macro in GNU subr.el:6394) -----
 
 #[test]
 fn sf_with_syntax_table_evaluates_body() {
-    use super::super::expr::Expr;
-    let mut ev = super::super::eval::Evaluator::new();
-    let tail = [
-        Expr::List(vec![Expr::Symbol(intern("make-syntax-table"))]),
-        Expr::Int(30),
-    ];
-    let result = sf_with_syntax_table(&mut ev, &tail).unwrap();
+    // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("startup");
+    let forms = parse_forms("(with-syntax-table (make-syntax-table) 30)").expect("parse");
+    let result = ev.eval_expr(&forms[0]).expect("eval");
     assert!(eq_value(&result, &Value::Int(30)));
 }
 
@@ -647,14 +645,12 @@ fn sf_with_syntax_table_needs_args() {
 
 #[test]
 fn sf_with_syntax_table_restores_original_table_on_success() {
-    use super::super::expr::Expr;
-    let mut ev = super::super::eval::Evaluator::new();
+    // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("startup");
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
-    let tail = [
-        Expr::List(vec![Expr::Symbol(intern("make-syntax-table"))]),
-        Expr::Int(1),
-    ];
-    sf_with_syntax_table(&mut ev, &tail).unwrap();
+    let forms = parse_forms("(with-syntax-table (make-syntax-table) 1)").expect("parse");
+    ev.eval_expr(&forms[0]).expect("eval");
     let restored = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     assert!(eq_value(&restored, &original));
 }
