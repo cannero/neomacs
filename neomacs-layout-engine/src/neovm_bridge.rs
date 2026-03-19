@@ -957,7 +957,7 @@ impl FaceResolver {
             .unwrap_or(FontWeight::NORMAL.0);
         df.italic = neo_default.slant.map(|s| s.is_italic()).unwrap_or(false);
         df.font_size = match &neo_default.height {
-            Some(FaceHeight::Absolute(tenths)) => *tenths as f32 / 10.0 * (crate::fontconfig::xft_dpi() / 72.0),
+            Some(FaceHeight::Absolute(tenths)) => *tenths as f32 / 10.0 * (96.0 / 72.0),
             _ => default_font_size,
         };
         df.extend = neo_default.extend.unwrap_or(false);
@@ -1500,8 +1500,9 @@ impl FaceResolver {
         if let Some(h) = &face.height {
             match h {
                 FaceHeight::Absolute(tenths) => {
-                    // 1/10 pt -> pixels: (tenths/10) * (Xft.dpi/72)
-                    rf.font_size = *tenths as f32 / 10.0 * (crate::fontconfig::xft_dpi() / 72.0);
+                    // 1/10 pt -> logical pixels at 96 DPI: (tenths/10) * (96/72)
+                    // HiDPI scaling handled by winit/wgpu, not here.
+                    rf.font_size = *tenths as f32 / 10.0 * (96.0 / 72.0);
                 }
                 FaceHeight::Relative(factor) => {
                     rf.font_size = self.default_face.font_size * (*factor as f32);

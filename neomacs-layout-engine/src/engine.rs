@@ -1280,6 +1280,26 @@ impl LayoutEngine {
         let default_fg = Color::from_pixel(default_resolved.fg);
         let default_bg = Color::from_pixel(default_resolved.bg);
 
+        // Update frame char metrics from the actual default face font.
+        // This ensures mode-line height, window splits, etc. use the correct
+        // font dimensions instead of stale hardcoded defaults.
+        if let Some(ref mut svc) = self.font_metrics {
+            let m = svc.font_metrics(
+                &default_resolved.font_family,
+                default_resolved.font_weight,
+                default_resolved.italic,
+                default_resolved.font_size,
+            );
+            if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+                frame.char_width = m.char_width;
+                frame.char_height = m.line_height;
+                frame.font_pixel_size = default_resolved.font_size;
+            }
+            frame_glyphs.char_width = m.char_width;
+            frame_glyphs.char_height = m.line_height;
+            frame_glyphs.font_pixel_size = default_resolved.font_size;
+        }
+
         // Set default face (face_id=0) from FaceResolver
         frame_glyphs.set_face_with_font(
             0, // DEFAULT_FACE_ID
