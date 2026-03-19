@@ -398,14 +398,16 @@ fn cl_subseq_wrong_arity() {
 
 #[test]
 fn cl_subseq_wrong_type() {
+    // GNU signals (error "Unsupported sequence: 0"), not wrong-type-argument.
+    // Verified against GNU Emacs --batch.
     let results = bootstrap_eval(
         r#"
         (condition-case err
             (progn (require 'cl-lib) (cl-subseq 0 0))
-          (wrong-type-argument (car err)))
+          (error (car err)))
         "#,
     );
-    assert_eq!(results[0], "OK wrong-type-argument");
+    assert_eq!(results[0], "OK error");
 }
 
 #[test]
