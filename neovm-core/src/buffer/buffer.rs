@@ -157,21 +157,6 @@ impl Buffer {
     // -- Construction --------------------------------------------------------
 
     fn seed_builtin_buffer_local_defaults(properties: &mut HashMap<String, RuntimeBindingValue>) {
-        // GNU buffer.c:5381 — default-directory is a DEFVAR_PER_BUFFER
-        // initialized to the current working directory.
-        let cwd = std::env::current_dir()
-            .map(|p| {
-                let mut s = p.to_string_lossy().into_owned();
-                if !s.ends_with('/') {
-                    s.push('/');
-                }
-                s
-            })
-            .unwrap_or_else(|_| "/".to_string());
-        properties.insert(
-            "default-directory".to_string(),
-            RuntimeBindingValue::Bound(Value::string(cwd)),
-        );
         properties.insert(
             "buffer-read-only".to_string(),
             RuntimeBindingValue::Bound(Value::Nil),
