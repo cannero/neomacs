@@ -115,7 +115,7 @@ fn defcustom_marks_special() {
 
 #[test]
 fn defcustom_custom_variable_p() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(defcustom my-var 42 "Docs.") (custom-variable-p 'my-var) (custom-variable-p 'other)"#,
     );
     assert_eq!(results[1], "OK t");
@@ -802,7 +802,7 @@ fn custom_set_variables_ignores_unknown_variable() {
 
 #[test]
 fn custom_set_faces_returns_nil() {
-    let results = eval_all(r#"(custom-set-faces '(default ((t (:height 120)))))"#);
+    let results = bootstrap_eval_all(r#"(custom-set-faces '(default ((t (:height 120)))))"#);
     assert_eq!(results[0], "OK nil");
 }
 

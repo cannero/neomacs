@@ -476,7 +476,8 @@ fn set_window_point_and_read() {
 
 #[test]
 fn set_window_start_point_and_group_start_accept_marker_positions() {
-    let mut ev = Evaluator::new();
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (with-current-buffer (window-buffer w)
@@ -1163,7 +1164,8 @@ fn other_window_enforces_max_arity() {
 
 #[test]
 fn other_window_without_selected_frame_returns_nil() {
-    let mut ev = Evaluator::new();
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms("(other-window 1)").expect("parse");
     let results = ev.eval_forms(&forms);
     assert_eq!(format_eval_result(&results[0]), "OK nil");
@@ -2313,7 +2315,8 @@ fn set_frame_selected_window_matches_selection_and_error_semantics() {
 
 #[test]
 fn old_selected_window_matches_stable_and_stale_window_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(
         "(windowp (old-selected-window))
          (let* ((w1 (selected-window))
@@ -2359,7 +2362,8 @@ fn old_selected_window_matches_stable_and_stale_window_semantics() {
 
 #[test]
 fn frame_old_selected_window_matches_batch_and_arity_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(
         "(condition-case err (frame-old-selected-window 999999) (error err))
          (condition-case err (frame-old-selected-window 'foo) (error err))

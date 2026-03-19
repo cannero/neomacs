@@ -529,7 +529,7 @@ fn setq_keeps_canonical_symbols_in_obarray() {
 #[test]
 fn uninterned_nil_function_is_not_treated_as_canonical_nil() {
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(let ((s (make-symbol "nil")))
                  (fset s (lambda () 'ok))
                  (list (special-form-p s) (funcall s)))"#
@@ -781,27 +781,30 @@ fn when_unless() {
 
 #[test]
 fn bound_and_true_p_runtime_semantics() {
-    assert_eq!(eval_one("(fboundp 'bound-and-true-p)"), "OK t");
-    assert_eq!(eval_one("(macrop 'bound-and-true-p)"), "OK t");
+    assert_eq!(bootstrap_eval_one("(fboundp 'bound-and-true-p)"), "OK t");
+    assert_eq!(bootstrap_eval_one("(macrop 'bound-and-true-p)"), "OK t");
     assert_eq!(
-        eval_one("(let ((vm-batp t)) (bound-and-true-p vm-batp))"),
+        bootstrap_eval_one("(let ((vm-batp t)) (bound-and-true-p vm-batp))"),
         "OK t"
     );
     assert_eq!(
-        eval_one("(let ((vm-batp nil)) (bound-and-true-p vm-batp))"),
+        bootstrap_eval_one("(let ((vm-batp nil)) (bound-and-true-p vm-batp))"),
         "OK nil"
     );
-    assert_eq!(eval_one("(bound-and-true-p vm-batp-unbound)"), "OK nil");
     assert_eq!(
-        eval_one("(condition-case err (bound-and-true-p) (error err))"),
+        bootstrap_eval_one("(bound-and-true-p vm-batp-unbound)"),
+        "OK nil"
+    );
+    assert_eq!(
+        bootstrap_eval_one("(condition-case err (bound-and-true-p) (error err))"),
         "OK (wrong-number-of-arguments (1 . 1) 0)"
     );
     assert_eq!(
-        eval_one("(condition-case err (bound-and-true-p a b) (error err))"),
+        bootstrap_eval_one("(condition-case err (bound-and-true-p a b) (error err))"),
         "OK (wrong-number-of-arguments (1 . 1) 2)"
     );
     assert_eq!(
-        eval_one("(condition-case err (bound-and-true-p 1) (error err))"),
+        bootstrap_eval_one("(condition-case err (bound-and-true-p 1) (error err))"),
         "OK (wrong-type-argument symbolp 1)"
     );
 }
@@ -3258,7 +3261,7 @@ fn alist_get_comes_from_gnu_subr_runtime() {
 
 #[test]
 fn with_local_quit_catches_quit_and_sets_quit_flag() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(setq quit-flag nil)
          (with-local-quit
            (keyboard-quit)
@@ -3297,7 +3300,7 @@ fn with_temp_message_accepts_min_arity_and_runs_body() {
 
 #[test]
 fn with_demoted_errors_runtime_semantics() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(fboundp 'with-demoted-errors)
          (macrop 'with-demoted-errors)
          (with-demoted-errors \"DM %S\" (+ 1 2))

@@ -6,7 +6,10 @@ experimental = ["wrapper-scripts"]
 command = 'systemd-run --user --scope -q -p MemoryMax=4G --'
 
 [profile.default]
-slow-timeout = { period = "60s", terminate-after = 1 }
+# Many tests use the bootstrap evaluator (which loads 122 .el files)
+# even without "bootstrap" in their name. 120s covers the ~63s
+# bootstrap initialization plus test execution time.
+slow-timeout = { period = "120s", terminate-after = 1 }
 
 # Apply memory limit to all tests
 [[profile.default.scripts]]

@@ -2943,9 +2943,7 @@ fn interactive_lambda_s_spec_reads_prompt_and_signals_eof_in_batch() {
 
 #[test]
 fn interactive_lambda_extended_string_codes_cover_point_mark_ignored_and_key_readers() {
-    let mut ev = gnu_simple_command_execute_eval();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(list
              (let ((unread-command-events (list 97 98 99)))
                (with-temp-buffer
@@ -3234,9 +3232,7 @@ fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
 
 #[test]
 fn interactive_lambda_prefix_flags_star_hat_and_at_follow_batch_semantics() {
-    let mut ev = gnu_simple_command_execute_eval();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(list
              (with-temp-buffer
                (let ((buffer-read-only nil))

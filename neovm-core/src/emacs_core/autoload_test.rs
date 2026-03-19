@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
 
 fn eval_one(src: &str) -> String {
@@ -18,6 +19,16 @@ fn eval_all(src: &str) -> Vec<String> {
 }
 
 fn eval_all_with(ev: &mut Evaluator, src: &str) -> Vec<String> {
+    let forms = parse_forms(src).expect("parse");
+    ev.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("startup");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -235,7 +246,7 @@ fn autoload_with_type() {
 
 #[test]
 fn autoload_is_callable_subr_surface() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(fboundp 'autoload)
            (special-form-p 'autoload)
            (subrp (symbol-function 'autoload))
