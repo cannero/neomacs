@@ -10137,6 +10137,30 @@ If DISPLAY is omitted or nil, it defaults to the selected frame's display."
 (defalias 'display-multi-frame-p #'display-graphic-p)
 (defalias 'display-multi-font-p #'display-graphic-p)
 
+;; Re-apply face specs that were evaluated during bootstrap when
+;; display-graphic-p returned nil.  Now that we've overridden it,
+;; the (class color) conditions will match correctly.
+(when (display-graphic-p)
+  (dolist (face '(mode-line mode-line-inactive mode-line-active
+                  header-line tab-line cursor region
+                  highlight isearch lazy-highlight
+                  minibuffer-prompt link link-visited
+                  fringe line-number line-number-current-line
+                  fill-column-indicator trailing-whitespace
+                  escape-glyph homoglyph nobreak-space nobreak-hyphen
+                  shadow secondary-selection
+                  font-lock-comment-face font-lock-string-face
+                  font-lock-keyword-face font-lock-builtin-face
+                  font-lock-function-name-face font-lock-variable-name-face
+                  font-lock-type-face font-lock-constant-face
+                  font-lock-warning-face font-lock-doc-face
+                  font-lock-negation-char-face
+                  font-lock-preprocessor-face
+                  font-lock-regexp-grouping-construct
+                  font-lock-regexp-grouping-backslash))
+    (when (facep face)
+      (face-spec-recalc face (selected-frame)))))
+
 ;; Provide the feature
 (provide 'neomacs-win)
 (provide 'term/neomacs-win)

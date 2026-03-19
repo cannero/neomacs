@@ -6310,6 +6310,8 @@ impl<'a> Vm<'a> {
             "terminal-live-p" => Some(
                 crate::emacs_core::terminal::pure::builtin_terminal_live_p_in_state(
                     &*self.shared.frames,
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
                     args.to_vec(),
                 ),
             ),

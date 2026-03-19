@@ -360,23 +360,40 @@ pub(crate) fn builtin_terminal_live_p(args: Vec<Value>) -> EvalResult {
 
 /// Evaluator-aware variant of `terminal-live-p`.
 ///
-/// Returns non-nil for terminal designators and live frame designators.
+/// In GNU Emacs, terminal-live-p returns the terminal type symbol
+/// (e.g. 'x, 'w32) for GUI terminals, or t for TTY.  This is used
+/// by framep-on-display to determine the window system type.
 pub(crate) fn builtin_terminal_live_p_eval(
     eval: &mut crate::emacs_core::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("terminal-live-p", &args, 1, 1)?;
-    Ok(Value::bool(terminal_designator_eval_p(eval, &args[0])))
+    if !terminal_designator_eval_p(eval, &args[0]) {
+        return Ok(Value::Nil);
+    }
+    // Return the window system type so framep-on-display works correctly.
+    if crate::emacs_core::display::neomacs_window_system_active(eval) {
+        Ok(Value::symbol("neomacs"))
+    } else {
+        Ok(Value::True)
+    }
 }
 
 pub(crate) fn builtin_terminal_live_p_in_state(
     frames: &crate::window::FrameManager,
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("terminal-live-p", &args, 1, 1)?;
-    Ok(Value::bool(terminal_designator_in_state_p(
-        frames, &args[0],
-    )))
+    if !terminal_designator_in_state_p(frames, &args[0]) {
+        return Ok(Value::Nil);
+    }
+    if crate::emacs_core::display::neomacs_window_system_active_in_state(obarray, dynamic) {
+        Ok(Value::symbol("neomacs"))
+    } else {
+        Ok(Value::True)
+    }
 }
 
 /// (terminal-parameter TERMINAL PARAMETER) -> value
