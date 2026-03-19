@@ -308,9 +308,10 @@ fn window_system_not_initialized_error() -> Flow {
     )
 }
 
-fn neomacs_window_system_active(eval: &super::eval::Evaluator) -> bool {
+pub(crate) fn neomacs_window_system_active(eval: &super::eval::Evaluator) -> bool {
     let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
         .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
+    // Neomacs reports as "x" window system for GNU Emacs .el compatibility
     host_window_system == Some(Value::symbol("neomacs"))
 }
 
@@ -778,7 +779,11 @@ pub(crate) fn builtin_display_color_cells_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-color-cells", &args)?;
-    Ok(Value::Int(0))
+    if neomacs_window_system_active(eval) {
+        Ok(Value::Int(16777216)) // 2^24 = 24-bit TrueColor
+    } else {
+        Ok(Value::Int(0))
+    }
 }
 
 /// Evaluator-aware variant of `display-planes`.
@@ -787,7 +792,11 @@ pub(crate) fn builtin_display_planes_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-planes", &args)?;
-    Ok(Value::Int(3))
+    if neomacs_window_system_active(eval) {
+        Ok(Value::Int(24))
+    } else {
+        Ok(Value::Int(3))
+    }
 }
 
 /// Evaluator-aware variant of `display-visual-class`.
@@ -796,7 +805,11 @@ pub(crate) fn builtin_display_visual_class_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-visual-class", &args)?;
-    Ok(Value::symbol("static-gray"))
+    if neomacs_window_system_active(eval) {
+        Ok(Value::symbol("true-color"))
+    } else {
+        Ok(Value::symbol("static-gray"))
+    }
 }
 
 /// Evaluator-aware variant of `display-backing-store`.

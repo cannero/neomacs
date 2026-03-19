@@ -3880,6 +3880,18 @@ pub(crate) fn builtin_xw_display_color_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_xw_display_color_p_eval(
+    eval: &super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("xw-display-color-p", &args, 0, 1)?;
+    if super::super::display::neomacs_window_system_active(eval) {
+        Ok(Value::True)
+    } else {
+        Ok(Value::Nil)
+    }
+}
+
 pub(crate) fn builtin_innermost_minibuffer_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("innermost-minibuffer-p", &args, 0, 1)?;
     Ok(Value::Nil)

@@ -2893,6 +2893,9 @@ pub(crate) fn dispatch_builtin(
         "font-family-list" => super::font::builtin_font_family_list(args),
         "font-xlfd-name" => super::font::builtin_font_xlfd_name(args),
         "close-font" => super::font::builtin_close_font(args),
+        "xw-display-color-p" => {
+            return Some(builtin_xw_display_color_p_eval(eval, args));
+        }
         "internal-make-lisp-face" => {
             return Some(super::font::builtin_internal_make_lisp_face_eval(
                 eval, args,

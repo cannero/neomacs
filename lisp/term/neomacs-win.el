@@ -10080,6 +10080,63 @@ Non-nil renders animated flowing color bands at the top of the frame."
                 neomacs-cursor-pendulum-damping nil)
             val))))
 
+;;; ---------------------------------------------------------------
+;;; Display capability overrides
+;;;
+;;; GNU Emacs's frame.el hardcodes known window systems in
+;;; display-graphic-p, display-color-cells, display-visual-class, etc.
+;;; We redefine them here to recognize 'neomacs as a graphical display.
+;;; ---------------------------------------------------------------
+
+(defun display-graphic-p (&optional display)
+  "Return non-nil if DISPLAY is a graphic display.
+Graphical displays are those which are capable of displaying several
+frames and several different fonts at once.  This is true for displays
+that use a window system such as X, and false for text-only terminals.
+DISPLAY can be a display name, a frame, or nil (meaning the selected
+frame's display)."
+  (not (null (memq (framep-on-display display)
+                   '(x w32 ns pgtk haiku android neomacs)))))
+
+(defun display-color-cells (&optional display)
+  "Return the number of color cells supported by DISPLAY.
+DISPLAY can be a display name or a frame.
+If DISPLAY is omitted or nil, it defaults to the selected frame's display."
+  (let ((frame-type (framep-on-display display)))
+    (cond
+     ((memq frame-type '(x w32 ns haiku pgtk android neomacs))
+      (x-display-color-cells display))
+     ((eq frame-type 'pc)
+      16)
+     (t
+      (tty-display-color-cells display)))))
+
+(defun display-visual-class (&optional display)
+  "Return the visual class of DISPLAY.
+The value is one of the symbols `static-gray', `gray-scale',
+`static-color', `pseudo-color', `true-color', or `direct-color'.
+DISPLAY can be a display name or a frame.
+If DISPLAY is omitted or nil, it defaults to the selected frame's display."
+  (let ((frame-type (framep-on-display display)))
+    (cond
+     ((memq frame-type '(x w32 ns haiku pgtk android neomacs))
+      (x-display-visual-class display))
+     ((and (memq frame-type '(pc t))
+           (tty-display-color-p display))
+      'static-color)
+     (t
+      'static-gray))))
+
+(defun display-images-p (&optional display)
+  "Return non-nil if DISPLAY can display images."
+  (and (display-graphic-p display)
+       (fboundp 'image-mask-p)
+       (fboundp 'image-size)))
+
+(defalias 'display-blink-cursor-p #'display-graphic-p)
+(defalias 'display-multi-frame-p #'display-graphic-p)
+(defalias 'display-multi-font-p #'display-graphic-p)
+
 ;; Provide the feature
 (provide 'neomacs-win)
 (provide 'term/neomacs-win)
