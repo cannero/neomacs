@@ -5086,7 +5086,8 @@ impl Evaluator {
             "with-temp-buffer" => super::misc::sf_with_temp_buffer(self, tail),
             "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
             "track-mouse" => super::misc::sf_track_mouse(self, tail),
-            "with-syntax-table" => super::misc::sf_with_syntax_table(self, tail),
+            // with-syntax-table: Elisp macro in GNU (subr.el:6394).
+            // Loaded from subr.el, not a C special form.
             _ => return None,
         })
     }

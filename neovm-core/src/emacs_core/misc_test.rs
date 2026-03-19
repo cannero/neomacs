@@ -1,6 +1,8 @@
 use super::super::intern::intern;
 use super::*;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator};
+use crate::emacs_core::load::{
+    apply_runtime_startup_state, create_bootstrap_evaluator, create_bootstrap_evaluator_cached,
+};
 use crate::emacs_core::string_escape;
 use crate::emacs_core::{format_eval_result, parse_forms};
 
