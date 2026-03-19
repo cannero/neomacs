@@ -781,7 +781,7 @@ fn kill_local_variable_triggers_makunbound_watcher_with_buffer_where() {
 
 #[test]
 fn custom_set_variables_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(defvar my-var 1)
            (custom-set-variables '(my-var 42))
            (default-value 'my-var)"#,
@@ -808,25 +808,28 @@ fn custom_set_faces_returns_nil() {
 
 #[test]
 fn custom_set_faces_non_list_spec_errors() {
-    let results = eval_all(r#"(condition-case err (custom-set-faces 1) (error err))"#);
+    let results = bootstrap_eval_all(r#"(condition-case err (custom-set-faces 1) (error err))"#);
     assert_eq!(results[0], r#"OK (error "Incompatible Custom theme spec")"#);
 }
 
 #[test]
 fn custom_set_faces_requires_symbol_face_name() {
-    let results = eval_all(r#"(condition-case err (custom-set-faces '(1 2)) (error err))"#);
+    let results =
+        bootstrap_eval_all(r#"(condition-case err (custom-set-faces '(1 2)) (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument symbolp 1)");
 }
 
 #[test]
 fn custom_set_variables_errors_for_non_list_spec() {
-    let results = eval_all(r#"(condition-case err (custom-set-variables 1) (error err))"#);
+    let results =
+        bootstrap_eval_all(r#"(condition-case err (custom-set-variables 1) (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument listp 1)");
 }
 
 #[test]
 fn custom_set_variables_errors_for_non_symbol_variable_name() {
-    let results = eval_all(r#"(condition-case err (custom-set-variables '(1 2)) (error err))"#);
+    let results =
+        bootstrap_eval_all(r#"(condition-case err (custom-set-variables '(1 2)) (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument symbolp 1)");
 }
 
