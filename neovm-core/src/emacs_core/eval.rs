@@ -2751,7 +2751,20 @@ impl Evaluator {
             // Core buffer identity
             defvar_per_buffer!("buffer-file-name", Value::Nil);
             defvar_per_buffer!("buffer-file-truename", Value::Nil);
-            defvar_per_buffer!("default-directory", Value::Nil);
+            // GNU buffer.c:5381 — default-directory defaults to cwd.
+            // This sets the GLOBAL default; new buffers inherit it.
+            {
+                let cwd = std::env::current_dir()
+                    .map(|p| {
+                        let mut s = p.to_string_lossy().into_owned();
+                        if !s.ends_with('/') {
+                            s.push('/');
+                        }
+                        s
+                    })
+                    .unwrap_or_else(|_| "/".to_string());
+                defvar_per_buffer!("default-directory", Value::string(cwd));
+            }
             defvar_per_buffer!("buffer-read-only", Value::Nil);
             defvar_per_buffer!("buffer-undo-list", Value::Nil);
             defvar_per_buffer!("buffer-saved-size", Value::Int(0));
