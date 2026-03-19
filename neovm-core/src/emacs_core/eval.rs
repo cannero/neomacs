@@ -6000,8 +6000,17 @@ impl Evaluator {
         let handlers = &tail[2..];
 
         // Emacs validates handler shape even when BODY exits normally.
-        for handler in handlers {
+        // Also extract the special :success handler (GNU eval.c:1587).
+        let mut success_handler_idx: Option<usize> = None;
+        for (i, handler) in handlers.iter().enumerate() {
             match handler {
+                Expr::List(items) if !items.is_empty() => {
+                    if let Expr::Keyword(kw) = &items[0] {
+                        if resolve_sym(*kw) == ":success" {
+                            success_handler_idx = Some(i);
+                        }
+                    }
+                }
                 Expr::List(_) => {}
                 Expr::Symbol(id) if resolve_sym(*id) == "nil" => {}
                 _ => {
@@ -6017,9 +6026,35 @@ impl Evaluator {
         }
 
         match self.eval(body) {
-            Ok(value) => Ok(value),
+            Ok(value) => {
+                // GNU eval.c:1618 — if there's a :success handler, bind VAR
+                // to the body's return value and evaluate the handler body.
+                if let Some(idx) = success_handler_idx {
+                    if let Expr::List(items) = &handlers[idx] {
+                        let bind_var = resolve_sym(var) != "nil";
+                        if bind_var {
+                            let mut frame = OrderedRuntimeBindingMap::new();
+                            frame.insert(var, value);
+                            self.dynamic.push(frame);
+                        }
+                        let mut result = Value::Nil;
+                        for form in &items[1..] {
+                            result = self.eval(form)?;
+                        }
+                        if bind_var {
+                            self.dynamic.pop();
+                        }
+                        return Ok(result);
+                    }
+                }
+                Ok(value)
+            }
             Err(Flow::Signal(sig)) => {
-                for handler in handlers {
+                for (i, handler) in handlers.iter().enumerate() {
+                    // Skip :success handler — it only runs on success.
+                    if success_handler_idx == Some(i) {
+                        continue;
+                    }
                     if matches!(handler, Expr::Symbol(id) if resolve_sym(*id) == "nil") {
                         continue;
                     }
