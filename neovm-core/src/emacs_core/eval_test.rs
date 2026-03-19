@@ -2396,7 +2396,7 @@ fn dolist_loop() {
 
 #[test]
 fn ignore_errors_catches_signal() {
-    let result = eval_one("(ignore-errors (/ 1 0) 42)");
+    let result = bootstrap_eval_one("(ignore-errors (/ 1 0) 42)");
     assert_eq!(result, "OK nil"); // error caught, returns nil
 }
 
@@ -3137,7 +3137,7 @@ fn line_position_optional_argument_matches_gnu_current_rules() {
 
 #[test]
 fn save_match_data_restores_after_success_and_error() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(set-match-data '(1 2))
          (save-match-data (set-match-data '(3 4)) (match-data))
          (match-data)
@@ -3286,7 +3286,7 @@ fn with_local_quit_catches_quit_and_sets_quit_flag() {
 
 #[test]
 fn with_temp_message_accepts_min_arity_and_runs_body() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(with-temp-message nil 42)
          (with-temp-message \"tmp\" 7)
          (condition-case err

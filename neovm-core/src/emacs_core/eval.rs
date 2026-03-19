@@ -3447,11 +3447,19 @@ impl Evaluator {
             }
 
             // Look up the full sequence so far
-            tracing::debug!("read_key_sequence: looking up binding for {:?}",
-                events.iter().map(|e| super::print::print_value(e)).collect::<Vec<_>>());
+            tracing::debug!(
+                "read_key_sequence: looking up binding for {:?}",
+                events
+                    .iter()
+                    .map(|e| super::print::print_value(e))
+                    .collect::<Vec<_>>()
+            );
             let key_vec = Value::vector(events.clone());
             let binding = super::interactive::builtin_key_binding(self, vec![key_vec])?;
-            tracing::debug!("read_key_sequence: binding={}", super::print::print_value(&binding));
+            tracing::debug!(
+                "read_key_sequence: binding={}",
+                super::print::print_value(&binding)
+            );
 
             if binding.is_nil() {
                 // Undefined key sequence
@@ -5023,25 +5031,40 @@ impl Evaluator {
             "byte-code-literal" => self.sf_byte_code_literal(tail),
             "byte-code" => self.sf_byte_code(tail),
             "interactive" => Ok(Value::Nil), // Stub: ignored for now
+            // GNU implements inline as an Elisp macro (inline.el), but we
+            // keep it as a special form for early bootstrap compatibility.
             "inline" => self.sf_inline(tail),
             "declare" => Ok(Value::Nil), // Stub: ignored for now
+            // when/unless are Elisp macros in GNU (subr.el) but needed
+            // before subr.el loads (used in byte-run.el at position 2).
+            // Keep as built-in for early bootstrap, overridden by subr.el.
             "when" => self.sf_when(tail),
             "unless" => self.sf_unless(tail),
-            "bound-and-true-p" => self.sf_bound_and_true_p(tail),
+            // bound-and-true-p is an Elisp macro in GNU (bindings.el).
+            // Removed — loaded from bindings.el at bootstrap position 14.
             "defalias" => self.sf_defalias(tail),
             "provide" => self.sf_provide(tail),
             "require" => self.sf_require(tail),
             "save-excursion" => self.sf_save_excursion(tail),
+            // save-window-excursion is an Elisp macro in GNU (subr.el)
+            // but kept as special form for early bootstrap compatibility.
             "save-window-excursion" => self.sf_save_window_excursion(tail),
-            "save-selected-window" => self.sf_save_selected_window(tail),
-            "save-mark-and-excursion" => self.sf_save_mark_and_excursion(tail),
+            // save-selected-window: Elisp macro in GNU (window.el pos 15).
+            // Removed — loaded from window.el.
+            // save-mark-and-excursion: Elisp macro in GNU (simple.el pos 71).
+            // Removed — loaded from simple.el.
             "save-restriction" => self.sf_save_restriction(tail),
-            "save-match-data" => self.sf_save_match_data(tail),
-            "with-local-quit" => self.sf_with_local_quit(tail),
-            "with-temp-message" => self.sf_with_temp_message(tail),
-            "with-demoted-errors" => self.sf_with_demoted_errors(tail),
+            // save-match-data: Elisp macro in GNU (subr.el pos 4).
+            // Removed — loaded from subr.el.
+            // with-local-quit: Elisp macro in GNU (subr.el pos 4).
+            // Removed — loaded from subr.el.
+            // with-temp-message: Elisp macro in GNU (subr.el pos 4).
+            // Removed — loaded from subr.el.
+            // with-demoted-errors: Elisp macro in GNU (subr.el pos 4).
+            // Removed — loaded from subr.el.
             "with-current-buffer" => self.sf_with_current_buffer(tail),
-            "ignore-errors" => self.sf_ignore_errors(tail),
+            // ignore-errors: Elisp macro in GNU (subr.el pos 4).
+            // Removed — loaded from subr.el.
             "dotimes" => self.sf_dotimes(tail),
             "dolist" => self.sf_dolist(tail),
             // Custom system special forms
