@@ -219,6 +219,7 @@ fn main() {
         std::process::id()
     );
 
+
     // 2. Initialize the evaluator from the canonical core bootstrap.
     let mut evaluator =
         neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(&["neomacs"])
