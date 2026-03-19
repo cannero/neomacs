@@ -242,6 +242,13 @@ fn main() {
         .expect("No selected frame after bootstrap")
         .id;
     configure_gnu_startup_state(&mut evaluator, frame_id);
+
+    // Recalculate all face specs on the new GUI frame.
+    // The pdump was built with a TTY-like frame (no color), so defface
+    // specs fell through to (t :inverse-video t). Now that the frame has
+    // display-type=color, re-evaluate to get the correct graphical attrs.
+    recalc_faces_for_gui_frame(&mut evaluator);
+
     maybe_install_startup_phase_trace(&mut evaluator);
 
     // 4. Create communication channels — must happen BEFORE gnu startup,
@@ -515,6 +522,33 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId) {
     // with_mirrored_evaluator.  Users who want it can set this to nil in
     // their init file.
     eval.set_variable("inhibit-startup-screen", Value::True);
+}
+
+/// Recalculate face specs for the GUI frame.
+///
+/// During pdump bootstrap, faces are evaluated on a TTY-like frame
+/// (no color support), so defface specs like mode-line fall through
+/// to the `(t :inverse-video t)` clause. Now that we have a GUI frame
+/// with display-type=color, re-evaluate all face specs so they pick
+/// up the correct (class color) attributes.
+fn recalc_faces_for_gui_frame(eval: &mut Evaluator) {
+    let elisp = r#"
+(when (fboundp 'face-spec-recalc)
+  (face-spec-recalc 'mode-line (selected-frame))
+  (face-spec-recalc 'mode-line-inactive (selected-frame)))
+"#;
+    eval.setup_thread_locals();
+    match neovm_core::emacs_core::parse_forms(elisp) {
+        Ok(forms) => {
+            for form in &forms {
+                let _ = eval.eval_expr(form);
+            }
+            tracing::info!("Recalculated face specs for GUI frame");
+        }
+        Err(e) => {
+            tracing::warn!("recalc_faces parse error: {:?}", e);
+        }
+    }
 }
 
 fn run_gnu_startup(eval: &mut Evaluator) {

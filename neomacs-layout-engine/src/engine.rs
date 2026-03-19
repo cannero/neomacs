@@ -3913,10 +3913,6 @@ impl LayoutEngine {
                 "mode-line-inactive"
             };
             let ml_face = face_resolver.resolve_named_face(ml_face_name);
-            tracing::info!(
-                "mode-line face '{}': fg=0x{:06X} bg=0x{:06X}",
-                ml_face_name, ml_face.fg, ml_face.bg
-            );
 
             let mode_text = {
                 let result = eval_status_line_format(

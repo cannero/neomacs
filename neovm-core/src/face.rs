@@ -108,7 +108,22 @@ impl Color {
             "snow" => Some(Color::rgb(255, 250, 250)),
             "seashell" => Some(Color::rgb(255, 245, 238)),
             "honeydew" => Some(Color::rgb(240, 255, 240)),
-            _ => None,
+            _ => {
+                // X11 greyNN / grayNN colors (grey0-grey100)
+                let lower = name.to_lowercase();
+                let num_part = lower
+                    .strip_prefix("grey")
+                    .or_else(|| lower.strip_prefix("gray"));
+                if let Some(digits) = num_part {
+                    if let Ok(n) = digits.parse::<u32>() {
+                        if n <= 100 {
+                            let v = (n * 255 / 100) as u8;
+                            return Some(Color::rgb(v, v, v));
+                        }
+                    }
+                }
+                None
+            }
         }
     }
 
