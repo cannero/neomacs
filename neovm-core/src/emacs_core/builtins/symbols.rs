@@ -2592,11 +2592,17 @@ pub(crate) fn builtin_vertical_motion_in_buffers(
 ) -> EvalResult {
     expect_range_args("vertical-motion", &args, 1, 3)?;
     // First arg can be LINES (integer) or (COLS . LINES) cons pair.
-    let lines = match args[0] {
-        Value::Int(n) => n,
+    // When (COLS . LINES), move LINES then position at column COLS.
+    let (cols, lines) = match args[0] {
+        Value::Int(n) => (None, n),
         Value::Cons(cell) => {
             let pair = super::value::read_cons(cell);
-            match pair.cdr {
+            let cols_val = match pair.car {
+                Value::Int(n) => Some(n),
+                Value::Float(f, _) => Some(f as i64),
+                _ => None,
+            };
+            let lines_val = match pair.cdr {
                 Value::Int(n) => n,
                 _ => {
                     return Err(signal(
@@ -2604,7 +2610,8 @@ pub(crate) fn builtin_vertical_motion_in_buffers(
                         vec![Value::symbol("fixnump"), pair.cdr],
                     ));
                 }
-            }
+            };
+            (cols_val, lines_val)
         }
         _ => {
             return Err(signal(
@@ -2635,7 +2642,7 @@ pub(crate) fn builtin_vertical_motion_in_buffers(
     let begv = buf.begv;
     let zv = buf.zv;
 
-    if lines == 0 {
+    if lines == 0 && cols.is_none() {
         // Move to beginning of current screen line (= beginning of line).
         let mut bol = pt;
         while bol > begv && bytes[bol - 1] != b'\n' {
@@ -2649,41 +2656,55 @@ pub(crate) fn builtin_vertical_motion_in_buffers(
     let mut moved: i64 = 0;
 
     if lines > 0 {
-        // Move forward: first go to beginning of current line, then
-        // scan forward LINES newlines, settling at beginning of target line.
-        // GNU vertical-motion lands at beginning of the target line.
         for _ in 0..lines {
-            // Find next newline from pos.
             let mut nl = pos;
             while nl < zv && bytes[nl] != b'\n' {
                 nl += 1;
             }
             if nl >= zv {
-                // Hit end of accessible region.
                 break;
             }
-            pos = nl + 1; // Past the newline.
+            pos = nl + 1;
             moved += 1;
         }
-    } else {
+    } else if lines < 0 {
         // Move backward: go to beginning of current line first.
         while pos > begv && bytes[pos - 1] != b'\n' {
             pos -= 1;
         }
-        // Now pos is at beginning of current line.
-        // Move up |lines| lines.
         let target = (-lines) as usize;
         for _ in 0..target {
             if pos <= begv {
                 break;
             }
-            // Move before the newline ending the previous line.
             pos -= 1;
-            // Find beginning of that line.
             while pos > begv && bytes[pos - 1] != b'\n' {
                 pos -= 1;
             }
             moved -= 1;
+        }
+    } else {
+        // lines == 0 but cols is Some: stay on current line, go to BOL first
+        while pos > begv && bytes[pos - 1] != b'\n' {
+            pos -= 1;
+        }
+    }
+
+    // Now pos is at beginning of target line.
+    // If COLS was specified, advance to that column.
+    if let Some(target_col) = cols {
+        if target_col > 0 {
+            let target_col = target_col as usize;
+            let mut col: usize = 0;
+            while pos < zv && bytes[pos] != b'\n' && col < target_col {
+                // Handle tab characters
+                if bytes[pos] == b'\t' {
+                    col = (col + 8) & !7; // tab stops every 8
+                } else {
+                    col += 1;
+                }
+                pos += 1;
+            }
         }
     }
 
