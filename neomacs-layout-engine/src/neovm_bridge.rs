@@ -1022,9 +1022,15 @@ impl FaceResolver {
         let mut min_next = buffer.zv;
 
         // 1. "face" text property
+        let mut plist_face: Option<NeoFace> = None;
         if let Some(val) = buffer.text_props.get_property(charpos, "face") {
             let names = Self::resolve_face_value(val);
-            face_names.extend(names);
+            if names.len() == 1 && names[0] == "--plist-face--" {
+                // Inline plist face — parse directly into a Face object.
+                plist_face = Self::face_from_plist(val);
+            } else {
+                face_names.extend(names);
+            }
         }
         // Update next_check from text property boundaries
         if let Some(nc) = buffer.text_props.next_property_change(charpos) {
@@ -1080,12 +1086,24 @@ impl FaceResolver {
 
         *next_check = min_next;
 
-        // 4. If no faces found, return the default face.
+        // 4. If we have a plist face (and no other faces), realize it directly.
+        if let Some(pface) = plist_face {
+            if face_names.is_empty() {
+                return self.realize_face(&pface);
+            }
+            // Merge named faces first, then overlay the plist attributes.
+            let name_refs: Vec<&str> = face_names.iter().map(|s| s.as_str()).collect();
+            let merged = self.face_table.merge_faces(&name_refs);
+            let merged = merged.merge(&pface);
+            return self.realize_face(&merged);
+        }
+
+        // 5. If no faces found, return the default face.
         if face_names.is_empty() {
             return self.default_face.clone();
         }
 
-        // 5. Merge all collected face names and realize.
+        // 6. Merge all collected face names and realize.
         let name_refs: Vec<&str> = face_names.iter().map(|s| s.as_str()).collect();
         let merged = self.face_table.merge_faces(&name_refs);
         self.realize_face(&merged)
@@ -1114,7 +1132,6 @@ impl FaceResolver {
             }
             Value::Cons(_) => {
                 // Could be a list of face names, or a plist of face attributes.
-                // Try to interpret as a list of symbols first.
                 if let Some(items) = list_to_vec(val) {
                     // Check if first item is a keyword (plist like :foreground "red")
                     if items
@@ -1122,10 +1139,9 @@ impl FaceResolver {
                         .map(|v| matches!(v, Value::Keyword(_)))
                         .unwrap_or(false)
                     {
-                        // It's a plist — parse inline face attributes.
-                        // For now, return empty; inline plist faces are uncommon
-                        // and can be added later.
-                        Vec::new()
+                        // Plist face — handled by face_at_pos via face_from_plist().
+                        // Return a sentinel that face_at_pos recognizes.
+                        vec!["--plist-face--".to_string()]
                     } else {
                         // List of face name symbols.
                         items
@@ -1143,6 +1159,102 @@ impl FaceResolver {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// Parse an inline face plist like `(:foreground "red" :weight bold)` into
+    /// a `Face` object.  Handles the same keywords as GNU Emacs face specs.
+    pub fn face_from_plist(val: &Value) -> Option<NeoFace> {
+        use neovm_core::face::FontSlant;
+
+        let items = list_to_vec(val)?;
+        let mut face = NeoFace::new("--inline--");
+        let mut i = 0;
+        while i < items.len() {
+            let key = items[i].as_symbol_name().unwrap_or("");
+            let val_item = items.get(i + 1);
+            match key {
+                ":foreground" => {
+                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
+                        if let Some(c) = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)) {
+                            face.foreground = Some(c);
+                        }
+                    }
+                }
+                ":background" => {
+                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
+                        if let Some(c) = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)) {
+                            face.background = Some(c);
+                        }
+                    }
+                }
+                ":weight" => {
+                    if let Some(name) = val_item.and_then(|v| v.as_symbol_name()) {
+                        face.weight = FontWeight::from_symbol(name);
+                    }
+                }
+                ":slant" => {
+                    if let Some(name) = val_item.and_then(|v| v.as_symbol_name()) {
+                        face.slant = Some(match name {
+                            "italic" => FontSlant::Italic,
+                            "oblique" => FontSlant::Oblique,
+                            _ => FontSlant::Normal,
+                        });
+                    }
+                }
+                ":height" => {
+                    if let Some(v) = val_item {
+                        match v {
+                            Value::Int(n) => {
+                                face.height = Some(FaceHeight::Absolute(*n as i32));
+                            }
+                            Value::Float(f, _) => {
+                                face.height = Some(FaceHeight::Relative(*f));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                ":family" => {
+                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
+                        face.family = Some(s.to_string());
+                    }
+                }
+                ":underline" => {
+                    if let Some(v) = val_item {
+                        if v.is_truthy() {
+                            face.underline = Some(neovm_core::face::Underline {
+                                style: NeoUnderlineStyle::Line,
+                                color: None,
+                                position: None,
+                            });
+                        }
+                    }
+                }
+                ":overline" => {
+                    if let Some(v) = val_item {
+                        face.overline = Some(v.is_truthy());
+                    }
+                }
+                ":strike-through" => {
+                    if let Some(v) = val_item {
+                        face.strike_through = Some(v.is_truthy());
+                    }
+                }
+                ":inverse-video" => {
+                    if let Some(v) = val_item {
+                        face.inverse_video = Some(v.is_truthy());
+                    }
+                }
+                ":extend" => {
+                    if let Some(v) = val_item {
+                        face.extend = Some(v.is_truthy());
+                    }
+                }
+                _ => {}
+            }
+            i += 2;
+        }
+        Some(face)
     }
 
     /// Convert a neovm-core `Face` into a fully-realized `ResolvedFace`.
