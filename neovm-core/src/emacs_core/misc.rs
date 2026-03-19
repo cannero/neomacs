@@ -135,7 +135,8 @@ pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Evaluator, tail: &[Exp
     // Save current buffer
     let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
 
-    // Create a temporary buffer
+    // Create a temporary buffer.  Space-prefixed names automatically get
+    // undo disabled (buffer.c:667 — matches GNU behavior).
     let temp_name = eval.buffers.generate_new_buffer_name(" *temp*");
     let temp_id = eval.buffers.create_buffer(&temp_name);
     eval.buffers.set_current(temp_id);

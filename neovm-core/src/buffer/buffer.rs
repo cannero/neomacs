@@ -834,7 +834,13 @@ impl BufferManager {
     pub fn create_buffer(&mut self, name: &str) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
-        let buf = Buffer::new(id, name.to_string());
+        let mut buf = Buffer::new(id, name.to_string());
+        // GNU buffer.c:667 — buffers whose names start with a space have
+        // undo recording disabled by default.
+        if name.starts_with(' ') {
+            buf.undo_list.set_enabled(false);
+            buf.set_buffer_local("buffer-undo-list", crate::emacs_core::value::Value::True);
+        }
         self.buffers.insert(id, buf);
         id
     }
