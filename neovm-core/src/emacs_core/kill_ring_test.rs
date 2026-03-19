@@ -314,7 +314,7 @@ fn bootstrap_yank_and_yank_pop_arity_checks_match_simple_el() {
 
 #[test]
 fn yank_pop_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(kill-new "first")
            (kill-new "second")
            (yank)
@@ -328,25 +328,26 @@ fn yank_pop_basic() {
 
 #[test]
 fn yank_pop_without_yank_errors() {
-    let results = eval_all(r#"(kill-new "hello") (yank-pop)"#);
+    let results = bootstrap_eval_all(r#"(kill-new "hello") (yank-pop)"#);
     assert!(results[1].contains("end-of-file"));
 }
 
 #[test]
 fn yank_pop_with_last_command_yank_pop_errors() {
-    let results = eval_all(r#"(kill-new "hello") (setq last-command 'yank-pop) (yank-pop)"#);
+    let results =
+        bootstrap_eval_all(r#"(kill-new "hello") (setq last-command 'yank-pop) (yank-pop)"#);
     assert!(results[2].contains("end-of-file"));
 }
 
 #[test]
 fn yank_pop_empty_ring_errors() {
-    let result = eval_one("(yank-pop)");
+    let result = bootstrap_eval_one("(yank-pop)");
     assert!(result.contains("Kill ring is empty"));
 }
 
 #[test]
 fn yank_pop_without_region_errors() {
-    let results = eval_all(r#"(kill-new "hello") (setq last-command 'yank) (yank-pop)"#);
+    let results = bootstrap_eval_all(r#"(kill-new "hello") (setq last-command 'yank) (yank-pop)"#);
     assert!(results[2].contains("wrong-type-argument"));
 }
 
@@ -499,7 +500,7 @@ fn upcase_region_noncontiguous_requires_mark() {
 
 #[test]
 fn upcase_region_noncontiguous_accepts_live_mark() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "abc")
            (set-mark 2)
            (upcase-region 1 3 t)
@@ -628,7 +629,7 @@ fn capitalize_word_unicode_greek_small_alpha_ypogegrammeni_titlecase() {
 
 #[test]
 fn transpose_chars_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "abc")
            (goto-char 2)
            (transpose-chars 1)
@@ -639,7 +640,7 @@ fn transpose_chars_basic() {
 
 #[test]
 fn transpose_chars_at_end() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "abc")
            (transpose-chars 1)
            (buffer-string)"#,
@@ -652,7 +653,7 @@ fn transpose_chars_at_end() {
 
 #[test]
 fn transpose_lines_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "line1\nline2\nline3")
            (goto-char 8)
            (transpose-lines 1)
@@ -663,7 +664,7 @@ fn transpose_lines_basic() {
 
 #[test]
 fn transpose_lines_at_buffer_start() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "line1\nline2")
            (goto-char 1)
            (transpose-lines 1)
@@ -674,7 +675,7 @@ fn transpose_lines_at_buffer_start() {
 
 #[test]
 fn transpose_lines_arg_two_at_buffer_start() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "a\nb\nc\n")
            (goto-char 1)
            (transpose-lines 2)
@@ -685,7 +686,7 @@ fn transpose_lines_arg_two_at_buffer_start() {
 
 #[test]
 fn transpose_lines_last_line_without_trailing_newline() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "line1\nline2")
            (goto-char 7)
            (transpose-lines 1)
@@ -696,7 +697,7 @@ fn transpose_lines_last_line_without_trailing_newline() {
 
 #[test]
 fn transpose_lines_negative_errors() {
-    let result = eval_one(
+    let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "a\nb\n")
              (goto-char 3)
@@ -709,7 +710,7 @@ fn transpose_lines_negative_errors() {
 
 #[test]
 fn transpose_words_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "aa bb")
            (goto-char 0)
            (transpose-words 1)
@@ -733,7 +734,7 @@ fn transpose_words_not_enough_words_errors() {
 
 #[test]
 fn transpose_sexps_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "(aa) (bb)")
            (goto-char 5)
            (transpose-sexps 1)
@@ -744,7 +745,7 @@ fn transpose_sexps_basic() {
 
 #[test]
 fn transpose_sexps_at_bob_advances_without_swapping() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "(aa) (bb)")
            (goto-char 1)
            (transpose-sexps 1)
@@ -757,7 +758,7 @@ fn transpose_sexps_at_bob_advances_without_swapping() {
 
 #[test]
 fn transpose_sentences_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "One.  Two.")
            (goto-char 1)
            (transpose-sentences 1)
@@ -768,7 +769,7 @@ fn transpose_sentences_basic() {
 
 #[test]
 fn transpose_sentences_with_single_space_signals_end_of_buffer() {
-    let result = eval_one(
+    let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "One. Two.")
              (goto-char 1)
@@ -781,7 +782,7 @@ fn transpose_sentences_with_single_space_signals_end_of_buffer() {
 
 #[test]
 fn transpose_paragraphs_basic() {
-    let result = eval_one(
+    let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "A\n\nB")
              (goto-char 1)
@@ -793,7 +794,7 @@ fn transpose_paragraphs_basic() {
 
 #[test]
 fn transpose_paragraphs_backward_from_eob() {
-    let result = eval_one(
+    let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "A\n\nB\n\nC")
              (goto-char (point-max))
@@ -807,7 +808,7 @@ fn transpose_paragraphs_backward_from_eob() {
 
 #[test]
 fn indent_line_to_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "hello")
            (indent-line-to 4)
            (buffer-string)"#,
@@ -817,7 +818,7 @@ fn indent_line_to_basic() {
 
 #[test]
 fn indent_line_to_replaces_existing() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "  hello")
            (indent-line-to 4)
            (buffer-string)"#,
@@ -827,7 +828,7 @@ fn indent_line_to_replaces_existing() {
 
 #[test]
 fn indent_line_to_returns_column() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "  hi")
              (goto-char (point-min))
@@ -892,7 +893,7 @@ fn indent_to_minimum_requires_fixnump() {
 
 #[test]
 fn newline_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "ab")
            (goto-char 2)
            (newline)
@@ -903,13 +904,13 @@ fn newline_basic() {
 
 #[test]
 fn newline_multiple() {
-    let results = eval_all(r#"(newline 3) (buffer-string)"#);
+    let results = bootstrap_eval_all(r#"(newline 3) (buffer-string)"#);
     assert_eq!(results[1], "OK \"\n\n\n\"");
 }
 
 #[test]
 fn newline_prefix_arg_coercion_contract() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ab")
              (goto-char 2)
@@ -933,7 +934,7 @@ fn newline_prefix_arg_coercion_contract() {
 
 #[test]
 fn newline_rejects_too_many_args() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (newline 1 t nil) (error err)))
            (with-temp-buffer
@@ -945,7 +946,7 @@ fn newline_rejects_too_many_args() {
 
 #[test]
 fn newline_and_indent_rejects_too_many_args() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (newline-and-indent nil nil) (error err)))
            (with-temp-buffer
@@ -965,7 +966,7 @@ fn newline_and_indent_rejects_too_many_args() {
 
 #[test]
 fn newline_and_indent_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "    hello")
            (newline-and-indent)
            (buffer-string)"#,
@@ -976,7 +977,7 @@ fn newline_and_indent_basic() {
 
 #[test]
 fn newline_and_indent_normalizes_surrounding_whitespace() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "  x")
              (goto-char 3)
@@ -998,7 +999,7 @@ fn newline_and_indent_normalizes_surrounding_whitespace() {
 
 #[test]
 fn open_line_keeps_point_before_inserted_newlines() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "ab")
            (goto-char 2)
            (open-line 2)
@@ -1009,7 +1010,7 @@ fn open_line_keeps_point_before_inserted_newlines() {
 
 #[test]
 fn open_line_accepts_float_and_rejects_non_number_marker() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ab")
              (goto-char 2)
@@ -1028,7 +1029,7 @@ fn open_line_accepts_float_and_rejects_non_number_marker() {
 
 #[test]
 fn open_line_count_coercion_contract() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (open-line -1) (error err)))
            (with-temp-buffer
@@ -1060,7 +1061,7 @@ fn open_line_count_coercion_contract() {
 
 #[test]
 fn delete_horizontal_space_deletes_both_sides() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
            (delete-horizontal-space)
@@ -1071,7 +1072,7 @@ fn delete_horizontal_space_deletes_both_sides() {
 
 #[test]
 fn delete_horizontal_space_backward_only() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
            (delete-horizontal-space t)
@@ -1084,7 +1085,7 @@ fn delete_horizontal_space_backward_only() {
 
 #[test]
 fn just_one_space_default() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
            (just-one-space)
@@ -1095,7 +1096,7 @@ fn just_one_space_default() {
 
 #[test]
 fn just_one_space_zero() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
            (just-one-space 0)
@@ -1106,7 +1107,7 @@ fn just_one_space_zero() {
 
 #[test]
 fn just_one_space_argument_contract_subset() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (just-one-space "x") (error (list (car err) (nth 1 err)))))
            (with-temp-buffer
@@ -1143,7 +1144,7 @@ fn just_one_space_argument_contract_subset() {
 
 #[test]
 fn delete_indentation_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "hello\n    world")
            (goto-char 14)
            (delete-indentation)
@@ -1154,7 +1155,7 @@ fn delete_indentation_basic() {
 
 #[test]
 fn delete_indentation_keeps_point_before_join_space() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "a\n  b")
              (goto-char 3)
@@ -1170,7 +1171,7 @@ fn delete_indentation_keeps_point_before_join_space() {
 
 #[test]
 fn delete_indentation_rejects_too_many_args() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (delete-indentation nil nil nil nil) (error err)))
            (with-temp-buffer
@@ -1190,7 +1191,7 @@ fn delete_indentation_rejects_too_many_args() {
 
 #[test]
 fn tab_to_tab_stop_basic() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "hi")
            (tab-to-tab-stop)
            (buffer-string)"#,
@@ -1200,7 +1201,7 @@ fn tab_to_tab_stop_basic() {
 
 #[test]
 fn tab_to_tab_stop_returns_reached_column() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (list (current-column)
                    (tab-to-tab-stop)
@@ -1222,7 +1223,7 @@ fn tab_to_tab_stop_returns_reached_column() {
 
 #[test]
 fn indent_rigidly_forward() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "a\nb\nc")
            (indent-rigidly 1 6 2)
            (buffer-string)"#,
@@ -1232,7 +1233,7 @@ fn indent_rigidly_forward() {
 
 #[test]
 fn indent_rigidly_backward() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(insert "  a\n  b\n  c")
            (indent-rigidly 1 12 -2)
            (buffer-string)"#,
@@ -1242,7 +1243,7 @@ fn indent_rigidly_backward() {
 
 #[test]
 fn indent_rigidly_argument_contract_subset() {
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer (condition-case err (indent-rigidly 1 2 "x") (error err)))
            (with-temp-buffer (condition-case err (indent-rigidly 1 2 t) (error err)))
            (with-temp-buffer (condition-case err (indent-rigidly 1 2 [1]) (error err)))
