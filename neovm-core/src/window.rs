@@ -154,6 +154,13 @@ impl Window {
         }
     }
 
+    /// Mutable reference to bounds.
+    pub fn bounds_mut(&mut self) -> &mut Rect {
+        match self {
+            Window::Leaf { bounds, .. } | Window::Internal { bounds, .. } => bounds,
+        }
+    }
+
     /// Set bounds.
     pub fn set_bounds(&mut self, new_bounds: Rect) {
         match self {
@@ -395,6 +402,24 @@ impl Frame {
             font_pixel_size: 16.0,
             char_width: 8.0,
             char_height: 16.0,
+        }
+    }
+
+    /// Recalculate minibuffer bounds based on the root window's current bounds.
+    ///
+    /// Like GNU Emacs's `resize_frame_windows()` which sets:
+    ///   `m->pixel_top = r->pixel_top + r->pixel_height`
+    ///
+    /// Must be called after any operation that changes the window tree
+    /// (split, delete, resize).
+    pub fn recalculate_minibuffer_bounds(&mut self) {
+        if let Some(mini) = self.minibuffer_leaf.as_mut() {
+            let root = self.root_window.bounds();
+            let mini_bounds = mini.bounds_mut();
+            mini_bounds.x = root.x;
+            mini_bounds.y = root.y + root.height;
+            mini_bounds.width = root.width;
+            // height stays the same (one line)
         }
     }
 
@@ -646,6 +671,7 @@ impl FrameManager {
             new_buffer_id,
         )?;
 
+        frame.recalculate_minibuffer_bounds();
         Some(new_id)
     }
 
@@ -663,6 +689,7 @@ impl FrameManager {
             self.deleted_windows.insert(window_id);
             self.window_buffer_positions.remove(&window_id);
             self.window_use_times.remove(&window_id);
+            frame.recalculate_minibuffer_bounds();
         }
 
         if removed && frame.selected_window == window_id {

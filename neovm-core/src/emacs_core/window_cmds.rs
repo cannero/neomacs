@@ -5559,6 +5559,9 @@ pub(crate) fn builtin_window_resize_apply_in_state(
         ch,
     );
 
+    // Recalculate minibuffer position after tree resize.
+    frame.recalculate_minibuffer_bounds();
+
     Ok(Value::True)
 }
 
