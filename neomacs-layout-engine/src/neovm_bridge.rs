@@ -473,6 +473,15 @@ pub fn collect_layout_params(
         }
     }
 
+    if window_params.len() > 1 {
+        tracing::debug!(
+            "collect_layout_params: {} leaf windows, root bounds=({},{} {}x{})",
+            window_params.len(),
+            frame.root_window.bounds().x, frame.root_window.bounds().y,
+            frame.root_window.bounds().width, frame.root_window.bounds().height,
+        );
+    }
+
     // Add minibuffer window if present.
     if let Some(mini_leaf) = &frame.minibuffer_leaf {
         let buf_id = mini_leaf.buffer_id();
@@ -497,6 +506,11 @@ pub fn collect_layout_params(
                     wp.cursor_bar_width,
                     wp.cursor_color,
                     window_cursor_type,
+                );
+                tracing::debug!(
+                    "  minibuffer id={} bounds=({},{} {}x{})",
+                    wp.window_id, wp.bounds.x, wp.bounds.y,
+                    wp.bounds.width, wp.bounds.height,
                 );
                 window_params.push(wp);
             }

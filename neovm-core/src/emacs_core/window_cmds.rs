@@ -5622,6 +5622,9 @@ pub(crate) fn builtin_window_resize_apply_total_in_state(
         }
     }
 
+    // Ensure root + minibuffer fit in frame after total resize.
+    frame.recalculate_minibuffer_bounds();
+
     Ok(Value::True)
 }
 
