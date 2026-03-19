@@ -10,6 +10,7 @@ pub mod bidi_layout;
 pub mod emacs_ffi;
 pub mod emacs_types;
 pub mod engine;
+pub mod fontconfig;
 pub mod font_loader;
 pub mod font_match;
 pub mod font_metrics;

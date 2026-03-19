@@ -831,27 +831,48 @@ impl WgpuGlyphAtlas {
                 f.font_family.clone()
             };
 
-            // Font family - support specific font names
-            let family_lower = effective_family.to_lowercase();
-            attrs = match family_lower.as_str() {
-                "monospace" | "mono" | "" => attrs.family(Family::Monospace),
-                "serif" => attrs.family(Family::Serif),
-                "sans-serif" | "sans" | "sansserif" => attrs.family(Family::SansSerif),
-                // For specific font names, intern the string to get 'static lifetime
-                // without unbounded memory growth (each unique name leaked only once)
-                _ => {
-                    let interned = if let Some(&existing) =
-                        self.interned_families.get(effective_family.as_str())
-                    {
-                        existing
-                    } else {
-                        let leaked: &'static str =
-                            Box::leak(effective_family.clone().into_boxed_str());
-                        self.interned_families.insert(leaked);
-                        leaked
-                    };
-                    attrs.family(Family::Name(interned))
+            // Resolve generic family names through fontconfig so we use the
+            // same font as GNU Emacs (e.g., "Monospace" → "Hack").
+            let resolved =
+                neomacs_layout_engine::fontconfig::resolve_family(&effective_family);
+            let family_lower = resolved.to_lowercase();
+            let is_generic = matches!(
+                family_lower.as_str(),
+                "monospace" | "mono" | "" | "serif" | "sans-serif" | "sans" | "sansserif"
+            );
+
+            attrs = if is_generic && resolved != effective_family {
+                // Fontconfig resolved to a concrete name — use it directly
+                let interned = if let Some(&existing) =
+                    self.interned_families.get(resolved)
+                {
+                    existing
+                } else {
+                    let leaked: &'static str =
+                        Box::leak(resolved.to_string().into_boxed_str());
+                    self.interned_families.insert(leaked);
+                    leaked
+                };
+                attrs.family(Family::Name(interned))
+            } else if is_generic {
+                // No fontconfig resolution — fall back to cosmic-text generic
+                match family_lower.as_str() {
+                    "serif" => attrs.family(Family::Serif),
+                    "sans-serif" | "sans" | "sansserif" => attrs.family(Family::SansSerif),
+                    _ => attrs.family(Family::Monospace),
                 }
+            } else {
+                let interned = if let Some(&existing) =
+                    self.interned_families.get(resolved)
+                {
+                    existing
+                } else {
+                    let leaked: &'static str =
+                        Box::leak(resolved.to_string().into_boxed_str());
+                    self.interned_families.insert(leaked);
+                    leaked
+                };
+                attrs.family(Family::Name(interned))
             };
 
             // Font weight: clamp to the closest available weight in this family,
@@ -878,7 +899,21 @@ impl WgpuGlyphAtlas {
                 attrs = attrs.style(Style::Italic);
             }
         } else {
-            attrs = attrs.family(Family::Monospace);
+            // No face — use default monospace, resolved through fontconfig
+            let resolved = neomacs_layout_engine::fontconfig::resolve_family("Monospace");
+            if resolved != "Monospace" {
+                let interned = if let Some(&existing) = self.interned_families.get(resolved) {
+                    existing
+                } else {
+                    let leaked: &'static str =
+                        Box::leak(resolved.to_string().into_boxed_str());
+                    self.interned_families.insert(leaked);
+                    leaked
+                };
+                attrs = attrs.family(Family::Name(interned));
+            } else {
+                attrs = attrs.family(Family::Monospace);
+            }
         }
 
         attrs
