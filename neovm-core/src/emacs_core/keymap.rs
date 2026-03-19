@@ -464,8 +464,16 @@ fn get_keyelt(binding: Value) -> Value {
 /// Returns the binding or `Value::Nil` if not found.
 pub fn list_keymap_lookup_one(keymap: &Value, event: &Value) -> Value {
     let mut current = *keymap;
+    let mut depth = 0;
+    const MAX_KEYMAP_DEPTH: usize = 50; // prevent infinite parent loops
 
     loop {
+        depth += 1;
+        if depth > MAX_KEYMAP_DEPTH {
+            tracing::warn!("list_keymap_lookup_one: depth limit reached, possible cycle");
+            return Value::Nil;
+        }
+
         let Value::Cons(cell) = current else {
             return Value::Nil;
         };
@@ -477,7 +485,13 @@ pub fn list_keymap_lookup_one(keymap: &Value, event: &Value) -> Value {
 
         // Walk the CDR chain scanning for the binding
         let mut cursor = pair.cdr;
+        let mut entries = 0;
         while let Value::Cons(entry_cell) = cursor {
+            entries += 1;
+            if entries > 100_000 {
+                tracing::warn!("list_keymap_lookup_one: entry limit reached, possible circular list");
+                return Value::Nil;
+            }
             let entry = read_cons(entry_cell);
 
             // Check if this element is a char-table

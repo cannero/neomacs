@@ -3391,6 +3391,11 @@ impl Evaluator {
             // Record as last-input-event
             self.record_input_event(emacs_event);
 
+            tracing::debug!(
+                "read_key_sequence: event={} starting translation",
+                super::print::print_value(&emacs_event)
+            );
+
             // Apply translation maps to the current key sequence.
             // Each map can replace the sequence with a translated version.
             // Process in order: input-decode-map, local-function-key-map,
@@ -3442,8 +3447,11 @@ impl Evaluator {
             }
 
             // Look up the full sequence so far
+            tracing::debug!("read_key_sequence: looking up binding for {:?}",
+                events.iter().map(|e| super::print::print_value(e)).collect::<Vec<_>>());
             let key_vec = Value::vector(events.clone());
             let binding = super::interactive::builtin_key_binding(self, vec![key_vec])?;
+            tracing::debug!("read_key_sequence: binding={}", super::print::print_value(&binding));
 
             if binding.is_nil() {
                 // Undefined key sequence
