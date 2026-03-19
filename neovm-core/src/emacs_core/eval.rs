@@ -1792,6 +1792,10 @@ impl Evaluator {
         let function_key_map = make_sparse_list_keymap();
         let input_decode_map = make_sparse_list_keymap();
         let local_function_key_map = make_sparse_list_keymap();
+        // GNU Emacs: local-function-key-map inherits from function-key-map
+        // (keyboard.c:13097). Without this, bindings in function-key-map
+        // (like [backspace] → [?\C-?]) are not found during key translation.
+        list_keymap_set_parent(local_function_key_map, function_key_map);
 
         list_keymap_set_parent(read_expression_map, minibuffer_local_map);
         list_keymap_set_parent(read_expression_internal_map, read_expression_map);
