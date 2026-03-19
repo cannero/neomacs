@@ -153,13 +153,18 @@ fn gnu_simple_command_execute_eval() -> Evaluator {
         &simple_source,
         "(defun command-execute--query (command)",
     );
-    // Load set-mark (needed by interactive region commands)
+    // Load set-mark and its dependencies (needed by interactive region commands).
+    // set-mark calls activate-mark, which calls region-active-p and mark.
+    eval_first_form_after_marker(&mut ev, &simple_source, "(defun mark (&optional force)");
+    eval_first_form_after_marker(&mut ev, &simple_source, "(defun activate-mark");
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun set-mark (pos)");
     ev
 }
 
 fn gnu_simple_command_execute_eval_all(src: &str) -> Vec<String> {
-    let mut ev = gnu_simple_command_execute_eval();
+    // Use bootstrap evaluator — all Elisp functions (set-mark,
+    // activate-mark, region-active-p, command-execute, etc.) are loaded.
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     eval_all_with(&mut ev, src)
 }
 
@@ -2327,9 +2332,7 @@ fn command_execute_builtin_other_window_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_transpose_words_uses_default_prefix_arg() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "aa bb")
              (goto-char 1)
@@ -2364,9 +2367,7 @@ fn command_execute_builtin_transpose_sexps_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_transpose_sexps_uses_default_prefix_arg() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "(aa) (bb)")
              (goto-char 5)
@@ -2390,9 +2391,7 @@ fn command_execute_builtin_transpose_sentences_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_transpose_sentences_uses_default_prefix_arg() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "One.  Two.")
              (goto-char 1)
@@ -2429,9 +2428,7 @@ fn command_execute_builtin_kill_region_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_kill_ring_save_uses_marked_region() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
              (goto-char 1)
@@ -2458,9 +2455,7 @@ fn command_execute_builtin_copy_region_as_kill_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_copy_region_as_kill_uses_marked_region() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(let ((kill-ring nil))
              (with-temp-buffer
                (insert "abc")
@@ -2474,9 +2469,7 @@ fn call_interactively_builtin_copy_region_as_kill_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_upcase_region_uses_marked_region() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
              (goto-char 1)
@@ -2489,9 +2482,7 @@ fn call_interactively_builtin_upcase_region_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_downcase_region_uses_marked_region() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ABC")
              (goto-char 1)
@@ -2504,9 +2495,7 @@ fn call_interactively_builtin_downcase_region_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_capitalize_region_uses_marked_region() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
              (goto-char 1)
@@ -2576,9 +2565,7 @@ fn command_execute_builtin_capitalize_region_without_mark_signals_error() {
 
 #[test]
 fn call_interactively_builtin_upcase_initials_region_uses_marked_region() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
              (goto-char 1)
