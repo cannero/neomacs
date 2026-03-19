@@ -445,6 +445,16 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                         out.push('}');
                         i += 1 + next_len;
                     }
+                    // GNU regex.c: \` matches beginning of string (like \A in PCRE)
+                    '`' => {
+                        out.push_str("\\A");
+                        i += 1 + next_len;
+                    }
+                    // GNU regex.c: \' matches end of string (like \z in PCRE)
+                    '\'' => {
+                        out.push_str("\\z");
+                        i += 1 + next_len;
+                    }
                     // Word boundaries
                     '<' => {
                         out.push_str("\\b");
