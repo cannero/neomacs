@@ -517,6 +517,10 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId) {
     eval.set_variable("initial-window-system", Value::symbol("neomacs"));
     eval.set_variable("invocation-name", Value::string(invocation_name));
     eval.set_variable("invocation-directory", Value::string(invocation_directory));
+    let cwd = std::env::current_dir()
+        .map(|p| ensure_dir_string(&p))
+        .unwrap_or_else(|_| "/".to_string());
+    eval.set_variable("default-directory", Value::string(&cwd));
     eval.set_variable("terminal-frame", Value::Frame(frame_id.0));
     eval.set_variable("frame-initial-frame", Value::Nil);
     eval.set_variable("default-minibuffer-frame", Value::Nil);
