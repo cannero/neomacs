@@ -1,5 +1,6 @@
 use super::pure::*;
 use crate::emacs_core::error::Flow;
+use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::value::Value;
 
 #[test]
@@ -73,11 +74,49 @@ fn tty_type_returns_nil() {
 }
 
 #[test]
+fn tty_runtime_can_report_terminal_type_and_color_capability() {
+    reset_terminal_thread_locals();
+    configure_terminal_runtime(TerminalRuntimeConfig::interactive(
+        Some("xterm-256color".to_string()),
+        256,
+    ));
+
+    assert_eq!(
+        builtin_tty_type(vec![]).unwrap(),
+        Value::string("xterm-256color")
+    );
+    assert_eq!(builtin_tty_display_color_p(vec![]).unwrap(), Value::True);
+    assert_eq!(
+        builtin_tty_display_color_cells(vec![]).unwrap(),
+        Value::Int(256)
+    );
+    assert_eq!(builtin_controlling_tty_p(vec![]).unwrap(), Value::True);
+}
+
+#[test]
 fn tty_display_color_cells_returns_zero() {
     reset_terminal_thread_locals();
     assert_eq!(
         builtin_tty_display_color_cells(vec![]).unwrap(),
         Value::Int(0)
+    );
+}
+
+#[test]
+fn tty_top_frame_eval_tracks_selected_frame_when_tty_runtime_is_active() {
+    reset_terminal_thread_locals();
+    configure_terminal_runtime(TerminalRuntimeConfig::interactive(
+        Some("xterm-256color".to_string()),
+        256,
+    ));
+
+    let mut eval = Evaluator::new();
+    let scratch = eval.buffer_manager_mut().create_buffer("*scratch*");
+    let frame_id = eval.frame_manager_mut().create_frame("F1", 80, 25, scratch);
+
+    assert_eq!(
+        builtin_tty_top_frame_eval(&mut eval, vec![]).unwrap(),
+        Value::Frame(frame_id.0)
     );
 }
 

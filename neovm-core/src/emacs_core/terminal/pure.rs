@@ -15,15 +15,96 @@ use std::cell::RefCell;
 thread_local! {
     static TERMINAL_PARAMS: RefCell<Vec<(Value, Value)>> = const { RefCell::new(Vec::new()) };
     static TERMINAL_HANDLE: RefCell<Option<Value>> = const { RefCell::new(None) };
+    static TERMINAL_RUNTIME: RefCell<TerminalRuntime> = const { RefCell::new(TerminalRuntime::inactive()) };
 }
 
 pub(crate) const TERMINAL_NAME: &str = "initial_terminal";
 pub(crate) const TERMINAL_ID: u64 = 0;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TerminalRuntime {
+    active: bool,
+    tty_type: Option<String>,
+    color_cells: i64,
+    controlling_tty: bool,
+}
+
+impl TerminalRuntime {
+    const fn inactive() -> Self {
+        Self {
+            active: false,
+            tty_type: None,
+            color_cells: 0,
+            controlling_tty: false,
+        }
+    }
+
+    fn supports_color(&self) -> bool {
+        self.color_cells > 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalRuntimeConfig {
+    pub tty_type: Option<String>,
+    pub color_cells: i64,
+    pub controlling_tty: bool,
+}
+
+impl TerminalRuntimeConfig {
+    pub fn inactive() -> Self {
+        Self {
+            tty_type: None,
+            color_cells: 0,
+            controlling_tty: false,
+        }
+    }
+
+    pub fn interactive(tty_type: Option<String>, color_cells: i64) -> Self {
+        Self {
+            tty_type,
+            color_cells: color_cells.max(0),
+            controlling_tty: true,
+        }
+    }
+}
+
+pub fn configure_terminal_runtime(config: TerminalRuntimeConfig) {
+    TERMINAL_RUNTIME.with(|slot| {
+        *slot.borrow_mut() = TerminalRuntime {
+            active: config.controlling_tty || config.tty_type.is_some() || config.color_cells > 0,
+            tty_type: config.tty_type,
+            color_cells: config.color_cells.max(0),
+            controlling_tty: config.controlling_tty,
+        };
+    });
+}
+
+pub fn reset_terminal_runtime() {
+    TERMINAL_RUNTIME.with(|slot| *slot.borrow_mut() = TerminalRuntime::inactive());
+}
+
+fn terminal_runtime() -> TerminalRuntime {
+    TERMINAL_RUNTIME.with(|slot| slot.borrow().clone())
+}
+
+pub(crate) fn terminal_runtime_active() -> bool {
+    terminal_runtime().active
+}
+
+pub(crate) fn terminal_runtime_color_cells() -> i64 {
+    terminal_runtime().color_cells
+}
+
+pub(crate) fn terminal_runtime_supports_color() -> bool {
+    terminal_runtime().supports_color()
+}
+
 /// Clear cached terminal thread-locals (called from `reset_display_thread_locals`).
 pub(crate) fn reset_terminal_thread_locals() {
     TERMINAL_PARAMS.with(|slot| slot.borrow_mut().clear());
     TERMINAL_HANDLE.with(|slot| *slot.borrow_mut() = None);
+    reset_terminal_runtime();
 }
 
 /// Collect GC roots from terminal thread-locals.
@@ -568,7 +649,10 @@ pub(crate) fn builtin_tty_type(args: Vec<Value>) -> EvalResult {
     if let Some(terminal) = args.first() {
         expect_terminal_designator(terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(terminal_runtime()
+        .tty_type
+        .map(Value::string)
+        .unwrap_or(Value::Nil))
 }
 
 /// Evaluator-aware variant of `tty-type`.
@@ -580,7 +664,10 @@ pub(crate) fn builtin_tty_type_eval(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(terminal_runtime()
+        .tty_type
+        .map(Value::string)
+        .unwrap_or(Value::Nil))
 }
 
 pub(crate) fn builtin_tty_type_in_state(
@@ -591,7 +678,10 @@ pub(crate) fn builtin_tty_type_in_state(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_in_state(frames, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(terminal_runtime()
+        .tty_type
+        .map(Value::string)
+        .unwrap_or(Value::Nil))
 }
 
 /// (tty-top-frame &optional TERMINAL) -> nil
@@ -612,7 +702,14 @@ pub(crate) fn builtin_tty_top_frame_eval(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(if terminal_runtime().active {
+        eval.frames
+            .selected_frame()
+            .map(|frame| Value::Frame(frame.id.0))
+            .unwrap_or(Value::Nil)
+    } else {
+        Value::Nil
+    })
 }
 
 pub(crate) fn builtin_tty_top_frame_in_state(
@@ -623,7 +720,14 @@ pub(crate) fn builtin_tty_top_frame_in_state(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_in_state(frames, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(if terminal_runtime().active {
+        frames
+            .selected_frame()
+            .map(|frame| Value::Frame(frame.id.0))
+            .unwrap_or(Value::Nil)
+    } else {
+        Value::Nil
+    })
 }
 
 /// (tty-display-color-p &optional TERMINAL) -> nil
@@ -632,7 +736,7 @@ pub(crate) fn builtin_tty_display_color_p(args: Vec<Value>) -> EvalResult {
     if let Some(terminal) = args.first() {
         expect_terminal_designator(terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::bool(terminal_runtime().supports_color()))
 }
 
 /// Evaluator-aware variant of `tty-display-color-p`.
@@ -644,7 +748,7 @@ pub(crate) fn builtin_tty_display_color_p_eval(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::bool(terminal_runtime().supports_color()))
 }
 
 pub(crate) fn builtin_tty_display_color_p_in_state(
@@ -655,7 +759,7 @@ pub(crate) fn builtin_tty_display_color_p_in_state(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_in_state(frames, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::bool(terminal_runtime().supports_color()))
 }
 
 /// (tty-display-color-cells &optional TERMINAL) -> 0
@@ -664,7 +768,7 @@ pub(crate) fn builtin_tty_display_color_cells(args: Vec<Value>) -> EvalResult {
     if let Some(terminal) = args.first() {
         expect_terminal_designator(terminal)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::Int(terminal_runtime().color_cells))
 }
 
 /// Evaluator-aware variant of `tty-display-color-cells`.
@@ -676,7 +780,7 @@ pub(crate) fn builtin_tty_display_color_cells_eval(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::Int(terminal_runtime().color_cells))
 }
 
 pub(crate) fn builtin_tty_display_color_cells_in_state(
@@ -687,7 +791,7 @@ pub(crate) fn builtin_tty_display_color_cells_in_state(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_in_state(frames, terminal)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::Int(terminal_runtime().color_cells))
 }
 
 /// (tty-no-underline &optional TERMINAL) -> nil
@@ -728,7 +832,7 @@ pub(crate) fn builtin_controlling_tty_p(args: Vec<Value>) -> EvalResult {
     if let Some(terminal) = args.first() {
         expect_terminal_designator(terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::bool(terminal_runtime().controlling_tty))
 }
 
 /// Evaluator-aware variant of `controlling-tty-p`.
@@ -740,7 +844,7 @@ pub(crate) fn builtin_controlling_tty_p_eval(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_eval(eval, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::bool(terminal_runtime().controlling_tty))
 }
 
 pub(crate) fn builtin_controlling_tty_p_in_state(
@@ -751,7 +855,7 @@ pub(crate) fn builtin_controlling_tty_p_in_state(
     if let Some(terminal) = args.first() {
         expect_terminal_designator_in_state(frames, terminal)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::bool(terminal_runtime().controlling_tty))
 }
 
 /// (suspend-tty &optional TTY) -> error in GUI/non-text terminal context.

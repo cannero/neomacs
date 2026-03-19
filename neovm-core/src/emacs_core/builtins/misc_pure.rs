@@ -82,17 +82,21 @@ pub(crate) fn builtin_message_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let (obarray, dynamic, buffers, frames, threads, current_message) =
-        eval.message_runtime_state();
-    builtin_message_in_state(
-        obarray,
-        dynamic,
-        buffers,
-        frames,
-        threads,
-        current_message,
-        args,
-    )
+    let result = {
+        let (obarray, dynamic, buffers, frames, threads, current_message) =
+            eval.message_runtime_state();
+        builtin_message_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            frames,
+            threads,
+            current_message,
+            args,
+        )?
+    };
+    eval.redisplay();
+    Ok(result)
 }
 
 pub(crate) fn builtin_message_in_state(

@@ -413,6 +413,10 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
         XK_INSERT => Key::Named(NamedKey::Insert),
         // Function keys F1-F24
         k if (XK_F1..=XK_F24).contains(&k) => Key::Named(NamedKey::F((k - XK_F1 + 1) as u8)),
+        // Printable Unicode scalar values from TTY or GUI backends.
+        k if char::from_u32(k).is_some_and(|ch| !ch.is_control()) => {
+            Key::Char(char::from_u32(k).unwrap())
+        }
         // Ignore modifier-only keys and unknown keysyms
         _ => return None,
     };
@@ -1135,6 +1139,13 @@ mod tests {
         let event = keysym_to_key_event('A' as u32, RENDER_SHIFT_MASK).unwrap();
         assert_eq!(event.key, Key::Char('A'));
         assert!(!event.modifiers.shift);
+    }
+
+    #[test]
+    fn keysym_unicode_scalar_maps_to_character_event() {
+        let event = keysym_to_key_event('中' as u32, 0).unwrap();
+        assert_eq!(event.key, Key::Char('中'));
+        assert!(event.modifiers.is_empty());
     }
 
     #[test]

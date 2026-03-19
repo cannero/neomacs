@@ -8,6 +8,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::terminal::pure::{
     is_terminal_handle, make_alist, terminal_designator_p, terminal_handle_id,
+    terminal_runtime_color_cells, terminal_runtime_supports_color,
 };
 use super::value::*;
 use crate::window::{FrameId, WindowId};
@@ -781,6 +782,8 @@ pub(crate) fn builtin_display_color_cells_eval(
     expect_optional_display_designator_eval(eval, "display-color-cells", &args)?;
     if neomacs_window_system_active(eval) {
         Ok(Value::Int(16777216)) // 2^24 = 24-bit TrueColor
+    } else if terminal_runtime_supports_color() {
+        Ok(Value::Int(terminal_runtime_color_cells()))
     } else {
         Ok(Value::Int(0))
     }
@@ -794,6 +797,12 @@ pub(crate) fn builtin_display_planes_eval(
     expect_optional_display_designator_eval(eval, "display-planes", &args)?;
     if neomacs_window_system_active(eval) {
         Ok(Value::Int(24))
+    } else if terminal_runtime_supports_color() {
+        Ok(Value::Int(if terminal_runtime_color_cells() >= 16777216 {
+            24
+        } else {
+            8
+        }))
     } else {
         Ok(Value::Int(3))
     }
@@ -807,6 +816,8 @@ pub(crate) fn builtin_display_visual_class_eval(
     expect_optional_display_designator_eval(eval, "display-visual-class", &args)?;
     if neomacs_window_system_active(eval) {
         Ok(Value::symbol("true-color"))
+    } else if terminal_runtime_supports_color() {
+        Ok(Value::symbol("color"))
     } else {
         Ok(Value::symbol("static-gray"))
     }

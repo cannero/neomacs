@@ -7767,6 +7767,27 @@ fn message_nil_returns_nil() {
 }
 
 #[test]
+fn message_eval_triggers_redisplay_with_current_echo_state() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let redisplays = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
+    let redisplays_capture = std::sync::Arc::clone(&redisplays);
+
+    eval.redisplay_fn = Some(Box::new(move |ev| {
+        redisplays_capture
+            .lock()
+            .expect("redisplay capture")
+            .push(ev.current_message_text().map(str::to_owned));
+    }));
+
+    builtin_message_eval(&mut eval, vec![Value::string("hello echo")])
+        .expect("message eval should store echo text");
+    builtin_message_eval(&mut eval, vec![Value::Nil]).expect("message eval should clear");
+
+    let redisplays = redisplays.lock().expect("captured redisplays");
+    assert_eq!(*redisplays, vec![Some("hello echo".to_string()), None]);
+}
+
+#[test]
 fn make_string_nonunicode_char_code_bounds_match_oracle() {
     let overflow = dispatch_builtin_pure("make-string", vec![Value::Int(1), Value::Int(0x40_0000)])
         .expect("make-string should resolve")
