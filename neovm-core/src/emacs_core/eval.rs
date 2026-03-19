@@ -2734,13 +2734,94 @@ impl Evaluator {
 
         let mut custom = CustomManager::new();
         super::syntax::init_syntax_vars(&mut obarray, &mut custom);
-        custom.make_variable_buffer_local("buffer-read-only");
-        custom.make_variable_buffer_local("major-mode");
-        custom.make_variable_buffer_local("mode-name");
-        custom.make_variable_buffer_local("local-abbrev-table");
-        // GNU Emacs DEFVAR_PER_BUFFER variables used by simple.el
-        custom.make_variable_buffer_local("line-spacing");
-        obarray.set_symbol_value("line-spacing", Value::Nil);
+        // Register all DEFVAR_PER_BUFFER variables from GNU Emacs buffer.c.
+        // These are C-level buffer-local variables that must exist before
+        // any .el file loads.  Default values match init_buffer_once().
+        macro_rules! defvar_per_buffer {
+            ($name:expr, $val:expr) => {
+                custom.make_variable_buffer_local($name);
+                obarray.set_symbol_value($name, $val);
+            };
+        }
+        {
+            // Core buffer identity
+            defvar_per_buffer!("buffer-file-name", Value::Nil);
+            defvar_per_buffer!("buffer-file-truename", Value::Nil);
+            defvar_per_buffer!("default-directory", Value::Nil);
+            defvar_per_buffer!("buffer-read-only", Value::Nil);
+            defvar_per_buffer!("buffer-undo-list", Value::Nil);
+            defvar_per_buffer!("buffer-saved-size", Value::Int(0));
+            defvar_per_buffer!("buffer-backed-up", Value::Nil);
+            defvar_per_buffer!("buffer-file-format", Value::Nil);
+            defvar_per_buffer!("buffer-auto-save-file-name", Value::Nil);
+            defvar_per_buffer!("buffer-auto-save-file-format", Value::True);
+            defvar_per_buffer!("buffer-file-coding-system", Value::Nil);
+            defvar_per_buffer!("buffer-display-count", Value::Int(0));
+            defvar_per_buffer!("buffer-display-time", Value::Nil);
+
+            // Modes
+            defvar_per_buffer!("major-mode", Value::symbol("fundamental-mode"));
+            defvar_per_buffer!("mode-name", Value::Nil);
+            defvar_per_buffer!("mode-line-format", Value::string("%-"));
+            defvar_per_buffer!("header-line-format", Value::Nil);
+            defvar_per_buffer!("tab-line-format", Value::Nil);
+            defvar_per_buffer!("local-abbrev-table", Value::Nil);
+            defvar_per_buffer!("local-minor-modes", Value::Nil);
+            defvar_per_buffer!("abbrev-mode", Value::Nil);
+            defvar_per_buffer!("overwrite-mode", Value::Nil);
+            defvar_per_buffer!("auto-fill-function", Value::Nil);
+
+            // Display
+            defvar_per_buffer!("tab-width", Value::Int(8));
+            defvar_per_buffer!("fill-column", Value::Int(70));
+            defvar_per_buffer!("left-margin", Value::Int(0));
+            defvar_per_buffer!("truncate-lines", Value::Nil);
+            defvar_per_buffer!("word-wrap", Value::Nil);
+            defvar_per_buffer!("ctl-arrow", Value::True);
+            defvar_per_buffer!("selective-display", Value::Nil);
+            defvar_per_buffer!("selective-display-ellipses", Value::True);
+            defvar_per_buffer!("enable-multibyte-characters", Value::True);
+            defvar_per_buffer!("buffer-display-table", Value::Nil);
+            defvar_per_buffer!("buffer-invisibility-spec", Value::Nil);
+            defvar_per_buffer!("line-spacing", Value::Nil);
+            defvar_per_buffer!("cache-long-scans", Value::True);
+            defvar_per_buffer!("point-before-scroll", Value::Nil);
+
+            // Cursor
+            defvar_per_buffer!("cursor-type", Value::True);
+            defvar_per_buffer!("cursor-in-non-selected-windows", Value::True);
+
+            // Marks
+            defvar_per_buffer!("mark-active", Value::Nil);
+
+            // Bidi
+            defvar_per_buffer!("bidi-display-reordering", Value::True);
+            defvar_per_buffer!("bidi-paragraph-direction", Value::Nil);
+            defvar_per_buffer!("bidi-paragraph-start-re", Value::Nil);
+            defvar_per_buffer!("bidi-paragraph-separate-re", Value::Nil);
+
+            // Fringes and margins
+            defvar_per_buffer!("left-fringe-width", Value::Nil);
+            defvar_per_buffer!("right-fringe-width", Value::Nil);
+            defvar_per_buffer!("left-margin-width", Value::Int(0));
+            defvar_per_buffer!("right-margin-width", Value::Int(0));
+            defvar_per_buffer!("fringes-outside-margins", Value::Nil);
+            defvar_per_buffer!("fringe-indicator-alist", Value::Nil);
+            defvar_per_buffer!("fringe-cursor-alist", Value::Nil);
+            defvar_per_buffer!("indicate-empty-lines", Value::Nil);
+            defvar_per_buffer!("indicate-buffer-boundaries", Value::Nil);
+
+            // Scroll bars
+            defvar_per_buffer!("scroll-bar-width", Value::Nil);
+            defvar_per_buffer!("scroll-bar-height", Value::Nil);
+            defvar_per_buffer!("vertical-scroll-bar", Value::True);
+            defvar_per_buffer!("horizontal-scroll-bar", Value::True);
+            defvar_per_buffer!("scroll-up-aggressively", Value::Nil);
+            defvar_per_buffer!("scroll-down-aggressively", Value::Nil);
+
+            // Other
+            defvar_per_buffer!("text-conversion-style", Value::Nil);
+        }
 
         let mut ev = Self {
             interner,
