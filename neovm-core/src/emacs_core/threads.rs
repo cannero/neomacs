@@ -617,14 +617,14 @@ pub(crate) fn finish_make_thread_result_in_state(
         Err(Flow::Signal(ref sig)) => {
             let error_val = make_signal_binding_value(sig);
             threads.signal_thread(thread_id, error_val);
-            // GNU thread.c:756 — record_thread_error sets the global
-            // last-thread-error so (thread-last-error) can read it.
-            threads.record_last_error(error_val);
+            // Don't record_last_error here — in GNU, thread errors are
+            // published asynchronously when the thread exits.  Since neomacs
+            // runs threads synchronously, defer to thread-join to match
+            // the expected timing (thread-last-error is nil before join).
         }
         Err(Flow::Throw { ref tag, ref value }) => {
             let error_val = Value::list(vec![Value::symbol("no-catch"), *tag, *value]);
             threads.signal_thread(thread_id, error_val);
-            threads.record_last_error(error_val);
         }
     }
 

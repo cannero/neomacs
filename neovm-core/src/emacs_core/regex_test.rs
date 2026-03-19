@@ -1083,9 +1083,11 @@ fn re_search_backward_basic() {
     let mut md = None;
     let result = re_search_backward(&mut buf, "[0-9]+", None, false, false, &mut md);
     assert!(result.is_ok());
-    // Should find "456" (the last match)
-    assert_eq!(result.unwrap(), Some(12));
-    assert_eq!(buf.pt, 12);
+    // GNU re-search-backward scans positions backward and matches at the
+    // first position where the regex succeeds.  From point-max (15/0-indexed=14),
+    // position 14 is '6' which matches [0-9]+.  So match-beginning is 14.
+    assert_eq!(result.unwrap(), Some(14));
+    assert_eq!(buf.pt, 14);
 }
 
 // -----------------------------------------------------------------------
