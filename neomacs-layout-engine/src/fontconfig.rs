@@ -16,6 +16,9 @@ use std::sync::OnceLock;
 /// Cached fontconfig resolution results.
 static FC_CACHE: OnceLock<HashMap<String, String>> = OnceLock::new();
 
+/// Cached Xft.dpi value from X resources.
+static XFT_DPI: OnceLock<f32> = OnceLock::new();
+
 /// Resolve a generic font family name through fontconfig.
 ///
 /// For generic names ("Monospace", "Serif", "Sans Serif"), queries fontconfig
@@ -43,6 +46,39 @@ pub fn resolve_family(generic_name: &str) -> &str {
     } else {
         generic_name
     }
+}
+
+/// Get the effective DPI for font sizing.
+///
+/// Reads `Xft.dpi` from X resources (same as GNU Emacs), falling back to 96.
+/// GNU Emacs uses `Xft.dpi` (set by desktop environments for HiDPI) to convert
+/// point sizes to pixels: `pixels = points * dpi / 72`.
+pub fn xft_dpi() -> f32 {
+    *XFT_DPI.get_or_init(|| {
+        let dpi = query_xft_dpi().unwrap_or(96.0);
+        tracing::info!("Xft.dpi: {}", dpi);
+        dpi
+    })
+}
+
+/// Query Xft.dpi from X resources via `xrdb -query`.
+fn query_xft_dpi() -> Option<f32> {
+    let output = Command::new("xrdb")
+        .arg("-query")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix("Xft.dpi:") {
+            return rest.trim().parse::<f32>().ok();
+        }
+    }
+    None
 }
 
 /// Query `fc-match` for the concrete family name matching a generic family.

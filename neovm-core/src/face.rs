@@ -562,7 +562,8 @@ impl FaceTable {
         default.background = Some(Color::rgb(255, 255, 255));
         default.weight = Some(FontWeight::NORMAL);
         default.slant = Some(FontSlant::Normal);
-        default.height = Some(FaceHeight::Absolute(120));
+        // 100 = 10pt, matching GNU Emacs's "monospace-10" default
+        default.height = Some(FaceHeight::Absolute(100));
         default.family = Some("Monospace".to_string());
         self.define(default);
 
