@@ -262,6 +262,8 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
         "Assertion failed",
         &["error"],
     );
+    // GNU fns.c — type-mismatch is signaled by value< for incompatible types.
+    register_simple(obarray, "type-mismatch", "Type mismatch", &["error"]);
     register_simple(
         obarray,
         "permission-denied",

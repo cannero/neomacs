@@ -3141,7 +3141,7 @@ fn save_match_data_restores_after_success_and_error() {
          (condition-case err
              (save-match-data
                (set-match-data '(5 6))
-               (error \"boom\"))
+               (signal 'error '(\"boom\")))
            (error (car err)))
          (match-data)",
     );
