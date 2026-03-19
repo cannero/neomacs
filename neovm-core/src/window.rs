@@ -549,8 +549,12 @@ impl FrameManager {
         // Set default display capabilities for neomacs GUI frames.
         // Needed by faces.el's face-spec-set-match-display to match
         // (class color) and (background light) conditions in defface specs.
-        frame.parameters.insert("display-type".to_string(), Value::symbol("color"));
-        frame.parameters.insert("background-mode".to_string(), Value::symbol("light"));
+        frame
+            .parameters
+            .insert("display-type".to_string(), Value::symbol("color"));
+        frame
+            .parameters
+            .insert("background-mode".to_string(), Value::symbol("light"));
         let selected_wid = frame.selected_window;
         self.frames.insert(frame_id, frame);
         self.note_window_selected(selected_wid);

@@ -1219,8 +1219,13 @@ mod tests {
 
     #[test]
     fn builtin_unibyte_string_p_errors() {
+        // Wrong arity signals error.
         assert!(builtin_unibyte_string_p(vec![]).is_err());
-        assert!(builtin_unibyte_string_p(vec![Value::Int(1)]).is_err());
+        // Non-string arg returns nil (type predicates don't error on wrong type).
+        assert_eq!(
+            builtin_unibyte_string_p(vec![Value::Int(1)]).unwrap(),
+            Value::Nil
+        );
     }
 
     #[test]

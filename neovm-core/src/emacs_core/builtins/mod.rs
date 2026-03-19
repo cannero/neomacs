@@ -3252,7 +3252,6 @@ pub(crate) fn dispatch_builtin(
         "x-menu-bar-open-internal" => builtin_x_menu_bar_open_internal(args),
         "xw-color-defined-p" => builtin_xw_color_defined_p(args),
         "xw-color-values" => builtin_xw_color_values(args),
-        "xw-display-color-p" => builtin_xw_display_color_p(args),
         "innermost-minibuffer-p" => return None,
         "interactive-form" => builtin_interactive_form(args),
         "inotify-add-watch" => builtin_inotify_add_watch(args),
