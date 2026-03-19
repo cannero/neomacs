@@ -5049,22 +5049,26 @@ impl Evaluator {
             // save-window-excursion is an Elisp macro in GNU (subr.el)
             // but kept as special form for early bootstrap compatibility.
             "save-window-excursion" => self.sf_save_window_excursion(tail),
-            // save-selected-window: Elisp macro in GNU (window.el pos 15).
-            // Removed — loaded from window.el.
+            // save-selected-window: Elisp macro in GNU (window.el pos 15)
+            // but used in subr.el (pos 4) before window.el loads.
+            "save-selected-window" => self.sf_save_selected_window(tail),
             // save-mark-and-excursion: Elisp macro in GNU (simple.el pos 71).
-            // Removed — loaded from simple.el.
+            // Not used before simple.el loads — can be loaded from .el.
             "save-restriction" => self.sf_save_restriction(tail),
-            // save-match-data: Elisp macro in GNU (subr.el pos 4).
-            // Removed — loaded from subr.el.
-            // with-local-quit: Elisp macro in GNU (subr.el pos 4).
-            // Removed — loaded from subr.el.
-            // with-temp-message: Elisp macro in GNU (subr.el pos 4).
-            // Removed — loaded from subr.el.
-            // with-demoted-errors: Elisp macro in GNU (subr.el pos 4).
-            // Removed — loaded from subr.el.
+            // These are Elisp macros in GNU (subr.el) but must remain as
+            // built-in special forms because they are used BEFORE their
+            // definition when loading subr.el as source (not .elc).
+            // with-demoted-errors: used at line 2742, defined at line 5465
+            // save-match-data: used at line 4131, defined at line 5695
+            // with-local-quit, with-temp-message: defined late in subr.el
+            // ignore-errors: defined at line 452 (early enough) but kept
+            // for consistency.
+            "save-match-data" => self.sf_save_match_data(tail),
+            "with-local-quit" => self.sf_with_local_quit(tail),
+            "with-temp-message" => self.sf_with_temp_message(tail),
+            "with-demoted-errors" => self.sf_with_demoted_errors(tail),
             "with-current-buffer" => self.sf_with_current_buffer(tail),
-            // ignore-errors: Elisp macro in GNU (subr.el pos 4).
-            // Removed — loaded from subr.el.
+            "ignore-errors" => self.sf_ignore_errors(tail),
             "dotimes" => self.sf_dotimes(tail),
             "dolist" => self.sf_dolist(tail),
             // Custom system special forms
