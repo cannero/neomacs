@@ -5054,7 +5054,10 @@ impl Evaluator {
             "when" => self.sf_when(tail),
             "unless" => self.sf_unless(tail),
             // bound-and-true-p is an Elisp macro in GNU (bindings.el).
-            // Removed — loaded from bindings.el at bootstrap position 14.
+            // Kept as special form: during .el source loading, GNU's defmacro
+            // expands to defalias, but the function cell isn't set until
+            // the defalias runs. The built-in ensures it works during bootstrap.
+            "bound-and-true-p" => self.sf_bound_and_true_p(tail),
             "defalias" => self.sf_defalias(tail),
             "provide" => self.sf_provide(tail),
             "require" => self.sf_require(tail),

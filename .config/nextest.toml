@@ -25,9 +25,9 @@ slow-timeout = { period = "120s", terminate-after = 1 }
 [[profile.default.overrides]]
 filter = 'test(bootstrap) | test(pdump)'
 threads-required = 2
-slow-timeout = { period = "300s", terminate-after = 1 }
+slow-timeout = { period = "600s", terminate-after = 1 }
 
-# Loadup bootstrap is the slowest
+# Loadup bootstrap is the slowest (cold start can take >300s)
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(=emacs_core::load::tests::neovm_loadup_bootstrap)'
 slow-timeout = { period = "600s", terminate-after = 1 }
