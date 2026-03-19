@@ -1130,6 +1130,9 @@ pub struct Evaluator {
     pub(crate) coding_systems: CodingSystemManager,
     /// Face table — global registry of named face definitions.
     pub(crate) face_table: FaceTable,
+    /// Incremented when any face attribute changes; layout engine uses
+    /// this to invalidate its resolved face cache.
+    pub face_change_count: u64,
     /// Recursion depth counter.
     pub(crate) depth: usize,
     /// Maximum recursion depth.
@@ -2781,6 +2784,7 @@ impl Evaluator {
             display_host: None,
             coding_systems: CodingSystemManager::new(),
             face_table: FaceTable::new(),
+            face_change_count: 0,
             depth: 0,
             max_depth: 1600, // Matches GNU Emacs default (max-lisp-eval-depth)
             gc_pending: false,
@@ -2888,6 +2892,7 @@ impl Evaluator {
             display_host: None,
             coding_systems,
             face_table,
+            face_change_count: 0,
             depth: 0,
             max_depth: 1600,
             gc_pending: false,
@@ -4123,6 +4128,21 @@ impl Evaluator {
     /// Public mutable access to the face table.
     pub fn face_table_mut(&mut self) -> &mut FaceTable {
         &mut self.face_table
+    }
+
+    /// Set a face attribute and bump the change counter.
+    /// This is the canonical way to modify face definitions at runtime.
+    pub fn set_face_attribute(
+        &mut self,
+        face_name: &str,
+        attr: &str,
+        value: crate::face::FaceAttrValue,
+    ) -> bool {
+        let changed = self.face_table.set_attribute(face_name, attr, value);
+        if changed {
+            self.face_change_count += 1;
+        }
+        changed
     }
 
     // -----------------------------------------------------------------------

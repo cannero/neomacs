@@ -902,6 +902,7 @@ fn dump_underline_style(s: &UnderlineStyle) -> DumpUnderlineStyle {
         UnderlineStyle::Wave => DumpUnderlineStyle::Wave,
         UnderlineStyle::Dot => DumpUnderlineStyle::Dot,
         UnderlineStyle::Dash => DumpUnderlineStyle::Dash,
+        UnderlineStyle::DoubleLine => DumpUnderlineStyle::DoubleLine,
     }
 }
 
@@ -2115,6 +2116,7 @@ fn load_face(df: &DumpFace) -> Face {
                 DumpUnderlineStyle::Wave => UnderlineStyle::Wave,
                 DumpUnderlineStyle::Dot => UnderlineStyle::Dot,
                 DumpUnderlineStyle::Dash => UnderlineStyle::Dash,
+                DumpUnderlineStyle::DoubleLine => UnderlineStyle::DoubleLine,
             },
             color: u.color.map(|c| load_color(&c)),
             position: u.position,

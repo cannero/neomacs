@@ -1598,6 +1598,20 @@ pub(crate) fn builtin_internal_make_lisp_face(args: Vec<Value>) -> EvalResult {
     Ok(make_lisp_face_vector())
 }
 
+/// Eval-backed version of `internal-make-lisp-face` that also ensures the face
+/// exists in the evaluator's `FaceTable`.
+pub(crate) fn builtin_internal_make_lisp_face_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    let result = builtin_internal_make_lisp_face(args.clone())?;
+    if let Ok(face_name) = require_symbol_face_name(&args[0]) {
+        eval.face_table.ensure_face(&face_name);
+        eval.face_change_count += 1;
+    }
+    Ok(result)
+}
+
 pub(crate) fn builtin_internal_make_lisp_face_in_state(
     frames: &FrameManager,
     args: Vec<Value>,
@@ -1760,6 +1774,238 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_in_state(
     }
 
     Ok(*face)
+}
+
+/// Eval-backed version of `internal-set-lisp-face-attribute` that also
+/// updates the evaluator's `FaceTable`, making the face attributes
+/// available to the Rust layout engine for rendering.
+pub(crate) fn builtin_internal_set_lisp_face_attribute_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    // First, do the existing pure logic (FACE_ATTR_STATE storage + validation)
+    let result = builtin_internal_set_lisp_face_attribute(args.clone())?;
+
+    // Now also update the evaluator's FaceTable
+    if args.len() >= 3 {
+        let face_name = require_symbol_face_name(&args[0]).unwrap_or_default();
+        let attr_name = normalize_set_face_attribute_name(&args[1]).unwrap_or_default();
+        let value = args[2];
+
+        if !face_name.is_empty() && !attr_name.is_empty() {
+            let face_attr = lisp_value_to_face_attr(&attr_name, value);
+            if let Some(fav) = face_attr {
+                eval.set_face_attribute(&face_name, &attr_name, fav);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Convert a Lisp face attribute value to `FaceAttrValue` for `FaceTable`.
+fn lisp_value_to_face_attr(
+    attr_name: &str,
+    value: Value,
+) -> Option<crate::face::FaceAttrValue> {
+    use crate::face::{
+        BoxBorder, BoxStyle, Color, FaceAttrValue, FaceHeight, FontSlant, FontWeight, FontWidth,
+        Underline, UnderlineStyle,
+    };
+
+    // "unspecified" symbol = reset the attribute
+    if value.is_symbol_named("unspecified") {
+        return Some(FaceAttrValue::Unspecified);
+    }
+
+    match attr_name {
+        ":foreground" | ":background" | ":distant-foreground" => {
+            let s = value.as_str()?;
+            let c = Color::from_name(s).or_else(|| Color::from_hex(s))?;
+            Some(FaceAttrValue::Color(c))
+        }
+        ":weight" => {
+            let name = value.as_symbol_name()?;
+            Some(FaceAttrValue::Weight(FontWeight::from_symbol(name)?))
+        }
+        ":slant" => {
+            let name = value.as_symbol_name()?;
+            Some(FaceAttrValue::Slant(FontSlant::from_symbol(name)?))
+        }
+        ":width" => {
+            let name = value.as_symbol_name()?;
+            Some(FaceAttrValue::Width(FontWidth::from_symbol(name)?))
+        }
+        ":height" => match value {
+            Value::Int(n) => Some(FaceAttrValue::Height(FaceHeight::Absolute(n as i32))),
+            Value::Float(f, _) => Some(FaceAttrValue::Height(FaceHeight::Relative(f))),
+            _ => None,
+        },
+        ":family" | ":foundry" => {
+            let s = value.as_str()?;
+            Some(FaceAttrValue::Str(s.to_string()))
+        }
+        ":underline" => {
+            if value.is_nil() {
+                return Some(FaceAttrValue::Unspecified);
+            }
+            if matches!(value, Value::True) {
+                return Some(FaceAttrValue::Bool(true));
+            }
+            if let Some(s) = value.as_str() {
+                let color = Color::from_name(s).or_else(|| Color::from_hex(s));
+                return Some(FaceAttrValue::Underline(Underline {
+                    style: UnderlineStyle::Line,
+                    color,
+                    position: None,
+                }));
+            }
+            // Plist form: (:style STYLE :color COLOR :position POS)
+            if let Some(plist) = super::value::list_to_vec(&value) {
+                let mut style = UnderlineStyle::Line;
+                let mut color = None;
+                let mut position = None;
+                let mut i = 0;
+                while i + 1 < plist.len() {
+                    let key = plist[i].as_symbol_name().unwrap_or("");
+                    let val = &plist[i + 1];
+                    match key {
+                        ":style" => {
+                            style = match val.as_symbol_name().unwrap_or("line") {
+                                "wave" => UnderlineStyle::Wave,
+                                "dot" | "dots" => UnderlineStyle::Dot,
+                                "dash" | "dashes" => UnderlineStyle::Dash,
+                                "double-line" => UnderlineStyle::DoubleLine,
+                                _ => UnderlineStyle::Line,
+                            };
+                        }
+                        ":color" => {
+                            if let Some(s) = val.as_str().or_else(|| val.as_symbol_name()) {
+                                color = Color::from_name(s).or_else(|| Color::from_hex(s));
+                            }
+                        }
+                        ":position" => {
+                            if let Value::Int(n) = val {
+                                position = Some(*n as i32);
+                            }
+                        }
+                        _ => {}
+                    }
+                    i += 2;
+                }
+                return Some(FaceAttrValue::Underline(Underline {
+                    style,
+                    color,
+                    position,
+                }));
+            }
+            Some(FaceAttrValue::Bool(true))
+        }
+        ":overline" | ":strike-through" => {
+            if value.is_nil() {
+                return Some(FaceAttrValue::Bool(false));
+            }
+            if matches!(value, Value::True) {
+                return Some(FaceAttrValue::Bool(true));
+            }
+            if let Some(s) = value.as_str() {
+                let c = Color::from_name(s).or_else(|| Color::from_hex(s))?;
+                return Some(FaceAttrValue::Color(c));
+            }
+            Some(FaceAttrValue::Bool(value.is_truthy()))
+        }
+        ":box" => {
+            if value.is_nil() {
+                return Some(FaceAttrValue::Unspecified);
+            }
+            if matches!(value, Value::True) {
+                return Some(FaceAttrValue::Box(BoxBorder {
+                    color: None,
+                    width: 1,
+                    style: BoxStyle::Flat,
+                }));
+            }
+            if let Value::Int(n) = value {
+                return Some(FaceAttrValue::Box(BoxBorder {
+                    color: None,
+                    width: n as i32,
+                    style: BoxStyle::Flat,
+                }));
+            }
+            // Color string shorthand
+            if let Some(s) = value.as_str() {
+                let color = Color::from_name(s).or_else(|| Color::from_hex(s));
+                return Some(FaceAttrValue::Box(BoxBorder {
+                    color,
+                    width: 1,
+                    style: BoxStyle::Flat,
+                }));
+            }
+            // Plist form: (:line-width WIDTH :color COLOR :style STYLE)
+            if let Some(plist) = super::value::list_to_vec(&value) {
+                let mut border = BoxBorder {
+                    color: None,
+                    width: 1,
+                    style: BoxStyle::Flat,
+                };
+                let mut i = 0;
+                while i + 1 < plist.len() {
+                    let key = plist[i].as_symbol_name().unwrap_or("");
+                    let val = &plist[i + 1];
+                    match key {
+                        ":line-width" => {
+                            if let Value::Int(n) = val {
+                                border.width = *n as i32;
+                            }
+                        }
+                        ":color" => {
+                            if let Some(s) = val.as_str().or_else(|| val.as_symbol_name()) {
+                                border.color =
+                                    Color::from_name(s).or_else(|| Color::from_hex(s));
+                            }
+                        }
+                        ":style" => {
+                            border.style = match val.as_symbol_name().unwrap_or("flat") {
+                                "released-button" => BoxStyle::Raised,
+                                "pressed-button" => BoxStyle::Pressed,
+                                _ => BoxStyle::Flat,
+                            };
+                        }
+                        _ => {}
+                    }
+                    i += 2;
+                }
+                return Some(FaceAttrValue::Box(border));
+            }
+            Some(FaceAttrValue::Box(BoxBorder {
+                color: None,
+                width: 1,
+                style: BoxStyle::Flat,
+            }))
+        }
+        ":inverse-video" | ":extend" => Some(FaceAttrValue::Bool(value.is_truthy())),
+        ":inherit" => {
+            if value.is_nil() {
+                return Some(FaceAttrValue::Inherit(Vec::new()));
+            }
+            if let Some(name) = value.as_symbol_name() {
+                if name != "nil" {
+                    return Some(FaceAttrValue::Inherit(vec![name.to_string()]));
+                }
+                return Some(FaceAttrValue::Inherit(Vec::new()));
+            }
+            if let Some(items) = super::value::list_to_vec(&value) {
+                let names: Vec<String> = items
+                    .iter()
+                    .filter_map(|v| v.as_symbol_name().map(|s| s.to_string()))
+                    .filter(|s| s != "nil")
+                    .collect();
+                return Some(FaceAttrValue::Inherit(names));
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 /// `(internal-get-lisp-face-attribute FACE ATTR &optional FRAME)` -- batch

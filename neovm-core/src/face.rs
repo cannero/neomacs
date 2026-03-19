@@ -132,6 +132,7 @@ pub enum UnderlineStyle {
     Wave,
     Dot,
     Dash,
+    DoubleLine,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -254,6 +255,26 @@ impl FontWidth {
             _ => None,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Face attribute value (for set_attribute)
+// ---------------------------------------------------------------------------
+
+/// A typed face attribute value for `FaceTable::set_attribute()`.
+#[derive(Clone, Debug)]
+pub enum FaceAttrValue {
+    Color(Color),
+    Weight(FontWeight),
+    Slant(FontSlant),
+    Height(FaceHeight),
+    Width(FontWidth),
+    Underline(Underline),
+    Box(BoxBorder),
+    Bool(bool),
+    Str(String),
+    Inherit(Vec<String>),
+    Unspecified,
 }
 
 // ---------------------------------------------------------------------------
@@ -846,6 +867,98 @@ impl FaceTable {
     /// Define or update a face.
     pub fn define(&mut self, face: Face) {
         self.faces.insert(face.name.clone(), face);
+    }
+
+    /// Ensure a face exists (create empty if not present).
+    pub fn ensure_face(&mut self, name: &str) {
+        if !self.faces.contains_key(name) {
+            self.faces.insert(name.to_string(), Face::new(name));
+        }
+    }
+
+    /// Update a single attribute on a face.
+    /// Creates the face if it doesn't exist.
+    /// Returns true if the face was actually modified.
+    pub fn set_attribute(&mut self, name: &str, attr: &str, value: FaceAttrValue) -> bool {
+        self.ensure_face(name);
+        let face = self.faces.get_mut(name).unwrap();
+
+        // Helper: set an Option<T> field from the matching FaceAttrValue variant.
+        macro_rules! set_option {
+            ($field:expr, $variant:ident) => {
+                match value {
+                    FaceAttrValue::$variant(v) => $field = Some(v),
+                    FaceAttrValue::Unspecified => $field = None,
+                    _ => return false,
+                }
+            };
+        }
+
+        match attr {
+            ":foreground" => set_option!(face.foreground, Color),
+            ":background" => set_option!(face.background, Color),
+            ":distant-foreground" => set_option!(face.distant_foreground, Color),
+            ":weight" => set_option!(face.weight, Weight),
+            ":slant" => set_option!(face.slant, Slant),
+            ":width" => set_option!(face.width, Width),
+            ":height" => set_option!(face.height, Height),
+            ":family" => {
+                match value {
+                    FaceAttrValue::Str(s) => face.family = Some(s),
+                    FaceAttrValue::Unspecified => face.family = None,
+                    _ => return false,
+                }
+            }
+            ":foundry" => {
+                match value {
+                    FaceAttrValue::Str(s) => face.foundry = Some(s),
+                    FaceAttrValue::Unspecified => face.foundry = None,
+                    _ => return false,
+                }
+            }
+            ":underline" => match value {
+                FaceAttrValue::Underline(u) => face.underline = Some(u),
+                FaceAttrValue::Bool(true) => {
+                    face.underline = Some(Underline {
+                        style: UnderlineStyle::Line,
+                        color: None,
+                        position: None,
+                    });
+                }
+                FaceAttrValue::Bool(false) | FaceAttrValue::Unspecified => {
+                    face.underline = None;
+                }
+                _ => face.underline = None,
+            },
+            ":overline" => match value {
+                FaceAttrValue::Bool(b) => face.overline = Some(b),
+                FaceAttrValue::Color(c) => {
+                    face.overline = Some(true);
+                    face.overline_color = Some(c);
+                }
+                FaceAttrValue::Unspecified => face.overline = None,
+                _ => return false,
+            },
+            ":strike-through" => match value {
+                FaceAttrValue::Bool(b) => face.strike_through = Some(b),
+                FaceAttrValue::Color(c) => {
+                    face.strike_through = Some(true);
+                    face.strike_through_color = Some(c);
+                }
+                FaceAttrValue::Unspecified => face.strike_through = None,
+                _ => return false,
+            },
+            ":box" => set_option!(face.box_border, Box),
+            ":inverse-video" => set_option!(face.inverse_video, Bool),
+            ":extend" => set_option!(face.extend, Bool),
+            ":inherit" => match value {
+                FaceAttrValue::Inherit(names) => face.inherit = names,
+                FaceAttrValue::Unspecified => face.inherit.clear(),
+                _ => return false,
+            },
+            _ => return false,
+        }
+        true
     }
 
     /// Look up a face by name.

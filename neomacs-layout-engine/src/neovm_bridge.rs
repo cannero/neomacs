@@ -7,7 +7,7 @@ use neovm_core::buffer::Buffer;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::emacs_core::{Evaluator, Value};
 use neovm_core::face::{
-    Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight, FontWidth,
+    Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight,
     UnderlineStyle as NeoUnderlineStyle,
 };
 use neovm_core::window::{Frame, FrameId, Window};
@@ -1346,7 +1346,7 @@ impl FaceResolver {
                             if let Some(name) = v.and_then(|v| v.as_symbol_name()) {
                                 style = match name {
                                     "wave" => NeoUnderlineStyle::Wave,
-                                    "double-line" => NeoUnderlineStyle::Line, // TODO: DoubleLine
+                                    "double-line" => NeoUnderlineStyle::DoubleLine,
                                     "dots" => NeoUnderlineStyle::Dot,
                                     "dashes" => NeoUnderlineStyle::Dash,
                                     _ => NeoUnderlineStyle::Line,
@@ -1561,10 +1561,12 @@ impl FaceResolver {
 }
 
 /// Map `NeoUnderlineStyle` to the numeric code used by the layout engine.
+/// Codes: 1=Line, 2=Wave, 3=Double, 4=Dotted, 5=Dashed
 fn underline_style_to_u8(style: &NeoUnderlineStyle) -> u8 {
     match style {
         NeoUnderlineStyle::Line => 1,
         NeoUnderlineStyle::Wave => 2,
+        NeoUnderlineStyle::DoubleLine => 3,
         NeoUnderlineStyle::Dot => 4,
         NeoUnderlineStyle::Dash => 5,
     }

@@ -744,6 +744,7 @@ pub enum DumpUnderlineStyle {
     Wave,
     Dot,
     Dash,
+    DoubleLine,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
