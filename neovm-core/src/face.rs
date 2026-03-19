@@ -903,20 +903,16 @@ impl FaceTable {
             ":slant" => set_option!(face.slant, Slant),
             ":width" => set_option!(face.width, Width),
             ":height" => set_option!(face.height, Height),
-            ":family" => {
-                match value {
-                    FaceAttrValue::Str(s) => face.family = Some(s),
-                    FaceAttrValue::Unspecified => face.family = None,
-                    _ => return false,
-                }
-            }
-            ":foundry" => {
-                match value {
-                    FaceAttrValue::Str(s) => face.foundry = Some(s),
-                    FaceAttrValue::Unspecified => face.foundry = None,
-                    _ => return false,
-                }
-            }
+            ":family" => match value {
+                FaceAttrValue::Str(s) => face.family = Some(s),
+                FaceAttrValue::Unspecified => face.family = None,
+                _ => return false,
+            },
+            ":foundry" => match value {
+                FaceAttrValue::Str(s) => face.foundry = Some(s),
+                FaceAttrValue::Unspecified => face.foundry = None,
+                _ => return false,
+            },
             ":underline" => match value {
                 FaceAttrValue::Underline(u) => face.underline = Some(u),
                 FaceAttrValue::Bool(true) => {

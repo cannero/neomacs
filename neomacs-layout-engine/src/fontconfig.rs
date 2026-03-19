@@ -29,11 +29,7 @@ pub fn resolve_family(generic_name: &str) -> &str {
         let mut map = HashMap::new();
         for generic in &["monospace", "serif", "sans-serif", "sans serif"] {
             if let Some(concrete) = fc_match_family(generic) {
-                tracing::info!(
-                    "fontconfig: {} -> {}",
-                    generic,
-                    concrete
-                );
+                tracing::info!("fontconfig: {} -> {}", generic, concrete);
                 map.insert(generic.to_string(), concrete);
             }
         }
@@ -63,10 +59,7 @@ pub fn xft_dpi() -> f32 {
 
 /// Query Xft.dpi from X resources via `xrdb -query`.
 fn query_xft_dpi() -> Option<f32> {
-    let output = Command::new("xrdb")
-        .arg("-query")
-        .output()
-        .ok()?;
+    let output = Command::new("xrdb").arg("-query").output().ok()?;
 
     if !output.status.success() {
         return None;

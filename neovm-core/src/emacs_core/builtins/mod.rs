@@ -2894,12 +2894,16 @@ pub(crate) fn dispatch_builtin(
         "font-xlfd-name" => super::font::builtin_font_xlfd_name(args),
         "close-font" => super::font::builtin_close_font(args),
         "internal-make-lisp-face" => {
-            return Some(super::font::builtin_internal_make_lisp_face_eval(eval, args));
+            return Some(super::font::builtin_internal_make_lisp_face_eval(
+                eval, args,
+            ));
         }
         "internal-lisp-face-p" => super::font::builtin_internal_lisp_face_p(args),
         "internal-copy-lisp-face" => super::font::builtin_internal_copy_lisp_face(args),
         "internal-set-lisp-face-attribute" => {
-            return Some(super::font::builtin_internal_set_lisp_face_attribute_eval(eval, args));
+            return Some(super::font::builtin_internal_set_lisp_face_attribute_eval(
+                eval, args,
+            ));
         }
         "internal-get-lisp-face-attribute" => {
             super::font::builtin_internal_get_lisp_face_attribute(args)

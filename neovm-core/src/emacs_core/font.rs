@@ -1804,10 +1804,7 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_eval(
 }
 
 /// Convert a Lisp face attribute value to `FaceAttrValue` for `FaceTable`.
-fn lisp_value_to_face_attr(
-    attr_name: &str,
-    value: Value,
-) -> Option<crate::face::FaceAttrValue> {
+fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face::FaceAttrValue> {
     use crate::face::{
         BoxBorder, BoxStyle, Color, FaceAttrValue, FaceHeight, FontSlant, FontWeight, FontWidth,
         Underline, UnderlineStyle,
@@ -1960,8 +1957,7 @@ fn lisp_value_to_face_attr(
                         }
                         ":color" => {
                             if let Some(s) = val.as_str().or_else(|| val.as_symbol_name()) {
-                                border.color =
-                                    Color::from_name(s).or_else(|| Color::from_hex(s));
+                                border.color = Color::from_name(s).or_else(|| Color::from_hex(s));
                             }
                         }
                         ":style" => {

@@ -833,8 +833,7 @@ impl WgpuGlyphAtlas {
 
             // Resolve generic family names through fontconfig so we use the
             // same font as GNU Emacs (e.g., "Monospace" → "Hack").
-            let resolved =
-                neomacs_layout_engine::fontconfig::resolve_family(&effective_family);
+            let resolved = neomacs_layout_engine::fontconfig::resolve_family(&effective_family);
             let family_lower = resolved.to_lowercase();
             let is_generic = matches!(
                 family_lower.as_str(),
@@ -843,13 +842,10 @@ impl WgpuGlyphAtlas {
 
             attrs = if is_generic && resolved != effective_family {
                 // Fontconfig resolved to a concrete name — use it directly
-                let interned = if let Some(&existing) =
-                    self.interned_families.get(resolved)
-                {
+                let interned = if let Some(&existing) = self.interned_families.get(resolved) {
                     existing
                 } else {
-                    let leaked: &'static str =
-                        Box::leak(resolved.to_string().into_boxed_str());
+                    let leaked: &'static str = Box::leak(resolved.to_string().into_boxed_str());
                     self.interned_families.insert(leaked);
                     leaked
                 };
@@ -862,13 +858,10 @@ impl WgpuGlyphAtlas {
                     _ => attrs.family(Family::Monospace),
                 }
             } else {
-                let interned = if let Some(&existing) =
-                    self.interned_families.get(resolved)
-                {
+                let interned = if let Some(&existing) = self.interned_families.get(resolved) {
                     existing
                 } else {
-                    let leaked: &'static str =
-                        Box::leak(resolved.to_string().into_boxed_str());
+                    let leaked: &'static str = Box::leak(resolved.to_string().into_boxed_str());
                     self.interned_families.insert(leaked);
                     leaked
                 };
@@ -905,8 +898,7 @@ impl WgpuGlyphAtlas {
                 let interned = if let Some(&existing) = self.interned_families.get(resolved) {
                     existing
                 } else {
-                    let leaked: &'static str =
-                        Box::leak(resolved.to_string().into_boxed_str());
+                    let leaked: &'static str = Box::leak(resolved.to_string().into_boxed_str());
                     self.interned_families.insert(leaked);
                     leaked
                 };

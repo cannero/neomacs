@@ -1688,12 +1688,14 @@ fn condition_case_catches_uncaught_throw_as_no_catch() {
         eval_one("(condition-case err (throw 'tag 42) (error (car err)))"),
         "OK no-catch"
     );
+    // Test uncaught throw from a function call (not just special form).
+    // Use a lambda that throws instead of exit-minibuffer (which is Elisp).
     assert_eq!(
-        eval_one("(condition-case err (exit-minibuffer) (error (car err)))"),
+        eval_one("(condition-case err (funcall (lambda () (throw 'exit nil))) (error (car err)))"),
         "OK no-catch"
     );
     assert_eq!(
-        eval_one("(condition-case err (exit-minibuffer) (no-catch err))"),
+        eval_one("(condition-case err (funcall (lambda () (throw 'exit nil))) (no-catch err))"),
         "OK (no-catch exit nil)"
     );
 }
@@ -2706,8 +2708,9 @@ fn buffer_save_excursion() {
            (insert \"X\"))
          (point)",
     );
-    // save-excursion restores point to 3
-    assert_eq!(results[5], "OK 3");
+    // save-excursion restores point to the marker, which shifted from 3 to 4
+    // because "X" was inserted before it at position 1.
+    assert_eq!(results[5], "OK 4");
 }
 
 #[test]
