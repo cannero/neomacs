@@ -14,4 +14,8 @@ pub use buffer_text::BufferText;
 pub use marker::Marker;
 pub use overlay::{Overlay, OverlayList};
 pub use text_props::TextPropertyTable;
-pub use undo::UndoList;
+pub use undo::{
+    undo_list_boundary, undo_list_contains_boundary, undo_list_has_trailing_boundary,
+    undo_list_is_disabled, undo_list_is_empty, undo_list_pop_group, undo_list_record_delete,
+    undo_list_record_first_change, undo_list_record_insert, undo_list_record_point,
+};

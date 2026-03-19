@@ -1,349 +1,190 @@
-//! Undo/redo system for buffers.
+//! Undo system for buffers — GNU Emacs–compatible Lisp list approach.
 //!
-//! Implements Emacs-style undo: a linear list of undo records with
-//! explicit boundaries separating user-visible undo steps.
+//! The undo list is stored as a direct Lisp `Value` in the buffer-local
+//! property `buffer-undo-list`.  This module provides helper functions
+//! that manipulate that `Value` list, matching GNU Emacs's undo.c:
 //!
-//! Record types:
-//! - `Insert(pos, len)` — text was inserted; to undo, delete it
-//! - `Delete(pos, text)` — text was deleted; to undo, re-insert it
-//! - `PropertyChange(pos, len, old_props)` — text properties changed
-//! - `Boundary` — separates undo groups
-//! - `CursorMove(old_pos)` — cursor was at `old_pos` before the edit
-//! - `FirstChange(modtime)` — first modification since save
+//! - `t` means undo is disabled
+//! - `nil` means undo is enabled with an empty list
+//! - Records are cons-ed onto the FRONT (most recent first)
+//!
+//! Entry types:
+//! - `(BEG . END)` — insertion (1-indexed positions)
+//! - `(TEXT . POS)` — deletion (TEXT is string, POS is 1-indexed,
+//!    negative if point was at end of deleted region)
+//! - `POS` (integer) — cursor position (1-indexed)
+//! - `(t . MODTIME)` — first-change marker
+//! - `nil` — undo boundary
 
 use crate::emacs_core::value::Value;
-use crate::gc::GcTrace;
-use std::collections::HashMap;
 
-/// A single undo record.
-#[derive(Clone, Debug)]
-pub enum UndoRecord {
-    /// Text was inserted at `pos` with byte length `len`.
-    /// Undo action: delete `[pos, pos+len)`.
-    Insert { pos: usize, len: usize },
-
-    /// Text was deleted: `text` was removed from `pos`.
-    /// Undo action: insert `text` at `pos`.
-    Delete { pos: usize, text: String },
-
-    /// Text properties were changed on range `[pos, pos+len)`.
-    /// Stores old property values for restoration.
-    PropertyChange {
-        pos: usize,
-        len: usize,
-        old_props: HashMap<String, Value>,
-    },
-
-    /// Cursor position before the next edit.
-    CursorMove { pos: usize },
-
-    /// First modification since save, stored as `(t . VISITED-FILE-MODTIME)`.
-    FirstChange { visited_file_modtime: i64 },
-
-    /// Boundary separating undo groups.
-    Boundary,
+/// Returns `true` when `buffer-undo-list` is `t` (undo disabled).
+pub fn undo_list_is_disabled(undo_list: &Value) -> bool {
+    matches!(undo_list, Value::True)
 }
 
-/// Undo list for a single buffer.
-#[derive(Clone, Debug)]
-pub struct UndoList {
-    /// Stack of undo records (most recent at the end).
-    records: Vec<UndoRecord>,
-    /// Maximum number of records before truncation (0 = unlimited).
-    limit: usize,
-    /// Whether recording is enabled.
-    enabled: bool,
-    /// Whether we are currently inside an undo group (no boundary yet).
-    in_group: bool,
-    /// Whether we have already recorded the first-change sentinel.
-    recorded_first_change: bool,
-    /// True when `primitive-undo` is executing (suppress re-recording).
-    pub undoing: bool,
-}
-
-impl UndoList {
-    pub fn new() -> Self {
-        Self {
-            records: Vec::new(),
-            limit: 0,
-            enabled: true,
-            in_group: false,
-            recorded_first_change: false,
-            undoing: false,
-        }
+/// Record that text was inserted at byte position `beg` with byte length
+/// `len`.  Positions stored in the list are 1-indexed.
+///
+/// If we are right at an undo boundary (head is nil or list is empty)
+/// and `pt` != `beg`, a cursor-position entry is recorded first.
+///
+/// Consecutive adjacent inserts are merged when the head entry is an
+/// insert whose END equals `beg+1` (the 1-indexed start of the new
+/// insert).
+pub fn undo_list_record_insert(undo_list: &mut Value, beg: usize, len: usize, pt: usize) {
+    if undo_list_is_disabled(undo_list) || len == 0 {
+        return;
     }
 
-    /// Enable or disable undo recording.
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
-        if !enabled {
-            self.records.clear();
-            self.in_group = false;
-            self.recorded_first_change = false;
-        }
+    let at_boundary = undo_list.is_nil() || (undo_list.is_cons() && undo_list.cons_car().is_nil());
+    if at_boundary && pt != beg {
+        undo_list_record_point(undo_list, pt);
     }
 
-    pub fn is_enabled(&self) -> bool {
-        self.enabled
-    }
+    let beg1 = (beg + 1) as i64;
+    let end1 = (beg + len + 1) as i64;
 
-    /// Set the maximum number of records (0 = unlimited).
-    pub fn set_limit(&mut self, limit: usize) {
-        self.limit = limit;
-        self.maybe_truncate();
-    }
-
-    /// Prepare to record a buffer edit at `beg` with point currently at
-    /// `point_before`.
-    pub fn prepare_change(&mut self, beg: usize, point_before: usize) {
-        if !self.enabled || self.undoing {
-            return;
-        }
-
-        if self.ensure_first_change() {
-            self.in_group = true;
-        }
-
-        let at_boundary = matches!(self.records.last(), Some(UndoRecord::Boundary) | None);
-        if at_boundary && point_before != beg {
-            self.record_cursor(point_before);
-        }
-    }
-
-    /// Record an insertion.
-    pub fn record_insert(&mut self, pos: usize, len: usize) {
-        if !self.enabled || self.undoing || len == 0 {
-            return;
-        }
-        self.ensure_boundary_if_needed();
-        self.records.push(UndoRecord::Insert { pos, len });
-        self.in_group = true;
-        self.maybe_truncate();
-    }
-
-    /// Record a deletion.
-    pub fn record_delete(&mut self, pos: usize, text: &str) {
-        if !self.enabled || self.undoing || text.is_empty() {
-            return;
-        }
-        self.ensure_boundary_if_needed();
-        self.records.push(UndoRecord::Delete {
-            pos,
-            text: text.to_string(),
-        });
-        self.in_group = true;
-        self.maybe_truncate();
-    }
-
-    /// Record a cursor movement.
-    pub fn record_cursor(&mut self, pos: usize) {
-        if !self.enabled || self.undoing {
-            return;
-        }
-        // Don't record consecutive cursor moves to the same position.
-        if let Some(UndoRecord::CursorMove { pos: p }) = self.records.last() {
-            if *p == pos {
-                return;
-            }
-        }
-        self.records.push(UndoRecord::CursorMove { pos });
-        self.in_group = true;
-    }
-
-    /// Record a text property change.
-    pub fn record_property_change(
-        &mut self,
-        pos: usize,
-        len: usize,
-        old_props: HashMap<String, Value>,
-    ) {
-        if !self.enabled || self.undoing {
-            return;
-        }
-        self.ensure_first_change();
-        self.ensure_boundary_if_needed();
-        self.records.push(UndoRecord::PropertyChange {
-            pos,
-            len,
-            old_props,
-        });
-        self.in_group = true;
-    }
-
-    /// Insert an undo boundary.
-    pub fn boundary(&mut self) {
-        if !self.enabled {
-            return;
-        }
-        // Don't add consecutive boundaries.
-        if matches!(self.records.last(), Some(UndoRecord::Boundary) | None) {
-            return;
-        }
-        self.records.push(UndoRecord::Boundary);
-        self.in_group = false;
-    }
-
-    /// Pop one undo group (everything until the next boundary or end).
-    /// Returns the records in reverse order (most recent first) for
-    /// the caller to apply.
-    pub fn pop_undo_group(&mut self) -> Vec<UndoRecord> {
-        let mut group = Vec::new();
-
-        // Skip trailing boundary if present.
-        while matches!(self.records.last(), Some(UndoRecord::Boundary)) {
-            self.records.pop();
-        }
-
-        // Pop records until we hit a boundary or run out.
-        while let Some(record) = self.records.last() {
-            if matches!(record, UndoRecord::Boundary) {
-                break;
-            }
-            group.push(self.records.pop().unwrap());
-        }
-
-        group
-    }
-
-    /// Number of records.
-    pub fn len(&self) -> usize {
-        self.records.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    /// True when the most recent undo entry is a boundary marker.
-    pub fn has_trailing_boundary(&self) -> bool {
-        matches!(self.records.last(), Some(UndoRecord::Boundary))
-    }
-
-    /// True when the undo list contains at least one boundary marker.
-    pub fn contains_boundary(&self) -> bool {
-        self.records
-            .iter()
-            .any(|record| matches!(record, UndoRecord::Boundary))
-    }
-
-    /// Clear all undo history.
-    pub fn clear(&mut self) {
-        self.records.clear();
-        self.in_group = false;
-    }
-
-    /// Convert to a Lisp value for `buffer-undo-list`.
-    pub fn to_value(&self) -> Value {
-        let mut items = Vec::new();
-        for record in self.records.iter().rev() {
-            match record {
-                UndoRecord::Insert { pos, len } => {
-                    // (BEG . END) — 1-based positions
-                    items.push(Value::cons(
-                        Value::Int((*pos + 1) as i64),
-                        Value::Int((*pos + *len + 1) as i64),
-                    ));
+    // Try to merge with the head entry if it's an adjacent insert.
+    if undo_list.is_cons() {
+        let head = undo_list.cons_car();
+        if head.is_cons() {
+            let car = head.cons_car();
+            let cdr = head.cons_cdr();
+            if let (Value::Int(prev_beg), Value::Int(prev_end)) = (car, cdr) {
+                if prev_end == beg1 {
+                    // Merge: extend the existing insert entry.
+                    head.set_cdr(Value::Int(prev_end + len as i64));
+                    return;
                 }
-                UndoRecord::Delete { pos, text } => {
-                    // (TEXT . POS) — deleted text and 1-based position
-                    items.push(Value::cons(
-                        Value::string(text.clone()),
-                        Value::Int((*pos + 1) as i64),
-                    ));
+                // Check if insert is at the beginning of the previous range
+                if prev_beg == end1 {
+                    head.set_car(Value::Int(beg1));
+                    return;
                 }
-                UndoRecord::CursorMove { pos } => {
-                    items.push(Value::Int((*pos + 1) as i64));
-                }
-                UndoRecord::FirstChange {
-                    visited_file_modtime,
-                } => {
-                    items.push(Value::cons(Value::True, Value::Int(*visited_file_modtime)));
-                }
-                UndoRecord::PropertyChange { pos, len, .. } => {
-                    // (nil PROPERTY VALUE BEG . END)
-                    items.push(Value::cons(
-                        Value::Nil,
-                        Value::cons(
-                            Value::Int((*pos + 1) as i64),
-                            Value::Int((*pos + *len + 1) as i64),
-                        ),
-                    ));
-                }
-                UndoRecord::Boundary => {
-                    items.push(Value::Nil);
-                }
-            }
-        }
-        Value::list(items)
-    }
-
-    // -- internal helpers ---
-
-    fn ensure_first_change(&mut self) -> bool {
-        if self.recorded_first_change {
-            return false;
-        }
-        self.records.push(UndoRecord::FirstChange {
-            visited_file_modtime: 0,
-        });
-        self.recorded_first_change = true;
-        true
-    }
-
-    fn ensure_boundary_if_needed(&mut self) {
-        if !self.in_group && !matches!(self.records.last(), Some(UndoRecord::Boundary) | None) {
-            self.records.push(UndoRecord::Boundary);
-        }
-    }
-
-    fn maybe_truncate(&mut self) {
-        if self.limit > 0 && self.records.len() > self.limit {
-            let excess = self.records.len() - self.limit;
-            self.records.drain(..excess);
-        }
-    }
-
-    // pdump accessors
-    pub(crate) fn dump_records(&self) -> &[UndoRecord] {
-        &self.records
-    }
-    pub(crate) fn dump_limit(&self) -> usize {
-        self.limit
-    }
-    pub(crate) fn dump_enabled(&self) -> bool {
-        self.enabled
-    }
-    pub(crate) fn from_dump(records: Vec<UndoRecord>, limit: usize, enabled: bool) -> Self {
-        let recorded_first_change = records
-            .iter()
-            .any(|record| matches!(record, UndoRecord::FirstChange { .. }));
-        Self {
-            records,
-            limit,
-            enabled,
-            in_group: false,
-            recorded_first_change,
-            undoing: false,
-        }
-    }
-}
-
-impl Default for UndoList {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl GcTrace for UndoList {
-    fn trace_roots(&self, roots: &mut Vec<Value>) {
-        for record in &self.records {
-            if let UndoRecord::PropertyChange { old_props, .. } = record {
-                for value in old_props.values() {
-                    roots.push(*value);
-                }
+                let _ = (prev_beg, prev_end); // suppress unused warnings
             }
         }
     }
+
+    let entry = Value::cons(Value::Int(beg1), Value::Int(end1));
+    *undo_list = Value::cons(entry, *undo_list);
+}
+
+/// Record a deletion.  `beg` is the 0-indexed byte position, `text` is
+/// the deleted string, `pt` is the 0-indexed cursor byte position at
+/// the time of deletion.
+///
+/// The stored position is 1-indexed and negative when `pt` was at the
+/// END of the deleted region (i.e. `pt == beg + text.len()`).
+pub fn undo_list_record_delete(undo_list: &mut Value, beg: usize, text: &str, pt: usize) {
+    if undo_list_is_disabled(undo_list) || text.is_empty() {
+        return;
+    }
+
+    let at_boundary = undo_list.is_nil() || (undo_list.is_cons() && undo_list.cons_car().is_nil());
+    if at_boundary && pt != beg {
+        undo_list_record_point(undo_list, pt);
+    }
+
+    let pos1 = (beg + 1) as i64;
+    let stored_pos = if pt == beg + text.len() { -pos1 } else { pos1 };
+
+    let entry = Value::cons(Value::string(text), Value::Int(stored_pos));
+    *undo_list = Value::cons(entry, *undo_list);
+}
+
+/// Record the cursor position (0-indexed `pt`) as a 1-indexed integer.
+/// Skips if the most recent entry is the same position.
+pub fn undo_list_record_point(undo_list: &mut Value, pt: usize) {
+    if undo_list_is_disabled(undo_list) {
+        return;
+    }
+    let pt1 = Value::Int((pt + 1) as i64);
+
+    // Don't record consecutive identical positions.
+    if undo_list.is_cons() {
+        let head = undo_list.cons_car();
+        if head == pt1 {
+            return;
+        }
+    }
+
+    *undo_list = Value::cons(pt1, *undo_list);
+}
+
+/// Record the first-change sentinel `(t . 0)`.
+pub fn undo_list_record_first_change(undo_list: &mut Value) {
+    if undo_list_is_disabled(undo_list) {
+        return;
+    }
+    let entry = Value::cons(Value::True, Value::Int(0));
+    *undo_list = Value::cons(entry, *undo_list);
+}
+
+/// Insert an undo boundary (`nil`).  Skips if the list is empty/nil or
+/// already starts with a nil boundary.
+pub fn undo_list_boundary(undo_list: &mut Value) {
+    if undo_list_is_disabled(undo_list) {
+        return;
+    }
+    // Don't add boundary to empty list or if head is already nil.
+    if undo_list.is_nil() {
+        return;
+    }
+    if undo_list.is_cons() && undo_list.cons_car().is_nil() {
+        return;
+    }
+    *undo_list = Value::cons(Value::Nil, *undo_list);
+}
+
+/// Pop one undo group from the front of the list.
+///
+/// Skips leading nil boundaries, then collects entries until the next
+/// nil boundary (or end of list).  Returns the collected entries in
+/// the order they were popped (most recent first).
+///
+/// Mutates `undo_list` in place to remove the consumed entries.
+pub fn undo_list_pop_group(undo_list: &mut Value) -> Vec<Value> {
+    // Skip leading boundaries.
+    while undo_list.is_cons() && undo_list.cons_car().is_nil() {
+        *undo_list = undo_list.cons_cdr();
+    }
+
+    let mut group = Vec::new();
+    while undo_list.is_cons() {
+        let head = undo_list.cons_car();
+        if head.is_nil() {
+            // Hit the next boundary — stop.
+            break;
+        }
+        group.push(head);
+        *undo_list = undo_list.cons_cdr();
+    }
+    group
+}
+
+/// Check whether the undo list is non-empty (has actual records, not
+/// just nil).
+pub fn undo_list_is_empty(undo_list: &Value) -> bool {
+    undo_list.is_nil()
+}
+
+/// Check whether the undo list contains at least one nil boundary.
+pub fn undo_list_contains_boundary(undo_list: &Value) -> bool {
+    let mut cursor = *undo_list;
+    while cursor.is_cons() {
+        if cursor.cons_car().is_nil() {
+            return true;
+        }
+        cursor = cursor.cons_cdr();
+    }
+    false
+}
+
+/// Check whether the most recent entry is a nil boundary.
+pub fn undo_list_has_trailing_boundary(undo_list: &Value) -> bool {
+    undo_list.is_cons() && undo_list.cons_car().is_nil()
 }
 
 // ===========================================================================
@@ -356,109 +197,118 @@ mod tests {
 
     #[test]
     fn basic_insert_undo() {
-        let mut undo = UndoList::new();
-        undo.record_insert(0, 5);
-        undo.record_insert(5, 3);
-        undo.boundary();
+        let mut list = Value::Nil;
+        undo_list_record_insert(&mut list, 0, 5, 0);
+        undo_list_record_insert(&mut list, 5, 3, 5);
+        undo_list_boundary(&mut list);
 
-        let group = undo.pop_undo_group();
-        assert_eq!(group.len(), 2);
-        // Most recent first
-        assert!(matches!(group[0], UndoRecord::Insert { pos: 5, len: 3 }));
-        assert!(matches!(group[1], UndoRecord::Insert { pos: 0, len: 5 }));
+        // Should have: nil, (1 . 9) [merged], at minimum
+        // Actually the second insert merges with the first: (1 . 9)
+        assert!(undo_list_has_trailing_boundary(&list));
+
+        let group = undo_list_pop_group(&mut list);
+        assert_eq!(group.len(), 1); // merged into one entry
+        let entry = group[0];
+        assert!(entry.is_cons());
+        assert_eq!(entry.cons_car(), Value::Int(1));
+        assert_eq!(entry.cons_cdr(), Value::Int(9));
     }
 
     #[test]
     fn delete_records_text() {
-        let mut undo = UndoList::new();
-        undo.record_delete(3, "hello");
-        undo.boundary();
+        let mut list = Value::Nil;
+        undo_list_record_delete(&mut list, 3, "hello", 3);
+        undo_list_boundary(&mut list);
 
-        let group = undo.pop_undo_group();
+        let group = undo_list_pop_group(&mut list);
         assert_eq!(group.len(), 1);
-        match &group[0] {
-            UndoRecord::Delete { pos, text } => {
-                assert_eq!(*pos, 3);
-                assert_eq!(text, "hello");
-            }
-            _ => panic!("expected Delete"),
-        }
+        let entry = group[0];
+        assert!(entry.is_cons());
+        let car = entry.cons_car();
+        assert!(matches!(car, Value::Str(_)));
+        // POS should be positive (4) because pt==beg
+        assert_eq!(entry.cons_cdr(), Value::Int(4));
     }
 
     #[test]
     fn boundary_separates_groups() {
-        let mut undo = UndoList::new();
-        undo.record_insert(0, 1); // group 1
-        undo.boundary();
-        undo.record_insert(1, 1); // group 2
-        undo.boundary();
+        let mut list = Value::Nil;
+        undo_list_record_insert(&mut list, 0, 1, 0);
+        undo_list_boundary(&mut list);
+        undo_list_record_insert(&mut list, 1, 1, 1);
+        undo_list_boundary(&mut list);
 
-        let g2 = undo.pop_undo_group();
+        let g2 = undo_list_pop_group(&mut list);
         assert_eq!(g2.len(), 1);
-        assert!(matches!(g2[0], UndoRecord::Insert { pos: 1, .. }));
+        let entry = g2[0];
+        assert!(entry.is_cons());
+        assert_eq!(entry.cons_car(), Value::Int(2)); // 1+1
+        assert_eq!(entry.cons_cdr(), Value::Int(3)); // 1+1+1
 
-        let g1 = undo.pop_undo_group();
+        let g1 = undo_list_pop_group(&mut list);
         assert_eq!(g1.len(), 1);
-        assert!(matches!(g1[0], UndoRecord::Insert { pos: 0, .. }));
+        let entry = g1[0];
+        assert!(entry.is_cons());
+        assert_eq!(entry.cons_car(), Value::Int(1)); // 0+1
+        assert_eq!(entry.cons_cdr(), Value::Int(2)); // 0+1+1
     }
 
     #[test]
     fn disabled_records_nothing() {
-        let mut undo = UndoList::new();
-        undo.set_enabled(false);
-        undo.record_insert(0, 5);
-        assert!(undo.is_empty());
-    }
-
-    #[test]
-    fn limit_truncates() {
-        let mut undo = UndoList::new();
-        undo.set_limit(3);
-        for i in 0..10 {
-            undo.record_insert(i, 1);
-        }
-        assert!(undo.len() <= 3);
+        let mut list = Value::True;
+        undo_list_record_insert(&mut list, 0, 5, 0);
+        assert!(undo_list_is_disabled(&list));
     }
 
     #[test]
     fn cursor_move_dedup() {
-        let mut undo = UndoList::new();
-        undo.record_cursor(5);
-        undo.record_cursor(5);
-        undo.record_cursor(5);
-        assert_eq!(undo.len(), 1);
-        undo.record_cursor(10);
-        assert_eq!(undo.len(), 2);
+        let mut list = Value::Nil;
+        undo_list_record_point(&mut list, 5);
+        undo_list_record_point(&mut list, 5);
+        undo_list_record_point(&mut list, 5);
+        // Should only have one entry
+        assert!(list.is_cons());
+        assert_eq!(list.cons_car(), Value::Int(6));
+        assert!(list.cons_cdr().is_nil());
+
+        undo_list_record_point(&mut list, 10);
+        // Now should have two entries
+        assert!(list.is_cons());
+        assert_eq!(list.cons_car(), Value::Int(11));
     }
 
     #[test]
     fn no_double_boundary() {
-        let mut undo = UndoList::new();
-        undo.record_insert(0, 1);
-        undo.boundary();
-        undo.boundary();
-        undo.boundary();
+        let mut list = Value::Nil;
+        undo_list_record_insert(&mut list, 0, 1, 0);
+        undo_list_boundary(&mut list);
+        undo_list_boundary(&mut list);
+        undo_list_boundary(&mut list);
         // Only one boundary after the insert
-        assert_eq!(undo.len(), 2);
+        assert!(undo_list_has_trailing_boundary(&list));
+        // Pop it: boundary + insert = 1 record in group
+        let group = undo_list_pop_group(&mut list);
+        assert_eq!(group.len(), 1);
     }
 
     #[test]
     fn to_value_produces_list() {
-        let mut undo = UndoList::new();
-        undo.record_insert(0, 5);
-        undo.boundary();
-        let val = undo.to_value();
-        assert!(val.is_list());
+        let mut list = Value::Nil;
+        undo_list_record_insert(&mut list, 0, 5, 0);
+        undo_list_boundary(&mut list);
+        assert!(list.is_list());
     }
 
     #[test]
-    fn undoing_flag_suppresses() {
-        let mut undo = UndoList::new();
-        undo.undoing = true;
-        undo.record_insert(0, 5);
-        assert!(undo.is_empty());
-        undo.undoing = false;
-        undo.record_insert(0, 5);
-        assert_eq!(undo.len(), 1);
+    fn undoing_flag_not_needed() {
+        // The undoing flag is now tracked on Buffer, not in the undo list itself.
+        // This test just verifies that disabled lists don't record.
+        let mut list = Value::True; // disabled
+        undo_list_record_insert(&mut list, 0, 5, 0);
+        assert!(undo_list_is_disabled(&list));
+
+        let mut list2 = Value::Nil; // enabled
+        undo_list_record_insert(&mut list2, 0, 5, 0);
+        assert!(!undo_list_is_empty(&list2));
     }
 }

@@ -485,7 +485,11 @@ pub struct DumpBuffer {
     pub text_props: DumpTextPropertyTable,
     pub overlays: DumpOverlayList,
     pub syntax_table: DumpSyntaxTable,
-    pub undo_list: DumpUndoList,
+    /// Legacy field — retained for backward compatibility with old pdump files.
+    /// New dumps always write an empty DumpUndoList here; the real undo state
+    /// lives inside the `properties` map as `buffer-undo-list`.
+    #[serde(default)]
+    pub undo_list: Option<DumpUndoList>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

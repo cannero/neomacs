@@ -3114,7 +3114,8 @@ fn vm_undo_boundary_uses_shared_buffer_state() {
     let result = vm.execute(&func, vec![]);
     assert!(matches!(result, Ok(value) if value.is_nil()));
     let buffer = eval.buffers.current_buffer().expect("scratch buffer");
-    assert!(buffer.undo_list.has_trailing_boundary());
+    let ul = buffer.get_undo_list();
+    assert!(crate::buffer::undo_list_has_trailing_boundary(&ul));
 }
 
 #[test]

@@ -8,7 +8,7 @@ use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, Mark
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
 use crate::buffer::text_props::{PropertyInterval, TextPropertyTable};
-use crate::buffer::undo::{UndoList, UndoRecord};
+// Undo state is now stored directly as a Lisp Value in buffer-local properties.
 use crate::emacs_core::abbrev::{Abbrev, AbbrevManager, AbbrevTable};
 use crate::emacs_core::advice::{VariableWatcher, VariableWatcherList};
 use crate::emacs_core::autoload::{AutoloadEntry, AutoloadManager, AutoloadType};
@@ -506,45 +506,8 @@ fn dump_syntax_table(st: &SyntaxTable) -> DumpSyntaxTable {
     }
 }
 
-fn dump_undo_record(r: &UndoRecord) -> DumpUndoRecord {
-    match r {
-        UndoRecord::Insert { pos, len } => DumpUndoRecord::Insert {
-            pos: *pos,
-            len: *len,
-        },
-        UndoRecord::Delete { pos, text } => DumpUndoRecord::Delete {
-            pos: *pos,
-            text: text.clone(),
-        },
-        UndoRecord::PropertyChange {
-            pos,
-            len,
-            old_props,
-        } => DumpUndoRecord::PropertyChange {
-            pos: *pos,
-            len: *len,
-            old_props: old_props
-                .iter()
-                .map(|(k, v)| (k.clone(), dump_value(v)))
-                .collect(),
-        },
-        UndoRecord::CursorMove { pos } => DumpUndoRecord::CursorMove { pos: *pos },
-        UndoRecord::FirstChange {
-            visited_file_modtime,
-        } => DumpUndoRecord::FirstChange {
-            visited_file_modtime: *visited_file_modtime,
-        },
-        UndoRecord::Boundary => DumpUndoRecord::Boundary,
-    }
-}
-
-fn dump_undo_list(ul: &UndoList) -> DumpUndoList {
-    DumpUndoList {
-        records: ul.dump_records().iter().map(dump_undo_record).collect(),
-        limit: ul.dump_limit(),
-        enabled: ul.dump_enabled(),
-    }
-}
+// dump_undo_record and dump_undo_list removed — undo state is now a
+// buffer-local Lisp Value serialized through the properties map.
 
 fn dump_buffer(buf: &Buffer) -> DumpBuffer {
     DumpBuffer {
@@ -578,7 +541,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         text_props: dump_text_property_table(&buf.text_props),
         overlays: dump_overlay_list(&buf.overlays),
         syntax_table: dump_syntax_table(&buf.syntax_table),
-        undo_list: dump_undo_list(&buf.undo_list),
+        undo_list: None,
     }
 }
 
@@ -1658,37 +1621,7 @@ fn load_syntax_table(st: &DumpSyntaxTable) -> SyntaxTable {
     SyntaxTable::from_dump(entries, parent)
 }
 
-fn load_undo_record(r: &DumpUndoRecord) -> UndoRecord {
-    match r {
-        DumpUndoRecord::Insert { pos, len } => UndoRecord::Insert {
-            pos: *pos,
-            len: *len,
-        },
-        DumpUndoRecord::Delete { pos, text } => UndoRecord::Delete {
-            pos: *pos,
-            text: text.clone(),
-        },
-        DumpUndoRecord::PropertyChange {
-            pos,
-            len,
-            old_props,
-        } => UndoRecord::PropertyChange {
-            pos: *pos,
-            len: *len,
-            old_props: old_props
-                .iter()
-                .map(|(k, v)| (k.clone(), load_value(v)))
-                .collect(),
-        },
-        DumpUndoRecord::CursorMove { pos } => UndoRecord::CursorMove { pos: *pos },
-        DumpUndoRecord::FirstChange {
-            visited_file_modtime,
-        } => UndoRecord::FirstChange {
-            visited_file_modtime: *visited_file_modtime,
-        },
-        DumpUndoRecord::Boundary => UndoRecord::Boundary,
-    }
-}
+// load_undo_record removed — undo state is loaded from buffer-local properties.
 
 fn load_buffer(db: &DumpBuffer) -> Buffer {
     let text = BufferText::from_dump(db.text.text.clone());
@@ -1781,11 +1714,8 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             db.overlays.next_id,
         ),
         syntax_table: load_syntax_table(&db.syntax_table),
-        undo_list: UndoList::from_dump(
-            db.undo_list.records.iter().map(load_undo_record).collect(),
-            db.undo_list.limit,
-            db.undo_list.enabled,
-        ),
+        undo_in_progress: false,
+        undo_recorded_first_change: false,
     }
 }
 

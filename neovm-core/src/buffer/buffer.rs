@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use super::buffer_text::BufferText;
 use super::overlay::OverlayList;
 use super::text_props::TextPropertyTable;
-use super::undo::{UndoList, UndoRecord};
+use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value};
 use crate::gc::GcTrace;
@@ -147,8 +147,10 @@ pub struct Buffer {
     pub overlays: OverlayList,
     /// Syntax table for character classification.
     pub syntax_table: SyntaxTable,
-    /// Undo history.
-    pub undo_list: UndoList,
+    /// True when `primitive-undo` is executing (suppress re-recording).
+    pub undo_in_progress: bool,
+    /// Whether we have already recorded the first-change sentinel.
+    pub undo_recorded_first_change: bool,
 }
 
 impl Buffer {
@@ -257,7 +259,8 @@ impl Buffer {
             text_props: TextPropertyTable::new(),
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
-            undo_list: UndoList::new(),
+            undo_in_progress: false,
+            undo_recorded_first_change: false,
         }
     }
 
@@ -491,6 +494,48 @@ impl Buffer {
         }
     }
 
+    // -- Undo helpers --------------------------------------------------------
+
+    /// Get the current `buffer-undo-list` value from buffer-local properties.
+    pub fn get_undo_list(&self) -> Value {
+        match self.properties.get("buffer-undo-list") {
+            Some(RuntimeBindingValue::Bound(v)) => *v,
+            _ => Value::Nil,
+        }
+    }
+
+    /// Store the `buffer-undo-list` value into buffer-local properties.
+    pub fn set_undo_list(&mut self, value: Value) {
+        self.properties.insert(
+            "buffer-undo-list".to_string(),
+            RuntimeBindingValue::Bound(value),
+        );
+    }
+
+    /// Prepare to record a buffer change: ensure the first-change sentinel
+    /// has been recorded if needed.
+    fn undo_ensure_first_change(&mut self) {
+        if self.undo_recorded_first_change {
+            return;
+        }
+        let mut ul = self.get_undo_list();
+        if undo::undo_list_is_disabled(&ul) {
+            return;
+        }
+        undo::undo_list_record_first_change(&mut ul);
+        self.set_undo_list(ul);
+        self.undo_recorded_first_change = true;
+    }
+
+    /// Prepare undo recording for a buffer edit at `beg` with point at `pt`.
+    fn undo_prepare_change(&mut self, beg: usize, pt: usize) {
+        let ul = self.get_undo_list();
+        if undo::undo_list_is_disabled(&ul) || self.undo_in_progress {
+            return;
+        }
+        self.undo_ensure_first_change();
+    }
+
     // -- Editing -------------------------------------------------------------
 
     /// Insert `text` at point, advancing point past the inserted text.
@@ -506,8 +551,14 @@ impl Buffer {
         let char_len = text.chars().count();
 
         // Record undo before modifying.
-        self.undo_list.prepare_change(insert_pos, self.pt);
-        self.undo_list.record_insert(insert_pos, byte_len);
+        if !self.undo_in_progress {
+            self.undo_prepare_change(insert_pos, self.pt);
+            let mut ul = self.get_undo_list();
+            if !undo::undo_list_is_disabled(&ul) {
+                undo::undo_list_record_insert(&mut ul, insert_pos, byte_len, self.pt);
+                self.set_undo_list(ul);
+            }
+        }
 
         self.text.insert_str(insert_pos, text);
         self.apply_byte_insert_side_effects(
@@ -531,8 +582,14 @@ impl Buffer {
         let end_char = self.text.byte_to_char(end);
         // Record undo: save the deleted text for restoration.
         let deleted_text = self.text.text_range(start, end);
-        self.undo_list.prepare_change(start, self.pt);
-        self.undo_list.record_delete(start, &deleted_text);
+        if !self.undo_in_progress {
+            self.undo_prepare_change(start, self.pt);
+            let mut ul = self.get_undo_list();
+            if !undo::undo_list_is_disabled(&ul) {
+                undo::undo_list_record_delete(&mut ul, start, &deleted_text, self.pt);
+                self.set_undo_list(ul);
+            }
+        }
 
         self.text.delete_range(start, end);
         self.apply_byte_delete_side_effects(start, end, start_char, end_char, false);
@@ -568,10 +625,14 @@ impl Buffer {
             return false;
         }
 
-        if !noundo {
-            self.undo_list.prepare_change(start, self.pt);
-            self.undo_list.record_delete(start, &original);
-            self.undo_list.record_insert(start, replacement.len());
+        if !noundo && !self.undo_in_progress {
+            self.undo_prepare_change(start, self.pt);
+            let mut ul = self.get_undo_list();
+            if !undo::undo_list_is_disabled(&ul) {
+                undo::undo_list_record_delete(&mut ul, start, &original, self.pt);
+                undo::undo_list_record_insert(&mut ul, start, replacement.len(), self.pt);
+                self.set_undo_list(ul);
+            }
         }
 
         self.text.replace_same_len_range(start, end, &replacement);
@@ -760,17 +821,9 @@ impl Buffer {
     }
 
     pub fn buffer_local_value(&self, name: &str) -> Option<Value> {
-        match name {
-            "buffer-undo-list" => match self.get_buffer_local_binding(name) {
-                Some(RuntimeBindingValue::Bound(Value::True)) => Some(Value::True),
-                Some(RuntimeBindingValue::Bound(_)) => Some(self.undo_list.to_value()),
-                Some(RuntimeBindingValue::Void) => None,
-                None => None,
-            },
-            _ => match self.get_buffer_local_binding(name) {
-                Some(RuntimeBindingValue::Bound(value)) => Some(value),
-                Some(RuntimeBindingValue::Void) | None => None,
-            },
+        match self.get_buffer_local_binding(name) {
+            Some(RuntimeBindingValue::Bound(value)) => Some(value),
+            Some(RuntimeBindingValue::Void) | None => None,
         }
     }
 }
@@ -838,7 +891,6 @@ impl BufferManager {
         // GNU buffer.c:667 — buffers whose names start with a space have
         // undo recording disabled by default.
         if name.starts_with(' ') {
-            buf.undo_list.set_enabled(false);
             buf.set_buffer_local("buffer-undo-list", crate::emacs_core::value::Value::True);
         }
         self.buffers.insert(id, buf);
@@ -890,7 +942,11 @@ impl BufferManager {
             indirect.overlays = OverlayList::new();
             indirect.mark = None;
             indirect.markers.clear();
-            indirect.undo_list = root.undo_list.clone();
+            // Copy undo list from root buffer via buffer-local property
+            let root_undo = root.get_undo_list();
+            indirect.set_undo_list(root_undo);
+            indirect.undo_in_progress = root.undo_in_progress;
+            indirect.undo_recorded_first_change = root.undo_recorded_first_change;
         }
 
         self.buffers.insert(id, indirect);
@@ -1161,12 +1217,18 @@ impl BufferManager {
     }
 
     fn sync_shared_undo_lists(&mut self, root_id: BufferId, source_id: BufferId) -> Option<()> {
-        let source_undo = self.buffers.get(&source_id)?.undo_list.clone();
+        let source = self.buffers.get(&source_id)?;
+        let source_undo = source.get_undo_list();
+        let source_in_progress = source.undo_in_progress;
+        let source_first_change = source.undo_recorded_first_change;
         for shared_id in self.buffers_sharing_root_ids(root_id) {
             if shared_id == source_id {
                 continue;
             }
-            self.buffers.get_mut(&shared_id)?.undo_list = source_undo.clone();
+            let shared = self.buffers.get_mut(&shared_id)?;
+            shared.set_undo_list(source_undo);
+            shared.undo_in_progress = source_in_progress;
+            shared.undo_recorded_first_change = source_first_change;
         }
         Some(())
     }
@@ -1529,7 +1591,10 @@ impl BufferManager {
 
     pub fn add_undo_boundary(&mut self, id: BufferId) -> Option<()> {
         let root_id = self.shared_text_root_id(id)?;
-        self.buffers.get_mut(&id)?.undo_list.boundary();
+        let buf = self.buffers.get_mut(&id)?;
+        let mut ul = buf.get_undo_list();
+        undo::undo_list_boundary(&mut ul);
+        buf.set_undo_list(ul);
         self.sync_shared_undo_lists(root_id, id)?;
         Some(())
     }
@@ -1678,16 +1743,13 @@ impl BufferManager {
             let buf = self.buffers.get_mut(&id)?;
             match value {
                 Value::True => {
-                    buf.undo_list.set_enabled(false);
                     buf.set_buffer_local("buffer-undo-list", Value::True);
                 }
                 Value::Nil => {
-                    buf.undo_list.set_enabled(true);
-                    buf.undo_list.clear();
                     buf.set_buffer_local("buffer-undo-list", Value::Nil);
+                    buf.undo_recorded_first_change = false;
                 }
                 other => {
-                    buf.undo_list.set_enabled(true);
                     buf.set_buffer_local("buffer-undo-list", other);
                 }
             }
@@ -1699,10 +1761,11 @@ impl BufferManager {
     pub fn undo_buffer(&mut self, id: BufferId, mut count: i64) -> Option<UndoExecutionResult> {
         let (had_any_records, had_boundary, previous_undoing, groups) = {
             let buffer = self.buffers.get_mut(&id)?;
+            let ul = buffer.get_undo_list();
 
-            let had_any_records = !buffer.undo_list.is_empty();
-            let had_boundary = buffer.undo_list.contains_boundary();
-            let had_trailing_boundary = buffer.undo_list.has_trailing_boundary();
+            let had_any_records = !undo::undo_list_is_empty(&ul);
+            let had_boundary = undo::undo_list_contains_boundary(&ul);
+            let had_trailing_boundary = undo::undo_list_has_trailing_boundary(&ul);
 
             if count <= 0 && had_boundary {
                 return Some(UndoExecutionResult {
@@ -1716,22 +1779,24 @@ impl BufferManager {
                 count = 1;
             }
 
-            let previous_undoing = buffer.undo_list.undoing;
-            buffer.undo_list.undoing = true;
+            let previous_undoing = buffer.undo_in_progress;
+            buffer.undo_in_progress = true;
             let groups_to_undo = if had_trailing_boundary {
                 count as usize
             } else {
                 (count as usize).saturating_add(1)
             };
 
+            let mut current_ul = ul;
             let mut groups = Vec::new();
             for _ in 0..groups_to_undo {
-                let group = buffer.undo_list.pop_undo_group();
+                let group = undo::undo_list_pop_group(&mut current_ul);
                 if group.is_empty() {
                     break;
                 }
                 groups.push(group);
             }
+            buffer.set_undo_list(current_ul);
 
             (had_any_records, had_boundary, previous_undoing, groups)
         };
@@ -1739,38 +1804,53 @@ impl BufferManager {
         let mut applied_any = false;
         for group in groups {
             applied_any = true;
-            for record in group {
-                match record {
-                    UndoRecord::Insert { pos, len } => {
-                        let end = self
-                            .buffers
-                            .get(&id)
-                            .map(|buffer| pos.saturating_add(len).min(buffer.text.len()))?;
-                        self.delete_buffer_region(id, pos.min(end), end)?;
+            for entry in group {
+                if let Value::Int(pt1) = entry {
+                    // Cursor position (1-indexed)
+                    let pos = (pt1 - 1).max(0) as usize;
+                    let clamped = self
+                        .buffers
+                        .get(&id)
+                        .map(|buffer| pos.min(buffer.text.len()))?;
+                    self.goto_buffer_byte(id, clamped)?;
+                } else if entry.is_cons() {
+                    let car = entry.cons_car();
+                    let cdr = entry.cons_cdr();
+                    match (car, cdr) {
+                        (Value::Int(beg1), Value::Int(end1)) => {
+                            // Insert record: (BEG . END) — to undo, delete [beg, end)
+                            let beg = (beg1 - 1).max(0) as usize;
+                            let end = (end1 - 1).max(0) as usize;
+                            let clamped_end = self
+                                .buffers
+                                .get(&id)
+                                .map(|buffer| end.min(buffer.text.len()))?;
+                            self.delete_buffer_region(id, beg.min(clamped_end), clamped_end)?;
+                        }
+                        (Value::Str(_), Value::Int(pos1)) => {
+                            // Delete record: (TEXT . POS) — to undo, re-insert text
+                            let text = car.as_str_owned().unwrap_or_default();
+                            let pos = (pos1.abs() - 1).max(0) as usize;
+                            let clamped = self
+                                .buffers
+                                .get(&id)
+                                .map(|buffer| pos.min(buffer.text.len()))?;
+                            self.goto_buffer_byte(id, clamped)?;
+                            self.insert_into_buffer(id, &text)?;
+                        }
+                        (Value::True, Value::Int(_)) => {
+                            // First-change sentinel (t . MODTIME) — skip
+                        }
+                        _ => {
+                            // Other cons entries (e.g. property changes) — skip
+                        }
                     }
-                    UndoRecord::Delete { pos, text } => {
-                        let clamped = self
-                            .buffers
-                            .get(&id)
-                            .map(|buffer| pos.min(buffer.text.len()))?;
-                        self.goto_buffer_byte(id, clamped)?;
-                        self.insert_into_buffer(id, &text)?;
-                    }
-                    UndoRecord::CursorMove { pos } => {
-                        let clamped = self
-                            .buffers
-                            .get(&id)
-                            .map(|buffer| pos.min(buffer.text.len()))?;
-                        self.goto_buffer_byte(id, clamped)?;
-                    }
-                    UndoRecord::PropertyChange { .. }
-                    | UndoRecord::FirstChange { .. }
-                    | UndoRecord::Boundary => {}
                 }
+                // nil entries (boundaries within a group) are skipped
             }
         }
 
-        self.buffers.get_mut(&id)?.undo_list.undoing = previous_undoing;
+        self.buffers.get_mut(&id)?.undo_in_progress = previous_undoing;
         let root_id = self.shared_text_root_id(id)?;
         self.sync_shared_undo_lists(root_id, id)?;
         Some(UndoExecutionResult {
@@ -1926,7 +2006,8 @@ impl GcTrace for BufferManager {
             }
             buffer.text_props.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
-            buffer.undo_list.trace_roots(roots);
+            // The undo list is stored as buffer-undo-list in properties,
+            // so it's already traced by the properties loop above.
         }
         for restrictions in self.labeled_restrictions.values() {
             for restriction in restrictions {

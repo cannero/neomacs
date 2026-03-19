@@ -219,7 +219,6 @@ fn main() {
         std::process::id()
     );
 
-
     // 2. Initialize the evaluator from the canonical core bootstrap.
     let mut evaluator =
         neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(&["neomacs"])
@@ -315,7 +314,9 @@ fn main() {
 
     // Add undo boundary after startup so initial content isn't undoable
     if let Some(buf) = evaluator.buffer_manager_mut().current_buffer_mut() {
-        buf.undo_list.boundary();
+        let mut ul = buf.get_undo_list();
+        neovm_core::buffer::undo_list_boundary(&mut ul);
+        buf.set_undo_list(ul);
     }
 
     // 10. Run GNU startup — this evaluates `(eval top-level)` which enters

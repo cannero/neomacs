@@ -19,7 +19,8 @@ fn test_undo_boundary_eval_inserts_boundary_marker() {
     let result = builtin_undo_boundary_eval(&mut eval, vec![]);
     assert!(result.is_ok());
     let buffer = eval.buffers.current_buffer().expect("scratch buffer");
-    assert!(buffer.undo_list.has_trailing_boundary());
+    let ul = buffer.get_undo_list();
+    assert!(crate::buffer::undo_list_has_trailing_boundary(&ul));
 }
 
 #[test]
@@ -123,7 +124,9 @@ fn test_undo_reverts_inserted_text() {
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("abc");
-        buffer.undo_list.boundary();
+        let mut ul = buffer.get_undo_list();
+        crate::buffer::undo::undo_list_boundary(&mut ul);
+        buffer.set_undo_list(ul);
     }
     let result = builtin_undo(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_ok());
@@ -162,7 +165,9 @@ fn test_undo_with_non_positive_arg_and_boundary_returns_undo() {
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
-        buffer.undo_list.boundary();
+        let mut ul = buffer.get_undo_list();
+        crate::buffer::undo::undo_list_boundary(&mut ul);
+        buffer.set_undo_list(ul);
     }
     let result = builtin_undo(&mut eval, vec![Value::Int(0)]).unwrap();
     assert_eq!(result, Value::string("Undo"));

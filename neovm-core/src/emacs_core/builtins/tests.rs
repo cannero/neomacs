@@ -2865,7 +2865,9 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     assert_eq!(disable_current, Value::True);
     let current_id = eval.buffers.current_buffer_id().expect("current buffer");
     let current = eval.buffers.get(current_id).expect("current buffer");
-    assert!(!current.undo_list.is_enabled());
+    assert!(crate::buffer::undo_list_is_disabled(
+        &current.get_undo_list()
+    ));
     assert_eq!(
         current.get_buffer_local("buffer-undo-list"),
         Some(&Value::True)
@@ -2875,7 +2877,9 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
         builtin_buffer_enable_undo(&mut eval, vec![]).expect("buffer-enable-undo should work");
     assert_eq!(enable_current, Value::Nil);
     let current = eval.buffers.get(current_id).expect("current buffer");
-    assert!(current.undo_list.is_enabled());
+    assert!(!crate::buffer::undo_list_is_disabled(
+        &current.get_undo_list()
+    ));
     assert_eq!(
         current.get_buffer_local("buffer-undo-list"),
         Some(&Value::Nil)
