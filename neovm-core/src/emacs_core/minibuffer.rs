@@ -1273,7 +1273,8 @@ pub(crate) fn builtin_exit_recursive_edit(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("exit-recursive-edit", &args, 0)?;
-    if eval.command_loop.recursive_depth == 0 {
+    // GNU Emacs checks: command_loop_level > 0 || minibuf_level > 0
+    if eval.command_loop.recursive_depth == 0 && eval.minibuffers.depth() == 0 {
         return Err(signal(
             "user-error",
             vec![Value::string("No recursive edit is in progress")],
@@ -1373,7 +1374,8 @@ pub(crate) fn builtin_abort_recursive_edit(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abort-recursive-edit", &args, 0)?;
-    if eval.command_loop.recursive_depth == 0 {
+    // GNU Emacs checks: command_loop_level > 0 || minibuf_level > 0
+    if eval.command_loop.recursive_depth == 0 && eval.minibuffers.depth() == 0 {
         return Err(signal(
             "user-error",
             vec![Value::string("No recursive edit is in progress")],
