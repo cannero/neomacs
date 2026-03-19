@@ -2738,6 +2738,9 @@ impl Evaluator {
         custom.make_variable_buffer_local("major-mode");
         custom.make_variable_buffer_local("mode-name");
         custom.make_variable_buffer_local("local-abbrev-table");
+        // GNU Emacs DEFVAR_PER_BUFFER variables used by simple.el
+        custom.make_variable_buffer_local("line-spacing");
+        obarray.set_symbol_value("line-spacing", Value::Nil);
 
         let mut ev = Self {
             interner,
