@@ -580,9 +580,9 @@ fn x_open_connection_requires_string_display_arg() {
 }
 
 #[test]
-fn x_open_connection_eval_accepts_neomacs_host_startup() {
+fn x_open_connection_eval_accepts_x_host_startup() {
     let mut eval = crate::emacs_core::Evaluator::new();
-    eval.set_variable("initial-window-system", Value::symbol("neomacs"));
+    eval.set_variable("initial-window-system", Value::symbol("x"));
     assert!(
         builtin_x_open_connection_eval(&mut eval, vec![Value::Nil])
             .unwrap()
@@ -591,9 +591,9 @@ fn x_open_connection_eval_accepts_neomacs_host_startup() {
 }
 
 #[test]
-fn neomacs_window_system_resource_queries_return_nil() {
+fn x_window_system_resource_queries_return_nil() {
     let mut eval = crate::emacs_core::Evaluator::new();
-    eval.set_variable("initial-window-system", Value::symbol("neomacs"));
+    eval.set_variable("initial-window-system", Value::symbol("x"));
 
     assert!(
         builtin_x_apply_session_resources_eval(&mut eval, vec![])
@@ -2567,15 +2567,15 @@ fn window_system_prefers_selected_frame_then_global_fallback() {
         .get_mut(frame_id)
         .expect("selected frame")
         .parameters
-        .insert("window-system".to_string(), Value::symbol("neomacs"));
+        .insert("window-system".to_string(), Value::symbol("x"));
 
     assert_eq!(
         builtin_window_system_eval(&mut eval, vec![]).unwrap(),
-        Value::symbol("neomacs")
+        Value::symbol("x")
     );
     assert_eq!(
         builtin_window_system_eval(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap(),
-        Value::symbol("neomacs")
+        Value::symbol("x")
     );
 
     let err = builtin_window_system_eval(&mut eval, vec![Value::string("x")]).unwrap_err();

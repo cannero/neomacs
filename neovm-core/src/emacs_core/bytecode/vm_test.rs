@@ -1205,7 +1205,7 @@ fn vm_terminal_and_display_entrypoints_use_shared_runtime() {
                   (= (length (frame-list)) (1+ before))
                   (equal (frame-parameter created 'name) "vm-x-frame")))"#,
         ),
-        "OK (t t wrong-type-argument error error error error error neomacs t t)"
+        "OK (t t wrong-type-argument error error error error error x t t)"
     );
 }
 
@@ -1318,7 +1318,7 @@ fn vm_x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
                 let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
                 frame
                     .parameters
-                    .insert("window-system".to_string(), Value::symbol("neomacs"));
+                    .insert("window-system".to_string(), Value::symbol("x"));
                 frame.char_width = 10.0;
                 frame.char_height = 20.0;
                 if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -1362,7 +1362,7 @@ fn vm_make_frame_uses_gui_creation_path_when_display_host_is_active() {
             let fid = eval.frames.create_frame("bootstrap", 960, 640, scratch);
             {
                 let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
-                frame.set_window_system(Some(Value::symbol("neomacs")));
+                frame.set_window_system(Some(Value::symbol("x")));
                 frame.char_width = 10.0;
                 frame.char_height = 20.0;
                 if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -1398,7 +1398,7 @@ fn vm_x_create_frame_prefers_display_host_primary_window_size_when_available() {
                 let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
                 frame
                     .parameters
-                    .insert("window-system".to_string(), Value::symbol("neomacs"));
+                    .insert("window-system".to_string(), Value::symbol("x"));
                 frame.char_width = 10.0;
                 frame.char_height = 20.0;
                 if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -5363,7 +5363,7 @@ fn vm_x_display_query_builtins_accept_live_frame_designators() {
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
-                 (setq window-system 'neomacs)
+                 (setq window-system 'x)
                  (list
                   (condition-case err (x-display-pixel-width f) (error err))
                   (condition-case err (x-display-pixel-height f) (error err))
@@ -5417,7 +5417,7 @@ fn vm_x_connection_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
-                 (setq initial-window-system 'neomacs)
+                 (setq initial-window-system 'x)
                  (list
                   (x-open-connection nil)
                   (condition-case err (x-close-connection f) (error err))
@@ -5433,7 +5433,7 @@ fn vm_x_frame_property_and_tty_stub_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
-                 (setq initial-window-system 'neomacs)
+                 (setq initial-window-system 'x)
                  (list
                   (x-frame-edges f)
                   (x-frame-geometry f)
@@ -5469,7 +5469,7 @@ fn vm_remaining_display_stub_tail_uses_direct_dispatch() {
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
-                 (setq initial-window-system 'neomacs)
+                 (setq initial-window-system 'x)
                  (list
                   (condition-case err (x-display-set-last-user-time nil f) (error err))
                   (x-load-color-file "/definitely/not/found")

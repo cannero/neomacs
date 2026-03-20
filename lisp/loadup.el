@@ -305,10 +305,12 @@
 (if (featurep 'dynamic-setting)
     (load "dynamic-setting"))
 
-(if (featurep 'neomacs)
+(if (featurep 'x)
     (progn
+      (load "touch-screen")
+      (load "x-dnd")
       (load "term/common-win")
-      (load "term/neomacs-win")))
+      (load "term/x-win")))
 (if (fboundp 'x-create-frame)
     ;; Do it after loading term/foo-win.el since the value of the
     ;; mouse-wheel-*-event vars depends on those files being loaded or not.

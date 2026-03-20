@@ -3842,7 +3842,7 @@ pub(crate) fn builtin_xw_display_color_p_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("xw-display-color-p", &args, 0, 1)?;
-    if super::super::display::neomacs_window_system_active(eval) {
+    if super::super::display::x_window_system_active(eval) {
         Ok(Value::True)
     } else {
         Ok(Value::Nil)

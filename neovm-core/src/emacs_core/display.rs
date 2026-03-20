@@ -309,21 +309,24 @@ fn window_system_not_initialized_error() -> Flow {
     )
 }
 
-pub(crate) fn neomacs_window_system_active(eval: &super::eval::Evaluator) -> bool {
-    let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
-        .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
-    // Neomacs reports as "x" window system for GNU Emacs .el compatibility
-    host_window_system == Some(Value::symbol("neomacs"))
+pub fn gui_window_system_symbol() -> &'static str {
+    "x"
 }
 
-pub(crate) fn neomacs_window_system_active_in_state(
+pub(crate) fn x_window_system_active(eval: &super::eval::Evaluator) -> bool {
+    let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
+        .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
+    host_window_system == Some(Value::symbol(gui_window_system_symbol()))
+}
+
+pub(crate) fn x_window_system_active_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
 ) -> bool {
     let host_window_system =
         dynamic_or_global_symbol_value_in_state(obarray, dynamic, "initial-window-system")
             .or_else(|| dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system"));
-    host_window_system == Some(Value::symbol("neomacs"))
+    host_window_system == Some(Value::symbol(gui_window_system_symbol()))
 }
 
 fn expect_optional_window_system_frame_arg(value: &Value) -> Result<(), Flow> {
@@ -780,7 +783,7 @@ pub(crate) fn builtin_display_color_cells_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-color-cells", &args)?;
-    if neomacs_window_system_active(eval) {
+    if x_window_system_active(eval) {
         Ok(Value::Int(16777216)) // 2^24 = 24-bit TrueColor
     } else if terminal_runtime_supports_color() {
         Ok(Value::Int(terminal_runtime_color_cells()))
@@ -795,7 +798,7 @@ pub(crate) fn builtin_display_planes_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-planes", &args)?;
-    if neomacs_window_system_active(eval) {
+    if x_window_system_active(eval) {
         Ok(Value::Int(24))
     } else if terminal_runtime_supports_color() {
         Ok(Value::Int(if terminal_runtime_color_cells() >= 16777216 {
@@ -814,7 +817,7 @@ pub(crate) fn builtin_display_visual_class_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-visual-class", &args)?;
-    if neomacs_window_system_active(eval) {
+    if x_window_system_active(eval) {
         Ok(Value::symbol("true-color"))
     } else if terminal_runtime_supports_color() {
         Ok(Value::symbol("color"))
@@ -1519,7 +1522,7 @@ pub(crate) fn builtin_x_get_resource_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-get-resource", &args, 2, 4)?;
-    if neomacs_window_system_active(eval) {
+    if x_window_system_active(eval) {
         return Ok(Value::Nil);
     }
     Err(window_system_not_initialized_error())
@@ -1531,7 +1534,7 @@ pub(crate) fn builtin_x_get_resource_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-get-resource", &args, 2, 4)?;
-    if neomacs_window_system_active_in_state(obarray, dynamic) {
+    if x_window_system_active_in_state(obarray, dynamic) {
         return Ok(Value::Nil);
     }
     Err(window_system_not_initialized_error())
@@ -1548,7 +1551,7 @@ pub(crate) fn builtin_x_apply_session_resources_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("x-apply-session-resources", &args, 0)?;
-    if neomacs_window_system_active(eval) {
+    if x_window_system_active(eval) {
         return Ok(Value::Nil);
     }
     Err(window_system_not_initialized_error())
@@ -1565,7 +1568,7 @@ pub(crate) fn builtin_x_list_fonts_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-list-fonts", &args, 1, 5)?;
-    if neomacs_window_system_active(eval) {
+    if x_window_system_active(eval) {
         return Ok(Value::Nil);
     }
     Err(window_system_not_initialized_error())
@@ -1577,7 +1580,7 @@ pub(crate) fn builtin_x_list_fonts_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-list-fonts", &args, 1, 5)?;
-    if neomacs_window_system_active_in_state(obarray, dynamic) {
+    if x_window_system_active_in_state(obarray, dynamic) {
         return Ok(Value::Nil);
     }
     Err(window_system_not_initialized_error())
@@ -1807,7 +1810,7 @@ pub(crate) fn builtin_x_display_grayscale_p_eval(
 ) -> EvalResult {
     expect_max_args("x-display-grayscale-p", &args, 1)?;
     if let Some(display) = args.first() {
-        if live_frame_designator_p(eval, display) && neomacs_window_system_active(eval) {
+        if live_frame_designator_p(eval, display) && x_window_system_active(eval) {
             return Ok(Value::Nil);
         }
     }
@@ -1823,7 +1826,7 @@ pub(crate) fn builtin_x_display_grayscale_p_in_state(
     expect_max_args("x-display-grayscale-p", &args, 1)?;
     if let Some(display) = args.first() {
         if live_frame_designator_p_in_state(frames, display)
-            && neomacs_window_system_active_in_state(obarray, dynamic)
+            && x_window_system_active_in_state(obarray, dynamic)
         {
             return Ok(Value::Nil);
         }
@@ -1851,7 +1854,7 @@ pub(crate) fn builtin_x_display_backing_store_in_state(
     x_optional_display_query_error_in_state(frames, "x-display-backing-store", args)
 }
 
-/// (x-display-color-cells &optional DISPLAY) -> 16M for neomacs (24-bit TrueColor).
+/// (x-display-color-cells &optional DISPLAY) -> 16M for X (24-bit TrueColor).
 pub(crate) fn builtin_x_display_color_cells(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-color-cells", &args)
 }
@@ -2118,9 +2121,7 @@ pub(crate) fn builtin_x_open_connection_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-open-connection", &args, 1, 3)?;
-    let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
-        .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
-    if host_window_system == Some(Value::symbol("neomacs")) {
+    if x_window_system_active(eval) {
         return Ok(Value::Nil);
     }
     builtin_x_open_connection(args)
@@ -2132,7 +2133,7 @@ pub(crate) fn builtin_x_open_connection_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-open-connection", &args, 1, 3)?;
-    if neomacs_window_system_active_in_state(obarray, dynamic) {
+    if x_window_system_active_in_state(obarray, dynamic) {
         return Ok(Value::Nil);
     }
     builtin_x_open_connection(args)

@@ -459,8 +459,10 @@ pub(crate) fn builtin_terminal_live_p_eval(
         return Ok(Value::Nil);
     }
     // Return the window system type so framep-on-display works correctly.
-    if crate::emacs_core::display::neomacs_window_system_active(eval) {
-        Ok(Value::symbol("neomacs"))
+    if crate::emacs_core::display::x_window_system_active(eval) {
+        Ok(Value::symbol(
+            crate::emacs_core::display::gui_window_system_symbol(),
+        ))
     } else {
         Ok(Value::True)
     }
@@ -476,8 +478,10 @@ pub(crate) fn builtin_terminal_live_p_in_state(
     if !terminal_designator_in_state_p(frames, &args[0]) {
         return Ok(Value::Nil);
     }
-    if crate::emacs_core::display::neomacs_window_system_active_in_state(obarray, dynamic) {
-        Ok(Value::symbol("neomacs"))
+    if crate::emacs_core::display::x_window_system_active_in_state(obarray, dynamic) {
+        Ok(Value::symbol(
+            crate::emacs_core::display::gui_window_system_symbol(),
+        ))
     } else {
         Ok(Value::True)
     }

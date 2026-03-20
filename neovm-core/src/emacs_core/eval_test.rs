@@ -232,7 +232,7 @@ fn frame_native_width_syncs_pending_resize_without_read_char() {
         .get_mut(fid)
         .expect("frame should exist")
         .parameters
-        .insert("window-system".to_string(), Value::symbol("neomacs"));
+        .insert("window-system".to_string(), Value::symbol("x"));
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
@@ -262,7 +262,7 @@ fn frame_native_width_syncs_pending_resize_behind_focus_event() {
         .get_mut(fid)
         .expect("frame should exist")
         .parameters
-        .insert("window-system".to_string(), Value::symbol("neomacs"));
+        .insert("window-system".to_string(), Value::symbol("x"));
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);

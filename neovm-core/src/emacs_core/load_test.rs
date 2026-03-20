@@ -1434,6 +1434,26 @@ fn bootstrap_runtime_setup_default_fontset_preserves_gnu_han_order() {
 }
 
 #[test]
+fn bootstrap_x_runtime_prebinds_gnu_x_globals_before_x_win_initialization() {
+    let mut eval = create_bootstrap_evaluator_with_features(&["x"]).expect("x bootstrap evaluator");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list (hash-table-p x-keysym-table)
+                 (hash-table-test x-keysym-table)
+                 (gethash 160 x-keysym-table)
+                 x-selection-timeout
+                 x-session-id
+                 x-session-previous-id
+                 x-ctrl-keysym
+                 x-alt-keysym
+                 x-hyper-keysym
+                 x-meta-keysym
+                 x-super-keysym)"#,
+    );
+    assert_eq!(rendered, "OK (t eql 160 0 nil nil nil nil nil nil nil)");
+}
+
+#[test]
 fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -2817,20 +2837,26 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
 }
 
 #[test]
-fn bootstrap_load_sequence_includes_neomacs_term_layer_after_tool_bar() {
+fn bootstrap_load_sequence_includes_gnu_x_term_layer_after_tool_bar() {
     let tool_bar_idx = BOOTSTRAP_LOAD_SEQUENCE
         .iter()
         .position(|name| *name == "tool-bar")
         .expect("tool-bar bootstrap entry");
-    let neomacs_idx = BOOTSTRAP_LOAD_SEQUENCE
+    let touch_screen_idx = BOOTSTRAP_LOAD_SEQUENCE
         .iter()
-        .position(|name| *name == "!load-neomacs-win")
-        .expect("neomacs bootstrap sentinel");
-    assert_eq!(
-        neomacs_idx,
-        tool_bar_idx + 1,
-        "neomacs term layer should load immediately after tool-bar like loadup.el"
-    );
+        .position(|name| *name == "touch-screen")
+        .expect("touch-screen bootstrap entry");
+    let x_dnd_idx = BOOTSTRAP_LOAD_SEQUENCE
+        .iter()
+        .position(|name| *name == "x-dnd")
+        .expect("x-dnd bootstrap entry");
+    let x_idx = BOOTSTRAP_LOAD_SEQUENCE
+        .iter()
+        .position(|name| *name == "!load-x-win")
+        .expect("x bootstrap sentinel");
+    assert_eq!(touch_screen_idx, tool_bar_idx + 1);
+    assert_eq!(x_dnd_idx, touch_screen_idx + 1);
+    assert_eq!(x_idx, x_dnd_idx + 1);
 }
 
 #[test]

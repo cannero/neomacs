@@ -29,6 +29,7 @@ use neomacs_layout_engine::fontconfig::face_height_to_pixels;
 
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
+use neovm_core::emacs_core::display::gui_window_system_symbol;
 use neovm_core::emacs_core::error::EvalError;
 use neovm_core::emacs_core::eval::{FontResolveRequest, GuiFrameHostSize, ResolvedFontMatch};
 use neovm_core::emacs_core::intern::resolve_sym;
@@ -157,6 +158,8 @@ const EARLY_HELP_BODY: &str = concat!(
     "Report bugs to https://github.com/eval-exec/neomacs-windows/issues.\n",
 );
 
+const BOOTSTRAP_CORE_FEATURES: &[&str] = &["neomacs", "x"];
+
 fn classify_early_cli_action(args: impl IntoIterator<Item = String>) -> Option<EarlyCliAction> {
     let mut args = args.into_iter();
     let program = args.next().unwrap_or_else(|| "neomacs".to_string());
@@ -272,7 +275,7 @@ fn bootstrap_display_config(frontend: FrontendKind) -> BootstrapDisplayConfig {
 impl BootstrapDisplayConfig {
     fn window_system_symbol(self) -> Option<&'static str> {
         match self.frontend {
-            FrontendKind::Gui => Some("neomacs"),
+            FrontendKind::Gui => Some(gui_window_system_symbol()),
             FrontendKind::Tty => None,
         }
     }
@@ -588,8 +591,10 @@ fn main() {
     let (width, height) = startup_dimensions(startup.frontend, bootstrap_frame_metrics());
     // 2. Initialize the evaluator from the canonical core bootstrap.
     let mut evaluator =
-        neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(&["neomacs"])
-            .expect("core bootstrap should succeed");
+        neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(
+            BOOTSTRAP_CORE_FEATURES,
+        )
+        .expect("core bootstrap should succeed");
     evaluator.setup_thread_locals();
     evaluator.set_max_depth(1600);
     // Disable GC during startup — the bytecode VM's specpdl is not yet
@@ -914,8 +919,9 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup:
     eval.set_variable("noninteractive", Value::Nil);
     match startup.frontend {
         FrontendKind::Gui => {
-            eval.set_variable("window-system", Value::symbol("neomacs"));
-            eval.set_variable("initial-window-system", Value::symbol("neomacs"));
+            let window_system = Value::symbol(gui_window_system_symbol());
+            eval.set_variable("window-system", window_system);
+            eval.set_variable("initial-window-system", window_system);
         }
         FrontendKind::Tty => {
             eval.set_variable("window-system", Value::Nil);
@@ -1069,10 +1075,10 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 #[cfg(test)]
 mod tests {
     use super::{
-        BootstrapDisplayConfig, EarlyCliAction, FrontendKind, StartupOptions, bootstrap_buffers,
-        bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
-        configure_gnu_startup_state, current_layout_frame_id, parse_startup_options,
-        render_help_text, render_version_text, run_gnu_startup,
+        BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
+        StartupOptions, bootstrap_buffers, bootstrap_display_config, bootstrap_frame_metrics,
+        classify_early_cli_action, configure_gnu_startup_state, current_layout_frame_id,
+        parse_startup_options, render_help_text, render_version_text, run_gnu_startup,
     };
     use neovm_core::emacs_core::Evaluator;
     use neovm_core::emacs_core::Value;
@@ -1208,6 +1214,21 @@ mod tests {
         assert_eq!(
             eval.obarray().symbol_value("default-minibuffer-frame"),
             Some(&Value::Nil)
+        );
+    }
+
+    #[test]
+    fn configure_gnu_startup_state_reports_x_window_system_for_gui_boots() {
+        let mut eval = Evaluator::new();
+        configure_gnu_startup_state(&mut eval, FrameId(42), &gui_startup());
+
+        assert_eq!(
+            eval.obarray().symbol_value("window-system"),
+            Some(&Value::symbol("x"))
+        );
+        assert_eq!(
+            eval.obarray().symbol_value("initial-window-system"),
+            Some(&Value::symbol("x"))
         );
     }
 
@@ -1694,8 +1715,8 @@ mod tests {
 
     #[test]
     fn gnu_startup_next_line_moves_point_on_live_gui_frame() {
-        let mut eval =
-            create_bootstrap_evaluator_with_features(&["neomacs"]).expect("bootstrap evaluator");
+        let mut eval = create_bootstrap_evaluator_with_features(BOOTSTRAP_CORE_FEATURES)
+            .expect("bootstrap evaluator");
         let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
         let frame_id = eval
             .frame_manager()

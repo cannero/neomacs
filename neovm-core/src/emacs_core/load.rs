@@ -1,5 +1,6 @@
 //! File loading and module system (require/provide/load).
 
+use super::builtins::collections::builtin_make_hash_table;
 use super::error::{EvalError, Flow, map_flow, signal};
 use super::eval::{collect_opaque_values, quote_to_value, value_to_expr};
 use super::expr::Expr;
@@ -3142,7 +3143,9 @@ pub(crate) const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
     "international/fontset",
     "dnd",
     "tool-bar",
-    "!load-neomacs-win",
+    "touch-screen",
+    "x-dnd",
+    "!load-x-win",
     "progmodes/elisp-mode",
     "emacs-lisp/float-sup",
     "vc/vc-hooks",
@@ -3157,6 +3160,32 @@ pub(crate) const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
     "international/iso-transl",
     "emacs-lisp/rmc",
 ];
+
+fn install_bootstrap_x_window_system_vars(
+    eval: &mut super::eval::Evaluator,
+) -> Result<(), EvalError> {
+    let keysym_table = builtin_make_hash_table(vec![
+        Value::keyword(":test"),
+        Value::symbol("eql"),
+        Value::keyword(":size"),
+        Value::Int(900),
+    ])
+    .map_err(map_flow)?;
+    eval.set_variable("x-keysym-table", keysym_table);
+    eval.set_variable("x-selection-timeout", Value::Int(0));
+    eval.set_variable("x-session-id", Value::Nil);
+    eval.set_variable("x-session-previous-id", Value::Nil);
+    for name in [
+        "x-ctrl-keysym",
+        "x-alt-keysym",
+        "x-hyper-keysym",
+        "x-meta-keysym",
+        "x-super-keysym",
+    ] {
+        eval.set_variable(name, Value::Nil);
+    }
+    Ok(())
+}
 
 pub fn create_bootstrap_evaluator() -> Result<super::eval::Evaluator, EvalError> {
     create_bootstrap_evaluator_with_features(&[])
@@ -3175,8 +3204,12 @@ pub fn create_bootstrap_evaluator_with_features(
     );
     stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
         let mut eval = super::eval::Evaluator::new();
-        for feature in normalized_bootstrap_features(extra_features) {
+        let bootstrap_features = normalized_bootstrap_features(extra_features);
+        for feature in &bootstrap_features {
             let _ = eval.provide_value(Value::symbol(&feature), None);
+        }
+        if bootstrap_features.iter().any(|feature| feature == "x") {
+            install_bootstrap_x_window_system_vars(&mut eval)?;
         }
 
         // Set up load-path with lisp/ and its subdirectories.
@@ -3346,15 +3379,15 @@ pub fn create_bootstrap_evaluator_with_features(
                 }
                 continue;
             }
-            if *name == "!load-neomacs-win" {
-                if eval.feature_present("neomacs") {
-                    for neomacs_file in ["term/common-win", "term/neomacs-win"] {
-                        tracing::info!("LOADING: {neomacs_file} ...");
+            if *name == "!load-x-win" {
+                if eval.feature_present("x") {
+                    for x_file in ["term/common-win", "term/x-win"] {
+                        tracing::info!("LOADING: {x_file} ...");
                         let start = std::time::Instant::now();
-                        match find_file_in_load_path(neomacs_file, &load_path) {
+                        match find_file_in_load_path(x_file, &load_path) {
                             Some(path) => match load_file(&mut eval, &path) {
                                 Ok(_) => {
-                                    tracing::info!("  OK: {neomacs_file} ({:.2?})", start.elapsed())
+                                    tracing::info!("  OK: {x_file} ({:.2?})", start.elapsed())
                                 }
                                 Err(e) => {
                                     let msg = match &e {
@@ -3368,16 +3401,16 @@ pub fn create_bootstrap_evaluator_with_features(
                                             format!("(throw {tag} {value})")
                                         }
                                     };
-                                    tracing::error!("FAIL: {neomacs_file} => {msg}");
+                                    tracing::error!("FAIL: {x_file} => {msg}");
                                     return Err(e);
                                 }
                             },
                             None => {
-                                tracing::error!("SKIP: {neomacs_file} (not found in load-path)");
+                                tracing::error!("SKIP: {x_file} (not found in load-path)");
                                 return Err(EvalError::Signal {
                                     symbol: intern("error"),
                                     data: vec![Value::string(format!(
-                                        "loadup bootstrap: file not found: {neomacs_file}"
+                                        "loadup bootstrap: file not found: {x_file}"
                                     ))],
                                 });
                             }

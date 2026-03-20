@@ -2205,7 +2205,7 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
     let fid = ev.frames.create_frame("gui", 800, 600, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("gui frame");
-        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.set_window_system(Some(Value::symbol("x")));
     }
 
     assert_eq!(
@@ -2233,7 +2233,7 @@ fn frame_query_builtins_use_internal_window_system_state() {
     let fid = ev.frames.create_frame("gui", 800, 600, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("gui frame");
-        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.set_window_system(Some(Value::symbol("x")));
         frame.parameters.remove("window-system");
     }
 
@@ -2541,7 +2541,7 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
         .get_mut(fid)
         .expect("bootstrap frame")
         .parameters
-        .insert("window-system".to_string(), Value::symbol("neomacs"));
+        .insert("window-system".to_string(), Value::symbol("x"));
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
@@ -2575,7 +2575,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
         frame
             .parameters
-            .insert("window-system".to_string(), Value::symbol("neomacs"));
+            .insert("window-system".to_string(), Value::symbol("x"));
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 608.0, 960.0, 32.0));
         }
@@ -2621,7 +2621,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
-        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.set_window_system(Some(Value::symbol("x")));
         frame.char_width = 10.0;
         frame.char_height = 20.0;
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -2646,10 +2646,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
         other => panic!("expected frame object, got {other:?}"),
     };
     let frame = ev.frames.get(created_id).expect("created opening frame");
-    assert_eq!(
-        frame.effective_window_system(),
-        Some(Value::symbol("neomacs"))
-    );
+    assert_eq!(frame.effective_window_system(), Some(Value::symbol("x")));
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 540);
     assert_eq!(
@@ -2673,7 +2670,7 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
         frame
             .parameters
-            .insert("window-system".to_string(), Value::symbol("neomacs"));
+            .insert("window-system".to_string(), Value::symbol("x"));
         frame.char_width = 10.0;
         frame.char_height = 20.0;
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -2727,7 +2724,7 @@ fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geom
         let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
         frame
             .parameters
-            .insert("window-system".to_string(), Value::symbol("neomacs"));
+            .insert("window-system".to_string(), Value::symbol("x"));
         frame.char_width = 10.0;
         frame.char_height = 20.0;
         if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
@@ -2788,10 +2785,10 @@ fn framep_returns_window_system_symbol_for_gui_frames() {
         .get_mut(frame_id)
         .expect("selected frame")
         .parameters
-        .insert("window-system".to_string(), Value::symbol("neomacs"));
+        .insert("window-system".to_string(), Value::symbol("x"));
 
     let result = super::builtin_framep(&mut ev, vec![Value::Frame(frame_id.0)]).unwrap();
-    assert_eq!(result, Value::symbol("neomacs"));
+    assert_eq!(result, Value::symbol("x"));
 }
 
 #[test]
@@ -2941,7 +2938,7 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
         let frame = ev.frames.get_mut(fid).expect("frame should exist");
         frame
             .parameters
-            .insert("window-system".to_string(), Value::symbol("neomacs"));
+            .insert("window-system".to_string(), Value::symbol("x"));
     }
     let host = RecordingDisplayHost::new();
     let resized = host.resized.clone();

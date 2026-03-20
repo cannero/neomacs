@@ -5632,7 +5632,9 @@ pub(crate) fn builtin_x_create_frame_in_state(
         frame.char_width = metrics.char_width;
         frame.char_height = metrics.char_height;
         frame.font_pixel_size = metrics.font_pixel_size;
-        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.set_window_system(Some(Value::symbol(
+            crate::emacs_core::display::gui_window_system_symbol(),
+        )));
         frame
             .parameters
             .insert("display-type".to_string(), Value::symbol("color"));
