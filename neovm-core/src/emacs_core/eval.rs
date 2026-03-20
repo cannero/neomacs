@@ -1740,6 +1740,7 @@ impl Evaluator {
             super::syntax::reset_syntax_thread_locals();
             super::casetab::reset_casetab_thread_locals();
             super::category::reset_category_thread_locals();
+            super::terminal::pure::reset_terminal_thread_locals();
             super::value::reset_string_text_properties();
             super::ccl::reset_ccl_registry();
             super::dispnew::pure::reset_dispnew_thread_locals();

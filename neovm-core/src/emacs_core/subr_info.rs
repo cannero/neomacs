@@ -1361,7 +1361,6 @@ fn subr_arity_value(name: &str) -> Value {
         "process-running-child-p" | "process-send-eof" => arity_cons(0, Some(1)),
         "signal-names" => arity_cons(0, Some(0)),
         "signal-process" => arity_cons(2, Some(3)),
-        "print--preprocess" => arity_cons(1, Some(1)),
         "process-contact" => arity_cons(1, Some(3)),
         "process-list" => arity_cons(0, Some(0)),
         "process-send-region" => arity_cons(3, Some(3)),

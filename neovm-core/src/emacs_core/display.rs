@@ -1865,21 +1865,15 @@ pub(crate) fn builtin_x_display_color_cells_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    if neomacs_window_system_active(eval) {
-        return Ok(Value::Int(16777216)); // 2^24 TrueColor
-    }
     x_optional_display_query_error_eval(eval, "x-display-color-cells", args)
 }
 
 pub(crate) fn builtin_x_display_color_cells_in_state(
     frames: &crate::window::FrameManager,
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    _dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
     args: Vec<Value>,
 ) -> EvalResult {
-    if neomacs_window_system_active_in_state(obarray, dynamic) {
-        return Ok(Value::Int(16777216));
-    }
     x_optional_display_query_error_in_state(frames, "x-display-color-cells", args)
 }
 
@@ -2013,9 +2007,6 @@ pub(crate) fn builtin_x_display_visual_class_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    if neomacs_window_system_active(eval) {
-        return Ok(Value::symbol("true-color"));
-    }
     x_optional_display_query_error_eval(eval, "x-display-visual-class", args)
 }
 
@@ -2025,9 +2016,6 @@ pub(crate) fn builtin_x_display_visual_class_in_state(
     dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
     args: Vec<Value>,
 ) -> EvalResult {
-    if neomacs_window_system_active_in_state(obarray, dynamic) {
-        return Ok(Value::symbol("true-color"));
-    }
     x_optional_display_query_error_in_state(frames, "x-display-visual-class", args)
 }
 

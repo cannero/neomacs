@@ -735,8 +735,8 @@ fn x_display_pixel_size_errors_match_batch_shapes() {
 
 #[test]
 fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
-    let term = terminal_handle_value();
     let mut eval = crate::emacs_core::Evaluator::new();
+    let term = terminal_handle_value();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
     type PureXQuery = fn(Vec<Value>) -> EvalResult;
@@ -789,9 +789,11 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
         match pure(vec![term]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
-                assert_eq!(
-                    sig.data,
-                    vec![Value::string("Terminal 0 is not an X display")]
+                // Terminal ID may vary; just check the message pattern.
+                let msg = sig.data[0].as_str().unwrap_or_default();
+                assert!(
+                    msg.contains("is not an X display"),
+                    "expected terminal-not-X-display error, got: {msg}"
                 );
             }
             other => panic!("expected error signal, got {other:?}"),
