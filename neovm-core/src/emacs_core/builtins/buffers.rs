@@ -3394,7 +3394,14 @@ pub(crate) fn builtin_char_before_in_manager(
 }
 
 fn is_unibyte_storage_string(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|ch| (0xE300..=0xE3FF).contains(&(ch as u32)))
+    // A unibyte storage string has only ASCII chars (0x00..=0x7F) and
+    // sentinel chars (0xE300..=0xE3FF) for bytes 0x80..=0xFF.
+    // No other Unicode codepoints should appear.
+    !s.is_empty()
+        && s.chars().all(|ch| {
+            let cp = ch as u32;
+            cp <= 0x7F || (0xE300..=0xE3FF).contains(&cp)
+        })
 }
 
 fn get_byte_from_multibyte_char_code(code: u32) -> EvalResult {

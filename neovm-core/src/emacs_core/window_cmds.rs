@@ -616,7 +616,11 @@ pub(crate) fn ensure_selected_frame_id_in_state(
     // GNU batch startup exposes an 80x24 text window plus a 1-line minibuffer.
     // Keep the synthetic startup frame in character-cell units so the GNU
     // `window.el` geometry helpers behave the same way in batch mode.
-    let fid = frames.create_frame("F1", 80, 24, buf_id);
+    //
+    // The frame pixel-height must include the minibuffer (24 text + 1 mini = 25)
+    // so that `recalculate_minibuffer_bounds()` correctly computes
+    // max_root_h = 25 - 1 = 24 instead of clamping the root to 23.
+    let fid = frames.create_frame("F1", 80, 25, buf_id);
     let minibuffer_buf_id = buffers
         .find_buffer_by_name(" *Minibuf-0*")
         .unwrap_or_else(|| buffers.create_buffer(" *Minibuf-0*"));
@@ -628,6 +632,10 @@ pub(crate) fn ensure_selected_frame_id_in_state(
         frame
             .parameters
             .insert("height".to_string(), Value::Int(25));
+        // The root window covers the 24-line text area (not the minibuffer).
+        frame
+            .root_window
+            .set_bounds(Rect::new(0.0, 0.0, 80.0, 24.0));
         if let Some(Window::Leaf {
             window_start,
             point,

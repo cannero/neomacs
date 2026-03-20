@@ -3034,35 +3034,3 @@ fn scroll_up_down_updates_window_start_for_multibyte_content() {
     );
     assert_eq!(results[0], "OK (t t t t)");
 }
-
-#[test]
-fn diag_split_window_sizes() {
-    let out = bootstrap_eval_with_frame(
-        "(let* ((left (selected-window))
-                (right (split-window nil nil 'right))
-                (bottom (split-window right nil 'below))
-                (vparent (window-parent right)))
-           (list (window-pixel-height left)
-                 (window-pixel-width left)
-                 (window-pixel-height right)
-                 (window-pixel-width right)
-                 (window-pixel-height bottom)
-                 (window-pixel-width bottom)
-                 (window-pixel-height vparent)
-                 (window-pixel-width vparent)
-                 (window-total-height left)
-                 (window-total-width left)
-                 (window-total-height right)
-                 (window-total-width right)
-                 (window-total-height bottom)
-                 (window-total-width bottom)
-                 (window-total-height vparent)
-                 (window-total-width vparent)
-                 (window-pixel-height (frame-root-window))
-                 (window-total-height (frame-root-window))
-                 (let ((mini (minibuffer-window)))
-                   (list (window-pixel-height mini)
-                         (window-total-height mini)))))",
-    );
-    panic!("DIAG: {}", out[0]);
-}
