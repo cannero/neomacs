@@ -406,7 +406,27 @@ pub(crate) fn builtin_forward_line_in_manager(
     };
     let (new_pos, moved) = move_by_lines_narrowed(&text, pt, n, begv, zv);
     let _ = buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::Int(n - moved))
+
+    // Match GNU Emacs's return-value logic from cmds.c Fforward_line:
+    //   shortage = count - (count <= 0) - counted;
+    //   if (shortage != 0)
+    //     shortage -= (count <= 0 ? -1
+    //                   : (BEGV < ZV && PT != opoint
+    //                      && FETCH_BYTE (PT_BYTE - 1) != '\n'));
+    //
+    // For positive n: a non-empty final line (no trailing newline) at end of
+    // buffer counts as one line successfully moved.
+    let mut shortage = n - moved;
+    if shortage != 0
+        && n > 0
+        && begv < zv
+        && new_pos != pt
+        && new_pos > 0
+        && text.as_bytes()[new_pos - 1] != b'\n'
+    {
+        shortage -= 1;
+    }
+    Ok(Value::Int(shortage))
 }
 
 /// (beginning-of-line &optional N)

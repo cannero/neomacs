@@ -903,8 +903,8 @@ fn x_display_set_last_user_time_batch_semantics() {
 
 #[test]
 fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
-    let term = terminal_handle_value();
     let mut eval = crate::emacs_core::Evaluator::new();
+    let term = terminal_handle_value();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
     for display in [

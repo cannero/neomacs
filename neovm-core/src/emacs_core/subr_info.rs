@@ -171,8 +171,13 @@ pub(crate) fn is_special_form(name: &str) -> bool {
 pub(crate) fn is_evaluator_sf_skip_macroexpand(name: &str) -> bool {
     // NOTE: pcase-let, pcase-let*, pcase-dolist are NOT here because
     // they have fallback macro handlers in macroexpand_known_fallback_macro.
-    let _ = name;
-    false
+    //
+    // `bound-and-true-p` and `with-demoted-errors` have Rust special-form
+    // handlers that correctly handle lexical bindings and arity checking.
+    // The Elisp macros from bindings.el expand into code that breaks under
+    // lexical-binding (e.g. `(boundp 'var)` returns nil for lexically-bound
+    // vars) or reports wrong arity format.  Prefer the Rust handler.
+    matches!(name, "bound-and-true-p" | "with-demoted-errors")
 }
 
 pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
