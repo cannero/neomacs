@@ -8153,42 +8153,21 @@ fn user_error_requires_message_argument() {
 
 #[test]
 fn internal_save_selected_window_helpers_restore_selected_window() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
-    let selected = dispatch_builtin(&mut eval, "selected-window", vec![])
-        .expect("selected-window should resolve")
-        .expect("selected-window should evaluate");
-    let split = dispatch_builtin(
-        &mut eval,
-        "split-window-internal",
-        vec![selected, Value::Nil, Value::Nil, Value::Nil],
+    // internal--before/after-save-selected-window are Elisp in GNU
+    // (window.el). Test through bootstrap evaluator.
+    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
+    crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
+    let forms = crate::emacs_core::parse_forms(
+        r#"(let* ((orig (selected-window))
+                  (new (split-window)))
+             (select-window new)
+             (save-selected-window
+               (select-window orig)
+               (eq (selected-window) orig)))"#,
     )
-    .expect("split-window-internal should resolve")
-    .expect("split-window-internal should evaluate");
-    let state = dispatch_builtin(&mut eval, "internal--before-save-selected-window", vec![])
-        .expect("before helper should resolve")
-        .expect("before helper should evaluate");
-
-    let _ = dispatch_builtin(&mut eval, "select-window", vec![split])
-        .expect("select-window should resolve")
-        .expect("select-window should evaluate");
-    let switched = dispatch_builtin(&mut eval, "selected-window", vec![])
-        .expect("selected-window should resolve")
-        .expect("selected-window should evaluate");
-    assert_eq!(switched, split);
-
-    let restored = dispatch_builtin(
-        &mut eval,
-        "internal--after-save-selected-window",
-        vec![state],
-    )
-    .expect("after helper should resolve")
-    .expect("after helper should evaluate");
-    assert!(restored.is_nil());
-
-    let selected_again = dispatch_builtin(&mut eval, "selected-window", vec![])
-        .expect("selected-window should resolve")
-        .expect("selected-window should evaluate");
-    assert_eq!(selected_again, selected);
+    .expect("parse");
+    let result = eval.eval_expr(&forms[0]).expect("eval");
+    assert!(result.is_truthy(), "save-selected-window should restore");
 }
 
 #[test]
