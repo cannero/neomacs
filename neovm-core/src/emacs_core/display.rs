@@ -326,14 +326,18 @@ fn window_system_not_initialized_error() -> Flow {
 }
 
 pub fn gui_window_system_symbol() -> &'static str {
-    "x"
+    "neomacs"
+}
+
+fn gui_window_system_active_value(value: Value) -> bool {
+    value == Value::symbol(gui_window_system_symbol()) || value == Value::symbol("x")
 }
 
 pub(crate) fn x_window_system_active(eval: &super::eval::Evaluator) -> bool {
     let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
         .filter(|value| !value.is_nil())
         .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
-    host_window_system == Some(Value::symbol(gui_window_system_symbol()))
+    host_window_system.is_some_and(gui_window_system_active_value)
 }
 
 pub(crate) fn x_window_system_active_in_state(
@@ -344,7 +348,7 @@ pub(crate) fn x_window_system_active_in_state(
         dynamic_or_global_symbol_value_in_state(obarray, dynamic, "initial-window-system")
             .filter(|value| !value.is_nil())
             .or_else(|| dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system"));
-    host_window_system == Some(Value::symbol(gui_window_system_symbol()))
+    host_window_system.is_some_and(gui_window_system_active_value)
 }
 
 const GUI_X_DISPLAY_PLANES: i64 = 24;

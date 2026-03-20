@@ -1473,6 +1473,25 @@ fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
 }
 
 #[test]
+fn bootstrap_neomacs_runtime_loads_neomacs_term_layer() {
+    let mut eval = create_bootstrap_evaluator_with_features(&["neomacs"])
+        .expect("neomacs bootstrap evaluator");
+    assert!(eval.feature_present("neomacs"));
+    assert!(eval.feature_present("neomacs-win"));
+    assert!(!eval.feature_present("x-win"));
+}
+
+#[test]
+fn bootstrap_neomacs_gui_runtime_prefers_neomacs_term_layer_over_x_term() {
+    let mut eval = create_bootstrap_evaluator_with_features(&["neomacs", "x"])
+        .expect("neomacs+x bootstrap evaluator");
+    assert!(eval.feature_present("neomacs"));
+    assert!(eval.feature_present("x"));
+    assert!(eval.feature_present("neomacs-win"));
+    assert!(!eval.feature_present("x-win"));
+}
+
+#[test]
 fn bootstrap_help_fns_loads_and_preserves_hook_depth_metadata() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");

@@ -1211,17 +1211,17 @@ mod tests {
     }
 
     #[test]
-    fn configure_gnu_startup_state_reports_x_window_system_for_gui_boots() {
+    fn configure_gnu_startup_state_reports_neomacs_window_system_for_gui_boots() {
         let mut eval = Evaluator::new();
         configure_gnu_startup_state(&mut eval, FrameId(42), &gui_startup());
 
         assert_eq!(
             eval.obarray().symbol_value("window-system"),
-            Some(&Value::symbol("x"))
+            Some(&Value::symbol("neomacs"))
         );
         assert_eq!(
             eval.obarray().symbol_value("initial-window-system"),
-            Some(&Value::symbol("x"))
+            Some(&Value::symbol("neomacs"))
         );
     }
 

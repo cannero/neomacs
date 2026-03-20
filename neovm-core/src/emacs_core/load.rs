@@ -2152,10 +2152,10 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly. V13 invalidates earlier caches because fontset alias
-// resolution and charset-backed default fontset rules must be rebuilt during
-// bootstrap; older dumps preserve the broken default fontset state.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 13;
+// represent correctly. V14 invalidates older caches because GUI startup now
+// boots through term/neomacs-win with window-system `neomacs`; older dumps
+// preserve the incorrect X-only startup state.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 14;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",
@@ -3208,7 +3208,10 @@ pub fn create_bootstrap_evaluator_with_features(
         for feature in &bootstrap_features {
             let _ = eval.provide_value(Value::symbol(&feature), None);
         }
-        if bootstrap_features.iter().any(|feature| feature == "x") {
+        if bootstrap_features
+            .iter()
+            .any(|feature| feature == "x" || feature == "neomacs")
+        {
             install_bootstrap_x_window_system_vars(&mut eval)?;
         }
 
@@ -3380,8 +3383,15 @@ pub fn create_bootstrap_evaluator_with_features(
                 continue;
             }
             if *name == "!load-x-win" {
-                if eval.feature_present("x") {
-                    for x_file in ["term/common-win", "term/x-win"] {
+                let gui_term_files: Option<&[&str]> = if eval.feature_present("neomacs") {
+                    Some(&["term/common-win", "term/neomacs-win"])
+                } else if eval.feature_present("x") {
+                    Some(&["term/common-win", "term/x-win"])
+                } else {
+                    None
+                };
+                if let Some(gui_term_files) = gui_term_files {
+                    for x_file in gui_term_files {
                         tracing::info!("LOADING: {x_file} ...");
                         let start = std::time::Instant::now();
                         match find_file_in_load_path(x_file, &load_path) {
