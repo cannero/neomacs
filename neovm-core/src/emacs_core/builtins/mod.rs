@@ -305,6 +305,19 @@ pub(super) fn expect_integer_or_marker_after_number_check(value: &Value) -> Resu
     }
 }
 
+pub(super) fn expect_integer_or_marker_after_number_check_eval(
+    eval: &super::eval::Evaluator,
+    value: &Value,
+) -> Result<i64, Flow> {
+    match expect_number_or_marker_eval(eval, value)? {
+        NumberOrMarker::Int(n) => Ok(n),
+        NumberOrMarker::Float(_) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("integer-or-marker-p"), *value],
+        )),
+    }
+}
+
 /// True if any arg is a float (triggers float arithmetic).
 pub(super) fn has_float(args: &[Value]) -> bool {
     args.iter().any(|v| matches!(v, Value::Float(_, _)))
@@ -865,6 +878,9 @@ fn dispatch_builtin_id_eval(
         PureBuiltinId::NumGt => builtin_num_gt_eval(eval, args),
         PureBuiltinId::NumGe => builtin_num_ge_eval(eval, args),
         PureBuiltinId::NumNe => builtin_num_ne_eval(eval, args),
+        // Arithmetic with eval-aware marker position lookup
+        PureBuiltinId::Add => super::builtins::arithmetic::builtin_add_eval(eval, args),
+        PureBuiltinId::Sub => super::builtins::arithmetic::builtin_sub_eval(eval, args),
         other => dispatch_builtin_id_pure(other, args),
     }
 }

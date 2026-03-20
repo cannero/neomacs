@@ -28,6 +28,26 @@ pub(crate) fn builtin_add(args: Vec<Value>) -> EvalResult {
     }
 }
 
+/// Eval-aware `+` that reads live marker positions from buffers.
+pub(crate) fn builtin_add_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    if has_float(&args) {
+        let mut sum = 0.0f64;
+        for a in &args {
+            sum += expect_number_or_marker_f64_eval(eval, a)?;
+        }
+        Ok(Value::Float(sum, next_float_id()))
+    } else {
+        let mut sum = 0i64;
+        for a in &args {
+            sum = sum.wrapping_add(expect_integer_or_marker_after_number_check_eval(eval, a)?);
+        }
+        Ok(Value::Int(sum))
+    }
+}
+
 pub(crate) fn builtin_sub(args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::Int(0));
@@ -54,6 +74,39 @@ pub(crate) fn builtin_sub(args: Vec<Value>) -> EvalResult {
         let mut acc = expect_integer_or_marker_after_number_check(&args[0])?;
         for a in &args[1..] {
             acc = acc.wrapping_sub(expect_integer_or_marker_after_number_check(a)?);
+        }
+        Ok(Value::Int(acc))
+    }
+}
+
+/// Eval-aware `-` that reads live marker positions from buffers.
+pub(crate) fn builtin_sub_eval(
+    eval: &mut super::super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    if args.is_empty() {
+        return Ok(Value::Int(0));
+    }
+    if args.len() == 1 {
+        if has_float(&args) {
+            return Ok(Value::Float(
+                -expect_number_or_marker_f64_eval(eval, &args[0])?,
+                next_float_id(),
+            ));
+        }
+        let n = expect_integer_or_marker_after_number_check_eval(eval, &args[0])?;
+        return Ok(Value::Int(n.wrapping_neg()));
+    }
+    if has_float(&args) {
+        let mut acc = expect_number_or_marker_f64_eval(eval, &args[0])?;
+        for a in &args[1..] {
+            acc -= expect_number_or_marker_f64_eval(eval, a)?;
+        }
+        Ok(Value::Float(acc, next_float_id()))
+    } else {
+        let mut acc = expect_integer_or_marker_after_number_check_eval(eval, &args[0])?;
+        for a in &args[1..] {
+            acc = acc.wrapping_sub(expect_integer_or_marker_after_number_check_eval(eval, a)?);
         }
         Ok(Value::Int(acc))
     }

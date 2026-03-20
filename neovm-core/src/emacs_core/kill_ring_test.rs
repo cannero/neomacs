@@ -674,34 +674,6 @@ fn transpose_lines_at_buffer_start() {
 }
 
 #[test]
-fn transpose_lines_arg_two_at_buffer_start_debug() {
-    let results = bootstrap_eval_all(
-        r#"(with-temp-buffer
-             (insert "a\nb\nc\n")
-             (goto-char 1)
-             ;; Simulate transpose-subr-1 with pos1=(1 . 3) pos2=(3 . 7)
-             (let* ((pos1-car 1) (pos1-cdr 3) (pos2-car 3) (pos2-cdr 7)
-                    (word (buffer-substring pos2-car pos2-cdr))
-                    (len1 (- pos1-cdr pos1-car))
-                    (len2 (length word))
-                    (boundary (make-marker)))
-               (set-marker boundary pos2-car)
-               (goto-char pos1-cdr)
-               (insert-before-markers word)
-               (setq word (delete-and-extract-region pos1-car (+ pos1-car len1)))
-               (goto-char boundary)
-               (insert word)
-               (goto-char (+ (marker-position boundary) len1))
-               (let ((before-del (buffer-string))
-                     (del-pt (point))
-                     (del-end (+ (point) len2)))
-                 (delete-region (point) (+ (point) len2))
-                 (list before-del del-pt del-end (buffer-string)))))"#,
-    );
-    eprintln!("DEBUG: {:?}", results[0]);
-}
-
-#[test]
 fn transpose_lines_arg_two_at_buffer_start() {
     let results = bootstrap_eval_all(
         r#"(insert "a\nb\nc\n")
