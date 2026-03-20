@@ -845,6 +845,48 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
 }
 
 #[test]
+fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    let frame =
+        Value::Int(crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64);
+    eval.set_variable("initial-window-system", Value::Nil);
+    eval.set_variable("window-system", Value::symbol(gui_window_system_symbol()));
+
+    assert_eq!(
+        builtin_x_display_grayscale_p_eval(&mut eval, vec![]).unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        builtin_x_display_grayscale_p_eval(&mut eval, vec![frame]).unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        builtin_x_display_color_cells_eval(&mut eval, vec![Value::Nil]).unwrap(),
+        Value::Int(16_777_216)
+    );
+    assert_eq!(
+        builtin_x_display_color_cells_eval(&mut eval, vec![frame]).unwrap(),
+        Value::Int(16_777_216)
+    );
+    assert_eq!(
+        builtin_x_display_planes_eval(&mut eval, vec![Value::Nil]).unwrap(),
+        Value::Int(24)
+    );
+    assert_eq!(
+        builtin_x_display_planes_eval(&mut eval, vec![frame]).unwrap(),
+        Value::Int(24)
+    );
+    assert_eq!(
+        builtin_x_display_visual_class_eval(&mut eval, vec![Value::Nil]).unwrap(),
+        Value::symbol("true-color")
+    );
+    assert_eq!(
+        builtin_x_display_visual_class_eval(&mut eval, vec![frame]).unwrap(),
+        Value::symbol("true-color")
+    );
+}
+
+#[test]
 fn x_display_set_last_user_time_batch_semantics() {
     match builtin_x_display_set_last_user_time(vec![Value::Nil]) {
         Err(Flow::Signal(sig)) => {

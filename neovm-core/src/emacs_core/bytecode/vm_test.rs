@@ -5381,7 +5381,7 @@ fn vm_x_display_query_builtins_accept_live_frame_designators() {
                   (condition-case err (x-display-visual-class f) (error err))
                   (condition-case err (x-server-input-extension-version f) (error err))))"#
         ),
-        r#"OK ((error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used"))"#
+        r#"OK ((error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") t (error "Window system frame should be used") 16777216 (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") 24 (error "Window system frame should be used") (error "Window system frame should be used") true-color (error "Window system frame should be used"))"#
     );
 }
 

@@ -6945,6 +6945,8 @@ impl<'a> Vm<'a> {
             "x-display-planes" => Some(
                 crate::emacs_core::display::builtin_x_display_planes_in_state(
                     self.shared.frames,
+                    &self.shared.obarray,
+                    &self.shared.dynamic,
                     args.to_vec(),
                 ),
             ),

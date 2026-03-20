@@ -347,6 +347,42 @@ pub(crate) fn x_window_system_active_in_state(
     host_window_system == Some(Value::symbol(gui_window_system_symbol()))
 }
 
+const GUI_X_DISPLAY_PLANES: i64 = 24;
+const GUI_X_DISPLAY_COLOR_CELLS: i64 = 16_777_216;
+const GUI_X_VISUAL_CLASS: &str = "true-color";
+
+fn gui_x_query_target_eval(
+    eval: &mut super::eval::Evaluator,
+    name: &str,
+    args: &[Value],
+) -> Result<bool, Flow> {
+    expect_max_args(name, args, 1)?;
+    if !x_window_system_active(eval) {
+        return Ok(false);
+    }
+    Ok(match args.first() {
+        None | Some(Value::Nil) => true,
+        Some(display) => live_frame_designator_p(eval, display),
+    })
+}
+
+fn gui_x_query_target_in_state(
+    frames: &crate::window::FrameManager,
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    name: &str,
+    args: &[Value],
+) -> Result<bool, Flow> {
+    expect_max_args(name, args, 1)?;
+    if !x_window_system_active_in_state(obarray, dynamic) {
+        return Ok(false);
+    }
+    Ok(match args.first() {
+        None | Some(Value::Nil) => true,
+        Some(display) => live_frame_designator_p_in_state(frames, display),
+    })
+}
+
 fn expect_optional_window_system_frame_arg(value: &Value) -> Result<(), Flow> {
     if value.is_nil() || matches!(value, Value::Frame(_)) {
         Ok(())
@@ -1845,11 +1881,8 @@ pub(crate) fn builtin_x_display_grayscale_p_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("x-display-grayscale-p", &args, 1)?;
-    if let Some(display) = args.first() {
-        if live_frame_designator_p(eval, display) && x_window_system_active(eval) {
-            return Ok(Value::Nil);
-        }
+    if gui_x_query_target_eval(eval, "x-display-grayscale-p", &args)? {
+        return Ok(Value::True);
     }
     x_optional_display_query_error_eval(eval, "x-display-grayscale-p", args)
 }
@@ -1860,13 +1893,8 @@ pub(crate) fn builtin_x_display_grayscale_p_in_state(
     frames: &crate::window::FrameManager,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_max_args("x-display-grayscale-p", &args, 1)?;
-    if let Some(display) = args.first() {
-        if live_frame_designator_p_in_state(frames, display)
-            && x_window_system_active_in_state(obarray, dynamic)
-        {
-            return Ok(Value::Nil);
-        }
+    if gui_x_query_target_in_state(frames, obarray, dynamic, "x-display-grayscale-p", &args)? {
+        return Ok(Value::True);
     }
     x_optional_display_query_error_in_state(frames, "x-display-grayscale-p", args)
 }
@@ -1901,15 +1929,21 @@ pub(crate) fn builtin_x_display_color_cells_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    if gui_x_query_target_eval(eval, "x-display-color-cells", &args)? {
+        return Ok(Value::Int(GUI_X_DISPLAY_COLOR_CELLS));
+    }
     x_optional_display_query_error_eval(eval, "x-display-color-cells", args)
 }
 
 pub(crate) fn builtin_x_display_color_cells_in_state(
     frames: &crate::window::FrameManager,
     obarray: &crate::emacs_core::symbol::Obarray,
-    _dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
     args: Vec<Value>,
 ) -> EvalResult {
+    if gui_x_query_target_in_state(frames, obarray, dynamic, "x-display-color-cells", &args)? {
+        return Ok(Value::Int(GUI_X_DISPLAY_COLOR_CELLS));
+    }
     x_optional_display_query_error_in_state(frames, "x-display-color-cells", args)
 }
 
@@ -1983,13 +2017,21 @@ pub(crate) fn builtin_x_display_planes_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    if gui_x_query_target_eval(eval, "x-display-planes", &args)? {
+        return Ok(Value::Int(GUI_X_DISPLAY_PLANES));
+    }
     x_optional_display_query_error_eval(eval, "x-display-planes", args)
 }
 
 pub(crate) fn builtin_x_display_planes_in_state(
     frames: &crate::window::FrameManager,
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
     args: Vec<Value>,
 ) -> EvalResult {
+    if gui_x_query_target_in_state(frames, obarray, dynamic, "x-display-planes", &args)? {
+        return Ok(Value::Int(GUI_X_DISPLAY_PLANES));
+    }
     x_optional_display_query_error_in_state(frames, "x-display-planes", args)
 }
 
@@ -2043,6 +2085,9 @@ pub(crate) fn builtin_x_display_visual_class_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    if gui_x_query_target_eval(eval, "x-display-visual-class", &args)? {
+        return Ok(Value::symbol(GUI_X_VISUAL_CLASS));
+    }
     x_optional_display_query_error_eval(eval, "x-display-visual-class", args)
 }
 
@@ -2052,6 +2097,9 @@ pub(crate) fn builtin_x_display_visual_class_in_state(
     dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
     args: Vec<Value>,
 ) -> EvalResult {
+    if gui_x_query_target_in_state(frames, obarray, dynamic, "x-display-visual-class", &args)? {
+        return Ok(Value::symbol(GUI_X_VISUAL_CLASS));
+    }
     x_optional_display_query_error_in_state(frames, "x-display-visual-class", args)
 }
 
