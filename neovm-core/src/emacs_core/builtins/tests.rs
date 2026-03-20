@@ -3941,10 +3941,8 @@ fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
         assert!(value.is_nil(), "{name} should return nil");
     }
 
-    let vertical_motion = dispatch_builtin_pure("vertical-motion", vec![Value::Int(3)])
-        .expect("builtin vertical-motion should resolve")
-        .expect("builtin vertical-motion should evaluate");
-    assert_eq!(vertical_motion, Value::Int(3));
+    // vertical-motion needs buffer state — correctly eval-backed.
+    assert!(dispatch_builtin_pure("vertical-motion", vec![Value::Int(3)]).is_none());
 
     let redisplay = dispatch_builtin_pure("redisplay", vec![])
         .expect("builtin redisplay should resolve")
@@ -4022,21 +4020,23 @@ fn pure_dispatch_map_placeholders_match_compat_contracts() {
     .expect("builtin map-charset-chars should evaluate");
     assert!(map_charset_chars.is_nil());
 
-    let map_keymap = dispatch_builtin_pure(
-        "map-keymap",
-        vec![Value::Nil, Value::list(vec![Value::symbol("keymap")])],
-    )
-    .expect("builtin map-keymap should resolve")
-    .expect("builtin map-keymap should evaluate");
-    assert!(map_keymap.is_nil());
+    // map-keymap and map-keymap-internal are eval-backed (need callback evaluation).
+    // They correctly return None from pure dispatch.
+    assert!(
+        dispatch_builtin_pure(
+            "map-keymap",
+            vec![Value::Nil, Value::list(vec![Value::symbol("keymap")])],
+        )
+        .is_none()
+    );
 
-    let map_keymap_internal = dispatch_builtin_pure(
-        "map-keymap-internal",
-        vec![Value::Nil, Value::list(vec![Value::symbol("keymap")])],
-    )
-    .expect("builtin map-keymap-internal should resolve")
-    .expect("builtin map-keymap-internal should evaluate");
-    assert!(map_keymap_internal.is_nil());
+    assert!(
+        dispatch_builtin_pure(
+            "map-keymap-internal",
+            vec![Value::Nil, Value::list(vec![Value::symbol("keymap")])],
+        )
+        .is_none()
+    );
 
     let mapbacktrace = dispatch_builtin_pure("mapbacktrace", vec![Value::symbol("ignore")])
         .expect("builtin mapbacktrace should resolve")
@@ -6527,40 +6527,23 @@ fn dispatch_builtin_pure_handles_window_resize_and_frame_switch_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_window_placeholder_accessors() {
+    // Window accessor functions need eval state (FrameManager) and are
+    // correctly deferred from dispatch_builtin_pure to the eval-backed
+    // dispatch.  Verify they return None from pure dispatch.
+    assert!(dispatch_builtin_pure("window-left-child", vec![Value::Nil]).is_none());
+    assert!(dispatch_builtin_pure("window-next-sibling", vec![]).is_none());
+    assert!(dispatch_builtin_pure("window-prev-sibling", vec![]).is_none());
+    assert!(dispatch_builtin_pure("window-normal-size", vec![]).is_none());
+
+    // These window functions ARE in pure dispatch (they don't need frame state):
     let root_window_id = 1_u64;
     let minibuffer_window_id =
         crate::window::MINIBUFFER_WINDOW_ID_BASE + crate::window::FRAME_ID_BASE;
+    // Skip the pure dispatch tests that were removed — the functions
+    // are now tested through the eval-backed path in vm_test.rs.
+    let _ = (root_window_id, minibuffer_window_id); // suppress unused
 
-    let left = dispatch_builtin_pure("window-left-child", vec![Value::Nil])
-        .expect("window-left-child should resolve")
-        .expect("window-left-child should evaluate");
-    assert_eq!(left, Value::Nil);
-
-    let next = dispatch_builtin_pure("window-next-sibling", vec![])
-        .expect("window-next-sibling should resolve")
-        .expect("window-next-sibling should evaluate");
-    assert_eq!(next, Value::Window(minibuffer_window_id));
-
-    let next_root =
-        dispatch_builtin_pure("window-next-sibling", vec![Value::Window(root_window_id)])
-            .expect("window-next-sibling should resolve")
-            .expect("window-next-sibling should evaluate");
-    assert_eq!(next_root, Value::Window(minibuffer_window_id));
-
-    let prev_minibuf = dispatch_builtin_pure(
-        "window-prev-sibling",
-        vec![Value::Window(minibuffer_window_id)],
-    )
-    .expect("window-prev-sibling should resolve")
-    .expect("window-prev-sibling should evaluate");
-    assert_eq!(prev_minibuf, Value::Window(root_window_id));
-
-    let prev_root =
-        dispatch_builtin_pure("window-prev-sibling", vec![Value::Window(root_window_id)])
-            .expect("window-prev-sibling should resolve")
-            .expect("window-prev-sibling should evaluate");
-    assert_eq!(prev_root, Value::Nil);
-
+    // Window functions that don't need frame state and ARE in pure dispatch:
     let line_height = dispatch_builtin_pure(
         "window-line-height",
         vec![Value::Int(0), Value::symbol("window")],
@@ -6568,11 +6551,6 @@ fn dispatch_builtin_pure_handles_window_placeholder_accessors() {
     .expect("window-line-height should resolve")
     .expect("window-line-height should evaluate");
     assert_eq!(line_height, Value::Nil);
-
-    let normal = dispatch_builtin_pure("window-normal-size", vec![])
-        .expect("window-normal-size should resolve")
-        .expect("window-normal-size should evaluate");
-    assert_eq!(normal, Value::Float(1.0, next_float_id()));
 
     let old_body = dispatch_builtin_pure("window-old-body-pixel-height", vec![])
         .expect("window-old-body-pixel-height should resolve")
