@@ -716,10 +716,11 @@ fn read_passwd_loads_from_gnu_auth_source() {
         r#"
         (condition-case err
             (read-passwd "")
-          (error (list 'err (car err))))
+          (error err))
         (subrp (symbol-function 'read-passwd))
         "#,
     );
+    eprintln!("DEBUG read_passwd result: {:?}", results);
     assert_eq!(results[0], r#"OK (err end-of-file)"#);
     assert_eq!(results[1], "OK nil");
 }

@@ -6002,7 +6002,31 @@ fn looking_at_updates_match_data_when_allowed() {
     assert!(result.is_ok());
 
     let observed = builtin_match_data_eval(&mut eval, vec![]).expect("read match-data");
-    assert_eq!(observed, Value::list(vec![Value::Int(0), Value::Int(1)]));
+    // GNU returns markers for buffer matches. Verify match-data is non-nil
+    // and contains correct position information.
+    assert!(
+        observed.is_cons(),
+        "match-data should return a non-nil list"
+    );
+    // Check with INTEGERS flag to get integer positions.
+    let int_md =
+        builtin_match_data_eval(&mut eval, vec![Value::True]).expect("read match-data integers");
+    // Compare structurally: extract the integer values
+    let items =
+        crate::emacs_core::value::list_to_vec(&int_md).expect("match-data should be a proper list");
+    assert!(
+        items.len() >= 2,
+        "expected at least 2-element match-data list, got {} elements: {:?}",
+        items.len(),
+        items
+    );
+    // GNU positions are 1-based
+    assert!(
+        items[0].as_int() == Some(1) && items[1].as_int() == Some(2),
+        "expected match-data (1 2), got ({:?} {:?})",
+        items[0],
+        items[1]
+    );
 }
 
 #[test]
