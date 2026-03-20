@@ -223,6 +223,32 @@ fn redisplay_applies_pending_resize_before_callback() {
 }
 
 #[test]
+fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
+    let mut ev = Evaluator::new();
+    let setup = parse_forms("(setq top-level '(setq neo-top-level-hit t))").expect("parse");
+    let _ = ev.eval_forms(&setup);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::CloseRequested)
+        .expect("queue close request");
+    drop(tx);
+
+    ev.input_rx = Some(rx);
+    ev.command_loop.running = true;
+
+    let result = ev
+        .recursive_edit_inner()
+        .expect("outer command loop should exit cleanly");
+    assert_eq!(result, Value::Nil);
+    assert!(
+        ev.eval_symbol("neo-top-level-hit")
+            .expect("top-level probe should be bound")
+            .is_truthy(),
+        "expected recursive_edit to evaluate `top-level' before waiting for input"
+    );
+}
+
+#[test]
 fn frame_native_width_syncs_pending_resize_without_read_char() {
     let mut ev = Evaluator::new();
     let fid = ev

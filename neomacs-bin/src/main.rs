@@ -623,9 +623,9 @@ fn main() {
 
     maybe_install_startup_phase_trace(&mut evaluator);
 
-    // 4. Create communication channels — must happen BEFORE gnu startup,
-    //    because `(eval top-level)` enters the command loop (infinite loop)
-    //    which needs the display system to be running for input and redisplay.
+    // 4. Create communication channels before entering GNU's outer
+    //    recursive-edit command loop. GNU evaluates `top-level` from that
+    //    outer loop, not directly from `main`.
     let comms = ThreadComms::new().expect("Failed to create thread comms");
     let (emacs_comms, render_comms) = comms.split();
     let primary_window_size: SharedPrimaryWindowSize =
@@ -709,28 +709,15 @@ fn main() {
         buf.set_undo_list(ul);
     }
 
-    // 10. Run GNU startup — this evaluates `(eval top-level)` which enters
-    //     the command loop and blocks forever.  The render thread and input
-    //     bridge must already be running before this point.
-    tracing::info!("Running GNU startup (eval top-level)...");
-    run_gnu_startup(&mut evaluator);
-    tracing::info!("GNU startup returned (unexpected)");
-
-    if evaluator.shutdown_request().is_none() {
-        // If top-level returns without an explicit shutdown request
-        // (shouldn't normally happen), fall back to recursive-edit.
-        tracing::info!("Entering command loop (recursive-edit)");
-        let exit_status = evaluator.recursive_edit();
-        if exit_status.is_ok() {
-            tracing::info!("Command loop exited normally");
-        } else {
-            tracing::warn!("Command loop exited with error");
-        }
+    // 10. Enter GNU's outer command loop. This mirrors src/emacs.c, which
+    //     enters recursive-edit and lets the outer command loop evaluate the
+    //     `top-level` startup form before reading interactive input.
+    tracing::info!("Entering GNU command loop (recursive-edit)...");
+    let exit_status = evaluator.recursive_edit();
+    if exit_status.is_ok() {
+        tracing::info!("Command loop exited normally");
     } else {
-        tracing::info!(
-            "Skipping recursive-edit fallback because shutdown was requested: {:?}",
-            evaluator.shutdown_request()
-        );
+        tracing::warn!("Command loop exited with error");
     }
 
     // 11. Shutdown

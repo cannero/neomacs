@@ -3469,12 +3469,22 @@ impl Evaluator {
     /// Wraps command_loop_2 in a catch for 'top-level.
     #[tracing::instrument(skip_all)]
     fn command_loop_inner(&mut self) -> EvalResult {
+        let outermost_command_loop =
+            self.command_loop.recursive_depth == 1 && self.minibuffers.depth() == 0;
         loop {
             // Catch 'top-level throws (from (top-level) function).
             let top_level_tag = Value::symbol("top-level");
             self.catch_tags.push(top_level_tag);
 
-            let result = self.command_loop_2();
+            let result = if outermost_command_loop {
+                match self.command_loop_top_level_1() {
+                    Ok(_) if self.command_loop.running => self.command_loop_2(),
+                    Ok(_) => Ok(Value::Nil),
+                    Err(flow) => Err(flow),
+                }
+            } else {
+                self.command_loop_2()
+            };
 
             self.catch_tags.pop();
 
@@ -3486,6 +3496,43 @@ impl Evaluator {
                 // Any other result propagates up
                 other => return other,
             }
+        }
+    }
+
+    fn command_loop_top_level_1(&mut self) -> EvalResult {
+        let top_level = self
+            .obarray
+            .symbol_value("top-level")
+            .copied()
+            .unwrap_or(Value::Nil);
+
+        if top_level.is_nil() {
+            return Ok(Value::Nil);
+        }
+
+        match self.eval_value(&top_level) {
+            Ok(_) => Ok(Value::Nil),
+            Err(Flow::Signal(sig)) => {
+                let data_str = sig
+                    .data
+                    .iter()
+                    .map(|value| format!("{value}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let error_msg = if data_str.is_empty() {
+                    sig.symbol_name().to_string()
+                } else {
+                    format!("{}: {}", sig.symbol_name(), data_str)
+                };
+                let _ = super::builtins::dispatch_builtin(
+                    self,
+                    "message",
+                    vec![Value::string(&error_msg)],
+                );
+                tracing::warn!("Top-level startup error: {}", error_msg);
+                Ok(Value::Nil)
+            }
+            Err(flow) => Err(flow),
         }
     }
 
