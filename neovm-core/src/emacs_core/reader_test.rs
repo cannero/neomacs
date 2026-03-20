@@ -1,14 +1,15 @@
 use super::*;
 use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, create_bootstrap_evaluator,
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
+    create_bootstrap_evaluator_cached,
 };
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
 use std::collections::VecDeque;
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let forms = parse_bootstrap_forms(src).expect("parse");
     eval.eval_forms(&forms)

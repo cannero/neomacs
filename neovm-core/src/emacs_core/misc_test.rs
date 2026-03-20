@@ -1,13 +1,11 @@
 use super::super::intern::intern;
 use super::*;
-use crate::emacs_core::load::{
-    apply_runtime_startup_state, create_bootstrap_evaluator, create_bootstrap_evaluator_cached,
-};
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::string_escape;
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator().expect("bootstrap");
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)

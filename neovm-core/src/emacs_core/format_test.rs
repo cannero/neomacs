@@ -2,12 +2,13 @@ use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, create_bootstrap_evaluator,
+    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
+    create_bootstrap_evaluator_cached,
 };
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator().expect("bootstrap");
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
