@@ -3687,6 +3687,7 @@ impl<'a> Vm<'a> {
                 }
                 return Err(signal("no-catch", vec![tag, value]));
             }
+            "signal" => return crate::emacs_core::errors::builtin_signal(args),
             _ => {}
         }
 

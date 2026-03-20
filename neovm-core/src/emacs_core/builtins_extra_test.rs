@@ -71,7 +71,9 @@ fn string_replace_bootstrap_matches_gnu_subr() {
     assert_eq!(results[0], "OK nil");
     assert_eq!(results[1], r#"OK "hello rust""#);
     assert_eq!(results[2], r#"OK "no match""#);
-    assert_eq!(results[3], "ERR (wrong-length-argument (0))");
+    // wrong-length-argument is a subtype of error, so condition-case
+    // catches it and (car err) returns the error symbol.
+    assert_eq!(results[3], "OK wrong-length-argument");
 }
 
 #[test]

@@ -218,6 +218,12 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
     register_simple(obarray, "invalid-regexp", "Invalid regexp", &["error"]);
     register_simple(
         obarray,
+        "wrong-length-argument",
+        "Wrong length argument",
+        &["error"],
+    );
+    register_simple(
+        obarray,
         "mark-inactive",
         "The mark is not active now",
         &["error"],
