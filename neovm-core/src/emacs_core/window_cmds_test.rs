@@ -3104,7 +3104,10 @@ fn set_window_buffer_updates_history_lists_on_real_buffer_switches() {
 
 #[test]
 fn window_end_greater_than_start() {
-    let r = eval_one_with_frame("(> (window-end) (window-start))");
+    // Need buffer content for window-end > window-start.
+    let r = eval_one_with_frame(
+        "(progn (insert \"hello\\nworld\\n\") (goto-char (point-min)) (> (window-end) (window-start)))",
+    );
     assert_eq!(r, "OK t");
 }
 
