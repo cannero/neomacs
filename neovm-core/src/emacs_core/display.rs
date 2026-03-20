@@ -1853,11 +1853,7 @@ pub(crate) fn builtin_x_display_backing_store_in_state(
 
 /// (x-display-color-cells &optional DISPLAY) -> 16M for neomacs (24-bit TrueColor).
 pub(crate) fn builtin_x_display_color_cells(args: Vec<Value>) -> EvalResult {
-    expect_max_args("x-display-color-cells", &args, 1)?;
-    Err(signal(
-        "error",
-        vec![Value::string("X windows are not in use or not initialized")],
-    ))
+    x_optional_display_query_error("x-display-color-cells", &args)
 }
 
 /// Evaluator-aware variant of `x-display-color-cells`.

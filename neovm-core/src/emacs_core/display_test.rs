@@ -802,7 +802,10 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
         match pure(vec![Value::string("x")]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
-                assert_eq!(sig.data, vec![Value::string("Display x can’t be opened")]);
+                assert_eq!(
+                    sig.data,
+                    vec![Value::string("Display x can\u{2019}t be opened")]
+                );
             }
             other => panic!("expected error signal, got {other:?}"),
         }
