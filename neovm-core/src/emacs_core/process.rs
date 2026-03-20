@@ -5622,44 +5622,87 @@ pub(crate) fn builtin_getenv(args: Vec<Value>) -> EvalResult {
     getenv_impl("getenv", &args)
 }
 
-/// (getenv-internal VARIABLE &optional FRAME) -> string or nil
-pub(crate) fn builtin_getenv_internal(args: Vec<Value>) -> EvalResult {
-    getenv_impl("getenv-internal", &args)
-}
-
-/// (setenv VARIABLE &optional VALUE) -> string or nil
+/// (getenv-internal VARIABLE &optional ENV) -> string or nil
 ///
-/// Sets the environment variable VARIABLE to VALUE.  If VALUE is nil
-/// or omitted, removes the variable.
-pub(crate) fn builtin_setenv(args: Vec<Value>) -> EvalResult {
-    expect_min_args("setenv", &args, 1)?;
-    if args.len() > 3 {
+/// GNU-compatible: checks process-environment first, then falls back
+/// to the real OS environment (matching callproc.c:getenv_internal).
+/// When ENV is a list, searches that list instead.
+pub(crate) fn builtin_getenv_internal_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("getenv-internal", &args, 1)?;
+    if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("setenv"), Value::Int(args.len() as i64)],
+            vec![
+                Value::symbol("getenv-internal"),
+                Value::Int(args.len() as i64),
+            ],
         ));
     }
-    let name = expect_string_strict(&args[0])?;
+    let varname = expect_string_strict(&args[0])?;
 
-    if args.len() > 1 && !args[1].is_nil() {
-        let env_value = if args.len() > 2 && args[2].is_truthy() {
-            let substituted = super::fileio::builtin_substitute_in_file_name(vec![args[1]])?;
-            expect_string_strict(&substituted)?
-        } else {
-            sequence_value_to_env_string(&args[1])?
-        };
-        // Safety: this is single-threaded for the Elisp VM, so setting env
-        // vars is acceptable.
-        unsafe {
-            std::env::set_var(&name, &env_value);
+    // If ENV arg is a list, search it directly (GNU behavior).
+    if let Some(env_list) = args.get(1) {
+        if env_list.is_cons() {
+            return getenv_from_list(&varname, *env_list);
         }
-        Ok(args[1])
-    } else {
-        unsafe {
-            std::env::remove_var(&name);
-        }
-        Ok(Value::Nil)
     }
+
+    // Check process-environment variable first (GNU callproc.c:1720).
+    let proc_env = {
+        let name_id = super::intern::intern("process-environment");
+        let mut found = None;
+        for frame in eval.dynamic.iter().rev() {
+            if let Some(v) = frame.get(&name_id) {
+                found = Some(*v);
+                break;
+            }
+        }
+        found.or_else(|| eval.obarray.symbol_value("process-environment").cloned())
+    };
+    if let Some(pe) = proc_env {
+        if pe.is_cons() {
+            let result = getenv_from_list(&varname, pe)?;
+            if !result.is_nil() {
+                return Ok(result);
+            }
+        }
+    }
+
+    // Fall back to real OS environment.
+    match std::env::var(&varname) {
+        Ok(val) => Ok(Value::string(val)),
+        Err(_) => Ok(Value::Nil),
+    }
+}
+
+/// Search a process-environment-style list for VARIABLE.
+/// Each entry is "VARIABLE=VALUE" or just "VARIABLE" (no value).
+fn getenv_from_list(varname: &str, env_list: Value) -> EvalResult {
+    use crate::emacs_core::value::list_to_vec;
+    let prefix = format!("{}=", varname);
+    if let Some(entries) = list_to_vec(&env_list) {
+        for entry in &entries {
+            if let Some(s) = entry.as_str() {
+                if let Some(value_part) = s.strip_prefix(&prefix) {
+                    return Ok(Value::string(value_part.to_string()));
+                }
+                // Entry with no = means variable exists but no value
+                if s == varname {
+                    return Ok(Value::Nil);
+                }
+            }
+        }
+    }
+    Ok(Value::Nil)
+}
+
+/// (getenv-internal VARIABLE &optional FRAME) -> string or nil
+/// Pure fallback for non-evaluator contexts.
+pub(crate) fn builtin_getenv_internal(args: Vec<Value>) -> EvalResult {
+    getenv_impl("getenv-internal", &args)
 }
 
 /// (set-binary-mode STREAM MODE) -> t

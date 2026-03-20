@@ -919,6 +919,9 @@ pub(crate) fn dispatch_builtin(
         "setplist" => return Some(builtin_setplist_eval(eval, args)),
         "symbol-plist" => return Some(builtin_symbol_plist_fn(eval, args)),
         "indirect-function" => return Some(builtin_indirect_function(eval, args)),
+        "getenv-internal" => {
+            return Some(super::process::builtin_getenv_internal_eval(eval, args));
+        }
         "obarrayp" => return Some(builtin_obarrayp(args)),
         "special-variable-p" => return Some(builtin_special_variable_p(eval, args)),
         "intern" => return Some(builtin_intern_fn(eval, args)),
@@ -2692,7 +2695,6 @@ pub(crate) fn dispatch_builtin(
         "text-char-description" => builtin_text_char_description(args),
 
         // Process (pure — no evaluator needed)
-        "getenv-internal" => super::process::builtin_getenv_internal(args),
         "set-binary-mode" => super::process::builtin_set_binary_mode(args),
 
         // Timer (pure — no evaluator needed)
@@ -3891,7 +3893,6 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "event-convert-list" => builtin_event_convert_list(args),
         "text-char-description" => builtin_text_char_description(args),
         // Process (pure)
-        "getenv-internal" => super::process::builtin_getenv_internal(args),
         "set-binary-mode" => super::process::builtin_set_binary_mode(args),
         // Editfns (pure)
         "group-name" => super::editfns::builtin_group_name(args),

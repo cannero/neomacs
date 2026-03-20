@@ -489,7 +489,9 @@ pub fn list_keymap_lookup_one(keymap: &Value, event: &Value) -> Value {
         while let Value::Cons(entry_cell) = cursor {
             entries += 1;
             if entries > 100_000 {
-                tracing::warn!("list_keymap_lookup_one: entry limit reached, possible circular list");
+                tracing::warn!(
+                    "list_keymap_lookup_one: entry limit reached, possible circular list"
+                );
                 return Value::Nil;
             }
             let entry = read_cons(entry_cell);

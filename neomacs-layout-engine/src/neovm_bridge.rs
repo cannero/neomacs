@@ -477,8 +477,10 @@ pub fn collect_layout_params(
         tracing::debug!(
             "collect_layout_params: {} leaf windows, root bounds=({},{} {}x{})",
             window_params.len(),
-            frame.root_window.bounds().x, frame.root_window.bounds().y,
-            frame.root_window.bounds().width, frame.root_window.bounds().height,
+            frame.root_window.bounds().x,
+            frame.root_window.bounds().y,
+            frame.root_window.bounds().width,
+            frame.root_window.bounds().height,
         );
     }
 
@@ -509,8 +511,11 @@ pub fn collect_layout_params(
                 );
                 tracing::debug!(
                     "  minibuffer id={} bounds=({},{} {}x{})",
-                    wp.window_id, wp.bounds.x, wp.bounds.y,
-                    wp.bounds.width, wp.bounds.height,
+                    wp.window_id,
+                    wp.bounds.x,
+                    wp.bounds.y,
+                    wp.bounds.width,
+                    wp.bounds.height,
                 );
                 window_params.push(wp);
             }
