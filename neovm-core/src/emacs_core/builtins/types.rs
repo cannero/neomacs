@@ -267,6 +267,10 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         }
         return Ok(tag.unwrap_or_else(|| Value::symbol("record")));
     }
+    // Markers are vectors with special structure
+    if super::marker::is_marker(&args[0]) {
+        return Ok(Value::symbol("marker"));
+    }
     // Char-tables and bool-vectors are tagged vectors
     if chartable::is_char_table(&args[0]) {
         return Ok(Value::symbol("char-table"));

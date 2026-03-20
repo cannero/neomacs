@@ -882,25 +882,28 @@ fn format_int_spec(n: i64, spec: &FormatSpec) -> String {
             }
         }
         'o' => {
+            let prefix = if spec.sharp { "0" } else { "" };
             if n >= 0 {
-                format!("{:o}", n)
+                format!("{}{:o}", prefix, n)
             } else {
                 // Emacs treats negative numbers as large unsigned for %o
-                format!("{:o}", n as u64)
+                format!("{}{:o}", prefix, n as u64)
             }
         }
         'x' => {
+            let prefix = if spec.sharp { "0x" } else { "" };
             if n >= 0 {
-                format!("{:x}", n)
+                format!("{}{:x}", prefix, n)
             } else {
-                format!("{:x}", n as u64)
+                format!("{}{:x}", prefix, n as u64)
             }
         }
         'X' => {
+            let prefix = if spec.sharp { "0X" } else { "" };
             if n >= 0 {
-                format!("{:X}", n)
+                format!("{}{:X}", prefix, n)
             } else {
-                format!("{:X}", n as u64)
+                format!("{}{:X}", prefix, n as u64)
             }
         }
         _ => n.to_string(),
