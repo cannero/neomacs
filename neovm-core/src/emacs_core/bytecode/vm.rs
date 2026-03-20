@@ -6114,18 +6114,24 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "frame-native-height" => Some(
-                crate::emacs_core::window_cmds::builtin_frame_native_height_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_frame_native_height_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "frame-native-width" => Some(
-                crate::emacs_core::window_cmds::builtin_frame_native_width_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_frame_native_width_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "frame-text-cols" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_text_cols_in_state(
@@ -7904,18 +7910,24 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "window-pixel-left" => Some(
-                crate::emacs_core::window_cmds::builtin_window_pixel_left_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_pixel_left_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "window-pixel-top" => Some(
-                crate::emacs_core::window_cmds::builtin_window_pixel_top_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_pixel_top_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "window-bump-use-time" => Some(
                 crate::emacs_core::window_cmds::builtin_window_bump_use_time_in_state(
@@ -8070,25 +8082,34 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "window-pixel-height" => Some(
-                crate::emacs_core::window_cmds::builtin_window_pixel_height_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_pixel_height_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "window-pixel-width" => Some(
-                crate::emacs_core::window_cmds::builtin_window_pixel_width_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_pixel_width_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "window-body-height" => Some(
-                crate::emacs_core::window_cmds::builtin_window_body_height_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_body_height_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "recenter" => Some(crate::emacs_core::window_cmds::builtin_recenter_in_state(
                 self.shared.frames,
@@ -8096,25 +8117,34 @@ impl<'a> Vm<'a> {
                 args.to_vec(),
             )),
             "window-body-width" => Some(
-                crate::emacs_core::window_cmds::builtin_window_body_width_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_body_width_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "window-text-height" => Some(
-                crate::emacs_core::window_cmds::builtin_window_text_height_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_text_height_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "window-text-width" => Some(
-                crate::emacs_core::window_cmds::builtin_window_text_width_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                {
+                    self.shared.sync_pending_resize_events();
+                    crate::emacs_core::window_cmds::builtin_window_text_width_in_state(
+                        self.shared.frames,
+                        self.shared.buffers,
+                        args.to_vec(),
+                    )
+                },
             ),
             "window-edges" => Some(
                 crate::emacs_core::window_cmds::builtin_window_edges_in_state(

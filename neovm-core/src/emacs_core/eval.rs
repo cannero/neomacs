@@ -334,6 +334,7 @@ pub(crate) struct VmSharedState<'a> {
     kmacro: &'a mut KmacroManager,
     command_loop: &'a mut crate::keyboard::CommandLoop,
     input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
+    pending_input_events: &'a mut VecDeque<crate::keyboard::InputEvent>,
     #[cfg(unix)]
     wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
     redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
@@ -397,6 +398,7 @@ impl<'a> VmSharedState<'a> {
         kmacro: &'a mut KmacroManager,
         command_loop: &'a mut crate::keyboard::CommandLoop,
         input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
+        pending_input_events: &'a mut VecDeque<crate::keyboard::InputEvent>,
         #[cfg(unix)] wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
         redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
         display_host: &'a mut Option<Box<dyn DisplayHost>>,
@@ -464,6 +466,7 @@ impl<'a> VmSharedState<'a> {
             kmacro,
             command_loop,
             input_rx,
+            pending_input_events,
             #[cfg(unix)]
             wakeup_fd,
             redisplay_fn,
@@ -705,6 +708,7 @@ impl<'a> VmSharedState<'a> {
             &mut eval.kmacro,
             &mut eval.command_loop,
             &mut eval.input_rx,
+            &mut eval.pending_input_events,
             #[cfg(unix)]
             &mut eval.wakeup_fd,
             &mut eval.redisplay_fn,
@@ -737,6 +741,15 @@ impl<'a> VmSharedState<'a> {
 
     pub(crate) fn kmacro_mut(&mut self) -> &mut KmacroManager {
         self.kmacro
+    }
+
+    pub(crate) fn sync_pending_resize_events(&mut self) {
+        sync_pending_resize_events_in_runtime(
+            self.frames,
+            self.pending_input_events,
+            self.input_rx,
+            self.command_loop,
+        );
     }
 
     pub(crate) fn begin_lambda_call(
@@ -1747,6 +1760,85 @@ fn finish_macro_expansion_scope_in_state(
     );
     obarray.set_symbol_value("lexical-binding", Value::bool(state.old_lexical));
     temp_roots.truncate(state.saved_temp_roots_len);
+}
+
+fn apply_resize_input_event_in_runtime(
+    frames: &mut FrameManager,
+    width: u32,
+    height: u32,
+    emacs_frame_id: u64,
+) {
+    let target_fid = if emacs_frame_id == 0 {
+        frames.selected_frame().map(|frame| frame.id)
+    } else {
+        Some(crate::window::FrameId(emacs_frame_id))
+    };
+
+    if let Some(fid) = target_fid
+        && let Some(frame) = frames.get_mut(fid)
+    {
+        frame.resize_pixelwise(width, height);
+    }
+}
+
+fn sync_pending_resize_events_in_runtime(
+    frames: &mut FrameManager,
+    pending_input_events: &mut VecDeque<crate::keyboard::InputEvent>,
+    input_rx: &mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
+    command_loop: &mut crate::keyboard::CommandLoop,
+) {
+    let mut deferred = VecDeque::new();
+
+    while matches!(
+        pending_input_events.front(),
+        Some(crate::keyboard::InputEvent::Focus(_))
+    ) {
+        if let Some(event) = pending_input_events.pop_front() {
+            deferred.push_back(event);
+        }
+    }
+
+    if !pending_input_events.is_empty() {
+        while let Some(event) = deferred.pop_back() {
+            pending_input_events.push_front(event);
+        }
+        return;
+    }
+
+    let Some(rx) = input_rx.clone() else {
+        while let Some(event) = deferred.pop_back() {
+            pending_input_events.push_front(event);
+        }
+        return;
+    };
+
+    loop {
+        match rx.try_recv() {
+            Ok(crate::keyboard::InputEvent::Resize {
+                width,
+                height,
+                emacs_frame_id,
+            }) => {
+                apply_resize_input_event_in_runtime(frames, width, height, emacs_frame_id);
+            }
+            Ok(event @ crate::keyboard::InputEvent::Focus(_)) => {
+                deferred.push_back(event);
+            }
+            Ok(event) => {
+                deferred.push_back(event);
+                break;
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => break,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                command_loop.running = false;
+                break;
+            }
+        }
+    }
+
+    while let Some(event) = deferred.pop_back() {
+        pending_input_events.push_front(event);
+    }
 }
 
 impl Default for Evaluator {
@@ -3290,37 +3382,39 @@ impl Evaluator {
             emacs_frame_id,
             target_fid
         );
-        if let Some(fid) = target_fid
-            && let Some(frame) = self.frames.get_mut(fid)
-        {
+        if let Some(fid) = target_fid {
             if trace_frame_geometry {
-                tracing::debug!(
-                    "apply_resize_input_event: before fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
-                    fid,
-                    selected_fid,
-                    frame.width,
-                    frame.height,
-                    frame.effective_window_system(),
-                    frame.parameters.get("window-system").copied()
-                );
+                if let Some(frame) = self.frames.get(fid) {
+                    tracing::debug!(
+                        "apply_resize_input_event: before fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
+                        fid,
+                        selected_fid,
+                        frame.width,
+                        frame.height,
+                        frame.effective_window_system(),
+                        frame.parameters.get("window-system").copied()
+                    );
+                }
             }
-            frame.resize_pixelwise(width, height);
-            tracing::debug!(
-                "apply_resize_input_event: resized frame {:?} to {}x{}",
-                fid,
-                frame.width,
-                frame.height
-            );
-            if trace_frame_geometry {
+            apply_resize_input_event_in_runtime(&mut self.frames, width, height, emacs_frame_id);
+            if let Some(frame) = self.frames.get(fid) {
                 tracing::debug!(
-                    "apply_resize_input_event: after fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
+                    "apply_resize_input_event: resized frame {:?} to {}x{}",
                     fid,
-                    selected_fid,
                     frame.width,
-                    frame.height,
-                    frame.effective_window_system(),
-                    frame.parameters.get("window-system").copied()
+                    frame.height
                 );
+                if trace_frame_geometry {
+                    tracing::debug!(
+                        "apply_resize_input_event: after fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
+                        fid,
+                        selected_fid,
+                        frame.width,
+                        frame.height,
+                        frame.effective_window_system(),
+                        frame.parameters.get("window-system").copied()
+                    );
+                }
             }
         }
         if trigger_redisplay {
@@ -3329,58 +3423,12 @@ impl Evaluator {
     }
 
     pub(crate) fn sync_pending_resize_events(&mut self) {
-        let mut deferred = VecDeque::new();
-
-        while matches!(
-            self.pending_input_events.front(),
-            Some(crate::keyboard::InputEvent::Focus(_))
-        ) {
-            if let Some(event) = self.pending_input_events.pop_front() {
-                deferred.push_back(event);
-            }
-        }
-
-        if !self.pending_input_events.is_empty() {
-            while let Some(event) = deferred.pop_back() {
-                self.pending_input_events.push_front(event);
-            }
-            return;
-        }
-
-        let Some(rx) = self.input_rx.clone() else {
-            while let Some(event) = deferred.pop_back() {
-                self.pending_input_events.push_front(event);
-            }
-            return;
-        };
-
-        loop {
-            match rx.try_recv() {
-                Ok(crate::keyboard::InputEvent::Resize {
-                    width,
-                    height,
-                    emacs_frame_id,
-                }) => {
-                    self.apply_resize_input_event(width, height, emacs_frame_id, false);
-                }
-                Ok(event @ crate::keyboard::InputEvent::Focus(_)) => {
-                    deferred.push_back(event);
-                }
-                Ok(event) => {
-                    deferred.push_back(event);
-                    break;
-                }
-                Err(crossbeam_channel::TryRecvError::Empty) => break,
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    self.command_loop.running = false;
-                    break;
-                }
-            }
-        }
-
-        while let Some(event) = deferred.pop_back() {
-            self.pending_input_events.push_front(event);
-        }
+        sync_pending_resize_events_in_runtime(
+            &mut self.frames,
+            &mut self.pending_input_events,
+            &mut self.input_rx,
+            &mut self.command_loop,
+        );
     }
 
     // -----------------------------------------------------------------------

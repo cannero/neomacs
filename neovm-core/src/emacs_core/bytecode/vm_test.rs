@@ -1153,6 +1153,36 @@ fn vm_frame_query_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_frame_native_metrics_sync_pending_resize_events() {
+    let result = vm_eval_with_init_str(
+        r#"(list (frame-native-width) (frame-native-height))"#,
+        |eval| {
+            let scratch = eval.buffers.create_buffer("*scratch*");
+            eval.buffers.set_current(scratch);
+            let fid = eval.frames.create_frame("vm-frame", 960, 640, scratch);
+            assert!(eval.frames.select_frame(fid), "selected frame");
+            let frame = eval.frames.get_mut(fid).expect("frame should exist");
+            frame.width = 960;
+            frame.height = 640;
+            frame
+                .parameters
+                .insert("window-system".to_string(), Value::symbol("x"));
+
+            let (tx, rx) = crossbeam_channel::unbounded();
+            eval.input_rx = Some(rx);
+            tx.send(crate::keyboard::InputEvent::Resize {
+                width: 1400,
+                height: 1600,
+                emacs_frame_id: 0,
+            })
+            .expect("queue resize");
+        },
+    );
+
+    assert_eq!(result, "OK (1400 1600)");
+}
+
+#[test]
 fn vm_frame_identity_and_display_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_str(
