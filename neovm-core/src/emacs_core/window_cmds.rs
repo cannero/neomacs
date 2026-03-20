@@ -373,12 +373,20 @@ fn resolve_window_id_or_error_in_state(
         None | Some(Value::Nil) => resolve_window_id_in_state(frames, buffers, arg),
         Some(value) => {
             let Some(wid) = window_id_from_designator(value) else {
-                return Err(signal("error", vec![Value::string("Invalid window")]));
+                // GNU window.c: CHECK_VALID_WINDOW signals wrong-type-argument
+                // with window-valid-p (or windowp for non-window types).
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("windowp"), *value],
+                ));
             };
             if let Some(fid) = frames.find_window_frame_id(wid) {
                 Ok((fid, wid))
             } else {
-                Err(signal("error", vec![Value::string("Invalid window")]))
+                Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("window-valid-p"), *value],
+                ))
             }
         }
     }
