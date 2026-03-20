@@ -22,6 +22,19 @@ fn clear_terminal_parameters() {
 }
 
 #[test]
+fn x_window_system_active_falls_back_to_window_system_when_initial_is_nil() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    eval.set_variable("initial-window-system", Value::Nil);
+    eval.set_variable("window-system", Value::symbol(gui_window_system_symbol()));
+
+    assert!(x_window_system_active(&eval));
+    assert!(x_window_system_active_in_state(
+        &eval.obarray,
+        &eval.dynamic
+    ));
+}
+
+#[test]
 fn terminal_parameter_exposes_oracle_defaults() {
     clear_terminal_parameters();
     let normal =

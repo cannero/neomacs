@@ -202,6 +202,22 @@ fn expect_display_designator(value: &Value) -> Result<(), Flow> {
     }
 }
 
+pub(crate) fn expect_display_designator_in_state(
+    frames: &crate::window::FrameManager,
+    value: &Value,
+) -> Result<(), Flow> {
+    match value {
+        Value::Nil => Ok(()),
+        display if terminal_designator_p(display) => Ok(()),
+        display if live_frame_designator_p_in_state(frames, display) => Ok(()),
+        Value::Str(_) => {
+            let display = value.as_str().unwrap();
+            Err(display_does_not_exist_error(display))
+        }
+        _ => Err(invalid_get_device_terminal_error(value)),
+    }
+}
+
 pub(crate) fn live_frame_designator_p(eval: &mut super::eval::Evaluator, value: &Value) -> bool {
     live_frame_designator_p_in_state(&eval.frames, value)
 }
@@ -315,6 +331,7 @@ pub fn gui_window_system_symbol() -> &'static str {
 
 pub(crate) fn x_window_system_active(eval: &super::eval::Evaluator) -> bool {
     let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
+        .filter(|value| !value.is_nil())
         .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
     host_window_system == Some(Value::symbol(gui_window_system_symbol()))
 }
@@ -325,6 +342,7 @@ pub(crate) fn x_window_system_active_in_state(
 ) -> bool {
     let host_window_system =
         dynamic_or_global_symbol_value_in_state(obarray, dynamic, "initial-window-system")
+            .filter(|value| !value.is_nil())
             .or_else(|| dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system"));
     host_window_system == Some(Value::symbol(gui_window_system_symbol()))
 }
@@ -785,6 +803,25 @@ pub(crate) fn builtin_display_color_cells_eval(
     expect_optional_display_designator_eval(eval, "display-color-cells", &args)?;
     if x_window_system_active(eval) {
         Ok(Value::Int(16777216)) // 2^24 = 24-bit TrueColor
+    } else if terminal_runtime_supports_color() {
+        Ok(Value::Int(terminal_runtime_color_cells()))
+    } else {
+        Ok(Value::Int(0))
+    }
+}
+
+pub(crate) fn builtin_display_color_cells_in_state(
+    frames: &crate::window::FrameManager,
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("display-color-cells", &args, 1)?;
+    if let Some(display) = args.first() {
+        expect_display_designator_in_state(frames, display)?;
+    }
+    if x_window_system_active_in_state(obarray, dynamic) {
+        Ok(Value::Int(16777216))
     } else if terminal_runtime_supports_color() {
         Ok(Value::Int(terminal_runtime_color_cells()))
     } else {

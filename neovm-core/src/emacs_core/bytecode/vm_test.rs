@@ -5386,6 +5386,21 @@ fn vm_x_display_query_builtins_accept_live_frame_designators() {
 }
 
 #[test]
+fn vm_gui_display_capability_builtins_use_live_window_system_state() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((f (selected-frame)))
+                 (setq window-system 'x)
+                 (setq initial-window-system nil)
+                 (list
+                  (xw-display-color-p f)
+                  (display-color-cells f)))"#
+        ),
+        r#"OK (t 16777216)"#
+    );
+}
+
+#[test]
 fn vm_x_display_stub_builtins_use_direct_dispatch() {
     assert_eq!(
         vm_eval_str(

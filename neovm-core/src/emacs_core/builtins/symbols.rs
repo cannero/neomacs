@@ -3849,6 +3849,23 @@ pub(crate) fn builtin_xw_display_color_p_eval(
     }
 }
 
+pub(crate) fn builtin_xw_display_color_p_in_state(
+    frames: &crate::window::FrameManager,
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("xw-display-color-p", &args, 0, 1)?;
+    if let Some(display) = args.first() {
+        super::super::display::expect_display_designator_in_state(frames, display)?;
+    }
+    if super::super::display::x_window_system_active_in_state(obarray, dynamic) {
+        Ok(Value::True)
+    } else {
+        Ok(Value::Nil)
+    }
+}
+
 pub(crate) fn builtin_innermost_minibuffer_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("innermost-minibuffer-p", &args, 0, 1)?;
     Ok(Value::Nil)

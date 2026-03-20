@@ -6216,6 +6216,7 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "xw-display-color-p" => Some(self.builtin_xw_display_color_p_shared(args)),
             "x-display-grayscale-p" => Some(
                 crate::emacs_core::display::builtin_x_display_grayscale_p_in_state(
                     &*self.shared.obarray,
@@ -6230,14 +6231,7 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
-            "display-color-cells" => Some(
-                crate::emacs_core::display::builtin_x_display_color_cells_in_state(
-                    self.shared.frames,
-                    &self.shared.obarray,
-                    &self.shared.dynamic,
-                    args.to_vec(),
-                ),
-            ),
+            "display-color-cells" => Some(self.builtin_display_color_cells_shared(args)),
             "x-display-color-cells" => Some(
                 crate::emacs_core::display::builtin_x_display_color_cells_in_state(
                     self.shared.frames,
@@ -9064,24 +9058,38 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_x_get_resource_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::display::builtin_x_get_resource_in_state(
-            &*self.shared.obarray,
-            self.shared.dynamic.as_slice(),
-            args.to_vec(),
-        )
+        self.shared.with_parent_evaluator(|eval| {
+            crate::emacs_core::display::builtin_x_get_resource_eval(eval, args.to_vec())
+        })
     }
 
     fn builtin_x_list_fonts_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::display::builtin_x_list_fonts_in_state(
-            &*self.shared.obarray,
-            self.shared.dynamic.as_slice(),
-            args.to_vec(),
-        )
+        self.shared.with_parent_evaluator(|eval| {
+            crate::emacs_core::display::builtin_x_list_fonts_eval(eval, args.to_vec())
+        })
     }
 
     fn builtin_x_server_vendor_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::display::builtin_x_server_vendor_in_state(
             &*self.shared.frames,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_xw_display_color_p_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_in_state(
+            &*self.shared.frames,
+            &*self.shared.obarray,
+            self.shared.dynamic.as_slice(),
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_display_color_cells_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::display::builtin_display_color_cells_in_state(
+            self.shared.frames,
+            &self.shared.obarray,
+            &self.shared.dynamic,
             args.to_vec(),
         )
     }

@@ -983,10 +983,16 @@ fn run_gnu_startup(eval: &mut Evaluator) {
                 .iter()
                 .map(|value| print_value_with_eval(eval, value))
                 .collect::<Vec<_>>();
+            let last_phase = eval
+                .obarray()
+                .symbol_value("neomacs--startup-last-phase")
+                .cloned()
+                .map(|value| print_value_with_eval(eval, &value));
             tracing::warn!(
-                "GNU top-level startup signaled: {} {:?} (continuing anyway)",
+                "GNU top-level startup signaled: {} {:?} last-phase={:?} (continuing anyway)",
                 resolve_sym(symbol),
-                decoded
+                decoded,
+                last_phase
             );
             Value::Nil
         }
@@ -1740,5 +1746,32 @@ mod tests {
             .eval_expr(&forms[0])
             .expect("startup next-line probe should evaluate");
         assert_eq!(result, Value::Int(5));
+    }
+
+    #[test]
+    fn frame_set_background_mode_uses_live_gui_window_system_after_startup_clears_initial_flag() {
+        let mut eval = create_bootstrap_evaluator_with_features(BOOTSTRAP_CORE_FEATURES)
+            .expect("bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(&mut eval, frame_id, &gui_startup());
+        eval.set_variable("initial-window-system", Value::Nil);
+
+        let forms = parse_forms(
+            r#"(condition-case err
+                  (progn
+                    (frame-set-background-mode (selected-frame))
+                    'ok)
+                (error (list 'error (error-message-string err))))"#,
+        )
+        .expect("parse frame-set-background-mode probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("frame-set-background-mode probe should evaluate");
+        assert_eq!(result, Value::symbol("ok"));
     }
 }
