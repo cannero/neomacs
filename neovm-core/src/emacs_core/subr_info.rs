@@ -857,6 +857,7 @@ fn subr_arity_value(name: &str) -> Value {
         "autoload" => arity_cons(2, Some(5)),
         "autoload-do-load" => arity_cons(1, Some(3)),
         "Snarf-documentation" => arity_cons(1, Some(1)),
+        "substitute-command-keys" => arity_cons(1, Some(3)),
         "documentation" => arity_cons(1, Some(2)),
         "documentation-stringp" => arity_cons(1, Some(1)),
         "documentation-property" => arity_cons(2, Some(3)),
@@ -1328,6 +1329,7 @@ fn subr_arity_value(name: &str) -> Value {
             arity_cons(2, Some(2))
         }
         "internal-default-signal-process" => arity_cons(2, Some(3)),
+        "list-processes--refresh" => arity_cons(0, Some(0)),
         "list-system-processes" => arity_cons(0, Some(0)),
         "make-process" => arity_cons(0, None),
         "make-network-process" | "make-pipe-process" | "make-serial-process" => arity_cons(0, None),
@@ -1357,7 +1359,9 @@ fn subr_arity_value(name: &str) -> Value {
         "process-kill-buffer-query-function" => arity_cons(0, Some(1)),
         "process-file" => arity_cons(1, None),
         "process-running-child-p" | "process-send-eof" => arity_cons(0, Some(1)),
+        "signal-names" => arity_cons(0, Some(0)),
         "signal-process" => arity_cons(2, Some(3)),
+        "print--preprocess" => arity_cons(1, Some(1)),
         "signal-names" => arity_cons(0, Some(0)),
         "process-contact" => arity_cons(1, Some(3)),
         "process-list" => arity_cons(0, Some(0)),

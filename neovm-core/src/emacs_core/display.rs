@@ -1854,8 +1854,10 @@ pub(crate) fn builtin_x_display_backing_store_in_state(
 /// (x-display-color-cells &optional DISPLAY) -> 16M for neomacs (24-bit TrueColor).
 pub(crate) fn builtin_x_display_color_cells(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-display-color-cells", &args, 1)?;
-    // Neomacs always has 24-bit TrueColor support
-    Ok(Value::Int(16777216))
+    Err(signal(
+        "error",
+        vec![Value::string("X windows are not in use or not initialized")],
+    ))
 }
 
 /// Evaluator-aware variant of `x-display-color-cells`.
@@ -2001,10 +2003,9 @@ pub(crate) fn builtin_x_display_screens_in_state(
     x_optional_display_query_error_in_state(frames, "x-display-screens", args)
 }
 
-/// (x-display-visual-class &optional DISPLAY) -> true-color for neomacs.
+/// (x-display-visual-class &optional DISPLAY) -> error in batch/no-X context.
 pub(crate) fn builtin_x_display_visual_class(args: Vec<Value>) -> EvalResult {
-    expect_max_args("x-display-visual-class", &args, 1)?;
-    Ok(Value::symbol("true-color"))
+    x_optional_display_query_error("x-display-visual-class", &args)
 }
 
 /// Evaluator-aware variant of `x-display-visual-class`.

@@ -390,6 +390,9 @@ fn format_value_bytes_in_state_with_options(
     value: &Value,
     options: PrintOptions,
 ) -> Vec<u8> {
+    if let Some(handle) = format_opaque_handle_in_state(buffers, frames, threads, value) {
+        return handle.into_bytes();
+    }
     match value {
         Value::Cons(_) => {
             format_cons_bytes_in_state(obarray, buffers, frames, threads, value, options)

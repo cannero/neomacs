@@ -4729,6 +4729,36 @@ impl Evaluator {
                     }
                 }
 
+                // When the function cell has been overridden (fset) with a
+                // non-subr value (lambda, bytecode, etc.) but the symbol names
+                // a built-in primitive, bypass the function cell and dispatch
+                // directly to the Rust implementation.  This matches GNU Emacs
+                // bytecode VM semantics where primitives like car/cdr have
+                // dedicated opcodes that never consult the function cell.
+                let is_self_subr =
+                    matches!(&func, Value::Subr(bound) if resolve_sym(*bound) == name);
+                if !is_self_subr
+                    && !matches!(&func, Value::Macro(_))
+                    && !super::subr_info::is_special_form(name)
+                    && !super::subr_info::is_evaluator_callable_name(name)
+                    && (super::builtin_registry::is_dispatch_builtin_name(name)
+                        || builtins::is_pure_builtin_name(name))
+                {
+                    let (args, args_saved) = self.eval_args(tail)?;
+                    let writeback_args = args.clone();
+                    let result = if let Some(result) = builtins::dispatch_builtin(self, name, args)
+                    {
+                        result.map_err(|flow| self.validate_throw(flow))
+                    } else {
+                        Err(signal("void-function", vec![Value::symbol(name)]))
+                    };
+                    self.restore_temp_roots(args_saved);
+                    if let Ok(value) = &result {
+                        self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
+                    }
+                    return result;
+                }
+
                 // Explicit function-cell bindings override special-form fallback.
                 let (args, args_saved) = self.eval_args(tail)?;
                 if super::autoload::is_autoload_value(&func) {

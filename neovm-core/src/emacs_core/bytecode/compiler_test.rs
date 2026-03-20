@@ -163,11 +163,8 @@ fn compile_unless() {
 #[test]
 fn compile_catch() {
     let func = compile("(catch 'tag (+ 1 2))");
-    // catch compiles via compile_catch which uses PushConditionCase + PopHandler
-    let has_handler = func
-        .ops
-        .iter()
-        .any(|op| matches!(op, Op::PushConditionCase(_)));
+    // catch compiles via compile_catch which uses PushCatch + PopHandler
+    let has_handler = func.ops.iter().any(|op| matches!(op, Op::PushCatch(_)));
     assert!(has_handler);
     let has_pop = func.ops.iter().any(|op| matches!(op, Op::PopHandler));
     assert!(has_pop);

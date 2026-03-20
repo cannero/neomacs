@@ -686,7 +686,7 @@ fn trivial_regexp_p(pattern: &str) -> bool {
                 match next {
                     '|' | '(' | ')' | '`' | '\'' | 'b' | 'B' | '<' | '>' | 'w' | 'W' | 's'
                     | 'S' | '=' | '{' | '}' | '_' | 'c' | 'C' | '1' | '2' | '3' | '4' | '5'
-                    | '6' | '7' | '8' | '9' => return false,
+                    | '6' | '7' | '8' | '9' | 'n' | 't' | 'r' => return false,
                     _ => {}
                 }
             }
@@ -1258,6 +1258,13 @@ impl<'a> BackrefParser<'a> {
         let ch = self.next()?;
         if ch != '\\' {
             return Some((BackrefCharClassItem::Literal(ch), Some(ch)));
+        }
+
+        // In GNU Emacs, `\` inside [...] does NOT escape `-`.  The backslash
+        // is a literal class member and `-` keeps its role as a range operator.
+        // Return `\` as a literal so the caller's range logic sees the `-`.
+        if self.peek() == Some('-') {
+            return Some((BackrefCharClassItem::Literal('\\'), Some('\\')));
         }
 
         let next = self.next()?;
