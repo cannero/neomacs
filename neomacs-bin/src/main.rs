@@ -881,9 +881,15 @@ fn bootstrap_buffers(
 }
 
 fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup: &StartupOptions) {
-    let argv = startup
-        .forwarded_args
+    let argv_strings = startup.forwarded_args.iter().cloned().collect::<Vec<_>>();
+    let argv = argv_strings
         .iter()
+        .cloned()
+        .map(Value::string)
+        .collect::<Vec<_>>();
+    let argv_left = argv_strings
+        .iter()
+        .skip(1)
         .cloned()
         .map(Value::string)
         .collect::<Vec<_>>();
@@ -901,7 +907,7 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup:
     let invocation_directory = ensure_dir_string(&invocation_directory);
 
     eval.set_variable("command-line-args", Value::list(argv));
-    eval.set_variable("command-line-args-left", Value::Nil);
+    eval.set_variable("command-line-args-left", Value::list(argv_left));
     eval.set_variable("command-line-processed", Value::Nil);
     eval.set_variable("noninteractive", Value::Nil);
     match startup.frontend {
@@ -1082,6 +1088,7 @@ mod tests {
     use neovm_core::emacs_core::print_value_with_eval;
     use neovm_core::emacs_core::value::list_to_vec;
     use neovm_core::window::FrameId;
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
 
     fn gui_display() -> BootstrapDisplayConfig {
@@ -1092,6 +1099,16 @@ mod tests {
         StartupOptions {
             frontend: FrontendKind::Gui,
             forwarded_args: vec!["neomacs".to_string()],
+            terminal_device: None,
+        }
+    }
+
+    fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
+        let mut forwarded_args = vec!["neomacs".to_string()];
+        forwarded_args.extend(args.iter().map(|arg| (*arg).to_string()));
+        StartupOptions {
+            frontend: FrontendKind::Gui,
+            forwarded_args,
             terminal_device: None,
         }
     }
@@ -1248,6 +1265,26 @@ mod tests {
             Some(&Value::list(vec![
                 Value::string("neomacs"),
                 Value::string("-q")
+            ]))
+        );
+        assert_eq!(
+            eval.obarray().symbol_value("command-line-args-left"),
+            Some(&Value::list(vec![Value::string("-q")]))
+        );
+    }
+
+    #[test]
+    fn configure_gnu_startup_state_seeds_command_line_args_left_for_gnu_startup() {
+        let mut eval = Evaluator::new();
+        let startup = gui_startup_with_args(&["-Q", "-l", "/tmp/demo.el"]);
+        configure_gnu_startup_state(&mut eval, FrameId(42), &startup);
+
+        assert_eq!(
+            eval.obarray().symbol_value("command-line-args-left"),
+            Some(&Value::list(vec![
+                Value::string("-Q"),
+                Value::string("-l"),
+                Value::string("/tmp/demo.el")
             ]))
         );
     }
@@ -1663,6 +1700,7 @@ mod tests {
                  (window-body-height nil t)
                  (window-text-width nil t)
                  (window-text-height nil t)
+                 (window-fringes)
                  (window-edges nil nil nil t)
                  (window-edges nil t nil t))"#,
         )
@@ -1677,13 +1715,16 @@ mod tests {
         let body_height = items[3].as_int().expect("window-body-height");
         let text_width = items[4].as_int().expect("window-text-width");
         let text_height = items[5].as_int().expect("window-text-height");
-        let outer_edges = list_to_vec(&items[6]).expect("outer window edges");
-        let inner_edges = list_to_vec(&items[7]).expect("inner window edges");
+        let fringes = list_to_vec(&items[6]).expect("window fringes");
+        let outer_edges = list_to_vec(&items[7]).expect("outer window edges");
+        let inner_edges = list_to_vec(&items[8]).expect("inner window edges");
+        let left_fringe = fringes[0].as_int().expect("left fringe");
+        let right_fringe = fringes[1].as_int().expect("right fringe");
 
         assert_eq!(pixel_width, 960);
         assert!(pixel_height > 0);
-        assert_eq!(body_width, pixel_width);
-        assert_eq!(text_width, pixel_width);
+        assert_eq!(body_width, pixel_width - left_fringe - right_fringe);
+        assert_eq!(text_width, body_width);
         assert_eq!(body_height, text_height);
         assert!(pixel_height >= body_height);
         assert_eq!(
@@ -1698,11 +1739,55 @@ mod tests {
         assert_eq!(
             inner_edges,
             vec![
+                Value::Int(left_fringe),
                 Value::Int(0),
-                Value::Int(0),
-                Value::Int(body_width),
+                Value::Int(pixel_width - right_fringe),
                 Value::Int(body_height)
             ]
+        );
+    }
+
+    #[test]
+    fn gnu_startup_processes_load_option_from_forwarded_args() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crate lives in workspace root");
+        let face_test = repo_root.join("test/neomacs/neomacs-face-test.el");
+        let startup = gui_startup_with_args(&[
+            "-Q",
+            "-l",
+            face_test
+                .to_str()
+                .expect("face test path must be valid utf-8"),
+        ]);
+        configure_gnu_startup_state(&mut eval, frame_id, &startup);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(list
+                 (fboundp 'neomacs-face-test-write-matrix-report)
+                 (buffer-live-p (get-buffer "*Neomacs Face Test*"))
+                 (buffer-name (window-buffer (selected-window))))"#,
+        )
+        .expect("parse startup load-option probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("startup load-option probe should evaluate");
+        let items = list_to_vec(&result).expect("load-option result list");
+        assert_eq!(items[0], Value::True);
+        assert_eq!(items[1], Value::True);
+        assert_eq!(
+            print_value_with_eval(&mut eval, &items[2]),
+            "\"*Neomacs Face Test*\""
         );
     }
 
