@@ -2730,6 +2730,10 @@ impl Evaluator {
             "unread-command-events",
             "unread-input-method-events",
             "unread-post-input-method-events",
+            // transient-mark-mode is a C-level variable in GNU (buffer.c),
+            // always dynamically scoped. Must be special so (let ((transient-mark-mode t)) ...)
+            // creates a dynamic binding visible to called functions like region-active-p.
+            "transient-mark-mode",
         ] {
             obarray.make_special(name);
         }
