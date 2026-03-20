@@ -473,6 +473,20 @@ fn family_search_order(requested_family: &str, spec: &StoredFontSpec) -> Vec<Opt
         return vec![Some(resolve_family(spec_family).to_string())];
     }
 
+    if spec.registry.is_some()
+        || spec.lang.is_some()
+        || spec.repertory.is_some()
+        || spec.weight.is_some()
+        || spec.slant.is_some()
+        || spec.width.is_some()
+    {
+        // GNU Emacs' ftfont_spec_pattern only adds FC_FAMILY when the
+        // font-spec explicitly names one. Registry/lang/repertory-driven
+        // fontset entries must query Fontconfig without leaking the current
+        // face's Latin family into the fallback search.
+        return vec![None];
+    }
+
     if requested_family.is_empty() {
         return vec![None];
     }
@@ -1124,9 +1138,11 @@ fn family_spacing(family: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::{
-        combined_query_langs, fc_list_candidates, parse_fontconfig_weight, registry_hint,
-        registry_query_chars, style_weight, wildcard_casefold_match,
+        combined_query_langs, family_search_order, fc_list_candidates, parse_fontconfig_weight,
+        registry_hint, registry_query_chars, style_weight, wildcard_casefold_match,
     };
+    use neovm_core::emacs_core::fontset::StoredFontSpec;
+    use neovm_core::face::FontWeight;
 
     #[test]
     fn registry_hint_matches_wildcard_patterns() {
@@ -1172,6 +1188,34 @@ mod tests {
         assert!(wildcard_casefold_match("jisx0208*", "jisx0208.1983-0"));
         assert!(wildcard_casefold_match("gb?-0", "gbk-0"));
         assert!(!wildcard_casefold_match("big5-0", "gbk-0"));
+    }
+
+    #[test]
+    fn registry_only_fontset_specs_do_not_reuse_requested_family() {
+        let spec = StoredFontSpec {
+            family: None,
+            registry: Some("gb2312.1980-0".to_string()),
+            lang: None,
+            weight: None,
+            slant: None,
+            width: None,
+            repertory: None,
+        };
+        assert_eq!(family_search_order("monospace", &spec), vec![None]);
+    }
+
+    #[test]
+    fn constrained_fontset_specs_without_family_do_not_reuse_requested_family() {
+        let spec = StoredFontSpec {
+            family: None,
+            registry: None,
+            lang: Some("zh-cn".to_string()),
+            weight: Some(FontWeight(600)),
+            slant: None,
+            width: None,
+            repertory: None,
+        };
+        assert_eq!(family_search_order("monospace", &spec), vec![None]);
     }
 
     #[test]
