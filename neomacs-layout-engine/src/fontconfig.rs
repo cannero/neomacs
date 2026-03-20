@@ -70,6 +70,7 @@ struct ListedFont {
     matched: FontMatch,
     style: String,
     weight_css: Option<u16>,
+    spacing: Option<i32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -268,6 +269,20 @@ const REGISTRY_HINTS: &[RegistryHint] = &[
     },
 ];
 
+const FONT_SPACING_PROPORTIONAL: i32 = 0;
+const FONT_SPACING_DUAL: i32 = 90;
+const FONT_SPACING_MONO: i32 = 100;
+const FONT_SPACING_CHARCELL: i32 = 110;
+const FONT_SPACING_MONO_MAX: i32 = FONT_SPACING_CHARCELL - 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SpacingClass {
+    Proportional,
+    Dual,
+    Mono,
+    Charcell,
+}
+
 /// Resolve a generic font family name through fontconfig.
 ///
 /// For generic names ("Monospace", "Serif", "Sans Serif"), queries fontconfig
@@ -437,7 +452,7 @@ fn match_font_for_char_uncached(
 fn match_font_from_spec(
     requested_family: &str,
     ch: char,
-    _prefer_monospace: bool,
+    prefer_monospace: bool,
     requested_weight: u16,
     italic: bool,
     spec: &StoredFontSpec,
@@ -454,6 +469,7 @@ fn match_font_from_spec(
         .and_then(|hint| hint.lang)
         .map(str::to_string);
     let query_langs = combined_query_langs(registry_lang.as_deref(), spec.lang.as_deref());
+    let requested_spacing = requested_spacing(requested_family, prefer_monospace, spec);
     for family_option in family_search_order(requested_family, spec) {
         let candidates = fc_list_candidates(family_option.as_deref(), &query_chars, &query_langs);
         if candidates.is_empty() {
@@ -461,7 +477,14 @@ fn match_font_from_spec(
         }
 
         let best = candidates.into_iter().min_by_key(|candidate| {
-            candidate_score(candidate, effective_weight, italic, spec.slant)
+            candidate_score(
+                candidate,
+                effective_weight,
+                italic,
+                spec.slant,
+                requested_spacing,
+                prefer_monospace,
+            )
         })?;
         return Some(best.matched);
     }
@@ -508,6 +531,8 @@ fn candidate_score(
     requested_weight: u16,
     italic: bool,
     requested_slant: Option<neovm_core::face::FontSlant>,
+    requested_spacing: Option<i32>,
+    prefer_monospace: bool,
 ) -> u32 {
     let style = candidate.style.to_ascii_lowercase();
     let candidate_weight = candidate
@@ -521,9 +546,80 @@ fn candidate_score(
         neovm_core::face::FontSlant::Normal
     });
 
-    let mut score = u32::from(candidate_weight.abs_diff(requested_weight));
+    let mut score = spacing_score(requested_spacing, candidate.spacing, prefer_monospace);
+    score += u32::from(candidate_weight.abs_diff(requested_weight));
     score += slant_distance(requested_slant, candidate_slant);
     score
+}
+
+fn requested_spacing(
+    requested_family: &str,
+    prefer_monospace: bool,
+    spec: &StoredFontSpec,
+) -> Option<i32> {
+    if let Some(spec_family) = spec.family.as_deref() {
+        return family_spacing(spec_family);
+    }
+    if prefer_monospace {
+        return family_spacing(requested_family).or(Some(FONT_SPACING_MONO));
+    }
+    family_spacing(requested_family)
+}
+
+fn spacing_score(
+    requested_spacing: Option<i32>,
+    candidate_spacing: Option<i32>,
+    prefer_monospace: bool,
+) -> u32 {
+    let requested = requested_spacing.and_then(normalize_spacing);
+    let candidate = candidate_spacing.and_then(normalize_spacing);
+
+    match (requested, candidate) {
+        (Some(requested), Some(candidate)) if requested == candidate => 0,
+        (Some(SpacingClass::Mono | SpacingClass::Charcell), Some(SpacingClass::Dual))
+            if prefer_monospace =>
+        {
+            25
+        }
+        (Some(SpacingClass::Dual), Some(SpacingClass::Mono | SpacingClass::Charcell))
+            if prefer_monospace =>
+        {
+            25
+        }
+        (_, Some(candidate)) if prefer_monospace && is_non_proportional(candidate) => 60,
+        (_, Some(SpacingClass::Proportional)) if prefer_monospace => 4_000,
+        (Some(_), None) if prefer_monospace => 800,
+        (Some(requested), Some(candidate)) => spacing_distance(requested, candidate),
+        _ => 0,
+    }
+}
+
+fn normalize_spacing(spacing: i32) -> Option<SpacingClass> {
+    match spacing {
+        i32::MIN..=-1 => None,
+        FONT_SPACING_PROPORTIONAL..=89 => Some(SpacingClass::Proportional),
+        FONT_SPACING_DUAL..=99 => Some(SpacingClass::Dual),
+        FONT_SPACING_MONO..=FONT_SPACING_MONO_MAX => Some(SpacingClass::Mono),
+        _ => Some(SpacingClass::Charcell),
+    }
+}
+
+fn spacing_distance(requested: SpacingClass, candidate: SpacingClass) -> u32 {
+    use SpacingClass::{Charcell, Dual, Mono, Proportional};
+
+    match (requested, candidate) {
+        (Proportional, Dual) | (Dual, Proportional) => 500,
+        (Proportional, Mono) | (Mono, Proportional) => 800,
+        (Proportional, Charcell) | (Charcell, Proportional) => 1_000,
+        (Dual, Mono) | (Mono, Dual) => 200,
+        (Dual, Charcell) | (Charcell, Dual) => 250,
+        (Mono, Charcell) | (Charcell, Mono) => 100,
+        _ => 0,
+    }
+}
+
+fn is_non_proportional(spacing: SpacingClass) -> bool {
+    !matches!(spacing, SpacingClass::Proportional)
 }
 
 fn slant_distance(
@@ -585,38 +681,6 @@ fn fontconfig_handle() -> Option<&'static fontconfig::Fontconfig> {
 }
 
 #[cfg(unix)]
-struct FcCharSetGuard(*mut fontconfig_sys::FcCharSet);
-
-#[cfg(unix)]
-impl FcCharSetGuard {
-    fn new(query_chars: &[u32]) -> Option<Self> {
-        let charset = unsafe { fontconfig_sys::FcCharSetCreate() };
-        if charset.is_null() {
-            return None;
-        }
-        for &codepoint in query_chars {
-            let ok = unsafe {
-                fontconfig_sys::FcCharSetAddChar(charset, codepoint as fontconfig_sys::FcChar32)
-            };
-            if ok == 0 {
-                unsafe { fontconfig_sys::FcCharSetDestroy(charset) };
-                return None;
-            }
-        }
-        Some(Self(charset))
-    }
-}
-
-#[cfg(unix)]
-impl Drop for FcCharSetGuard {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe { fontconfig_sys::FcCharSetDestroy(self.0) };
-        }
-    }
-}
-
-#[cfg(unix)]
 struct FcObjectSetGuard(*mut fontconfig_sys::FcObjectSet);
 
 #[cfg(unix)]
@@ -650,15 +714,36 @@ fn add_string_property(pattern: &mut Pattern<'_>, key: &std::ffi::CStr, value: &
 }
 
 #[cfg(unix)]
-fn add_charset_property(pattern: &mut Pattern<'_>, query_chars: &[u32]) -> bool {
-    let Some(charset) = FcCharSetGuard::new(query_chars) else {
+struct FcLangSetGuard(*mut fontconfig_sys::FcLangSet);
+
+#[cfg(unix)]
+impl Drop for FcLangSetGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { fontconfig_sys::FcLangSetDestroy(self.0) };
+        }
+    }
+}
+
+#[cfg(unix)]
+fn add_lang_property(pattern: &mut Pattern<'_>, lang: &str) -> bool {
+    let Ok(lang) = CString::new(lang) else {
         return false;
     };
+    let langset = unsafe { fontconfig_sys::FcLangSetCreate() };
+    if langset.is_null() {
+        return false;
+    }
+    let langset = FcLangSetGuard(langset);
+    let added = unsafe { fontconfig_sys::FcLangSetAdd(langset.0, lang.as_ptr().cast()) };
+    if added == 0 {
+        return false;
+    }
     let ok = unsafe {
-        fontconfig_sys::FcPatternAddCharSet(
+        fontconfig_sys::FcPatternAddLangSet(
             pattern.as_mut_ptr(),
-            fontconfig::FC_CHARSET.as_ptr(),
-            charset.0,
+            fontconfig::FC_LANG.as_ptr(),
+            langset.0,
         )
     };
     ok != 0
@@ -674,7 +759,7 @@ fn pattern_family(pattern: &Pattern<'_>) -> Option<String> {
 }
 
 #[cfg(unix)]
-fn build_candidate_object_set() -> Option<FcObjectSetGuard> {
+fn build_candidate_object_set(include_charset: bool) -> Option<FcObjectSetGuard> {
     let object_set = unsafe { fontconfig_sys::FcObjectSetCreate() };
     if object_set.is_null() {
         return None;
@@ -685,10 +770,18 @@ fn build_candidate_object_set() -> Option<FcObjectSetGuard> {
         fontconfig::FC_STYLE,
         fontconfig::FC_WEIGHT,
         fontconfig::FC_SLANT,
+        fontconfig::FC_SPACING,
         fontconfig::FC_POSTSCRIPT_NAME,
         fontconfig::FC_FILE,
     ] {
         let ok = unsafe { fontconfig_sys::FcObjectSetAdd(object_set, key.as_ptr()) };
+        if ok == 0 {
+            return None;
+        }
+    }
+    if include_charset {
+        let ok =
+            unsafe { fontconfig_sys::FcObjectSetAdd(object_set, fontconfig::FC_CHARSET.as_ptr()) };
         if ok == 0 {
             return None;
         }
@@ -721,15 +814,38 @@ fn raw_pattern_int(pattern: *mut fontconfig_sys::FcPattern, key: &CStr) -> Optio
 }
 
 #[cfg(unix)]
+fn raw_pattern_supports_any_char(
+    pattern: *mut fontconfig_sys::FcPattern,
+    query_chars: &[u32],
+) -> bool {
+    if query_chars.is_empty() {
+        return true;
+    }
+    let mut charset: *mut fontconfig_sys::FcCharSet = ptr::null_mut();
+    let result = unsafe {
+        fontconfig_sys::FcPatternGetCharSet(
+            pattern,
+            fontconfig::FC_CHARSET.as_ptr(),
+            0,
+            &mut charset,
+        )
+    };
+    if result != fontconfig_sys::FcResultMatch || charset.is_null() {
+        return false;
+    }
+    query_chars.iter().any(|&codepoint| unsafe {
+        fontconfig_sys::FcCharSetHasChar(charset, codepoint as fontconfig_sys::FcChar32) != 0
+    })
+}
+
+#[cfg(unix)]
 fn listed_font_from_raw_pattern(pattern: *mut fontconfig_sys::FcPattern) -> Option<ListedFont> {
     if pattern.is_null() {
         return None;
     }
     let style = raw_pattern_string(pattern, fontconfig::FC_STYLE).unwrap_or_default();
     let weight_css = raw_pattern_int(pattern, fontconfig::FC_WEIGHT).map(map_fontconfig_weight_raw);
-    if style.is_empty() && weight_css.is_none() {
-        return None;
-    }
+    let spacing = raw_pattern_int(pattern, fontconfig::FC_SPACING);
     let matched_family = raw_pattern_string(pattern, fontconfig::FC_FAMILY)?;
     Some(ListedFont {
         matched: FontMatch {
@@ -743,6 +859,7 @@ fn listed_font_from_raw_pattern(pattern: *mut fontconfig_sys::FcPattern) -> Opti
         },
         style,
         weight_css,
+        spacing,
     })
 }
 
@@ -788,22 +905,17 @@ fn fc_list_candidates(
 
     for lang in query_langs {
         let mut pattern = Pattern::new(fc);
-        if !add_charset_property(&mut pattern, query_chars) {
-            continue;
-        }
         if let Some(family) = family.filter(|family| !family.is_empty()) {
             if !add_string_property(&mut pattern, fontconfig::FC_FAMILY, family) {
                 continue;
             }
         }
         if let Some(lang) = lang.filter(|lang| !lang.is_empty()) {
-            if !add_string_property(&mut pattern, fontconfig::FC_LANG, lang) {
+            if !add_lang_property(&mut pattern, lang) {
                 continue;
             }
         }
-        pattern.config_substitute();
-        pattern.default_substitute();
-        let Some(object_set) = build_candidate_object_set() else {
+        let Some(object_set) = build_candidate_object_set(!query_chars.is_empty()) else {
             continue;
         };
         let fontset = unsafe {
@@ -817,6 +929,13 @@ fn fc_list_candidates(
             continue;
         }
         let nfont = unsafe { (*fontset.0).nfont };
+        tracing::trace!(
+            family = family.unwrap_or(""),
+            lang = lang.unwrap_or(""),
+            query_chars = ?query_chars,
+            nfont,
+            "fontconfig raw candidate list"
+        );
         if nfont <= 0 {
             continue;
         }
@@ -825,8 +944,12 @@ fn fc_list_candidates(
             continue;
         }
         let patterns = unsafe { std::slice::from_raw_parts(fonts, nfont as usize) };
+        let before = candidates.len();
 
         for &candidate_pattern in patterns {
+            if !raw_pattern_supports_any_char(candidate_pattern, query_chars) {
+                continue;
+            }
             let Some(candidate) = listed_font_from_raw_pattern(candidate_pattern) else {
                 continue;
             };
@@ -834,6 +957,14 @@ fn fc_list_candidates(
                 candidates.push(candidate);
             }
         }
+        tracing::trace!(
+            family = family.unwrap_or(""),
+            lang = lang.unwrap_or(""),
+            query_chars = ?query_chars,
+            added = candidates.len().saturating_sub(before),
+            total = candidates.len(),
+            "fontconfig filtered candidate list"
+        );
     }
     candidates
 }
@@ -870,7 +1001,9 @@ fn fc_list_candidates(
 
         let output = match Command::new("fc-list")
             .arg(pattern)
-            .arg("--format=%{family}\t%{style}\t%{weight}\t%{postscriptname}\t%{file}\n")
+            .arg(
+                "--format=%{family}\t%{style}\t%{weight}\t%{spacing}\t%{postscriptname}\t%{file}\n",
+            )
             .output()
         {
             Ok(output) if output.status.success() => output,
@@ -882,12 +1015,17 @@ fn fc_list_candidates(
         };
 
         for line in stdout.lines() {
-            let mut fields = line.splitn(5, '\t');
+            let mut fields = line.splitn(6, '\t');
             let Some(families) = fields.next() else {
                 continue;
             };
             let style = fields.next().unwrap_or_default().trim().to_string();
             let weight_css = parse_fontconfig_weight(fields.next().unwrap_or_default());
+            let spacing = fields
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .and_then(|value| value.parse::<i32>().ok());
             let postscript_name = fields
                 .next()
                 .map(str::trim)
@@ -898,9 +1036,6 @@ fn fc_list_candidates(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned);
-            if style.is_empty() && weight_css.is_none() {
-                continue;
-            }
             let Some(matched_family) = choose_display_family(families, family) else {
                 continue;
             };
@@ -914,6 +1049,7 @@ fn fc_list_candidates(
                 },
                 style,
                 weight_css,
+                spacing,
             };
             if !candidates.contains(&candidate) {
                 candidates.push(candidate);
@@ -1138,11 +1274,13 @@ fn family_spacing(family: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::{
-        combined_query_langs, family_search_order, fc_list_candidates, parse_fontconfig_weight,
-        registry_hint, registry_query_chars, style_weight, wildcard_casefold_match,
+        FONT_SPACING_MONO, FONT_SPACING_PROPORTIONAL, ListedFont, SpacingClass, candidate_score,
+        combined_query_langs, family_search_order, fc_list_candidates, normalize_spacing,
+        parse_fontconfig_weight, registry_hint, registry_query_chars, style_weight,
+        wildcard_casefold_match,
     };
     use neovm_core::emacs_core::fontset::StoredFontSpec;
-    use neovm_core::face::FontWeight;
+    use neovm_core::face::{FontSlant, FontWeight};
 
     #[test]
     fn registry_hint_matches_wildcard_patterns() {
@@ -1237,6 +1375,82 @@ mod tests {
         assert_eq!(style_weight("SemiBold Italic,Italic"), Some(600));
     }
 
+    #[test]
+    fn spacing_categories_follow_gnu_numeric_ranges() {
+        assert_eq!(normalize_spacing(0), Some(SpacingClass::Proportional));
+        assert_eq!(normalize_spacing(90), Some(SpacingClass::Dual));
+        assert_eq!(normalize_spacing(100), Some(SpacingClass::Mono));
+        assert_eq!(normalize_spacing(110), Some(SpacingClass::Charcell));
+    }
+
+    #[test]
+    fn monospace_preference_penalizes_proportional_candidates() {
+        let mono_candidate = ListedFont {
+            matched: super::FontMatch {
+                family: "Noto Sans Mono CJK SC".to_string(),
+                file: None,
+                postscript_name: None,
+                weight: Some(700),
+                slant: FontSlant::Normal,
+            },
+            style: "Bold".to_string(),
+            weight_css: Some(700),
+            spacing: Some(FONT_SPACING_MONO),
+        };
+        let proportional_candidate = ListedFont {
+            matched: super::FontMatch {
+                family: "Noto Sans CJK SC".to_string(),
+                file: None,
+                postscript_name: None,
+                weight: Some(700),
+                slant: FontSlant::Normal,
+            },
+            style: "Bold".to_string(),
+            weight_css: Some(700),
+            spacing: Some(FONT_SPACING_PROPORTIONAL),
+        };
+
+        let mono_score = candidate_score(
+            &mono_candidate,
+            800,
+            false,
+            None,
+            Some(FONT_SPACING_MONO),
+            true,
+        );
+        let proportional_score = candidate_score(
+            &proportional_candidate,
+            800,
+            false,
+            None,
+            Some(FONT_SPACING_MONO),
+            true,
+        );
+
+        assert!(
+            mono_score < proportional_score,
+            "expected mono candidate to outrank proportional candidate: mono={mono_score} proportional={proportional_score}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mono_cjk_candidate_pool_contains_non_proportional_fonts() {
+        let candidates = fc_list_candidates(None, &['好' as u32], &[String::from("zh-cn")]);
+        let best = candidates
+            .iter()
+            .min_by_key(|candidate| {
+                candidate_score(candidate, 800, false, None, Some(FONT_SPACING_MONO), true)
+            })
+            .expect("candidates for CJK mono fallback");
+        let spacing = best.spacing.expect("best candidate spacing");
+        assert!(
+            spacing >= 90,
+            "expected non-proportional best candidate for mono fallback, got family={} spacing={spacing}",
+            best.matched.family
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn fc_list_candidates_tolerates_empty_fontsets() {
@@ -1245,5 +1459,11 @@ mod tests {
             &[0x10FFFF],
             &[String::from("zz-zz")],
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fontconfig_handle_initializes() {
+        assert!(super::fontconfig_handle().is_some(), "fontconfig handle");
     }
 }
