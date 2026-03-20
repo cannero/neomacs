@@ -935,6 +935,7 @@ pub(crate) fn dispatch_builtin(
         "setplist" => return Some(builtin_setplist_eval(eval, args)),
         "symbol-plist" => return Some(builtin_symbol_plist_fn(eval, args)),
         "indirect-function" => return Some(builtin_indirect_function(eval, args)),
+        "signal" => return Some(super::errors::builtin_signal_eval(eval, args)),
         "getenv-internal" => {
             return Some(super::process::builtin_getenv_internal_eval(eval, args));
         }

@@ -505,6 +505,55 @@ pub(crate) fn builtin_signal(args: Vec<Value>) -> EvalResult {
     Err(signal(&sym_name, data))
 }
 
+/// Eval-aware `signal` — checks error hierarchy and converts
+/// unregistered error symbols to `(error "Invalid error symbol" SYM)`,
+/// matching GNU eval.c:1949-1951.
+pub(crate) fn builtin_signal_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    if args.len() != 2 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("signal"), Value::Int(args.len() as i64)],
+        ));
+    }
+
+    let sym_name = match args[0].as_symbol_name() {
+        Some(name) => name.to_string(),
+        None => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            ));
+        }
+    };
+
+    let data = match &args[1] {
+        Value::Nil => vec![],
+        Value::Cons(_) => list_to_vec(&args[1]).unwrap_or_else(|| vec![args[1]]),
+        other => vec![*other],
+    };
+
+    // GNU eval.c:1949-1951: check error-conditions property.
+    // If the symbol has no error-conditions (not registered in the
+    // error hierarchy), convert to (error "Invalid error symbol" SYM).
+    if sym_name != "error" && sym_name != "quit" {
+        let has_conditions = eval
+            .obarray
+            .get_property(&sym_name, "error-conditions")
+            .is_some();
+        if !has_conditions {
+            return Err(signal(
+                "error",
+                vec![Value::string("Invalid error symbol"), args[0]],
+            ));
+        }
+    }
+
+    Err(signal(&sym_name, data))
+}
+
 /// `(error-message-string ERROR-DATA)` — format an error for display.
 ///
 /// ERROR-DATA is `(ERROR-SYMBOL . DATA)` as bound by `condition-case`.

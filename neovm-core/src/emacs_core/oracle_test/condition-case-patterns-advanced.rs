@@ -192,10 +192,6 @@ fn oracle_prop_ccpat_adv_retry_logic() {
 // ---------------------------------------------------------------------------
 
 #[test]
-// Oracle (GNU Emacs) crashes with exit code 255 on this form due to the
-// memory limit interacting with the complex error dispatch + eval. The
-// oracle process is killed before producing output, so we cannot compare.
-#[ignore = "oracle crashes (exit 255) under memory limit on this form"]
 fn oracle_prop_ccpat_adv_error_classification_dispatch() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
