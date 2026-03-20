@@ -773,6 +773,74 @@ pub(crate) fn builtin_region_end_in_manager(
 }
 
 // ===========================================================================
+// transient-mark-mode  (define-minor-mode in GNU simple.el)
+// ===========================================================================
+
+/// `(transient-mark-mode &optional ARG)` — toggle transient-mark-mode.
+///
+/// Matches GNU's define-minor-mode toggle logic:
+/// - no arg or nil  → enable (set to t)
+/// - positive number → enable
+/// - zero or negative → disable (set to nil)
+/// - 'toggle         → flip current value
+pub(crate) fn builtin_transient_mark_mode(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    if args.len() > 1 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![
+                Value::symbol("transient-mark-mode"),
+                Value::Int(args.len() as i64),
+            ],
+        ));
+    }
+    let sym_id = intern("transient-mark-mode");
+    let current = eval
+        .obarray
+        .symbol_value("transient-mark-mode")
+        .cloned()
+        .unwrap_or(Value::Nil);
+
+    let new_val = if args.is_empty() || args[0].is_nil() {
+        // No arg or nil → enable
+        Value::True
+    } else if args[0].is_symbol_named("toggle") {
+        // 'toggle → flip
+        if current.is_truthy() {
+            Value::Nil
+        } else {
+            Value::True
+        }
+    } else {
+        // Numeric arg: positive → enable, zero/negative → disable.
+        // Floats are truncated to integer first (GNU define-minor-mode behavior).
+        match &args[0] {
+            Value::Int(n) => {
+                if *n > 0 {
+                    Value::True
+                } else {
+                    Value::Nil
+                }
+            }
+            Value::Float(f, _) => {
+                let truncated = *f as i64;
+                if truncated > 0 {
+                    Value::True
+                } else {
+                    Value::Nil
+                }
+            }
+            _ => Value::True,
+        }
+    };
+
+    eval.obarray.set_symbol_value_id(sym_id, new_val);
+    Ok(new_val)
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 #[cfg(test)]

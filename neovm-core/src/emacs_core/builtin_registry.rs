@@ -1161,6 +1161,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "tool-bar-pixel-width",
     "top-level",
     "translate-region-internal",
+    "transient-mark-mode",
     "transpose-regions",
     "treesit--linecol-at",
     "treesit--linecol-cache",

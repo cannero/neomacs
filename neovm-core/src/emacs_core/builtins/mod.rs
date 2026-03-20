@@ -1562,6 +1562,9 @@ pub(crate) fn dispatch_builtin(
         "mark-marker" => return Some(super::marker::builtin_mark_marker(eval, args)),
         "region-beginning" => return Some(super::navigation::builtin_region_beginning(eval, args)),
         "region-end" => return Some(super::navigation::builtin_region_end(eval, args)),
+        "transient-mark-mode" => {
+            return Some(super::navigation::builtin_transient_mark_mode(eval, args));
+        }
         // Custom system (evaluator-dependent)
         "make-variable-buffer-local" => {
             return Some(super::custom::builtin_make_variable_buffer_local(
