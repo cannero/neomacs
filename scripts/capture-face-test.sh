@@ -396,8 +396,12 @@ if [[ -n "$WAIT_FOR_LOG_BEFORE_RESIZE" ]]; then
     wait_for_log_pattern "$WAIT_FOR_LOG_BEFORE_RESIZE"
 fi
 
-xdotool windowactivate --sync "$wid"
-xdotool windowraise "$wid"
+if ! xdotool windowactivate --sync "$wid"; then
+    # WM-less X servers like Xvfb do not advertise _NET_ACTIVE_WINDOW.
+    # Fall back to direct input focus so scripted capture still works.
+    xdotool windowfocus --sync "$wid" || true
+fi
+xdotool windowraise "$wid" || true
 if [[ -n "$WINDOW_SIZE" ]]; then
     xdotool windowsize --sync "$wid" "$WINDOW_SIZE_WIDTH" "$WINDOW_SIZE_HEIGHT"
     sleep "$KEY_DELAY"
@@ -442,7 +446,7 @@ import -window "$wid" "$OUTPUT"
 echo "wid=$wid"
 echo "window-name=$(xdotool getwindowname "$wid" 2>/dev/null || true)"
 echo "geometry:"
-xdotool getwindowgeometry "$wid"
+xdotool getwindowgeometry "$wid" || true
 echo "captured=$OUTPUT"
 
 if [[ "$KEEP_RUNNING" -eq 1 ]]; then
