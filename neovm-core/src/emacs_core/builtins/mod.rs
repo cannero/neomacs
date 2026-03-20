@@ -1930,6 +1930,8 @@ pub(crate) fn dispatch_builtin(
         }
         "windowp" => return Some(super::window_cmds::builtin_windowp(eval, args)),
         "window-valid-p" => return Some(super::window_cmds::builtin_window_valid_p(eval, args)),
+        "window-height" => return Some(super::window_cmds::builtin_window_height(eval, args)),
+        "window-width" => return Some(super::window_cmds::builtin_window_width(eval, args)),
         "framep" => return Some(super::window_cmds::builtin_framep(eval, args)),
         "window-frame" => return Some(super::window_cmds::builtin_window_frame(eval, args)),
         "frame-selected-window" => {
