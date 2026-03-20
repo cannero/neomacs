@@ -967,12 +967,14 @@ fn newline_and_indent_rejects_too_many_args() {
 #[test]
 fn newline_and_indent_basic() {
     let results = bootstrap_eval_all(
-        r#"(insert "    hello")
-           (newline-and-indent)
-           (buffer-string)"#,
+        r#"(with-temp-buffer
+             (setq indent-line-function 'indent-relative)
+             (insert "    hello")
+             (newline-and-indent)
+             (buffer-string))"#,
     );
     // Should add newline + 4 spaces of indentation (copying prev line).
-    assert_eq!(results[2], "OK \"    hello\n    \"");
+    assert_eq!(results[0], "OK \"    hello\n    \"");
 }
 
 #[test]
