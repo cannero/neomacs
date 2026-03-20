@@ -25,6 +25,22 @@ fn eval_one_with_frame(src: &str) -> String {
     eval_with_frame(src).into_iter().next().unwrap()
 }
 
+fn eval_with_gui_frame(src: &str) -> Vec<String> {
+    let mut ev = Evaluator::new();
+    let forms = parse_forms(src).expect("parse");
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.set_window_system(Some(Value::symbol("neomacs")));
+    }
+    ev.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
+}
+
 fn bootstrap_eval_with_frame(src: &str) -> Vec<String> {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
@@ -663,6 +679,73 @@ fn window_body_width_pixelwise() {
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
     // PIXELWISE=t returns pixel width (frame 800).
     assert_eq!(val, 800);
+}
+
+#[test]
+fn gui_window_body_geometry_excludes_fringes_and_margins() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.set_window_system(Some(Value::symbol("neomacs")));
+    }
+
+    assert_eq!(
+        super::builtin_set_window_margins(&mut ev, vec![Value::Nil, Value::Int(1), Value::Int(2)])
+            .expect("set-window-margins"),
+        Value::True
+    );
+    assert_eq!(
+        super::builtin_set_window_fringes(&mut ev, vec![Value::Nil, Value::Int(8), Value::Int(12)])
+            .expect("set-window-fringes"),
+        Value::True
+    );
+    assert_eq!(
+        super::builtin_window_body_width(&mut ev, vec![Value::Nil, Value::True])
+            .expect("window-body-width"),
+        Value::Int(756)
+    );
+    assert_eq!(
+        super::builtin_window_text_width(&mut ev, vec![Value::Nil, Value::True])
+            .expect("window-text-width"),
+        Value::Int(756)
+    );
+    assert_eq!(
+        super::builtin_window_edges(
+            &mut ev,
+            vec![Value::Nil, Value::True, Value::Nil, Value::True]
+        )
+        .expect("window-edges"),
+        Value::list(vec![
+            Value::Int(16),
+            Value::Int(0),
+            Value::Int(772),
+            Value::Int(584),
+        ])
+    );
+    assert_eq!(
+        super::builtin_window_fringes(&mut ev, vec![Value::Nil]).expect("window-fringes"),
+        Value::list(vec![Value::Int(8), Value::Int(12), Value::Nil, Value::Nil,])
+    );
+    assert_eq!(
+        super::builtin_window_margins(&mut ev, vec![Value::Nil]).expect("window-margins"),
+        Value::cons(Value::Int(1), Value::Int(2))
+    );
+}
+
+#[test]
+fn gui_window_fringes_default_to_frame_defaults_when_reset() {
+    let out = eval_with_gui_frame(
+        "(let ((w (selected-window)))
+           (list (window-fringes w)
+                 (set-window-fringes w 0 4)
+                 (window-fringes w)
+                 (set-window-fringes w nil nil)
+                 (window-fringes w)))",
+    );
+    assert_eq!(out[0], "OK ((8 8 nil nil) t (0 4 nil nil) t (8 8 nil nil))");
 }
 
 #[test]

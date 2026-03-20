@@ -687,6 +687,39 @@ fn window_width_pixels(w: &Window) -> i64 {
     w.bounds().width.max(0.0) as i64
 }
 
+fn window_body_horizontal_offsets_pixels(
+    frames: &FrameManager,
+    fid: FrameId,
+    w: &Window,
+) -> (i64, i64) {
+    let Some(frame) = frames.get(fid) else {
+        return (0, 0);
+    };
+    if frame.effective_window_system().is_none() {
+        return (0, 0);
+    }
+    match w {
+        Window::Leaf {
+            margins, fringes, ..
+        } => {
+            let char_width = frame.char_width.max(1.0);
+            let left_margin = (margins.0 as f32 * char_width).round().max(0.0) as i64;
+            let right_margin = (margins.1 as f32 * char_width).round().max(0.0) as i64;
+            (
+                i64::from(fringes.0).saturating_add(left_margin),
+                i64::from(fringes.1).saturating_add(right_margin),
+            )
+        }
+        Window::Internal { .. } => (0, 0),
+    }
+}
+
+fn window_body_width_pixels(frames: &FrameManager, fid: FrameId, w: &Window) -> i64 {
+    let total = window_width_pixels(w);
+    let (left, right) = window_body_horizontal_offsets_pixels(frames, fid, w);
+    total.saturating_sub(left.saturating_add(right))
+}
+
 fn is_minibuffer_window(frames: &FrameManager, fid: FrameId, wid: WindowId) -> bool {
     frames
         .get(fid)
@@ -746,13 +779,28 @@ fn window_body_edges_cols_lines(
     char_width: f32,
     char_height: f32,
 ) -> (i64, i64, i64, i64) {
-    let (left, top, right, bottom) = window_edges_cols_lines(w, char_width, char_height);
-    let body_bottom = if is_minibuffer_window(frames, fid, wid) {
-        bottom
+    let (left, top, right, bottom) = window_body_edges_pixels(frames, fid, wid, w);
+    let left = if char_width > 0.0 {
+        (left as f32 / char_width).floor() as i64
     } else {
-        bottom.saturating_sub(1)
+        0
     };
-    (left, top, right, body_bottom)
+    let top = if char_height > 0.0 {
+        (top as f32 / char_height).floor() as i64
+    } else {
+        0
+    };
+    let right = if char_width > 0.0 {
+        (right as f32 / char_width).ceil() as i64
+    } else {
+        0
+    };
+    let bottom = if char_height > 0.0 {
+        (bottom as f32 / char_height).ceil() as i64
+    } else {
+        0
+    };
+    (left, top, right, bottom)
 }
 
 fn window_body_edges_pixels(
@@ -762,6 +810,8 @@ fn window_body_edges_pixels(
     w: &Window,
 ) -> (i64, i64, i64, i64) {
     let (left, top, right, bottom) = window_edges_pixels(w);
+    let (body_left_offset, _body_right_offset) =
+        window_body_horizontal_offsets_pixels(frames, fid, w);
     let mode_line_height = if is_minibuffer_window(frames, fid, wid) {
         0
     } else {
@@ -770,7 +820,10 @@ fn window_body_edges_pixels(
             .map(|frame| frame.char_height.max(0.0) as i64)
             .unwrap_or(0)
     };
-    (left, top, right, bottom.saturating_sub(mode_line_height))
+    let body_left = left.saturating_add(body_left_offset);
+    let body_right = body_left.saturating_add(window_body_width_pixels(frames, fid, w));
+    let body_bottom = bottom.saturating_sub(mode_line_height);
+    (body_left, top, body_right.min(right), body_bottom)
 }
 
 // ===========================================================================
@@ -2511,12 +2564,23 @@ pub(crate) fn builtin_window_fringes_in_state(
 ) -> EvalResult {
     expect_max_args("window-fringes", &args, 1)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (_fid, _wid) =
+    let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    // Batch GNU Emacs startup reports zero-width fringes.
+    let window = get_leaf(frames, fid, wid)?;
+    let (left, right) = if frames
+        .get(fid)
+        .is_some_and(|frame| frame.effective_window_system().is_some())
+    {
+        match window {
+            Window::Leaf { fringes, .. } => (i64::from(fringes.0), i64::from(fringes.1)),
+            Window::Internal { .. } => (0, 0),
+        }
+    } else {
+        (0, 0)
+    };
     Ok(Value::list(vec![
-        Value::Int(0),
-        Value::Int(0),
+        Value::Int(left),
+        Value::Int(right),
         Value::Nil,
         Value::Nil,
     ]))
@@ -2537,8 +2601,66 @@ pub(crate) fn builtin_set_window_fringes_in_state(
 ) -> EvalResult {
     expect_min_args("set-window-fringes", &args, 2)?;
     expect_max_args("set-window-fringes", &args, 5)?;
-    let (_fid, _wid) =
+    let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    if frames
+        .get(fid)
+        .is_none_or(|frame| frame.effective_window_system().is_none())
+    {
+        return Ok(Value::Nil);
+    }
+    let (default_left, default_right) = frames
+        .get(fid)
+        .map(|frame| {
+            let left = frame
+                .parameters
+                .get("left-fringe")
+                .and_then(Value::as_int)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(8);
+            let right = frame
+                .parameters
+                .get("right-fringe")
+                .and_then(Value::as_int)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(8);
+            (left, right)
+        })
+        .unwrap_or((8, 8));
+    let left = if args[1].is_nil() {
+        default_left
+    } else {
+        u32::try_from(expect_int(&args[1])?).map_err(|_| {
+            signal(
+                "args-out-of-range",
+                vec![args[1], Value::Int(0), Value::Int(i64::from(i32::MAX))],
+            )
+        })?
+    };
+    let right = if let Some(arg) = args.get(2) {
+        if arg.is_nil() {
+            default_right
+        } else {
+            u32::try_from(expect_int(arg)?).map_err(|_| {
+                signal(
+                    "args-out-of-range",
+                    vec![*arg, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                )
+            })?
+        }
+    } else {
+        left
+    };
+    if let Some(Window::Leaf { fringes, .. }) = frames
+        .get_mut(fid)
+        .and_then(|frame| frame.find_window_mut(wid))
+    {
+        let next = (left, right);
+        if *fringes != next {
+            *fringes = next;
+            return Ok(Value::True);
+        }
+    }
     Ok(Value::Nil)
 }
 
@@ -2749,10 +2871,15 @@ pub(crate) fn builtin_window_body_width_in_state(
     let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        Ok(Value::Int(window_width_pixels(w)))
+        Ok(Value::Int(window_body_width_pixels(frames, fid, w)))
     } else {
-        let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-        Ok(Value::Int(window_width_cols(w, cw)))
+        let cw = frames
+            .get(fid)
+            .map(|f| f.char_width.max(1.0))
+            .unwrap_or(8.0);
+        Ok(Value::Int(
+            (window_body_width_pixels(frames, fid, w) as f32 / cw).floor() as i64,
+        ))
     }
 }
 
@@ -2814,10 +2941,15 @@ pub(crate) fn builtin_window_text_width_in_state(
     let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        Ok(Value::Int(window_width_pixels(w)))
+        Ok(Value::Int(window_body_width_pixels(frames, fid, w)))
     } else {
-        let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-        Ok(Value::Int(window_width_cols(w, cw)))
+        let cw = frames
+            .get(fid)
+            .map(|f| f.char_width.max(1.0))
+            .unwrap_or(8.0);
+        Ok(Value::Int(
+            (window_body_width_pixels(frames, fid, w) as f32 / cw).floor() as i64,
+        ))
     }
 }
 
