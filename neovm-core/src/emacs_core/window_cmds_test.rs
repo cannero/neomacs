@@ -952,12 +952,14 @@ fn split_delete_window_invalid_designators_signal_error() {
          (condition-case err (delete-other-windows 999999) (error (car err)))
          (condition-case err (delete-other-windows 'foo) (error (car err)))",
     );
-    assert_eq!(results[0], "OK error");
-    assert_eq!(results[1], "OK error");
-    assert_eq!(results[2], "OK error");
-    assert_eq!(results[3], "OK error");
-    assert_eq!(results[4], "OK error");
-    assert_eq!(results[5], "OK error");
+    // GNU Emacs signals wrong-type-argument for invalid window
+    // designators (not generic error).
+    assert_eq!(results[0], "OK wrong-type-argument");
+    assert_eq!(results[1], "OK wrong-type-argument");
+    assert_eq!(results[2], "OK wrong-type-argument");
+    assert_eq!(results[3], "OK wrong-type-argument");
+    assert_eq!(results[4], "OK wrong-type-argument");
+    assert_eq!(results[5], "OK wrong-type-argument");
 }
 
 #[test]
