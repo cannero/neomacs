@@ -3437,6 +3437,7 @@ pub(crate) fn dispatch_builtin(
 
         // Format/string utilities (pure)
         "format-time-string" => super::format::builtin_format_time_string(args),
+        "string-fill" => super::format::builtin_string_fill(args),
         // Marker (pure)
         "markerp" => super::marker::builtin_markerp(args),
         "marker-buffer" => super::marker::builtin_marker_buffer(args),

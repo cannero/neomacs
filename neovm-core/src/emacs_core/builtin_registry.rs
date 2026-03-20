@@ -1084,6 +1084,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "string-collate-equalp",
     "string-collate-lessp",
     "string-distance",
+    "string-fill",
     "string-make-multibyte",
     "string-make-unibyte",
     "string-match",
