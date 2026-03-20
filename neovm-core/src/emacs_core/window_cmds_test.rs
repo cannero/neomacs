@@ -12,6 +12,7 @@ fn eval_with_frame(src: &str) -> Vec<String> {
     let forms = parse_forms(src).expect("parse");
     // Create a buffer for the initial window.
     let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
     // Create a frame so window/frame builtins have something to work with.
     ev.frames.create_frame("F1", 800, 600, buf);
     ev.eval_forms(&forms)
@@ -3109,6 +3110,56 @@ fn window_end_greater_than_start() {
         "(progn (insert \"hello\\nworld\\n\") (goto-char (point-min)) (> (window-end) (window-start)))",
     );
     assert_eq!(r, "OK t");
+}
+
+#[test]
+fn window_end_prefers_last_redisplay_snapshot_when_available() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    ev.buffers
+        .get_mut(buf)
+        .expect("scratch buffer")
+        .insert("hello\nworld\nmore\n");
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    let wid = ev.frames.get(fid).expect("frame").selected_window;
+    let point_max = ev
+        .buffers
+        .get(buf)
+        .expect("scratch buffer")
+        .point_max_char();
+
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        if let Some(crate::window::Window::Leaf {
+            window_start,
+            window_end_pos,
+            window_end_valid,
+            ..
+        }) = frame.find_window_mut(wid)
+        {
+            *window_start = 1;
+            *window_end_pos = point_max;
+            *window_end_valid = false;
+        } else {
+            panic!("selected window should be a leaf");
+        }
+
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: wid,
+            rows: vec![crate::window::DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 16,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(12),
+            }],
+            ..crate::window::WindowDisplaySnapshot::default()
+        }]);
+    }
+
+    let result = super::builtin_window_end(&mut ev, vec![]).expect("window-end");
+    assert_eq!(result, Value::Int(12));
 }
 
 #[test]

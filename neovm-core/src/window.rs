@@ -471,7 +471,7 @@ pub struct WindowDisplaySnapshot {
 }
 
 impl WindowDisplaySnapshot {
-    fn visible_buffer_span(&self) -> Option<(usize, usize)> {
+    pub fn visible_buffer_span(&self) -> Option<(usize, usize)> {
         let start = self
             .rows
             .iter()

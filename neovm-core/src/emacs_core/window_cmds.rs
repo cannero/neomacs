@@ -1502,14 +1502,50 @@ pub(crate) fn builtin_window_group_start_in_state(
 }
 
 /// `(window-end &optional WINDOW UPDATE)` -> integer position.
-///
-/// We approximate window-end as window-start since we don't have real
-/// display layout.  The UPDATE argument is ignored.
 pub(crate) fn builtin_window_end(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_end_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+fn estimated_window_end_from_body_lines(
+    frames: &FrameManager,
+    buffers: &BufferManager,
+    fid: FrameId,
+    wid: WindowId,
+    window_start: usize,
+    bounds: &Rect,
+    buffer_id: crate::buffer::BufferId,
+) -> usize {
+    let Some(frame) = frames.get(fid) else {
+        return window_start;
+    };
+    let body_lines = if is_minibuffer_window(frames, fid, wid) {
+        (bounds.height / frame.char_height) as usize
+    } else {
+        ((bounds.height / frame.char_height) as usize).saturating_sub(1)
+    };
+
+    let Some(buf) = buffers.get(buffer_id) else {
+        return window_start;
+    };
+    let buffer_end = buf.text.char_count().saturating_add(1);
+    let text = buf.text.to_string();
+    let start_char = window_start.saturating_sub(1);
+    let mut char_pos = start_char;
+    let mut lines_seen = 0usize;
+    for (i, ch) in text.char_indices().skip(start_char) {
+        if lines_seen >= body_lines {
+            let _ = i;
+            return (char_pos + 1).min(buffer_end);
+        }
+        char_pos = text[..=i].chars().count();
+        if ch == '\n' {
+            lines_seen += 1;
+        }
+    }
+    buffer_end
 }
 
 pub(crate) fn builtin_window_end_in_state(
@@ -1537,48 +1573,26 @@ pub(crate) fn builtin_window_end_in_state(
                 .unwrap_or(*window_start)
                 .saturating_sub(*window_end_pos)
                 .max(1);
-            if !update_requested || *window_end_valid {
+            if let Some(snapshot_end) = frames
+                .get(fid)
+                .and_then(|frame| frame.window_display_snapshot(wid))
+                .and_then(|snapshot| snapshot.visible_buffer_span().map(|(_, end)| end))
+            {
+                return Ok(Value::Int(snapshot_end as i64));
+            }
+            if !update_requested && (*window_end_valid || stored_end > *window_start) {
                 return Ok(Value::Int(stored_end as i64));
             }
 
-            let frame = frames.get(fid).unwrap();
-            let body_lines = if is_minibuffer_window(frames, fid, wid) {
-                (bounds.height / frame.char_height) as usize
-            } else {
-                ((bounds.height / frame.char_height) as usize).saturating_sub(1)
-            };
-
-            // Scan the buffer text to find where body_lines newlines occur
-            // after window_start, giving a line-based estimate of window-end.
-            let buf = buffers.get(*buffer_id);
-            let buffer_end = buf
-                .map(|b| b.text.char_count().saturating_add(1))
-                .unwrap_or(*window_start);
-
-            if let Some(buf) = buf {
-                let text = buf.text.to_string();
-                // window_start is 1-based char position; convert to 0-based char index
-                let start_char = (*window_start).saturating_sub(1);
-                let mut char_pos = start_char;
-                let mut lines_seen = 0usize;
-                for (i, ch) in text.char_indices().skip(start_char) {
-                    if lines_seen >= body_lines {
-                        // char_pos is the 0-based char index at start of next line
-                        // after body_lines newlines; convert to 1-based
-                        let _ = i; // suppress unused
-                        let end_pos = (char_pos + 1).min(buffer_end);
-                        return Ok(Value::Int(end_pos as i64));
-                    }
-                    char_pos = text[..=i].chars().count();
-                    if ch == '\n' {
-                        lines_seen += 1;
-                    }
-                }
-                // Reached end of buffer before filling all lines.
-                Ok(Value::Int(buffer_end as i64))
-            } else {
-                Ok(Value::Int(*window_start as i64))
-            }
+            Ok(Value::Int(estimated_window_end_from_body_lines(
+                frames,
+                buffers,
+                fid,
+                wid,
+                *window_start,
+                bounds,
+                *buffer_id,
+            ) as i64))
         }
         _ => Ok(Value::Int(0)),
     }
