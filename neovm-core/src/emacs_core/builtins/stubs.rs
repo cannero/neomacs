@@ -1,5 +1,6 @@
 use super::*;
 use crate::buffer::BufferManager;
+use crate::emacs_core::fontset;
 use crate::window::{FrameManager, WindowId};
 
 // =========================================================================
@@ -1659,8 +1660,12 @@ pub(crate) fn builtin_font_variation_glyphs(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_fontset_font(args: Vec<Value>) -> EvalResult {
     expect_range_args("fontset-font", &args, 2, 3)?;
-    let _ = expect_characterp_from_int(&args[1])?;
-    Ok(Value::Nil)
+    let ch = expect_characterp_from_int(&args[1])?;
+    fontset::fontset_font(
+        &args[0],
+        ch,
+        args.get(2).is_some_and(|value| !value.is_nil()),
+    )
 }
 
 pub(crate) fn builtin_fontset_info(args: Vec<Value>) -> EvalResult {

@@ -4,7 +4,7 @@
 //! Emacs's current_matrix and rebuilds this buffer from scratch. No
 //! incremental overlap tracking is needed.
 
-use crate::face::Face;
+use crate::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use crate::scroll_animation::{ScrollEasing, ScrollEffect};
 use crate::types::{Color, Rect};
 use std::collections::HashMap;
@@ -479,6 +479,76 @@ pub struct FrameGlyphBuffer {
 }
 
 impl FrameGlyphBuffer {
+    fn synthesize_face(
+        &self,
+        face_id: u32,
+        fg: Color,
+        bg: Option<Color>,
+        font_family: &str,
+        font_weight: u16,
+        italic: bool,
+        font_size: f32,
+        underline: u8,
+        underline_color: Option<Color>,
+        strike_through: u8,
+        strike_through_color: Option<Color>,
+        overline: u8,
+        overline_color: Option<Color>,
+        _overstrike: bool,
+    ) -> Face {
+        let mut attrs = FaceAttributes::empty();
+        if font_weight >= 700 {
+            attrs |= FaceAttributes::BOLD;
+        }
+        if italic {
+            attrs |= FaceAttributes::ITALIC;
+        }
+        if underline > 0 {
+            attrs |= FaceAttributes::UNDERLINE;
+        }
+        if strike_through > 0 {
+            attrs |= FaceAttributes::STRIKE_THROUGH;
+        }
+        if overline > 0 {
+            attrs |= FaceAttributes::OVERLINE;
+        }
+
+        let underline_style = match underline {
+            1 => UnderlineStyle::Line,
+            2 => UnderlineStyle::Wave,
+            3 => UnderlineStyle::Double,
+            4 => UnderlineStyle::Dotted,
+            5 => UnderlineStyle::Dashed,
+            _ => UnderlineStyle::None,
+        };
+
+        Face {
+            id: face_id,
+            foreground: fg,
+            background: bg.unwrap_or(Color::TRANSPARENT),
+            underline_color,
+            overline_color,
+            strike_through_color,
+            box_color: None,
+            font_family: font_family.to_string(),
+            font_size,
+            font_weight,
+            attributes: attrs,
+            underline_style,
+            box_type: BoxType::None,
+            box_line_width: 0,
+            box_corner_radius: 0,
+            box_border_style: 0,
+            box_border_speed: 1.0,
+            box_color2: None,
+            font_file_path: None,
+            font_ascent: 0,
+            font_descent: 0,
+            underline_position: 1,
+            underline_thickness: 1,
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             width: 0.0,
@@ -618,7 +688,11 @@ impl FrameGlyphBuffer {
         self.background_alpha = background_alpha;
     }
 
-    /// Set current face attributes for subsequent char glyphs (with font family)
+    /// Set current face attributes for subsequent char glyphs (with font family).
+    ///
+    /// This also synthesizes a baseline `Face` entry for `face_id`, so the
+    /// display IR stays self-consistent even when a caller only switches the
+    /// current face state and does not separately populate `faces`.
     pub fn set_face_with_font(
         &mut self,
         face_id: u32,
@@ -650,9 +724,31 @@ impl FrameGlyphBuffer {
         self.current_overline = overline;
         self.current_overline_color = overline_color;
         self.current_overstrike = overstrike;
+        self.faces.insert(
+            face_id,
+            self.synthesize_face(
+                face_id,
+                fg,
+                bg,
+                font_family,
+                font_weight,
+                italic,
+                font_size,
+                underline,
+                underline_color,
+                strike_through,
+                strike_through_color,
+                overline,
+                overline_color,
+                overstrike,
+            ),
+        );
     }
 
-    /// Set current face attributes for subsequent char glyphs
+    /// Set current face attributes for subsequent char glyphs.
+    ///
+    /// Uses the current font family and size when synthesizing the baseline
+    /// `Face` entry for `face_id`.
     pub fn set_face(
         &mut self,
         face_id: u32,
@@ -678,6 +774,25 @@ impl FrameGlyphBuffer {
         self.current_strike_through_color = strike_through_color;
         self.current_overline = overline;
         self.current_overline_color = overline_color;
+        self.faces.insert(
+            face_id,
+            self.synthesize_face(
+                face_id,
+                fg,
+                bg,
+                &self.current_font_family,
+                font_weight,
+                italic,
+                self.current_font_size,
+                underline,
+                underline_color,
+                strike_through,
+                strike_through_color,
+                overline,
+                overline_color,
+                self.current_overstrike,
+            ),
+        );
     }
 
     /// Set authoritative layout draw context for subsequent glyph emissions.
@@ -1467,6 +1582,63 @@ mod tests {
         // Note: begin_frame does NOT clear window_infos (that's clear_all's job)
     }
 
+    #[test]
+    fn set_face_with_font_registers_baseline_render_face() {
+        let mut buf = FrameGlyphBuffer::new();
+        let fg = Color::rgb(0.8, 0.7, 0.6);
+        let bg = Color::rgb(0.1, 0.2, 0.3);
+        let ul = Color::rgb(0.9, 0.1, 0.2);
+
+        buf.set_face_with_font(
+            42,
+            fg,
+            Some(bg),
+            "DejaVu Sans",
+            700,
+            true,
+            18.0,
+            2,
+            Some(ul),
+            1,
+            None,
+            0,
+            None,
+            false,
+        );
+
+        let face = buf.faces.get(&42).expect("face entry should exist");
+        assert_eq!(face.id, 42);
+        assert_eq!(face.font_family, "DejaVu Sans");
+        assert_eq!(face.font_size, 18.0);
+        assert_eq!(face.font_weight, 700);
+        assert!(face.attributes.contains(FaceAttributes::BOLD));
+        assert!(face.attributes.contains(FaceAttributes::ITALIC));
+        assert!(face.attributes.contains(FaceAttributes::UNDERLINE));
+        assert!(face.attributes.contains(FaceAttributes::STRIKE_THROUGH));
+        assert_eq!(face.underline_style, UnderlineStyle::Wave);
+        assert_eq!(face.underline_color, Some(ul));
+        assert_color_eq(&face.foreground, &fg);
+        assert_color_eq(&face.background, &bg);
+    }
+
+    #[test]
+    fn set_face_uses_current_font_context_for_face_entry() {
+        let mut buf = FrameGlyphBuffer::new();
+        let fg = Color::rgb(0.4, 0.5, 0.6);
+
+        buf.set_face_with_font(
+            1, fg, None, "Iosevka", 400, false, 15.0, 0, None, 0, None, 0, None, false,
+        );
+        buf.set_face(2, fg, None, 600, true, 0, None, 0, None, 1, None);
+
+        let face = buf.faces.get(&2).expect("face entry should exist");
+        assert_eq!(face.font_family, "Iosevka");
+        assert_eq!(face.font_size, 15.0);
+        assert_eq!(face.font_weight, 600);
+        assert!(face.attributes.contains(FaceAttributes::ITALIC));
+        assert!(face.attributes.contains(FaceAttributes::OVERLINE));
+    }
+
     // =======================================================================
     // add_char()
     // =======================================================================
@@ -1485,7 +1657,6 @@ mod tests {
                 width,
                 height,
                 ascent,
-                is_overlay,
                 composed,
                 ..
             } => {
@@ -1495,7 +1666,7 @@ mod tests {
                 assert_eq!(*width, 8.0);
                 assert_eq!(*height, 16.0);
                 assert_eq!(*ascent, 12.0);
-                assert!(!*is_overlay);
+                assert!(!buf.glyphs[0].is_overlay());
                 assert!(composed.is_none());
             }
             other => panic!("Expected Char glyph, got {:?}", other),
@@ -1520,6 +1691,7 @@ mod tests {
             1,
             Some(Color::BLUE), // overline
         );
+        buf.set_draw_context(1, GlyphRowRole::ModeLine, None);
         buf.add_char('X', 0.0, 0.0, 8.0, 16.0, 12.0, true);
 
         match &buf.glyphs[0] {
@@ -1532,7 +1704,6 @@ mod tests {
                 underline,
                 strike_through,
                 overline,
-                is_overlay,
                 underline_color,
                 strike_through_color,
                 overline_color,
@@ -1549,7 +1720,7 @@ mod tests {
                 assert_eq!(*strike_through_color, Some(Color::RED));
                 assert_eq!(*overline, 1);
                 assert_eq!(*overline_color, Some(Color::BLUE));
-                assert!(*is_overlay);
+                assert!(buf.glyphs[0].is_overlay());
             }
             other => panic!("Expected Char glyph, got {:?}", other),
         }
@@ -1577,9 +1748,11 @@ mod tests {
     #[test]
     fn add_char_overlay_flag() {
         let mut buf = FrameGlyphBuffer::new();
+        buf.set_draw_context(1, GlyphRowRole::ModeLine, None);
         buf.add_char('M', 0.0, 0.0, 8.0, 16.0, 12.0, true);
         assert!(buf.glyphs[0].is_overlay());
 
+        buf.set_draw_context(1, GlyphRowRole::Text, None);
         buf.add_char('N', 0.0, 0.0, 8.0, 16.0, 12.0, false);
         assert!(!buf.glyphs[1].is_overlay());
     }
@@ -1736,9 +1909,9 @@ mod tests {
                 height,
                 bg: stretch_bg,
                 face_id,
-                is_overlay,
                 stipple_id,
                 stipple_fg,
+                ..
             } => {
                 assert_eq!(*x, 0.0);
                 assert_eq!(*y, 100.0);
@@ -1746,7 +1919,7 @@ mod tests {
                 assert_eq!(*height, 16.0);
                 assert_color_eq(stretch_bg, &bg);
                 assert_eq!(*face_id, 5);
-                assert!(!*is_overlay);
+                assert!(!buf.glyphs[0].is_overlay());
                 assert_eq!(*stipple_id, 0);
                 assert!(stipple_fg.is_none());
             }
@@ -1757,6 +1930,7 @@ mod tests {
     #[test]
     fn add_stretch_overlay() {
         let mut buf = FrameGlyphBuffer::new();
+        buf.set_draw_context(1, GlyphRowRole::ModeLine, None);
         buf.add_stretch(0.0, 0.0, 800.0, 20.0, Color::BLUE, 0, true);
         assert!(buf.glyphs[0].is_overlay());
     }
@@ -2017,11 +2191,7 @@ mod tests {
         // current_font_family is set by set_face_with_font
         assert_eq!(buf.get_current_font_family(), "Fira Code");
 
-        // get_face_font reads from faces map (populated by layout engine)
-        assert_eq!(buf.get_face_font(7), "monospace"); // no Face inserted yet
-        let mut face = Face::new(7);
-        face.font_family = "Fira Code".to_string();
-        buf.faces.insert(7, face);
+        // set_face_with_font now keeps the face table coherent as well.
         assert_eq!(buf.get_face_font(7), "Fira Code");
     }
 
@@ -2295,6 +2465,7 @@ mod tests {
                 width,
                 height,
                 color,
+                ..
             } => {
                 assert_eq!(*x, 400.0);
                 assert_eq!(*y, 0.0);
@@ -2330,6 +2501,7 @@ mod tests {
                 y,
                 width,
                 height,
+                ..
             } => {
                 assert_eq!(*image_id, 42);
                 assert_eq!(*x, 100.0);
@@ -2476,6 +2648,7 @@ mod tests {
             0,
             None,
         );
+        buf.set_draw_context(1, GlyphRowRole::ModeLine, None);
         buf.add_stretch(0.0, 1060.0, 1920.0, 20.0, ml_bg, 10, true);
 
         // Window infos

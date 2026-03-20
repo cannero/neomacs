@@ -19,3 +19,7 @@ tracing.workspace = true
 once_cell.workspace = true
 ttf-parser.workspace = true
 allsorts.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+fontconfig.workspace = true
+yeslogic-fontconfig-sys.workspace = true

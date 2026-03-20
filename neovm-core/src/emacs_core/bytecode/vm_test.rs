@@ -1,11 +1,13 @@
 use super::*;
 use crate::emacs_core::bytecode::compiler::Compiler;
-use crate::emacs_core::eval::{Evaluator, VmSharedState};
+use crate::emacs_core::eval::{Evaluator, GuiFrameHostSize, VmSharedState};
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
 use crate::window::SplitDirection;
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 fn new_vm(eval: &mut Evaluator) -> Vm<'_> {
     Vm::new(VmSharedState::from_evaluator(eval))
@@ -1265,6 +1267,158 @@ fn vm_frame_parameter_and_resize_builtins_use_shared_runtime_state() {
         ),
         "OK (\"vm-frame\" \"vm-title\" nil 7 7 100 36 (0 . 0) t)"
     );
+}
+
+#[derive(Clone, Default)]
+struct VmRecordingDisplayHost {
+    realized: Rc<RefCell<Vec<crate::emacs_core::GuiFrameHostRequest>>>,
+    primary_size: Option<GuiFrameHostSize>,
+}
+
+impl VmRecordingDisplayHost {
+    fn with_primary_size(width: u32, height: u32) -> Self {
+        Self {
+            realized: Rc::default(),
+            primary_size: Some(GuiFrameHostSize { width, height }),
+        }
+    }
+}
+
+impl crate::emacs_core::DisplayHost for VmRecordingDisplayHost {
+    fn realize_gui_frame(
+        &mut self,
+        request: crate::emacs_core::GuiFrameHostRequest,
+    ) -> Result<(), String> {
+        self.realized.borrow_mut().push(request);
+        Ok(())
+    }
+
+    fn resize_gui_frame(
+        &mut self,
+        _request: crate::emacs_core::GuiFrameHostRequest,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn current_primary_window_size(&self) -> Option<GuiFrameHostSize> {
+        self.primary_size
+    }
+}
+
+#[test]
+fn vm_x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
+    let host = VmRecordingDisplayHost::default();
+    let requests = host.realized.clone();
+    let result = vm_eval_with_init_str(
+        "(x-create-frame '((name . \"Neomacs\") (title . \"Neomacs\")))",
+        |eval| {
+            let scratch = eval.buffers.create_buffer("*scratch*");
+            let fid = eval.frames.create_frame("bootstrap", 960, 640, scratch);
+            {
+                let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
+                frame
+                    .parameters
+                    .insert("window-system".to_string(), Value::symbol("neomacs"));
+                frame.char_width = 10.0;
+                frame.char_height = 20.0;
+                if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
+                    mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
+                }
+            }
+            eval.set_variable("terminal-frame", Value::Frame(fid.0));
+            let (tx, rx) = crossbeam_channel::unbounded();
+            eval.input_rx = Some(rx);
+            tx.send(crate::keyboard::InputEvent::Focus(true))
+                .expect("queue focus");
+            tx.send(crate::keyboard::InputEvent::Resize {
+                width: 1500,
+                height: 1900,
+                emacs_frame_id: 0,
+            })
+            .expect("queue resize");
+            eval.set_display_host(Box::new(host.clone()));
+        },
+    );
+
+    assert!(
+        result.starts_with("OK #<frame "),
+        "expected x-create-frame to succeed, got: {result}"
+    );
+
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].width, 1500);
+    assert_eq!(requests[0].height, 1900);
+}
+
+#[test]
+fn vm_make_frame_uses_gui_creation_path_when_display_host_is_active() {
+    let host = VmRecordingDisplayHost::default();
+    let requests = host.realized.clone();
+    let result = vm_eval_with_init_str(
+        "(make-frame '((name . \"GUI\") (width . 80) (height . 25)))",
+        |eval| {
+            let scratch = eval.buffers.create_buffer("*scratch*");
+            let fid = eval.frames.create_frame("bootstrap", 960, 640, scratch);
+            {
+                let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
+                frame.set_window_system(Some(Value::symbol("neomacs")));
+                frame.char_width = 10.0;
+                frame.char_height = 20.0;
+                if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
+                    mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
+                }
+            }
+            eval.set_variable("terminal-frame", Value::Frame(fid.0));
+            eval.set_display_host(Box::new(host.clone()));
+        },
+    );
+
+    assert!(
+        result.starts_with("OK #<frame "),
+        "expected make-frame to succeed, got: {result}"
+    );
+
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].width, 800);
+    assert_eq!(requests[0].height, 540);
+}
+
+#[test]
+fn vm_x_create_frame_prefers_display_host_primary_window_size_when_available() {
+    let host = VmRecordingDisplayHost::with_primary_size(1500, 1900);
+    let requests = host.realized.clone();
+    let result = vm_eval_with_init_str(
+        "(x-create-frame '((name . \"Neomacs\") (title . \"Neomacs\")))",
+        |eval| {
+            let scratch = eval.buffers.create_buffer("*scratch*");
+            let fid = eval.frames.create_frame("bootstrap", 960, 640, scratch);
+            {
+                let frame = eval.frames.get_mut(fid).expect("bootstrap frame");
+                frame
+                    .parameters
+                    .insert("window-system".to_string(), Value::symbol("neomacs"));
+                frame.char_width = 10.0;
+                frame.char_height = 20.0;
+                if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
+                    mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
+                }
+            }
+            eval.set_variable("terminal-frame", Value::Frame(fid.0));
+            eval.set_display_host(Box::new(host.clone()));
+        },
+    );
+
+    assert!(
+        result.starts_with("OK #<frame "),
+        "expected x-create-frame to succeed, got: {result}"
+    );
+
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].width, 1500);
+    assert_eq!(requests[0].height, 1900);
 }
 
 #[test]
@@ -4479,9 +4633,10 @@ fn vm_font_stub_tail_uses_direct_dispatch() {
             r##"(list
                  (null (clear-face-cache))
                  (vectorp (face-attributes-as-vector nil))
-                 (condition-case nil
-                     (font-at 1 (selected-window))
-                   (error t))
+                 (progn
+                   (erase-buffer)
+                   (insert "a")
+                   (fontp (font-at 1 (selected-window)) 'font-object))
                  (condition-case nil
                      (font-face-attributes nil)
                    (error t))

@@ -1,7 +1,7 @@
 //! Evaluator — special forms, function application, and dispatch.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -35,7 +35,7 @@ use super::threads::ThreadManager;
 use super::timer::TimerManager;
 use super::value::*;
 use crate::buffer::{BufferManager, InsertionType};
-use crate::face::FaceTable;
+use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc::GcTrace;
 use crate::gc::ObjId;
 use crate::gc::heap::LispHeap;
@@ -44,6 +44,78 @@ use crate::window::FrameManager;
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
 const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct GnuTimerTimestamp {
+    high_seconds: i64,
+    low_seconds: i64,
+    usecs: i64,
+    psecs: i64,
+}
+
+impl GnuTimerTimestamp {
+    fn now() -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let (secs, usecs) = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(dur) => (dur.as_secs() as i64, dur.subsec_micros() as i64),
+            Err(err) => {
+                let dur = err.duration();
+                (-(dur.as_secs() as i64), -(dur.subsec_micros() as i64))
+            }
+        };
+
+        Self {
+            high_seconds: secs >> 16,
+            low_seconds: secs & 0xFFFF,
+            usecs,
+            psecs: 0,
+        }
+    }
+
+    fn unix_seconds(self) -> i64 {
+        (self.high_seconds << 16) + self.low_seconds
+    }
+
+    fn duration_until(self, now: Self) -> std::time::Duration {
+        use std::time::Duration;
+
+        if self <= now {
+            return Duration::ZERO;
+        }
+
+        let mut secs = self.unix_seconds() - now.unix_seconds();
+        let mut usecs = self.usecs - now.usecs;
+        let mut psecs = self.psecs - now.psecs;
+
+        if psecs < 0 {
+            psecs += 1_000_000;
+            usecs -= 1;
+        }
+        if usecs < 0 {
+            usecs += 1_000_000;
+            secs -= 1;
+        }
+        if secs < 0 {
+            return Duration::ZERO;
+        }
+
+        let mut secs = secs as u64;
+        let mut nanos = (usecs as u32) * 1_000 + ((psecs.max(0) as u32) + 999) / 1_000;
+        if nanos >= 1_000_000_000 {
+            secs += 1;
+            nanos -= 1_000_000_000;
+        }
+
+        Duration::new(secs, nanos)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PendingGnuTimer {
+    timer: Value,
+    when: GnuTimerTimestamp,
+}
 
 /// Compute a content fingerprint of a macro call's args slice.
 ///
@@ -1006,8 +1078,44 @@ pub struct GuiFrameHostRequest {
     pub title: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GuiFrameHostSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct FontResolveRequest {
+    pub frame_id: crate::window::FrameId,
+    pub character: char,
+    pub face: RuntimeFace,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedFontMatch {
+    pub family: String,
+    pub foundry: Option<String>,
+    pub weight: FontWeight,
+    pub slant: FontSlant,
+    pub width: FontWidth,
+    pub postscript_name: Option<String>,
+}
+
 pub trait DisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
+    fn resize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String>;
+    fn opening_gui_frame_pending(&self) -> bool {
+        false
+    }
+    fn current_primary_window_size(&self) -> Option<GuiFrameHostSize> {
+        None
+    }
+    fn resolve_font_for_char(
+        &mut self,
+        _request: FontResolveRequest,
+    ) -> Result<Option<ResolvedFontMatch>, String> {
+        Ok(None)
+    }
 }
 
 /// The Elisp evaluator.
@@ -1108,6 +1216,9 @@ pub struct Evaluator {
     /// `None` in batch mode (tests, non-interactive evaluation).
     /// When `Some`, `read_char()` blocks on this channel for interactive input.
     pub input_rx: Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
+    /// Non-keyboard events drained opportunistically outside `read_char()`,
+    /// plus non-resize input preserved while syncing pending GUI resizes.
+    pending_input_events: VecDeque<crate::keyboard::InputEvent>,
     /// Wakeup file descriptor — the read end of a pipe that the render thread
     /// writes to when input is available.  Used by `wait_for_input()` with
     /// `pselect()`/`poll()` to multiplex input with process I/O and timers.
@@ -1689,6 +1800,7 @@ impl Evaluator {
         ev.interactive = InteractiveRegistry::new();
         ev.recent_input_events.clear();
         ev.read_command_keys.clear();
+        ev.pending_input_events.clear();
         ev.input_mode_interrupt = false;
         ev.frames = FrameManager::new();
         ev.modes = ModeRegistry::new();
@@ -2888,6 +3000,7 @@ impl Evaluator {
             kmacro: KmacroManager::new(),
             command_loop: crate::keyboard::CommandLoop::new(),
             input_rx: None,
+            pending_input_events: VecDeque::new(),
             #[cfg(unix)]
             wakeup_fd: None,
             redisplay_fn: None,
@@ -2996,6 +3109,7 @@ impl Evaluator {
             kmacro,
             command_loop: crate::keyboard::CommandLoop::new(),
             input_rx: None,
+            pending_input_events: VecDeque::new(),
             #[cfg(unix)]
             wakeup_fd: None,
             redisplay_fn: None,
@@ -3151,6 +3265,122 @@ impl Evaluator {
 
     pub fn set_display_host(&mut self, host: Box<dyn DisplayHost>) {
         self.display_host = Some(host);
+    }
+
+    fn apply_resize_input_event(
+        &mut self,
+        width: u32,
+        height: u32,
+        emacs_frame_id: u64,
+        trigger_redisplay: bool,
+    ) {
+        let trace_frame_geometry = std::env::var("NEOMACS_TRACE_FRAME_GEOMETRY")
+            .ok()
+            .is_some_and(|value| value == "1");
+        let target_fid = if emacs_frame_id == 0 {
+            self.frames.selected_frame().map(|frame| frame.id)
+        } else {
+            Some(crate::window::FrameId(emacs_frame_id))
+        };
+        let selected_fid = self.frames.selected_frame().map(|selected| selected.id);
+        tracing::debug!(
+            "apply_resize_input_event: {}x{} emacs_frame_id=0x{:x} target_fid={:?}",
+            width,
+            height,
+            emacs_frame_id,
+            target_fid
+        );
+        if let Some(fid) = target_fid
+            && let Some(frame) = self.frames.get_mut(fid)
+        {
+            if trace_frame_geometry {
+                tracing::debug!(
+                    "apply_resize_input_event: before fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
+                    fid,
+                    selected_fid,
+                    frame.width,
+                    frame.height,
+                    frame.effective_window_system(),
+                    frame.parameters.get("window-system").copied()
+                );
+            }
+            frame.resize_pixelwise(width, height);
+            tracing::debug!(
+                "apply_resize_input_event: resized frame {:?} to {}x{}",
+                fid,
+                frame.width,
+                frame.height
+            );
+            if trace_frame_geometry {
+                tracing::debug!(
+                    "apply_resize_input_event: after fid={:?} selected={:?} size={}x{} effective_ws={:?} param_ws={:?}",
+                    fid,
+                    selected_fid,
+                    frame.width,
+                    frame.height,
+                    frame.effective_window_system(),
+                    frame.parameters.get("window-system").copied()
+                );
+            }
+        }
+        if trigger_redisplay {
+            self.redisplay();
+        }
+    }
+
+    pub(crate) fn sync_pending_resize_events(&mut self) {
+        let mut deferred = VecDeque::new();
+
+        while matches!(
+            self.pending_input_events.front(),
+            Some(crate::keyboard::InputEvent::Focus(_))
+        ) {
+            if let Some(event) = self.pending_input_events.pop_front() {
+                deferred.push_back(event);
+            }
+        }
+
+        if !self.pending_input_events.is_empty() {
+            while let Some(event) = deferred.pop_back() {
+                self.pending_input_events.push_front(event);
+            }
+            return;
+        }
+
+        let Some(rx) = self.input_rx.clone() else {
+            while let Some(event) = deferred.pop_back() {
+                self.pending_input_events.push_front(event);
+            }
+            return;
+        };
+
+        loop {
+            match rx.try_recv() {
+                Ok(crate::keyboard::InputEvent::Resize {
+                    width,
+                    height,
+                    emacs_frame_id,
+                }) => {
+                    self.apply_resize_input_event(width, height, emacs_frame_id, false);
+                }
+                Ok(event @ crate::keyboard::InputEvent::Focus(_)) => {
+                    deferred.push_back(event);
+                }
+                Ok(event) => {
+                    deferred.push_back(event);
+                    break;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.command_loop.running = false;
+                    break;
+                }
+            }
+        }
+
+        while let Some(event) = deferred.pop_back() {
+            self.pending_input_events.push_front(event);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -3563,42 +3793,45 @@ impl Evaluator {
             self.input_rx.is_some()
         );
         loop {
-            let rx = match self.input_rx {
-                Some(ref rx) => rx.clone(),
-                None => {
-                    tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
-                    return Ok(Value::Nil);
-                }
-            };
+            self.sync_pending_resize_events();
 
-            // Use recv_timeout if timers are pending or live processes exist,
-            // otherwise block indefinitely.
-            let has_live_procs = !self.processes.live_process_ids().is_empty();
-            let timeout = self.timers.next_fire_time().or_else(|| {
-                // If live processes exist, use a short poll interval
-                has_live_procs.then_some(std::time::Duration::from_millis(100))
-            });
-
-            self.waiting_for_user_input = true;
-            let wait_result = if let Some(timeout) = timeout {
-                rx.recv_timeout(timeout)
+            let event = if let Some(event) = self.pending_input_events.pop_front() {
+                event
             } else {
-                rx.recv()
-                    .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
-            };
-            self.waiting_for_user_input = false;
+                let rx = match self.input_rx {
+                    Some(ref rx) => rx.clone(),
+                    None => {
+                        tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
+                        return Ok(Value::Nil);
+                    }
+                };
 
-            let event = match wait_result {
-                Ok(event) => event,
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                    // Timer fired or process poll interval — run pending work and loop back
-                    self.fire_pending_timers();
-                    self.poll_process_output();
-                    continue;
-                }
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                    self.command_loop.running = false;
-                    return Err(super::error::signal("quit", vec![]));
+                // Like GNU keyboard.c, bound the wait by the earliest pending
+                // timer or process poll deadline so Lisp timers can run while the
+                // editor is otherwise idle.
+                let timeout = self.next_input_wait_timeout();
+
+                self.waiting_for_user_input = true;
+                let wait_result = if let Some(timeout) = timeout {
+                    rx.recv_timeout(timeout)
+                } else {
+                    rx.recv()
+                        .map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected)
+                };
+                self.waiting_for_user_input = false;
+
+                match wait_result {
+                    Ok(event) => event,
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        // Timer fired or process poll interval — run pending work and loop back
+                        self.fire_pending_timers();
+                        self.poll_process_output();
+                        continue;
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        self.command_loop.running = false;
+                        return Err(super::error::signal("quit", vec![]));
+                    }
                 }
             };
 
@@ -3614,10 +3847,11 @@ impl Evaluator {
                     return Err(super::error::signal("quit", vec![]));
                 }
                 InputEvent::Resize {
-                    width: _,
-                    height: _,
+                    width,
+                    height,
+                    emacs_frame_id,
                 } => {
-                    // TODO: update frame dimensions
+                    self.apply_resize_input_event(width, height, emacs_frame_id, true);
                     continue;
                 }
                 InputEvent::Focus(_focused) => {
@@ -3749,22 +3983,122 @@ impl Evaluator {
         }
     }
 
+    fn pending_gnu_timer(timer: Value) -> Option<PendingGnuTimer> {
+        let Value::Vector(timer_id) = timer else {
+            return None;
+        };
+
+        let slots = with_heap(|heap| heap.get_vector(timer_id).clone());
+        if !(9..=10).contains(&slots.len()) {
+            return None;
+        }
+
+        if !slots[0].is_nil() {
+            return None;
+        }
+
+        if !slots[7].is_nil() {
+            // Idle timers remain on the GNU Lisp path, but NeoVM still does
+            // not track GUI/TTY idleness with GNU's fidelity yet. Avoid
+            // conflating ordinary timer behavior with partial idle semantics.
+            return None;
+        }
+
+        Some(PendingGnuTimer {
+            timer,
+            when: GnuTimerTimestamp {
+                high_seconds: slots[1].as_int()?,
+                low_seconds: slots[2].as_int()?,
+                usecs: slots[3].as_int()?,
+                psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+            },
+        })
+    }
+
+    fn due_gnu_timers_snapshot(&self) -> Vec<Value> {
+        let timers = self
+            .obarray
+            .symbol_value("timer-list")
+            .and_then(list_to_vec)
+            .unwrap_or_default();
+        let now = GnuTimerTimestamp::now();
+
+        timers
+            .into_iter()
+            .filter_map(Self::pending_gnu_timer)
+            .filter(|timer| timer.when <= now)
+            .map(|timer| timer.timer)
+            .collect()
+    }
+
+    pub(crate) fn next_ordinary_gnu_timer_timeout(&self) -> Option<std::time::Duration> {
+        let timers = self
+            .obarray
+            .symbol_value("timer-list")
+            .and_then(list_to_vec)
+            .unwrap_or_default();
+        let now = GnuTimerTimestamp::now();
+
+        timers
+            .into_iter()
+            .filter_map(Self::pending_gnu_timer)
+            .map(|timer| timer.when.duration_until(now))
+            .min()
+    }
+
+    pub(crate) fn next_input_wait_timeout(&self) -> Option<std::time::Duration> {
+        let mut timeout = self.timers.next_fire_time();
+
+        if let Some(gnu_timeout) = self.next_ordinary_gnu_timer_timeout() {
+            timeout = Some(timeout.map_or(gnu_timeout, |current| current.min(gnu_timeout)));
+        }
+
+        if !self.processes.live_process_ids().is_empty() {
+            let process_poll = std::time::Duration::from_millis(100);
+            timeout = Some(timeout.map_or(process_poll, |current| current.min(process_poll)));
+        }
+
+        timeout
+    }
+
     /// Run a named hook if it is bound and non-nil.
     /// Fire all pending timers and execute their callbacks.
     ///
     /// Mirrors GNU Emacs `timer_check()` (keyboard.c:4644).
     /// Collects expired timers and invokes each callback via the evaluator.
     pub(crate) fn fire_pending_timers(&mut self) {
+        let mut fired_any = false;
+
+        for timer in self.due_gnu_timers_snapshot() {
+            fired_any = true;
+            if let Value::Vector(timer_id) = timer {
+                with_heap_mut(|heap| heap.get_vector_mut(timer_id)[0] = Value::True);
+            }
+            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
+                tracing::warn!("GNU Lisp timer callback error: {:?}", e);
+            }
+        }
+
         let now = std::time::Instant::now();
         let fired = self.timers.fire_pending_timers(now);
         for (callback, args) in fired {
+            fired_any = true;
             let mut call_args = vec![callback];
             call_args.extend(args);
             if let Err(e) = super::builtins::dispatch_builtin(self, "funcall", call_args)
                 .unwrap_or(Ok(Value::Nil))
             {
-                tracing::warn!("Timer callback error: {:?}", e);
+                tracing::warn!("Rust timer callback error: {:?}", e);
             }
+        }
+
+        // GNU Emacs refreshes display state after timer callbacks mutate
+        // buffers, windows, or the echo area while the command loop is idle.
+        // Without this, visual timer effects do not paint until unrelated
+        // input arrives, which breaks GUI timer semantics like startup probes
+        // and face-report helpers.
+        if fired_any {
+            self.redisplay();
         }
     }
 
@@ -3859,6 +4193,7 @@ impl Evaluator {
     /// Mirrors GNU Emacs `redisplay()` (dispnew.c:5259).
     /// In batch mode (no callback), this is a no-op.
     pub(crate) fn redisplay(&mut self) {
+        self.sync_pending_resize_events();
         // Take the callback out to satisfy the borrow checker:
         // the callback receives &mut self, but we can't call a closure
         // stored in &mut self while &mut self is borrowed.

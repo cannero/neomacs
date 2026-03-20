@@ -13,6 +13,7 @@ use neovm_core::face::{
 use neovm_core::window::{Frame, FrameId, Window};
 
 use super::types::{FrameParams, WindowParams};
+use crate::fontconfig::face_height_to_pixels;
 use neomacs_display_protocol::types::Rect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,12 +272,25 @@ pub fn window_params_from_neovm(
     window_cursor_type: Value,
 ) -> Option<WindowParams> {
     // Only leaf windows can be laid out.
-    let (win_id, _buf_id, bounds, window_start, _point, hscroll, margins, fringes) = match window {
+    let (
+        win_id,
+        _buf_id,
+        bounds,
+        window_start,
+        window_end_pos,
+        window_end_valid,
+        point,
+        hscroll,
+        margins,
+        fringes,
+    ) = match window {
         Window::Leaf {
             id,
             buffer_id,
             bounds,
             window_start,
+            window_end_pos,
+            window_end_valid,
             point,
             hscroll,
             margins,
@@ -287,6 +301,8 @@ pub fn window_params_from_neovm(
             *buffer_id,
             bounds,
             *window_start,
+            *window_end_pos,
+            *window_end_valid,
             *point,
             *hscroll,
             *margins,
@@ -367,12 +383,24 @@ pub fn window_params_from_neovm(
         // Window::window_start tracks GNU marker positions (1-based).
         // Normalize to the layout engine's internal 0-based char positions.
         window_start: window_start.saturating_sub(1) as i64,
-        window_end: 0, // filled after layout
-        // Use buffer.pt (authoritative point) rather than the Window's
-        // cached copy, which may be stale after self-insert-command etc.
-        point: buffer.pt as i64,
-        buffer_size: buffer.zv as i64,
-        buffer_begv: buffer.begv as i64,
+        // Previous visible end converted back to the layout engine's internal
+        // 0-based char position space.  GNU stores this as an offset from Z.
+        window_end: if window_end_valid {
+            buffer
+                .point_max_char()
+                .saturating_add(1)
+                .saturating_sub(window_end_pos)
+                .saturating_sub(1) as i64
+        } else {
+            0
+        },
+        // Redisplay must honor the window's own point marker, not whichever
+        // buffer happens to be current while layout runs.  Window::point is a
+        // GNU/Lisp-visible marker position, so normalize it into the layout
+        // engine's internal 0-based char positions just like window_start.
+        point: point.saturating_sub(1) as i64,
+        buffer_size: buffer.point_max_char() as i64,
+        buffer_begv: buffer.point_min_char() as i64,
         hscroll: hscroll as i32,
         vscroll: 0,
         truncate_lines,
@@ -615,6 +643,15 @@ impl<'a> RustBufferAccess<'a> {
         self.buffer.begv as i64
     }
 
+    /// Convert an absolute byte position to the layout engine's internal
+    /// 0-based char position space.
+    pub fn bytepos_to_charpos(&self, bytepos: i64) -> i64 {
+        if bytepos <= 0 {
+            return 0;
+        }
+        buffer_bytepos_to_charpos(self.buffer, bytepos as usize) as i64
+    }
+
     /// Get the buffer's narrowed end (zv) as byte position.
     pub fn zv(&self) -> i64 {
         self.buffer.zv as i64
@@ -656,6 +693,17 @@ pub struct RustTextPropAccess<'a> {
     buffer: &'a Buffer,
 }
 
+fn buffer_charpos_to_bytepos(buffer: &Buffer, charpos: usize) -> usize {
+    buffer.char_to_byte_clamped(charpos.min(buffer.point_max_char()))
+}
+
+fn buffer_bytepos_to_charpos(buffer: &Buffer, bytepos: usize) -> usize {
+    buffer
+        .text
+        .byte_to_char(bytepos.min(buffer.point_max_byte()))
+        .min(buffer.point_max_char())
+}
+
 impl<'a> RustTextPropAccess<'a> {
     /// Create a new text property accessor.
     pub fn new(buffer: &'a Buffer) -> Self {
@@ -668,8 +716,8 @@ impl<'a> RustTextPropAccess<'a> {
     /// `next_visible_pos` is the next char position where visibility might change.
     /// If no change is found, returns `buffer.zv` as the next boundary.
     pub fn check_invisible(&self, charpos: i64) -> (bool, i64) {
-        let pos = charpos as usize;
-        let invis = self.buffer.text_props.get_property(pos, "invisible");
+        let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
+        let invis = self.buffer.text_props.get_property(bytepos, "invisible");
 
         let is_invisible = match invis {
             Some(Value::Nil) | None => false,
@@ -680,8 +728,9 @@ impl<'a> RustTextPropAccess<'a> {
         let next_change = self
             .buffer
             .text_props
-            .next_property_change(pos)
-            .unwrap_or(self.buffer.zv);
+            .next_property_change(bytepos)
+            .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
+            .unwrap_or(self.buffer.point_max_char());
 
         (is_invisible, next_change as i64)
     }
@@ -691,14 +740,15 @@ impl<'a> RustTextPropAccess<'a> {
     /// Returns the display property value if present, along with the
     /// next position where display properties change.
     pub fn check_display_prop(&self, charpos: i64) -> (Option<&Value>, i64) {
-        let pos = charpos as usize;
-        let display = self.buffer.text_props.get_property(pos, "display");
+        let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
+        let display = self.buffer.text_props.get_property(bytepos, "display");
 
         let next_change = self
             .buffer
             .text_props
-            .next_property_change(pos)
-            .unwrap_or(self.buffer.zv);
+            .next_property_change(bytepos)
+            .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
+            .unwrap_or(self.buffer.point_max_char());
 
         (display, next_change as i64)
     }
@@ -707,8 +757,8 @@ impl<'a> RustTextPropAccess<'a> {
     ///
     /// Returns extra line spacing in pixels (0.0 if no property).
     pub fn check_line_spacing(&self, charpos: i64, base_height: f32) -> f32 {
-        let pos = charpos as usize;
-        match self.buffer.text_props.get_property(pos, "line-spacing") {
+        let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
+        match self.buffer.text_props.get_property(bytepos, "line-spacing") {
             Some(Value::Int(n)) => *n as f32,
             Some(Value::Float(f, _)) => {
                 if *f < 1.0 {
@@ -730,17 +780,17 @@ impl<'a> RustTextPropAccess<'a> {
     /// Returns `(before_strings, after_strings)` where each is a Vec of
     /// (string_bytes, overlay_id) pairs.
     pub fn overlay_strings_at(&self, charpos: i64) -> (Vec<(Vec<u8>, u64)>, Vec<(Vec<u8>, u64)>) {
-        let pos = charpos as usize;
+        let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         let mut before = Vec::new();
         let mut after = Vec::new();
 
         // Get all overlays covering this position
-        let overlay_ids = self.buffer.overlays.overlays_at(pos);
+        let overlay_ids = self.buffer.overlays.overlays_at(bytepos);
         for oid in &overlay_ids {
             let oid = *oid;
             // Before-string: from overlays that START at this position
             if let Some(start) = self.buffer.overlays.overlay_start(oid) {
-                if start == pos {
+                if start == bytepos {
                     if let Some(val) = self.buffer.overlays.overlay_get(oid, "before-string") {
                         if let Some(s) = value_as_string(val) {
                             before.push((s.as_bytes().to_vec(), oid));
@@ -751,7 +801,7 @@ impl<'a> RustTextPropAccess<'a> {
 
             // After-string: from overlays that END at this position
             if let Some(end) = self.buffer.overlays.overlay_end(oid) {
-                if end == pos {
+                if end == bytepos {
                     if let Some(val) = self.buffer.overlays.overlay_get(oid, "after-string") {
                         if let Some(s) = value_as_string(val) {
                             after.push((s.as_bytes().to_vec(), oid));
@@ -766,15 +816,15 @@ impl<'a> RustTextPropAccess<'a> {
         // The range [pos, pos+1) covers overlays ending at pos
         // Actually, overlays_at covers [start, end) so overlays ending at pos won't be included.
         // We need a broader search for after-strings.
-        if pos > 0 {
+        if bytepos > 0 {
             let nearby_ids = self
                 .buffer
                 .overlays
-                .overlays_in(pos.saturating_sub(1), pos + 1);
+                .overlays_in(bytepos.saturating_sub(1), bytepos + 1);
             for oid in &nearby_ids {
                 let oid = *oid;
                 if let Some(end) = self.buffer.overlays.overlay_end(oid) {
-                    if end == pos {
+                    if end == bytepos {
                         // Check we haven't already processed this overlay
                         if !overlay_ids.contains(&oid) {
                             if let Some(val) = self.buffer.overlays.overlay_get(oid, "after-string")
@@ -797,17 +847,18 @@ impl<'a> RustTextPropAccess<'a> {
     /// This is useful for the layout engine's "next_check" optimization
     /// to avoid per-character property lookups.
     pub fn next_property_change(&self, charpos: i64) -> i64 {
-        let pos = charpos as usize;
+        let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         self.buffer
             .text_props
-            .next_property_change(pos)
-            .unwrap_or(self.buffer.zv) as i64
+            .next_property_change(bytepos)
+            .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
+            .unwrap_or(self.buffer.point_max_char()) as i64
     }
 
     /// Get a specific text property at a position.
     pub fn get_property(&self, charpos: i64, name: &str) -> Option<&Value> {
-        let pos = charpos as usize;
-        self.buffer.text_props.get_property(pos, name)
+        let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
+        self.buffer.text_props.get_property(bytepos, name)
     }
 
     /// Get a text property at `charpos` as a string.
@@ -976,7 +1027,7 @@ impl FaceResolver {
             .unwrap_or(FontWeight::NORMAL.0);
         df.italic = neo_default.slant.map(|s| s.is_italic()).unwrap_or(false);
         df.font_size = match &neo_default.height {
-            Some(FaceHeight::Absolute(tenths)) => *tenths as f32 / 10.0 * (96.0 / 72.0),
+            Some(FaceHeight::Absolute(tenths)) => face_height_to_pixels(*tenths),
             _ => default_font_size,
         };
         df.extend = neo_default.extend.unwrap_or(false);
@@ -1037,12 +1088,13 @@ impl FaceResolver {
         charpos: usize,
         next_check: &mut usize,
     ) -> ResolvedFace {
+        let bytepos = buffer_charpos_to_bytepos(buffer, charpos);
         let mut face_names: Vec<String> = Vec::new();
-        let mut min_next = buffer.zv;
+        let mut min_next = buffer.point_max_char();
 
         // 1. "face" text property
         let mut plist_face: Option<NeoFace> = None;
-        if let Some(val) = buffer.text_props.get_property(charpos, "face") {
+        if let Some(val) = buffer.text_props.get_property(bytepos, "face") {
             let names = Self::resolve_face_value(val);
             if names.len() == 1 && names[0] == "--plist-face--" {
                 // Inline plist face — parse directly into a Face object.
@@ -1052,18 +1104,18 @@ impl FaceResolver {
             }
         }
         // Update next_check from text property boundaries
-        if let Some(nc) = buffer.text_props.next_property_change(charpos) {
-            min_next = min_next.min(nc);
+        if let Some(nc) = buffer.text_props.next_property_change(bytepos) {
+            min_next = min_next.min(buffer_bytepos_to_charpos(buffer, nc));
         }
 
         // 2. "font-lock-face" text property
-        if let Some(val) = buffer.text_props.get_property(charpos, "font-lock-face") {
+        if let Some(val) = buffer.text_props.get_property(bytepos, "font-lock-face") {
             let names = Self::resolve_face_value(val);
             face_names.extend(names);
         }
 
         // 3. Overlay faces (sorted by priority, lowest first)
-        let overlay_ids = buffer.overlays.overlays_at(charpos);
+        let overlay_ids = buffer.overlays.overlays_at(bytepos);
         if !overlay_ids.is_empty() {
             // Collect (priority, face_names) pairs
             let mut overlay_faces: Vec<(i64, Vec<String>)> = Vec::new();
@@ -1071,8 +1123,8 @@ impl FaceResolver {
                 let oid = *oid;
                 // Update next_check from overlay boundaries
                 if let Some(end) = buffer.overlays.overlay_end(oid) {
-                    if end > charpos {
-                        min_next = min_next.min(end);
+                    if end > bytepos {
+                        min_next = min_next.min(buffer_bytepos_to_charpos(buffer, end));
                     }
                 }
                 // Get priority (default 0)
@@ -1099,8 +1151,8 @@ impl FaceResolver {
 
         // Also consider overlay boundaries so next_check doesn't skip past
         // positions where an overlay starts or ends.
-        if let Some(nb) = buffer.overlays.next_boundary_after(charpos) {
-            min_next = min_next.min(nb);
+        if let Some(nb) = buffer.overlays.next_boundary_after(bytepos) {
+            min_next = min_next.min(buffer_bytepos_to_charpos(buffer, nb));
         }
 
         *next_check = min_next;
@@ -1183,303 +1235,8 @@ impl FaceResolver {
     /// Parse an inline face plist like `(:foreground "red" :weight bold)` into
     /// a `Face` object.  Handles the same keywords as GNU Emacs face specs.
     pub fn face_from_plist(val: &Value) -> Option<NeoFace> {
-        use neovm_core::face::FontSlant;
-
         let items = list_to_vec(val)?;
-        let mut face = NeoFace::new("--inline--");
-        let mut i = 0;
-        while i < items.len() {
-            let key = items[i].as_symbol_name().unwrap_or("");
-            let val_item = items.get(i + 1);
-            match key {
-                ":foreground" => {
-                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
-                        if let Some(c) = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)) {
-                            face.foreground = Some(c);
-                        }
-                    }
-                }
-                ":background" => {
-                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
-                        if let Some(c) = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)) {
-                            face.background = Some(c);
-                        }
-                    }
-                }
-                ":weight" => {
-                    if let Some(name) = val_item.and_then(|v| v.as_symbol_name()) {
-                        face.weight = FontWeight::from_symbol(name);
-                    }
-                }
-                ":slant" => {
-                    if let Some(name) = val_item.and_then(|v| v.as_symbol_name()) {
-                        face.slant = Some(match name {
-                            "italic" => FontSlant::Italic,
-                            "oblique" => FontSlant::Oblique,
-                            _ => FontSlant::Normal,
-                        });
-                    }
-                }
-                ":height" => {
-                    if let Some(v) = val_item {
-                        match v {
-                            Value::Int(n) => {
-                                face.height = Some(FaceHeight::Absolute(*n as i32));
-                            }
-                            Value::Float(f, _) => {
-                                face.height = Some(FaceHeight::Relative(*f));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                ":family" => {
-                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
-                        face.family = Some(s.to_string());
-                    }
-                }
-                ":underline" => {
-                    if let Some(v) = val_item {
-                        face.underline = Self::parse_underline_value(v);
-                    }
-                }
-                ":overline" => {
-                    if let Some(v) = val_item {
-                        if let Some(s) = v.as_str() {
-                            // Color string
-                            face.overline = Some(true);
-                            face.overline_color =
-                                NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
-                        } else {
-                            face.overline = Some(v.is_truthy());
-                        }
-                    }
-                }
-                ":strike-through" => {
-                    if let Some(v) = val_item {
-                        if let Some(s) = v.as_str() {
-                            // Color string
-                            face.strike_through = Some(true);
-                            face.strike_through_color =
-                                NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
-                        } else {
-                            face.strike_through = Some(v.is_truthy());
-                        }
-                    }
-                }
-                ":box" => {
-                    if let Some(v) = val_item {
-                        face.box_border = Self::parse_box_value(v);
-                    }
-                }
-                ":inverse-video" => {
-                    if let Some(v) = val_item {
-                        face.inverse_video = Some(v.is_truthy());
-                    }
-                }
-                ":extend" => {
-                    if let Some(v) = val_item {
-                        face.extend = Some(v.is_truthy());
-                    }
-                }
-                ":inherit" => {
-                    if let Some(v) = val_item {
-                        if let Some(name) = v.as_symbol_name() {
-                            if name != "nil" {
-                                face.inherit.push(name.to_string());
-                            }
-                        } else if let Some(names) = list_to_vec(v) {
-                            for n in &names {
-                                if let Some(name) = n.as_symbol_name() {
-                                    if name != "nil" {
-                                        face.inherit.push(name.to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                ":distant-foreground" => {
-                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
-                        if let Some(c) = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)) {
-                            face.distant_foreground = Some(c);
-                        }
-                    }
-                }
-                ":width" => {
-                    if let Some(name) = val_item.and_then(|v| v.as_symbol_name()) {
-                        face.width = neovm_core::face::FontWidth::from_symbol(name);
-                    }
-                }
-                ":foundry" => {
-                    if let Some(s) = val_item.and_then(|v| v.as_str()) {
-                        face.foundry = Some(s.to_string());
-                    }
-                }
-                _ => {}
-            }
-            i += 2;
-        }
-        Some(face)
-    }
-
-    /// Parse an `:underline` attribute value.
-    ///
-    /// GNU Emacs supports: `t`, a color string, or a plist
-    /// `(:color COLOR :style STYLE :position POS)`.
-    fn parse_underline_value(val: &Value) -> Option<neovm_core::face::Underline> {
-        use neovm_core::face::Underline;
-        match val {
-            Value::True => Some(Underline {
-                style: NeoUnderlineStyle::Line,
-                color: None,
-                position: None,
-            }),
-            Value::Nil => None,
-            _ if val.as_str().is_some() => {
-                // Color string
-                let s = val.as_str().unwrap();
-                Some(Underline {
-                    style: NeoUnderlineStyle::Line,
-                    color: NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)),
-                    position: None,
-                })
-            }
-            Value::Cons(_) => {
-                // Plist: (:color "red" :style wave :position t)
-                let items = list_to_vec(val)?;
-                let mut style = NeoUnderlineStyle::Line;
-                let mut color = None;
-                let mut position = None;
-                let mut i = 0;
-                while i < items.len() {
-                    let key = items[i].as_symbol_name().unwrap_or("");
-                    let v = items.get(i + 1);
-                    match key {
-                        ":color" => {
-                            if let Some(s) = v.and_then(|v| v.as_str()) {
-                                color = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
-                            }
-                        }
-                        ":style" => {
-                            if let Some(name) = v.and_then(|v| v.as_symbol_name()) {
-                                style = match name {
-                                    "wave" => NeoUnderlineStyle::Wave,
-                                    "double-line" => NeoUnderlineStyle::DoubleLine,
-                                    "dots" => NeoUnderlineStyle::Dot,
-                                    "dashes" => NeoUnderlineStyle::Dash,
-                                    _ => NeoUnderlineStyle::Line,
-                                };
-                            }
-                        }
-                        ":position" => {
-                            if let Some(v) = v {
-                                if let Value::Int(n) = v {
-                                    position = Some(*n as i32);
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                    i += 2;
-                }
-                Some(Underline {
-                    style,
-                    color,
-                    position,
-                })
-            }
-            _ => {
-                if val.is_truthy() {
-                    Some(Underline {
-                        style: NeoUnderlineStyle::Line,
-                        color: None,
-                        position: None,
-                    })
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
-    /// Parse a `:box` attribute value.
-    ///
-    /// GNU Emacs supports: `t`, a color string, an integer (line width),
-    /// or a plist `(:line-width WIDTH :color COLOR :style STYLE)`.
-    fn parse_box_value(val: &Value) -> Option<neovm_core::face::BoxBorder> {
-        use neovm_core::face::{BoxBorder, BoxStyle};
-        match val {
-            Value::True => Some(BoxBorder {
-                color: None,
-                width: 1,
-                style: BoxStyle::Flat,
-            }),
-            Value::Nil => None,
-            Value::Int(n) => Some(BoxBorder {
-                color: None,
-                width: *n as i32,
-                style: BoxStyle::Flat,
-            }),
-            _ if val.as_str().is_some() => {
-                let s = val.as_str().unwrap();
-                Some(BoxBorder {
-                    color: NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s)),
-                    width: 1,
-                    style: BoxStyle::Flat,
-                })
-            }
-            Value::Cons(_) => {
-                let items = list_to_vec(val)?;
-                let mut color = None;
-                let mut width = 1i32;
-                let mut style = BoxStyle::Flat;
-                let mut i = 0;
-                while i < items.len() {
-                    let key = items[i].as_symbol_name().unwrap_or("");
-                    let v = items.get(i + 1);
-                    match key {
-                        ":line-width" => {
-                            if let Some(v) = v {
-                                match v {
-                                    Value::Int(n) => width = *n as i32,
-                                    Value::Cons(cell) => {
-                                        // (H . V) pair — use H
-                                        let pair = neovm_core::emacs_core::value::read_cons(*cell);
-                                        if let Value::Int(n) = pair.car {
-                                            width = n as i32;
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        ":color" => {
-                            if let Some(s) = v.and_then(|v| v.as_str()) {
-                                color = NeoColor::from_name(s).or_else(|| NeoColor::from_hex(s));
-                            }
-                        }
-                        ":style" => {
-                            if let Some(name) = v.and_then(|v| v.as_symbol_name()) {
-                                style = match name {
-                                    "released-button" => BoxStyle::Raised,
-                                    "pressed-button" => BoxStyle::Pressed,
-                                    _ => BoxStyle::Flat,
-                                };
-                            }
-                        }
-                        _ => {}
-                    }
-                    i += 2;
-                }
-                Some(BoxBorder {
-                    color,
-                    width,
-                    style,
-                })
-            }
-            _ => None,
-        }
+        Some(NeoFace::from_plist("--inline--", &items))
     }
 
     /// Convert a neovm-core `Face` into a fully-realized `ResolvedFace`.
@@ -1519,9 +1276,7 @@ impl FaceResolver {
         if let Some(h) = &face.height {
             match h {
                 FaceHeight::Absolute(tenths) => {
-                    // 1/10 pt -> logical pixels at 96 DPI: (tenths/10) * (96/72)
-                    // HiDPI scaling handled by winit/wgpu, not here.
-                    rf.font_size = *tenths as f32 / 10.0 * (96.0 / 72.0);
+                    rf.font_size = face_height_to_pixels(*tenths);
                 }
                 FaceHeight::Relative(factor) => {
                     rf.font_size = self.default_face.font_size * (*factor as f32);
@@ -1598,6 +1353,15 @@ mod tests {
     use neovm_core::buffer::BufferManager;
     use neovm_core::window::{FrameManager, Rect as NeoRect, WindowId};
 
+    fn install_test_runtime() {
+        use neovm_core::emacs_core::intern::StringInterner;
+
+        let interner = Box::new(StringInterner::new());
+        neovm_core::emacs_core::intern::set_current_interner(Box::leak(interner));
+        let heap = Box::new(neovm_core::gc::heap::LispHeap::new());
+        neovm_core::emacs_core::value::set_current_heap(Box::leak(heap));
+    }
+
     /// Create a minimal Evaluator-like test fixture (FrameManager + BufferManager)
     /// and verify `collect_layout_params` produces correct output.
     #[test]
@@ -1649,6 +1413,8 @@ mod tests {
 
     #[test]
     fn test_frame_params_from_neovm() {
+        install_test_runtime();
+
         let mut buf_mgr = BufferManager::new();
         let buf_id = buf_mgr.create_buffer("*scratch*");
         let mut frame_mgr = FrameManager::new();
@@ -1690,6 +1456,55 @@ mod tests {
             Value::True,
         );
         assert!(result.is_none(), "Internal windows should return None");
+    }
+
+    #[test]
+    fn test_window_params_from_neovm_uses_window_point_not_buffer_point() {
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator.buffer_manager_mut().create_buffer("*test*");
+        {
+            let buf = evaluator.buffer_manager_mut().get_mut(buf_id).unwrap();
+            buf.insert("abcdef");
+            buf.goto_byte(0);
+        }
+        let frame_id = evaluator
+            .frame_manager_mut()
+            .create_frame("test", 800, 600, buf_id);
+        let selected_window = evaluator
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = evaluator
+                .frame_manager_mut()
+                .get_mut(frame_id)
+                .expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let Window::Leaf { point, .. } = window {
+                *point = 5;
+            } else {
+                panic!("expected leaf window");
+            }
+        }
+
+        let frame = evaluator.frame_manager().get(frame_id).expect("frame");
+        let buffer = evaluator.buffer_manager().get(buf_id).expect("buffer");
+        let params = window_params_from_neovm(
+            frame.find_window(selected_window).expect("selected window"),
+            buffer,
+            frame,
+            evaluator.face_table(),
+            true,
+            false,
+            Value::True,
+        )
+        .expect("window params");
+
+        assert_ne!(buffer.point_char() as i64, params.point);
+        assert_eq!(params.point, 4);
     }
 
     #[test]
@@ -1840,6 +1655,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "Hello, world!");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
         }
 
         let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -1860,6 +1676,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "abc");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
         }
 
         let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -1881,6 +1698,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "abc");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
         }
 
         let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -1900,6 +1718,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "line1\nline2\nline3");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
         }
 
         let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -1917,6 +1736,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "content");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
             buf.modified = true;
             buf.file_name = Some("/tmp/test.el".to_string());
         }
@@ -1941,6 +1761,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "visible hidden visible");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
             // Mark "hidden" (positions 8..14) as invisible
             buf.text_props.put_property(8, 14, "invisible", Value::True);
         }
@@ -1968,6 +1789,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "abcdef");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
             // Set a display property on positions 2..4
             buf.text_props.put_property(2, 4, "display", Value::Int(42));
         }
@@ -1992,6 +1814,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "line1\nline2");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
             // Set line-spacing on "line2" area
             buf.text_props
                 .put_property(6, 11, "line-spacing", Value::Int(4));
@@ -2014,6 +1837,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "aabbcc");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
             buf.text_props.put_property(2, 4, "face", Value::True);
         }
 
@@ -2036,6 +1860,7 @@ mod tests {
         if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
             buf.text.insert_str(0, "test");
             buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
             buf.text_props.put_property(0, 4, "face", Value::Int(5));
         }
 
@@ -2047,6 +1872,27 @@ mod tests {
 
         let none = access.get_property(0, "nonexistent");
         assert!(none.is_none());
+    }
+
+    #[test]
+    fn test_text_prop_access_multibyte_positions_use_byte_offsets() {
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator.buffer_manager_mut().create_buffer("*utf8-prop*");
+        if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+            buf.text.insert_str(0, "a好b");
+            buf.zv = buf.text.len();
+            buf.zv_char = buf.text.char_count();
+            buf.text_props.put_property(4, 5, "face", Value::Int(9));
+        }
+
+        let buf = evaluator.buffer_manager().get(buf_id).unwrap();
+        let access = RustTextPropAccess::new(buf);
+
+        let face = access.get_property(2, "face");
+        assert!(matches!(face, Some(Value::Int(9))));
+
+        let next = access.next_property_change(1);
+        assert_eq!(next, 2);
     }
 
     // -----------------------------------------------------------------------
@@ -2098,11 +1944,12 @@ mod tests {
             neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(1), "*test*".to_string());
         buf.text.insert_str(0, "hello world");
         buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
         // Set "face" to the symbol "bold" on positions 0..5.
         buf.text_props
             .put_property(0, 5, "face", Value::symbol("bold"));
 
-        let mut next_check = buf.zv;
+        let mut next_check = buf.point_max_char();
         let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
 
         // Bold face should have weight 700.
@@ -2111,7 +1958,7 @@ mod tests {
         assert_eq!(next_check, 5);
 
         // Position 6 should have default weight.
-        let mut nc2 = buf.zv;
+        let mut nc2 = buf.point_max_char();
         let resolved2 = resolver.face_at_pos(&buf, 6, &mut nc2);
         assert_eq!(resolved2.font_weight, FontWeight::NORMAL.0);
     }
@@ -2128,6 +1975,7 @@ mod tests {
         );
         buf.text.insert_str(0, "defun myfunction");
         buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
         // Set "font-lock-face" to "font-lock-keyword-face" on "defun".
         buf.text_props.put_property(
             0,
@@ -2136,7 +1984,7 @@ mod tests {
             Value::symbol("font-lock-keyword-face"),
         );
 
-        let mut next_check = buf.zv;
+        let mut next_check = buf.point_max_char();
         let resolved = resolver.face_at_pos(&buf, 2, &mut next_check);
 
         // font-lock-keyword-face has foreground purple (128, 0, 128).
@@ -2156,6 +2004,7 @@ mod tests {
         );
         buf.text.insert_str(0, "aabbccdd");
         buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
         // Face property on [2, 4)
         buf.text_props
             .put_property(2, 4, "face", Value::symbol("bold"));
@@ -2164,17 +2013,17 @@ mod tests {
             .put_property(4, 6, "face", Value::symbol("italic"));
 
         // At position 0, next_check should be 2 (first property boundary).
-        let mut nc = buf.zv;
+        let mut nc = buf.point_max_char();
         let _ = resolver.face_at_pos(&buf, 0, &mut nc);
         assert_eq!(nc, 2);
 
         // At position 2, next_check should be 4 (end of bold range).
-        let mut nc = buf.zv;
+        let mut nc = buf.point_max_char();
         let _ = resolver.face_at_pos(&buf, 2, &mut nc);
         assert_eq!(nc, 4);
 
         // At position 4, next_check should be 6 (end of italic range).
-        let mut nc = buf.zv;
+        let mut nc = buf.point_max_char();
         let _ = resolver.face_at_pos(&buf, 4, &mut nc);
         assert_eq!(nc, 6);
     }
@@ -2191,12 +2040,13 @@ mod tests {
         );
         buf.text.insert_str(0, "overlay text here");
         buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
 
         // Create an overlay with "face" = "bold" covering [0, 7).
         let oid = buf.overlays.make_overlay(0, 7);
         buf.overlays.overlay_put(oid, "face", Value::symbol("bold"));
 
-        let mut nc = buf.zv;
+        let mut nc = buf.point_max_char();
         let resolved = resolver.face_at_pos(&buf, 3, &mut nc);
         assert_eq!(resolved.font_weight, FontWeight::BOLD.0);
         // next_check should be at most 7 (end of overlay).
@@ -2225,6 +2075,7 @@ mod tests {
         );
         buf.text.insert_str(0, "priority test");
         buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
 
         // Overlay A: priority 10, face-a (red)
         let oid_a = buf.overlays.make_overlay(0, 10);
@@ -2238,7 +2089,7 @@ mod tests {
             .overlay_put(oid_b, "face", Value::symbol("face-b"));
         buf.overlays.overlay_put(oid_b, "priority", Value::Int(20));
 
-        let mut nc = buf.zv;
+        let mut nc = buf.point_max_char();
         let resolved = resolver.face_at_pos(&buf, 5, &mut nc);
         // face-b (blue, priority 20) should override face-a (red, priority 10).
         assert_eq!(resolved.fg, color_to_pixel(&NeoColor::rgb(0, 0, 255)));
@@ -2263,14 +2114,61 @@ mod tests {
         );
         buf.text.insert_str(0, "inverted");
         buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
         buf.text_props
             .put_property(0, 8, "face", Value::symbol("inverse-test"));
 
-        let mut nc = buf.zv;
+        let mut nc = buf.point_max_char();
         let resolved = resolver.face_at_pos(&buf, 0, &mut nc);
         // Inverse: fg and bg should be swapped.
         assert_eq!(resolved.fg, 0x00000000); // was white, now black
         assert_eq!(resolved.bg, 0x00FFFFFF); // was black, now white
+    }
+
+    #[test]
+    fn test_face_resolver_multibyte_text_property_uses_byte_offsets() {
+        let _evaluator = neovm_core::emacs_core::Evaluator::new();
+
+        let table = FaceTable::new();
+        let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+
+        let mut buf =
+            neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(7), "*utf8*".to_string());
+        buf.text.insert_str(0, "a好b");
+        buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
+        buf.text_props
+            .put_property(4, 5, "face", Value::symbol("bold"));
+
+        let mut next_check = buf.point_max_char();
+        let resolved = resolver.face_at_pos(&buf, 2, &mut next_check);
+
+        assert_eq!(resolved.font_weight, FontWeight::BOLD.0);
+        assert_eq!(next_check, 3);
+    }
+
+    #[test]
+    fn test_face_resolver_multibyte_overlay_uses_byte_offsets() {
+        let _evaluator = neovm_core::emacs_core::Evaluator::new();
+
+        let table = FaceTable::new();
+        let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+
+        let mut buf = neovm_core::buffer::Buffer::new(
+            neovm_core::buffer::BufferId(8),
+            "*utf8-overlay*".to_string(),
+        );
+        buf.text.insert_str(0, "a好b");
+        buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
+        let oid = buf.overlays.make_overlay(4, 5);
+        buf.overlays.overlay_put(oid, "face", Value::symbol("bold"));
+
+        let mut next_check = buf.point_max_char();
+        let resolved = resolver.face_at_pos(&buf, 2, &mut next_check);
+
+        assert_eq!(resolved.font_weight, FontWeight::BOLD.0);
+        assert_eq!(next_check, 3);
     }
 
     #[test]
@@ -2304,8 +2202,8 @@ mod tests {
         let mut face = NeoFace::new("tall");
         face.height = Some(FaceHeight::Absolute(240)); // 24pt
         let realized = resolver.realize_face(&face);
-        // 240/10 * 96/72 = 24 * 1.333... = 32.0
-        assert!((realized.font_size - 32.0).abs() < 0.1);
+        let expected = crate::fontconfig::face_height_to_pixels(240);
+        assert!((realized.font_size - expected).abs() < 0.1);
     }
 
     #[test]
@@ -2320,5 +2218,32 @@ mod tests {
         // 2.0 * default_font_size
         let expected = resolver.default_face().font_size * 2.0;
         assert!((realized.font_size - expected).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_face_from_plist_realizes_relative_height_family_and_weight() {
+        let _evaluator = neovm_core::emacs_core::Evaluator::new();
+        let table = FaceTable::new();
+        let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 26.666666);
+
+        let plist = Value::list(vec![
+            Value::keyword("family"),
+            Value::string("DejaVu Sans Mono"),
+            Value::keyword("height"),
+            Value::Float(1.6, neovm_core::emacs_core::value::next_float_id()),
+            Value::keyword("weight"),
+            Value::symbol("extra-bold"),
+        ]);
+
+        let inline_face = FaceResolver::face_from_plist(&plist).expect("inline plist face");
+        let realized = resolver.realize_face(&inline_face);
+
+        assert_eq!(realized.font_family, "DejaVu Sans Mono");
+        assert_eq!(realized.font_weight, FontWeight::EXTRA_BOLD.0);
+        assert!(
+            (realized.font_size - (resolver.default_face().font_size * 1.6)).abs() < 0.1,
+            "expected relative face height to scale from the default face size, got {}",
+            realized.font_size
+        );
     }
 }

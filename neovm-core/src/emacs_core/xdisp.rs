@@ -21,7 +21,7 @@ use super::intern::intern;
 use super::value::*;
 use crate::buffer::{BufferId, TextPropertyTable};
 use crate::encoding::char_to_byte_pos;
-use crate::window::{FrameId, Window, WindowId};
+use crate::window::{DisplayPointSnapshot, FrameId, Window, WindowId};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -472,24 +472,27 @@ fn build_mode_line_percent_context(
     if let Some(window) = resolved_window {
         if let crate::window::Window::Leaf {
             window_start,
-            point,
+            window_end_pos,
             ..
         } = window
         {
             // Window positions are 1-indexed (Elisp convention); convert to
             // 0-indexed to match buffer begv/zv.
             ctx.window_start = window_start.saturating_sub(1);
-            // We don't track window_end_pos like GNU; approximate with buffer zv.
             if let Some(buf) = buffers.current_buffer() {
-                ctx.window_end = buf.zv;
+                ctx.window_end = buf
+                    .point_max_char()
+                    .saturating_add(1)
+                    .saturating_sub(*window_end_pos)
+                    .saturating_sub(1);
             } else {
-                ctx.window_end = point.saturating_sub(1);
+                ctx.window_end = ctx.window_start;
             }
         }
     } else if let Some(buf) = buffers.current_buffer() {
         // Fallback: use buffer positions when no window is available.
         ctx.window_start = 0;
-        ctx.window_end = buf.zv;
+        ctx.window_end = buf.point_max_char();
     }
 
     // --- Coding system mnemonic (GNU: decode_mode_spec_coding) ---
@@ -1718,8 +1721,8 @@ fn expand_mode_line_percent_in_state(
                 let text = if let Some(b) = buf {
                     let pos = pctx.window_start;
                     let botpos = pctx.window_end;
-                    let begv = b.begv;
-                    let zv = b.zv.max(b.begv);
+                    let begv = b.point_min_char();
+                    let zv = b.point_max_char().max(b.point_min_char());
                     if botpos >= zv {
                         if pos <= begv {
                             "All".to_owned()
@@ -1742,8 +1745,8 @@ fn expand_mode_line_percent_in_state(
                 let text = if let Some(b) = buf {
                     let toppos = pctx.window_start;
                     let botpos = pctx.window_end;
-                    let begv = b.begv;
-                    let zv = b.zv.max(b.begv);
+                    let begv = b.point_min_char();
+                    let zv = b.point_max_char().max(b.point_min_char());
                     if botpos >= zv {
                         if toppos <= begv {
                             "All".to_owned()
@@ -1769,8 +1772,8 @@ fn expand_mode_line_percent_in_state(
                 let text = if let Some(b) = buf {
                     let toppos = pctx.window_start;
                     let botpos = pctx.window_end;
-                    let begv = b.begv;
-                    let zv = b.zv.max(b.begv);
+                    let begv = b.point_min_char();
+                    let zv = b.point_max_char().max(b.point_min_char());
                     if botpos >= zv {
                         if toppos <= begv {
                             "All".to_owned()
@@ -1795,8 +1798,8 @@ fn expand_mode_line_percent_in_state(
                 let text = if let Some(b) = buf {
                     let toppos = pctx.window_start;
                     let botpos = pctx.window_end;
-                    let begv = b.begv;
-                    let zv = b.zv.max(b.begv);
+                    let begv = b.point_min_char();
+                    let zv = b.point_max_char().max(b.point_min_char());
                     if toppos <= begv && botpos >= zv {
                         "All   ".to_owned()
                     } else {
@@ -2017,10 +2020,21 @@ pub(crate) fn builtin_pos_visible_in_window_p_in_state(
 ) -> EvalResult {
     expect_args_range("pos-visible-in-window-p", &args, 0, 3)?;
     validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
+    let partially = args.get(2).is_some_and(Value::is_truthy);
+    if let Some((_, metrics)) =
+        resolve_exact_visible_metrics(frames, buffers, args.get(1), args.first())?
+    {
+        if !partially {
+            return Ok(Value::True);
+        }
+        return Ok(Value::list(vec![
+            Value::Int(metrics.x),
+            Value::Int(metrics.y),
+        ]));
+    }
     let Some(ctx) = resolve_live_window_display_context(frames, buffers, args.get(1))? else {
         return Ok(Value::Nil);
     };
-    let partially = args.get(2).is_some_and(Value::is_truthy);
     let Some(pos_lisp) = resolve_pos_visible_target_lisp_pos(&ctx, args.first())? else {
         return Ok(Value::Nil);
     };
@@ -2064,6 +2078,47 @@ pub(crate) fn builtin_window_line_height_in_state(
 ) -> EvalResult {
     expect_args_range("window-line-height", &args, 0, 2)?;
     validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
+    if let Some((fid, wid)) = resolve_live_window_identity(frames, args.get(1))? {
+        if let Some(frame) = frames.get(fid) {
+            if let Some(snapshot) = frame.window_display_snapshot(wid) {
+                let line_spec = args.first().copied().unwrap_or(Value::Nil);
+                let exact_row = if line_spec.is_nil() {
+                    resolve_exact_visible_metrics(frames, buffers, args.get(1), None)?
+                        .and_then(|(_, metrics)| snapshot.row_metrics(metrics.row))
+                } else if line_spec.is_symbol_named("mode-line")
+                    || line_spec.is_symbol_named("header-line")
+                    || line_spec.is_symbol_named("tab-line")
+                {
+                    None
+                } else {
+                    let line_num = match line_spec {
+                        Value::Int(n) => n,
+                        Value::Char(ch) => ch as i64,
+                        other => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("integerp"), other],
+                            ));
+                        }
+                    };
+                    let row = if line_num < 0 {
+                        snapshot.rows.len() as i64 + line_num
+                    } else {
+                        line_num
+                    };
+                    snapshot.row_metrics(row)
+                };
+                if let Some(row) = exact_row {
+                    return Ok(Value::list(vec![
+                        Value::Int(row.height),
+                        Value::Int(row.row),
+                        Value::Int(row.y),
+                        Value::Int(0),
+                    ]));
+                }
+            }
+        }
+    }
     let Some(ctx) = resolve_live_window_display_context(frames, buffers, args.get(1))? else {
         return Ok(Value::Nil);
     };
@@ -2726,6 +2781,202 @@ fn window_row_metrics(ctx: &ApproxWindowDisplayContext, row: i64) -> WindowLineM
         ypos,
         offbot,
     }
+}
+
+#[derive(Clone, Copy)]
+struct ExactVisibleMetrics {
+    point: usize,
+    x: i64,
+    y: i64,
+    width: i64,
+    height: i64,
+    row: i64,
+    col: i64,
+}
+
+fn exact_metrics_from_point(point: &DisplayPointSnapshot) -> ExactVisibleMetrics {
+    ExactVisibleMetrics {
+        point: point.buffer_pos,
+        x: point.x,
+        y: point.y,
+        width: point.width.max(1),
+        height: point.height.max(1),
+        row: point.row,
+        col: point.col,
+    }
+}
+
+fn resolve_exact_visible_metrics(
+    frames: &crate::window::FrameManager,
+    buffers: &crate::buffer::BufferManager,
+    window: Option<&Value>,
+    pos: Option<&Value>,
+) -> Result<Option<(WindowId, ExactVisibleMetrics)>, Flow> {
+    let Some((fid, wid)) = resolve_live_window_identity(frames, window)? else {
+        return Ok(None);
+    };
+    let Some(frame) = frames.get(fid) else {
+        return Ok(None);
+    };
+    let Some(snapshot) = frame.window_display_snapshot(wid) else {
+        return Ok(None);
+    };
+    let Some(ctx) = resolve_live_window_display_context(frames, buffers, window)? else {
+        return Ok(None);
+    };
+    let Some(pos_lisp) = resolve_pos_visible_target_lisp_pos(&ctx, pos)? else {
+        return Ok(None);
+    };
+    let Some(point) = snapshot.point_for_buffer_pos(pos_lisp) else {
+        return Ok(None);
+    };
+    Ok(Some((wid, exact_metrics_from_point(point))))
+}
+
+fn make_text_area_position(window_id: WindowId, metrics: ExactVisibleMetrics) -> Value {
+    Value::list(vec![
+        Value::Window(window_id.0),
+        Value::Int(metrics.point as i64),
+        Value::cons(Value::Int(metrics.x), Value::Int(metrics.y)),
+        Value::Int(0),
+        Value::Nil,
+        Value::Int(metrics.point as i64),
+        Value::cons(Value::Int(metrics.col), Value::Int(metrics.row)),
+        Value::Nil,
+        Value::cons(Value::Int(0), Value::Int(0)),
+        Value::cons(Value::Int(metrics.width), Value::Int(metrics.height)),
+    ])
+}
+
+fn resolve_posn_at_xy_window(
+    frames: &crate::window::FrameManager,
+    frame_or_window: Option<&Value>,
+) -> Result<Option<(FrameId, WindowId, bool)>, Flow> {
+    let Some(frameish) = frame_or_window else {
+        return Ok(frames
+            .selected_frame()
+            .map(|frame| (frame.id, frame.selected_window, true)));
+    };
+    if frameish.is_nil() {
+        return Ok(frames
+            .selected_frame()
+            .map(|frame| (frame.id, frame.selected_window, true)));
+    }
+    if let Some(windowish) = resolve_live_window_identity(frames, Some(frameish))? {
+        return Ok(Some((windowish.0, windowish.1, true)));
+    }
+    let fid = match frameish {
+        Value::Frame(id) => FrameId(*id),
+        Value::Int(id) if *id >= 0 => FrameId(*id as u64),
+        other => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("framep"), *other],
+            ));
+        }
+    };
+    let Some(frame) = frames.get(fid) else {
+        return Ok(None);
+    };
+    Ok(Some((fid, frame.selected_window, false)))
+}
+
+/// `(posn-at-point &optional POS WINDOW)` evaluator-backed variant.
+pub(crate) fn builtin_posn_at_point_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_posn_at_point_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_posn_at_point_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args_range("posn-at-point", &args, 0, 2)?;
+    validate_optional_window_designator_in_state(&*frames, args.get(1), "window-live-p")?;
+    let Some((window_id, metrics)) =
+        resolve_exact_visible_metrics(frames, buffers, args.get(1), args.first())?
+    else {
+        return Ok(Value::Nil);
+    };
+    Ok(make_text_area_position(window_id, metrics))
+}
+
+/// `(posn-at-x-y X Y &optional FRAME-OR-WINDOW WHOLE)` evaluator-backed variant.
+pub(crate) fn builtin_posn_at_x_y_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_posn_at_x_y_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_posn_at_x_y_in_state(
+    frames: &mut crate::window::FrameManager,
+    buffers: &mut crate::buffer::BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args_range("posn-at-x-y", &args, 2, 4)?;
+    let x = match args.first() {
+        Some(Value::Int(v)) => *v,
+        Some(Value::Char(v)) => *v as i64,
+        Some(other) => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("fixnump"), *other],
+            ));
+        }
+        None => unreachable!(),
+    };
+    let y = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        Some(Value::Char(v)) => *v as i64,
+        Some(other) => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("fixnump"), *other],
+            ));
+        }
+        None => unreachable!(),
+    };
+    let whole = args.get(3).is_some_and(Value::is_truthy);
+    let Some((fid, wid, window_relative_input)) = resolve_posn_at_xy_window(frames, args.get(2))?
+    else {
+        return Ok(Value::Nil);
+    };
+    let Some(frame) = frames.get(fid) else {
+        return Ok(Value::Nil);
+    };
+    let Some(snapshot) = frame.window_display_snapshot(wid) else {
+        return Ok(Value::Nil);
+    };
+    let Some(window_ref) = frame.find_window(wid) else {
+        return Ok(Value::Nil);
+    };
+
+    let (query_x, query_y) = if window_relative_input {
+        let rel_x = if whole {
+            x - snapshot.text_area_left_offset
+        } else {
+            x
+        };
+        (rel_x, y)
+    } else {
+        let bounds = window_ref.bounds();
+        (
+            x - bounds.x.round() as i64 - snapshot.text_area_left_offset,
+            y - bounds.y.round() as i64,
+        )
+    };
+
+    let Some(point) = snapshot.point_at_coords(query_x, query_y) else {
+        return Ok(Value::Nil);
+    };
+    Ok(make_text_area_position(
+        wid,
+        exact_metrics_from_point(point),
+    ))
 }
 
 // ---------------------------------------------------------------------------

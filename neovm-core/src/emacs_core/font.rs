@@ -19,8 +19,11 @@ use std::collections::{HashMap, HashSet};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
+use super::textprop::string_elisp_pos_to_byte;
 use super::value::*;
-use crate::window::{FRAME_ID_BASE, FrameId, FrameManager};
+use crate::buffer::{Buffer, BufferManager};
+use crate::face::{Face as RuntimeFace, FaceHeight, FontSlant, FontWeight, FontWidth};
+use crate::window::{FRAME_ID_BASE, FrameId, FrameManager, WindowId};
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local to this module)
@@ -100,38 +103,38 @@ fn optional_selected_frame_designator_p(value: &Value) -> bool {
 
 /// The tag keyword used to identify font-spec vectors: `:font-spec`.
 const FONT_SPEC_TAG: &str = "font-spec";
+const FONT_OBJECT_TAG: &str = "font-object";
+
+fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
+    match val {
+        Value::Vector(v) => {
+            let elems = with_heap(|h| h.get_vector(*v).clone());
+            matches!(&elems.first(), Some(Value::Keyword(k)) if resolve_sym(*k) == tag)
+        }
+        _ => false,
+    }
+}
 
 /// Check whether a Value is a font-spec (a vector whose first element is
 /// the keyword `:font-spec`).
 fn is_font_spec(val: &Value) -> bool {
-    match val {
-        Value::Vector(v) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
-            if elems.is_empty() {
-                return false;
-            }
-            matches!(&elems[0], Value::Keyword(k) if resolve_sym(*k) == FONT_SPEC_TAG)
-        }
-        _ => false,
-    }
+    is_tagged_font_vector(val, FONT_SPEC_TAG)
 }
 
 /// Check whether a value is represented as a font-object vector.
 fn is_font_object(val: &Value) -> bool {
-    match val {
-        Value::Vector(v) => {
-            let elems = with_heap(|h| h.get_vector(*v).clone());
-            matches!(&elems.first(), Some(Value::Keyword(tag)) if resolve_sym(*tag) == "font-object")
-        }
-        _ => false,
-    }
+    is_tagged_font_vector(val, FONT_OBJECT_TAG)
 }
 
-/// Extract a property from a font-spec vector.
+fn is_font(val: &Value) -> bool {
+    is_font_spec(val) || is_font_object(val)
+}
+
+/// Extract a property from a tagged font vector.
 ///
 /// Property lookup is strict: keys only match if they are exactly equal to
 /// `prop` (keyword vs symbol distinction is preserved).
-fn font_spec_get(vec_elems: &[Value], prop: &Value) -> Value {
+fn font_vector_get(vec_elems: &[Value], prop: &Value) -> Value {
     // Skip the tag at index 0; scan remaining pairs.
     let mut i = 1;
     while i + 1 < vec_elems.len() {
@@ -143,9 +146,9 @@ fn font_spec_get(vec_elems: &[Value], prop: &Value) -> Value {
     Value::Nil
 }
 
-/// Get a property from a font-spec while accepting both `family` and `:family`
+/// Get a property from a tagged font vector while accepting both `family` and `:family`
 /// style keys, and both keyword and symbol keys.
-fn font_spec_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
+fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
     let prop_norm = prop.trim_start_matches(':');
     let mut i = 1;
     while i + 1 < vec_elems.len() {
@@ -288,7 +291,7 @@ fn xlfd_resolution_field(dpi: Option<&Value>) -> String {
     }
 }
 
-fn xlfd_fields_from_font_spec(
+fn xlfd_fields_from_font_vector(
     v: &[Value],
 ) -> (
     String,
@@ -303,33 +306,34 @@ fn xlfd_fields_from_font_spec(
     String,
     String,
 ) {
-    let foundry = font_spec_get_flexible(v, "foundry")
+    let foundry = font_vector_get_flexible(v, "foundry")
         .map(|value| font_spec_field_to_string(&value))
         .unwrap_or_else(|| "*".to_string());
-    let family = font_spec_get_flexible(v, "family")
+    let family = font_vector_get_flexible(v, "family")
         .map(|value| font_spec_field_to_string(&value))
         .unwrap_or_else(|| "*".to_string());
-    let weight = font_spec_get_flexible(v, "weight")
+    let weight = font_vector_get_flexible(v, "weight")
         .map(|value| sanitize_style_field(&value))
         .unwrap_or_else(|| "*".to_string());
-    let slant = font_spec_get_flexible(v, "slant")
+    let slant = font_vector_get_flexible(v, "slant")
         .map(|value| sanitize_style_field(&value))
         .unwrap_or_else(|| "*".to_string());
-    let set_width = font_spec_get_flexible(v, "set-width")
-        .or_else(|| font_spec_get_flexible(v, "setwidth"))
+    let set_width = font_vector_get_flexible(v, "set-width")
+        .or_else(|| font_vector_get_flexible(v, "setwidth"))
+        .or_else(|| font_vector_get_flexible(v, "width"))
         .map(|value| font_spec_field_to_string(&value))
         .unwrap_or_else(|| "*".to_string());
-    let adstyle = font_spec_get_flexible(v, "adstyle")
+    let adstyle = font_vector_get_flexible(v, "adstyle")
         .map(|value| font_spec_field_to_string(&value))
         .unwrap_or_else(|| "*".to_string());
 
-    let size = font_spec_get_flexible(v, "size");
-    let dpi = font_spec_get_flexible(v, "dpi");
-    let spacing = font_spec_get_flexible(v, "spacing");
-    let avg_width = font_spec_get_flexible(v, "average_width")
-        .or_else(|| font_spec_get_flexible(v, "avg_width"))
-        .or_else(|| font_spec_get_flexible(v, "avg-width"));
-    let registry = font_spec_get_flexible(v, "registry");
+    let size = font_vector_get_flexible(v, "size");
+    let dpi = font_vector_get_flexible(v, "dpi");
+    let spacing = font_vector_get_flexible(v, "spacing");
+    let avg_width = font_vector_get_flexible(v, "average_width")
+        .or_else(|| font_vector_get_flexible(v, "avg_width"))
+        .or_else(|| font_vector_get_flexible(v, "avg-width"));
+    let registry = font_vector_get_flexible(v, "registry");
 
     let pixel = xlfd_pixel_field(size.as_ref());
     let resx = xlfd_resolution_field(dpi.as_ref());
@@ -367,8 +371,23 @@ fn font_spec_put(vec_elems: &mut Vec<Value>, prop: &Value, val: &Value) {
 pub(crate) fn builtin_fontp(args: Vec<Value>) -> EvalResult {
     expect_max_args("fontp", &args, 2)?;
     expect_min_args("fontp", &args, 1)?;
-    // Ignore EXTRA-TYPE for now; just check the tag.
-    Ok(Value::bool(is_font_spec(&args[0])))
+    let object = &args[0];
+    let extra_type = args.get(1).copied().unwrap_or(Value::Nil);
+    let value = if extra_type.is_nil() {
+        is_font(object)
+    } else if extra_type.is_symbol_named("font-spec") {
+        is_font_spec(object)
+    } else if extra_type.is_symbol_named("font-object") {
+        is_font_object(object)
+    } else if extra_type.is_symbol_named("font-entity") {
+        false
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("font-extra-type"), extra_type],
+        ));
+    };
+    Ok(Value::bool(value))
 }
 
 /// `(font-spec &rest ARGS)` -- create a font spec from keyword args.
@@ -430,7 +449,7 @@ pub(crate) fn builtin_font_spec(args: Vec<Value>) -> EvalResult {
 /// `(font-get FONT PROP)` -- get a property value from a font-spec.
 pub(crate) fn builtin_font_get(args: Vec<Value>) -> EvalResult {
     expect_args("font-get", &args, 2)?;
-    if !is_font_spec(&args[0]) {
+    if !is_font(&args[0]) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("font"), args[0]],
@@ -446,9 +465,9 @@ pub(crate) fn builtin_font_get(args: Vec<Value>) -> EvalResult {
     match &args[0] {
         Value::Vector(v) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
-            Ok(font_spec_get(&elems, &args[1]))
+            Ok(font_vector_get(&elems, &args[1]))
         }
-        _ => unreachable!("font-spec check above guarantees vector"),
+        _ => unreachable!("font check above guarantees vector"),
     }
 }
 
@@ -592,7 +611,7 @@ pub(crate) fn builtin_font_family_list_eval(
 pub(crate) fn builtin_font_xlfd_name(args: Vec<Value>) -> EvalResult {
     expect_min_args("font-xlfd-name", &args, 1)?;
     expect_max_args("font-xlfd-name", &args, 3)?;
-    if !is_font_spec(&args[0]) {
+    if !is_font(&args[0]) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("font"), args[0]],
@@ -602,7 +621,21 @@ pub(crate) fn builtin_font_xlfd_name(args: Vec<Value>) -> EvalResult {
     let fields = match &args[0] {
         Value::Vector(v) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
-            xlfd_fields_from_font_spec(&elems)
+            if is_font_object(&args[0])
+                && let Some(Value::Str(id)) = font_vector_get_flexible(&elems, "name")
+            {
+                let font_name = with_heap(|h| h.get_string(id).to_owned());
+                if font_name.starts_with('-') {
+                    return Ok(Value::string(
+                        if args.get(1).is_some_and(Value::is_truthy) {
+                            fold_xlfd_wildcards(font_name)
+                        } else {
+                            font_name
+                        },
+                    ));
+                }
+            }
+            xlfd_fields_from_font_vector(&elems)
         }
         _ => (
             "*".to_string(),
@@ -694,6 +727,378 @@ pub(crate) fn builtin_close_font_in_state(frames: &FrameManager, args: Vec<Value
     }
     expect_optional_frame_designator_in_state(frames, args.get(1))?;
     Ok(Value::Nil)
+}
+
+#[derive(Clone, Debug)]
+enum FaceLayer {
+    Named(Vec<String>),
+    Inline(RuntimeFace),
+}
+
+fn window_id_from_designator(value: &Value) -> Option<WindowId> {
+    match value {
+        Value::Window(id) => Some(WindowId(*id)),
+        Value::Int(n) if *n >= 0 => Some(WindowId(*n as u64)),
+        _ => None,
+    }
+}
+
+fn resolve_live_window_for_font_at(
+    eval: &mut super::eval::Evaluator,
+    value: Option<&Value>,
+) -> Result<(FrameId, WindowId), Flow> {
+    match value {
+        None | Some(Value::Nil) => {
+            let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
+            let frame = eval
+                .frames
+                .get(frame_id)
+                .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+            Ok((frame_id, frame.selected_window))
+        }
+        Some(other) => {
+            let Some(window_id) = window_id_from_designator(other) else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("window-live-p"), *other],
+                ));
+            };
+            let Some(frame_id) = eval.frames.find_window_frame_id(window_id) else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("window-live-p"), *other],
+                ));
+            };
+            Ok((frame_id, window_id))
+        }
+    }
+}
+
+fn resolve_face_layers_from_value(value: &Value) -> Vec<FaceLayer> {
+    match value {
+        Value::Nil => Vec::new(),
+        Value::Symbol(_) | Value::Keyword(_) => value
+            .as_symbol_name()
+            .filter(|name| *name != "nil")
+            .map(|name| vec![FaceLayer::Named(vec![name.to_string()])])
+            .unwrap_or_default(),
+        Value::Cons(_) => {
+            let Some(items) = list_to_vec(value) else {
+                return Vec::new();
+            };
+            if items
+                .first()
+                .is_some_and(|item| matches!(item, Value::Keyword(_)))
+            {
+                vec![FaceLayer::Inline(RuntimeFace::from_plist(
+                    "--font-at--",
+                    &items,
+                ))]
+            } else {
+                let names = items
+                    .iter()
+                    .filter_map(|item| {
+                        item.as_symbol_name()
+                            .filter(|name| *name != "nil")
+                            .map(|name| name.to_string())
+                    })
+                    .collect::<Vec<_>>();
+                if names.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![FaceLayer::Named(names)]
+                }
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn apply_face_layers(face_table: &crate::face::FaceTable, layers: &[FaceLayer]) -> RuntimeFace {
+    let mut face = face_table.resolve("default");
+    for layer in layers {
+        match layer {
+            FaceLayer::Named(names) => {
+                let refs = names.iter().map(String::as_str).collect::<Vec<_>>();
+                let merged = face_table.merge_faces(&refs);
+                face = face.merge(&merged);
+            }
+            FaceLayer::Inline(inline_face) => {
+                face = face.merge(inline_face);
+            }
+        }
+    }
+    face
+}
+
+fn resolved_face_at_buffer_byte(
+    eval: &super::eval::Evaluator,
+    buffer: &Buffer,
+    bytepos: usize,
+) -> RuntimeFace {
+    let mut layers = Vec::new();
+
+    if let Some(value) = buffer.text_props.get_property(bytepos, "face") {
+        layers.extend(resolve_face_layers_from_value(value));
+    }
+    if let Some(value) = buffer.text_props.get_property(bytepos, "font-lock-face") {
+        layers.extend(resolve_face_layers_from_value(value));
+    }
+
+    let mut overlay_layers = Vec::new();
+    for overlay_id in buffer.overlays.overlays_at(bytepos) {
+        let priority = buffer
+            .overlays
+            .overlay_get(overlay_id, "priority")
+            .and_then(Value::as_int)
+            .unwrap_or(0);
+        if let Some(value) = buffer.overlays.overlay_get(overlay_id, "face") {
+            let resolved = resolve_face_layers_from_value(value);
+            if !resolved.is_empty() {
+                overlay_layers.push((priority, resolved));
+            }
+        }
+    }
+    overlay_layers.sort_by_key(|(priority, _)| *priority);
+    for (_, resolved) in overlay_layers {
+        layers.extend(resolved);
+    }
+
+    apply_face_layers(&eval.face_table, &layers)
+}
+
+fn resolved_face_at_string_byte(
+    eval: &super::eval::Evaluator,
+    str_id: crate::gc::types::ObjId,
+    bytepos: usize,
+) -> RuntimeFace {
+    let mut layers = Vec::new();
+    if let Some(table) = get_string_text_properties_table(str_id) {
+        if let Some(value) = table.get_property(bytepos, "face") {
+            layers.extend(resolve_face_layers_from_value(value));
+        }
+        if let Some(value) = table.get_property(bytepos, "font-lock-face") {
+            layers.extend(resolve_face_layers_from_value(value));
+        }
+    }
+    apply_face_layers(&eval.face_table, &layers)
+}
+
+fn face_height_to_font_value(height: &FaceHeight) -> Value {
+    match height {
+        FaceHeight::Absolute(n) => Value::Int(*n as i64),
+        FaceHeight::Relative(f) => Value::Float(*f, next_float_id()),
+    }
+}
+
+fn font_weight_symbol(weight: FontWeight) -> &'static str {
+    match weight.0 {
+        0..=150 => "thin",
+        151..=250 => "extra-light",
+        251..=350 => "light",
+        351..=450 => "normal",
+        451..=550 => "medium",
+        551..=650 => "semi-bold",
+        651..=750 => "bold",
+        751..=850 => "extra-bold",
+        _ => "black",
+    }
+}
+
+fn font_slant_symbol(slant: FontSlant) -> &'static str {
+    match slant {
+        FontSlant::Normal => "normal",
+        FontSlant::Italic => "italic",
+        FontSlant::Oblique => "oblique",
+        FontSlant::ReverseItalic => "reverse-italic",
+        FontSlant::ReverseOblique => "reverse-oblique",
+    }
+}
+
+fn font_width_symbol(width: FontWidth) -> &'static str {
+    match width {
+        FontWidth::UltraCondensed => "ultra-condensed",
+        FontWidth::ExtraCondensed => "extra-condensed",
+        FontWidth::Condensed => "condensed",
+        FontWidth::SemiCondensed => "semi-condensed",
+        FontWidth::Normal => "normal",
+        FontWidth::SemiExpanded => "semi-expanded",
+        FontWidth::Expanded => "expanded",
+        FontWidth::ExtraExpanded => "extra-expanded",
+        FontWidth::UltraExpanded => "ultra-expanded",
+    }
+}
+
+fn build_font_object(face: &RuntimeFace) -> Value {
+    let mut elems = vec![Value::keyword(FONT_OBJECT_TAG)];
+
+    let mut push_field = |name: &str, value: Value| {
+        elems.push(Value::keyword(name));
+        elems.push(value);
+    };
+
+    if let Some(foundry) = &face.foundry {
+        push_field("foundry", Value::string(foundry.clone()));
+    }
+    if let Some(family) = &face.family {
+        push_field("family", Value::string(family.clone()));
+    }
+    if let Some(weight) = face.weight {
+        push_field("weight", Value::symbol(font_weight_symbol(weight)));
+    }
+    if let Some(slant) = face.slant {
+        push_field("slant", Value::symbol(font_slant_symbol(slant)));
+    }
+    if let Some(width) = face.width {
+        push_field("width", Value::symbol(font_width_symbol(width)));
+    }
+    if let Some(height) = &face.height {
+        let value = face_height_to_font_value(height);
+        push_field("height", value);
+        push_field("size", value);
+    }
+
+    let font_object = Value::vector(elems);
+    let xlfd = builtin_font_xlfd_name(vec![font_object]).unwrap_or_else(|_| Value::Nil);
+    if let Value::Vector(id) = font_object {
+        with_heap_mut(|heap| {
+            let items = heap.get_vector_mut(id);
+            items.push(Value::keyword("name"));
+            items.push(if xlfd.is_nil() { Value::Nil } else { xlfd });
+        });
+    }
+    font_object
+}
+
+fn build_font_object_for_match(
+    face: &RuntimeFace,
+    matched: &super::eval::ResolvedFontMatch,
+) -> Value {
+    let mut selected = face.clone();
+    selected.family = Some(matched.family.clone());
+    selected.foundry = matched.foundry.clone().or_else(|| face.foundry.clone());
+    selected.weight = Some(matched.weight);
+    selected.slant = Some(matched.slant);
+    selected.width = Some(matched.width);
+    build_font_object(&selected)
+}
+
+fn resolve_font_match(
+    eval: &mut super::eval::Evaluator,
+    frame_id: FrameId,
+    character: char,
+    face: &RuntimeFace,
+) -> Option<super::eval::ResolvedFontMatch> {
+    eval.display_host
+        .as_mut()
+        .and_then(|host| {
+            host.resolve_font_for_char(super::eval::FontResolveRequest {
+                frame_id,
+                character,
+                face: face.clone(),
+            })
+            .ok()
+        })
+        .flatten()
+}
+
+/// `(font-at POSITION &optional WINDOW STRING)` -- resolve the effective font
+/// object for the target buffer or string position.
+pub(crate) fn builtin_font_at_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("font-at", &args, 1)?;
+    expect_max_args("font-at", &args, 3)?;
+
+    let (frame_id, window_id) = resolve_live_window_for_font_at(eval, args.get(1))?;
+    let window = eval
+        .frames
+        .get(frame_id)
+        .and_then(|frame| frame.find_window(window_id))
+        .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
+
+    if let Some(string_value) = args.get(2) {
+        if !string_value.is_nil() {
+            let Value::Str(str_id) = *string_value else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), *string_value],
+                ));
+            };
+            let pos = match args[0] {
+                Value::Int(n) => n,
+                Value::Char(c) => c as i64,
+                other => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("fixnump"), other],
+                    ));
+                }
+            };
+            let string = with_heap(|heap| heap.get_string(str_id).to_owned());
+            let char_len = string.chars().count() as i64;
+            if !(0 <= pos && pos < char_len) {
+                return Err(signal(
+                    "args-out-of-range",
+                    vec![Value::string(string), Value::Int(pos)],
+                ));
+            }
+            let bytepos = string_elisp_pos_to_byte(&string, pos);
+            let face = resolved_face_at_string_byte(eval, str_id, bytepos);
+            let character = string.chars().nth(pos as usize).ok_or_else(|| {
+                signal(
+                    "args-out-of-range",
+                    vec![Value::string(string), Value::Int(pos)],
+                )
+            })?;
+            if let Some(matched) = resolve_font_match(eval, frame_id, character, &face) {
+                return Ok(build_font_object_for_match(&face, &matched));
+            }
+            return Ok(build_font_object(&face));
+        }
+    }
+
+    let current_buffer_id = eval
+        .buffers
+        .current_buffer_id()
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if window.buffer_id() != Some(current_buffer_id) {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Specified window is not displaying the current buffer",
+            )],
+        ));
+    }
+
+    let pos =
+        crate::emacs_core::builtins::expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
+    let buffer = eval
+        .buffers
+        .get(current_buffer_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let beg = buffer.point_min_char() as i64 + 1;
+    let end = buffer.point_max_char() as i64 + 1;
+    if !(beg <= pos && pos < end) {
+        return Err(signal(
+            "args-out-of-range",
+            vec![args[0], Value::Int(beg), Value::Int(end)],
+        ));
+    }
+
+    let bytepos = buffer.lisp_pos_to_accessible_byte(pos);
+    let face = resolved_face_at_buffer_byte(eval, buffer, bytepos);
+    let character = buffer.text.char_at(bytepos).ok_or_else(|| {
+        signal(
+            "args-out-of-range",
+            vec![args[0], Value::Int(beg), Value::Int(end)],
+        )
+    })?;
+    if let Some(matched) = resolve_font_match(eval, frame_id, character, &face) {
+        return Ok(build_font_object_for_match(&face, &matched));
+    }
+    Ok(build_font_object(&face))
 }
 
 // ===========================================================================
@@ -1679,6 +2084,29 @@ pub(crate) fn builtin_internal_copy_lisp_face_in_state(
     Ok(args[1])
 }
 
+/// Eval-backed version of `internal-copy-lisp-face` that also mirrors the
+/// copied face into the evaluator's `FaceTable`.
+pub(crate) fn builtin_internal_copy_lisp_face_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    let result = builtin_internal_copy_lisp_face(args.clone())?;
+    let from_name = resolve_copy_source_face_symbol(&args[0])?;
+    let to_name = require_symbol_face_name(&args[1])?;
+
+    let copied = eval
+        .face_table
+        .get(&from_name)
+        .cloned()
+        .unwrap_or_else(|| eval.face_table.resolve(&from_name));
+    let mut copied = copied;
+    copied.name = to_name.clone();
+    eval.face_table.define(copied);
+    eval.face_change_count += 1;
+
+    Ok(result)
+}
+
 /// `(internal-set-lisp-face-attribute FACE ATTR VALUE &optional FRAME)` --
 /// set FACE attribute in selected-frame/default face domains.
 pub(crate) fn builtin_internal_set_lisp_face_attribute(args: Vec<Value>) -> EvalResult {
@@ -2158,6 +2586,13 @@ pub(crate) fn builtin_internal_merge_in_global_face_in_state(
 /// value is a relative form for ATTRIBUTE.
 pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult {
     expect_args("face-attribute-relative-p", &args, 2)?;
+    let value_is_relative_reset = matches!(&args[1], Value::Symbol(id) | Value::Keyword(id) if {
+        matches!(resolve_sym(*id), "unspecified" | ":ignore-defface" | "ignore-defface")
+    });
+    if value_is_relative_reset {
+        return Ok(Value::True);
+    }
+
     let height_attr = match &args[0] {
         Value::Keyword(id) | Value::Symbol(id) => {
             let n = resolve_sym(*id);
@@ -2179,15 +2614,34 @@ pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult 
 /// is the symbol `unspecified`, in which case return VALUE2.
 pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
     expect_args("merge-face-attribute", &args, 3)?;
-    let v1_unspecified = match &args[1] {
-        Value::Symbol(id) => resolve_sym(*id) == "unspecified",
-        _ => false,
-    };
-    if v1_unspecified {
-        Ok(args[2])
-    } else {
-        Ok(args[1])
+    let value1_is_relative_reset = matches!(&args[1], Value::Symbol(id) | Value::Keyword(id) if {
+        matches!(resolve_sym(*id), "unspecified" | ":ignore-defface" | "ignore-defface")
+    });
+    if value1_is_relative_reset {
+        return Ok(args[2]);
     }
+
+    let height_attr = matches!(&args[0], Value::Keyword(id) | Value::Symbol(id) if {
+        matches!(resolve_sym(*id), "height" | ":height")
+    });
+    if height_attr {
+        return Ok(match (&args[1], &args[2]) {
+            (Value::Int(_), _) | (Value::Char(_), _) => args[1],
+            (Value::Float(scale, _), Value::Int(height)) => {
+                Value::Int((*scale * *height as f64) as i64)
+            }
+            (Value::Float(scale, _), Value::Char(height)) => {
+                Value::Int((*scale * *height as u32 as f64) as i64)
+            }
+            (Value::Float(scale, _), Value::Float(other_scale, _)) => {
+                Value::Float(*scale * *other_scale, next_float_id())
+            }
+            (Value::Float(_, _), _) => args[1],
+            _ => args[1],
+        });
+    }
+
+    Ok(args[1])
 }
 
 /// `(face-list &optional FRAME)` -- return list of known face names.

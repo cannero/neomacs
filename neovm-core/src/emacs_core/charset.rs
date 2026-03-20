@@ -35,6 +35,40 @@ enum CharsetMethod {
     Superset,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum CharsetMethodSnapshot {
+    Offset(i64),
+    Map,
+    Subset,
+    Superset,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CharsetInfoSnapshot {
+    pub id: i64,
+    pub name: String,
+    pub dimension: i64,
+    pub code_space: [i64; 8],
+    pub min_code: i64,
+    pub max_code: i64,
+    pub iso_final_char: Option<i64>,
+    pub iso_revision: Option<i64>,
+    pub emacs_mule_id: Option<i64>,
+    pub ascii_compatible_p: bool,
+    pub supplementary_p: bool,
+    pub invalid_code: Option<i64>,
+    pub unify_map: Option<String>,
+    pub method: CharsetMethodSnapshot,
+    pub plist: Vec<(String, Value)>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CharsetRegistrySnapshot {
+    pub charsets: Vec<CharsetInfoSnapshot>,
+    pub priority: Vec<String>,
+    pub next_id: i64,
+}
+
 /// Information about a single charset.
 #[derive(Clone, Debug)]
 struct CharsetInfo {
@@ -50,6 +84,7 @@ struct CharsetInfo {
     ascii_compatible_p: bool,
     supplementary_p: bool,
     invalid_code: Option<i64>,
+    unify_map: Option<String>,
     method: CharsetMethod,
     plist: Vec<(String, Value)>,
 }
@@ -89,6 +124,7 @@ impl CharsetRegistry {
             ascii_compatible_p: false,
             supplementary_p: false,
             invalid_code: None,
+            unify_map: None,
             method: CharsetMethod::Offset(0),
             plist: vec![],
         }
@@ -214,6 +250,80 @@ impl CharsetRegistry {
         self.charsets.insert(alias.to_string(), aliased);
     }
 
+    fn snapshot(&self) -> CharsetRegistrySnapshot {
+        let mut charsets = self
+            .charsets
+            .values()
+            .cloned()
+            .map(|info| CharsetInfoSnapshot {
+                id: info.id,
+                name: info.name,
+                dimension: info.dimension,
+                code_space: info.code_space,
+                min_code: info.min_code,
+                max_code: info.max_code,
+                iso_final_char: info.iso_final_char,
+                iso_revision: info.iso_revision,
+                emacs_mule_id: info.emacs_mule_id,
+                ascii_compatible_p: info.ascii_compatible_p,
+                supplementary_p: info.supplementary_p,
+                invalid_code: info.invalid_code,
+                unify_map: info.unify_map,
+                method: match info.method {
+                    CharsetMethod::Offset(offset) => CharsetMethodSnapshot::Offset(offset),
+                    CharsetMethod::Map => CharsetMethodSnapshot::Map,
+                    CharsetMethod::Subset => CharsetMethodSnapshot::Subset,
+                    CharsetMethod::Superset => CharsetMethodSnapshot::Superset,
+                },
+                plist: info.plist,
+            })
+            .collect::<Vec<_>>();
+        charsets.sort_by(|left, right| left.name.cmp(&right.name));
+
+        CharsetRegistrySnapshot {
+            charsets,
+            priority: self.priority.clone(),
+            next_id: self.next_id,
+        }
+    }
+
+    fn restore(snapshot: CharsetRegistrySnapshot) -> Self {
+        let mut charsets = HashMap::with_capacity(snapshot.charsets.len());
+        for info in snapshot.charsets {
+            charsets.insert(
+                info.name.clone(),
+                CharsetInfo {
+                    id: info.id,
+                    name: info.name,
+                    dimension: info.dimension,
+                    code_space: info.code_space,
+                    min_code: info.min_code,
+                    max_code: info.max_code,
+                    iso_final_char: info.iso_final_char,
+                    iso_revision: info.iso_revision,
+                    emacs_mule_id: info.emacs_mule_id,
+                    ascii_compatible_p: info.ascii_compatible_p,
+                    supplementary_p: info.supplementary_p,
+                    invalid_code: info.invalid_code,
+                    unify_map: info.unify_map,
+                    method: match info.method {
+                        CharsetMethodSnapshot::Offset(offset) => CharsetMethod::Offset(offset),
+                        CharsetMethodSnapshot::Map => CharsetMethod::Map,
+                        CharsetMethodSnapshot::Subset => CharsetMethod::Subset,
+                        CharsetMethodSnapshot::Superset => CharsetMethod::Superset,
+                    },
+                    plist: info.plist,
+                },
+            );
+        }
+
+        Self {
+            charsets,
+            priority: snapshot.priority,
+            next_id: snapshot.next_id,
+        }
+    }
+
     /// Replace the plist for a charset.
     pub fn set_plist(&mut self, name: &str, plist: Vec<(String, Value)>) {
         if let Some(info) = self.charsets.get_mut(name) {
@@ -272,9 +382,52 @@ pub(crate) fn reset_charset_registry() {
     CHARSET_REGISTRY.with(|slot| *slot.borrow_mut() = CharsetRegistry::new());
 }
 
+pub(crate) fn snapshot_charset_registry() -> CharsetRegistrySnapshot {
+    CHARSET_REGISTRY.with(|slot| slot.borrow().snapshot())
+}
+
+pub(crate) fn restore_charset_registry(snapshot: CharsetRegistrySnapshot) {
+    CHARSET_REGISTRY.with(|slot| *slot.borrow_mut() = CharsetRegistry::restore(snapshot));
+}
+
 /// Set the plist for a charset (used by `set-charset-plist` builtin).
 pub(crate) fn set_charset_plist_registry(name: &str, plist: Vec<(String, Value)>) {
     CHARSET_REGISTRY.with(|slot| slot.borrow_mut().set_plist(name, plist));
+}
+
+pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
+    CHARSET_REGISTRY.with(|slot| {
+        let reg = slot.borrow();
+        let info = reg.charsets.get(name)?;
+        match info.method {
+            CharsetMethod::Offset(offset) => {
+                let from = info.min_code.checked_add(offset)?;
+                let to = info.max_code.checked_add(offset)?;
+                let from = u32::try_from(from).ok()?;
+                let to = u32::try_from(to).ok()?;
+                Some(vec![(from.min(to), from.max(to))])
+            }
+            CharsetMethod::Map | CharsetMethod::Subset | CharsetMethod::Superset => None,
+        }
+    })
+}
+
+pub(crate) fn charset_exists(name: &str) -> bool {
+    CHARSET_REGISTRY.with(|slot| slot.borrow().contains(name))
+}
+
+pub(crate) fn charset_contains_char(name: &str, ch: u32) -> Option<bool> {
+    CHARSET_REGISTRY.with(|slot| {
+        let reg = slot.borrow();
+        let info = reg.charsets.get(name)?;
+        if info.unify_map.is_some() {
+            return None;
+        }
+        match info.method {
+            CharsetMethod::Offset(_) => Some(reg.encode_char(name, i64::from(ch)).is_some()),
+            CharsetMethod::Map | CharsetMethod::Subset | CharsetMethod::Superset => None,
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -715,8 +868,14 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
         CharsetMethod::Offset(0)
     };
 
-    // arg[15]: unify-map (ignored for now — used for Unicode unification)
+    // arg[15]: unify-map
     // arg[16]: plist
+    let unify_map = match &args[15] {
+        Value::Nil => None,
+        Value::Str(id) => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_string()),
+        _ => None,
+    };
     let plist = parse_plist(&args[16]);
 
     CHARSET_REGISTRY.with(|slot| {
@@ -742,6 +901,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
             ascii_compatible_p,
             supplementary_p,
             invalid_code,
+            unify_map,
             method,
             plist,
         };

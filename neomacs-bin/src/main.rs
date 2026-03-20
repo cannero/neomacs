@@ -21,18 +21,23 @@ use neomacs_display_runtime::FrameGlyphBuffer;
 use neomacs_display_runtime::render_thread::{
     RenderThread, SharedImageDimensions, SharedMonitorInfo,
 };
-use neomacs_display_runtime::thread_comm::{RenderCommand, ThreadComms};
+use neomacs_display_runtime::thread_comm::{
+    InputEvent as DisplayInputEvent, RenderCommand, ThreadComms,
+};
 use neomacs_layout_engine::font_metrics::FontMetricsService;
+use neomacs_layout_engine::fontconfig::face_height_to_pixels;
 
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::error::EvalError;
+use neovm_core::emacs_core::eval::{FontResolveRequest, GuiFrameHostSize, ResolvedFontMatch};
 use neovm_core::emacs_core::intern::resolve_sym;
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
     TerminalRuntimeConfig, configure_terminal_runtime, reset_terminal_runtime,
 };
 use neovm_core::emacs_core::{DisplayHost, Evaluator, GuiFrameHostRequest};
+use neovm_core::face::{FaceHeight, FontWeight};
 use neovm_core::window::{FrameId, Window};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -379,10 +384,56 @@ impl FrontendHandle {
 struct PrimaryWindowDisplayHost {
     cmd_tx: crossbeam_channel::Sender<RenderCommand>,
     primary_window_adopted: bool,
+    primary_frame_id: Option<neovm_core::window::FrameId>,
+    font_metrics: Option<FontMetricsService>,
+    primary_window_size: SharedPrimaryWindowSize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrimaryWindowSize {
+    width: u32,
+    height: u32,
+}
+
+type SharedPrimaryWindowSize = Arc<Mutex<PrimaryWindowSize>>;
+
+fn record_primary_window_resize(shared: &SharedPrimaryWindowSize, event: &DisplayInputEvent) {
+    let DisplayInputEvent::WindowResize {
+        width,
+        height,
+        emacs_frame_id,
+    } = event
+    else {
+        return;
+    };
+
+    if *emacs_frame_id != 0 || *width == 0 || *height == 0 {
+        return;
+    }
+
+    match shared.lock() {
+        Ok(mut state) => {
+            state.width = *width;
+            state.height = *height;
+        }
+        Err(poisoned) => {
+            let mut state = poisoned.into_inner();
+            state.width = *width;
+            state.height = *height;
+        }
+    }
 }
 
 impl DisplayHost for PrimaryWindowDisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
+        tracing::debug!(
+            "PrimaryWindowDisplayHost::realize_gui_frame fid=0x{:x} adopted={} size={}x{} title={}",
+            request.frame_id.0,
+            self.primary_window_adopted,
+            request.width,
+            request.height,
+            request.title
+        );
         if !self.primary_window_adopted {
             self.cmd_tx
                 .send(RenderCommand::SetWindowTitle {
@@ -396,6 +447,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 })
                 .map_err(|err| format!("failed to update primary window size: {err}"))?;
             self.primary_window_adopted = true;
+            self.primary_frame_id = Some(request.frame_id);
         } else {
             self.cmd_tx
                 .send(RenderCommand::CreateWindow {
@@ -407,6 +459,88 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 .map_err(|err| format!("failed to create additional GUI window: {err}"))?;
         }
         Ok(())
+    }
+
+    fn opening_gui_frame_pending(&self) -> bool {
+        !self.primary_window_adopted
+    }
+
+    fn resize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
+        let emacs_frame_id = if self.primary_frame_id == Some(request.frame_id) {
+            0
+        } else {
+            request.frame_id.0
+        };
+        tracing::debug!(
+            "PrimaryWindowDisplayHost::resize_gui_frame fid=0x{:x} route=0x{:x} size={}x{}",
+            request.frame_id.0,
+            emacs_frame_id,
+            request.width,
+            request.height
+        );
+        self.cmd_tx
+            .send(RenderCommand::ResizeWindow {
+                emacs_frame_id,
+                width: request.width,
+                height: request.height,
+            })
+            .map_err(|err| format!("failed to resize GUI frame: {err}"))?;
+        Ok(())
+    }
+
+    fn current_primary_window_size(&self) -> Option<GuiFrameHostSize> {
+        if self.primary_window_adopted {
+            return None;
+        }
+        let state = match self.primary_window_size.lock() {
+            Ok(state) => *state,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
+        Some(GuiFrameHostSize {
+            width: state.width,
+            height: state.height,
+        })
+    }
+
+    fn resolve_font_for_char(
+        &mut self,
+        request: FontResolveRequest,
+    ) -> Result<Option<ResolvedFontMatch>, String> {
+        let requested_family = request.face.family.as_deref().unwrap_or("Monospace");
+        let requested_weight = request.face.weight.unwrap_or(FontWeight::NORMAL).0;
+        let requested_italic = request
+            .face
+            .slant
+            .map(|slant| slant.is_italic())
+            .unwrap_or(false);
+        let font_size = font_size_px_for_face(&request.face);
+        let selected = self
+            .font_metrics
+            .get_or_insert_with(FontMetricsService::new)
+            .select_font_for_char(
+                request.character,
+                requested_family,
+                requested_weight,
+                requested_italic,
+                font_size,
+            );
+        Ok(selected.map(|font| ResolvedFontMatch {
+            family: font.family,
+            foundry: None,
+            weight: font.weight,
+            slant: font.slant,
+            width: font.width,
+            postscript_name: font.postscript_name,
+        }))
+    }
+}
+
+fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
+    let default_font_size = face_height_to_pixels(100);
+    match &face.height {
+        Some(FaceHeight::Absolute(tenths)) => face_height_to_pixels(*tenths),
+        Some(FaceHeight::Relative(scale)) => default_font_size * (*scale as f32),
+        None => default_font_size,
     }
 }
 
@@ -489,10 +623,15 @@ fn main() {
     //    which needs the display system to be running for input and redisplay.
     let comms = ThreadComms::new().expect("Failed to create thread comms");
     let (emacs_comms, render_comms) = comms.split();
+    let primary_window_size: SharedPrimaryWindowSize =
+        Arc::new(Mutex::new(PrimaryWindowSize { width, height }));
     if startup.frontend == FrontendKind::Gui {
         evaluator.set_display_host(Box::new(PrimaryWindowDisplayHost {
             cmd_tx: emacs_comms.cmd_tx.clone(),
             primary_window_adopted: false,
+            primary_frame_id: None,
+            font_metrics: None,
+            primary_window_size: Arc::clone(&primary_window_size),
         }));
     }
 
@@ -531,10 +670,12 @@ fn main() {
     // 7. Create input bridge: convert display runtime events → keyboard events
     let (input_tx, input_rx) = crossbeam_channel::unbounded();
     let display_input_rx = emacs_comms.input_rx;
+    let primary_window_size_for_input = Arc::clone(&primary_window_size);
     std::thread::Builder::new()
         .name("input-bridge".to_string())
         .spawn(move || {
             while let Ok(event) = display_input_rx.recv() {
+                record_primary_window_resize(&primary_window_size_for_input, &event);
                 if let Some(kb_event) = input_bridge::convert_display_event(event) {
                     if input_tx.send(kb_event).is_err() {
                         break; // Evaluator dropped
@@ -688,9 +829,9 @@ fn bootstrap_buffers(
     // Seed frame parameters so GNU Lisp startup sees the correct host surface.
     if let Some(frame) = eval.frame_manager_mut().selected_frame_mut() {
         if let Some(window_system) = display.window_system_symbol() {
-            frame
-                .parameters
-                .insert("window-system".to_string(), Value::symbol(window_system));
+            frame.set_window_system(Some(Value::symbol(window_system)));
+        } else {
+            frame.set_window_system(None);
         }
         frame.parameters.insert(
             "display-type".to_string(),

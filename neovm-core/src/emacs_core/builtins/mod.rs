@@ -1129,6 +1129,8 @@ pub(crate) fn dispatch_builtin(
         "window-line-height" => {
             return Some(super::xdisp::builtin_window_line_height_eval(eval, args));
         }
+        "posn-at-point" => return Some(super::xdisp::builtin_posn_at_point_eval(eval, args)),
+        "posn-at-x-y" => return Some(super::xdisp::builtin_posn_at_x_y_eval(eval, args)),
         "coordinates-in-window-p" => return Some(builtin_coordinates_in_window_p(eval, args)),
         "tool-bar-height" => return Some(super::xdisp::builtin_tool_bar_height_eval(eval, args)),
         "tab-bar-height" => return Some(super::xdisp::builtin_tab_bar_height_eval(eval, args)),
@@ -1137,6 +1139,8 @@ pub(crate) fn dispatch_builtin(
         "list-fonts" => return Some(super::font::builtin_list_fonts_eval(eval, args)),
         "find-font" => return Some(super::font::builtin_find_font_eval(eval, args)),
         "font-family-list" => return Some(super::font::builtin_font_family_list_eval(eval, args)),
+        "new-fontset" => return Some(builtin_new_fontset_eval(eval, args)),
+        "set-fontset-font" => return Some(builtin_set_fontset_font_eval(eval, args)),
 
         // File I/O (evaluator-dependent)
         "access-file" => return Some(super::fileio::builtin_access_file_eval(eval, args)),
@@ -2921,6 +2925,9 @@ pub(crate) fn dispatch_builtin(
         "font-family-list" => super::font::builtin_font_family_list(args),
         "font-xlfd-name" => super::font::builtin_font_xlfd_name(args),
         "close-font" => super::font::builtin_close_font(args),
+        "font-at" => {
+            return Some(super::font::builtin_font_at_eval(eval, args));
+        }
         "xw-display-color-p" => {
             return Some(builtin_xw_display_color_p_eval(eval, args));
         }
@@ -2930,7 +2937,11 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         "internal-lisp-face-p" => super::font::builtin_internal_lisp_face_p(args),
-        "internal-copy-lisp-face" => super::font::builtin_internal_copy_lisp_face(args),
+        "internal-copy-lisp-face" => {
+            return Some(super::font::builtin_internal_copy_lisp_face_eval(
+                eval, args,
+            ));
+        }
         "internal-set-lisp-face-attribute" => {
             return Some(super::font::builtin_internal_set_lisp_face_attribute_eval(
                 eval, args,
@@ -3053,7 +3064,6 @@ pub(crate) fn dispatch_builtin(
         "describe-vector" => builtin_describe_vector(args),
         "delete-terminal" => super::terminal::pure::builtin_delete_terminal(args),
         "face-attributes-as-vector" => builtin_face_attributes_as_vector(args),
-        "font-at" => builtin_font_at(args),
         "font-face-attributes" => builtin_font_face_attributes(args),
         "font-get-glyphs" => builtin_font_get_glyphs(args),
         "font-get-system-font" => builtin_font_get_system_font(args),
@@ -3182,7 +3192,7 @@ pub(crate) fn dispatch_builtin(
         "native-comp-unit-file" => builtin_native_comp_unit_file(args),
         "native-comp-unit-set-file" => builtin_native_comp_unit_set_file(args),
         "native-elisp-load" => builtin_native_elisp_load(args),
-        "new-fontset" => builtin_new_fontset(args),
+        "new-fontset" => return None,
         "next-frame" => builtin_next_frame(args),
         "ntake" => builtin_ntake(args),
         "obarray-clear" => builtin_obarray_clear(args),
@@ -3215,7 +3225,7 @@ pub(crate) fn dispatch_builtin(
         "read-positioning-symbols" => builtin_read_positioning_symbols(args),
         "re--describe-compiled" => builtin_re_describe_compiled(args),
         "recent-auto-save-p" => builtin_recent_auto_save_p(args),
-        "redisplay" => builtin_redisplay(args),
+        "redisplay" => builtin_redisplay_eval(eval, args),
         "record" => builtin_record(args),
         "recordp" => builtin_recordp(args),
         "reconsider-frame-fonts" => builtin_reconsider_frame_fonts(args),
@@ -3229,7 +3239,7 @@ pub(crate) fn dispatch_builtin(
         "set-buffer-major-mode" => builtin_set_buffer_major_mode(args),
         "set-buffer-redisplay" => builtin_set_buffer_redisplay(args),
         "set-charset-plist" => builtin_set_charset_plist(args),
-        "set-fontset-font" => builtin_set_fontset_font(args),
+        "set-fontset-font" => return None,
         "set-frame-window-state-change" => builtin_set_frame_window_state_change(args),
         "set-fringe-bitmap-face" => builtin_set_fringe_bitmap_face(args),
         "set-minibuffer-window" => builtin_set_minibuffer_window(args),
@@ -4088,7 +4098,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "native-comp-unit-file" => builtin_native_comp_unit_file(args),
         "native-comp-unit-set-file" => builtin_native_comp_unit_set_file(args),
         "native-elisp-load" => builtin_native_elisp_load(args),
-        "new-fontset" => builtin_new_fontset(args),
+        "new-fontset" => return None,
         "next-frame" => builtin_next_frame(args),
         "ntake" => builtin_ntake(args),
         "obarray-clear" => builtin_obarray_clear(args),
@@ -4135,7 +4145,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "set-buffer-major-mode" => builtin_set_buffer_major_mode(args),
         "set-buffer-redisplay" => builtin_set_buffer_redisplay(args),
         "set-charset-plist" => builtin_set_charset_plist(args),
-        "set-fontset-font" => builtin_set_fontset_font(args),
+        "set-fontset-font" => return None,
         "set-frame-window-state-change" => builtin_set_frame_window_state_change(args),
         "set-fringe-bitmap-face" => builtin_set_fringe_bitmap_face(args),
         "set-minibuffer-window" => builtin_set_minibuffer_window(args),

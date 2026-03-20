@@ -313,6 +313,20 @@ mod tests {
         }
     }
 
+    fn get_char_y(glyph: &FrameGlyph) -> f32 {
+        match glyph {
+            FrameGlyph::Char { y, .. } => *y,
+            _ => panic!("expected Char glyph"),
+        }
+    }
+
+    fn get_char_baseline(glyph: &FrameGlyph) -> f32 {
+        match glyph {
+            FrameGlyph::Char { baseline, .. } => *baseline,
+            _ => panic!("expected Char glyph"),
+        }
+    }
+
     #[test]
     fn test_pure_ltr_no_reorder() {
         let mut buf = FrameGlyphBuffer::default();
@@ -331,11 +345,19 @@ mod tests {
         let mut buf = FrameGlyphBuffer::default();
         let mut g1 = make_char_glyph('A', 0.0, 8.0);
         let mut g2 = make_char_glyph('B', 8.0, 8.0);
-        if let FrameGlyph::Char { ascent, .. } = &mut g1 {
+        if let FrameGlyph::Char {
+            ascent, baseline, ..
+        } = &mut g1
+        {
             *ascent = 9.0;
+            *baseline = 9.0;
         }
-        if let FrameGlyph::Char { ascent, .. } = &mut g2 {
+        if let FrameGlyph::Char {
+            ascent, baseline, ..
+        } = &mut g2
+        {
             *ascent = 13.0;
+            *baseline = 13.0;
         }
         buf.glyphs.push(g1);
         buf.glyphs.push(g2);
@@ -344,8 +366,18 @@ mod tests {
 
         assert_eq!(get_char_x(&buf.glyphs[0]), 0.0);
         assert_eq!(get_char_x(&buf.glyphs[1]), 8.0);
-        assert_eq!(get_char_ascent(&buf.glyphs[0]), 13.0);
+        assert_eq!(get_char_ascent(&buf.glyphs[0]), 9.0);
         assert_eq!(get_char_ascent(&buf.glyphs[1]), 13.0);
+        assert_eq!(get_char_baseline(&buf.glyphs[0]), 13.0);
+        assert_eq!(get_char_baseline(&buf.glyphs[1]), 13.0);
+        assert_eq!(
+            get_char_y(&buf.glyphs[0]) + get_char_ascent(&buf.glyphs[0]),
+            13.0
+        );
+        assert_eq!(
+            get_char_y(&buf.glyphs[1]) + get_char_ascent(&buf.glyphs[1]),
+            13.0
+        );
     }
 
     #[test]

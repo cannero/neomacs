@@ -11,6 +11,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
 use super::child_frames::ChildFrameManager;
+use super::state::{effective_window_scale_factor, window_size_from_emacs_pixels};
 use crate::core::frame_glyphs::FrameGlyphBuffer;
 
 /// Per-window state. Each Emacs top-level frame gets its own OS window
@@ -120,14 +121,15 @@ impl MultiWindowManager {
 
             let attrs = Window::default_attributes()
                 .with_title(&req.title)
-                .with_inner_size(winit::dpi::LogicalSize::new(req.width, req.height))
+                .with_inner_size(window_size_from_emacs_pixels(req.width, req.height))
                 .with_transparent(true);
 
             match event_loop.create_window(attrs) {
                 Ok(window) => {
                     let window = Arc::new(window);
                     crate::window_icon::apply_window_icon(&window);
-                    let scale_factor = window.scale_factor();
+                    let raw_scale_factor = window.scale_factor();
+                    let scale_factor = effective_window_scale_factor(raw_scale_factor);
                     let phys = window.inner_size();
 
                     // Create surface for this window
@@ -180,11 +182,12 @@ impl MultiWindowManager {
 
                     let winit_id = window.id();
                     tracing::info!(
-                        "Created window for frame {} (winit {:?}, {}x{}, scale={})",
+                        "Created window for frame {} (winit {:?}, {}x{}, raw_scale={}, effective_scale={})",
                         req.emacs_frame_id,
                         winit_id,
                         phys.width,
                         phys.height,
+                        raw_scale_factor,
                         scale_factor
                     );
 

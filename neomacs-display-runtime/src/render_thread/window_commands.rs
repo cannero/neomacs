@@ -1,8 +1,9 @@
 //! Window and chrome render commands.
 
 use super::RenderApp;
+use super::state::window_size_from_emacs_pixels;
 use crate::thread_comm::RenderCommand;
-use winit::dpi::{LogicalSize, PhysicalPosition};
+use winit::dpi::PhysicalPosition;
 use winit::window::{CursorIcon, Fullscreen, UserAttentionType};
 
 impl RenderApp {
@@ -86,9 +87,36 @@ impl RenderApp {
                 Ok(())
             }
             RenderCommand::SetWindowSize { width, height } => {
+                tracing::debug!("RenderCommand::SetWindowSize {}x{}", width, height);
                 if let Some(ref window) = self.window {
-                    let size = LogicalSize::new(width, height);
+                    let size = window_size_from_emacs_pixels(width, height);
                     let _ = window.request_inner_size(size);
+                }
+                Ok(())
+            }
+            RenderCommand::ResizeWindow {
+                emacs_frame_id,
+                width,
+                height,
+            } => {
+                tracing::debug!(
+                    "RenderCommand::ResizeWindow frame_id=0x{:x} {}x{}",
+                    emacs_frame_id,
+                    width,
+                    height
+                );
+                let size = window_size_from_emacs_pixels(width, height);
+                if emacs_frame_id == 0 {
+                    if let Some(ref window) = self.window {
+                        let _ = window.request_inner_size(size);
+                    }
+                } else if let Some(window_state) = self.multi_windows.get(emacs_frame_id) {
+                    let _ = window_state.window.request_inner_size(size);
+                } else {
+                    tracing::warn!(
+                        "ResizeWindow requested for unknown frame_id=0x{:x}",
+                        emacs_frame_id
+                    );
                 }
                 Ok(())
             }

@@ -1,8 +1,37 @@
 use super::*;
+use crate::emacs_core::eval::{
+    DisplayHost, FontResolveRequest, GuiFrameHostRequest, ResolvedFontMatch,
+};
 
 // -----------------------------------------------------------------------
 // Font builtins
 // -----------------------------------------------------------------------
+
+#[derive(Default)]
+struct FontAtDisplayHost {
+    matched: Option<ResolvedFontMatch>,
+}
+
+impl DisplayHost for FontAtDisplayHost {
+    fn realize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resolve_font_for_char(
+        &mut self,
+        request: FontResolveRequest,
+    ) -> Result<Option<ResolvedFontMatch>, String> {
+        if request.character == '好' {
+            Ok(self.matched.clone())
+        } else {
+            Ok(None)
+        }
+    }
+}
 
 #[test]
 fn fontp_on_non_font() {
@@ -280,6 +309,170 @@ fn close_font_accepts_tagged_font_object_and_checks_arity() {
     assert!(builtin_close_font(vec![Value::Nil, Value::Nil, Value::Nil]).is_err());
 }
 
+#[test]
+fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+
+    let face = Value::symbol("font-at-buffer-face");
+    builtin_internal_make_lisp_face_eval(&mut eval, vec![face]).unwrap();
+    builtin_internal_set_lisp_face_attribute_eval(
+        &mut eval,
+        vec![
+            face,
+            Value::Keyword(intern("family")),
+            Value::string("Serif"),
+        ],
+    )
+    .unwrap();
+
+    let buffer = eval
+        .buffers
+        .current_buffer_mut()
+        .expect("current buffer for font-at buffer test");
+    buffer.insert("a好b");
+    let start = buffer.text.char_to_byte(1);
+    let end = buffer.text.char_to_byte(2);
+    buffer.text_props.put_property(start, end, "face", face);
+
+    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(2)]).unwrap();
+    assert!(
+        builtin_fontp(vec![font, Value::symbol("font-object")])
+            .unwrap()
+            .is_truthy()
+    );
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("family")])
+            .unwrap()
+            .as_str(),
+        Some("Serif")
+    );
+}
+
+#[test]
+fn font_at_eval_returns_font_object_for_multibyte_string_face() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+
+    let face = Value::symbol("font-at-string-face");
+    builtin_internal_make_lisp_face_eval(&mut eval, vec![face]).unwrap();
+    builtin_internal_set_lisp_face_attribute_eval(
+        &mut eval,
+        vec![
+            face,
+            Value::Keyword(intern("family")),
+            Value::string("Serif"),
+        ],
+    )
+    .unwrap();
+
+    let string = Value::string("a好b");
+    let Value::Str(id) = string else {
+        panic!("expected string value");
+    };
+    let mut table = crate::buffer::TextPropertyTable::new();
+    let start = "a".len();
+    let end = start + "好".len();
+    table.put_property(start, end, "face", face);
+    crate::emacs_core::value::set_string_text_properties_table(id, table);
+
+    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(1), Value::Nil, string]).unwrap();
+    assert!(
+        builtin_fontp(vec![font, Value::symbol("font-object")])
+            .unwrap()
+            .is_truthy()
+    );
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("family")])
+            .unwrap()
+            .as_str(),
+        Some("Serif")
+    );
+}
+
+#[test]
+fn font_at_eval_reads_source_style_inline_face_keywords() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+
+    let buffer = eval
+        .buffers
+        .current_buffer_mut()
+        .expect("current buffer for inline face font-at test");
+    buffer.insert("a好b");
+    let inline_face = Value::list(vec![
+        Value::symbol(":family"),
+        Value::string("JetBrains Mono"),
+        Value::symbol(":height"),
+        Value::Float(1.2, next_float_id()),
+        Value::symbol(":weight"),
+        Value::symbol("normal"),
+    ]);
+    let start = buffer.text.char_to_byte(0);
+    let end = buffer.text.char_to_byte(3);
+    buffer
+        .text_props
+        .put_property(start, end, "face", inline_face);
+
+    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(1)]).unwrap();
+    assert!(
+        builtin_fontp(vec![font, Value::symbol("font-object")])
+            .unwrap()
+            .is_truthy()
+    );
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("family")])
+            .unwrap()
+            .as_str(),
+        Some("JetBrains Mono")
+    );
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("height")]).unwrap(),
+        Value::Int(120)
+    );
+}
+
+#[test]
+fn font_at_eval_prefers_backend_selected_font_match_when_available() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    eval.set_display_host(Box::new(FontAtDisplayHost {
+        matched: Some(ResolvedFontMatch {
+            family: "Noto Sans Mono CJK SC".to_string(),
+            foundry: None,
+            weight: FontWeight::NORMAL,
+            slant: FontSlant::Normal,
+            width: FontWidth::Normal,
+            postscript_name: Some("NotoSansMonoCJKsc-Regular".to_string()),
+        }),
+    }));
+
+    let buffer = eval
+        .buffers
+        .current_buffer_mut()
+        .expect("current buffer for backend font-at test");
+    buffer.insert("a好b");
+    let inline_face = Value::list(vec![
+        Value::symbol(":family"),
+        Value::string("JetBrains Mono"),
+        Value::symbol(":weight"),
+        Value::symbol("normal"),
+    ]);
+    let start = buffer.text.char_to_byte(1);
+    let end = buffer.text.char_to_byte(2);
+    buffer
+        .text_props
+        .put_property(start, end, "face", inline_face);
+
+    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(2)]).unwrap();
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("family")])
+            .unwrap()
+            .as_str(),
+        Some("Noto Sans Mono CJK SC")
+    );
+}
+
 // -----------------------------------------------------------------------
 // Face builtins
 // -----------------------------------------------------------------------
@@ -365,6 +558,36 @@ fn internal_copy_lisp_face_returns_to_when_frame_t() {
     ])
     .unwrap();
     assert_eq!(result.as_symbol_name(), Some("my-face"));
+}
+
+#[test]
+fn internal_copy_lisp_face_eval_updates_face_table() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    builtin_internal_set_lisp_face_attribute_eval(
+        &mut eval,
+        vec![
+            Value::symbol("bold"),
+            Value::Keyword(intern("family")),
+            Value::string("Serif"),
+        ],
+    )
+    .unwrap();
+
+    let copied = builtin_internal_copy_lisp_face_eval(
+        &mut eval,
+        vec![
+            Value::symbol("bold"),
+            Value::symbol("copied-face"),
+            Value::True,
+            Value::Nil,
+        ],
+    )
+    .unwrap();
+    assert_eq!(copied.as_symbol_name(), Some("copied-face"));
+    assert_eq!(
+        eval.face_table().resolve("copied-face").family.as_deref(),
+        Some("Serif")
+    );
 }
 
 #[test]
@@ -671,6 +894,16 @@ fn face_attribute_relative_p_non_height_attribute_is_nil() {
 }
 
 #[test]
+fn face_attribute_relative_p_unspecified_is_relative() {
+    let result = builtin_face_attribute_relative_p(vec![
+        Value::Keyword(intern("weight")),
+        Value::symbol("unspecified"),
+    ])
+    .unwrap();
+    assert!(result.is_truthy());
+}
+
+#[test]
 fn merge_face_attribute_non_unspecified() {
     let result = builtin_merge_face_attribute(vec![
         Value::Keyword(intern("foreground")),
@@ -690,6 +923,31 @@ fn merge_face_attribute_unspecified() {
     ])
     .unwrap();
     assert_eq!(result.as_str(), Some("blue"));
+}
+
+#[test]
+fn merge_face_attribute_height_relative_over_absolute() {
+    let result = builtin_merge_face_attribute(vec![
+        Value::Keyword(intern("height")),
+        Value::Float(1.5, next_float_id()),
+        Value::Int(120),
+    ])
+    .unwrap();
+    assert_eq!(result, Value::Int(180));
+}
+
+#[test]
+fn merge_face_attribute_height_relative_over_relative() {
+    let result = builtin_merge_face_attribute(vec![
+        Value::Keyword(intern("height")),
+        Value::Float(1.5, next_float_id()),
+        Value::Float(1.2, next_float_id()),
+    ])
+    .unwrap();
+    match result {
+        Value::Float(value, _) => assert!((value - 1.8).abs() < 1e-9),
+        other => panic!("expected float result, got {other:?}"),
+    }
 }
 
 #[test]

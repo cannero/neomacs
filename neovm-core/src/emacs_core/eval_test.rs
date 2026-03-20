@@ -3,6 +3,8 @@ use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_eval
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn eval_one(src: &str) -> String {
     let mut ev = Evaluator::new();
@@ -42,6 +44,28 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 fn bootstrap_eval_one(src: &str) -> String {
     bootstrap_eval_all(src).into_iter().next().expect("result")
+}
+
+fn gnu_timer_after(delay: Duration, callback: &str) -> Value {
+    let when = SystemTime::now()
+        .checked_add(delay)
+        .expect("timer deadline should fit in system time")
+        .duration_since(UNIX_EPOCH)
+        .expect("timer deadline should be after unix epoch");
+    let secs = when.as_secs() as i64;
+
+    Value::vector(vec![
+        Value::Nil,
+        Value::Int(secs >> 16),
+        Value::Int(secs & 0xFFFF),
+        Value::Int(when.subsec_micros() as i64),
+        Value::Nil,
+        Value::symbol(callback),
+        Value::Nil,
+        Value::Nil,
+        Value::Int(0),
+        Value::Nil,
+    ])
 }
 
 #[test]
@@ -93,6 +117,346 @@ fn evaluator_drop_clears_owned_thread_locals() {
 
     assert!(crate::emacs_core::intern::current_interner_ptr().is_null());
     assert!(!crate::emacs_core::value::has_current_heap());
+}
+
+#[test]
+fn read_char_applies_resize_event_before_returning_next_keypress() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 700,
+        height: 800,
+        emacs_frame_id: 0,
+    })
+    .unwrap();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .unwrap();
+
+    let event = ev.read_char().expect("read_char should return a keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+
+    let frame = ev.frames.get(fid).expect("frame should still be live");
+    assert_eq!(frame.width, 700);
+    assert_eq!(frame.height, 800);
+}
+
+#[test]
+fn read_char_triggers_redisplay_after_resize_event() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let redisplay_calls_in_cb = redisplay_calls.clone();
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        let frame = ev
+            .frames
+            .selected_frame()
+            .expect("selected frame during redisplay");
+        redisplay_calls_in_cb
+            .borrow_mut()
+            .push((frame.width, frame.height));
+    }));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 700,
+        height: 800,
+        emacs_frame_id: 0,
+    })
+    .unwrap();
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .unwrap();
+
+    let event = ev.read_char().expect("read_char should return a keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(*redisplay_calls.borrow(), vec![(700, 800)]);
+}
+
+#[test]
+fn redisplay_applies_pending_resize_before_callback() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let redisplay_calls_in_cb = redisplay_calls.clone();
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        let frame = ev
+            .frames
+            .selected_frame()
+            .expect("selected frame during redisplay");
+        redisplay_calls_in_cb
+            .borrow_mut()
+            .push((frame.width, frame.height));
+    }));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 700,
+        height: 800,
+        emacs_frame_id: 0,
+    })
+    .unwrap();
+
+    ev.redisplay();
+
+    assert_eq!(*redisplay_calls.borrow(), vec![(700, 800)]);
+}
+
+#[test]
+fn frame_native_width_syncs_pending_resize_without_read_char() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    ev.frames
+        .get_mut(fid)
+        .expect("frame should exist")
+        .parameters
+        .insert("window-system".to_string(), Value::symbol("neomacs"));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 700,
+        height: 800,
+        emacs_frame_id: 0,
+    })
+    .unwrap();
+
+    let width = crate::emacs_core::window_cmds::builtin_frame_native_width(&mut ev, vec![])
+        .expect("frame-native-width should succeed");
+    let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
+        .expect("frame-native-height should succeed");
+
+    assert_eq!(width, Value::Int(700));
+    assert_eq!(height, Value::Int(800));
+}
+
+#[test]
+fn frame_native_width_syncs_pending_resize_behind_focus_event() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    ev.frames
+        .get_mut(fid)
+        .expect("frame should exist")
+        .parameters
+        .insert("window-system".to_string(), Value::symbol("neomacs"));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::Focus(true)).unwrap();
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 700,
+        height: 800,
+        emacs_frame_id: 0,
+    })
+    .unwrap();
+
+    let width = crate::emacs_core::window_cmds::builtin_frame_native_width(&mut ev, vec![])
+        .expect("frame-native-width should succeed");
+    let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
+        .expect("frame-native-height should succeed");
+
+    assert_eq!(width, Value::Int(700));
+    assert_eq!(height, Value::Int(800));
+}
+
+#[test]
+fn redisplay_preserves_non_resize_input_for_read_char() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::KeyPress(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .unwrap();
+
+    ev.redisplay();
+
+    let event = ev
+        .read_char()
+        .expect("read_char should return queued keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+}
+
+#[test]
+fn fire_pending_timers_executes_lisp_callbacks() {
+    let mut ev = Evaluator::new();
+    ev.set_variable("vm-timer-fired", Value::Nil);
+    let forms = parse_forms(
+        "(progn
+           (fset 'vm-test-timer-callback
+                 (lambda () (setq vm-timer-fired 'done)))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (setq timer-list nil)
+                   (funcall (aref timer 5)))))",
+    )
+    .expect("parse timer test setup");
+    ev.eval_expr(&forms[0]).expect("install timer handlers");
+
+    let timer = Value::vector(vec![
+        Value::Nil,
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Nil,
+        Value::symbol("vm-test-timer-callback"),
+        Value::Nil,
+        Value::Nil,
+        Value::Int(0),
+        Value::Nil,
+    ]);
+    ev.set_variable("timer-list", Value::list(vec![timer]));
+
+    ev.fire_pending_timers();
+
+    assert_eq!(
+        ev.eval_symbol("vm-timer-fired")
+            .expect("timer flag should be bound"),
+        Value::symbol("done")
+    );
+}
+
+#[test]
+fn fire_pending_timers_requests_redisplay_after_callbacks() {
+    let mut ev = Evaluator::new();
+    ev.set_variable("vm-timer-fired", Value::Nil);
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let redisplay_calls_in_cb = redisplay_calls.clone();
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        redisplay_calls_in_cb.borrow_mut().push(
+            ev.eval_symbol("vm-timer-fired")
+                .expect("timer flag during redisplay"),
+        );
+    }));
+
+    let forms = parse_forms(
+        "(progn
+           (fset 'vm-test-timer-callback
+                 (lambda () (setq vm-timer-fired 'done)))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (setq timer-list nil)
+                   (funcall (aref timer 5)))))",
+    )
+    .expect("parse timer test setup");
+    ev.eval_expr(&forms[0]).expect("install timer handlers");
+
+    let timer = Value::vector(vec![
+        Value::Nil,
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Nil,
+        Value::symbol("vm-test-timer-callback"),
+        Value::Nil,
+        Value::Nil,
+        Value::Int(0),
+        Value::Nil,
+    ]);
+    ev.set_variable("timer-list", Value::list(vec![timer]));
+
+    ev.fire_pending_timers();
+
+    assert_eq!(*redisplay_calls.borrow(), vec![Value::symbol("done")]);
+}
+
+#[test]
+fn next_input_wait_timeout_accounts_for_gnu_timer_list() {
+    let mut ev = Evaluator::new();
+    ev.set_variable(
+        "timer-list",
+        Value::list(vec![gnu_timer_after(Duration::from_millis(200), "ignore")]),
+    );
+
+    let timeout = ev
+        .next_input_wait_timeout()
+        .expect("gnu timer should bound read_char wait");
+
+    assert!(timeout > Duration::ZERO);
+    assert!(timeout <= Duration::from_millis(200));
+}
+
+#[test]
+fn next_input_wait_timeout_chooses_earliest_timer_source() {
+    let mut ev = Evaluator::new();
+    ev.set_variable(
+        "timer-list",
+        Value::list(vec![gnu_timer_after(Duration::from_millis(250), "ignore")]),
+    );
+    ev.timers
+        .add_timer(0.05, 0.0, Value::symbol("ignore-rust"), vec![], false);
+
+    let timeout = ev
+        .next_input_wait_timeout()
+        .expect("timers should bound read_char wait");
+
+    assert!(timeout <= Duration::from_millis(100));
+}
+
+#[test]
+fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+
+    let forms = parse_forms(
+        "(progn
+           (setq vm-timer-fired nil)
+           (run-with-timer
+            0.01 nil
+            (lambda () (setq vm-timer-fired 'done))))",
+    )
+    .expect("parse timer program");
+    ev.eval_expr(&forms[0]).expect("schedule GNU Lisp timer");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        tx.send(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('a'),
+        ))
+        .expect("send keypress");
+    });
+
+    let event = ev
+        .read_char()
+        .expect("read_char should return queued keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(
+        ev.eval_symbol("vm-timer-fired")
+            .expect("timer flag should be bound"),
+        Value::symbol("done")
+    );
 }
 
 #[test]
@@ -3215,6 +3579,67 @@ fn save_window_excursion_restores_window_layout_after_split() {
             before))",
     );
     assert_eq!(results[0], "OK (2 1 1)");
+}
+
+#[test]
+fn save_window_excursion_restores_selected_window_point_and_requests_final_redisplay() {
+    let mut ev = Evaluator::new();
+    let buffer_id = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buffer_id);
+    ev.buffers
+        .get_mut(buffer_id)
+        .expect("scratch buffer")
+        .insert("0123456789abcdefghijklmnopqrstuvwxyz");
+    ev.frames.create_frame("F1", 960, 640, buffer_id);
+
+    let redisplayed_points = Rc::new(RefCell::new(Vec::new()));
+    let redisplayed_points_in_cb = Rc::clone(&redisplayed_points);
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        let point = crate::emacs_core::window_cmds::builtin_window_point(ev, vec![])
+            .expect("window-point during redisplay");
+        let Value::Int(point) = point else {
+            panic!("window-point should produce an integer during redisplay, got {point:?}");
+        };
+        redisplayed_points_in_cb.borrow_mut().push(point);
+    }));
+
+    let forms = parse_forms(
+        "(save-window-excursion
+           (set-window-point (selected-window) 10)
+           (redisplay))",
+    )
+    .expect("parse save-window-excursion redisplay form");
+    ev.eval_expr(&forms[0])
+        .expect("save-window-excursion should evaluate");
+
+    assert_eq!(*redisplayed_points.borrow(), vec![10, 37]);
+}
+
+#[test]
+fn current_window_configuration_saves_selected_window_live_point() {
+    let mut ev = Evaluator::new();
+    let buffer_id = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buffer_id);
+    ev.buffers
+        .get_mut(buffer_id)
+        .expect("scratch buffer")
+        .insert("0123456789abcdefghijklmnopqrstuvwxyz");
+    ev.frames.create_frame("F1", 960, 640, buffer_id);
+
+    let forms = parse_forms(
+        "(let* ((w (selected-window))
+                (_ (goto-char 10))
+                (cfg (current-window-configuration)))
+           (goto-char 3)
+           (set-window-configuration cfg)
+           (list (window-point w) (point)))",
+    )
+    .expect("parse current-window-configuration point preservation form");
+
+    let result = ev
+        .eval_expr(&forms[0])
+        .expect("current-window-configuration round-trip should evaluate");
+    assert_eq!(result, Value::list(vec![Value::Int(10), Value::Int(10)]));
 }
 
 #[test]

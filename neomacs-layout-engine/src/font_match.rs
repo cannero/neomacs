@@ -162,26 +162,24 @@ fn face_weight_axis_range(db: &Database, id: fontdb::ID) -> Option<(u16, u16)> {
 
 // Generic same-family weight fallback for static faces:
 // 1) exact match when available
-// 2) otherwise prefer nearest lower existing weight
-// 3) if none lower exists, use the nearest upper existing weight
+// 2) otherwise choose the closest available weight
+//
+// GNU Emacs ultimately scores entities by absolute style distance in `font.c`,
+// so a requested semi-bold face should prefer a bold instance over a regular
+// one when the family only provides 400/700.
 fn pick_nearest_css_weight(weights: &[u16], requested_weight: u16) -> u16 {
     if weights.contains(&requested_weight) {
         return requested_weight;
     }
-    if let Some(w) = weights
-        .iter()
-        .copied()
-        .filter(|w| *w <= requested_weight)
-        .max()
-    {
-        return w;
-    }
-
     weights
         .iter()
         .copied()
-        .filter(|w| *w > requested_weight)
-        .min()
+        .min_by_key(|weight| {
+            (
+                weight.abs_diff(requested_weight),
+                (*weight > requested_weight) as u8,
+            )
+        })
         .unwrap_or(requested_weight)
 }
 
@@ -195,6 +193,14 @@ mod tests {
         assert_eq!(pick_nearest_css_weight(&ws, 700), 600);
         assert_eq!(pick_nearest_css_weight(&ws, 850), 800);
         assert_eq!(pick_nearest_css_weight(&ws, 300), 400);
+    }
+
+    #[test]
+    fn nearest_weight_prefers_closest_match() {
+        let ws = [400u16, 700];
+        assert_eq!(pick_nearest_css_weight(&ws, 600), 700);
+        assert_eq!(pick_nearest_css_weight(&ws, 650), 700);
+        assert_eq!(pick_nearest_css_weight(&ws, 550), 400);
     }
 
     #[test]

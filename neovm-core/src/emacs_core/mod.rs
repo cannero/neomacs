@@ -52,6 +52,7 @@ pub mod fileio;
 pub mod floatfns;
 pub mod fns;
 pub mod font;
+pub mod fontset;
 pub mod format;
 pub mod frame_vars;
 pub mod hashtab;

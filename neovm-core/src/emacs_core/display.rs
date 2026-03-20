@@ -115,7 +115,7 @@ fn frame_window_system_symbol_in_state(
     let frame_id = super::window_cmds::resolve_frame_id_in_state(frames, buffers, frame, "framep")?;
     Ok(frames
         .get(frame_id)
-        .and_then(|frame| frame.parameters.get("window-system").copied()))
+        .and_then(|frame| frame.effective_window_system()))
 }
 
 fn invalid_get_device_terminal_error(value: &Value) -> Flow {

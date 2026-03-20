@@ -1,3 +1,4 @@
+use crate::emacs_core::eval::GuiFrameHostSize;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{
     DisplayHost, Evaluator, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
@@ -68,19 +69,41 @@ fn active_minibuffer_window_tracks_live_minibuffer_state() {
 
 #[derive(Clone, Default)]
 struct RecordingDisplayHost {
-    requests: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
+    realized: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
+    resized: Rc<RefCell<Vec<GuiFrameHostRequest>>>,
+    primary_size: Option<GuiFrameHostSize>,
 }
 
 impl RecordingDisplayHost {
     fn new() -> Self {
         Self::default()
     }
+
+    fn with_primary_size(width: u32, height: u32) -> Self {
+        Self {
+            primary_size: Some(GuiFrameHostSize { width, height }),
+            ..Self::default()
+        }
+    }
 }
 
 impl DisplayHost for RecordingDisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
-        self.requests.borrow_mut().push(request);
+        self.realized.borrow_mut().push(request);
         Ok(())
+    }
+
+    fn resize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
+        self.resized.borrow_mut().push(request);
+        Ok(())
+    }
+
+    fn current_primary_window_size(&self) -> Option<GuiFrameHostSize> {
+        self.primary_size
+    }
+
+    fn opening_gui_frame_pending(&self) -> bool {
+        self.realized.borrow().is_empty()
     }
 }
 
@@ -437,7 +460,7 @@ fn window_buffer_returns_nil_for_stale_deleted_window() {
 #[test]
 fn window_start_default() {
     let r = eval_one_with_frame("(window-start)");
-    assert_eq!(r, "OK 0");
+    assert_eq!(r, "OK 1");
 }
 
 #[test]
@@ -457,7 +480,7 @@ fn set_window_start_and_read() {
 #[test]
 fn window_point_default() {
     let r = eval_one_with_frame("(window-point)");
-    assert_eq!(r, "OK 0");
+    assert_eq!(r, "OK 1");
 }
 
 #[test]
@@ -1095,6 +1118,26 @@ fn select_window_updates_current_buffer_to_selected_window_buffer() {
                (buffer-name (current-buffer)))))",
     );
     assert_eq!(result, "OK \"sw-curbuf-b\"");
+}
+
+#[test]
+fn select_window_swaps_buffer_point_between_windows() {
+    let result = eval_one_with_frame(
+        "(let ((w1 (selected-window)))
+           (set-buffer (window-buffer w1))
+           (insert \"0123456789abcdefghijklmnopqrstuvwxyz\")
+           (let ((w2 (split-window-internal w1 nil nil nil)))
+             (set-window-point w1 3)
+             (set-window-point w2 10)
+             (select-window w2)
+             (prog1
+                 (list (window-point w1)
+                       (window-point w2)
+                       (point))
+               (select-window w1)
+               (delete-window w2))))",
+    );
+    assert_eq!(result, "OK (3 10 10)");
 }
 
 #[test]
@@ -2161,9 +2204,7 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
     let fid = ev.frames.create_frame("gui", 800, 600, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("gui frame");
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("neomacs"));
+        frame.set_window_system(Some(Value::symbol("neomacs")));
     }
 
     assert_eq!(
@@ -2180,6 +2221,27 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
     );
     assert_eq!(
         super::builtin_frame_text_height(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
+        Value::Int(584)
+    );
+}
+
+#[test]
+fn frame_query_builtins_use_internal_window_system_state() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("gui", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("gui frame");
+        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.parameters.remove("window-system");
+    }
+
+    assert_eq!(
+        super::builtin_frame_native_width(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
+        Value::Int(800)
+    );
+    assert_eq!(
+        super::builtin_frame_native_height(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
         Value::Int(600)
     );
 }
@@ -2519,7 +2581,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     }
     ev.set_variable("terminal-frame", Value::Frame(fid.0));
     let host = RecordingDisplayHost::new();
-    let requests = host.requests.clone();
+    let requests = host.realized.clone();
     ev.set_display_host(Box::new(host));
 
     let params = Value::list(vec![
@@ -2545,6 +2607,160 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     assert_eq!(requests[0].title, "Neomacs");
     assert_eq!(requests[0].width, frame.width);
     assert_eq!(requests[0].height, frame.height);
+    assert_eq!(
+        ev.frames.selected_frame().expect("selected frame").id,
+        created_id
+    );
+}
+
+#[test]
+fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
+    let mut ev = Evaluator::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
+    {
+        let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
+        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.char_width = 10.0;
+        frame.char_height = 20.0;
+        if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
+            mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
+        }
+    }
+    ev.set_variable("terminal-frame", Value::Frame(fid.0));
+
+    let host = RecordingDisplayHost::new();
+    let requests = host.realized.clone();
+    ev.set_display_host(Box::new(host));
+
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("name"), Value::string("GUI")),
+        Value::cons(Value::symbol("width"), Value::Int(80)),
+        Value::cons(Value::symbol("height"), Value::Int(25)),
+    ]);
+    let created = super::builtin_make_frame(&mut ev, vec![params]).expect("make-frame");
+
+    let created_id = match created {
+        Value::Frame(id) => crate::window::FrameId(id),
+        other => panic!("expected frame object, got {other:?}"),
+    };
+    let frame = ev.frames.get(created_id).expect("created opening frame");
+    assert_eq!(
+        frame.effective_window_system(),
+        Some(Value::symbol("neomacs"))
+    );
+    assert_eq!(frame.width, 800);
+    assert_eq!(frame.height, 540);
+    assert_eq!(
+        ev.frames.selected_frame().expect("selected frame").id,
+        created_id
+    );
+
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].frame_id, created_id);
+    assert_eq!(requests[0].width, 800);
+    assert_eq!(requests[0].height, 540);
+}
+
+#[test]
+fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
+    let mut ev = Evaluator::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
+    {
+        let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("neomacs"));
+        frame.char_width = 10.0;
+        frame.char_height = 20.0;
+        if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
+            mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
+        }
+    }
+    ev.set_variable("terminal-frame", Value::Frame(fid.0));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    tx.send(crate::keyboard::InputEvent::Focus(true))
+        .expect("queue focus");
+    tx.send(crate::keyboard::InputEvent::Resize {
+        width: 1500,
+        height: 1900,
+        emacs_frame_id: 0,
+    })
+    .expect("queue resize");
+
+    let host = RecordingDisplayHost::new();
+    let requests = host.realized.clone();
+    ev.set_display_host(Box::new(host));
+
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("name"), Value::string("Neomacs")),
+        Value::cons(Value::symbol("title"), Value::string("Neomacs")),
+    ]);
+    let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
+
+    let created_id = match created {
+        Value::Frame(id) => crate::window::FrameId(id),
+        other => panic!("expected frame object, got {other:?}"),
+    };
+    let frame = ev.frames.get(created_id).expect("created opening frame");
+    assert_eq!(frame.width, 1500);
+    assert_eq!(frame.height, 1900);
+
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].frame_id, created_id);
+    assert_eq!(requests[0].width, 1500);
+    assert_eq!(requests[0].height, 1900);
+}
+
+#[test]
+fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geometry() {
+    let mut ev = Evaluator::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
+    {
+        let frame = ev.frames.get_mut(fid).expect("bootstrap frame");
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("neomacs"));
+        frame.char_width = 10.0;
+        frame.char_height = 20.0;
+        if let Some(mini_leaf) = frame.minibuffer_leaf.as_mut() {
+            mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
+        }
+    }
+    ev.set_variable("terminal-frame", Value::Frame(fid.0));
+
+    let host = RecordingDisplayHost::with_primary_size(1500, 1900);
+    let requests = host.realized.clone();
+    ev.set_display_host(Box::new(host));
+
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("name"), Value::string("Neomacs")),
+        Value::cons(Value::symbol("title"), Value::string("Neomacs")),
+    ]);
+    let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
+
+    let created_id = match created {
+        Value::Frame(id) => crate::window::FrameId(id),
+        other => panic!("expected frame object, got {other:?}"),
+    };
+    let frame = ev.frames.get(created_id).expect("created opening frame");
+    assert_eq!(frame.width, 1500);
+    assert_eq!(frame.height, 1900);
+
+    let requests = requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].width, 1500);
+    assert_eq!(requests[0].height, 1900);
+    assert_eq!(
+        ev.frames.selected_frame().expect("selected frame").id,
+        created_id
+    );
 }
 
 #[test]
@@ -2713,6 +2929,47 @@ fn set_frame_size_builtins_preserve_pixel_dimensions() {
         frame.parameters.get("neovm--frame-text-lines"),
         Some(&Value::Int(35))
     );
+}
+
+#[test]
+fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame should exist");
+        frame
+            .parameters
+            .insert("window-system".to_string(), Value::symbol("neomacs"));
+    }
+    let host = RecordingDisplayHost::new();
+    let resized = host.resized.clone();
+    ev.set_display_host(Box::new(host));
+
+    let forms = parse_forms("(set-frame-size (selected-frame) 100 35)").expect("parse");
+    let out = ev.eval_forms(&forms);
+    assert!(
+        out[0].is_ok(),
+        "set-frame-size builtins failed: {:?}",
+        out[0]
+    );
+
+    let frame = ev.frames.get(fid).expect("frame should exist");
+    assert_eq!(frame.width, 800);
+    assert_eq!(frame.height, 576);
+    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(100)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(36)));
+    assert_eq!(
+        frame.parameters.get("neovm--frame-text-lines"),
+        Some(&Value::Int(35))
+    );
+
+    let requests = resized.borrow();
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.frame_id, fid);
+    assert_eq!(request.width, 800);
+    assert_eq!(request.height, 576);
 }
 
 #[test]

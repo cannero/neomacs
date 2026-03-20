@@ -724,6 +724,41 @@ pub struct DumpCodingSystemManager {
     pub terminal_coding: String,
 }
 
+// Charset
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum DumpCharsetMethod {
+    Offset(i64),
+    Map,
+    Subset,
+    Superset,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpCharsetInfo {
+    pub id: i64,
+    pub name: String,
+    pub dimension: i64,
+    pub code_space: [i64; 8],
+    pub min_code: i64,
+    pub max_code: i64,
+    pub iso_final_char: Option<i64>,
+    pub iso_revision: Option<i64>,
+    pub emacs_mule_id: Option<i64>,
+    pub ascii_compatible_p: bool,
+    pub supplementary_p: bool,
+    pub invalid_code: Option<i64>,
+    pub unify_map: Option<String>,
+    pub method: DumpCharsetMethod,
+    pub plist: Vec<(String, DumpValue)>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpCharsetRegistry {
+    pub charsets: Vec<DumpCharsetInfo>,
+    pub priority: Vec<String>,
+    pub next_id: i64,
+}
+
 // Face
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct DumpColor {
@@ -892,6 +927,7 @@ pub struct DumpEvaluatorState {
     pub custom: DumpCustomManager,
     pub modes: DumpModeRegistry,
     pub coding_systems: DumpCodingSystemManager,
+    pub charset_registry: DumpCharsetRegistry,
     pub face_table: DumpFaceTable,
     pub category_manager: DumpCategoryManager,
     pub abbrevs: DumpAbbrevManager,

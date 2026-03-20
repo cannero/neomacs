@@ -543,7 +543,7 @@ impl WgpuGlyphAtlas {
         span.record("req_size", tracing::field::display(req_size));
 
         // Create attributes from face
-        let attrs = self.face_to_attrs(face);
+        let attrs = self.face_to_attrs_for_text(text, face);
 
         // Use font_size from face if available, otherwise default
         let font_size = req_size;
@@ -814,22 +814,48 @@ impl WgpuGlyphAtlas {
     /// fontdb and uses the fontdb-registered family name. This ensures cosmic-text
     /// uses the identical font file that Emacs/Fontconfig resolved.
     fn face_to_attrs(&mut self, face: Option<&Face>) -> Attrs<'static> {
+        self.face_to_attrs_for_text("", face)
+    }
+
+    fn face_to_attrs_for_text(&mut self, text: &str, face: Option<&Face>) -> Attrs<'static> {
         let mut attrs = Attrs::new();
 
         if let Some(f) = face {
-            let italic = f
+            let requested_italic = f
                 .attributes
                 .contains(neomacs_display_protocol::face::FaceAttributes::ITALIC);
 
-            // Resolve effective family name: prefer fontdb family from exact file path
-            let effective_family = if let Some(ref path) = f.font_file_path {
-                self.font_file_cache
-                    .resolve_family(&mut self.font_system, path)
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| f.font_family.clone())
+            // Prime the exact font file in fontdb, but keep the family name that
+            // Fontconfig/Emacs already selected so TTC collections stay stable.
+            let mut effective_family = if let Some(ref path) = f.font_file_path {
+                let _ = self.font_file_cache.prime_file(&mut self.font_system, path);
+                f.font_family.clone()
             } else {
                 f.font_family.clone()
             };
+            let mut effective_weight = f.font_weight;
+            let mut effective_style = if requested_italic {
+                Some(Style::Italic)
+            } else {
+                None
+            };
+
+            if let Some(ch) = text.chars().find(|ch| !ch.is_ascii()) {
+                let prefer_monospace =
+                    neomacs_layout_engine::fontconfig::family_prefers_monospace(&effective_family);
+                if let Some(matched) = neomacs_layout_engine::fontconfig::match_font_for_char(
+                    &effective_family,
+                    ch,
+                    prefer_monospace,
+                    f.font_weight,
+                    requested_italic,
+                ) {
+                    if let Some(path) = matched.file.as_deref() {
+                        let _ = self.font_file_cache.prime_file(&mut self.font_system, path);
+                    }
+                    effective_family = matched.family;
+                }
+            }
 
             // Resolve generic family names through fontconfig so we use the
             // same font as GNU Emacs (e.g., "Monospace" → "Hack").
@@ -874,22 +900,24 @@ impl WgpuGlyphAtlas {
             let effective_weight = neomacs_layout_engine::font_match::resolve_weight_in_family(
                 &self.font_system,
                 &effective_family,
-                f.font_weight,
-                italic,
+                effective_weight,
+                effective_style.is_some(),
             );
-            if effective_weight != f.font_weight {
+            if effective_weight != f.font_weight || effective_style.is_some() != requested_italic {
                 tracing::debug!(
-                    "weight normalize: family='{}' requested={} -> resolved={}",
+                    "font normalize: family='{}' requested_weight={} resolved_weight={} requested_italic={} resolved_style={:?}",
                     effective_family,
                     f.font_weight,
-                    effective_weight
+                    effective_weight,
+                    requested_italic,
+                    effective_style
                 );
             }
             attrs = attrs.weight(Weight(effective_weight));
 
             // Font style (italic)
-            if italic {
-                attrs = attrs.style(Style::Italic);
+            if let Some(style) = effective_style {
+                attrs = attrs.style(style);
             }
         } else {
             // No face — use default monospace, resolved through fontconfig

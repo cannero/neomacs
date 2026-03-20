@@ -48,6 +48,16 @@ impl FontFileCache {
             .and_then(|f| f.as_deref())
     }
 
+    pub fn prime_file(&mut self, font_system: &mut FontSystem, file_path: &str) -> bool {
+        if !self.path_to_family.contains_key(file_path) {
+            let family = Self::load_and_resolve(font_system, file_path);
+            self.path_to_family.insert(file_path.to_string(), family);
+        }
+        self.path_to_family
+            .get(file_path)
+            .is_some_and(|family| family.is_some())
+    }
+
     fn load_and_resolve(font_system: &mut FontSystem, file_path: &str) -> Option<String> {
         let db = font_system.db_mut();
         let ids: Vec<fontdb::ID> = if Self::is_web_font_path(file_path) {

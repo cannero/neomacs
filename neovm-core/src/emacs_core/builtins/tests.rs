@@ -4163,20 +4163,11 @@ fn pure_dispatch_native_comp_placeholders_match_compat_contracts() {
     }
 
     super::symbols::reset_symbols_thread_locals();
-    let new_fontset =
+    assert!(
         dispatch_builtin_pure("new-fontset", vec![Value::string("x"), Value::string("y")])
-            .expect("builtin new-fontset should resolve")
-            .expect_err("new-fontset should reject non-XLFD names");
-    match new_fontset {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(
-                sig.data,
-                vec![Value::string("Fontset name must be in XLFD format")]
-            );
-        }
-        other => panic!("expected signal, got: {other:?}"),
-    }
+            .is_none(),
+        "new-fontset now requires evaluator runtime state and must bypass pure dispatch"
+    );
 }
 
 #[test]
@@ -4414,17 +4405,17 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin set-charset-plist should evaluate");
     assert_eq!(set_charset, Value::list(vec![]));
 
-    let set_fontset = dispatch_builtin_pure(
-        "set-fontset-font",
-        vec![
-            Value::string("fontset-default"),
-            Value::symbol("target"),
-            Value::Nil,
-        ],
-    )
-    .expect("builtin set-fontset-font should resolve")
-    .expect("builtin set-fontset-font should evaluate");
-    assert!(set_fontset.is_nil());
+    assert!(
+        dispatch_builtin_pure(
+            "set-fontset-font",
+            vec![
+                Value::string("fontset-default"),
+                Value::symbol("target"),
+                Value::Nil,
+            ],
+        )
+        .is_none()
+    );
 
     let set_state = dispatch_builtin_pure("set-frame-window-state-change", vec![])
         .expect("builtin set-frame-window-state-change should resolve")
@@ -6961,38 +6952,15 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
         )])
     );
 
-    let created = dispatch_builtin_pure(
-        "new-fontset",
-        vec![
-            Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
-            Value::list(vec![]),
-        ],
-    )
-    .expect("new-fontset should resolve")
-    .expect("new-fontset should evaluate");
-    assert_eq!(
-        created,
-        Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard")
-    );
-
-    let query_alias =
-        dispatch_builtin_pure("query-fontset", vec![Value::string("fontset-standard")])
-            .expect("query-fontset should resolve")
-            .expect("query-fontset should evaluate");
-    assert_eq!(
-        query_alias,
-        Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard")
-    );
-
-    let updated_list = dispatch_builtin_pure("fontset-list", vec![])
-        .expect("fontset-list should resolve")
-        .expect("fontset-list should evaluate");
-    assert_eq!(
-        updated_list,
-        Value::list(vec![
-            Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default"),
-            Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
-        ])
+    assert!(
+        dispatch_builtin_pure(
+            "new-fontset",
+            vec![
+                Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
+                Value::list(vec![]),
+            ],
+        )
+        .is_none()
     );
 
     let fontset_err = dispatch_builtin_pure(

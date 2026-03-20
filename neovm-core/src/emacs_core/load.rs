@@ -2151,10 +2151,10 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly. V12 invalidates earlier caches because Rust no longer
-// prebinds GNU Lisp-owned `help-map`, allowing help.el to install the real
-// `C-h` help prefix bindings during bootstrap.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 12;
+// represent correctly. V13 invalidates earlier caches because fontset alias
+// resolution and charset-backed default fontset rules must be rebuilt during
+// bootstrap; older dumps preserve the broken default fontset state.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 13;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",

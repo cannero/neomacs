@@ -1,4 +1,5 @@
 use super::RenderApp;
+use super::state::{effective_window_scale_factor, emacs_pixels_from_window_size};
 use crate::backend::wgpu::{
     NEOMACS_CTRL_MASK, NEOMACS_META_MASK, NEOMACS_SHIFT_MASK, NEOMACS_SUPER_MASK,
 };
@@ -41,27 +42,26 @@ impl RenderApp {
                     .unwrap_or(0);
                 if emacs_fid == 0 {
                     self.handle_resize(size.width, size.height);
-                    let logical_w = (size.width as f64 / self.scale_factor) as u32;
-                    let logical_h = (size.height as f64 / self.scale_factor) as u32;
+                    let (emacs_w, emacs_h) =
+                        emacs_pixels_from_window_size(size.width, size.height, self.scale_factor);
                     tracing::info!(
-                        "Sending WindowResize event to Emacs: {}x{} (logical)",
-                        logical_w,
-                        logical_h
+                        "Sending WindowResize event to Emacs: {}x{}",
+                        emacs_w,
+                        emacs_h
                     );
                     self.comms.send_input(InputEvent::WindowResize {
-                        width: logical_w,
-                        height: logical_h,
+                        width: emacs_w,
+                        height: emacs_h,
                         emacs_frame_id: 0,
                     });
                 } else if let Some(device) = self.device.clone() {
                     if let Some(ws) = self.multi_windows.get_mut(emacs_fid) {
                         ws.handle_resize(&device, size.width, size.height);
-                        let scale = ws.scale_factor;
-                        let logical_w = (size.width as f64 / scale) as u32;
-                        let logical_h = (size.height as f64 / scale) as u32;
+                        let (emacs_w, emacs_h) =
+                            emacs_pixels_from_window_size(size.width, size.height, ws.scale_factor);
                         self.comms.send_input(InputEvent::WindowResize {
-                            width: logical_w,
-                            height: logical_h,
+                            width: emacs_w,
+                            height: emacs_h,
                             emacs_frame_id: emacs_fid,
                         });
                     }
@@ -366,17 +366,19 @@ impl RenderApp {
             }
 
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                let effective_scale = effective_window_scale_factor(scale_factor);
                 tracing::info!(
-                    "Scale factor changed: {} -> {}",
+                    "Scale factor changed: previous_effective={} raw={} effective={}",
                     self.scale_factor,
-                    scale_factor
+                    scale_factor,
+                    effective_scale
                 );
-                self.scale_factor = scale_factor;
+                self.scale_factor = effective_scale;
                 if let Some(ref mut renderer) = self.renderer {
-                    renderer.set_scale_factor(scale_factor as f32);
+                    renderer.set_scale_factor(effective_scale as f32);
                 }
                 if let Some(ref mut atlas) = self.glyph_atlas {
-                    atlas.set_scale_factor(scale_factor as f32);
+                    atlas.set_scale_factor(effective_scale as f32);
                 }
                 self.frame_dirty = true;
             }

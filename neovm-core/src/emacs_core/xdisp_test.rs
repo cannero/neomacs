@@ -1055,6 +1055,293 @@ fn test_window_line_height_eval_returns_live_gui_row_metrics() {
 }
 
 #[test]
+fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval.frames.create_frame("xdisp-posn", 160, 64, buf_id);
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
+    {
+        let buf = eval.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("abcdef\n");
+        buf.goto_byte(4);
+    }
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        let window = frame
+            .find_window_mut(selected_window)
+            .expect("selected window");
+        match window {
+            crate::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } => {
+                *window_start = 1;
+                *point = 5;
+            }
+            other => panic!("expected leaf window, got {:?}", other),
+        }
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: selected_window,
+            text_area_left_offset: 8,
+            points: vec![crate::window::DisplayPointSnapshot {
+                buffer_pos: 5,
+                x: 24,
+                y: 18,
+                width: 21,
+                height: 30,
+                row: 1,
+                col: 3,
+            }],
+            rows: vec![crate::window::DisplayRowSnapshot {
+                row: 1,
+                y: 18,
+                height: 30,
+                start_buffer_pos: Some(5),
+                end_buffer_pos: Some(5),
+            }],
+        }]);
+    }
+
+    let result = builtin_posn_at_point_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![Value::Int(5), Value::Window(selected_window.0)],
+    )
+    .unwrap();
+    assert_eq!(
+        super::super::print::print_value(&result),
+        "(#<window 1> 5 (24 . 18) 0 nil 5 (3 . 1) nil (0 . 0) (21 . 30))"
+    );
+}
+
+#[test]
+fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval.frames.create_frame("xdisp-posn-xy", 160, 64, buf_id);
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
+    {
+        let buf = eval.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("abcdef\n");
+        buf.goto_byte(4);
+    }
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: selected_window,
+            text_area_left_offset: 8,
+            points: vec![crate::window::DisplayPointSnapshot {
+                buffer_pos: 5,
+                x: 24,
+                y: 18,
+                width: 21,
+                height: 30,
+                row: 1,
+                col: 3,
+            }],
+            rows: vec![crate::window::DisplayRowSnapshot {
+                row: 1,
+                y: 18,
+                height: 30,
+                start_buffer_pos: Some(5),
+                end_buffer_pos: Some(5),
+            }],
+        }]);
+    }
+
+    let text_relative = builtin_posn_at_x_y_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![
+            Value::Int(30),
+            Value::Int(20),
+            Value::Window(selected_window.0),
+            Value::Nil,
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        super::super::print::print_value(&text_relative),
+        "(#<window 1> 5 (24 . 18) 0 nil 5 (3 . 1) nil (0 . 0) (21 . 30))"
+    );
+
+    let whole_window = builtin_posn_at_x_y_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![
+            Value::Int(38),
+            Value::Int(20),
+            Value::Window(selected_window.0),
+            Value::True,
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        super::super::print::print_value(&whole_window),
+        "(#<window 1> 5 (24 . 18) 0 nil 5 (3 . 1) nil (0 . 0) (21 . 30))"
+    );
+}
+
+#[test]
+fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("xdisp-posn-offscreen", 160, 64, buf_id);
+    let selected_window = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    {
+        let buf = eval.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("abcdefghijklmnopqrstuvwxyz\n");
+        buf.goto_byte(0);
+    }
+    {
+        let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: selected_window,
+            text_area_left_offset: 8,
+            points: vec![
+                crate::window::DisplayPointSnapshot {
+                    buffer_pos: 10,
+                    x: 24,
+                    y: 18,
+                    width: 8,
+                    height: 16,
+                    row: 0,
+                    col: 2,
+                },
+                crate::window::DisplayPointSnapshot {
+                    buffer_pos: 14,
+                    x: 56,
+                    y: 18,
+                    width: 8,
+                    height: 16,
+                    row: 0,
+                    col: 6,
+                },
+            ],
+            rows: vec![crate::window::DisplayRowSnapshot {
+                row: 0,
+                y: 18,
+                height: 16,
+                start_buffer_pos: Some(10),
+                end_buffer_pos: Some(14),
+            }],
+        }]);
+    }
+
+    let before = builtin_posn_at_point_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![Value::Int(5), Value::Window(selected_window.0)],
+    )
+    .unwrap();
+    let after = builtin_posn_at_point_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![Value::Int(20), Value::Window(selected_window.0)],
+    )
+    .unwrap();
+    let hidden_gap = builtin_posn_at_point_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![Value::Int(12), Value::Window(selected_window.0)],
+    )
+    .unwrap();
+
+    assert!(
+        before.is_nil(),
+        "expected offscreen position before span to be nil, got {before:?}"
+    );
+    assert!(
+        after.is_nil(),
+        "expected offscreen position after span to be nil, got {after:?}"
+    );
+    assert_eq!(
+        super::super::print::print_value(&hidden_gap),
+        "(#<window 1> 14 (56 . 18) 0 nil 14 (6 . 0) nil (0 . 0) (8 . 16))"
+    );
+}
+
+#[test]
+fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("xdisp-posn-missing-row", 160, 96, buf_id);
+    let selected_window = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    {
+        let buf = eval.buffers.get_mut(buf_id).expect("buffer");
+        buf.insert("abcdef\n");
+        buf.goto_byte(0);
+    }
+    {
+        let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: selected_window,
+            text_area_left_offset: 8,
+            points: vec![
+                crate::window::DisplayPointSnapshot {
+                    buffer_pos: 1,
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 16,
+                    row: 0,
+                    col: 0,
+                },
+                crate::window::DisplayPointSnapshot {
+                    buffer_pos: 4,
+                    x: 0,
+                    y: 18,
+                    width: 8,
+                    height: 16,
+                    row: 1,
+                    col: 0,
+                },
+            ],
+            rows: vec![
+                crate::window::DisplayRowSnapshot {
+                    row: 0,
+                    y: 0,
+                    height: 16,
+                    start_buffer_pos: Some(1),
+                    end_buffer_pos: Some(1),
+                },
+                crate::window::DisplayRowSnapshot {
+                    row: 1,
+                    y: 18,
+                    height: 16,
+                    start_buffer_pos: Some(4),
+                    end_buffer_pos: Some(4),
+                },
+            ],
+        }]);
+    }
+
+    let missing = builtin_posn_at_point_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![Value::Int(2), Value::Window(selected_window.0)],
+    )
+    .unwrap();
+    assert!(
+        missing.is_nil(),
+        "expected missing position between visible rows to be nil, got {missing:?}"
+    );
+}
+
+#[test]
 fn test_move_point_visually() {
     for direction in [1_i64, 0, -1, 2] {
         let err = builtin_move_point_visually(vec![Value::Int(direction)]).unwrap_err();

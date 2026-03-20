@@ -609,6 +609,10 @@ pub(crate) fn ensure_selected_frame_id_in_state(
         return fid;
     }
 
+    tracing::warn!(
+        "ensure_selected_frame_id_in_state: no selected frame present; synthesizing fallback batch-style frame"
+    );
+
     let buf_id = buffers
         .current_buffer()
         .map(|b| b.id)
@@ -1520,10 +1524,23 @@ pub(crate) fn builtin_window_end_in_state(
     match w {
         Window::Leaf {
             window_start,
+            window_end_pos,
+            window_end_valid,
             bounds,
             buffer_id,
             ..
         } => {
+            let update_requested = args.get(1).is_some_and(|arg| !arg.is_nil());
+            let stored_end = buffers
+                .get(*buffer_id)
+                .map(|b| b.point_max_char().saturating_add(1))
+                .unwrap_or(*window_start)
+                .saturating_sub(*window_end_pos)
+                .max(1);
+            if !update_requested || *window_end_valid {
+                return Ok(Value::Int(stored_end as i64));
+            }
+
             let frame = frames.get(fid).unwrap();
             let body_lines = if is_minibuffer_window(frames, fid, wid) {
                 (bounds.height / frame.char_height) as usize
@@ -1585,7 +1602,19 @@ pub(crate) fn builtin_window_point_in_state(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
     match w {
-        Window::Leaf { point, .. } => Ok(Value::Int(*point as i64)),
+        Window::Leaf {
+            buffer_id, point, ..
+        } => {
+            let selected_live_window = frames.get(fid).is_some_and(|frame| {
+                frame.selected_window == wid && frame.selected_window != WindowId(0)
+            });
+            if selected_live_window && buffers.current_buffer_id() == Some(*buffer_id) {
+                if let Some(buffer) = buffers.get(*buffer_id) {
+                    return Ok(Value::Int(buffer.point_char().saturating_add(1) as i64));
+                }
+            }
+            Ok(Value::Int(*point as i64))
+        }
         _ => Ok(Value::Int(0)),
     }
 }
@@ -1735,11 +1764,26 @@ pub(crate) fn builtin_set_window_point_in_state(
                 if let Some(clamped) =
                     clamped_window_position_in_state(frames, buffers, fid, wid, pos)
                 {
-                    if let Some(Window::Leaf { point, .. }) = frames
+                    let selected_live_window = frames
+                        .get(fid)
+                        .is_some_and(|frame| frame.selected_window == wid);
+                    let mut buffer_to_move = None;
+                    if let Some(Window::Leaf {
+                        buffer_id, point, ..
+                    }) = frames
                         .get_mut(fid)
                         .and_then(|frame| frame.find_window_mut(wid))
                     {
                         *point = clamped;
+                        if selected_live_window && buffers.current_buffer_id() == Some(*buffer_id) {
+                            if let Some(buffer) = buffers.get(*buffer_id) {
+                                buffer_to_move =
+                                    Some((*buffer_id, buffer.lisp_pos_to_byte(clamped as i64)));
+                            }
+                        }
+                    }
+                    if let Some((buffer_id, byte_pos)) = buffer_to_move {
+                        let _ = buffers.goto_buffer_byte(buffer_id, byte_pos);
                     }
                 }
             }
@@ -1757,11 +1801,26 @@ pub(crate) fn builtin_set_window_point_in_state(
             })?;
             if let Some(clamped) = clamped_window_position_in_state(frames, buffers, fid, wid, pos)
             {
-                if let Some(Window::Leaf { point, .. }) = frames
+                let selected_live_window = frames
+                    .get(fid)
+                    .is_some_and(|frame| frame.selected_window == wid);
+                let mut buffer_to_move = None;
+                if let Some(Window::Leaf {
+                    buffer_id, point, ..
+                }) = frames
                     .get_mut(fid)
                     .and_then(|frame| frame.find_window_mut(wid))
                 {
                     *point = clamped;
+                    if selected_live_window && buffers.current_buffer_id() == Some(*buffer_id) {
+                        if let Some(buffer) = buffers.get(*buffer_id) {
+                            buffer_to_move =
+                                Some((*buffer_id, buffer.lisp_pos_to_byte(clamped as i64)));
+                        }
+                    }
+                }
+                if let Some((buffer_id, byte_pos)) = buffer_to_move {
+                    let _ = buffers.goto_buffer_byte(buffer_id, byte_pos);
                 }
                 Ok(Value::Int(clamped as i64))
             } else {
@@ -2070,6 +2129,7 @@ pub(crate) fn builtin_window_pixel_left(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_pixel_left_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2099,6 +2159,7 @@ pub(crate) fn builtin_window_pixel_top(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_pixel_top_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2567,6 +2628,7 @@ pub(crate) fn builtin_window_pixel_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_pixel_height_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2590,6 +2652,7 @@ pub(crate) fn builtin_window_pixel_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_pixel_width_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2615,6 +2678,7 @@ pub(crate) fn builtin_window_body_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_body_height_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2655,6 +2719,7 @@ pub(crate) fn builtin_window_body_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_body_width_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2682,6 +2747,7 @@ pub(crate) fn builtin_window_text_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_text_height_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -2718,6 +2784,7 @@ pub(crate) fn builtin_window_text_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_window_text_width_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -3455,6 +3522,65 @@ pub(crate) fn builtin_select_window(
     builtin_select_window_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
+fn remember_selected_window_point_in_state(
+    frames: &mut FrameManager,
+    buffers: &BufferManager,
+    fid: FrameId,
+) {
+    let Some(frame) = frames.get(fid) else {
+        return;
+    };
+    let selected_wid = frame.selected_window;
+    let Some(buffer_id) = frame
+        .find_window(selected_wid)
+        .and_then(|window| window.buffer_id())
+    else {
+        return;
+    };
+    if buffers.current_buffer_id() != Some(buffer_id) {
+        return;
+    }
+    let Some(point) = buffers
+        .get(buffer_id)
+        .map(|buffer| buffer.point_char().saturating_add(1))
+    else {
+        return;
+    };
+    if let Some(Window::Leaf {
+        point: window_point,
+        ..
+    }) = frames
+        .get_mut(fid)
+        .and_then(|frame| frame.find_window_mut(selected_wid))
+    {
+        *window_point = point;
+    }
+}
+
+fn sync_selected_window_buffer_in_state(
+    frames: &FrameManager,
+    buffers: &mut BufferManager,
+    fid: FrameId,
+) {
+    let Some((buffer_id, point)) = frames
+        .get(fid)
+        .and_then(|frame| frame.find_window(frame.selected_window))
+        .and_then(|window| match window {
+            Window::Leaf {
+                buffer_id, point, ..
+            } => Some((*buffer_id, *point)),
+            Window::Internal { .. } => None,
+        })
+    else {
+        return;
+    };
+    buffers.set_current(buffer_id);
+    if let Some(buffer) = buffers.get(buffer_id) {
+        let byte_pos = buffer.lisp_pos_to_byte(point as i64);
+        let _ = buffers.goto_buffer_byte(buffer_id, byte_pos);
+    }
+}
+
 pub(crate) fn builtin_select_window_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
@@ -3473,7 +3599,8 @@ pub(crate) fn builtin_select_window_in_state(
         }
     };
     let record_selection = args.get(1).is_none_or(Value::is_nil);
-    let selected_buffer = {
+    remember_selected_window_point_in_state(frames, buffers, fid);
+    {
         let frame = frames
             .get_mut(fid)
             .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
@@ -3483,14 +3610,11 @@ pub(crate) fn builtin_select_window_in_state(
                 vec![Value::symbol("window-live-p"), args[0]],
             ));
         }
-        frame.find_window(wid).and_then(|w| w.buffer_id())
-    };
+    }
     if record_selection {
         let _ = frames.note_window_selected(wid);
     }
-    if let Some(buffer_id) = selected_buffer {
-        buffers.set_current(buffer_id);
-    }
+    sync_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(window_value(wid))
 }
 
@@ -3528,21 +3652,17 @@ pub(crate) fn builtin_other_window_in_state(
     let len = list.len() as i64;
     let new_idx = ((cur_idx as i64 + count) % len + len) % len;
     let new_wid = list[new_idx as usize];
-    let (selected_buffer, switched) = if let Some(frame) = frames.get_mut(fid) {
+    remember_selected_window_point_in_state(frames, buffers, fid);
+    let switched = if let Some(frame) = frames.get_mut(fid) {
         let switched = frame.select_window(new_wid);
-        (
-            frame.find_window(new_wid).and_then(|w| w.buffer_id()),
-            switched,
-        )
+        switched
     } else {
-        (None, false)
+        false
     };
     if switched {
         let _ = frames.note_window_selected(new_wid);
     };
-    if let Some(buffer_id) = selected_buffer {
-        buffers.set_current(buffer_id);
-    }
+    sync_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
 }
 
@@ -3925,7 +4045,59 @@ fn frame_text_cols(frame: &crate::window::Frame) -> i64 {
 }
 
 fn frame_uses_window_system_pixels(frame: &crate::window::Frame) -> bool {
-    frame.parameters.contains_key("window-system")
+    frame.effective_window_system().is_some()
+}
+
+fn frame_non_text_height_pixels(frame: &crate::window::Frame) -> u32 {
+    let minibuffer_height = frame
+        .minibuffer_leaf
+        .as_ref()
+        .map(|leaf| leaf.bounds().height.max(0.0).round() as u32)
+        .unwrap_or(0);
+    frame
+        .menu_bar_height
+        .saturating_add(frame.tool_bar_height)
+        .saturating_add(frame.tab_bar_height)
+        .saturating_add(minibuffer_height)
+}
+
+fn frame_text_width_pixels(frame: &crate::window::Frame) -> u32 {
+    frame.width
+}
+
+fn frame_text_height_pixels(frame: &crate::window::Frame) -> u32 {
+    frame
+        .height
+        .saturating_sub(frame_non_text_height_pixels(frame))
+        .max(1)
+}
+
+fn check_frame_pixels(value: &Value, pixelwise: bool, item_size: f32) -> Result<u32, Flow> {
+    let size = expect_int(value)?;
+    if size <= 0 {
+        return Err(signal(
+            "args-out-of-range",
+            vec![*value, Value::Int(1), Value::Int(i64::from(i32::MAX))],
+        ));
+    }
+    let unit = if pixelwise {
+        1
+    } else {
+        item_size.max(1.0).round() as i64
+    };
+    let pixels = size.checked_mul(unit).ok_or_else(|| {
+        signal(
+            "args-out-of-range",
+            vec![*value, Value::Int(1), Value::Int(i64::from(i32::MAX))],
+        )
+    })?;
+    if pixels <= 0 || pixels > u32::MAX as i64 {
+        return Err(signal(
+            "args-out-of-range",
+            vec![*value, Value::Int(1), Value::Int(i64::from(i32::MAX))],
+        ));
+    }
+    Ok(pixels as u32)
 }
 
 fn frame_total_lines(frame: &crate::window::Frame) -> i64 {
@@ -3962,6 +4134,80 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
     frame
         .parameters
         .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::Int(text_lines));
+}
+
+fn resize_live_gui_frame(
+    frames: &mut FrameManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    fid: FrameId,
+    text_width_px: u32,
+    text_height_px: u32,
+    pretend: bool,
+) -> Result<(), Flow> {
+    let (total_width_px, total_height_px, title, cols, text_lines) = {
+        let frame = frames
+            .get(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        let char_width = frame.char_width.max(1.0);
+        let char_height = frame.char_height.max(1.0);
+        let cols = ((text_width_px as f32) / char_width).floor().max(1.0) as i64;
+        let text_lines = ((text_height_px as f32) / char_height).floor().max(1.0) as i64;
+        let non_text_height = frame_non_text_height_pixels(frame);
+        let title = if frame.title.is_empty() {
+            frame.name.clone()
+        } else {
+            frame.title.clone()
+        };
+        (
+            text_width_px.max(1),
+            text_height_px.saturating_add(non_text_height).max(1),
+            title,
+            cols,
+            text_lines,
+        )
+    };
+
+    {
+        let frame = frames
+            .get_mut(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        tracing::debug!(
+            "resize_live_gui_frame: fid={:?} pretend={} total={}x{} cols={} text_lines={}",
+            fid,
+            pretend,
+            total_width_px,
+            total_height_px,
+            cols,
+            text_lines
+        );
+        if pretend {
+            set_frame_text_size(frame, cols, text_lines);
+        } else {
+            frame.resize_pixelwise(total_width_px, total_height_px);
+            frame
+                .parameters
+                .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::Int(text_lines));
+        }
+    }
+
+    if !pretend && let Some(host) = display_host.as_mut() {
+        tracing::debug!(
+            "resize_live_gui_frame: notifying host fid={:?} size={}x{} title={}",
+            fid,
+            total_width_px,
+            total_height_px,
+            title
+        );
+        host.resize_gui_frame(super::eval::GuiFrameHostRequest {
+            frame_id: fid,
+            width: total_width_px,
+            height: total_height_px,
+            title,
+        })
+        .map_err(|message| signal("error", vec![Value::string(message)]))?;
+    }
+
+    Ok(())
 }
 
 // ===========================================================================
@@ -4374,6 +4620,9 @@ pub(crate) fn builtin_select_frame_in_state(
             ));
         }
     };
+    if let Some(old_fid) = frames.selected_frame().map(|frame| frame.id) {
+        remember_selected_window_point_in_state(frames, buffers, old_fid);
+    }
     if !frames.select_frame(fid) {
         return Err(signal(
             "wrong-type-argument",
@@ -4385,13 +4634,7 @@ pub(crate) fn builtin_select_frame_in_state(
             let _ = frames.note_window_selected(selected_wid);
         }
     }
-    if let Some(buf_id) = frames
-        .get(fid)
-        .and_then(|f| f.find_window(f.selected_window))
-        .and_then(|w| w.buffer_id())
-    {
-        buffers.set_current(buf_id);
-    }
+    sync_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Frame(fid.0))
 }
 
@@ -4438,6 +4681,9 @@ pub(crate) fn builtin_select_frame_set_input_focus_in_state(
             ));
         }
     };
+    if let Some(old_fid) = frames.selected_frame().map(|frame| frame.id) {
+        remember_selected_window_point_in_state(frames, buffers, old_fid);
+    }
     if !frames.select_frame(fid) {
         return Err(signal(
             "wrong-type-argument",
@@ -4449,13 +4695,7 @@ pub(crate) fn builtin_select_frame_set_input_focus_in_state(
             let _ = frames.note_window_selected(selected_wid);
         }
     }
-    if let Some(buf_id) = frames
-        .get(fid)
-        .and_then(|f| f.find_window(f.selected_window))
-        .and_then(|w| w.buffer_id())
-    {
-        buffers.set_current(buf_id);
-    }
+    sync_selected_window_buffer_in_state(frames, buffers, fid);
     Ok(Value::Nil)
 }
 
@@ -4554,6 +4794,7 @@ pub(crate) fn builtin_frame_native_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_frame_native_height_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -4579,6 +4820,7 @@ pub(crate) fn builtin_frame_native_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    eval.sync_pending_resize_events();
     builtin_frame_native_width_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -4592,7 +4834,23 @@ pub(crate) fn builtin_frame_native_width_in_state(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+    let uses_window_system_pixels = frame_uses_window_system_pixels(frame);
+    if std::env::var("NEOMACS_TRACE_FRAME_GEOMETRY")
+        .ok()
+        .is_some_and(|value| value == "1")
+    {
+        tracing::debug!(
+            "frame-native-width: fid={:?} selected={:?} size={}x{} uses_pixels={} effective_ws={:?} param_ws={:?}",
+            fid,
+            frames.selected_frame().map(|selected| selected.id),
+            frame.width,
+            frame.height,
+            uses_window_system_pixels,
+            frame.effective_window_system(),
+            frame.parameters.get("window-system").copied()
+        );
+    }
+    Ok(Value::Int(if uses_window_system_pixels {
         frame.width as i64
     } else {
         frame_total_cols(frame)
@@ -4638,7 +4896,14 @@ pub(crate) fn builtin_frame_text_lines_in_state(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame_text_lines(frame)))
+    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+        let char_height = frame.char_height.max(1.0);
+        ((frame_text_height_pixels(frame) as f32) / char_height)
+            .floor()
+            .max(1.0) as i64
+    } else {
+        frame_text_lines(frame)
+    }))
 }
 
 /// `(frame-text-width &optional FRAME)` -> integer.
@@ -4662,7 +4927,7 @@ pub(crate) fn builtin_frame_text_width_in_state(
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
-        frame.width as i64
+        frame_text_width_pixels(frame) as i64
     } else {
         frame_text_cols(frame)
     }))
@@ -4689,7 +4954,7 @@ pub(crate) fn builtin_frame_text_height_in_state(
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
-        frame.height as i64
+        frame_text_height_pixels(frame) as i64
     } else {
         frame_text_lines(frame)
     }))
@@ -4760,29 +5025,60 @@ pub(crate) fn builtin_set_frame_height(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_frame_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+    builtin_set_frame_height_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        &mut eval.display_host,
+        args,
+    )
 }
 
 pub(crate) fn builtin_set_frame_height_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-frame-height", &args, 2)?;
     expect_max_args("set-frame-height", &args, 4)?;
     let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
-    let text_lines = expect_int(&args[1])?;
-
-    let cols = {
+    let pretend = args.get(2).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
+    let (current_text_width_px, char_height, uses_window_system_pixels) = {
         let frame = frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-        frame_total_cols(frame)
+        (
+            frame_text_width_pixels(frame),
+            frame.char_height,
+            frame_uses_window_system_pixels(frame),
+        )
     };
-    let frame = frames
-        .get_mut(fid)
-        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    set_frame_text_size(frame, cols, text_lines);
+    let text_height_px = check_frame_pixels(&args[1], pixelwise, char_height)?;
+    if uses_window_system_pixels {
+        resize_live_gui_frame(
+            frames,
+            display_host,
+            fid,
+            current_text_width_px,
+            text_height_px,
+            pretend,
+        )?;
+    } else {
+        let cols = {
+            let frame = frames
+                .get(fid)
+                .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+            frame_total_cols(frame)
+        };
+        let text_lines = ((text_height_px as f32) / char_height.max(1.0))
+            .floor()
+            .max(1.0) as i64;
+        let frame = frames
+            .get_mut(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        set_frame_text_size(frame, cols, text_lines);
+    }
     Ok(Value::Nil)
 }
 
@@ -4791,29 +5087,60 @@ pub(crate) fn builtin_set_frame_width(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_frame_width_in_state(&mut eval.frames, &mut eval.buffers, args)
+    builtin_set_frame_width_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        &mut eval.display_host,
+        args,
+    )
 }
 
 pub(crate) fn builtin_set_frame_width_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-frame-width", &args, 2)?;
     expect_max_args("set-frame-width", &args, 4)?;
     let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
-    let cols = expect_int(&args[1])?;
-
-    let text_lines = {
+    let pretend = args.get(2).is_some_and(Value::is_truthy);
+    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
+    let (current_text_height_px, char_width, uses_window_system_pixels) = {
         let frame = frames
             .get(fid)
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-        frame_text_lines(frame)
+        (
+            frame_text_height_pixels(frame),
+            frame.char_width,
+            frame_uses_window_system_pixels(frame),
+        )
     };
-    let frame = frames
-        .get_mut(fid)
-        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    set_frame_text_size(frame, cols, text_lines);
+    let text_width_px = check_frame_pixels(&args[1], pixelwise, char_width)?;
+    if uses_window_system_pixels {
+        resize_live_gui_frame(
+            frames,
+            display_host,
+            fid,
+            text_width_px,
+            current_text_height_px,
+            pretend,
+        )?;
+    } else {
+        let text_lines = {
+            let frame = frames
+                .get(fid)
+                .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+            frame_text_lines(frame)
+        };
+        let cols = ((text_width_px as f32) / char_width.max(1.0))
+            .floor()
+            .max(1.0) as i64;
+        let frame = frames
+            .get_mut(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        set_frame_text_size(frame, cols, text_lines);
+    }
     Ok(Value::Nil)
 }
 
@@ -4822,24 +5149,73 @@ pub(crate) fn builtin_set_frame_size(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_frame_size_in_state(&mut eval.frames, &mut eval.buffers, args)
+    builtin_set_frame_size_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        &mut eval.display_host,
+        args,
+    )
 }
 
 pub(crate) fn builtin_set_frame_size_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-frame-size", &args, 3)?;
     expect_max_args("set-frame-size", &args, 4)?;
     let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
-    let cols = expect_int(&args[1])?;
-    let text_lines = expect_int(&args[2])?;
-
-    let frame = frames
-        .get_mut(fid)
-        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    set_frame_text_size(frame, cols, text_lines);
+    let pixelwise = args.get(3).is_some_and(Value::is_truthy);
+    let (char_width, char_height, uses_window_system_pixels) = {
+        let frame = frames
+            .get(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        (
+            frame.char_width,
+            frame.char_height,
+            frame_uses_window_system_pixels(frame),
+        )
+    };
+    let text_width_px = check_frame_pixels(&args[1], pixelwise, char_width)?;
+    let text_height_px = check_frame_pixels(&args[2], pixelwise, char_height)?;
+    tracing::debug!(
+        "set-frame-size: fid={:?} pixelwise={} gui={} requested_text={}x{} char={}x{}",
+        fid,
+        pixelwise,
+        uses_window_system_pixels,
+        text_width_px,
+        text_height_px,
+        char_width,
+        char_height
+    );
+    if uses_window_system_pixels {
+        resize_live_gui_frame(
+            frames,
+            display_host,
+            fid,
+            text_width_px,
+            text_height_px,
+            false,
+        )?;
+    } else {
+        let cols = ((text_width_px as f32) / char_width.max(1.0))
+            .floor()
+            .max(1.0) as i64;
+        let text_lines = ((text_height_px as f32) / char_height.max(1.0))
+            .floor()
+            .max(1.0) as i64;
+        let frame = frames
+            .get_mut(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        tracing::debug!(
+            "set-frame-size: non-gui fallback fid={:?} cols={} text_lines={}",
+            fid,
+            cols,
+            text_lines
+        );
+        set_frame_text_size(frame, cols, text_lines);
+    }
     Ok(Value::Nil)
 }
 
@@ -4865,16 +5241,118 @@ pub(crate) fn builtin_set_frame_position_in_state(
 
 /// `(make-frame &optional PARAMETERS)` -> frame id.
 ///
-/// Creates a new frame.  PARAMETERS is an alist; we currently
-/// only honour `width`, `height`, and `name`.
+/// GNU Emacs routes GUI frame creation through `x-create-frame` and keeps
+/// terminal-only creation on the plain frame path. NeoVM mirrors that split:
+/// if the current runtime has an active GUI display host (or the caller
+/// explicitly requests a GUI window-system), delegate to the GUI boundary;
+/// otherwise create a plain frame directly.
 pub(crate) fn builtin_make_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_make_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
+    let backend = resolve_make_frame_backend_request(args.first(), eval.display_host.is_some());
+    tracing::debug!(
+        "builtin_make_frame: backend={backend:?} display_host_available={} args={:?}",
+        eval.display_host.is_some(),
+        args
+    );
+    if backend == MakeFrameBackend::Gui {
+        eval.sync_pending_resize_events();
+    }
+    builtin_make_frame_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        &mut eval.display_host,
+        args,
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MakeFrameBackend {
+    Plain,
+    Gui,
+}
+
+fn resolve_make_frame_backend_request(
+    params: Option<&Value>,
+    display_host_available: bool,
+) -> MakeFrameBackend {
+    let Some(params) = params else {
+        return if display_host_available {
+            MakeFrameBackend::Gui
+        } else {
+            MakeFrameBackend::Plain
+        };
+    };
+    let Some(items) = super::value::list_to_vec(params) else {
+        return if display_host_available {
+            MakeFrameBackend::Gui
+        } else {
+            MakeFrameBackend::Plain
+        };
+    };
+
+    let mut requested_window_system = None;
+    let mut requested_display = false;
+    let mut requested_terminal = false;
+
+    for item in items {
+        let Value::Cons(cell) = item else {
+            continue;
+        };
+        let pair = read_cons(cell);
+        let Some(key) = pair.car.as_symbol_name() else {
+            continue;
+        };
+        match key {
+            "window-system" => requested_window_system = Some(!pair.cdr.is_nil()),
+            "display" => requested_display = !pair.cdr.is_nil(),
+            "terminal" => requested_terminal = !pair.cdr.is_nil(),
+            _ => {}
+        }
+    }
+
+    if requested_terminal || matches!(requested_window_system, Some(false)) {
+        return MakeFrameBackend::Plain;
+    }
+
+    if requested_display || matches!(requested_window_system, Some(true)) {
+        return MakeFrameBackend::Gui;
+    }
+
+    if display_host_available {
+        MakeFrameBackend::Gui
+    } else {
+        MakeFrameBackend::Plain
+    }
 }
 
 pub(crate) fn builtin_make_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    args: Vec<Value>,
+) -> EvalResult {
+    let backend = resolve_make_frame_backend_request(args.first(), display_host.is_some());
+    tracing::debug!(
+        "builtin_make_frame_in_state: backend={backend:?} display_host_available={} args={:?}",
+        display_host.is_some(),
+        args
+    );
+    if backend == MakeFrameBackend::Gui {
+        if display_host.is_none() {
+            return Err(signal(
+                "error",
+                vec![Value::string("GUI frame creation requires a display host")],
+            ));
+        }
+        let gui_args = vec![args.first().copied().unwrap_or(Value::Nil)];
+        return builtin_x_create_frame_in_state(frames, buffers, display_host, gui_args);
+    }
+    builtin_make_frame_plain_in_state(frames, buffers, args)
+}
+
+fn builtin_make_frame_plain_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
     args: Vec<Value>,
@@ -4921,6 +5399,13 @@ pub(crate) fn builtin_make_frame_in_state(
         .map(|b| b.id)
         .unwrap_or(BufferId(0));
     let fid = frames.create_frame(&name, width, height, buf_id);
+    tracing::debug!(
+        "builtin_make_frame_plain_in_state: created plain frame {:?} size={}x{} name={}",
+        fid,
+        width,
+        height,
+        name
+    );
     Ok(Value::Frame(fid.0))
 }
 
@@ -5023,6 +5508,15 @@ fn current_gui_frame_metrics_in_state(frames: &FrameManager) -> GuiFrameMetrics 
     }
 }
 
+fn current_primary_window_size(
+    display_host: &Option<Box<dyn super::eval::DisplayHost>>,
+) -> Option<super::eval::GuiFrameHostSize> {
+    display_host
+        .as_ref()
+        .and_then(|host| host.current_primary_window_size())
+        .filter(|size| size.width > 0 && size.height > 0)
+}
+
 /// `(x-create-frame PARMS)` -> frame.
 ///
 /// GNU Emacs owns `make-frame` in Lisp and delegates the host-window boundary
@@ -5034,6 +5528,14 @@ pub(crate) fn builtin_x_create_frame(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
+    tracing::debug!(
+        "builtin_x_create_frame: syncing pending resize events before frame realization"
+    );
+    // GNU's initial GUI frame creation observes the actual host surface
+    // geometry that exists at make-frame time. Our bootstrap window can
+    // already have queued resize events before Lisp reaches x-create-frame,
+    // so apply them first instead of reusing stale bootstrap dimensions.
+    eval.sync_pending_resize_events();
     builtin_x_create_frame_in_state(
         &mut eval.frames,
         &mut eval.buffers,
@@ -5051,11 +5553,20 @@ pub(crate) fn builtin_x_create_frame_in_state(
     expect_args("x-create-frame", &args, 1)?;
 
     let parsed = parse_gui_frame_params(args.first());
+    tracing::debug!(
+        "builtin_x_create_frame_in_state: display_host_available={} params={:?}",
+        display_host.is_some(),
+        args.first()
+    );
     let metrics = current_gui_frame_metrics_in_state(frames);
+    let host_size = current_primary_window_size(&*display_host);
+    let opening_frame_adoption = display_host
+        .as_ref()
+        .is_some_and(|host| host.opening_gui_frame_pending());
     let width_px = parsed
         .width_columns
         .map(|cols| ((cols as f32 * metrics.char_width).round().max(1.0)) as u32)
-        .unwrap_or(metrics.width_px);
+        .unwrap_or_else(|| host_size.map(|size| size.width).unwrap_or(metrics.width_px));
     let text_height_px = parsed.height_lines.map(|lines| {
         ((lines as f32 * metrics.char_height)
             .round()
@@ -5063,7 +5574,24 @@ pub(crate) fn builtin_x_create_frame_in_state(
     });
     let height_px = text_height_px
         .map(|text| text.saturating_add(metrics.minibuffer_height.round() as u32))
-        .unwrap_or(metrics.height_px);
+        .unwrap_or_else(|| {
+            host_size
+                .map(|size| size.height)
+                .unwrap_or(metrics.height_px)
+        });
+    tracing::debug!(
+        "x-create-frame: parsed width_cols={:?} height_lines={:?} host_size={:?} metrics={}x{} char={}x{} mini_h={} -> size={}x{}",
+        parsed.width_columns,
+        parsed.height_lines,
+        host_size,
+        metrics.width_px,
+        metrics.height_px,
+        metrics.char_width,
+        metrics.char_height,
+        metrics.minibuffer_height,
+        width_px,
+        height_px
+    );
     let title = parsed
         .title
         .clone()
@@ -5090,9 +5618,7 @@ pub(crate) fn builtin_x_create_frame_in_state(
         frame.char_width = metrics.char_width;
         frame.char_height = metrics.char_height;
         frame.font_pixel_size = metrics.font_pixel_size;
-        frame
-            .parameters
-            .insert("window-system".to_string(), Value::symbol("neomacs"));
+        frame.set_window_system(Some(Value::symbol("neomacs")));
         frame
             .parameters
             .insert("display-type".to_string(), Value::symbol("color"));
@@ -5129,6 +5655,13 @@ pub(crate) fn builtin_x_create_frame_in_state(
             title,
         })
         .map_err(|message| signal("error", vec![Value::string(message)]))?;
+    }
+    if opening_frame_adoption {
+        frames.select_frame(fid);
+        if let Some(selected_wid) = frames.get(fid).map(|frame| frame.selected_window) {
+            let _ = frames.note_window_selected(selected_wid);
+        }
+        buffers.set_current(current_buffer_id);
     }
     Ok(Value::Frame(fid.0))
 }

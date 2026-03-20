@@ -103,6 +103,7 @@ pub(super) fn find_cursor_pos(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neomacs_display_protocol::CursorStyle;
 
     #[test]
     fn test_push_rect_single() {

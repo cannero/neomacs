@@ -320,6 +320,51 @@ struct WindowConfigurationSnapshot {
     minibuffer_leaf: Option<crate::window::Window>,
 }
 
+fn normalize_selected_window_point_in_snapshot(
+    snapshot: &mut WindowConfigurationSnapshot,
+    buffers: &crate::buffer::BufferManager,
+) {
+    let selected_buffer_id = snapshot
+        .root_window
+        .find(snapshot.selected_window)
+        .or_else(|| {
+            snapshot
+                .minibuffer_leaf
+                .as_ref()
+                .filter(|window| window.id() == snapshot.selected_window)
+        })
+        .and_then(|window| window.buffer_id());
+    let Some(buffer_id) = selected_buffer_id else {
+        return;
+    };
+    let Some(point) = buffers
+        .get(buffer_id)
+        .map(|buffer| buffer.point_char().saturating_add(1))
+    else {
+        return;
+    };
+
+    if let Some(crate::window::Window::Leaf {
+        point: window_point,
+        ..
+    }) = snapshot.root_window.find_mut(snapshot.selected_window)
+    {
+        *window_point = point;
+        return;
+    }
+
+    if let Some(crate::window::Window::Leaf {
+        point: window_point,
+        ..
+    }) = snapshot
+        .minibuffer_leaf
+        .as_mut()
+        .filter(|window| window.id() == snapshot.selected_window)
+    {
+        *window_point = point;
+    }
+}
+
 thread_local! {
     static WINDOW_CONFIGURATION_SNAPSHOTS: RefCell<HashMap<i64, WindowConfigurationSnapshot>> =
         RefCell::new(HashMap::new());
@@ -428,13 +473,14 @@ pub(crate) fn builtin_current_window_configuration_in_state(
     };
     let frame_id = crate::window::FrameId(frame_raw_id);
     if let Some(frame_state) = frames.get(frame_id) {
-        let snapshot = WindowConfigurationSnapshot {
+        let mut snapshot = WindowConfigurationSnapshot {
             frame_id,
             root_window: frame_state.root_window.clone(),
             selected_window: frame_state.selected_window,
             minibuffer_window: frame_state.minibuffer_window,
             minibuffer_leaf: frame_state.minibuffer_leaf.clone(),
         };
+        normalize_selected_window_point_in_snapshot(&mut snapshot, buffers);
         let serial = next_window_configuration_serial();
         WINDOW_CONFIGURATION_SNAPSHOTS.with(|slot| {
             let mut store = slot.borrow_mut();
@@ -458,7 +504,10 @@ pub(crate) fn builtin_set_window_configuration(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_window_configuration_in_state(&mut eval.frames, &mut eval.buffers, args)
+    let result =
+        builtin_set_window_configuration_in_state(&mut eval.frames, &mut eval.buffers, args)?;
+    eval.redisplay();
+    Ok(result)
 }
 
 pub(crate) fn builtin_set_window_configuration_in_state(
@@ -477,19 +526,28 @@ pub(crate) fn builtin_set_window_configuration_in_state(
     let snapshot = WINDOW_CONFIGURATION_SNAPSHOTS.with(|slot| slot.borrow().get(&serial).cloned());
 
     if let Some(snapshot) = snapshot {
-        let selected_buffer = if let Some(frame) = frames.get_mut(snapshot.frame_id) {
+        let selected_window_state = if let Some(frame) = frames.get_mut(snapshot.frame_id) {
             frame.root_window = snapshot.root_window;
             frame.selected_window = snapshot.selected_window;
             frame.minibuffer_window = snapshot.minibuffer_window;
             frame.minibuffer_leaf = snapshot.minibuffer_leaf;
             frame
                 .find_window(frame.selected_window)
-                .and_then(|w| w.buffer_id())
+                .and_then(|window| match window {
+                    crate::window::Window::Leaf {
+                        buffer_id, point, ..
+                    } => Some((*buffer_id, *point)),
+                    crate::window::Window::Internal { .. } => None,
+                })
         } else {
             None
         };
-        if let Some(buffer_id) = selected_buffer {
+        if let Some((buffer_id, point)) = selected_window_state {
             buffers.set_current(buffer_id);
+            if let Some(buffer) = buffers.get(buffer_id) {
+                let byte_pos = buffer.lisp_pos_to_byte(point as i64);
+                let _ = buffers.goto_buffer_byte(buffer_id, byte_pos);
+            }
         }
     }
 

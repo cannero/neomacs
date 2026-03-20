@@ -1,3 +1,4 @@
+use super::state::{effective_window_scale_factor, window_size_from_emacs_pixels};
 use super::{MonitorInfo, RenderApp};
 use std::sync::Arc;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -16,14 +17,13 @@ impl RenderApp {
             self.resumed_seen = true;
         }
         if self.window.is_none() {
-            // Use LogicalSize so winit applies the display scale
             let attrs = Window::default_attributes()
                 .with_title(&self.title)
-                .with_inner_size(winit::dpi::LogicalSize::new(self.width, self.height))
+                .with_inner_size(window_size_from_emacs_pixels(self.width, self.height))
                 .with_transparent(true);
 
             tracing::info!(
-                "Render thread creating primary window: logical={}x{} title={:?}",
+                "Render thread creating primary window: emacs_pixels={}x{} title={:?}",
                 self.width,
                 self.height,
                 self.title
@@ -32,11 +32,14 @@ impl RenderApp {
                 Ok(window) => {
                     let window = Arc::new(window);
 
-                    // Read scale factor once at launch
-                    self.scale_factor = window.scale_factor();
-                    tracing::info!("Display scale factor: {}", self.scale_factor);
+                    let raw_scale_factor = window.scale_factor();
+                    self.scale_factor = effective_window_scale_factor(raw_scale_factor);
+                    tracing::info!(
+                        "Display scale factor: raw={} effective={}",
+                        raw_scale_factor,
+                        self.scale_factor
+                    );
 
-                    // Update width/height to physical pixels for surface config
                     let phys = window.inner_size();
                     self.width = phys.width;
                     self.height = phys.height;

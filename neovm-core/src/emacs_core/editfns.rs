@@ -415,7 +415,20 @@ pub(crate) fn builtin_erase_buffer_in_state(
         return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
     }
 
-    let _ = buffers.replace_buffer_contents(current_id, "");
+    let _ = buffers.clear_buffer_labeled_restrictions(current_id);
+    let len = {
+        let Some(buf) = buffers.get_mut(current_id) else {
+            return Ok(Value::Nil);
+        };
+        buf.widen();
+        buf.text.len()
+    };
+    if len > 0 {
+        let _ = buffers.delete_buffer_region(current_id, 0, len);
+    }
+    if let Some(buf) = buffers.get_mut(current_id) {
+        buf.goto_byte(0);
+    }
     Ok(Value::Nil)
 }
 

@@ -5505,25 +5505,13 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "set-frame-height" => Some(
-                crate::emacs_core::window_cmds::builtin_set_frame_height_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                self.builtin_set_frame_height_shared(args),
             ),
             "set-frame-width" => Some(
-                crate::emacs_core::window_cmds::builtin_set_frame_width_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                self.builtin_set_frame_width_shared(args),
             ),
             "set-frame-size" => Some(
-                crate::emacs_core::window_cmds::builtin_set_frame_size_in_state(
-                    self.shared.frames,
-                    self.shared.buffers,
-                    args.to_vec(),
-                ),
+                self.builtin_set_frame_size_shared(args),
             ),
             "set-frame-position" => Some(
                 crate::emacs_core::window_cmds::builtin_set_frame_position_in_state(
@@ -5603,27 +5591,23 @@ impl<'a> Vm<'a> {
                 &*self.shared.frames,
                 args.to_vec(),
             )),
-            "internal-make-lisp-face" => Some(
-                crate::emacs_core::font::builtin_internal_make_lisp_face_in_state(
-                    &*self.shared.frames,
-                    args.to_vec(),
-                ),
-            ),
+            "internal-make-lisp-face" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::font::builtin_internal_make_lisp_face_eval(eval, args.to_vec())
+            })),
             "internal-lisp-face-p" => Some(
                 crate::emacs_core::font::builtin_internal_lisp_face_p(args.to_vec()),
             ),
-            "internal-copy-lisp-face" => Some(
-                crate::emacs_core::font::builtin_internal_copy_lisp_face_in_state(
-                    &*self.shared.frames,
-                    args.to_vec(),
-                ),
-            ),
-            "internal-set-lisp-face-attribute" => Some(
-                crate::emacs_core::font::builtin_internal_set_lisp_face_attribute_in_state(
-                    &*self.shared.frames,
-                    args.to_vec(),
-                ),
-            ),
+            "internal-copy-lisp-face" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::font::builtin_internal_copy_lisp_face_eval(eval, args.to_vec())
+            })),
+            "internal-set-lisp-face-attribute" => {
+                Some(self.shared.with_parent_evaluator(|eval| {
+                    crate::emacs_core::font::builtin_internal_set_lisp_face_attribute_eval(
+                        eval,
+                        args.to_vec(),
+                    )
+                }))
+            }
             "internal-get-lisp-face-attribute" => Some(
                 crate::emacs_core::font::builtin_internal_get_lisp_face_attribute_in_state(
                     &*self.shared.frames,
@@ -5670,10 +5654,9 @@ impl<'a> Vm<'a> {
             "face-attributes-as-vector" => Some(
                 crate::emacs_core::builtins::builtin_face_attributes_as_vector(args.to_vec()),
             ),
-            "font-at" => Some(crate::emacs_core::builtins::builtin_font_at_in_state(
-                &*self.shared.frames,
-                args.to_vec(),
-            )),
+            "font-at" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::font::builtin_font_at_eval(eval, args.to_vec())
+            })),
             "font-face-attributes" => Some(
                 crate::emacs_core::builtins::builtin_font_face_attributes(args.to_vec()),
             ),
@@ -5701,6 +5684,20 @@ impl<'a> Vm<'a> {
             ),
             "fontset-font" => Some(
                 crate::emacs_core::builtins::builtin_fontset_font(args.to_vec()),
+            ),
+            "new-fontset" => Some(
+                crate::emacs_core::builtins::symbols::builtin_new_fontset_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    args.to_vec(),
+                ),
+            ),
+            "set-fontset-font" => Some(
+                crate::emacs_core::builtins::symbols::builtin_set_fontset_font_in_state(
+                    &*self.shared.obarray,
+                    self.shared.dynamic.as_slice(),
+                    args.to_vec(),
+                ),
             ),
             "fontset-info" => Some(
                 crate::emacs_core::builtins::builtin_fontset_info(args.to_vec()),
@@ -6453,6 +6450,16 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "posn-at-point" => Some(crate::emacs_core::xdisp::builtin_posn_at_point_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
+            "posn-at-x-y" => Some(crate::emacs_core::xdisp::builtin_posn_at_x_y_in_state(
+                self.shared.frames,
+                self.shared.buffers,
+                args.to_vec(),
+            )),
             "move-point-visually" => Some(
                 crate::emacs_core::xdisp::builtin_move_point_visually(args.to_vec()),
             ),
@@ -7691,11 +7698,7 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
-            "make-frame" => Some(crate::emacs_core::window_cmds::builtin_make_frame_in_state(
-                self.shared.frames,
-                self.shared.buffers,
-                args.to_vec(),
-            )),
+            "make-frame" => Some(self.builtin_make_frame_shared(args)),
             "frame-live-p" => Some(
                 crate::emacs_core::window_cmds::builtin_frame_live_p_in_state(
                     &*self.shared.frames,
@@ -9105,8 +9108,43 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_x_create_frame_shared(&mut self, args: &[Value]) -> EvalResult {
+        let args = args.to_vec();
+        tracing::debug!("builtin_x_create_frame_shared: delegating via parent evaluator");
+        self.shared.with_parent_evaluator(|eval| {
+            crate::emacs_core::window_cmds::builtin_x_create_frame(eval, args)
+        })
+    }
+
+    fn builtin_make_frame_shared(&mut self, args: &[Value]) -> EvalResult {
+        let args = args.to_vec();
+        self.shared.with_parent_evaluator(|eval| {
+            crate::emacs_core::window_cmds::builtin_make_frame(eval, args)
+        })
+    }
+
+    fn builtin_set_frame_height_shared(&mut self, args: &[Value]) -> EvalResult {
         let (frames, buffers, display_host) = self.shared.gui_frame_creation_state();
-        crate::emacs_core::window_cmds::builtin_x_create_frame_in_state(
+        crate::emacs_core::window_cmds::builtin_set_frame_height_in_state(
+            frames,
+            buffers,
+            display_host,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_set_frame_width_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (frames, buffers, display_host) = self.shared.gui_frame_creation_state();
+        crate::emacs_core::window_cmds::builtin_set_frame_width_in_state(
+            frames,
+            buffers,
+            display_host,
+            args.to_vec(),
+        )
+    }
+
+    fn builtin_set_frame_size_shared(&mut self, args: &[Value]) -> EvalResult {
+        let (frames, buffers, display_host) = self.shared.gui_frame_creation_state();
+        crate::emacs_core::window_cmds::builtin_set_frame_size_in_state(
             frames,
             buffers,
             display_host,

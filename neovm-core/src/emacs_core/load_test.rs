@@ -1,6 +1,9 @@
 use super::*;
 use crate::emacs_core::eval::{Evaluator, value_to_expr};
 use crate::emacs_core::expr::Expr;
+use crate::emacs_core::fontset::{
+    DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
+};
 use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::{HashTableTest, Value, list_to_vec, with_heap};
 use crate::emacs_core::{format_eval_result, parse_forms};
@@ -1377,6 +1380,56 @@ fn bootstrap_runtime_standard_fontset_spec_creates_named_fontset() {
             Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
             Value::string("-*-fixed-medium-r-normal-*-16-*-*-*-*-*-fontset-standard"),
         ])
+    );
+}
+
+#[test]
+fn bootstrap_runtime_setup_default_fontset_preserves_gnu_han_order() {
+    let mut eval =
+        create_bootstrap_evaluator_with_features(&["neomacs"]).expect("fresh bootstrap evaluator");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list (charsetp 'devanagari-cdac)
+                 (aref char-script-table ?好))"#,
+    );
+    assert_eq!(rendered, "OK (t han)");
+
+    let forms = parse_forms("(setup-default-fontset)").expect("parse default fontset setup");
+    eval.eval_expr(&forms[0])
+        .expect("setup-default-fontset should evaluate");
+
+    let entries = matching_entries_for_fontset(DEFAULT_FONTSET_NAME, '好');
+    let registries: Vec<Option<String>> = entries
+        .iter()
+        .take(19)
+        .map(|entry| match entry {
+            FontSpecEntry::Font(spec) => spec.registry.clone(),
+            FontSpecEntry::ExplicitNone => None,
+        })
+        .collect();
+    assert_eq!(
+        registries,
+        vec![
+            Some("gb2312.1980-0".to_string()),
+            Some("jisx0208*".to_string()),
+            Some("jisx0212*".to_string()),
+            Some("big5*".to_string()),
+            Some("ksc5601.1987*".to_string()),
+            Some("cns11643.1992-1".to_string()),
+            Some("cns11643.1992-2".to_string()),
+            Some("cns11643.1992-3".to_string()),
+            Some("cns11643.1992-4".to_string()),
+            Some("cns11643.1992-5".to_string()),
+            Some("cns11643.1992-6".to_string()),
+            Some("cns11643.1992-7".to_string()),
+            Some("gbk-0".to_string()),
+            Some("gb18030".to_string()),
+            Some("jisx0213.2000-1".to_string()),
+            Some("jisx0213.2000-2".to_string()),
+            Some("jisx0213.2004-1".to_string()),
+            Some("iso10646-1".to_string()),
+            Some("iso10646-1".to_string()),
+        ]
     );
 }
 

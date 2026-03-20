@@ -15,6 +15,10 @@ use crate::emacs_core::autoload::{AutoloadEntry, AutoloadManager, AutoloadType};
 use crate::emacs_core::bookmark::{Bookmark, BookmarkManager};
 use crate::emacs_core::bytecode::chunk::ByteCodeFunction;
 use crate::emacs_core::bytecode::opcode::Op;
+use crate::emacs_core::charset::{
+    CharsetInfoSnapshot, CharsetMethodSnapshot, CharsetRegistrySnapshot, restore_charset_registry,
+    snapshot_charset_registry,
+};
 use crate::emacs_core::coding::{CodingSystemInfo, CodingSystemManager, EolType};
 use crate::emacs_core::custom::{CustomGroup, CustomManager, CustomVariable};
 use crate::emacs_core::eval::Evaluator;
@@ -840,6 +844,44 @@ pub(crate) fn dump_coding_system_manager(csm: &CodingSystemManager) -> DumpCodin
     }
 }
 
+pub(crate) fn dump_charset_registry() -> DumpCharsetRegistry {
+    let snapshot = snapshot_charset_registry();
+    DumpCharsetRegistry {
+        charsets: snapshot
+            .charsets
+            .into_iter()
+            .map(|info| DumpCharsetInfo {
+                id: info.id,
+                name: info.name,
+                dimension: info.dimension,
+                code_space: info.code_space,
+                min_code: info.min_code,
+                max_code: info.max_code,
+                iso_final_char: info.iso_final_char,
+                iso_revision: info.iso_revision,
+                emacs_mule_id: info.emacs_mule_id,
+                ascii_compatible_p: info.ascii_compatible_p,
+                supplementary_p: info.supplementary_p,
+                invalid_code: info.invalid_code,
+                unify_map: info.unify_map,
+                method: match info.method {
+                    CharsetMethodSnapshot::Offset(offset) => DumpCharsetMethod::Offset(offset),
+                    CharsetMethodSnapshot::Map => DumpCharsetMethod::Map,
+                    CharsetMethodSnapshot::Subset => DumpCharsetMethod::Subset,
+                    CharsetMethodSnapshot::Superset => DumpCharsetMethod::Superset,
+                },
+                plist: info
+                    .plist
+                    .into_iter()
+                    .map(|(key, value)| (key, dump_value(&value)))
+                    .collect(),
+            })
+            .collect(),
+        priority: snapshot.priority,
+        next_id: snapshot.next_id,
+    }
+}
+
 fn dump_color(c: &Color) -> DumpColor {
     DumpColor {
         r: c.r,
@@ -1151,6 +1193,7 @@ pub(crate) fn dump_evaluator(eval: &Evaluator) -> DumpEvaluatorState {
         custom: dump_custom_manager(&eval.custom),
         modes: dump_mode_registry(&eval.modes),
         coding_systems: dump_coding_system_manager(&eval.coding_systems),
+        charset_registry: dump_charset_registry(),
         face_table: dump_face_table(&eval.face_table),
         category_manager: dump_category_manager(&eval.category_manager),
         abbrevs: dump_abbrev_manager(&eval.abbrevs),
@@ -2007,6 +2050,44 @@ pub(crate) fn load_coding_system_manager(dcsm: &DumpCodingSystemManager) -> Codi
         dcsm.keyboard_coding.clone(),
         dcsm.terminal_coding.clone(),
     )
+}
+
+pub(crate) fn load_charset_registry(dcr: &DumpCharsetRegistry) {
+    let snapshot = CharsetRegistrySnapshot {
+        charsets: dcr
+            .charsets
+            .iter()
+            .map(|info| CharsetInfoSnapshot {
+                id: info.id,
+                name: info.name.clone(),
+                dimension: info.dimension,
+                code_space: info.code_space,
+                min_code: info.min_code,
+                max_code: info.max_code,
+                iso_final_char: info.iso_final_char,
+                iso_revision: info.iso_revision,
+                emacs_mule_id: info.emacs_mule_id,
+                ascii_compatible_p: info.ascii_compatible_p,
+                supplementary_p: info.supplementary_p,
+                invalid_code: info.invalid_code,
+                unify_map: info.unify_map.clone(),
+                method: match info.method {
+                    DumpCharsetMethod::Offset(offset) => CharsetMethodSnapshot::Offset(offset),
+                    DumpCharsetMethod::Map => CharsetMethodSnapshot::Map,
+                    DumpCharsetMethod::Subset => CharsetMethodSnapshot::Subset,
+                    DumpCharsetMethod::Superset => CharsetMethodSnapshot::Superset,
+                },
+                plist: info
+                    .plist
+                    .iter()
+                    .map(|(key, value)| (key.clone(), load_value(value)))
+                    .collect(),
+            })
+            .collect(),
+        priority: dcr.priority.clone(),
+        next_id: dcr.next_id,
+    };
+    restore_charset_registry(snapshot);
 }
 
 fn load_color(c: &DumpColor) -> Color {

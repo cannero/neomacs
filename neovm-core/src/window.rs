@@ -91,6 +91,20 @@ pub enum Window {
         bounds: Rect,
         /// Character position of the first visible character.
         window_start: usize,
+        /// Offset of the last displayed character position from buffer `Z`.
+        ///
+        /// Mirrors GNU Emacs `w->window_end_pos`, so Lisp-visible
+        /// `window-end` can continue to track buffer growth/shrinkage even
+        /// between redisplays.
+        window_end_pos: usize,
+        /// Offset of the last displayed byte position from buffer `Z_BYTE`.
+        ///
+        /// This is the byte-position companion to `window_end_pos`.
+        window_end_bytepos: usize,
+        /// Visual row that produced `window_end_pos`.
+        window_end_vpos: usize,
+        /// Whether the last completed redisplay recorded window-end state.
+        window_end_valid: bool,
         /// Cursor (point) position in this window.
         point: usize,
         /// Whether this is a dedicated window.
@@ -128,8 +142,12 @@ impl Window {
             id,
             buffer_id,
             bounds,
-            window_start: 0,
-            point: 0,
+            window_start: 1,
+            window_end_pos: 0,
+            window_end_bytepos: 0,
+            window_end_vpos: 0,
+            window_end_valid: false,
+            point: 1,
             dedicated: false,
             parameters: HashMap::new(),
             fixed_height: 0,
@@ -208,6 +226,10 @@ impl Window {
         if let Window::Leaf {
             buffer_id,
             window_start,
+            window_end_pos,
+            window_end_bytepos,
+            window_end_vpos,
+            window_end_valid,
             point,
             ..
         } = self
@@ -216,7 +238,63 @@ impl Window {
             // Emacs positions are 1-based; switching the displayed buffer resets
             // window-start/point to point-min.
             *window_start = 1;
+            *window_end_pos = 0;
+            *window_end_bytepos = 0;
+            *window_end_vpos = 0;
+            *window_end_valid = false;
             *point = 1;
+        }
+    }
+
+    /// Stored Lisp-visible `window-end` for this leaf window.
+    pub fn window_end_charpos(&self, buffer_z: usize) -> Option<usize> {
+        match self {
+            Window::Leaf { window_end_pos, .. } => Some(buffer_z.saturating_sub(*window_end_pos)),
+            Window::Internal { .. } => None,
+        }
+    }
+
+    /// Stored byte-position `window-end` for this leaf window.
+    pub fn window_end_bytepos(&self, buffer_z_byte: usize) -> Option<usize> {
+        match self {
+            Window::Leaf {
+                window_end_bytepos, ..
+            } => Some(buffer_z_byte.saturating_sub(*window_end_bytepos)),
+            Window::Internal { .. } => None,
+        }
+    }
+
+    /// Whether the stored window-end came from a completed redisplay.
+    pub fn window_end_valid(&self) -> Option<bool> {
+        match self {
+            Window::Leaf {
+                window_end_valid, ..
+            } => Some(*window_end_valid),
+            Window::Internal { .. } => None,
+        }
+    }
+
+    /// Publish the last redisplay's window-end state for this leaf window.
+    pub fn set_window_end_from_positions(
+        &mut self,
+        buffer_z_char: usize,
+        buffer_z_byte: usize,
+        end_charpos: usize,
+        end_bytepos: usize,
+        vpos: usize,
+    ) {
+        if let Window::Leaf {
+            window_end_pos,
+            window_end_bytepos,
+            window_end_vpos,
+            window_end_valid,
+            ..
+        } = self
+        {
+            *window_end_pos = buffer_z_char.saturating_sub(end_charpos.min(buffer_z_char));
+            *window_end_bytepos = buffer_z_byte.saturating_sub(end_bytepos.min(buffer_z_byte));
+            *window_end_vpos = vpos;
+            *window_end_valid = true;
         }
     }
 
@@ -320,6 +398,189 @@ impl Window {
             Window::Internal { children, .. } => children.iter().map(|c| c.leaf_count()).sum(),
         }
     }
+
+    /// Invalidate redisplay-derived window-end state for this subtree.
+    pub fn invalidate_display_state(&mut self) {
+        match self {
+            Window::Leaf {
+                window_end_valid, ..
+            } => {
+                *window_end_valid = false;
+            }
+            Window::Internal { children, .. } => {
+                for child in children {
+                    child.invalidate_display_state();
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Last Display Snapshot
+// ---------------------------------------------------------------------------
+
+/// Authoritative glyph geometry for a single visible buffer position.
+///
+/// These records are published by redisplay after layout so editor-side
+/// queries like `posn-at-point` can answer from the actual rendered result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisplayPointSnapshot {
+    /// 1-based buffer position of the source character.
+    pub buffer_pos: usize,
+    /// X relative to the text area's left edge, in pixels.
+    pub x: i64,
+    /// Y relative to the window's top edge, in pixels.
+    pub y: i64,
+    /// Rendered advance/width in pixels.
+    pub width: i64,
+    /// Rendered glyph height in pixels.
+    pub height: i64,
+    /// Visual row number in the window (0-based).
+    pub row: i64,
+    /// Visual column start for this source position.
+    pub col: i64,
+}
+
+/// Per-row metrics from the last redisplay of a window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisplayRowSnapshot {
+    /// Visual row number in the window (0-based).
+    pub row: i64,
+    /// Y relative to the window's top edge, in pixels.
+    pub y: i64,
+    /// Row height in pixels.
+    pub height: i64,
+    /// First buffer position represented on this row, if any.
+    pub start_buffer_pos: Option<usize>,
+    /// Last visible/source position associated with this row, if any.
+    pub end_buffer_pos: Option<usize>,
+}
+
+/// Last authoritative redisplay geometry for a live leaf window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowDisplaySnapshot {
+    /// Window identifier this snapshot belongs to.
+    pub window_id: WindowId,
+    /// Text-area offset from the window's left edge, in pixels.
+    pub text_area_left_offset: i64,
+    /// Visible source-position geometry, sorted by `buffer_pos`.
+    pub points: Vec<DisplayPointSnapshot>,
+    /// Visible row metrics, sorted by `row`.
+    pub rows: Vec<DisplayRowSnapshot>,
+}
+
+impl WindowDisplaySnapshot {
+    fn visible_buffer_span(&self) -> Option<(usize, usize)> {
+        let start = self
+            .rows
+            .iter()
+            .find_map(|row| row.start_buffer_pos)
+            .or_else(|| self.points.first().map(|point| point.buffer_pos))?;
+        let end = self
+            .rows
+            .iter()
+            .rev()
+            .find_map(|row| row.end_buffer_pos)
+            .or_else(|| self.points.last().map(|point| point.buffer_pos))?;
+        Some((start, end))
+    }
+
+    fn row_for_buffer_pos(&self, pos: usize) -> Option<&DisplayRowSnapshot> {
+        self.rows.iter().find(|row| {
+            let Some(start) = row.start_buffer_pos else {
+                return false;
+            };
+            let Some(end) = row.end_buffer_pos else {
+                return false;
+            };
+            start <= pos && pos <= end
+        })
+    }
+
+    /// Return the visible point for POS, or the nearest visible neighbor when
+    /// POS itself is hidden by redisplay within the visible span.
+    ///
+    /// Off-window positions return `None`, matching GNU Emacs `posn-at-point`
+    /// and `pos-visible-in-window-p` semantics.
+    pub fn point_for_buffer_pos(&self, pos: usize) -> Option<&DisplayPointSnapshot> {
+        if self.points.is_empty() {
+            return None;
+        }
+        let (visible_start, visible_end) = self.visible_buffer_span()?;
+        if pos < visible_start || pos > visible_end {
+            return None;
+        }
+        match self
+            .points
+            .binary_search_by_key(&pos, |point| point.buffer_pos)
+        {
+            Ok(idx) => self.points.get(idx),
+            Err(_) => {
+                let row = self.row_for_buffer_pos(pos)?;
+                let next_on_row = self
+                    .points
+                    .iter()
+                    .find(|point| point.row == row.row && point.buffer_pos > pos);
+                let prev_on_row = self
+                    .points
+                    .iter()
+                    .rev()
+                    .find(|point| point.row == row.row && point.buffer_pos < pos);
+                match (prev_on_row, next_on_row) {
+                    // GNU `posn-at-point` may report neighboring positions when
+                    // the requested buffer position is hidden by redisplay
+                    // within the same visible row, but it returns nil when the
+                    // position is not visible at all.
+                    (Some(_), Some(next)) => Some(next),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// Return the visible point nearest to window-relative coordinates.
+    ///
+    /// `x` is relative to the text area's left edge. `y` is relative to the
+    /// window's top edge, matching GNU Emacs `posn-at-x-y` conventions.
+    pub fn point_at_coords(&self, x: i64, y: i64) -> Option<&DisplayPointSnapshot> {
+        let row = self
+            .rows
+            .iter()
+            .find(|row| y >= row.y && y < row.y.saturating_add(row.height.max(1)))?;
+        let mut row_points = self.points.iter().filter(|point| point.row == row.row);
+        let mut last = row_points.next()?;
+        if x <= last.x {
+            return Some(last);
+        }
+        for point in row_points {
+            let right = last.x.saturating_add(last.width.max(1));
+            if x < right {
+                return Some(last);
+            }
+            if x < point.x {
+                return Some(last);
+            }
+            last = point;
+        }
+        Some(last)
+    }
+
+    /// Row metrics for visual row ROW.
+    pub fn row_metrics(&self, row: i64) -> Option<&DisplayRowSnapshot> {
+        self.rows.iter().find(|metrics| metrics.row == row)
+    }
+}
+
+impl Default for WindowDisplaySnapshot {
+    fn default() -> Self {
+        Self {
+            window_id: WindowId(0),
+            text_area_left_offset: 0,
+            points: Vec::new(),
+            rows: Vec::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +602,9 @@ pub struct Frame {
     /// Frame pixel dimensions.
     pub width: u32,
     pub height: u32,
+    /// Internal window-system kind, mirroring GNU Emacs frame state rather
+    /// than the mutable Lisp-visible frame parameter alist.
+    pub window_system: Option<Value>,
     /// Frame parameters.
     pub parameters: HashMap<String, Value>,
     /// Whether the frame is visible.
@@ -359,6 +623,8 @@ pub struct Frame {
     pub char_width: f32,
     /// Default character height.
     pub char_height: f32,
+    /// Authoritative last-redisplay geometry keyed by live leaf window.
+    pub display_snapshots: HashMap<WindowId, WindowDisplaySnapshot>,
 }
 
 impl Frame {
@@ -393,6 +659,7 @@ impl Frame {
             minibuffer_leaf: Some(minibuffer_leaf),
             width,
             height,
+            window_system: None,
             parameters: HashMap::new(),
             visible: true,
             title: String::new(),
@@ -402,6 +669,7 @@ impl Frame {
             font_pixel_size: 16.0,
             char_width: 8.0,
             char_height: 16.0,
+            display_snapshots: HashMap::new(),
         }
     }
 
@@ -455,6 +723,26 @@ impl Frame {
         self.root_window.replace_buffer_id(old_id, new_id);
         if let Some(minibuffer_leaf) = self.minibuffer_leaf.as_mut() {
             minibuffer_leaf.replace_buffer_id(old_id, new_id);
+        }
+    }
+
+    /// Return the effective window-system symbol for this frame.
+    pub fn effective_window_system(&self) -> Option<Value> {
+        self.window_system
+            .or_else(|| self.parameters.get("window-system").copied())
+    }
+
+    /// Update the frame's internal window-system kind and keep the Lisp-visible
+    /// frame parameter in sync.
+    pub fn set_window_system(&mut self, window_system: Option<Value>) {
+        self.window_system = window_system;
+        match window_system {
+            Some(value) => {
+                self.parameters.insert("window-system".to_string(), value);
+            }
+            None => {
+                self.parameters.remove("window-system");
+            }
         }
     }
 
@@ -519,6 +807,60 @@ impl Frame {
     /// Lines (based on default char height).
     pub fn lines(&self) -> u32 {
         (self.height as f32 / self.char_height) as u32
+    }
+
+    /// Replace the last-redisplay geometry for this frame's live windows.
+    pub fn replace_display_snapshots(&mut self, snapshots: Vec<WindowDisplaySnapshot>) {
+        self.display_snapshots.clear();
+        for snapshot in snapshots {
+            if self.find_window(snapshot.window_id).is_some() {
+                self.display_snapshots.insert(snapshot.window_id, snapshot);
+            }
+        }
+    }
+
+    /// Last redisplay geometry for WINDOW-ID, if available.
+    pub fn window_display_snapshot(&self, id: WindowId) -> Option<&WindowDisplaySnapshot> {
+        self.display_snapshots.get(&id)
+    }
+
+    /// Resize the frame and window tree to new pixel dimensions.
+    pub fn resize_pixelwise(&mut self, width: u32, height: u32) {
+        self.width = width;
+        self.height = height;
+
+        let minibuffer_height = self
+            .minibuffer_leaf
+            .as_ref()
+            .map(|mini| mini.bounds().height.max(0.0))
+            .unwrap_or_else(|| self.char_height.max(1.0));
+        let root_height = (height as f32 - minibuffer_height).max(0.0);
+        let root_bounds = Rect::new(0.0, 0.0, width as f32, root_height);
+        resize_window_subtree(&mut self.root_window, root_bounds);
+
+        if let Some(minibuffer_leaf) = self.minibuffer_leaf.as_mut() {
+            minibuffer_leaf.set_bounds(Rect::new(
+                0.0,
+                root_height,
+                width as f32,
+                minibuffer_height.min(height as f32),
+            ));
+            minibuffer_leaf.invalidate_display_state();
+        }
+
+        self.root_window.invalidate_display_state();
+        self.display_snapshots.clear();
+        self.recalculate_minibuffer_bounds();
+
+        let char_width = self.char_width.max(1.0);
+        let char_height = self.char_height.max(1.0);
+        let cols = ((width as f32) / char_width).floor().max(1.0) as i64;
+        let text_lines = (root_height / char_height).floor().max(1.0) as i64;
+        let total_lines = text_lines.saturating_add(1);
+        self.parameters
+            .insert("width".to_string(), Value::Int(cols));
+        self.parameters
+            .insert("height".to_string(), Value::Int(total_lines));
     }
 }
 
@@ -642,6 +984,7 @@ impl FrameManager {
     /// Delete a frame.
     pub fn delete_frame(&mut self, id: FrameId) -> bool {
         if let Some(frame) = self.frames.remove(&id) {
+            let previous_selected = self.selected;
             for wid in frame.window_list() {
                 self.deleted_windows.insert(wid);
                 self.window_buffer_positions.remove(&wid);
@@ -1398,6 +1741,17 @@ fn redistribute_bounds(children: &mut [Window], parent: Rect) {
     }
 }
 
+fn resize_window_subtree(window: &mut Window, bounds: Rect) {
+    window.set_bounds(bounds);
+    if let Window::Internal { children, .. } = window {
+        redistribute_bounds(children, bounds);
+        for child in children {
+            let child_bounds = *child.bounds();
+            resize_window_subtree(child, child_bounds);
+        }
+    }
+}
+
 // ===========================================================================
 // GcTrace
 // ===========================================================================
@@ -1728,5 +2082,67 @@ mod tests {
             assert_eq!(*buffer_id, BufferId(2));
             assert_eq!(*point, 1);
         }
+    }
+
+    #[test]
+    fn frame_resize_pixelwise_updates_window_tree_and_invalidates_display_state() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let w1 = mgr.get(fid).unwrap().window_list()[0];
+        let w2 = mgr
+            .split_window(fid, w1, SplitDirection::Horizontal, BufferId(2))
+            .unwrap();
+
+        let frame = mgr.get_mut(fid).unwrap();
+        frame.char_width = 10.0;
+        frame.char_height = 20.0;
+        frame.replace_display_snapshots(vec![WindowDisplaySnapshot {
+            window_id: w1,
+            ..WindowDisplaySnapshot::default()
+        }]);
+
+        frame
+            .find_window_mut(w1)
+            .unwrap()
+            .set_window_end_from_positions(200, 200, 50, 50, 3);
+        frame
+            .find_window_mut(w2)
+            .unwrap()
+            .set_window_end_from_positions(200, 200, 60, 60, 3);
+
+        frame.resize_pixelwise(400, 260);
+
+        assert_eq!(frame.width, 400);
+        assert_eq!(frame.height, 260);
+        assert!(frame.display_snapshots.is_empty());
+        assert_eq!(frame.parameters.get("width"), Some(&Value::Int(40)));
+        assert_eq!(frame.parameters.get("height"), Some(&Value::Int(13)));
+
+        let root_bounds = *frame.root_window.bounds();
+        assert_eq!(root_bounds, Rect::new(0.0, 0.0, 400.0, 244.0));
+
+        let mini_bounds = *frame.minibuffer_leaf.as_ref().unwrap().bounds();
+        assert_eq!(mini_bounds, Rect::new(0.0, 244.0, 400.0, 16.0));
+
+        assert_eq!(
+            frame.find_window(w1).unwrap().bounds(),
+            &Rect::new(0.0, 0.0, 200.0, 244.0)
+        );
+        assert_eq!(
+            frame.find_window(w2).unwrap().bounds(),
+            &Rect::new(200.0, 0.0, 200.0, 244.0)
+        );
+        assert_eq!(
+            frame.find_window(w1).unwrap().window_end_valid(),
+            Some(false)
+        );
+        assert_eq!(
+            frame.find_window(w2).unwrap().window_end_valid(),
+            Some(false)
+        );
+        assert_eq!(
+            frame.minibuffer_leaf.as_ref().unwrap().window_end_valid(),
+            Some(false)
+        );
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! Provides lock-free channels and wakeup mechanism between Emacs and render threads.
 
-use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
+use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
@@ -336,6 +336,13 @@ pub enum RenderCommand {
     },
     /// Request window inner size change
     SetWindowSize {
+        width: u32,
+        height: u32,
+    },
+    /// Request resizing a specific GUI frame window. `emacs_frame_id == 0`
+    /// targets the adopted primary window.
+    ResizeWindow {
+        emacs_frame_id: u64,
         width: u32,
         height: u32,
     },
@@ -835,10 +842,68 @@ pub struct RenderComms {
 }
 
 impl RenderComms {
+    fn should_log_delivery(event: &InputEvent) -> bool {
+        matches!(
+            event,
+            InputEvent::WindowResize { .. }
+                | InputEvent::WindowClose { .. }
+                | InputEvent::WindowFocus { .. }
+        )
+    }
+
+    fn event_name(event: &InputEvent) -> &'static str {
+        match event {
+            InputEvent::Key { .. } => "key",
+            InputEvent::MouseButton { .. } => "mouse-button",
+            InputEvent::MouseMove { .. } => "mouse-move",
+            InputEvent::MouseScroll { .. } => "mouse-scroll",
+            InputEvent::WindowResize { .. } => "window-resize",
+            InputEvent::WindowClose { .. } => "window-close",
+            InputEvent::WindowFocus { .. } => "window-focus",
+            #[cfg(feature = "wpe-webkit")]
+            InputEvent::WebKitTitleChanged { .. } => "webkit-title-changed",
+            #[cfg(feature = "wpe-webkit")]
+            InputEvent::WebKitUrlChanged { .. } => "webkit-url-changed",
+            #[cfg(feature = "wpe-webkit")]
+            InputEvent::WebKitProgressChanged { .. } => "webkit-progress-changed",
+            #[cfg(feature = "wpe-webkit")]
+            InputEvent::WebKitLoadFinished { .. } => "webkit-load-finished",
+            InputEvent::ImageDimensionsReady { .. } => "image-dimensions-ready",
+            InputEvent::MenuSelection { .. } => "menu-selection",
+            InputEvent::FileDrop { .. } => "file-drop",
+            InputEvent::ToolBarClick { .. } => "toolbar-click",
+            InputEvent::TabBarClick { .. } => "tabbar-click",
+            InputEvent::MenuBarClick { .. } => "menubar-click",
+            #[cfg(feature = "neo-term")]
+            InputEvent::TerminalExited { .. } => "terminal-exited",
+            #[cfg(feature = "neo-term")]
+            InputEvent::TerminalTitleChanged { .. } => "terminal-title-changed",
+        }
+    }
+
     /// Send input event to Emacs and wake it up
     pub fn send_input(&self, event: InputEvent) {
-        if self.input_tx.try_send(event).is_ok() {
-            self.wakeup.wake();
+        let log_delivery = Self::should_log_delivery(&event);
+        let event_name = Self::event_name(&event);
+        match self.input_tx.try_send(event) {
+            Ok(()) => {
+                if log_delivery {
+                    tracing::debug!("send_input: queued {}", event_name);
+                }
+                self.wakeup.wake();
+            }
+            Err(TrySendError::Full(event)) => {
+                tracing::warn!(
+                    "send_input: dropped {} because the input queue is full",
+                    Self::event_name(&event)
+                );
+            }
+            Err(TrySendError::Disconnected(event)) => {
+                tracing::warn!(
+                    "send_input: dropped {} because the input queue is disconnected",
+                    Self::event_name(&event)
+                );
+            }
         }
     }
 }
@@ -1717,6 +1782,27 @@ mod tests {
                 assert_eq!(height, 720);
             }
             other => panic!("Expected SetWindowSize, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn render_command_resize_window() {
+        let cmd = RenderCommand::ResizeWindow {
+            emacs_frame_id: 99,
+            width: 1024,
+            height: 768,
+        };
+        match cmd {
+            RenderCommand::ResizeWindow {
+                emacs_frame_id,
+                width,
+                height,
+            } => {
+                assert_eq!(emacs_frame_id, 99);
+                assert_eq!(width, 1024);
+                assert_eq!(height, 768);
+            }
+            other => panic!("Expected ResizeWindow, got {:?}", other),
         }
     }
 

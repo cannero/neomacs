@@ -465,7 +465,11 @@ pub enum InputEvent {
         modifiers: Modifiers,
     },
     /// Window resize.
-    Resize { width: u32, height: u32 },
+    Resize {
+        width: u32,
+        height: u32,
+        emacs_frame_id: u64,
+    },
     /// Window focus change.
     Focus(bool),
     /// Close request.

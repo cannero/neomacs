@@ -9,7 +9,7 @@ use std::ffi::c_int;
 
 use super::bidi_layout::reorder_row_bidi;
 use super::emacs_ffi::*;
-use super::font_metrics::FontMetricsService;
+use super::font_metrics::{FontMetrics, FontMetricsService};
 use super::hit_test::*;
 use super::status_line::*;
 use super::types::*;
@@ -24,9 +24,12 @@ use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::expr::Expr;
 use neovm_core::emacs_core::intern::intern;
+use neovm_core::window::{DisplayPointSnapshot, DisplayRowSnapshot, WindowDisplaySnapshot};
 
 /// Maximum number of characters in a ligature run before forced flush.
 const MAX_LIGATURE_RUN_LEN: usize = 64;
+/// Bound redisplay convergence work when point begins outside the visible span.
+const MAX_WINDOW_VISIBILITY_RETRIES: usize = 128;
 
 /// Buffer for accumulating same-face text runs for ligature shaping.
 struct LigatureRunBuffer {
@@ -231,6 +234,218 @@ fn flush_run(run: &LigatureRunBuffer, frame_glyphs: &mut FrameGlyphBuffer, ligat
     }
 }
 
+fn push_display_point(
+    points: &mut Vec<DisplayPointSnapshot>,
+    row_first_display_pos: &mut Option<usize>,
+    row_last_display_pos: &mut Option<usize>,
+    buffer_pos: i64,
+    glyph_x: f32,
+    glyph_y: f32,
+    width: f32,
+    height: f32,
+    row: i64,
+    col: usize,
+    text_x: f32,
+    window_top: f32,
+) {
+    if buffer_pos < 1 {
+        return;
+    }
+    let buffer_pos = buffer_pos as usize;
+    if row_first_display_pos.is_none() {
+        *row_first_display_pos = Some(buffer_pos);
+    }
+    *row_last_display_pos = Some(buffer_pos);
+    points.push(DisplayPointSnapshot {
+        buffer_pos,
+        x: (glyph_x - text_x).round() as i64,
+        y: (glyph_y - window_top).round() as i64,
+        width: width.max(0.0).round() as i64,
+        height: height.max(1.0).round() as i64,
+        row,
+        col: col as i64,
+    });
+}
+
+#[inline]
+fn skip_to_newline(text: &[u8], byte_idx: &mut usize, charpos: &mut i64) -> bool {
+    while *byte_idx < text.len() {
+        let (ch, ch_len) = decode_utf8(&text[*byte_idx..]);
+        if ch_len == 0 {
+            break;
+        }
+        *byte_idx += ch_len;
+        *charpos += 1;
+        if ch == '\n' {
+            return true;
+        }
+    }
+    false
+}
+
+fn push_display_row(
+    rows: &mut Vec<DisplayRowSnapshot>,
+    row: i64,
+    row_y_start: f32,
+    row_height: f32,
+    window_top: f32,
+    row_first_display_pos: &mut Option<usize>,
+    row_last_display_pos: &mut Option<usize>,
+) {
+    rows.push(DisplayRowSnapshot {
+        row,
+        y: (row_y_start - window_top).round() as i64,
+        height: row_height.max(1.0).round() as i64,
+        start_buffer_pos: row_first_display_pos.take(),
+        end_buffer_pos: row_last_display_pos.take(),
+    });
+}
+
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+struct AsciiWidthCacheKey {
+    family: String,
+    weight: u16,
+    italic: bool,
+    font_size: i32,
+}
+
+impl AsciiWidthCacheKey {
+    fn new(family: &str, weight: u16, italic: bool, font_size: i32) -> Self {
+        Self {
+            family: family.to_string(),
+            weight,
+            italic,
+            font_size,
+        }
+    }
+}
+
+fn next_window_start_from_visible_rows(
+    rows: &[DisplayRowSnapshot],
+    current_start: i64,
+) -> Option<i64> {
+    if rows.is_empty() {
+        return None;
+    }
+
+    rows.iter()
+        .rev()
+        .filter_map(row_next_window_start_charpos)
+        .find(|&pos| pos > current_start)
+}
+
+#[inline]
+fn lisp_buffer_pos_to_charpos(pos: usize) -> i64 {
+    pos.saturating_sub(1) as i64
+}
+
+#[inline]
+fn row_start_charpos(row: &DisplayRowSnapshot) -> Option<i64> {
+    row.start_buffer_pos.map(lisp_buffer_pos_to_charpos)
+}
+
+#[inline]
+fn row_end_charpos(row: &DisplayRowSnapshot) -> Option<i64> {
+    row.end_buffer_pos.map(lisp_buffer_pos_to_charpos)
+}
+
+#[inline]
+fn row_next_window_start_charpos(row: &DisplayRowSnapshot) -> Option<i64> {
+    row.end_buffer_pos
+        .map(|pos| pos as i64)
+        .or_else(|| row_start_charpos(row))
+}
+
+fn next_window_start_for_partially_visible_point_row(
+    rows: &[DisplayRowSnapshot],
+    point: i64,
+    text_area_top: i64,
+    text_area_bottom: i64,
+    current_start: i64,
+) -> Option<i64> {
+    let text_area_height = text_area_bottom.saturating_sub(text_area_top);
+    let point_row_index = rows.iter().position(|row| {
+        let start = row_start_charpos(row).unwrap_or(i64::MAX);
+        let end = row_end_charpos(row).unwrap_or(i64::MIN);
+        start <= point && point <= end
+    })?;
+    let point_row = &rows[point_row_index];
+    if point_row.height > text_area_height {
+        return None;
+    }
+
+    let row_top = point_row.y;
+    let row_bottom = point_row.y.saturating_add(point_row.height);
+    if row_top >= text_area_top && row_bottom <= text_area_bottom {
+        return None;
+    }
+
+    if row_bottom > text_area_bottom {
+        let overflow = row_bottom.saturating_sub(text_area_bottom);
+        let mut lifted = 0i64;
+        for row in rows.iter().take(point_row_index) {
+            lifted = lifted.saturating_add(row.height.max(1));
+            let candidate = row_next_window_start_charpos(row);
+            if lifted >= overflow
+                && let Some(pos) = candidate
+                && pos > current_start
+            {
+                return Some(pos);
+            }
+        }
+    }
+
+    None
+}
+
+fn next_window_start_for_point_line_continuation(
+    rows: &[DisplayRowSnapshot],
+    point: i64,
+    current_start: i64,
+    buf_access: &super::neovm_bridge::RustBufferAccess<'_>,
+    buffer_size: i64,
+) -> Option<i64> {
+    let point_row_index = rows.iter().position(|row| {
+        let start = row_start_charpos(row).unwrap_or(i64::MAX);
+        let end = row_end_charpos(row).unwrap_or(i64::MIN);
+        start <= point && point <= end
+    })?;
+    let point_row = rows.get(point_row_index)?;
+    let point_is_visible_row_start =
+        row_start_charpos(point_row).is_some_and(|start| start == point);
+
+    for row in rows.iter().skip(point_row_index) {
+        let end_pos = row.end_buffer_pos? as i64;
+        let next_pos = end_pos.saturating_add(1);
+        if next_pos > buffer_size {
+            return None;
+        }
+
+        let next_byte = buf_access.lisp_charpos_to_bytepos(next_pos);
+        match buf_access.byte_at(next_byte) {
+            Some(b'\n') | None => return None,
+            Some(_) if std::ptr::eq(row, rows.last()?) => {
+                if point_is_visible_row_start {
+                    return point
+                        .checked_sub(1)
+                        .filter(|&new_start| new_start > current_start);
+                }
+                break;
+            }
+            Some(_) => {}
+        }
+    }
+
+    if point_row_index + 1 < rows.len() {
+        return None;
+    }
+
+    rows.iter()
+        .skip(1)
+        .find_map(row_next_window_start_charpos)
+        .filter(|&pos| pos > current_start)
+}
+
 // ---------------------------------------------------------------------------
 // Display property helpers
 // ---------------------------------------------------------------------------
@@ -316,6 +531,21 @@ fn next_tab_stop_col(current_col: usize, tab_width: i32, tab_stop_list: &[i32]) 
 }
 
 #[inline]
+fn is_word_wrap_whitespace(ch: char) -> bool {
+    matches!(ch, ' ' | '\t')
+}
+
+#[inline]
+fn char_can_wrap_before_basic(ch: char) -> bool {
+    !matches!(ch, ' ' | '\t' | '\n' | '\r')
+}
+
+#[inline]
+fn char_can_wrap_after_basic(ch: char) -> bool {
+    is_word_wrap_whitespace(ch)
+}
+
+#[inline]
 fn cursor_point_columns(text: &[u8], byte_idx: usize, col: i32, params: &WindowParams) -> usize {
     if byte_idx >= text.len() {
         return 1;
@@ -365,7 +595,7 @@ unsafe fn cursor_point_advance(
     font_family: &str,
     font_weight: u16,
     font_italic: bool,
-    ascii_width_cache: &mut std::collections::HashMap<(u32, i32), [f32; 128]>,
+    ascii_width_cache: &mut std::collections::HashMap<AsciiWidthCacheKey, [f32; 128]>,
     font_metrics_svc: &mut Option<FontMetricsService>,
 ) -> Option<f32> {
     if byte_idx >= text.len() {
@@ -634,6 +864,48 @@ fn render_overlay_string(
     }
 }
 
+fn measured_face_status_line_face(
+    face_id: u32,
+    face: &super::neovm_bridge::ResolvedFace,
+    metrics: Option<FontMetrics>,
+) -> StatusLineFace {
+    let mut render_face = StatusLineFace::from_resolved(face_id, face);
+    if let Some(metrics) = metrics {
+        render_face.font_char_width = metrics.char_width;
+        render_face.font_ascent = metrics.ascent;
+        render_face.font_descent = metrics.descent.max(0.0).round() as i32;
+    }
+    render_face
+}
+
+fn apply_resolved_face(
+    frame_glyphs: &mut FrameGlyphBuffer,
+    face_id: u32,
+    face: &super::neovm_bridge::ResolvedFace,
+    metrics: Option<FontMetrics>,
+) {
+    let render_face = measured_face_status_line_face(face_id, face, metrics);
+    frame_glyphs.set_face_with_font(
+        render_face.face_id,
+        render_face.foreground,
+        Some(render_face.background),
+        &render_face.font_family,
+        render_face.font_weight,
+        render_face.italic,
+        render_face.font_size,
+        render_face.underline_style,
+        render_face.underline_color,
+        if render_face.strike_through { 1 } else { 0 },
+        render_face.strike_through_color,
+        if render_face.overline { 1 } else { 0 },
+        render_face.overline_color,
+        render_face.overstrike,
+    );
+    frame_glyphs
+        .faces
+        .insert(render_face.face_id, render_face.render_face());
+}
+
 /// The main Rust layout engine.
 ///
 /// Called on the Emacs thread during redisplay. Reads buffer data via FFI,
@@ -643,11 +915,13 @@ pub struct LayoutEngine {
     text_buf: Vec<u8>,
     /// Cached face data to avoid redundant FFI calls
     face_data: FaceDataFFI,
-    /// Per-face ASCII width cache: actual glyph widths via text_extents().
-    /// Key: (face_id, font_size), Value: advance widths for chars 0-127.
-    pub(crate) ascii_width_cache: std::collections::HashMap<(u32, i32), [f32; 128]>,
+    /// Per-font ASCII width cache: actual glyph widths via cosmic-text.
+    /// Key: semantic font identity, Value: advance widths for chars 0-127.
+    pub(crate) ascii_width_cache: std::collections::HashMap<AsciiWidthCacheKey, [f32; 128]>,
     /// Hit-test data being built for current frame
     hit_data: Vec<WindowHitData>,
+    /// Authoritative visible glyph geometry published back into core state.
+    display_snapshots: Vec<WindowDisplaySnapshot>,
     /// Reusable ligature run buffer
     run_buf: LigatureRunBuffer,
     /// Whether ligatures are enabled
@@ -680,6 +954,7 @@ impl LayoutEngine {
             face_data: FaceDataFFI::default(),
             ascii_width_cache: std::collections::HashMap::new(),
             hit_data: Vec::new(),
+            display_snapshots: Vec::new(),
             run_buf: LigatureRunBuffer::new(),
             ligatures_enabled: false,
             current_resolved_family: String::new(),
@@ -1217,6 +1492,50 @@ impl LayoutEngine {
         frame_id: neovm_core::window::FrameId,
         frame_glyphs: &mut FrameGlyphBuffer,
     ) {
+        // Lazy-initialize FontMetricsService before collecting layout params so
+        // the selected frame's default metrics can be refreshed first.
+        if self.use_cosmic_metrics && self.font_metrics.is_none() {
+            self.font_metrics = Some(FontMetricsService::new());
+        } else if !self.use_cosmic_metrics && self.font_metrics.is_some() {
+            self.font_metrics = None;
+        }
+
+        let (bootstrap_bg, bootstrap_font_size) = {
+            let Some(frame) = evaluator.frame_manager().get(frame_id) else {
+                tracing::error!("layout_frame_rust: frame {:?} not found", frame_id);
+                return;
+            };
+            let bootstrap =
+                super::neovm_bridge::frame_params_from_neovm(frame, evaluator.face_table());
+            (bootstrap.background, frame.font_pixel_size)
+        };
+
+        // Realize the default face before collecting window params so frame and
+        // window geometry use the same default metrics GNU Emacs redisplay does.
+        let face_resolver = super::neovm_bridge::FaceResolver::new(
+            evaluator.face_table(),
+            0x00FFFFFF,
+            bootstrap_bg,
+            bootstrap_font_size,
+        );
+        let default_resolved = face_resolver.default_face();
+        let default_metrics = self.font_metrics.as_mut().map(|svc| {
+            svc.font_metrics(
+                &default_resolved.font_family,
+                default_resolved.font_weight,
+                default_resolved.italic,
+                default_resolved.font_size,
+            )
+        });
+
+        if let Some(metrics) = default_metrics {
+            if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+                frame.char_width = metrics.char_width;
+                frame.char_height = metrics.line_height;
+                frame.font_pixel_size = default_resolved.font_size;
+            }
+        }
+
         // Collect window and frame params from neovm-core
         let (frame_params, window_params_list) =
             match super::neovm_bridge::collect_layout_params(evaluator, frame_id) {
@@ -1261,93 +1580,16 @@ impl LayoutEngine {
 
         // Clear hit-test data for new frame
         self.hit_data.clear();
-
-        // Lazy-initialize FontMetricsService
-        if self.use_cosmic_metrics && self.font_metrics.is_none() {
-            self.font_metrics = Some(FontMetricsService::new());
-        } else if !self.use_cosmic_metrics && self.font_metrics.is_some() {
-            self.font_metrics = None;
-        }
-
-        // Create FaceResolver from neovm-core face table
-        let face_resolver = super::neovm_bridge::FaceResolver::new(
-            evaluator.face_table(),
-            0x00FFFFFF,              // fallback fg
-            frame_params.background, // fallback bg
-            frame_params.font_pixel_size,
-        );
+        self.display_snapshots.clear();
         let default_resolved = face_resolver.default_face();
-        let default_fg = Color::from_pixel(default_resolved.fg);
-        let default_bg = Color::from_pixel(default_resolved.bg);
 
-        // Update frame char metrics from the actual default face font.
-        // This ensures mode-line height, window splits, etc. use the correct
-        // font dimensions instead of stale hardcoded defaults.
-        if let Some(ref mut svc) = self.font_metrics {
-            let m = svc.font_metrics(
-                &default_resolved.font_family,
-                default_resolved.font_weight,
-                default_resolved.italic,
-                default_resolved.font_size,
-            );
-            if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-                frame.char_width = m.char_width;
-                frame.char_height = m.line_height;
-                frame.font_pixel_size = default_resolved.font_size;
-            }
-            frame_glyphs.char_width = m.char_width;
-            frame_glyphs.char_height = m.line_height;
+        if let Some(metrics) = default_metrics {
+            frame_glyphs.char_width = metrics.char_width;
+            frame_glyphs.char_height = metrics.line_height;
             frame_glyphs.font_pixel_size = default_resolved.font_size;
         }
 
-        // Set default face (face_id=0) from FaceResolver
-        frame_glyphs.set_face_with_font(
-            0, // DEFAULT_FACE_ID
-            default_fg,
-            Some(default_bg),
-            &default_resolved.font_family,
-            default_resolved.font_weight,
-            default_resolved.italic,
-            default_resolved.font_size,
-            default_resolved.underline_style,
-            if default_resolved.underline_color != 0 {
-                Some(Color::from_pixel(default_resolved.underline_color))
-            } else {
-                None
-            },
-            if default_resolved.strike_through {
-                1
-            } else {
-                0
-            },
-            if default_resolved.strike_through_color != 0 {
-                Some(Color::from_pixel(default_resolved.strike_through_color))
-            } else {
-                None
-            },
-            if default_resolved.overline { 1 } else { 0 },
-            if default_resolved.overline_color != 0 {
-                Some(Color::from_pixel(default_resolved.overline_color))
-            } else {
-                None
-            },
-            default_resolved.overstrike,
-        );
-
-        // Query actual font metrics for the default face from FontMetricsService.
-        // This ensures frame_glyphs.char_width reflects the cosmic-text measurement
-        // rather than the C-side font metrics, eliminating width mismatches.
-        if let Some(ref mut svc) = self.font_metrics {
-            let default_metrics = svc.font_metrics(
-                &default_resolved.font_family,
-                default_resolved.font_weight,
-                default_resolved.italic,
-                default_resolved.font_size,
-            );
-            frame_glyphs.char_width = default_metrics.char_width;
-            // Keep frame_glyphs.char_height from frame params (vertical metrics
-            // are more stable and less likely to mismatch).
-        }
+        apply_resolved_face(frame_glyphs, 0, default_resolved, default_metrics);
 
         tracing::debug!(
             "layout_frame_rust: {}x{} char={}x{} windows={}",
@@ -1431,6 +1673,7 @@ impl LayoutEngine {
                 &frame_params,
                 frame_glyphs,
                 &face_resolver,
+                MAX_WINDOW_VISIBILITY_RETRIES,
             );
 
             // Draw window dividers
@@ -1479,6 +1722,13 @@ impl LayoutEngine {
         self.update_theme_transition_hint(frame_glyphs);
         self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
         self.prev_window_infos = curr_window_infos;
+
+        if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+            frame.replace_display_snapshots(std::mem::take(&mut self.display_snapshots));
+        }
+        unsafe {
+            *std::ptr::addr_of_mut!(FRAME_HIT_DATA) = Some(std::mem::take(&mut self.hit_data));
+        }
     }
 
     /// Simplified window layout using neovm-core data.
@@ -1496,6 +1746,7 @@ impl LayoutEngine {
         _frame_params: &FrameParams,
         frame_glyphs: &mut FrameGlyphBuffer,
         face_resolver: &super::neovm_bridge::FaceResolver,
+        remaining_visibility_retries: usize,
     ) {
         let buf_id = neovm_core::buffer::BufferId(params.buffer_id);
         let buffer = match evaluator.buffer_manager().get(buf_id) {
@@ -1509,6 +1760,8 @@ impl LayoutEngine {
         // Capture buffer name as owned String for use in mode-line fallback.
         // This avoids holding a borrow on `evaluator` through eval calls.
         let buffer_name = buffer.name.clone();
+        let buffer_z_char = buffer.point_max_char().saturating_add(1);
+        let buffer_z_byte = buffer.point_max_byte();
 
         let buf_access = super::neovm_bridge::RustBufferAccess::new(buffer);
 
@@ -1640,19 +1893,49 @@ impl LayoutEngine {
                     ws,
                     params.point
                 );
+            } else if params.point > 0
+                && params.window_end > 0
+                && params.point > params.window_end
+                && !params.is_minibuffer
+            {
+                // Mirror GNU/legacy forward scroll: when point moved below the
+                // previous visible end, choose a new start before layout so the
+                // current redisplay already includes point.
+                let target_rows_above = ((max_rows * 3) / 4).max(1) as i64;
+                let mut lines_back: i64 = 0;
+                let mut scan_pos = params.point;
+                while scan_pos > params.buffer_begv && lines_back < target_rows_above {
+                    scan_pos -= 1;
+                    let bp = buf_access.charpos_to_bytepos(scan_pos);
+                    if buf_access.byte_at(bp) == Some(b'\n') {
+                        lines_back += 1;
+                    }
+                }
+                ws = scan_pos.max(params.buffer_begv);
+                tracing::debug!(
+                    "layout_window_rust: forward-adjusted window_start {} -> {} (point={}, prev_end={})",
+                    params.window_start,
+                    ws,
+                    params.point,
+                    params.window_end
+                );
             }
             ws
         };
-        let read_chars =
-            (params.buffer_size - window_start + 1).min(cols as i64 * max_rows as i64 * 2);
+        // GNU Emacs redisplay advances iterators until the visible window is
+        // fully resolved; it does not stop at an arbitrary "rows * cols"
+        // character budget.  Capping the text slice here truncates long
+        // wrapped or truncated lines before they are actually offscreen, which
+        // breaks both redisplay and geometry queries.
+        let read_chars = params.buffer_size - window_start + 1;
 
+        let text_start_byte = buf_access.charpos_to_bytepos(window_start) as usize;
         let bytes_read = if read_chars <= 0 {
             0i64
         } else {
             let text_end = (window_start + read_chars).min(params.buffer_size);
-            let byte_from = buf_access.charpos_to_bytepos(window_start);
             let byte_to = buf_access.charpos_to_bytepos(text_end);
-            buf_access.copy_text(byte_from, byte_to, &mut self.text_buf);
+            buf_access.copy_text(text_start_byte as i64, byte_to, &mut self.text_buf);
             self.text_buf.len() as i64
         };
 
@@ -1661,6 +1944,10 @@ impl LayoutEngine {
         } else {
             &[]
         };
+        let glyphs_len_before = frame_glyphs.glyphs.len();
+        let transition_hints_len_before = frame_glyphs.transition_hints.len();
+        let effect_hints_len_before = frame_glyphs.effect_hints.len();
+        let cursor_inverse_before = frame_glyphs.cursor_inverse.clone();
 
         tracing::debug!(
             "  layout_window_rust id={}: text_y={:.1} text_h={:.1} max_rows={} bytes_read={}",
@@ -1706,6 +1993,7 @@ impl LayoutEngine {
 
         // Per-face metrics — start with defaults, updated on face change
         let mut face_char_w = default_face_char_w;
+        let mut face_space_w;
         let mut face_h = default_face_h;
         let mut face_ascent_val = default_face_ascent;
 
@@ -1714,6 +2002,33 @@ impl LayoutEngine {
         let mut current_face_id: u32 = 1; // 0 is reserved for default face
         let mut current_fg: Color = default_fg; // tracks foreground across face changes
         let mut current_bg: Color = default_bg; // tracks background across face changes
+        let mut current_font_family = if default_resolved.font_family.is_empty() {
+            "monospace".to_string()
+        } else {
+            default_resolved.font_family.clone()
+        };
+        let mut current_font_weight = default_resolved.font_weight;
+        let mut current_font_italic = default_resolved.italic;
+        let mut current_font_size_px = default_resolved.font_size.max(1.0).round() as i32;
+
+        self.current_resolved_family = current_font_family.clone();
+        self.resolved_family_face_id = 0;
+        face_space_w = unsafe {
+            char_advance(
+                &mut self.ascii_width_cache,
+                &mut self.font_metrics,
+                ' ',
+                1,
+                char_w,
+                0,
+                current_font_size_px,
+                face_char_w,
+                std::ptr::null_mut(),
+                &self.current_resolved_family,
+                current_font_weight,
+                current_font_italic,
+            )
+        };
 
         if let Some(echo_message) = echo_message {
             self.render_rust_status_line_plain(
@@ -1789,7 +2104,11 @@ impl LayoutEngine {
         let mut _wrap_break_x: f32 = 0.0;
         let mut _wrap_break_col = 0usize;
         let mut wrap_break_glyph_count = 0usize;
+        let mut wrap_break_display_point_count = 0usize;
+        let mut wrap_break_row_first_display_pos: Option<usize> = None;
+        let mut wrap_break_row_last_display_pos: Option<usize> = None;
         let mut wrap_has_break = false;
+        let mut word_wrap_may_wrap = false;
 
         // Line/wrap prefix tracking: 0=none, 1=line-prefix, 2=wrap-prefix
         let mut need_prefix: u8 = if has_prefix && line_prefix_str.is_some() {
@@ -1832,11 +2151,32 @@ impl LayoutEngine {
 
         // Cursor metrics captured during the main layout loop.
         // (cx, cy, face_w, face_h, face_ascent, fg_color, byte_idx, col)
-        let mut cursor_info: Option<(f32, f32, f32, f32, f32, Color, Color, usize, usize)> = None;
+        let mut cursor_info: Option<(
+            f32,
+            f32,
+            f32,
+            f32,
+            f32,
+            Color,
+            Color,
+            usize,
+            usize,
+            u32,
+            f32,
+        )> = None;
 
         // Hit-test data for this window
         let mut hit_rows: Vec<HitRow> = Vec::new();
         let mut hit_row_charpos_start: i64 = window_start;
+        let mut display_points: Vec<DisplayPointSnapshot> = Vec::new();
+        let mut display_rows: Vec<DisplayRowSnapshot> = Vec::new();
+        let mut row_first_display_pos: Option<usize> = None;
+        let mut row_last_display_pos: Option<usize> = None;
+        let text_area_left = text_x;
+        let window_top = params.bounds.y;
+        let sync_charpos_from_byte_idx = |byte_idx: usize| {
+            buf_access.bytepos_to_charpos(text_start_byte as i64 + byte_idx as i64)
+        };
 
         let ligatures = self.ligatures_enabled;
         self.run_buf.clear();
@@ -1876,6 +2216,112 @@ impl LayoutEngine {
             }
         }
 
+        macro_rules! resolve_current_face_state {
+            () => {
+                if (charpos as usize) >= face_next_check {
+                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    self.run_buf.clear();
+                    let buffer_ref = evaluator.buffer_manager().get(buf_id).unwrap();
+                    let resolved = face_resolver.face_at_pos(
+                        buffer_ref,
+                        charpos as usize,
+                        &mut face_next_check,
+                    );
+                    let face_id = current_face_id;
+
+                    let metrics = self.font_metrics.as_mut().map(|svc| {
+                        svc.font_metrics(
+                            &resolved.font_family,
+                            resolved.font_weight,
+                            resolved.italic,
+                            resolved.font_size,
+                        )
+                    });
+                    if let Some(m) = metrics {
+                        face_char_w = m.char_width;
+                        face_h = m.line_height;
+                        face_ascent_val = m.ascent;
+                    } else {
+                        face_char_w = char_w;
+                        face_h = char_h;
+                        face_ascent_val = font_ascent;
+                    }
+
+                    if face_h > row_max_height {
+                        row_max_height = face_h;
+                    }
+                    if face_ascent_val > row_max_ascent {
+                        row_max_ascent = face_ascent_val;
+                    }
+
+                    let fg = Color::from_pixel(resolved.fg);
+                    current_fg = fg;
+                    let bg = Color::from_pixel(resolved.bg);
+                    current_bg = bg;
+                    current_font_family = if resolved.font_family.is_empty() {
+                        "monospace".to_string()
+                    } else {
+                        resolved.font_family.clone()
+                    };
+                    current_font_weight = resolved.font_weight;
+                    current_font_italic = resolved.italic;
+                    current_font_size_px = resolved.font_size.max(1.0).round() as i32;
+                    self.current_resolved_family = current_font_family.clone();
+                    self.resolved_family_face_id = face_id;
+                    face_space_w = unsafe {
+                        char_advance(
+                            &mut self.ascii_width_cache,
+                            &mut self.font_metrics,
+                            ' ',
+                            1,
+                            char_w,
+                            face_id,
+                            current_font_size_px,
+                            face_char_w,
+                            std::ptr::null_mut(),
+                            &self.current_resolved_family,
+                            current_font_weight,
+                            current_font_italic,
+                        )
+                    };
+
+                    apply_resolved_face(frame_glyphs, face_id, &resolved, metrics);
+                    current_face_id += 1;
+
+                    if resolved.extend {
+                        let ext_bg = Color::from_pixel(resolved.bg);
+                        row_extend_bg = Some((ext_bg, face_id));
+                        row_extend_row = row as i32;
+                    }
+
+                    if box_active && resolved.box_type == 0 {
+                        box_active = false;
+                    }
+                    if resolved.box_type > 0 {
+                        box_active = true;
+                        box_start_x = x;
+                        box_row = row;
+                    }
+                }
+            };
+        }
+
+        macro_rules! save_word_wrap_candidate {
+            ($ch:expr, $break_byte_idx:expr) => {
+                if params.word_wrap && word_wrap_may_wrap && char_can_wrap_before_basic($ch) {
+                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    self.run_buf.clear();
+                    wrap_break_byte_idx = $break_byte_idx;
+                    wrap_break_charpos = charpos;
+                    wrap_break_display_point_count = display_points.len();
+                    wrap_break_row_first_display_pos = row_first_display_pos;
+                    wrap_break_row_last_display_pos = row_last_display_pos;
+                    wrap_break_glyph_count = frame_glyphs.glyphs.len();
+                    wrap_has_break = true;
+                }
+            };
+        }
+
         while byte_idx < text.len() && row < max_rows && y + row_max_height <= text_y + text_height
         {
             // Render line number at start of each visual line
@@ -1905,25 +2351,9 @@ impl LayoutEngine {
                     face_resolver.resolve_named_face("line-number")
                 };
                 let lnum_bg = Color::from_pixel(lnum_face.bg);
-                let lnum_fg = Color::from_pixel(lnum_face.fg);
-
-                // Set line number face
-                frame_glyphs.set_face_with_font(
-                    current_face_id,
-                    lnum_fg,
-                    Some(lnum_bg),
-                    &lnum_face.font_family,
-                    lnum_face.font_weight,
-                    lnum_face.italic,
-                    lnum_face.font_size,
-                    0,
-                    None,
-                    0,
-                    None,
-                    0,
-                    None,
-                    false,
-                );
+                // Realize and register the line-number face so the renderer
+                // uses the same family/weight/slant the layout chose.
+                apply_resolved_face(frame_glyphs, current_face_id, &lnum_face, None);
                 let lnum_face_id = current_face_id;
                 current_face_id += 1;
 
@@ -2109,6 +2539,15 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
+                    push_display_row(
+                        &mut display_rows,
+                        row as i64,
+                        y,
+                        row_max_height,
+                        window_top,
+                        &mut row_first_display_pos,
+                        &mut row_last_display_pos,
+                    );
                     hit_row_charpos_start = charpos;
                     row_extend_bg = None;
                     row_extend_row = -1;
@@ -2282,7 +2721,11 @@ impl LayoutEngine {
                 }
             }
 
-            // Decode UTF-8 character
+            // Decode UTF-8 character. Keep the original byte/char position so
+            // character-wrap can resume from the same buffer position on the
+            // next visual row, like GNU Emacs restoring its iterator state.
+            let ch_start_byte_idx = byte_idx;
+            let _ch_start_charpos = charpos;
             let ch = match std::str::from_utf8(&text[byte_idx..]) {
                 Ok(s) => {
                     let ch = s.chars().next().unwrap_or('\u{FFFD}');
@@ -2348,7 +2791,15 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        hit_row_charpos_start = charpos;
+                        push_display_row(
+                            &mut display_rows,
+                            row as i64,
+                            y,
+                            row_max_height,
+                            window_top,
+                            &mut row_first_display_pos,
+                            &mut row_last_display_pos,
+                        );
                         row_extend_bg = None;
                         row_extend_row = -1;
                         if box_active {
@@ -2367,10 +2818,13 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
+                        charpos = sync_charpos_from_byte_idx(byte_idx);
+                        hit_row_charpos_start = charpos;
                         col = 0;
                         current_line += 1;
                         need_line_number = lnum_enabled;
                         hscroll_remaining = hscroll;
+                        word_wrap_may_wrap = false;
                         wrap_has_break = false;
                         trailing_ws_start_col = -1;
                         if has_prefix {
@@ -2381,6 +2835,9 @@ impl LayoutEngine {
                 }
                 continue;
             }
+
+            resolve_current_face_state!();
+            save_word_wrap_candidate!(ch, ch_start_byte_idx);
 
             if ch == '\n' {
                 flush_run(&self.run_buf, frame_glyphs, ligatures);
@@ -2451,7 +2908,15 @@ impl LayoutEngine {
                     charpos_start: hit_row_charpos_start,
                     charpos_end: charpos,
                 });
-                hit_row_charpos_start = charpos;
+                push_display_row(
+                    &mut display_rows,
+                    row as i64,
+                    y,
+                    row_max_height,
+                    window_top,
+                    &mut row_first_display_pos,
+                    &mut row_last_display_pos,
+                );
 
                 reorder_row_bidi(
                     frame_glyphs,
@@ -2465,6 +2930,8 @@ impl LayoutEngine {
                 row_max_height = char_h;
                 row_max_ascent = default_face_ascent;
                 row_y_positions.push(y);
+                charpos = sync_charpos_from_byte_idx(byte_idx);
+                hit_row_charpos_start = charpos;
                 if box_active {
                     box_row = row;
                 }
@@ -2472,6 +2939,7 @@ impl LayoutEngine {
                 current_line += 1;
                 need_line_number = lnum_enabled;
                 hscroll_remaining = hscroll;
+                word_wrap_may_wrap = false;
                 wrap_has_break = false;
                 if has_prefix {
                     need_prefix = 1;
@@ -2573,20 +3041,28 @@ impl LayoutEngine {
                 // Ensure tab advances at least one column
                 let next_tab = next_tab.max(col + 1);
                 let spaces = next_tab - col;
-                x += spaces as f32 * face_char_w;
+                push_display_point(
+                    &mut display_points,
+                    &mut row_first_display_pos,
+                    &mut row_last_display_pos,
+                    charpos + 1,
+                    x_before_tab,
+                    y + raise_y_offset,
+                    spaces as f32 * face_space_w,
+                    char_h,
+                    row as i64,
+                    col,
+                    text_area_left,
+                    window_top,
+                );
+                x += spaces as f32 * face_space_w;
                 col = next_tab;
                 charpos += 1;
-                // Tab is a breakpoint for word-wrap
                 if params.word_wrap {
                     _wrap_break_col = col;
                     _wrap_break_x = x - content_x;
-                    wrap_break_byte_idx = byte_idx;
-                    wrap_break_charpos = charpos;
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
-                    self.run_buf.clear();
-                    wrap_break_glyph_count = frame_glyphs.glyphs.len();
-                    wrap_has_break = true;
                 }
+                word_wrap_may_wrap = char_can_wrap_after_basic(ch);
                 // Track trailing whitespace (tab counts as whitespace)
                 if trailing_ws_bg.is_some() && trailing_ws_start_col < 0 {
                     trailing_ws_start_col = col as i32;
@@ -2614,15 +3090,9 @@ impl LayoutEngine {
                         if row < max_rows {
                             row_truncated[row] = true;
                         }
-                        while byte_idx < text.len() {
-                            let b = text[byte_idx];
-                            byte_idx += 1;
-                            charpos += 1;
-                            if b == b'\n' {
-                                current_line += 1;
-                                need_line_number = lnum_enabled;
-                                break;
-                            }
+                        if skip_to_newline(text, &mut byte_idx, &mut charpos) {
+                            current_line += 1;
+                            need_line_number = lnum_enabled;
                         }
                         if row_max_height > char_h {
                             row_extra_y += row_max_height - char_h;
@@ -2635,7 +3105,15 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
-                        hit_row_charpos_start = charpos;
+                        push_display_row(
+                            &mut display_rows,
+                            row as i64,
+                            y,
+                            row_max_height,
+                            window_top,
+                            &mut row_first_display_pos,
+                            &mut row_last_display_pos,
+                        );
                         row_extend_bg = None;
                         row_extend_row = -1;
                         reorder_row_bidi(
@@ -2650,7 +3128,10 @@ impl LayoutEngine {
                         row_max_height = char_h;
                         row_max_ascent = default_face_ascent;
                         row_y_positions.push(y);
+                        charpos = sync_charpos_from_byte_idx(byte_idx);
+                        hit_row_charpos_start = charpos;
                         col = 0;
+                        word_wrap_may_wrap = false;
                         trailing_ws_start_col = -1;
                         if has_prefix {
                             need_prefix = 1;
@@ -2671,6 +3152,15 @@ impl LayoutEngine {
                             charpos_start: hit_row_charpos_start,
                             charpos_end: charpos,
                         });
+                        push_display_row(
+                            &mut display_rows,
+                            row as i64,
+                            y,
+                            row_max_height,
+                            window_top,
+                            &mut row_first_display_pos,
+                            &mut row_last_display_pos,
+                        );
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
@@ -2721,6 +3211,20 @@ impl LayoutEngine {
                     );
                     current_face_id += 1;
                 }
+                push_display_point(
+                    &mut display_points,
+                    &mut row_first_display_pos,
+                    &mut row_last_display_pos,
+                    charpos + 1,
+                    x,
+                    y + raise_y_offset,
+                    needed_width,
+                    char_h,
+                    row as i64,
+                    col,
+                    text_area_left,
+                    window_top,
+                );
                 frame_glyphs.add_char(
                     '^',
                     x,
@@ -2743,6 +3247,7 @@ impl LayoutEngine {
                 x += face_char_w;
                 col += 2;
                 charpos += 1;
+                word_wrap_may_wrap = false;
                 face_next_check = 0; // force face re-check to restore text face
                 continue;
             }
@@ -2776,6 +3281,20 @@ impl LayoutEngine {
                         }
                         // Render as visible space or hyphen
                         let display_ch = if ch == '\u{00A0}' { ' ' } else { '-' };
+                        push_display_point(
+                            &mut display_points,
+                            &mut row_first_display_pos,
+                            &mut row_last_display_pos,
+                            charpos + 1,
+                            x,
+                            y + raise_y_offset,
+                            face_char_w,
+                            char_h,
+                            row as i64,
+                            col,
+                            text_area_left,
+                            window_top,
+                        );
                         frame_glyphs.add_char(
                             display_ch,
                             x,
@@ -2788,6 +3307,7 @@ impl LayoutEngine {
                         x += face_char_w;
                         col += 1;
                         charpos += 1;
+                        word_wrap_may_wrap = false;
                         face_next_check = 0; // restore face on next char
                         continue;
                     }
@@ -2817,6 +3337,20 @@ impl LayoutEngine {
                         // Check if 2 columns fit
                         let needed = 2.0 * face_char_w;
                         if x + needed <= content_x + avail_width {
+                            push_display_point(
+                                &mut display_points,
+                                &mut row_first_display_pos,
+                                &mut row_last_display_pos,
+                                charpos + 1,
+                                x,
+                                y + raise_y_offset,
+                                needed,
+                                char_h,
+                                row as i64,
+                                col,
+                                text_area_left,
+                                window_top,
+                            );
                             frame_glyphs.add_char(
                                 '\\',
                                 x,
@@ -2840,6 +3374,7 @@ impl LayoutEngine {
                             col += 2;
                         }
                         charpos += 1;
+                        word_wrap_may_wrap = false;
                         face_next_check = 0;
                         continue;
                     }
@@ -2947,6 +3482,7 @@ impl LayoutEngine {
                     _ => {}
                 }
                 charpos += 1;
+                word_wrap_may_wrap = false;
                 continue;
             }
 
@@ -2954,8 +3490,23 @@ impl LayoutEngine {
 
             // Compute wide-char advance: CJK chars occupy 2 columns
             let char_cols = if is_wide_char(ch) { 2 } else { 1 };
-            let advance = char_cols as f32 * face_char_w;
-
+            let active_face_id = current_face_id.saturating_sub(1);
+            let advance = unsafe {
+                char_advance(
+                    &mut self.ascii_width_cache,
+                    &mut self.font_metrics,
+                    ch,
+                    char_cols as i32,
+                    char_w,
+                    active_face_id,
+                    current_font_size_px,
+                    face_char_w,
+                    std::ptr::null_mut(),
+                    &self.current_resolved_family,
+                    current_font_weight,
+                    current_font_italic,
+                )
+            };
             if x + advance > content_x + avail_width {
                 flush_run(&self.run_buf, frame_glyphs, ligatures);
                 self.run_buf.clear();
@@ -2964,15 +3515,9 @@ impl LayoutEngine {
                         row_truncated[row] = true;
                     }
                     // Skip remaining chars until newline
-                    while byte_idx < text.len() {
-                        let b = text[byte_idx];
-                        byte_idx += 1;
-                        charpos += 1;
-                        if b == b'\n' {
-                            current_line += 1;
-                            need_line_number = lnum_enabled;
-                            break;
-                        }
+                    if skip_to_newline(text, &mut byte_idx, &mut charpos) {
+                        current_line += 1;
+                        need_line_number = lnum_enabled;
                     }
                     if row_max_height > char_h {
                         row_extra_y += row_max_height - char_h;
@@ -2985,7 +3530,15 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    hit_row_charpos_start = charpos;
+                    push_display_row(
+                        &mut display_rows,
+                        row as i64,
+                        y,
+                        row_max_height,
+                        window_top,
+                        &mut row_first_display_pos,
+                        &mut row_last_display_pos,
+                    );
                     row_extend_bg = None;
                     row_extend_row = -1;
                     reorder_row_bidi(
@@ -3001,6 +3554,7 @@ impl LayoutEngine {
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
                     col = 0;
+                    word_wrap_may_wrap = false;
                     wrap_has_break = false;
                     trailing_ws_start_col = -1;
                     if has_prefix {
@@ -3010,6 +3564,9 @@ impl LayoutEngine {
                 } else if params.word_wrap && wrap_has_break {
                     // Word-wrap: rewind to last break point
                     frame_glyphs.glyphs.truncate(wrap_break_glyph_count);
+                    display_points.truncate(wrap_break_display_point_count);
+                    row_first_display_pos = wrap_break_row_first_display_pos;
+                    row_last_display_pos = wrap_break_row_last_display_pos;
                     byte_idx = wrap_break_byte_idx;
                     charpos = wrap_break_charpos;
                     col = 0;
@@ -3028,7 +3585,15 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    hit_row_charpos_start = charpos;
+                    push_display_row(
+                        &mut display_rows,
+                        row as i64,
+                        y,
+                        row_max_height,
+                        window_top,
+                        &mut row_first_display_pos,
+                        &mut row_last_display_pos,
+                    );
                     row_extend_bg = None;
                     row_extend_row = -1;
                     reorder_row_bidi(
@@ -3043,9 +3608,12 @@ impl LayoutEngine {
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
                     row_y_positions.push(y);
+                    charpos = sync_charpos_from_byte_idx(byte_idx);
+                    hit_row_charpos_start = charpos;
                     if row < max_rows {
                         row_continuation[row] = true;
                     }
+                    word_wrap_may_wrap = false;
                     wrap_has_break = false;
                     trailing_ws_start_col = -1;
                     if has_prefix {
@@ -3075,7 +3643,15 @@ impl LayoutEngine {
                         charpos_start: hit_row_charpos_start,
                         charpos_end: charpos,
                     });
-                    hit_row_charpos_start = charpos;
+                    push_display_row(
+                        &mut display_rows,
+                        row as i64,
+                        y,
+                        row_max_height,
+                        window_top,
+                        &mut row_first_display_pos,
+                        &mut row_last_display_pos,
+                    );
                     row_extend_bg = None;
                     row_extend_row = -1;
                     reorder_row_bidi(
@@ -3095,12 +3671,18 @@ impl LayoutEngine {
                     if row < max_rows {
                         row_continuation[row] = true;
                     }
+                    byte_idx = ch_start_byte_idx;
+                    charpos = sync_charpos_from_byte_idx(byte_idx);
+                    hit_row_charpos_start = charpos;
+                    word_wrap_may_wrap = false;
+                    face_next_check = 0;
                     if has_prefix {
                         need_prefix = 2;
                     }
                     if row >= max_rows || y + row_max_height > text_y + text_height {
                         break;
                     }
+                    continue;
                 }
             }
 
@@ -3113,97 +3695,6 @@ impl LayoutEngine {
             if height_end > window_start && charpos >= height_end {
                 height_scale = 0.0;
                 height_end = window_start;
-            }
-            // Resolve face at current position if needed
-            if (charpos as usize) >= face_next_check {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
-                self.run_buf.clear();
-                let buffer_ref = evaluator.buffer_manager().get(buf_id).unwrap();
-                let resolved =
-                    face_resolver.face_at_pos(buffer_ref, charpos as usize, &mut face_next_check);
-
-                // Query per-face font metrics from FontMetricsService
-                let metrics = self.font_metrics.as_mut().map(|svc| {
-                    svc.font_metrics(
-                        &resolved.font_family,
-                        resolved.font_weight,
-                        resolved.italic,
-                        resolved.font_size,
-                    )
-                });
-                if let Some(m) = metrics {
-                    face_char_w = m.char_width;
-                    face_h = m.line_height;
-                    face_ascent_val = m.ascent;
-                } else {
-                    // No FontMetricsService — fall back to window defaults
-                    face_char_w = char_w;
-                    face_h = char_h;
-                    face_ascent_val = font_ascent;
-                }
-
-                // Track max glyph height for variable-height rows
-                if face_h > row_max_height {
-                    row_max_height = face_h;
-                }
-                if face_ascent_val > row_max_ascent {
-                    row_max_ascent = face_ascent_val;
-                }
-
-                let fg = Color::from_pixel(resolved.fg);
-                current_fg = fg;
-                let bg = Color::from_pixel(resolved.bg);
-                current_bg = bg;
-                let ul_color = if resolved.underline_style > 0 && resolved.underline_color != 0 {
-                    Some(Color::from_pixel(resolved.underline_color))
-                } else {
-                    None
-                };
-                let st_color = if resolved.strike_through && resolved.strike_through_color != 0 {
-                    Some(Color::from_pixel(resolved.strike_through_color))
-                } else {
-                    None
-                };
-                let ol_color = if resolved.overline && resolved.overline_color != 0 {
-                    Some(Color::from_pixel(resolved.overline_color))
-                } else {
-                    None
-                };
-
-                frame_glyphs.set_face_with_font(
-                    current_face_id,
-                    fg,
-                    Some(bg),
-                    &resolved.font_family,
-                    resolved.font_weight,
-                    resolved.italic,
-                    resolved.font_size,
-                    resolved.underline_style,
-                    ul_color,
-                    if resolved.strike_through { 1 } else { 0 },
-                    st_color,
-                    if resolved.overline { 1 } else { 0 },
-                    ol_color,
-                    resolved.overstrike,
-                );
-                current_face_id += 1;
-
-                // Track last face with :extend on this row
-                if resolved.extend {
-                    let ext_bg = Color::from_pixel(resolved.bg);
-                    row_extend_bg = Some((ext_bg, current_face_id - 1));
-                    row_extend_row = row as i32;
-                }
-
-                // Box face tracking: close previous box and open new one if face has :box
-                if box_active && resolved.box_type == 0 {
-                    box_active = false;
-                }
-                if resolved.box_type > 0 {
-                    box_active = true;
-                    box_start_x = x;
-                    box_row = row;
-                }
             }
 
             // Capture cursor metrics at point position during the main layout
@@ -3219,6 +3710,8 @@ impl LayoutEngine {
                     current_bg,
                     byte_idx,
                     col,
+                    current_face_id.saturating_sub(1),
+                    face_space_w,
                 ));
             }
 
@@ -3259,13 +3752,27 @@ impl LayoutEngine {
                 self.run_buf.start(
                     x,
                     gy,
-                    char_h,
+                    face_h,
                     face_ascent_val,
                     current_face_id.saturating_sub(1),
                     false,
                     height_scale,
                 );
             }
+            push_display_point(
+                &mut display_points,
+                &mut row_first_display_pos,
+                &mut row_last_display_pos,
+                charpos + 1,
+                x,
+                y + raise_y_offset,
+                advance,
+                face_h,
+                row as i64,
+                col,
+                text_area_left,
+                window_top,
+            );
             self.run_buf.push(ch, advance);
 
             // Flush if run is too long
@@ -3277,6 +3784,7 @@ impl LayoutEngine {
             x += advance;
             col += char_cols as usize;
             charpos += 1;
+            word_wrap_may_wrap = char_can_wrap_after_basic(ch);
 
             // --- Overlay after-strings ---
             if has_overlays {
@@ -3307,18 +3815,6 @@ impl LayoutEngine {
                         );
                     }
                 }
-            }
-
-            // Space is a breakpoint for word-wrap
-            if params.word_wrap && ch == ' ' {
-                _wrap_break_col = col;
-                _wrap_break_x = x - content_x;
-                wrap_break_byte_idx = byte_idx;
-                wrap_break_charpos = charpos;
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
-                self.run_buf.clear();
-                wrap_break_glyph_count = frame_glyphs.glyphs.len();
-                wrap_has_break = true;
             }
 
             // Track trailing whitespace
@@ -3363,6 +3859,8 @@ impl LayoutEngine {
                 current_bg,
                 byte_idx,
                 col,
+                current_face_id.saturating_sub(1),
+                face_space_w,
             ));
         }
 
@@ -3599,12 +4097,14 @@ impl LayoutEngine {
                 cursor_face_bg,
                 cbyte,
                 ccol,
+                cursor_face_id,
+                cursor_face_space_w,
             )) = cursor_info
             {
                 // Cursor position and face metrics captured during the main layout loop
                 if cy >= text_y && cy + cursor_face_h <= text_y + text_height {
                     if let Some(style) = cursor_style {
-                        let cursor_w = cursor_width_for_style(
+                        let fallback_cursor_w = cursor_width_for_style(
                             style,
                             text,
                             cbyte,
@@ -3612,6 +4112,32 @@ impl LayoutEngine {
                             params,
                             cursor_face_w,
                         );
+                        let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
+                            fallback_cursor_w
+                        } else if let Some(face) = frame_glyphs.faces.get(&cursor_face_id) {
+                            unsafe {
+                                cursor_point_advance(
+                                    text,
+                                    cbyte,
+                                    ccol as i32,
+                                    params,
+                                    cursor_face_w,
+                                    cursor_face_space_w,
+                                    char_w,
+                                    cursor_face_id,
+                                    face.font_size.max(1.0).round() as i32,
+                                    std::ptr::null_mut(),
+                                    &face.font_family,
+                                    face.font_weight,
+                                    face.is_italic(),
+                                    &mut self.ascii_width_cache,
+                                    &mut self.font_metrics,
+                                )
+                                .unwrap_or(fallback_cursor_w)
+                            }
+                        } else {
+                            fallback_cursor_w
+                        };
                         frame_glyphs.add_cursor(
                             params.window_id as i32,
                             cx,
@@ -3871,38 +4397,126 @@ impl LayoutEngine {
             } // end else (fallback re-scan)
         }
 
-        // If point is beyond the computed window_end, scan backward from
-        // point to compute a new window_start that places point ~75% down
-        // the window.  We do this here (before mode-line evaluation) while
-        // buf_access is still available; the result is applied in the
-        // writeback block below.
-        let scroll_down_ws: Option<i64> = if params.point > charpos
-            && charpos > window_start
+        if row < max_rows && charpos > hit_row_charpos_start {
+            let row_y_start = row_y_positions
+                .get(row)
+                .copied()
+                .unwrap_or(text_y + row as f32 * char_h + row_extra_y);
+            hit_rows.push(HitRow {
+                y_start: row_y_start,
+                y_end: row_y_start + row_max_height,
+                charpos_start: hit_row_charpos_start,
+                charpos_end: charpos,
+            });
+            push_display_row(
+                &mut display_rows,
+                row as i64,
+                row_y_start,
+                row_max_height,
+                window_top,
+                &mut row_first_display_pos,
+                &mut row_last_display_pos,
+            );
+        }
+
+        // GNU redisplay keeps iterating until point visibility converges or no
+        // further progress can be made.  Advance by actual rendered row spans
+        // from this pass rather than rescanning by logical newlines, since
+        // wrapped and variable-height lines are exactly where newline-based
+        // retry selection goes wrong.
+        let visible_end_lisp = display_rows.iter().rev().find_map(|row| row.end_buffer_pos);
+        let point_lisp = (params.point as usize).saturating_add(1);
+        let visible_progress = visible_end_lisp
+            .map(|end_lisp| end_lisp as i64)
+            .unwrap_or(charpos);
+        let point_beyond_visible_span = visible_end_lisp
+            .map(|end_lisp| point_lisp > end_lisp)
+            .unwrap_or(params.point > charpos);
+
+        let scroll_down_ws = if point_beyond_visible_span
+            && visible_progress > window_start
             && !params.is_minibuffer
         {
-            let target_rows_above = ((max_rows * 3) / 4).max(1) as i64;
-            let mut lines_back: i64 = 0;
-            let mut scan_pos = params.point;
-
-            while scan_pos > params.buffer_begv && lines_back < target_rows_above {
-                scan_pos -= 1;
-                let bp = buf_access.charpos_to_bytepos(scan_pos);
-                if buf_access.byte_at(bp) == Some(b'\n') {
-                    lines_back += 1;
-                }
-            }
-
-            let new_ws = scan_pos.max(params.buffer_begv);
+            let new_ws = next_window_start_from_visible_rows(&display_rows, window_start)
+                .map(|new_ws| new_ws.min(params.point.max(params.buffer_begv)));
             tracing::debug!(
-                "layout_window_rust: scroll-down, point={} beyond window_end={}, new window_start={}",
-                params.point,
+                "layout_window_rust: point={} beyond visible_end={:?} (charpos_end={}), visible_rows={}, new_window_start={:?}",
+                point_lisp,
+                visible_end_lisp,
                 charpos,
+                display_rows.len(),
                 new_ws
             );
-            Some(new_ws)
+            new_ws
         } else {
             None
         };
+        let text_area_top = (text_y - window_top).round() as i64;
+        let text_area_bottom = (text_y + text_height - window_top).round() as i64;
+        let point_row_ws = next_window_start_for_partially_visible_point_row(
+            &display_rows,
+            params.point,
+            text_area_top,
+            text_area_bottom,
+            window_start,
+        );
+        if point_row_ws.is_some() {
+            tracing::debug!(
+                "layout_window_rust: point={} row partially visible within {}..{}, new_window_start={:?}",
+                params.point,
+                text_area_top,
+                text_area_bottom,
+                point_row_ws
+            );
+        }
+        let point_line_ws = next_window_start_for_point_line_continuation(
+            &display_rows,
+            params.point,
+            window_start,
+            &buf_access,
+            params.buffer_size,
+        );
+        if point_line_ws.is_some() {
+            tracing::debug!(
+                "layout_window_rust: point={} line continues below final visible row, new_window_start={:?}",
+                params.point,
+                point_line_ws
+            );
+        }
+        let retry_window_start = scroll_down_ws.or(point_row_ws).or(point_line_ws);
+
+        if let Some(new_window_start) = retry_window_start
+            && remaining_visibility_retries > 0
+            && new_window_start > window_start
+        {
+            tracing::debug!(
+                "layout_window_rust: retrying window {} with adjusted window_start {} -> {} (remaining={})",
+                params.window_id,
+                window_start,
+                new_window_start,
+                remaining_visibility_retries
+            );
+            frame_glyphs.glyphs.truncate(glyphs_len_before);
+            frame_glyphs
+                .transition_hints
+                .truncate(transition_hints_len_before);
+            frame_glyphs.effect_hints.truncate(effect_hints_len_before);
+            frame_glyphs.cursor_inverse = cursor_inverse_before;
+
+            let mut retry_params = params.clone();
+            retry_params.window_start = new_window_start;
+            retry_params.window_end = 0;
+            self.layout_window_rust(
+                evaluator,
+                frame_id,
+                &retry_params,
+                _frame_params,
+                frame_glyphs,
+                face_resolver,
+                remaining_visibility_retries.saturating_sub(1),
+            );
+            return;
+        }
 
         // Mode-line: evaluate format-mode-line or fall back to buffer name
         if params.mode_line_height > 0.0 {
@@ -4007,20 +4621,6 @@ impl LayoutEngine {
             );
         }
 
-        // Record last hit-test row (end of visible text)
-        if row < max_rows && charpos > hit_row_charpos_start {
-            let row_y_start = row_y_positions
-                .get(row)
-                .copied()
-                .unwrap_or(text_y + row as f32 * char_h + row_extra_y);
-            hit_rows.push(HitRow {
-                y_start: row_y_start,
-                y_end: row_y_start + row_max_height,
-                charpos_start: hit_row_charpos_start,
-                charpos_end: charpos,
-            });
-        }
-
         // Store hit-test data for this window
         self.hit_data.push(WindowHitData {
             window_id: params.window_id,
@@ -4028,30 +4628,57 @@ impl LayoutEngine {
             char_w,
             rows: hit_rows,
         });
+        let window_start_lisp = (window_start as usize).saturating_add(1);
+        let window_end_lisp = display_rows
+            .last()
+            .and_then(|row| row.end_buffer_pos)
+            .map(|pos| pos.saturating_add(1))
+            .unwrap_or(1);
+        let window_end_byte = text_start_byte.saturating_add(byte_idx);
+        let window_end_vpos = display_rows
+            .last()
+            .map(|row| row.row.max(0) as usize)
+            .unwrap_or(0);
 
-        tracing::debug!("  layout_window_rust: window_end charpos={}", charpos);
+        self.display_snapshots.push(WindowDisplaySnapshot {
+            window_id: neovm_core::window::WindowId(params.window_id as u64),
+            text_area_left_offset: (text_area_left - params.bounds.x).round() as i64,
+            points: display_points,
+            rows: display_rows,
+        });
 
-        // Write adjusted window_start and window_end back to the evaluator's
-        // Window struct so that scrolling, (window-start), and (window-end)
-        // reflect the layout results.  If a scroll-down adjustment was
-        // computed above, apply it instead of the current window_start.
+        if let Some(info) = frame_glyphs.window_infos.last_mut()
+            && info.window_id == params.window_id
+        {
+            info.window_start = window_start_lisp as i64;
+            info.window_end = window_end_lisp as i64;
+        }
+
+        tracing::debug!(
+            "  layout_window_rust: window_start={} window_end={}",
+            window_start_lisp,
+            window_end_lisp
+        );
+
+        // Write the authoritative redisplay window-start/window-end back to
+        // the evaluator's Window struct so scrolling and geometry queries
+        // reflect the layout we actually published.
         {
             let win_id = neovm_core::window::WindowId(params.window_id as u64);
-            let adjusted_ws = scroll_down_ws.unwrap_or(window_start) as usize;
-            let window_end_charpos = charpos;
 
             if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
                 let update_window = |w: &mut neovm_core::window::Window| {
                     if let neovm_core::window::Window::Leaf {
-                        window_start: ws,
-                        parameters: params_map,
-                        ..
+                        window_start: ws, ..
                     } = w
                     {
-                        *ws = adjusted_ws;
-                        params_map.insert(
-                            "window-end".to_string(),
-                            neovm_core::emacs_core::Value::Int(window_end_charpos),
+                        *ws = window_start_lisp;
+                        w.set_window_end_from_positions(
+                            buffer_z_char,
+                            buffer_z_byte,
+                            window_end_lisp,
+                            window_end_byte,
+                            window_end_vpos,
                         );
                     }
                 };
@@ -4103,7 +4730,10 @@ impl LayoutEngine {
         // jit-lock-fontify-now (via jit-lock-function on the hook).
         // The hook functions receive the buffer position and fontify the
         // surrounding region, setting font-lock-face text properties.
-        let expr_str = format!("(run-hook-with-args 'fontification-functions {})", from);
+        let expr_str = format!(
+            "(run-hook-with-args 'fontification-functions {})",
+            from.saturating_add(1)
+        );
 
         match neovm_core::emacs_core::parse_forms(&expr_str) {
             Ok(forms) => {
@@ -4603,8 +5233,10 @@ impl LayoutEngine {
 
         // Trigger fontification (jit-lock) for the visible region so that
         // face text properties are set before we read them.
-        let read_chars =
-            (params.buffer_size - window_start + 1).min(cols as i64 * max_rows as i64 * 2);
+        // Keep the legacy path aligned with the Rust-authoritative layout:
+        // visible text must not disappear just because it falls beyond a
+        // heuristic read-ahead window.
+        let read_chars = params.buffer_size - window_start + 1;
         let fontify_end = (window_start + read_chars).min(params.buffer_size);
         neomacs_layout_ensure_fontified(buffer, window_start, fontify_end);
 
@@ -5099,7 +5731,7 @@ impl LayoutEngine {
                         buffer,
                         window,
                         frame,
-                        charpos,
+                        charpos + 1,
                         left_margin_buf.as_mut_ptr(),
                         256,
                         &mut left_len,
@@ -5996,7 +6628,7 @@ impl LayoutEngine {
                         let mut next_check: i64 = 0;
                         let fid = neomacs_layout_face_at_pos(
                             window,
-                            charpos,
+                            charpos + 1,
                             &mut self.face_data as *mut FaceDataFFI,
                             &mut next_check,
                         );
@@ -7932,7 +8564,7 @@ impl LayoutEngine {
             neomacs_layout_overlay_strings_at(
                 buffer,
                 window,
-                charpos,
+                charpos + 1,
                 overlay_before_buf.as_mut_ptr(),
                 overlay_before_buf.len() as i32,
                 &mut eob_before_len,
@@ -8674,12 +9306,12 @@ impl LayoutEngine {
 ///
 /// The backend is selected by `font_metrics_svc` being Some (cosmic) or None (C FFI).
 unsafe fn char_advance(
-    ascii_width_cache: &mut std::collections::HashMap<(u32, i32), [f32; 128]>,
+    ascii_width_cache: &mut std::collections::HashMap<AsciiWidthCacheKey, [f32; 128]>,
     font_metrics_svc: &mut Option<FontMetricsService>,
     ch: char,
     char_cols: i32,
     char_w: f32,
-    face_id: u32,
+    _face_id: u32,
     font_size: i32,
     face_char_w: f32,
     _window: EmacsWindow,
@@ -8687,6 +9319,21 @@ unsafe fn char_advance(
     font_weight: u16,
     font_italic: bool,
 ) -> f32 {
+    #[inline]
+    fn snap_advance_to_pixel_grid(advance: f32, min_advance: f32) -> f32 {
+        let snapped_min = min_advance.round().max(1.0);
+        if !advance.is_finite() || advance <= 0.0 {
+            return snapped_min;
+        }
+
+        // GNU Emacs stores realized glyph widths and positions in integer
+        // pixels. Snapping each advance before it enters layout keeps the
+        // published window geometry (`posn-at-point`, cursor x, etc.) on the
+        // same integer grid instead of accumulating fractional drift across a
+        // row.
+        advance.round().max(1.0)
+    }
+
     // Use the face-specific character width when available (handles
     // faces with :height attribute that use a differently-sized font).
     let face_w = if face_char_w > 0.0 {
@@ -8704,26 +9351,20 @@ unsafe fn char_advance(
     };
     let cp = ch as u32;
     if cp < 128 {
-        let cache_key = (face_id, font_size);
-        if !ascii_width_cache.contains_key(&cache_key) {
+        let cache_key = AsciiWidthCacheKey::new(font_family, font_weight, font_italic, font_size);
+        let widths = ascii_width_cache.entry(cache_key).or_insert_with(|| {
             let mut widths =
                 svc.fill_ascii_widths(font_family, font_weight, font_italic, font_size_f);
             for w in &mut widths {
-                if *w <= 0.0 {
-                    *w = face_w.max(min_grid_advance);
-                }
+                *w = snap_advance_to_pixel_grid(*w, min_grid_advance);
             }
-            ascii_width_cache.insert(cache_key, widths);
-        }
-        return ascii_width_cache[&cache_key][cp as usize];
+            widths
+        });
+        return widths[cp as usize];
     }
 
     let measured = svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
-    if measured > 0.0 {
-        measured
-    } else {
-        min_grid_advance
-    }
+    snap_advance_to_pixel_grid(measured, min_grid_advance)
 }
 
 /// Render a fringe bitmap at the given position using Border rects.
@@ -8817,7 +9458,10 @@ unsafe fn render_fringe_bitmap(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neovm_bridge::RustBufferAccess;
     use neomacs_display_protocol::frame_glyphs::FrameGlyph;
+    use neovm_core::emacs_core::Evaluator;
+    use neovm_core::window::DisplayRowSnapshot;
 
     fn test_window_params() -> WindowParams {
         WindowParams {
@@ -8891,6 +9535,1731 @@ mod tests {
         // Vectors should be pre-allocated
         assert!(buf.chars.capacity() >= MAX_LIGATURE_RUN_LEN);
         assert!(buf.advances.capacity() >= MAX_LIGATURE_RUN_LEN);
+    }
+
+    #[test]
+    fn layout_frame_rust_publishes_increasing_display_positions() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("abcd\n");
+            buf.goto_byte(1);
+        }
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-test", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 1;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 120.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let a = snapshot.point_for_buffer_pos(1).expect("a");
+        let b = snapshot.point_for_buffer_pos(2).expect("b");
+        let c = snapshot.point_for_buffer_pos(3).expect("c");
+        assert!(
+            a.x < b.x,
+            "expected increasing x positions, got {a:?} then {b:?}"
+        );
+        assert!(
+            b.x < c.x,
+            "expected increasing x positions, got {b:?} then {c:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_tracks_multibyte_sample_positions() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("a好好b\n");
+            buf.goto_byte(0);
+        }
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-test", 320, 120, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 1;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 120.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let all_points = snapshot.points.clone();
+        let a = snapshot.point_for_buffer_pos(1).expect("a");
+        let hao1 = snapshot.point_for_buffer_pos(2).expect("hao1");
+        let hao2 = snapshot.point_for_buffer_pos(3).expect("hao2");
+        let b = snapshot.point_for_buffer_pos(4).expect("b");
+        assert!(
+            a.x < hao1.x,
+            "expected a before first 好, got {a:?} then {hao1:?}; points={all_points:?}"
+        );
+        assert!(
+            hao1.x < hao2.x,
+            "expected first 好 before second 好, got {hao1:?} then {hao2:?}; points={all_points:?}"
+        );
+        assert!(
+            hao2.x < b.x,
+            "expected second 好 before b, got {hao2:?} then {b:?}; points={all_points:?}"
+        );
+        assert!(
+            a.width > 0,
+            "expected positive width for a, got {a:?}; points={all_points:?}"
+        );
+        assert!(
+            hao1.width > 0,
+            "expected positive width for first 好, got {hao1:?}; points={all_points:?}"
+        );
+        assert!(
+            hao2.width > 0,
+            "expected positive width for second 好, got {hao2:?}; points={all_points:?}"
+        );
+        assert!(
+            b.width > 0,
+            "expected positive width for b, got {b:?}; points={all_points:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_publishes_face_scaled_advances_for_inline_plist_faces() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("a好好b ");
+            let plist = Value::list(vec![
+                Value::keyword("family"),
+                Value::string("JetBrains Mono"),
+                Value::keyword("height"),
+                Value::Float(1.6, neovm_core::emacs_core::value::next_float_id()),
+                Value::keyword("weight"),
+                Value::symbol("extra-bold"),
+            ]);
+            buf.text_props
+                .put_property(0, buf.text.len(), "face", plist);
+            buf.goto_byte(0);
+        }
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-face-advance", 800, 160, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 1;
+            }
+        }
+
+        {
+            let buffer = eval.buffer_manager().get(buf_id).expect("buffer");
+            let face_resolver = crate::neovm_bridge::FaceResolver::new(
+                eval.face_table(),
+                0x00FFFFFF,
+                0x00000000,
+                eval.frame_manager()
+                    .get(frame_id)
+                    .expect("frame")
+                    .font_pixel_size,
+            );
+            let mut next_check = buffer.point_max_char();
+            let resolved = face_resolver.face_at_pos(buffer, 0, &mut next_check);
+            assert_eq!(resolved.font_family, "JetBrains Mono");
+            assert_eq!(resolved.font_weight, 800);
+            assert!(
+                resolved.font_size > face_resolver.default_face().font_size * 1.5,
+                "expected face resolver to scale the inline plist face before layout, got {:?}",
+                resolved
+            );
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(800.0, 160.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let all_points = snapshot.points.clone();
+        let a = snapshot.point_for_buffer_pos(1).expect("a");
+        let hao1 = snapshot.point_for_buffer_pos(2).expect("hao1");
+        let hao2 = snapshot.point_for_buffer_pos(3).expect("hao2");
+        let b = snapshot.point_for_buffer_pos(4).expect("b");
+        let space = snapshot.point_for_buffer_pos(5).expect("space");
+
+        let default_font_size = frame.font_pixel_size;
+        let face_font_size = default_font_size * 1.6;
+        let mut metrics = FontMetricsService::new();
+        let expected_a = metrics
+            .char_width('a', "JetBrains Mono", 800, false, face_font_size)
+            .round() as i64;
+        let expected_hao = metrics
+            .char_width('好', "JetBrains Mono", 800, false, face_font_size)
+            .round() as i64;
+        let expected_b = metrics
+            .char_width('b', "JetBrains Mono", 800, false, face_font_size)
+            .round() as i64;
+        let cached_ascii = engine
+            .ascii_width_cache
+            .iter()
+            .find_map(|(key, widths)| {
+                (key.family == "JetBrains Mono"
+                    && key.weight == 800
+                    && !key.italic
+                    && key.font_size == face_font_size.round() as i32)
+                    .then_some(*widths)
+            })
+            .expect("cached JetBrains Mono widths");
+
+        assert!(
+            (cached_ascii['a' as usize].round() as i64 - expected_a).abs() <= 1,
+            "expected cached width for 'a' to match FontMetricsService, got {} vs expected {expected_a}",
+            cached_ascii['a' as usize]
+        );
+        assert!(
+            (cached_ascii['b' as usize].round() as i64 - expected_b).abs() <= 1,
+            "expected cached width for 'b' to match FontMetricsService, got {} vs expected {expected_b}",
+            cached_ascii['b' as usize]
+        );
+        let rendered_text_glyphs = frame_glyphs
+            .glyphs
+            .iter()
+            .filter_map(|glyph| match glyph {
+                FrameGlyph::Char {
+                    char,
+                    width,
+                    row_role,
+                    ..
+                } if *row_role == GlyphRowRole::Text => Some((*char, width.round() as i64)),
+                _ => None,
+            })
+            .take(5)
+            .collect::<Vec<_>>();
+
+        assert!(
+            (a.width - expected_a).abs() <= 1,
+            "expected inline face width for 'a' to follow FontMetricsService (expected {expected_a}, got {a:?}); points={all_points:?}; glyphs={rendered_text_glyphs:?}"
+        );
+        assert!(
+            (hao1.width - expected_hao).abs() <= 1,
+            "expected inline face width for first 好 to follow FontMetricsService (expected {expected_hao}, got {hao1:?}); points={all_points:?}"
+        );
+        assert!(
+            (hao2.width - expected_hao).abs() <= 1,
+            "expected inline face width for second 好 to follow FontMetricsService (expected {expected_hao}, got {hao2:?}); points={all_points:?}"
+        );
+        assert!(
+            (b.width - expected_b).abs() <= 1,
+            "expected inline face width for 'b' to follow FontMetricsService (expected {expected_b}, got {b:?}); points={all_points:?}"
+        );
+        assert!(
+            ((hao1.x - a.x) - expected_a).abs() <= 1,
+            "expected next point after 'a' to advance by {expected_a}, got {} -> {} with points={all_points:?}",
+            a.x,
+            hao1.x
+        );
+        assert!(
+            ((hao2.x - hao1.x) - expected_hao).abs() <= 1,
+            "expected next point after first 好 to advance by {expected_hao}, got {} -> {} with points={all_points:?}",
+            hao1.x,
+            hao2.x
+        );
+        assert!(
+            ((b.x - hao2.x) - expected_hao).abs() <= 1,
+            "expected next point after second 好 to advance by {expected_hao}, got {} -> {} with points={all_points:?}",
+            hao2.x,
+            b.x
+        );
+        assert!(
+            ((space.x - b.x) - expected_b).abs() <= 1,
+            "expected next point after 'b' to advance by {expected_b}, got {} -> {} with points={all_points:?}",
+            b.x,
+            space.x
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_keeps_mixed_width_advances_correct_after_mid_line_face_change() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+
+        let prefix = "  h=0.9 w=normal:                     ";
+        let sample = "a好好b  ABCXYZ 0123456789  -> <= >=";
+        let sample_pos = prefix.chars().count() + 1;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(prefix);
+            let sample_byte_start = buf.text.len();
+            buf.insert(sample);
+            let sample_byte_end = buf.text.len();
+            let plist = Value::list(vec![
+                Value::keyword("family"),
+                Value::string("Noto Sans Mono"),
+                Value::keyword("height"),
+                Value::Float(0.9, neovm_core::emacs_core::value::next_float_id()),
+                Value::keyword("weight"),
+                Value::symbol("normal"),
+            ]);
+            buf.text_props
+                .put_property(sample_byte_start, sample_byte_end, "face", plist);
+            buf.goto_byte(0);
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-face-mid-line", 1400, 160, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 1;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(1400.0, 160.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let all_points = snapshot.points.clone();
+        let a = snapshot.point_for_buffer_pos(sample_pos).expect("a");
+        let hao1 = snapshot
+            .point_for_buffer_pos(sample_pos + 1)
+            .expect("first 好");
+        let hao2 = snapshot
+            .point_for_buffer_pos(sample_pos + 2)
+            .expect("second 好");
+        let b = snapshot.point_for_buffer_pos(sample_pos + 3).expect("b");
+
+        let face_font_size = frame.font_pixel_size * 0.9;
+        let mut metrics = FontMetricsService::new();
+        let expected_a = metrics
+            .char_width('a', "Noto Sans Mono", 400, false, face_font_size)
+            .round() as i64;
+        let expected_hao = metrics
+            .char_width('好', "Noto Sans Mono", 400, false, face_font_size)
+            .round() as i64;
+        let expected_b = metrics
+            .char_width('b', "Noto Sans Mono", 400, false, face_font_size)
+            .round() as i64;
+
+        assert!(
+            (a.width - expected_a).abs() <= 1,
+            "expected a width {expected_a}, got {a:?}; points={all_points:?}"
+        );
+        assert!(
+            (hao1.width - expected_hao).abs() <= 1,
+            "expected first 好 width {expected_hao}, got {hao1:?}; points={all_points:?}"
+        );
+        assert!(
+            (hao2.width - expected_hao).abs() <= 1,
+            "expected second 好 width {expected_hao}, got {hao2:?}; points={all_points:?}"
+        );
+        assert!(
+            (b.width - expected_b).abs() <= 1,
+            "expected b width {expected_b}, got {b:?}; points={all_points:?}"
+        );
+        assert!(
+            ((hao1.x - a.x) - expected_a).abs() <= 1,
+            "expected first 好 x delta {expected_a}, got {} -> {}; points={all_points:?}",
+            a.x,
+            hao1.x
+        );
+        assert!(
+            ((hao2.x - hao1.x) - expected_hao).abs() <= 1,
+            "expected second 好 x delta {expected_hao}, got {} -> {}; points={all_points:?}",
+            hao1.x,
+            hao2.x
+        );
+        assert!(
+            ((b.x - hao2.x) - expected_hao).abs() <= 1,
+            "expected b x delta {expected_hao}, got {} -> {}; points={all_points:?}",
+            hao2.x,
+            b.x
+        );
+        let space = snapshot
+            .point_for_buffer_pos(sample_pos + 4)
+            .expect("space");
+        assert_eq!(
+            space.x - b.x,
+            b.width,
+            "expected next point after 'b' to land exactly one snapped advance later; b={b:?} space={space:?} points={all_points:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_keeps_face_positions_after_truncated_multibyte_line() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+
+        let truncated_prefix = format!("{}\n", "好".repeat(20));
+        let sample = "a好好b";
+        let sample_pos = truncated_prefix.chars().count() + 1;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(&truncated_prefix);
+            let sample_byte_start = buf.text.len();
+            buf.insert(sample);
+            let sample_byte_end = buf.text.len();
+            buf.insert("\n");
+            let plist = Value::list(vec![
+                Value::keyword("family"),
+                Value::string("Noto Sans Mono"),
+                Value::keyword("height"),
+                Value::Float(0.9, neovm_core::emacs_core::value::next_float_id()),
+                Value::keyword("weight"),
+                Value::symbol("normal"),
+            ]);
+            buf.text_props
+                .put_property(sample_byte_start, sample_byte_end, "face", plist);
+            buf.goto_byte(0);
+            buf.set_buffer_local("truncate-lines", Value::True);
+        }
+
+        let frame_id = eval.frame_manager_mut().create_frame(
+            "layout-truncated-multibyte-face",
+            128,
+            160,
+            buf_id,
+        );
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = sample_pos;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(128.0, 160.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let all_points = snapshot.points.clone();
+        let a = snapshot.point_for_buffer_pos(sample_pos).expect("a");
+        let hao1 = snapshot
+            .point_for_buffer_pos(sample_pos + 1)
+            .expect("first 好");
+        let hao2 = snapshot
+            .point_for_buffer_pos(sample_pos + 2)
+            .expect("second 好");
+        let b = snapshot.point_for_buffer_pos(sample_pos + 3).expect("b");
+
+        let face_font_size = frame.font_pixel_size * 0.9;
+        let mut metrics = FontMetricsService::new();
+        let expected_a = metrics
+            .char_width('a', "Noto Sans Mono", 400, false, face_font_size)
+            .round() as i64;
+        let expected_hao = metrics
+            .char_width('好', "Noto Sans Mono", 400, false, face_font_size)
+            .round() as i64;
+        let expected_b = metrics
+            .char_width('b', "Noto Sans Mono", 400, false, face_font_size)
+            .round() as i64;
+
+        assert!(
+            (a.width - expected_a).abs() <= 1,
+            "expected a width {expected_a}, got {a:?}; points={all_points:?}"
+        );
+        assert!(
+            (hao1.width - expected_hao).abs() <= 1,
+            "expected first 好 width {expected_hao}, got {hao1:?}; points={all_points:?}"
+        );
+        assert!(
+            (hao2.width - expected_hao).abs() <= 1,
+            "expected second 好 width {expected_hao}, got {hao2:?}; points={all_points:?}"
+        );
+        assert!(
+            (b.width - expected_b).abs() <= 1,
+            "expected b width {expected_b}, got {b:?}; points={all_points:?}"
+        );
+        assert!(
+            ((hao1.x - a.x) - expected_a).abs() <= 1,
+            "expected first 好 x delta {expected_a}, got {} -> {}; points={all_points:?}",
+            a.x,
+            hao1.x
+        );
+        assert!(
+            ((hao2.x - hao1.x) - expected_hao).abs() <= 1,
+            "expected second 好 x delta {expected_hao}, got {} -> {}; points={all_points:?}",
+            hao1.x,
+            hao2.x
+        );
+        assert!(
+            ((b.x - hao2.x) - expected_hao).abs() <= 1,
+            "expected b x delta {expected_hao}, got {} -> {}; points={all_points:?}",
+            hao2.x,
+            b.x
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_keeps_mixed_width_positions_correct_after_sequential_window_point_moves() {
+        #[derive(Clone, Copy, Debug)]
+        struct TargetRow {
+            line_beg: usize,
+            sample_pos: usize,
+            height: f32,
+            weight: u16,
+        }
+
+        fn char_at_lisp_pos(buffer: &neovm_core::buffer::Buffer, pos: usize) -> Option<char> {
+            if pos == 0 {
+                return None;
+            }
+            buffer.buffer_string().chars().nth(pos - 1)
+        }
+
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let sample = "a好好b  ABCXYZ 0123456789  -> <= >=";
+        let mut targets = Vec::new();
+        let weights = [
+            ("normal", 400_u16),
+            ("semi-bold", 600_u16),
+            ("bold", 700_u16),
+            ("extra-bold", 800_u16),
+        ];
+
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            for height in [0.9_f32, 1.0_f32, 1.2_f32, 1.6_f32] {
+                for (weight_name, weight_value) in weights {
+                    let line_beg = if buf.text.is_empty() {
+                        1usize
+                    } else {
+                        buf.point_max_char() as usize + 1
+                    };
+                    let prefix = format!("  {:<35} ", format!("h={height} w={weight_name}:"));
+                    let sample_pos = line_beg + prefix.chars().count();
+                    buf.insert(&prefix);
+                    let sample_byte_start = buf.text.len();
+                    buf.insert(sample);
+                    let sample_byte_end = buf.text.len();
+                    buf.insert("\n");
+                    let plist = Value::list(vec![
+                        Value::keyword("family"),
+                        Value::string("JetBrains Mono"),
+                        Value::keyword("height"),
+                        Value::Float(
+                            height as f64,
+                            neovm_core::emacs_core::value::next_float_id(),
+                        ),
+                        Value::keyword("weight"),
+                        Value::symbol(weight_name),
+                    ]);
+                    buf.text_props
+                        .put_property(sample_byte_start, sample_byte_end, "face", plist);
+                    targets.push(TargetRow {
+                        line_beg,
+                        sample_pos,
+                        height,
+                        weight: weight_value,
+                    });
+                }
+            }
+            buf.goto_byte(0);
+        }
+
+        let frame_id = eval.frame_manager_mut().create_frame(
+            "layout-sequential-window-point",
+            1400,
+            256,
+            buf_id,
+        );
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 1;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(1400.0, 256.0);
+        let mut metrics = FontMetricsService::new();
+
+        for target in &targets {
+            let byte_pos = {
+                let buffer = eval.buffer_manager().get(buf_id).expect("buffer");
+                buffer.lisp_pos_to_byte(target.line_beg as i64)
+            };
+            let _ = eval.buffer_manager_mut().goto_buffer_byte(buf_id, byte_pos);
+            {
+                let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+                let window = frame
+                    .find_window_mut(selected_window)
+                    .expect("selected window");
+                if let neovm_core::window::Window::Leaf { point, .. } = window {
+                    *point = target.line_beg;
+                }
+            }
+
+            engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+            let frame = eval.frame_manager().get(frame_id).expect("frame");
+            let snapshot = frame
+                .window_display_snapshot(selected_window)
+                .expect("display snapshot");
+            let all_points = snapshot.points.clone();
+            let buffer = eval.buffer_manager().get(buf_id).expect("buffer");
+            let sample_chars = [
+                (target.line_beg, char_at_lisp_pos(buffer, target.line_beg)),
+                (
+                    target.sample_pos,
+                    char_at_lisp_pos(buffer, target.sample_pos),
+                ),
+                (
+                    target.sample_pos + 1,
+                    char_at_lisp_pos(buffer, target.sample_pos + 1),
+                ),
+                (
+                    target.sample_pos + 2,
+                    char_at_lisp_pos(buffer, target.sample_pos + 2),
+                ),
+                (
+                    target.sample_pos + 3,
+                    char_at_lisp_pos(buffer, target.sample_pos + 3),
+                ),
+            ];
+            let a = snapshot
+                .point_for_buffer_pos(target.sample_pos)
+                .expect("sample a");
+            let hao1 = snapshot
+                .point_for_buffer_pos(target.sample_pos + 1)
+                .expect("sample first 好");
+            let hao2 = snapshot
+                .point_for_buffer_pos(target.sample_pos + 2)
+                .expect("sample second 好");
+            let b = snapshot
+                .point_for_buffer_pos(target.sample_pos + 3)
+                .expect("sample b");
+            let after_b = snapshot
+                .point_for_buffer_pos(target.sample_pos + 4)
+                .expect("sample trailing space");
+
+            let face_font_size = frame.font_pixel_size * target.height;
+            let expected_a = metrics
+                .char_width('a', "JetBrains Mono", target.weight, false, face_font_size)
+                .round() as i64;
+            let expected_hao = metrics
+                .char_width('好', "JetBrains Mono", target.weight, false, face_font_size)
+                .round() as i64;
+            let expected_b = metrics
+                .char_width('b', "JetBrains Mono", target.weight, false, face_font_size)
+                .round() as i64;
+
+            assert!(
+                (a.width - expected_a).abs() <= 1,
+                "expected a width {expected_a} after sequential point moves, got {a:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                (hao1.width - expected_hao).abs() <= 1,
+                "expected first 好 width {expected_hao} after sequential point moves, got {hao1:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                (hao2.width - expected_hao).abs() <= 1,
+                "expected second 好 width {expected_hao} after sequential point moves, got {hao2:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                (b.width - expected_b).abs() <= 1,
+                "expected b width {expected_b} after sequential point moves, got {b:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                ((hao1.x - a.x) - expected_a).abs() <= 1,
+                "expected first 好 x delta {expected_a} after sequential point moves, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                a.x,
+                hao1.x
+            );
+            assert!(
+                ((hao2.x - hao1.x) - expected_hao).abs() <= 1,
+                "expected second 好 x delta {expected_hao} after sequential point moves, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                hao1.x,
+                hao2.x
+            );
+            assert!(
+                ((b.x - hao2.x) - expected_hao).abs() <= 1,
+                "expected b x delta {expected_hao} after sequential point moves, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                hao2.x,
+                b.x
+            );
+            assert!(
+                ((after_b.x - b.x) - expected_b).abs() <= 1,
+                "expected post-b x delta {expected_b} after sequential point moves, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                b.x,
+                after_b.x
+            );
+        }
+    }
+
+    #[test]
+    fn layout_frame_rust_keeps_mixed_width_positions_correct_across_family_switches() {
+        #[derive(Clone, Copy, Debug)]
+        struct TargetRow<'a> {
+            family: &'a str,
+            line_beg: usize,
+            sample_pos: usize,
+            height: f32,
+            weight_name: &'a str,
+            weight: u16,
+        }
+
+        fn char_at_lisp_pos(buffer: &neovm_core::buffer::Buffer, pos: usize) -> Option<char> {
+            if pos == 0 {
+                return None;
+            }
+            buffer.buffer_string().chars().nth(pos - 1)
+        }
+
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let sample = "a好好b  ABCXYZ 0123456789  -> <= >=";
+        let mut targets = Vec::new();
+        let weights = [
+            ("normal", 400_u16),
+            ("semi-bold", 600_u16),
+            ("bold", 700_u16),
+            ("extra-bold", 800_u16),
+        ];
+        let families = [
+            "JetBrains Mono",
+            "Hack",
+            "DejaVu Sans Mono",
+            "Noto Sans Mono",
+        ];
+
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            for family in families {
+                let heading = format!("  -- family: {family} --\n");
+                buf.insert(&heading);
+                for height in [0.9_f32, 1.0_f32, 1.2_f32, 1.6_f32] {
+                    for (weight_name, weight_value) in weights {
+                        let line_beg = if buf.text.is_empty() {
+                            1usize
+                        } else {
+                            buf.point_max_char() as usize + 1
+                        };
+                        let prefix = format!("  {:<35} ", format!("h={height} w={weight_name}:"));
+                        let sample_pos = line_beg + prefix.chars().count();
+                        buf.insert(&prefix);
+                        let sample_byte_start = buf.text.len();
+                        buf.insert(sample);
+                        let sample_byte_end = buf.text.len();
+                        buf.insert("\n");
+                        let plist = Value::list(vec![
+                            Value::keyword("family"),
+                            Value::string(family),
+                            Value::keyword("height"),
+                            Value::Float(
+                                height as f64,
+                                neovm_core::emacs_core::value::next_float_id(),
+                            ),
+                            Value::keyword("weight"),
+                            Value::symbol(weight_name),
+                        ]);
+                        buf.text_props.put_property(
+                            sample_byte_start,
+                            sample_byte_end,
+                            "face",
+                            plist,
+                        );
+                        targets.push(TargetRow {
+                            family,
+                            line_beg,
+                            sample_pos,
+                            height,
+                            weight_name,
+                            weight: weight_value,
+                        });
+                    }
+                }
+                buf.insert("\n");
+            }
+            buf.goto_byte(0);
+        }
+
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-family-switches", 1400, 1600, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 1;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(1400.0, 1600.0);
+        let mut metrics = FontMetricsService::new();
+
+        for target in &targets {
+            let byte_pos = {
+                let buffer = eval.buffer_manager().get(buf_id).expect("buffer");
+                buffer.lisp_pos_to_byte(target.line_beg as i64)
+            };
+            let _ = eval.buffer_manager_mut().goto_buffer_byte(buf_id, byte_pos);
+            {
+                let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+                let window = frame
+                    .find_window_mut(selected_window)
+                    .expect("selected window");
+                if let neovm_core::window::Window::Leaf { point, .. } = window {
+                    *point = target.line_beg;
+                }
+            }
+
+            engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+            let frame = eval.frame_manager().get(frame_id).expect("frame");
+            let snapshot = frame
+                .window_display_snapshot(selected_window)
+                .expect("display snapshot");
+            let all_points = snapshot.points.clone();
+            let visible_span = snapshot
+                .rows
+                .iter()
+                .find_map(|row| row.start_buffer_pos)
+                .zip(
+                    snapshot
+                        .rows
+                        .iter()
+                        .rev()
+                        .find_map(|row| row.end_buffer_pos),
+                );
+            let buffer = eval.buffer_manager().get(buf_id).expect("buffer");
+            let sample_chars = [
+                (
+                    target.sample_pos,
+                    char_at_lisp_pos(buffer, target.sample_pos),
+                ),
+                (
+                    target.sample_pos + 1,
+                    char_at_lisp_pos(buffer, target.sample_pos + 1),
+                ),
+                (
+                    target.sample_pos + 2,
+                    char_at_lisp_pos(buffer, target.sample_pos + 2),
+                ),
+                (
+                    target.sample_pos + 3,
+                    char_at_lisp_pos(buffer, target.sample_pos + 3),
+                ),
+            ];
+            let a = snapshot
+                .point_for_buffer_pos(target.sample_pos)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "sample a missing; target={target:?}; visible_span={visible_span:?}; chars={sample_chars:?}; points={all_points:?}"
+                    )
+                });
+            let hao1 = snapshot
+                .point_for_buffer_pos(target.sample_pos + 1)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "sample first 好 missing; target={target:?}; visible_span={visible_span:?}; chars={sample_chars:?}; points={all_points:?}"
+                    )
+                });
+            let hao2 = snapshot
+                .point_for_buffer_pos(target.sample_pos + 2)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "sample second 好 missing; target={target:?}; visible_span={visible_span:?}; chars={sample_chars:?}; points={all_points:?}"
+                    )
+                });
+            let b = snapshot
+                .point_for_buffer_pos(target.sample_pos + 3)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "sample b missing; target={target:?}; visible_span={visible_span:?}; chars={sample_chars:?}; points={all_points:?}"
+                    )
+                });
+            let after_b = snapshot
+                .point_for_buffer_pos(target.sample_pos + 4)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "sample trailing space missing; target={target:?}; visible_span={visible_span:?}; chars={sample_chars:?}; points={all_points:?}"
+                    )
+                });
+
+            let face_font_size = frame.font_pixel_size * target.height;
+            let expected_a = metrics
+                .char_width('a', target.family, target.weight, false, face_font_size)
+                .round() as i64;
+            let expected_hao = metrics
+                .char_width('好', target.family, target.weight, false, face_font_size)
+                .round() as i64;
+            let expected_b = metrics
+                .char_width('b', target.family, target.weight, false, face_font_size)
+                .round() as i64;
+
+            assert!(
+                (a.width - expected_a).abs() <= 1,
+                "expected a width {expected_a}, got {a:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                (hao1.width - expected_hao).abs() <= 1,
+                "expected first 好 width {expected_hao}, got {hao1:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                (hao2.width - expected_hao).abs() <= 1,
+                "expected second 好 width {expected_hao}, got {hao2:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                (b.width - expected_b).abs() <= 1,
+                "expected b width {expected_b}, got {b:?}; target={target:?}; chars={sample_chars:?}; points={all_points:?}"
+            );
+            assert!(
+                ((hao1.x - a.x) - expected_a).abs() <= 1,
+                "expected first 好 x delta {expected_a}, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                a.x,
+                hao1.x
+            );
+            assert!(
+                ((hao2.x - hao1.x) - expected_hao).abs() <= 1,
+                "expected second 好 x delta {expected_hao}, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                hao1.x,
+                hao2.x
+            );
+            assert!(
+                ((b.x - hao2.x) - expected_hao).abs() <= 1,
+                "expected b x delta {expected_hao}, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                hao2.x,
+                b.x
+            );
+            assert!(
+                ((after_b.x - b.x) - expected_b).abs() <= 1,
+                "expected post-b x delta {expected_b}, got {} -> {}; target={target:?}; chars={sample_chars:?}; points={all_points:?}",
+                b.x,
+                after_b.x
+            );
+
+            let _ = target.weight_name;
+        }
+    }
+
+    #[test]
+    fn layout_frame_rust_word_wrap_snapshot_stays_sorted_after_rewind() {
+        fn char_at_lisp_pos(buffer: &neovm_core::buffer::Buffer, pos: usize) -> Option<char> {
+            if pos == 0 {
+                return None;
+            }
+            buffer.buffer_string().chars().nth(pos - 1)
+        }
+
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("aaaa bbbb cccc dddd\n");
+            buf.goto_byte(0);
+            buf.set_buffer_local("word-wrap", Value::True);
+        }
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-wrap", 96, 160, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = 1;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(96.0, 160.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        assert!(
+            snapshot.points.iter().any(|point| point.row > 0),
+            "expected word-wrap to create multiple rows, got points={:?}",
+            snapshot.points
+        );
+        let buffer = eval.buffer_manager().get(buf_id).expect("buffer");
+        let point_chars = snapshot
+            .points
+            .iter()
+            .map(|point| (point.buffer_pos, char_at_lisp_pos(buffer, point.buffer_pos)))
+            .collect::<Vec<_>>();
+        for window in snapshot.points.windows(2) {
+            assert!(
+                window[0].buffer_pos < window[1].buffer_pos,
+                "expected snapshot points to stay sorted after wrap rewind, got {:?}; chars={:?}",
+                snapshot.points,
+                point_chars
+            );
+        }
+    }
+
+    #[test]
+    fn layout_frame_rust_reads_far_enough_for_last_visible_truncated_line() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let mut text = String::new();
+        for line in 0..32 {
+            text.push_str(&format!("line-{line:02} abcdefghijklmnop\n"));
+        }
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(&text);
+            buf.goto_byte(0);
+            buf.set_buffer_local("truncate-lines", Value::True);
+        }
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-read-span", 96, 640, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        let target_pos = {
+            let mut pos = 1usize;
+            for line in 0..26 {
+                pos += format!("line-{line:02} abcdefghijklmnop\n").chars().count();
+            }
+            pos
+        };
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = target_pos;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(96.0, 640.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let target = snapshot.point_for_buffer_pos(target_pos);
+        assert!(
+            target.is_some(),
+            "expected last visible truncated line to remain readable by layout, target_pos={target_pos}, points={:?}",
+            snapshot.points
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_retries_window_when_point_starts_below_visible_span() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let lines = (0..40)
+            .map(|line| format!("line-{line:02}\n"))
+            .collect::<Vec<_>>();
+        let text = lines.join("");
+        let target_pos = lines
+            .iter()
+            .take(20)
+            .map(|line| line.chars().count())
+            .sum::<usize>()
+            + 1;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(&text);
+            buf.goto_byte(0);
+        }
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-retry", 160, 192, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = target_pos;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(160.0, 192.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let window = frame.find_window(selected_window).expect("selected window");
+
+        assert!(
+            snapshot.point_for_buffer_pos(target_pos).is_some(),
+            "expected retried layout to publish geometry for point {target_pos}, points={:?}",
+            snapshot.points
+        );
+        match window {
+            neovm_core::window::Window::Leaf { window_start, .. } => {
+                assert!(
+                    *window_start > 1,
+                    "expected window-start to advance after retry, got {window_start}"
+                );
+            }
+            other => panic!("expected leaf window, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn next_window_start_from_visible_rows_uses_visual_row_boundaries() {
+        let rows = vec![
+            DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 16,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(8),
+            },
+            DisplayRowSnapshot {
+                row: 1,
+                y: 16,
+                height: 16,
+                start_buffer_pos: Some(9),
+                end_buffer_pos: Some(16),
+            },
+            DisplayRowSnapshot {
+                row: 2,
+                y: 32,
+                height: 16,
+                start_buffer_pos: Some(17),
+                end_buffer_pos: Some(24),
+            },
+            DisplayRowSnapshot {
+                row: 3,
+                y: 48,
+                height: 16,
+                start_buffer_pos: Some(25),
+                end_buffer_pos: Some(32),
+            },
+        ];
+
+        assert_eq!(
+            next_window_start_from_visible_rows(&rows, 1),
+            Some(32),
+            "expected retry to advance to the next internal 0-based char position after the last visible row"
+        );
+        assert_eq!(
+            next_window_start_from_visible_rows(&rows, 25),
+            Some(32),
+            "expected retry to keep the furthest internal 0-based visible progress that still advances"
+        );
+        assert_eq!(
+            next_window_start_from_visible_rows(&rows, 33),
+            None,
+            "expected no retry candidate once the rendered span no longer advances"
+        );
+    }
+
+    #[test]
+    fn next_window_start_for_partially_visible_point_row_scrolls_enough_to_fit_row() {
+        let rows = vec![
+            DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 20,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(10),
+            },
+            DisplayRowSnapshot {
+                row: 1,
+                y: 20,
+                height: 20,
+                start_buffer_pos: Some(11),
+                end_buffer_pos: Some(20),
+            },
+            DisplayRowSnapshot {
+                row: 2,
+                y: 40,
+                height: 30,
+                start_buffer_pos: Some(21),
+                end_buffer_pos: Some(30),
+            },
+        ];
+
+        assert_eq!(
+            next_window_start_for_partially_visible_point_row(&rows, 25, 0, 60, 1),
+            Some(10),
+            "expected retry to scroll away enough top rows to fit the point row using the next internal 0-based char position"
+        );
+        assert_eq!(
+            next_window_start_for_partially_visible_point_row(&rows, 15, 0, 60, 1),
+            None,
+            "expected no retry when the point row is already fully visible"
+        );
+    }
+
+    #[test]
+    fn next_window_start_for_point_line_continuation_advances_last_visible_row() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let buffer_size = {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("abcdefghijklmnopqrstuvwxyz\n");
+            buf.goto_byte(0);
+            buf.point_max_char() as i64
+        };
+        let access = {
+            let buf = eval.buffer_manager().get(buf_id).expect("buffer");
+            RustBufferAccess::new(buf)
+        };
+        let rows = vec![
+            DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 16,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(10),
+            },
+            DisplayRowSnapshot {
+                row: 1,
+                y: 16,
+                height: 16,
+                start_buffer_pos: Some(11),
+                end_buffer_pos: Some(20),
+            },
+            DisplayRowSnapshot {
+                row: 2,
+                y: 32,
+                height: 16,
+                start_buffer_pos: Some(21),
+                end_buffer_pos: Some(25),
+            },
+        ];
+
+        assert_eq!(
+            next_window_start_for_point_line_continuation(&rows, 21, 1, &access, buffer_size),
+            Some(20),
+            "expected retry to move point toward the top when the visible point row continues below the window"
+        );
+
+        let terminated_rows = vec![
+            DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 16,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(10),
+            },
+            DisplayRowSnapshot {
+                row: 1,
+                y: 16,
+                height: 16,
+                start_buffer_pos: Some(11),
+                end_buffer_pos: Some(27),
+            },
+        ];
+        assert_eq!(
+            next_window_start_for_point_line_continuation(
+                &terminated_rows,
+                11,
+                1,
+                &access,
+                buffer_size
+            ),
+            None,
+            "expected no retry once the final visible row already reaches the newline"
+        );
+    }
+
+    #[test]
+    fn next_window_start_for_point_line_continuation_ignores_tail_clipping_when_point_row_is_not_last_visible_row()
+     {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let buffer_size = {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n");
+            buf.goto_byte(0);
+            buf.point_max_char() as i64
+        };
+        let access = {
+            let buf = eval.buffer_manager().get(buf_id).expect("buffer");
+            RustBufferAccess::new(buf)
+        };
+        let rows = vec![
+            DisplayRowSnapshot {
+                row: 0,
+                y: 0,
+                height: 16,
+                start_buffer_pos: Some(1),
+                end_buffer_pos: Some(10),
+            },
+            DisplayRowSnapshot {
+                row: 1,
+                y: 16,
+                height: 16,
+                start_buffer_pos: Some(11),
+                end_buffer_pos: Some(20),
+            },
+            DisplayRowSnapshot {
+                row: 2,
+                y: 32,
+                height: 16,
+                start_buffer_pos: Some(21),
+                end_buffer_pos: Some(30),
+            },
+            DisplayRowSnapshot {
+                row: 3,
+                y: 48,
+                height: 16,
+                start_buffer_pos: Some(31),
+                end_buffer_pos: Some(40),
+            },
+            DisplayRowSnapshot {
+                row: 4,
+                y: 64,
+                height: 16,
+                start_buffer_pos: Some(41),
+                end_buffer_pos: Some(50),
+            },
+        ];
+
+        assert_eq!(
+            next_window_start_for_point_line_continuation(&rows, 21, 1, &access, buffer_size),
+            None,
+            "expected no retry here because the point row is not the final visible row; partially visible rows are handled by the separate point-row retry path"
+        );
+    }
+
+    #[test]
+    fn char_advance_ascii_cache_distinguishes_semantic_font_identity() {
+        let mut ascii_width_cache = std::collections::HashMap::new();
+        let mut font_metrics_svc = Some(FontMetricsService::new());
+        let window = std::ptr::null_mut();
+
+        let regular_width = unsafe {
+            char_advance(
+                &mut ascii_width_cache,
+                &mut font_metrics_svc,
+                'A',
+                1,
+                8.0,
+                7,
+                14,
+                8.0,
+                window,
+                "monospace",
+                400,
+                false,
+            )
+        };
+        assert!(
+            regular_width > 0.0,
+            "expected measurable width for regular ASCII glyph"
+        );
+        assert_eq!(
+            ascii_width_cache.len(),
+            1,
+            "expected one cache entry after first ASCII measurement"
+        );
+
+        let bold_width = unsafe {
+            char_advance(
+                &mut ascii_width_cache,
+                &mut font_metrics_svc,
+                'A',
+                1,
+                8.0,
+                7,
+                14,
+                8.0,
+                window,
+                "monospace",
+                700,
+                false,
+            )
+        };
+        assert!(
+            bold_width > 0.0,
+            "expected measurable width for bold ASCII glyph"
+        );
+        assert_eq!(
+            ascii_width_cache.len(),
+            2,
+            "expected distinct cache entries for different semantic font specs even when face ids match"
+        );
+
+        let repeated_regular_width = unsafe {
+            char_advance(
+                &mut ascii_width_cache,
+                &mut font_metrics_svc,
+                'A',
+                1,
+                8.0,
+                7,
+                14,
+                8.0,
+                window,
+                "monospace",
+                400,
+                false,
+            )
+        };
+        assert_eq!(
+            repeated_regular_width, regular_width,
+            "expected repeated measurement for the same semantic font spec to reuse the cache entry"
+        );
+        assert_eq!(
+            ascii_width_cache.len(),
+            2,
+            "expected cache size to stay stable when the semantic font spec is unchanged"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_converges_visibility_for_wrapped_rows_in_one_redisplay() {
+        fn char_at_lisp_pos(buffer: &neovm_core::buffer::Buffer, pos: usize) -> Option<char> {
+            if pos == 0 {
+                return None;
+            }
+            buffer.buffer_string().chars().nth(pos - 1)
+        }
+
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let logical_lines = (0..24)
+            .map(|line| format!("line-{line:02} abcdefghijklmno\n"))
+            .collect::<Vec<_>>();
+        let text = logical_lines.join("");
+        let target_pos = logical_lines
+            .iter()
+            .take(18)
+            .map(|line| line.chars().count())
+            .sum::<usize>()
+            + 1;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(&text);
+            buf.goto_byte(0);
+            buf.set_buffer_local("word-wrap", Value::True);
+        }
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-wrap-retry", 80, 192, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *point = target_pos;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(80.0, 192.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let window = frame.find_window(selected_window).expect("selected window");
+        let buffer = eval.buffer_manager().get(buf_id).expect("buffer");
+        let point_chars = snapshot
+            .points
+            .iter()
+            .map(|point| (point.buffer_pos, char_at_lisp_pos(buffer, point.buffer_pos)))
+            .collect::<Vec<_>>();
+
+        assert!(
+            snapshot.point_for_buffer_pos(target_pos).is_some(),
+            "expected wrapped-line redisplay to converge on point {target_pos}, points={:?}, rows={:?}, chars={:?}",
+            snapshot.points,
+            snapshot.rows,
+            point_chars
+        );
+        match window {
+            neovm_core::window::Window::Leaf { window_start, .. } => {
+                assert!(
+                    *window_start > 1,
+                    "expected window-start to advance for wrapped redisplay, got {window_start}"
+                );
+            }
+            other => panic!("expected leaf window, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn layout_frame_rust_converges_visibility_for_point_line_tail_clipping() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let prefix = (0..2)
+            .map(|line| format!("p{line:02}\n"))
+            .collect::<Vec<_>>()
+            .join("");
+        let target_line = "abcdefghijklmno\n";
+        let text = format!("{prefix}{target_line}");
+        let point = prefix.chars().count() + 1;
+        let later_pos = point + 10;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(&text);
+            buf.goto_byte(0);
+            buf.set_buffer_local("word-wrap", Value::True);
+        }
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-point-line-tail", 80, 256, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point: window_point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *window_point = point;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(80.0, 256.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        assert!(
+            snapshot.point_for_buffer_pos(later_pos).is_some(),
+            "expected redisplay to publish later positions from the point line after retry, points={:?}, rows={:?}",
+            snapshot.points,
+            snapshot.rows
+        );
     }
 
     #[test]

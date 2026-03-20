@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use winit::dpi::{LogicalSize, PhysicalSize, Size};
 use winit::window::Window;
 
 use crate::core::face::Face;
@@ -37,6 +38,48 @@ pub struct MonitorInfo {
 /// Shared storage for monitor info accessible from both threads.
 /// The Condvar is notified once monitors have been populated.
 pub type SharedMonitorInfo = Arc<(Mutex<Vec<MonitorInfo>>, std::sync::Condvar)>;
+
+pub(super) fn backend_uses_winit_logical_pixels() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("WAYLAND_DISPLAY").is_some()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+pub(super) fn effective_window_scale_factor(raw_scale_factor: f64) -> f64 {
+    if backend_uses_winit_logical_pixels() {
+        raw_scale_factor
+    } else {
+        1.0
+    }
+}
+
+pub(super) fn window_size_from_emacs_pixels(width: u32, height: u32) -> Size {
+    if backend_uses_winit_logical_pixels() {
+        Size::Logical(LogicalSize::new(width as f64, height as f64))
+    } else {
+        Size::Physical(PhysicalSize::new(width, height))
+    }
+}
+
+pub(super) fn emacs_pixels_from_window_size(
+    width: u32,
+    height: u32,
+    scale_factor: f64,
+) -> (u32, u32) {
+    if backend_uses_winit_logical_pixels() {
+        (
+            (width as f64 / scale_factor) as u32,
+            (height as f64 / scale_factor) as u32,
+        )
+    } else {
+        (width, height)
+    }
+}
 
 #[cfg(feature = "wpe-webkit")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

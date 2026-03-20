@@ -97,8 +97,22 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             y,
             modifiers: render_mods_to_modifiers(modifiers),
         }),
-        DisplayEvent::WindowResize { width, height, .. } => {
-            Some(KbInputEvent::Resize { width, height })
+        DisplayEvent::WindowResize {
+            width,
+            height,
+            emacs_frame_id,
+        } => {
+            tracing::debug!(
+                "input_bridge: resize {}x{} emacs_frame_id=0x{:x}",
+                width,
+                height,
+                emacs_frame_id
+            );
+            Some(KbInputEvent::Resize {
+                width,
+                height,
+                emacs_frame_id,
+            })
         }
         DisplayEvent::WindowClose { .. } => Some(KbInputEvent::CloseRequested),
         DisplayEvent::WindowFocus { focused, .. } => Some(KbInputEvent::Focus(focused)),

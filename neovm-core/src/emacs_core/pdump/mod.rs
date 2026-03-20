@@ -27,7 +27,7 @@ use crate::emacs_core::intern::{self, set_current_interner};
 use crate::emacs_core::value::{self, set_current_heap};
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]
@@ -173,7 +173,6 @@ fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpErr
     super::dispnew::pure::reset_dispnew_thread_locals();
     super::font::clear_font_cache_state();
     super::builtins::reset_builtins_thread_locals();
-    super::charset::reset_charset_registry();
     super::timefns::reset_timefns_thread_locals();
 
     // 4. Restore string text properties
@@ -183,6 +182,10 @@ fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpErr
         .map(|(key, runs)| (*key, load_text_property_table(runs)))
         .collect();
     value::restore_string_text_props(stp);
+
+    // 4b. Restore thread-local registries whose contents are semantic runtime
+    // state, not disposable caches.
+    load_charset_registry(&state.charset_registry);
 
     // 5. Reconstruct all subsystems
     let obarray = load_obarray(&state.obarray);
@@ -434,6 +437,36 @@ mod tests {
         assert_eq!(
             crate::emacs_core::print_value_with_buffers(&result, &loaded.buffers),
             "(t t 62 60 95 39)"
+        );
+    }
+
+    #[test]
+    fn test_pdump_round_trip_preserves_charset_registry_for_default_fontset_setup() {
+        let eval = crate::emacs_core::load::create_bootstrap_evaluator_with_features(&["neomacs"])
+            .expect("bootstrap should succeed");
+
+        let dir = tempfile::tempdir().unwrap();
+        let dump_path = dir.path().join("bootstrap-charsets.pdump");
+        dump_to_file(&eval, &dump_path).expect("dump should succeed");
+        drop(eval);
+
+        let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+        let probe = crate::emacs_core::parser::parse_forms(
+            r#"(list
+                 (charsetp 'devanagari-cdac)
+                 (condition-case err
+                     (progn
+                       (setup-default-fontset)
+                       (not (null (fontset-font t (string-to-char "好") t))))
+                   (error (list 'error err))))"#,
+        )
+        .unwrap();
+        let result = loaded
+            .eval_expr(&probe[0])
+            .expect("pdump charset probe should run");
+        assert_eq!(
+            crate::emacs_core::print_value_with_buffers(&result, &loaded.buffers),
+            "(t t)"
         );
     }
 

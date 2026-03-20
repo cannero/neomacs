@@ -11,7 +11,7 @@
 //! - Face merging (overlay face on top of base face)
 
 use crate::emacs_core::intern::resolve_sym;
-use crate::emacs_core::value::{Value, next_float_id};
+use crate::emacs_core::value::{Value, next_float_id, read_cons};
 use std::collections::HashMap;
 
 // X11 color table generated at compile time from etc/rgb.txt
@@ -345,6 +345,25 @@ pub enum FaceHeight {
     Relative(f64),
 }
 
+fn merge_face_height(
+    overlay: Option<&FaceHeight>,
+    base: Option<&FaceHeight>,
+) -> Option<FaceHeight> {
+    match overlay {
+        None => base.cloned(),
+        Some(FaceHeight::Absolute(height)) => Some(FaceHeight::Absolute(*height)),
+        Some(FaceHeight::Relative(scale)) => match base {
+            Some(FaceHeight::Absolute(height)) => {
+                Some(FaceHeight::Absolute((*scale * *height as f64) as i32))
+            }
+            Some(FaceHeight::Relative(other_scale)) => {
+                Some(FaceHeight::Relative(*scale * *other_scale))
+            }
+            None => Some(FaceHeight::Relative(*scale)),
+        },
+    }
+}
+
 impl Face {
     pub fn new(name: &str) -> Self {
         Self {
@@ -361,7 +380,7 @@ impl Face {
             foreground: overlay.foreground.or(self.foreground),
             background: overlay.background.or(self.background),
             family: overlay.family.clone().or_else(|| self.family.clone()),
-            height: overlay.height.clone().or_else(|| self.height.clone()),
+            height: merge_face_height(overlay.height.as_ref(), self.height.as_ref()),
             weight: overlay.weight.or(self.weight),
             slant: overlay.slant.or(self.slant),
             underline: overlay.underline.clone().or_else(|| self.underline.clone()),
@@ -458,6 +477,7 @@ impl Face {
                     continue;
                 }
             };
+            let key = key.trim_start_matches(':');
             let val = &plist[i + 1];
 
             match key {
@@ -493,30 +513,22 @@ impl Face {
                         face.family = Some(s.to_string());
                     }
                 }
-                "underline" => match val {
-                    Value::True => {
-                        face.underline = Some(Underline {
-                            style: UnderlineStyle::Line,
-                            color: None,
-                            position: None,
-                        });
-                    }
-                    Value::Nil => face.underline = None,
-                    _ => {
-                        if let Some(s) = val.as_str() {
-                            face.underline = Some(Underline {
-                                style: UnderlineStyle::Line,
-                                color: Color::parse(s),
-                                position: None,
-                            });
-                        }
-                    }
-                },
+                "underline" => face.underline = parse_underline_value(val),
                 "overline" => {
-                    face.overline = Some(val.is_truthy());
+                    if let Some(s) = val.as_str() {
+                        face.overline = Some(true);
+                        face.overline_color = Color::parse(s);
+                    } else {
+                        face.overline = Some(val.is_truthy());
+                    }
                 }
                 "strike-through" => {
-                    face.strike_through = Some(val.is_truthy());
+                    if let Some(s) = val.as_str() {
+                        face.strike_through = Some(true);
+                        face.strike_through_color = Color::parse(s);
+                    } else {
+                        face.strike_through = Some(val.is_truthy());
+                    }
                 }
                 "inverse-video" => {
                     face.inverse_video = Some(val.is_truthy());
@@ -526,7 +538,37 @@ impl Face {
                 }
                 "inherit" => {
                     if let Some(s) = val.as_symbol_name() {
-                        face.inherit = vec![s.to_string()];
+                        if s != "nil" {
+                            face.inherit = vec![s.to_string()];
+                        }
+                    } else if let Some(names) = crate::emacs_core::value::list_to_vec(val) {
+                        face.inherit = names
+                            .iter()
+                            .filter_map(|entry| {
+                                entry
+                                    .as_symbol_name()
+                                    .filter(|name| *name != "nil")
+                                    .map(|name| name.to_string())
+                            })
+                            .collect();
+                    }
+                }
+                "box" => {
+                    face.box_border = parse_box_value(val);
+                }
+                "distant-foreground" => {
+                    if let Some(s) = val.as_str() {
+                        face.distant_foreground = Color::parse(s);
+                    }
+                }
+                "foundry" => {
+                    if let Some(s) = val.as_str() {
+                        face.foundry = Some(s.to_string());
+                    }
+                }
+                "width" => {
+                    if let Some(s) = val.as_symbol_name() {
+                        face.width = FontWidth::from_symbol(s);
                     }
                 }
                 _ => {}
@@ -536,6 +578,137 @@ impl Face {
         }
 
         face
+    }
+}
+
+fn parse_underline_value(value: &Value) -> Option<Underline> {
+    match value {
+        Value::True => Some(Underline {
+            style: UnderlineStyle::Line,
+            color: None,
+            position: None,
+        }),
+        Value::Nil => None,
+        _ if value.as_str().is_some() => Some(Underline {
+            style: UnderlineStyle::Line,
+            color: value.as_str().and_then(Color::parse),
+            position: None,
+        }),
+        Value::Cons(_) => {
+            let items = crate::emacs_core::value::list_to_vec(value)?;
+            let mut style = UnderlineStyle::Line;
+            let mut color = None;
+            let mut position = None;
+            let mut i = 0;
+            while i + 1 < items.len() {
+                let key = items[i]
+                    .as_symbol_name()
+                    .unwrap_or("")
+                    .trim_start_matches(':');
+                let item = &items[i + 1];
+                match key {
+                    "color" => {
+                        color = item.as_str().and_then(Color::parse);
+                    }
+                    "style" => {
+                        if let Some(name) = item.as_symbol_name() {
+                            style = match name {
+                                "wave" => UnderlineStyle::Wave,
+                                "double-line" => UnderlineStyle::DoubleLine,
+                                "dots" => UnderlineStyle::Dot,
+                                "dashes" => UnderlineStyle::Dash,
+                                _ => UnderlineStyle::Line,
+                            };
+                        }
+                    }
+                    "position" => {
+                        if let Value::Int(n) = item {
+                            position = Some(*n as i32);
+                        }
+                    }
+                    _ => {}
+                }
+                i += 2;
+            }
+            Some(Underline {
+                style,
+                color,
+                position,
+            })
+        }
+        _ if value.is_truthy() => Some(Underline {
+            style: UnderlineStyle::Line,
+            color: None,
+            position: None,
+        }),
+        _ => None,
+    }
+}
+
+fn parse_box_value(value: &Value) -> Option<BoxBorder> {
+    match value {
+        Value::True => Some(BoxBorder {
+            color: None,
+            width: 1,
+            style: BoxStyle::Flat,
+        }),
+        Value::Nil => None,
+        Value::Int(n) => Some(BoxBorder {
+            color: None,
+            width: *n as i32,
+            style: BoxStyle::Flat,
+        }),
+        _ if value.as_str().is_some() => Some(BoxBorder {
+            color: value.as_str().and_then(Color::parse),
+            width: 1,
+            style: BoxStyle::Flat,
+        }),
+        Value::Cons(_) => {
+            let items = crate::emacs_core::value::list_to_vec(value)?;
+            let mut color = None;
+            let mut width = 1i32;
+            let mut style = BoxStyle::Flat;
+            let mut i = 0;
+            while i + 1 < items.len() {
+                let key = items[i]
+                    .as_symbol_name()
+                    .unwrap_or("")
+                    .trim_start_matches(':');
+                let item = &items[i + 1];
+                match key {
+                    "line-width" => match item {
+                        Value::Int(n) => width = *n as i32,
+                        Value::Cons(cell) => {
+                            let pair = read_cons(*cell);
+                            if let Value::Int(n) = pair.car {
+                                width = n as i32;
+                            }
+                        }
+                        _ => {}
+                    },
+                    "color" => {
+                        color = item.as_str().and_then(Color::parse);
+                    }
+                    "style" => {
+                        if let Some(name) = item.as_symbol_name() {
+                            style = match name {
+                                "released-button" => BoxStyle::Raised,
+                                "pressed-button" => BoxStyle::Pressed,
+                                _ => BoxStyle::Flat,
+                            };
+                        }
+                    }
+                    _ => {}
+                }
+                i += 2;
+            }
+            Some(BoxBorder {
+                color,
+                width,
+                style,
+            })
+        }
+        _ => None,
     }
 }
 
@@ -1150,6 +1323,58 @@ mod tests {
     }
 
     #[test]
+    fn face_from_plist_accepts_source_style_keywords() {
+        let plist = vec![
+            Value::symbol(":family"),
+            Value::string("JetBrains Mono"),
+            Value::symbol(":foreground"),
+            Value::string("gold"),
+            Value::symbol(":underline"),
+            Value::list(vec![
+                Value::symbol(":style"),
+                Value::symbol("wave"),
+                Value::symbol(":color"),
+                Value::string("cyan"),
+            ]),
+            Value::symbol(":box"),
+            Value::list(vec![
+                Value::symbol(":line-width"),
+                Value::Int(2),
+                Value::symbol(":color"),
+                Value::string("#336699"),
+                Value::symbol(":style"),
+                Value::symbol("pressed-button"),
+            ]),
+            Value::symbol(":width"),
+            Value::symbol("expanded"),
+        ];
+
+        let face = Face::from_plist("test", &plist);
+        assert_eq!(face.family.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(face.foreground, Some(Color::rgb(255, 215, 0)));
+        assert_eq!(face.width, Some(FontWidth::Expanded));
+        assert_eq!(
+            face.underline.as_ref().map(|underline| &underline.style),
+            Some(&UnderlineStyle::Wave)
+        );
+        assert_eq!(
+            face.underline
+                .as_ref()
+                .and_then(|underline| underline.color),
+            Some(Color::rgb(0, 255, 255))
+        );
+        assert_eq!(face.box_border.as_ref().map(|border| border.width), Some(2));
+        assert_eq!(
+            face.box_border.as_ref().and_then(|border| border.color),
+            Some(Color::rgb(51, 102, 153))
+        );
+        assert_eq!(
+            face.box_border.as_ref().map(|border| border.style),
+            Some(BoxStyle::Pressed)
+        );
+    }
+
+    #[test]
     fn font_weight_from_symbol() {
         assert_eq!(FontWeight::from_symbol("bold"), Some(FontWeight::BOLD));
         assert_eq!(FontWeight::from_symbol("normal"), Some(FontWeight::NORMAL));
@@ -1318,6 +1543,33 @@ mod tests {
         assert_eq!(merged.box_border.as_ref().unwrap().width, 2);
         assert_eq!(merged.overline, Some(true));
         assert_eq!(merged.strike_through, Some(true));
+    }
+
+    #[test]
+    fn face_merge_relative_height_over_absolute_becomes_absolute() {
+        let mut base = Face::new("base");
+        base.height = Some(FaceHeight::Absolute(120));
+
+        let mut overlay = Face::new("overlay");
+        overlay.height = Some(FaceHeight::Relative(1.5));
+
+        let merged = base.merge(&overlay);
+        assert_eq!(merged.height, Some(FaceHeight::Absolute(180)));
+    }
+
+    #[test]
+    fn face_merge_relative_height_over_relative_multiplies() {
+        let mut base = Face::new("base");
+        base.height = Some(FaceHeight::Relative(1.2));
+
+        let mut overlay = Face::new("overlay");
+        overlay.height = Some(FaceHeight::Relative(1.5));
+
+        let merged = base.merge(&overlay);
+        match merged.height {
+            Some(FaceHeight::Relative(value)) => assert!((value - 1.8).abs() < 1e-9),
+            other => panic!("expected relative height, got {other:?}"),
+        }
     }
 
     // --- Multi-level inheritance ---

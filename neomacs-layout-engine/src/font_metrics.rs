@@ -9,6 +9,7 @@
 
 use crate::font_loader::FontFileCache;
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Style, Weight};
+use neovm_core::face::{FontSlant, FontWeight, FontWidth};
 use std::collections::HashMap;
 
 /// Font metrics returned for a given face configuration.
@@ -24,6 +25,15 @@ pub struct FontMetrics {
     pub char_width: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectedFontInfo {
+    pub family: String,
+    pub postscript_name: Option<String>,
+    pub weight: FontWeight,
+    pub slant: FontSlant,
+    pub width: FontWidth,
+}
+
 /// Cache key for font metrics lookups.
 /// Groups: (family, weight, italic, font_size_centipx)
 /// font_size is stored as integer centipixels (size * 100) to avoid float key issues.
@@ -33,6 +43,13 @@ struct MetricsCacheKey {
     weight: u16,
     italic: bool,
     font_size_centipx: i32,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedCharFont {
+    family: String,
+    weight: u16,
+    slant: FontSlant,
 }
 
 impl MetricsCacheKey {
@@ -87,24 +104,17 @@ impl FontMetricsService {
     /// Resolve the effective font family name for a face.
     ///
     /// If `font_file_path` is provided, pre-loads the exact font file into fontdb
-    /// and returns the fontdb-registered family name. This ensures cosmic-text uses
-    /// the identical font file that Emacs/Fontconfig resolved.
-    /// Falls back to `emacs_family` if the file path is None or loading fails.
+    /// while preserving the exact family name that Fontconfig selected.
     pub fn resolve_family(&mut self, emacs_family: &str, font_file_path: Option<&str>) -> String {
         if let Some(path) = font_file_path {
-            if let Some(fontdb_family) = self
-                .font_file_cache
-                .resolve_family(&mut self.font_system, path)
-            {
-                return fontdb_family.to_string();
-            }
+            let _ = self.font_file_cache.prime_file(&mut self.font_system, path);
         }
         emacs_family.to_string()
     }
 
     /// Build cosmic-text `Attrs` from face parameters.
     /// Mirrors the logic in `glyph_atlas.rs:face_to_attrs()`.
-    fn build_attrs(&mut self, family: &str, weight: u16, italic: bool) -> Attrs<'static> {
+    fn build_attrs(&mut self, family: &str, weight: u16, slant: FontSlant) -> Attrs<'static> {
         let mut attrs = Attrs::new();
 
         // Resolve generic family names through fontconfig so we use the same
@@ -145,16 +155,76 @@ impl FontMetricsService {
         };
 
         // Font weight (CSS 100-900): clamp to closest available in this family.
-        let effective_weight =
-            crate::font_match::resolve_weight_in_family(&self.font_system, family, weight, italic);
+        let effective_weight = crate::font_match::resolve_weight_in_family(
+            &self.font_system,
+            family,
+            weight,
+            slant.is_italic(),
+        );
         attrs = attrs.weight(Weight(effective_weight));
 
         // Font style
-        if italic {
-            attrs = attrs.style(Style::Italic);
+        match font_slant_to_cosmic_style(slant) {
+            Some(style) => attrs = attrs.style(style),
+            None => {}
         }
 
         attrs
+    }
+
+    pub fn select_font_for_char(
+        &mut self,
+        ch: char,
+        family: &str,
+        weight: u16,
+        italic: bool,
+        font_size: f32,
+    ) -> Option<SelectedFontInfo> {
+        let resolved = self.resolve_font_for_char(ch, family, weight, italic);
+        let attrs = self.build_attrs(&resolved.family, resolved.weight, resolved.slant);
+        let line_height = font_size * 1.3;
+        let metrics = Metrics::new(font_size, line_height);
+
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        buffer.set_size(
+            &mut self.font_system,
+            Some(font_size * 4.0),
+            Some(font_size * 2.0),
+        );
+
+        let text = String::from(ch);
+        buffer.set_text(
+            &mut self.font_system,
+            &text,
+            &attrs,
+            cosmic_text::Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(&mut self.font_system, false);
+
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let face = self
+                    .font_system
+                    .db()
+                    .face(glyph.physical((0.0, 0.0), 1.0).cache_key.font_id)?;
+                return Some(SelectedFontInfo {
+                    family: face
+                        .families
+                        .first()
+                        .map(|(name, _)| name.clone())
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or_else(|| resolved.family.clone()),
+                    postscript_name: Some(face.post_script_name.clone())
+                        .filter(|name| !name.is_empty()),
+                    weight: FontWeight(face.weight.0),
+                    slant: font_slant_from_fontdb(face.style),
+                    width: font_width_from_stretch_number(face.stretch.to_number()),
+                });
+            }
+        }
+
+        None
     }
 
     /// Measure a single character's advance width using cosmic-text shaping.
@@ -166,7 +236,8 @@ impl FontMetricsService {
         italic: bool,
         font_size: f32,
     ) -> f32 {
-        let attrs = self.build_attrs(family, weight, italic);
+        let resolved = self.resolve_font_for_char(ch, family, weight, italic);
+        let attrs = self.build_attrs(&resolved.family, resolved.weight, resolved.slant);
         let line_height = font_size * 1.3;
         let metrics = Metrics::new(font_size, line_height);
 
@@ -196,6 +267,50 @@ impl FontMetricsService {
 
         // Fallback: return font_size * 0.6 as rough monospace estimate
         font_size * 0.6
+    }
+
+    fn resolve_font_for_char(
+        &mut self,
+        ch: char,
+        family: &str,
+        weight: u16,
+        italic: bool,
+    ) -> ResolvedCharFont {
+        let requested_slant = if italic {
+            FontSlant::Italic
+        } else {
+            FontSlant::Normal
+        };
+        if ch.is_ascii() {
+            return ResolvedCharFont {
+                family: family.to_string(),
+                weight,
+                slant: requested_slant,
+            };
+        }
+
+        let prefer_monospace = crate::fontconfig::family_prefers_monospace(family);
+        if let Some(matched) =
+            crate::fontconfig::match_font_for_char(family, ch, prefer_monospace, weight, italic)
+        {
+            let resolved_family = self.resolve_family(&matched.family, matched.file.as_deref());
+            return ResolvedCharFont {
+                weight: crate::font_match::resolve_weight_in_family(
+                    &self.font_system,
+                    &resolved_family,
+                    weight,
+                    italic,
+                ),
+                family: resolved_family,
+                slant: requested_slant,
+            };
+        }
+
+        ResolvedCharFont {
+            family: family.to_string(),
+            weight,
+            slant: requested_slant,
+        }
     }
 
     /// Get the advance width for a single character.
@@ -261,7 +376,15 @@ impl FontMetricsService {
         font_size: f32,
     ) -> [f32; 128] {
         let mut widths = [0.0f32; 128];
-        let attrs = self.build_attrs(family, weight, italic);
+        let attrs = self.build_attrs(
+            family,
+            weight,
+            if italic {
+                FontSlant::Italic
+            } else {
+                FontSlant::Normal
+            },
+        );
         let line_height = font_size * 1.3;
         let metrics = Metrics::new(font_size, line_height);
 
@@ -351,7 +474,15 @@ impl FontMetricsService {
             return *m;
         }
 
-        let attrs = self.build_attrs(family, weight, italic);
+        let attrs = self.build_attrs(
+            family,
+            weight,
+            if italic {
+                FontSlant::Italic
+            } else {
+                FontSlant::Normal
+            },
+        );
         let line_height = font_size * 1.3;
         let metrics = Metrics::new(font_size, line_height);
 
@@ -411,6 +542,43 @@ impl FontMetricsService {
     }
 }
 
+fn font_slant_from_fontdb(style: Style) -> FontSlant {
+    match style {
+        Style::Normal => FontSlant::Normal,
+        Style::Italic => FontSlant::Italic,
+        Style::Oblique => FontSlant::Oblique,
+    }
+}
+
+fn font_slant_to_cosmic_style(slant: FontSlant) -> Option<Style> {
+    match slant {
+        FontSlant::Normal => None,
+        FontSlant::Italic | FontSlant::ReverseItalic => Some(Style::Italic),
+        FontSlant::Oblique | FontSlant::ReverseOblique => Some(Style::Oblique),
+    }
+}
+
+fn font_width_from_stretch_number(stretch: u16) -> FontWidth {
+    match stretch {
+        1 => FontWidth::UltraCondensed,
+        2 => FontWidth::ExtraCondensed,
+        3 => FontWidth::Condensed,
+        4 => FontWidth::SemiCondensed,
+        5 => FontWidth::Normal,
+        6 => FontWidth::SemiExpanded,
+        7 => FontWidth::Expanded,
+        8 => FontWidth::ExtraExpanded,
+        9 => FontWidth::UltraExpanded,
+        _ => {
+            tracing::debug!(
+                "font_metrics: unexpected OpenType width class {}, defaulting to normal",
+                stretch
+            );
+            FontWidth::Normal
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,6 +587,61 @@ mod tests {
     // Helper: create a service (expensive — ~50ms for font scan)
     fn make_svc() -> FontMetricsService {
         FontMetricsService::new()
+    }
+
+    fn realized_face_info(
+        svc: &mut FontMetricsService,
+        ch: char,
+        family: &str,
+        weight: u16,
+        italic: bool,
+        font_size: f32,
+    ) -> Option<SelectedFontInfo> {
+        let resolved = svc.resolve_font_for_char(ch, family, weight, italic);
+        let attrs = svc.build_attrs(&resolved.family, resolved.weight, resolved.slant);
+        let line_height = font_size * 1.3;
+        let metrics = Metrics::new(font_size, line_height);
+
+        let mut buffer = Buffer::new(&mut svc.font_system, metrics);
+        buffer.set_size(
+            &mut svc.font_system,
+            Some(font_size * 4.0),
+            Some(font_size * 2.0),
+        );
+
+        let text = String::from(ch);
+        buffer.set_text(
+            &mut svc.font_system,
+            &text,
+            &attrs,
+            cosmic_text::Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(&mut svc.font_system, false);
+
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let face = svc
+                    .font_system
+                    .db()
+                    .face(glyph.physical((0.0, 0.0), 1.0).cache_key.font_id)?;
+                return Some(SelectedFontInfo {
+                    family: face
+                        .families
+                        .first()
+                        .map(|(name, _)| name.clone())
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or_else(|| resolved.family.clone()),
+                    postscript_name: Some(face.post_script_name.clone())
+                        .filter(|name| !name.is_empty()),
+                    weight: FontWeight(face.weight.0),
+                    slant: font_slant_from_fontdb(face.style),
+                    width: font_width_from_stretch_number(face.stretch.to_number()),
+                });
+            }
+        }
+
+        None
     }
 
     // ---------------------------------------------------------------
@@ -800,6 +1023,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn opentype_width_class_maps_to_emacs_width_names() {
+        assert_eq!(font_width_from_stretch_number(1), FontWidth::UltraCondensed);
+        assert_eq!(font_width_from_stretch_number(4), FontWidth::SemiCondensed);
+        assert_eq!(font_width_from_stretch_number(5), FontWidth::Normal);
+        assert_eq!(font_width_from_stretch_number(7), FontWidth::Expanded);
+        assert_eq!(font_width_from_stretch_number(9), FontWidth::UltraExpanded);
+    }
+
     // ---------------------------------------------------------------
     // Cross-FontSystem verification: two independent FontSystem
     // instances (simulating layout thread vs render thread) must
@@ -811,15 +1043,92 @@ mod tests {
     /// as the render thread's rasterize_text() does in glyph_atlas.rs.
     fn measure_with_raw_fontsystem(
         font_system: &mut FontSystem,
+        font_file_cache: &mut FontFileCache,
         ch: char,
-        family: Family<'_>,
+        requested_family: &str,
         weight: Weight,
         italic: bool,
         font_size: f32,
     ) -> f32 {
-        let mut attrs = Attrs::new().family(family).weight(weight);
-        if italic {
-            attrs = attrs.style(Style::Italic);
+        let requested_slant = if italic {
+            FontSlant::Italic
+        } else {
+            FontSlant::Normal
+        };
+        let (effective_family, effective_weight, effective_slant) = if ch.is_ascii() {
+            (
+                requested_family.to_string(),
+                crate::font_match::resolve_weight_in_family(
+                    font_system,
+                    requested_family,
+                    weight.0,
+                    italic,
+                ),
+                requested_slant,
+            )
+        } else {
+            let prefer_monospace = crate::fontconfig::family_prefers_monospace(requested_family);
+            crate::fontconfig::match_font_for_char(
+                requested_family,
+                ch,
+                prefer_monospace,
+                weight.0,
+                italic,
+            )
+            .map(|matched| {
+                if let Some(path) = matched.file.as_deref() {
+                    let _ = font_file_cache.prime_file(font_system, path);
+                }
+                let effective_family = matched.family;
+                (
+                    effective_family.clone(),
+                    crate::font_match::resolve_weight_in_family(
+                        font_system,
+                        &effective_family,
+                        weight.0,
+                        italic,
+                    ),
+                    requested_slant,
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    requested_family.to_string(),
+                    crate::font_match::resolve_weight_in_family(
+                        font_system,
+                        requested_family,
+                        weight.0,
+                        italic,
+                    ),
+                    requested_slant,
+                )
+            })
+        };
+        let resolved = crate::fontconfig::resolve_family(&effective_family);
+        let family_lower = resolved.to_lowercase();
+        let is_generic = matches!(
+            family_lower.as_str(),
+            "monospace" | "mono" | "" | "serif" | "sans-serif" | "sans" | "sansserif"
+        );
+        let mut attrs = Attrs::new();
+        attrs = if is_generic && resolved != effective_family {
+            attrs.family(Family::Name(Box::leak(
+                resolved.to_string().into_boxed_str(),
+            )))
+        } else if is_generic {
+            match family_lower.as_str() {
+                "serif" => attrs.family(Family::Serif),
+                "sans-serif" | "sans" | "sansserif" => attrs.family(Family::SansSerif),
+                _ => attrs.family(Family::Monospace),
+            }
+        } else {
+            attrs.family(Family::Name(Box::leak(
+                resolved.to_string().into_boxed_str(),
+            )))
+        };
+        attrs = attrs.weight(Weight(effective_weight));
+        if let Some(style) = font_slant_to_cosmic_style(effective_slant) {
+            attrs = attrs.style(style);
         }
         let line_height = font_size * 1.3;
         let metrics = Metrics::new(font_size, line_height);
@@ -849,23 +1158,25 @@ mod tests {
 
         // Independent FontSystem (simulating render thread)
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
-        let test_cases: &[(&str, Family<'_>, u16)] = &[
-            ("JetBrains Mono", Family::Name("JetBrains Mono"), 400),
-            ("JetBrains Mono", Family::Name("JetBrains Mono"), 700),
-            ("DejaVu Sans Mono", Family::Name("DejaVu Sans Mono"), 400),
-            ("DejaVu Sans", Family::Name("DejaVu Sans"), 400),
-            ("monospace", Family::Monospace, 400),
+        let test_cases: &[(&str, u16)] = &[
+            ("JetBrains Mono", 400),
+            ("JetBrains Mono", 700),
+            ("DejaVu Sans Mono", 400),
+            ("DejaVu Sans", 400),
+            ("monospace", 400),
         ];
 
-        for &(family_str, family_cosmic, weight) in test_cases {
+        for &(family_str, weight) in test_cases {
             for cp in 32u32..127 {
                 let ch = char::from_u32(cp).unwrap();
                 let layout_w = svc.char_width(ch, family_str, weight, false, 14.0);
                 let render_w = measure_with_raw_fontsystem(
                     &mut render_fs,
+                    &mut render_font_file_cache,
                     ch,
-                    family_cosmic,
+                    family_str,
                     Weight(weight),
                     false,
                     14.0,
@@ -883,14 +1194,16 @@ mod tests {
     fn two_fontsystems_identical_for_cjk() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         let cjk_chars = ['漢', '字', '日', '本', '語', '中', '文'];
         for &ch in &cjk_chars {
             let layout_w = svc.char_width(ch, "monospace", 400, false, 14.0);
             let render_w = measure_with_raw_fontsystem(
                 &mut render_fs,
+                &mut render_font_file_cache,
                 ch,
-                Family::Monospace,
+                "monospace",
                 Weight(400),
                 false,
                 14.0,
@@ -904,9 +1217,68 @@ mod tests {
     }
 
     #[test]
+    fn explicit_mono_family_cjk_fallback_stays_wider_than_ascii() {
+        let mut svc = make_svc();
+        let ascii = svc.char_width('a', "Noto Sans Mono", 400, false, 14.0);
+        let cjk = svc.char_width('好', "Noto Sans Mono", 400, false, 14.0);
+        assert!(
+            cjk > ascii * 1.2,
+            "explicit mono CJK fallback should stay wider than ASCII: ascii={ascii} cjk={cjk}"
+        );
+    }
+
+    #[test]
+    fn explicit_mono_family_cjk_matches_renderer_across_face_matrix_sizes() {
+        let mut svc = make_svc();
+        let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
+        let families = [
+            "JetBrains Mono",
+            "Hack",
+            "DejaVu Sans Mono",
+            "Noto Sans Mono",
+        ];
+        let sizes = [24.0_f32, 26.666666_f32, 32.0_f32, 42.666668_f32];
+        let weights = [400_u16, 600_u16, 700_u16, 800_u16];
+
+        for family in families {
+            for size in sizes {
+                for weight in weights {
+                    let layout_w = svc.char_width('好', family, weight, false, size);
+                    let render_w = measure_with_raw_fontsystem(
+                        &mut render_fs,
+                        &mut render_font_file_cache,
+                        '好',
+                        family,
+                        Weight(weight),
+                        false,
+                        size,
+                    );
+                    assert!(
+                        (layout_w - render_w).abs() <= 0.01,
+                        "CJK renderer/layout mismatch for family={family} weight={weight} size={size}: layout={layout_w} render={render_w}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn select_font_for_char_reports_realized_face_metadata() {
+        let mut svc = make_svc();
+        let selected = svc
+            .select_font_for_char('好', "JetBrains Mono", 800, false, 24.0)
+            .expect("selected font for fallback char");
+        let realized = realized_face_info(&mut svc, '好', "JetBrains Mono", 800, false, 24.0)
+            .expect("realized fallback face");
+        assert_eq!(selected, realized);
+    }
+
+    #[test]
     fn two_fontsystems_identical_for_missing_font() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         // Fonts that definitely don't exist on the system
         let fake_families = [
@@ -918,19 +1290,14 @@ mod tests {
         ];
 
         for family_str in fake_families {
-            let family_cosmic = if family_str.is_empty() {
-                Family::Monospace // build_attrs maps "" to Monospace
-            } else {
-                Family::Name(family_str)
-            };
-
             for cp in 32u32..127 {
                 let ch = char::from_u32(cp).unwrap();
                 let layout_w = svc.char_width(ch, family_str, 400, false, 14.0);
                 let render_w = measure_with_raw_fontsystem(
                     &mut render_fs,
+                    &mut render_font_file_cache,
                     ch,
-                    family_cosmic,
+                    family_str,
                     Weight(400),
                     false,
                     14.0,
@@ -956,6 +1323,7 @@ mod tests {
     fn two_fontsystems_identical_across_weights() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         // CSS font weights: 100=Thin, 200=ExtraLight, 300=Light,
         // 400=Normal, 500=Medium, 600=SemiBold, 700=Bold, 800=ExtraBold, 900=Black
@@ -964,17 +1332,14 @@ mod tests {
 
         for family in families {
             for &weight in weights {
-                let family_cosmic = match family {
-                    "monospace" => Family::Monospace,
-                    _ => Family::Name(family),
-                };
                 for cp in 32u32..127 {
                     let ch = char::from_u32(cp).unwrap();
                     let layout_w = svc.char_width(ch, family, weight, false, 14.0);
                     let render_w = measure_with_raw_fontsystem(
                         &mut render_fs,
+                        &mut render_font_file_cache,
                         ch,
-                        family_cosmic,
+                        family,
                         Weight(weight),
                         false,
                         14.0,
@@ -993,6 +1358,7 @@ mod tests {
     fn two_fontsystems_identical_across_styles() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         let families = [
             "JetBrains Mono",
@@ -1006,17 +1372,14 @@ mod tests {
         for family in families {
             for &weight in weights {
                 for &(italic, style_name) in styles {
-                    let family_cosmic = match family {
-                        "monospace" => Family::Monospace,
-                        _ => Family::Name(family),
-                    };
                     for cp in 32u32..127 {
                         let ch = char::from_u32(cp).unwrap();
                         let layout_w = svc.char_width(ch, family, weight, italic, 14.0);
                         let render_w = measure_with_raw_fontsystem(
                             &mut render_fs,
+                            &mut render_font_file_cache,
                             ch,
-                            family_cosmic,
+                            family,
                             Weight(weight),
                             italic,
                             14.0,
@@ -1036,6 +1399,7 @@ mod tests {
     fn two_fontsystems_identical_at_multiple_sizes() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         for font_size in [10.0, 14.0, 18.0, 24.0, 36.0] {
             for cp in 32u32..127 {
@@ -1043,8 +1407,9 @@ mod tests {
                 let layout_w = svc.char_width(ch, "JetBrains Mono", 400, false, font_size);
                 let render_w = measure_with_raw_fontsystem(
                     &mut render_fs,
+                    &mut render_font_file_cache,
                     ch,
-                    Family::Name("JetBrains Mono"),
+                    "JetBrains Mono",
                     Weight(400),
                     false,
                     font_size,
@@ -1116,14 +1481,16 @@ mod tests {
     fn two_fontsystems_identical_at_extreme_sizes() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         for font_size in [1.0, 4.0, 6.0, 72.0, 144.0] {
             for &ch in &['A', 'M', 'i', '.', ' '] {
                 let layout_w = svc.char_width(ch, "monospace", 400, false, font_size);
                 let render_w = measure_with_raw_fontsystem(
                     &mut render_fs,
+                    &mut render_font_file_cache,
                     ch,
-                    Family::Monospace,
+                    "monospace",
                     Weight(400),
                     false,
                     font_size,
@@ -1152,14 +1519,16 @@ mod tests {
     fn two_fontsystems_identical_for_emoji() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         let emoji = ['😀', '🎉', '❤', '👍', '🔥', '⭐', '✅', '🚀'];
         for &ch in &emoji {
             let layout_w = svc.char_width(ch, "monospace", 400, false, 14.0);
             let render_w = measure_with_raw_fontsystem(
                 &mut render_fs,
+                &mut render_font_file_cache,
                 ch,
-                Family::Monospace,
+                "monospace",
                 Weight(400),
                 false,
                 14.0,
@@ -1186,6 +1555,7 @@ mod tests {
     fn two_fontsystems_identical_for_zero_width_chars() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         let special: &[(char, &str)] = &[
             ('\u{200B}', "zero-width space"),
@@ -1199,8 +1569,9 @@ mod tests {
             let layout_w = svc.char_width(ch, "monospace", 400, false, 14.0);
             let render_w = measure_with_raw_fontsystem(
                 &mut render_fs,
+                &mut render_font_file_cache,
                 ch,
-                Family::Monospace,
+                "monospace",
                 Weight(400),
                 false,
                 14.0,
@@ -1221,6 +1592,7 @@ mod tests {
     fn two_fontsystems_identical_for_rtl() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         let rtl: &[(char, &str)] = &[
             ('א', "Hebrew Alef"),
@@ -1234,8 +1606,9 @@ mod tests {
             let layout_w = svc.char_width(ch, "monospace", 400, false, 14.0);
             let render_w = measure_with_raw_fontsystem(
                 &mut render_fs,
+                &mut render_font_file_cache,
                 ch,
-                Family::Monospace,
+                "monospace",
                 Weight(400),
                 false,
                 14.0,
@@ -1262,6 +1635,7 @@ mod tests {
     fn two_fontsystems_identical_for_combining_marks() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         // Standalone combining marks — these may have zero advance (expected),
         // but both systems must agree
@@ -1278,8 +1652,9 @@ mod tests {
             let layout_w = svc.char_width(ch, "monospace", 400, false, 14.0);
             let render_w = measure_with_raw_fontsystem(
                 &mut render_fs,
+                &mut render_font_file_cache,
                 ch,
-                Family::Monospace,
+                "monospace",
                 Weight(400),
                 false,
                 14.0,
@@ -1308,6 +1683,7 @@ mod tests {
     fn two_fontsystems_identical_mixed_heights_in_line() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         // Each tuple: (char, family, weight, italic, font_size)
         // Simulates a real line: "Hello WORLD tiny Bold"
@@ -1354,16 +1730,12 @@ mod tests {
         let mut render_total = 0.0f32;
 
         for (i, &(ch, family, weight, italic, font_size)) in line.iter().enumerate() {
-            let family_cosmic = match family {
-                "DejaVu Sans" => Family::Name("DejaVu Sans"),
-                _ => Family::Name("JetBrains Mono"),
-            };
-
             let layout_w = svc.char_width(ch, family, weight, italic, font_size);
             let render_w = measure_with_raw_fontsystem(
                 &mut render_fs,
+                &mut render_font_file_cache,
                 ch,
-                family_cosmic,
+                family,
                 Weight(weight),
                 italic,
                 font_size,
@@ -1400,6 +1772,7 @@ mod tests {
     fn two_fontsystems_identical_org_heading_sizes() {
         let mut svc = make_svc();
         let mut render_fs = FontSystem::new();
+        let mut render_font_file_cache = FontFileCache::new();
 
         // Simulates org-mode: "* H1  ** H2  *** H3  body"
         // with decreasing :height per heading level
@@ -1415,13 +1788,13 @@ mod tests {
         ];
 
         for (seg_text, family, weight, font_size) in segments {
-            let family_cosmic = Family::Name(family);
             for ch in seg_text.chars() {
                 let layout_w = svc.char_width(ch, family, *weight, false, *font_size);
                 let render_w = measure_with_raw_fontsystem(
                     &mut render_fs,
+                    &mut render_font_file_cache,
                     ch,
-                    family_cosmic,
+                    family,
                     Weight(*weight),
                     false,
                     *font_size,

@@ -50,6 +50,8 @@ dns-lookup = "2"
 hostname = "0.4"
 network-interface = "2"
 libloading = "0.8"
+fontconfig = "0.10.0"
+yeslogic-fontconfig-sys = "6.0.0"
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
 thiserror = "2.0"
