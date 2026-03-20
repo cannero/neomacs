@@ -98,12 +98,24 @@ fn run_hook_value(
     hook_args: &[Value],
     inherit_global: bool,
 ) -> Result<(), Flow> {
-    for func in
-        collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, inherit_global)
-    {
-        eval.apply(func, hook_args.to_vec())?;
+    let funcs =
+        collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, inherit_global);
+    // Root all hook functions AND args so GC during apply can't collect them.
+    let saved = eval.save_temp_roots();
+    for f in &funcs {
+        eval.push_temp_root(*f);
     }
-    Ok(())
+    for a in hook_args {
+        eval.push_temp_root(*a);
+    }
+    let result = (|| -> Result<(), Flow> {
+        for func in &funcs {
+            eval.apply(*func, hook_args.to_vec())?;
+        }
+        Ok(())
+    })();
+    eval.restore_temp_roots(saved);
+    result
 }
 
 pub(crate) fn builtin_run_hooks(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
@@ -151,13 +163,26 @@ pub(crate) fn builtin_run_hook_with_args_until_success(
     })?;
     let hook_args: Vec<Value> = args[1..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    for func in collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true) {
-        let value = eval.apply(func, hook_args.clone())?;
-        if value.is_truthy() {
-            return Ok(value);
-        }
+    let funcs = collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true);
+    // Root hook functions and args for GC safety during apply.
+    let saved = eval.save_temp_roots();
+    for f in &funcs {
+        eval.push_temp_root(*f);
     }
-    Ok(Value::Nil)
+    for a in &hook_args {
+        eval.push_temp_root(*a);
+    }
+    let result = (|| -> EvalResult {
+        for func in &funcs {
+            let value = eval.apply(*func, hook_args.clone())?;
+            if value.is_truthy() {
+                return Ok(value);
+            }
+        }
+        Ok(Value::Nil)
+    })();
+    eval.restore_temp_roots(saved);
+    result
 }
 
 pub(crate) fn builtin_run_hook_with_args_until_failure(
@@ -173,13 +198,26 @@ pub(crate) fn builtin_run_hook_with_args_until_failure(
     })?;
     let hook_args: Vec<Value> = args[1..].to_vec();
     let hook_value = symbol_dynamic_buffer_or_global_value(eval, hook_name).unwrap_or(Value::Nil);
-    for func in collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true) {
-        let value = eval.apply(func, hook_args.clone())?;
-        if value.is_nil() {
-            return Ok(Value::Nil);
-        }
+    let funcs = collect_hook_functions_in_state(eval.obarray(), hook_name, hook_value, true);
+    // Root hook functions and args for GC safety during apply.
+    let saved = eval.save_temp_roots();
+    for f in &funcs {
+        eval.push_temp_root(*f);
     }
-    Ok(Value::True)
+    for a in &hook_args {
+        eval.push_temp_root(*a);
+    }
+    let result = (|| -> EvalResult {
+        for func in &funcs {
+            let value = eval.apply(*func, hook_args.clone())?;
+            if value.is_nil() {
+                return Ok(Value::Nil);
+            }
+        }
+        Ok(Value::True)
+    })();
+    eval.restore_temp_roots(saved);
+    result
 }
 
 pub(crate) fn builtin_run_hook_wrapped(
