@@ -19,6 +19,11 @@ AFTER_EVAL_WAIT=0
 KEEP_RUNNING=0
 RUST_LOG_VALUE="${RUST_LOG:-debug}"
 WINDOW_SIZE=""
+START_XVFB=0
+XVFB_DISPLAY="auto"
+XVFB_SCREEN="1600x1800x24"
+XVFB_WAIT=10
+XVFB_LOG=""
 EXTRA_ARGS=()
 LOAD_FILES=()
 KEYS=()
@@ -66,6 +71,10 @@ Options:
   --after-eval-wait SECONDS
                        Extra delay after each M-: eval before capture
   --window-size WxH    Resize the X11 window before capture
+  --xvfb               Start a private Xvfb display for this run
+  --xvfb-display DISP  Xvfb display number or 'auto' (default: auto)
+  --xvfb-screen SPEC   Xvfb screen spec (default: 1600x1800x24)
+  --xvfb-wait SEC      Seconds to wait for Xvfb to accept clients (default: 10)
   --keep-running       Leave the editor alive after capture
   --key KEY            Send an xdotool key after focusing the window
   --type TEXT          Send literal text to the target window (repeatable)
@@ -139,6 +148,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --window-size)
             WINDOW_SIZE="$2"
+            shift 2
+            ;;
+        --xvfb)
+            START_XVFB=1
+            shift
+            ;;
+        --xvfb-display)
+            XVFB_DISPLAY="$2"
+            shift 2
+            ;;
+        --xvfb-screen)
+            XVFB_SCREEN="$2"
+            shift 2
+            ;;
+        --xvfb-wait)
+            XVFB_WAIT="$2"
             shift 2
             ;;
         --keep-running)
@@ -219,10 +244,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -n "${DISPLAY:-}" ]] || die "DISPLAY is not set"
-[[ -n "${XAUTHORITY:-}" ]] || die "XAUTHORITY is not set"
 command -v xdotool >/dev/null || die "xdotool is required"
 command -v import >/dev/null || die "ImageMagick import is required"
+if [[ "$START_XVFB" -eq 0 ]]; then
+    [[ -n "${DISPLAY:-}" ]] || die "DISPLAY is not set"
+fi
 
 if [[ -n "$WINDOW_SIZE" ]]; then
     WINDOW_SIZE_WIDTH="${WINDOW_SIZE%x*}"
@@ -237,6 +263,31 @@ if [[ -n "$AUTO_REPORT_EXPECTED_FRAME_SIZE" ]]; then
     [[ "$AUTO_REPORT_EXPECTED_FRAME_WIDTH" =~ ^[0-9]+$ && "$AUTO_REPORT_EXPECTED_FRAME_HEIGHT" =~ ^[0-9]+$ ]] \
         || die "invalid --auto-report-frame-size: $AUTO_REPORT_EXPECTED_FRAME_SIZE"
 fi
+
+choose_xvfb_display() {
+    local display
+    for display in {99..140}; do
+        if [[ ! -e "/tmp/.X11-unix/X${display}" && ! -e "/tmp/.X${display}-lock" ]]; then
+            printf ':%s\n' "$display"
+            return 0
+        fi
+    done
+    die "failed to find a free Xvfb display"
+}
+
+wait_for_x_server() {
+    local deadline=$((SECONDS + XVFB_WAIT))
+    while (( SECONDS <= deadline )); do
+        if DISPLAY="$DISPLAY" xdpyinfo >/dev/null 2>&1; then
+            return 0
+        fi
+        if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+            die "Xvfb exited before accepting clients"
+        fi
+        sleep 1
+    done
+    die "timed out waiting for Xvfb on $DISPLAY"
+}
 
 if [[ -z "$READY_TIMEOUT" ]]; then
     READY_TIMEOUT="$WAIT_SECONDS"
@@ -304,6 +355,7 @@ for expr in "${STARTUP_EVALS[@]}"; do
 done
 
 RUN_STAMP="$(mktemp "${TMPDIR:-/tmp}/capture-face-test.XXXXXX")"
+XVFB_PID=""
 
 wait_for_path() {
     local target="$1"
@@ -348,26 +400,55 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
     fi
+    if [[ -n "$XVFB_PID" ]] && kill -0 "$XVFB_PID" 2>/dev/null && [[ "$KEEP_RUNNING" -eq 0 ]]; then
+        kill "$XVFB_PID" 2>/dev/null || true
+        wait "$XVFB_PID" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
+
+if [[ "$START_XVFB" -eq 1 ]]; then
+    command -v Xvfb >/dev/null || die "Xvfb is required for --xvfb"
+    command -v xdpyinfo >/dev/null || die "xdpyinfo is required for --xvfb"
+    if [[ "$XVFB_DISPLAY" == "auto" ]]; then
+        XVFB_DISPLAY="$(choose_xvfb_display)"
+    fi
+    XVFB_LOG="$(mktemp "${TMPDIR:-/tmp}/capture-face-test-xvfb.XXXXXX.log")"
+    DISPLAY="$XVFB_DISPLAY"
+    unset XAUTHORITY
+    Xvfb "$DISPLAY" -screen 0 "$XVFB_SCREEN" -ac >"$XVFB_LOG" 2>&1 &
+    XVFB_PID=$!
+    wait_for_x_server
+fi
 
 echo "app=$APP"
 echo "bin=$BIN"
 echo "log=$LOG_FILE"
 echo "output=$OUTPUT"
 echo "title-hint=$TITLE_HINT"
+echo "display=${DISPLAY:-}"
+if [[ -n "$XVFB_PID" ]]; then
+    echo "xvfb-pid=$XVFB_PID"
+    echo "xvfb-log=$XVFB_LOG"
+fi
 echo "command=${CMD[*]}"
 
 : >"$LOG_FILE"
 
 if [[ "$APP" == "neomacs" ]]; then
     (
-        export DISPLAY XAUTHORITY RUST_LOG="$RUST_LOG_VALUE"
+        export DISPLAY RUST_LOG="$RUST_LOG_VALUE"
+        if [[ -n "${XAUTHORITY:-}" ]]; then
+            export XAUTHORITY
+        fi
         exec "${CMD[@]}"
     ) >"$LOG_FILE" 2>&1 &
 else
     (
-        export DISPLAY XAUTHORITY
+        export DISPLAY
+        if [[ -n "${XAUTHORITY:-}" ]]; then
+            export XAUTHORITY
+        fi
         exec "${CMD[@]}"
     ) >"$LOG_FILE" 2>&1 &
 fi
