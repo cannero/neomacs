@@ -118,7 +118,13 @@ fn defcustom_custom_variable_p() {
     let results = bootstrap_eval_all(
         r#"(defcustom my-var 42 "Docs.") (custom-variable-p 'my-var) (custom-variable-p 'other)"#,
     );
-    assert_eq!(results[1], "OK t");
+    // custom-variable-p returns the standard-value property (truthy), not t.
+    // GNU: ((funcall #'#[nil (42) (t)]))
+    assert!(
+        results[1].starts_with("OK ("),
+        "custom-variable-p should return truthy standard-value, got: {}",
+        results[1]
+    );
     assert_eq!(results[2], "OK nil");
 }
 
