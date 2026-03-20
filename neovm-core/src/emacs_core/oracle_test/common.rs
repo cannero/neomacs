@@ -129,7 +129,27 @@ macro_rules! return_if_neovm_enable_oracle_proptest_not_set {
 pub(crate) use return_if_neovm_enable_oracle_proptest_not_set;
 
 fn oracle_emacs_path() -> String {
-    std::env::var("NEOVM_FORCE_ORACLE_PATH").unwrap_or_else(|_| "emacs".to_string())
+    if let Ok(path) = std::env::var("NEOVM_FORCE_ORACLE_PATH") {
+        return path;
+    }
+    // Try well-known locations for the GNU Emacs binary relative
+    // to the project checkout (github.com/eval-exec/neomacs-main).
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if let Some(project_root) = manifest.parent() {
+        // Walk up to github.com/ and look for emacs-mirror/emacs/src/emacs
+        let mut dir = project_root.to_path_buf();
+        for _ in 0..4 {
+            let candidate = dir.join("emacs-mirror/emacs/src/emacs");
+            if candidate.exists() {
+                return candidate.to_string_lossy().into_owned();
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+    }
+    // Fall back to PATH
+    "emacs".to_string()
 }
 
 fn write_temp_elisp_file(
@@ -649,17 +669,7 @@ pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
         tracing::info!("oracle-timing: oracle-start");
     }
     let oracle_t0 = std::time::Instant::now();
-    let oracle = match run_oracle_eval_with_bootstrap(form) {
-        Ok(v) => v,
-        Err(e) if e.contains("No such file or directory") => {
-            eprintln!(
-                "SKIP oracle parity test: GNU Emacs binary not found. \
-                 Set NEOVM_FORCE_ORACLE_PATH to the emacs binary path."
-            );
-            return;
-        }
-        Err(e) => panic!("oracle eval should run: {e}"),
-    };
+    let oracle = run_oracle_eval_with_bootstrap(form).expect("oracle eval should run");
     if log_timing {
         tracing::info!("oracle-timing: oracle-done {:.3?}", oracle_t0.elapsed());
     }
