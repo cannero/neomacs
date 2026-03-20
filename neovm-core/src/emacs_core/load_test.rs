@@ -4246,13 +4246,49 @@ fn bootstrap_source_eval_honors_advised_subr_function_cell() {
                (fmakunbound 'neovm--combo-plus-before))))"#,
     )
     .expect("evaluate plus advice shape");
-    // NeoVM uses a fast path for arithmetic builtins like `+` when called
-    // directly (e.g. `(+ 4 7)`), so direct calls bypass the advised
-    // function cell.  `funcall` and `apply` go through the function cell
-    // and trigger the :before advice, producing 2 log entries instead of 3.
     assert_eq!(
         rendered,
-        "OK ((11 11 11 ((4 7) (4 7)) t) (11 11 11 nil nil))"
+        "OK ((11 11 11 ((4 7) (4 7) (4 7)) t) (11 11 11 nil nil))"
+    );
+}
+
+#[test]
+fn bootstrap_source_eval_honors_advised_callbuiltin_function_cell() {
+    let rendered = crate::emacs_core::oracle_test::common::run_neovm_eval_with_bootstrap(
+        r#"(progn
+           (let ((log nil))
+             (fset 'neovm--substring-before
+                   (lambda (&rest args)
+                     (setq log (cons args log))))
+             (unwind-protect
+                 (list
+                   (progn
+                     (advice-add 'substring :before 'neovm--substring-before)
+                     (setq log nil)
+                     (list
+                       (substring "abcdef" 1 4)
+                       (funcall 'substring "abcdef" 1 4)
+                       (apply 'substring (list "abcdef" 1 4))
+                       (nreverse log)
+                       (if (advice-member-p 'neovm--substring-before 'substring) t nil)))
+                   (progn
+                     (advice-remove 'substring 'neovm--substring-before)
+                     (setq log nil)
+                     (list
+                       (substring "abcdef" 1 4)
+                       (funcall 'substring "abcdef" 1 4)
+                       (apply 'substring (list "abcdef" 1 4))
+                       (nreverse log)
+                       (if (advice-member-p 'neovm--substring-before 'substring) t nil))))
+               (condition-case nil
+                   (advice-remove 'substring 'neovm--substring-before)
+                 (error nil))
+               (fmakunbound 'neovm--substring-before))))"#,
+    )
+    .expect("evaluate substring advice shape");
+    assert_eq!(
+        rendered,
+        "OK ((\"bcd\" \"bcd\" \"bcd\" ((\"abcdef\" 1 4) (\"abcdef\" 1 4) (\"abcdef\" 1 4)) t) (\"bcd\" \"bcd\" \"bcd\" nil nil))"
     );
 }
 
