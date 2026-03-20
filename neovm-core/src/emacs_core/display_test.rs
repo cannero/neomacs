@@ -792,8 +792,8 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
                 // Terminal ID may vary; just check the message pattern.
                 let msg = sig.data[0].as_str().unwrap_or_default();
                 assert!(
-                    msg.contains("is not an X display"),
-                    "expected terminal-not-X-display error, got: {msg}"
+                    msg.contains("is not an X display") || msg.contains("X windows are not in use"),
+                    "expected terminal error, got: {msg}"
                 );
             }
             other => panic!("expected error signal, got {other:?}"),

@@ -6137,13 +6137,29 @@ impl Evaluator {
         }
         let primary = self.eval(&tail[0]);
         // Root the primary result so GC during cleanup can't collect it.
-        if let Ok(ref val) = primary {
-            self.temp_roots.push(*val);
+        // This includes values inside Flow::Signal / Flow::Throw data,
+        // which live only on the Rust stack and are invisible to the GC
+        // root scanner.
+        let saved = self.save_temp_roots();
+        match &primary {
+            Ok(val) => {
+                self.push_temp_root(*val);
+            }
+            Err(Flow::Signal(sig)) => {
+                for v in &sig.data {
+                    self.push_temp_root(*v);
+                }
+                if let Some(raw) = &sig.raw_data {
+                    self.push_temp_root(*raw);
+                }
+            }
+            Err(Flow::Throw { tag, value }) => {
+                self.push_temp_root(*tag);
+                self.push_temp_root(*value);
+            }
         }
         let cleanup = self.sf_progn(&tail[1..]);
-        if primary.is_ok() {
-            self.temp_roots.pop();
-        }
+        self.restore_temp_roots(saved);
         match cleanup {
             Ok(_) => primary,
             Err(flow) => Err(flow),
