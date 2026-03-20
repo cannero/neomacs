@@ -51,7 +51,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
         Value::Char(c) => Ok(*c as i64),
         other => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("integerp"), *other],
+            vec![Value::symbol("integer-or-marker-p"), *other],
         )),
     }
 }
