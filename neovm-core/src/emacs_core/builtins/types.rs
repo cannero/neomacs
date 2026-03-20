@@ -252,9 +252,19 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("cl-type-of", &args, 1)?;
-    // Records: return the type tag (slot 0), same as type-of
+    // Records: return the type tag (slot 0).
+    // GNU data.c:269-277: if slot 0 is itself a record with len > 1,
+    // return slot 1 of that inner record (the class name symbol).
+    // This is how EIEIO objects work: slot 0 is the eieio--class
+    // record, and slot 1 of that record is the class name.
     if let Value::Record(id) = &args[0] {
         let tag = with_heap(|h| h.get_vector(*id).first().copied());
+        if let Some(Value::Record(tag_id)) = tag {
+            let tag_vec = with_heap(|h| h.get_vector(tag_id).clone());
+            if tag_vec.len() > 1 {
+                return Ok(tag_vec[1]);
+            }
+        }
         return Ok(tag.unwrap_or_else(|| Value::symbol("record")));
     }
     // Char-tables and bool-vectors are tagged vectors

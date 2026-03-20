@@ -563,6 +563,18 @@ impl CodingSystemManager {
             terminal_coding,
         }
     }
+
+    /// Collect GC roots from coding system properties.
+    pub fn trace_roots(&self, roots: &mut Vec<Value>) {
+        for info in self.systems.values() {
+            for value in info.properties.values() {
+                roots.push(*value);
+            }
+            for value in info.int_properties.values() {
+                roots.push(*value);
+            }
+        }
+    }
 }
 
 impl Default for CodingSystemManager {

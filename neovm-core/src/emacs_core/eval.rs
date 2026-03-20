@@ -511,6 +511,7 @@ impl<'a> VmSharedState<'a> {
         self.kmacro.trace_roots(&mut roots);
         self.modes.trace_roots(&mut roots);
         self.frames.trace_roots(&mut roots);
+        self.coding_systems.trace_roots(&mut roots);
 
         roots
     }
@@ -3098,6 +3099,7 @@ impl Evaluator {
         self.kmacro.trace_roots(&mut roots);
         self.modes.trace_roots(&mut roots);
         self.frames.trace_roots(&mut roots);
+        self.coding_systems.trace_roots(&mut roots);
 
         roots
     }
