@@ -1277,28 +1277,11 @@ pub(crate) fn builtin_kill_all_local_variables_in_state(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _kill_permanent = args.first().copied().unwrap_or(Value::Nil);
 
-    let buffer_read_only = obarray
-        .symbol_value("buffer-read-only")
-        .copied()
-        .unwrap_or(Value::Nil);
-    let major_mode = obarray
-        .symbol_value("major-mode")
-        .copied()
-        .unwrap_or_else(|| Value::symbol("fundamental-mode"));
-    let mode_name = obarray
-        .symbol_value("mode-name")
-        .copied()
-        .unwrap_or_else(|| Value::string("Fundamental"));
-    let buffer_undo_list = obarray
-        .symbol_value("buffer-undo-list")
-        .copied()
-        .unwrap_or(Value::Nil);
-
+    // GNU buffer.c:2088 — kill-all-local-variables clears all buffer-local
+    // bindings and resets them to their defaults.  clear_buffer_local_properties
+    // re-seeds defaults from seed_builtin_buffer_local_defaults (mode-name,
+    // major-mode, buffer-read-only, etc.).
     let _ = buffers.clear_buffer_local_properties(current_id);
-    let _ = buffers.set_buffer_local_property(current_id, "buffer-read-only", buffer_read_only);
-    let _ = buffers.set_buffer_local_property(current_id, "major-mode", major_mode);
-    let _ = buffers.set_buffer_local_property(current_id, "mode-name", mode_name);
-    let _ = buffers.configure_buffer_undo_list(current_id, buffer_undo_list);
     *current_local_map = Value::Nil;
     Ok(Value::Nil)
 }

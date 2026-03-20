@@ -7403,27 +7403,31 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
 fn error_message_string_preserves_percent_s_handle_semantics() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
 
-    let render_error_message =
-        |eval: &mut crate::emacs_core::eval::Evaluator, spec: &str, value: Value| -> String {
-            let signaled = dispatch_builtin(eval, "error", vec![Value::string(spec), value])
-                .expect("error should resolve")
-                .expect_err("error should signal");
-            let (symbol, data) = match signaled {
-                Flow::Signal(sig) => (sig.symbol, sig.data),
-                other => panic!("expected signal flow, got: {other:?}"),
-            };
-            let mut err_data = Vec::with_capacity(data.len() + 1);
-            err_data.push(Value::Symbol(symbol));
-            err_data.extend(data);
-            let rendered =
-                dispatch_builtin(eval, "error-message-string", vec![Value::list(err_data)])
-                    .expect("error-message-string should resolve")
-                    .expect("error-message-string should evaluate");
-            rendered
-                .as_str()
-                .expect("error-message-string should return a string")
-                .to_string()
+    let render_error_message = |eval: &mut crate::emacs_core::eval::Evaluator,
+                                spec: &str,
+                                value: Value|
+     -> String {
+        // GNU `error` is Elisp (subr.el): (signal 'error (list (format-message FMT ARGS)))
+        // Construct the error data directly instead of calling dispatch_builtin.
+        let formatted = dispatch_builtin(eval, "format-message", vec![Value::string(spec), value])
+            .expect("format-message should resolve")
+            .expect("format-message should evaluate");
+        let signaled = crate::emacs_core::error::signal("error", vec![formatted]);
+        let (symbol, data) = match signaled {
+            Flow::Signal(sig) => (sig.symbol, sig.data),
+            other => panic!("expected signal flow, got: {other:?}"),
         };
+        let mut err_data = Vec::with_capacity(data.len() + 1);
+        err_data.push(Value::Symbol(symbol));
+        err_data.extend(data);
+        let rendered = dispatch_builtin(eval, "error-message-string", vec![Value::list(err_data)])
+            .expect("error-message-string should resolve")
+            .expect("error-message-string should evaluate");
+        rendered
+            .as_str()
+            .expect("error-message-string should return a string")
+            .to_string()
+    };
 
     let live_name = "*ems-live-lower*";
     let live_buffer = create_unique_test_buffer(&mut eval, live_name);
