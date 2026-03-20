@@ -2902,11 +2902,9 @@ fn call_interactively_accepts_quoted_lambda_commands() {
 }
 
 #[test]
-#[ignore = "needs bootstrapped GNU Lisp startup to exercise the mixed region path"]
 fn interactive_lambda_r_spec_reads_region_for_call_interactively() {
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    // set-mark is defined in simple.el — need bootstrap evaluator.
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
              (goto-char 2)
@@ -2916,9 +2914,7 @@ fn interactive_lambda_r_spec_reads_region_for_call_interactively() {
     );
     assert_eq!(results[0], "OK (2 3)");
 
-    let mut ev = Evaluator::new();
-    let results = eval_all_with(
-        &mut ev,
+    let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
              (goto-char 2)
@@ -3609,7 +3605,6 @@ fn command_execute_self_insert_uses_last_command_event_when_available() {
 }
 
 #[test]
-#[ignore = "needs bootstrapped GNU Lisp startup to exercise keyboard-quit"]
 fn keyboard_quit_signals_quit() {
     let results = bootstrap_eval_all(
         r#"(condition-case err
