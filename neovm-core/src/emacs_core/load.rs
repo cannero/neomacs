@@ -982,6 +982,7 @@ pub(crate) const BOOTSTRAP_LOAD_PATH_SUBDIRS: &[&str] = &[
     "",
     "calendar",
     "emacs-lisp",
+    "mail",
     "progmodes",
     "language",
     "international",
@@ -3005,11 +3006,12 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Evaluator) -> Result<
               (with-current-buffer "*scratch*"
                 (if (eq major-mode 'fundamental-mode)
                     (funcall initial-major-mode))))
-          ;; Mirror GNU loadup.el exactly here: setting the closure filter while
-          ;; cconv is still interpreted makes interpreted-closure creation
-          ;; catastrophically slow.
+          ;; GNU loadup.el gates this on compiled-function-p, but NeoVM
+          ;; loads .el source (no .elc), so cconv functions are interpreted.
+          ;; We set the filter unconditionally when cconv-fv is fboundp so
+          ;; that interpreted closure shapes match GNU Emacs.
           (when (and (null internal-make-interpreted-closure-function)
-                     (compiled-function-p (symbol-function 'cconv-fv)))
+                     (fboundp 'cconv-fv))
             (setq internal-make-interpreted-closure-function
                   #'cconv-make-interpreted-closure))
         "#,
