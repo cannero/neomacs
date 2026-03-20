@@ -3664,7 +3664,7 @@ pub(crate) fn dispatch_builtin(
         "overlay-tree" => builtin_overlay_tree(args),
 
         // process.c gap-fill
-        "process-connection" => builtin_process_connection(args),
+        // "process-connection" removed: not a GNU C builtin
 
         // thread.c gap-fill
         "thread-buffer-disposition" => builtin_thread_buffer_disposition(args),
@@ -4351,7 +4351,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "overlay-tree" => builtin_overlay_tree(args),
 
         // process.c gap-fill
-        "process-connection" => builtin_process_connection(args),
+        // "process-connection" removed: not a GNU C builtin
 
         // thread.c gap-fill
         "thread-buffer-disposition" => builtin_thread_buffer_disposition(args),

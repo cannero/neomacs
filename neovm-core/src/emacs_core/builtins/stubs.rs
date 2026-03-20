@@ -2096,14 +2096,6 @@ pub(crate) fn builtin_overlay_tree(args: Vec<Value>) -> EvalResult {
 }
 
 // =========================================================================
-// process.c gap-fill stubs
-// =========================================================================
-
-pub(crate) fn builtin_process_connection(args: Vec<Value>) -> EvalResult {
-    expect_args("process-connection", &args, 1)?;
-    Ok(Value::Nil)
-}
-
 // =========================================================================
 // thread.c gap-fill stubs
 // =========================================================================

@@ -840,7 +840,6 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "process-buffer",
     "process-coding-system",
     "process-command",
-    "process-connection",
     "process-contact",
     "process-datagram-address",
     "process-exit-status",
