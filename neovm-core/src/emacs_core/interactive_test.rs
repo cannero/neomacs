@@ -732,16 +732,19 @@ fn files_command_is_real_lisp_function_after_bootstrap() {
 }
 
 #[test]
-fn regexp_search_autoloads_startup_are_autoloaded() {
-    let ev = eval_with_ldefs_boot_autoloads(&["search-forward-regexp", "search-backward-regexp"]);
+fn regexp_search_aliases_are_available_after_bootstrap() {
+    // search-forward-regexp and search-backward-regexp are defalias'd to
+    // re-search-forward / re-search-backward in subr.el (not autoloaded).
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in ["search-forward-regexp", "search-backward-regexp"] {
         let function = ev
             .obarray
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
-            "expected {name} startup function cell to be a GNU autoload"
+            !crate::emacs_core::autoload::is_autoload_value(function),
+            "expected {name} to be a resolved function (defalias), not an autoload"
         );
     }
 }
@@ -790,34 +793,42 @@ fn count_matches_is_real_lisp_function_after_bootstrap() {
 }
 
 #[test]
-fn kmacro_name_commands_startup_are_autoloaded() {
-    let mut ev = eval_with_ldefs_boot_autoloads(&["kmacro-name-last-macro", "name-last-kbd-macro"]);
-    for name in ["kmacro-name-last-macro", "name-last-kbd-macro"] {
-        let function = ev
-            .obarray
-            .symbol_function(name)
-            .unwrap_or_else(|| panic!("missing {name} startup function cell"));
-        assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
-            "expected {name} startup function cell to be a GNU autoload"
-        );
-        let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
-            .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
-        assert!(command.is_truthy(), "expected commandp true for {name}");
-    }
+fn kmacro_name_last_macro_startup_is_autoloaded() {
+    // kmacro-name-last-macro has a real autoload entry in ldefs-boot.el.
+    // name-last-kbd-macro is a defalias to it (not an autoload form), so it
+    // is only available after the defalias in ldefs-boot.el is evaluated
+    // during bootstrap -- not via the autoload-only loader.
+    let mut ev = eval_with_ldefs_boot_autoloads(&["kmacro-name-last-macro"]);
+    let function = ev
+        .obarray
+        .symbol_function("kmacro-name-last-macro")
+        .expect("missing kmacro-name-last-macro startup function cell");
+    assert!(
+        crate::emacs_core::autoload::is_autoload_value(function),
+        "expected kmacro-name-last-macro startup function cell to be a GNU autoload"
+    );
+    let command =
+        builtin_commandp_interactive(&mut ev, vec![Value::symbol("kmacro-name-last-macro")])
+            .expect("commandp should accept kmacro-name-last-macro");
+    assert!(
+        command.is_truthy(),
+        "expected commandp true for kmacro-name-last-macro"
+    );
 }
 
 #[test]
-fn remove_hook_startup_is_noninteractive_autoload() {
-    let mut ev = eval_with_ldefs_boot_autoloads(&["remove-hook"]);
+fn remove_hook_is_available_after_bootstrap() {
+    // remove-hook is a defun in subr.el, not autoloaded in GNU Emacs.
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
         .obarray
         .symbol_function("remove-hook")
         .expect("missing remove-hook startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(function));
-    let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("remove-hook")])
-        .expect("commandp call");
-    assert!(result.is_nil());
+    assert!(
+        !crate::emacs_core::autoload::is_autoload_value(function),
+        "expected remove-hook to be a resolved function, not an autoload"
+    );
 }
 
 #[test]

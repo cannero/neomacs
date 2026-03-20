@@ -649,7 +649,17 @@ pub(crate) fn assert_oracle_parity_with_bootstrap(form: &str) {
         tracing::info!("oracle-timing: oracle-start");
     }
     let oracle_t0 = std::time::Instant::now();
-    let oracle = run_oracle_eval_with_bootstrap(form).expect("oracle eval should run");
+    let oracle = match run_oracle_eval_with_bootstrap(form) {
+        Ok(v) => v,
+        Err(e) if e.contains("No such file or directory") => {
+            eprintln!(
+                "SKIP oracle parity test: GNU Emacs binary not found. \
+                 Set NEOVM_FORCE_ORACLE_PATH to the emacs binary path."
+            );
+            return;
+        }
+        Err(e) => panic!("oracle eval should run: {e}"),
+    };
     if log_timing {
         tracing::info!("oracle-timing: oracle-done {:.3?}", oracle_t0.elapsed());
     }

@@ -586,13 +586,18 @@ fn test_region_beginning_and_end() {
 }
 
 #[test]
-fn test_use_region_p_startup_is_autoloaded() {
-    let eval = eval_with_ldefs_boot_autoloads(&["use-region-p"]);
-    let function = eval
+fn test_use_region_p_is_available_after_bootstrap() {
+    // use-region-p is a defun in simple.el, not autoloaded in GNU Emacs.
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let function = ev
         .obarray
         .symbol_function("use-region-p")
         .expect("missing use-region-p startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
+    assert!(
+        !crate::emacs_core::autoload::is_autoload_value(&function),
+        "expected use-region-p to be a resolved function, not an autoload"
+    );
 }
 
 #[test]
