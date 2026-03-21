@@ -4,6 +4,7 @@
 //! the Rust Evaluator's state, replacing C FFI data sources.
 
 use neovm_core::buffer::Buffer;
+use neovm_core::emacs_core::symbol::Obarray;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::emacs_core::{Evaluator, Value};
 use neovm_core::face::{
@@ -29,6 +30,13 @@ pub(crate) fn buffer_local_value<'a>(buffer: &'a Buffer, name: &str) -> Option<&
         .properties
         .get(name)
         .and_then(|binding| binding.as_ref())
+}
+
+fn effective_buffer_value(buffer: &Buffer, obarray: &Obarray, name: &str) -> Option<Value> {
+    buffer
+        .get_buffer_local_binding(name)
+        .and_then(|binding| binding.as_value())
+        .or_else(|| obarray.symbol_value(name).copied())
 }
 
 /// Build `FrameParams` from a neovm-core `Frame`, reading default face
@@ -70,6 +78,13 @@ pub(crate) fn buffer_local_int(buffer: &Buffer, name: &str, default: i64) -> i64
     }
 }
 
+fn effective_buffer_int(buffer: &Buffer, obarray: &Obarray, name: &str, default: i64) -> i64 {
+    match effective_buffer_value(buffer, obarray, name) {
+        Some(Value::Int(n)) => n,
+        _ => default,
+    }
+}
+
 /// Helper: extract a boolean buffer-local variable (nil = false, anything else = true).
 pub(crate) fn buffer_local_bool(buffer: &Buffer, name: &str) -> bool {
     match buffer_local_value(buffer, name) {
@@ -78,11 +93,10 @@ pub(crate) fn buffer_local_bool(buffer: &Buffer, name: &str) -> bool {
     }
 }
 
-pub(crate) fn buffer_local_bool_default(buffer: &Buffer, name: &str, default: bool) -> bool {
-    match buffer_local_value(buffer, name) {
-        Some(Value::Nil) => false,
+fn effective_buffer_bool(buffer: &Buffer, obarray: &Obarray, name: &str) -> bool {
+    match effective_buffer_value(buffer, obarray, name) {
+        Some(Value::Nil) | None => false,
         Some(_) => true,
-        None => default,
     }
 }
 
@@ -281,6 +295,7 @@ pub fn window_params_from_neovm(
     window: &Window,
     buffer: &Buffer,
     frame: &Frame,
+    obarray: &Obarray,
     face_table: &FaceTable,
     default_font_ascent: Option<f32>,
     is_selected: bool,
@@ -355,9 +370,9 @@ pub fn window_params_from_neovm(
     let text_bounds = Rect::new(text_x, bounds.y, text_width, bounds.height);
 
     // Read buffer-local variables.
-    let truncate_lines = buffer_local_bool(buffer, "truncate-lines");
-    let word_wrap = buffer_local_bool(buffer, "word-wrap");
-    let tab_width = buffer_local_int(buffer, "tab-width", 8) as i32;
+    let truncate_lines = effective_buffer_bool(buffer, obarray, "truncate-lines");
+    let word_wrap = effective_buffer_bool(buffer, obarray, "word-wrap");
+    let tab_width = effective_buffer_int(buffer, obarray, "tab-width", 8) as i32;
 
     // GNU xdisp.c sizes mode/header/tab lines from the realized face metrics,
     // including horizontal box pixels, not just the frame default char height.
@@ -376,7 +391,9 @@ pub fn window_params_from_neovm(
     };
 
     let cursor_in_non_selected =
-        buffer_local_bool_default(buffer, "cursor-in-non-selected-windows", true);
+        effective_buffer_value(buffer, obarray, "cursor-in-non-selected-windows")
+            .map(|value| !value.is_nil())
+            .unwrap_or(true);
     let cursor_spec = effective_cursor_spec(
         frame,
         buffer,
@@ -391,7 +408,7 @@ pub fn window_params_from_neovm(
     let cursor_color = frame_cursor_color_pixel(frame, face_table);
 
     // Header-line: show if header-line-format is non-nil
-    let header_line_height = if buffer_local_bool(buffer, "header-line-format") {
+    let header_line_height = if effective_buffer_bool(buffer, obarray, "header-line-format") {
         let header_line_face_name = if is_selected {
             "header-line-active"
         } else {
@@ -406,7 +423,7 @@ pub fn window_params_from_neovm(
     };
 
     // Tab-line: show if tab-line-format is non-nil
-    let tab_line_height = if buffer_local_bool(buffer, "tab-line-format") {
+    let tab_line_height = if effective_buffer_bool(buffer, obarray, "tab-line-format") {
         chrome_face_pixel_height(&face_resolver.resolve_named_face("tab-line"), char_height)
     } else {
         0.0
@@ -523,6 +540,7 @@ pub fn collect_layout_params(
             window,
             buffer,
             frame,
+            evaluator.obarray(),
             evaluator.face_table(),
             default_font_ascent,
             is_selected,
@@ -564,6 +582,7 @@ pub fn collect_layout_params(
                 mini_leaf,
                 buffer,
                 frame,
+                evaluator.obarray(),
                 evaluator.face_table(),
                 default_font_ascent,
                 is_selected,
@@ -1506,6 +1525,7 @@ mod tests {
             &internal,
             &buf,
             frame,
+            evaluator.obarray(),
             evaluator.face_table(),
             None,
             false,
@@ -1513,6 +1533,44 @@ mod tests {
             Value::True,
         );
         assert!(result.is_none(), "Internal windows should return None");
+    }
+
+    #[test]
+    fn window_params_from_neovm_uses_default_header_line_and_tab_line_values() {
+        install_test_runtime();
+
+        let mut evaluator = neovm_core::emacs_core::Evaluator::new();
+        let buf_id = evaluator.buffer_manager_mut().create_buffer("*test*");
+        let frame_id = evaluator
+            .frame_manager_mut()
+            .create_frame("test", 800, 600, buf_id);
+
+        evaluator
+            .obarray_mut()
+            .set_symbol_value("header-line-format", Value::string("Header sample"));
+        evaluator
+            .obarray_mut()
+            .set_symbol_value("tab-line-format", Value::string("Tab sample"));
+
+        let frame = evaluator.frame_manager().get(frame_id).unwrap();
+        let buffer = evaluator.buffer_manager().get(buf_id).unwrap();
+        let window = frame.root_window.find(frame.selected_window).unwrap();
+
+        let params = window_params_from_neovm(
+            window,
+            buffer,
+            frame,
+            evaluator.obarray(),
+            evaluator.face_table(),
+            None,
+            true,
+            false,
+            Value::True,
+        )
+        .expect("leaf window params");
+
+        assert!(params.header_line_height > 0.0);
+        assert!(params.tab_line_height > 0.0);
     }
 
     #[test]
@@ -1553,6 +1611,7 @@ mod tests {
             frame.find_window(selected_window).expect("selected window"),
             buffer,
             frame,
+            evaluator.obarray(),
             evaluator.face_table(),
             None,
             true,
