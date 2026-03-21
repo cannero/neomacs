@@ -4254,12 +4254,84 @@ pub(crate) fn builtin_internal_event_symbol_parse_modifiers(args: Vec<Value>) ->
             vec![Value::symbol("symbolp"), args[0]],
         )
     })?;
-    let (mut modifiers, base) = parse_event_symbol_prefixes(name);
-    modifiers.reverse();
 
+    // Parse GNU-compatible modifiers including multi-letter ones
+    // (down-, double-, triple-, drag-) and implicit click for mouse events.
+    let (modifiers_bits, base) = parse_event_modifiers_gnu(name);
     let mut out = vec![Value::symbol(base)];
-    out.extend(modifiers);
+    // Build modifier list in GNU's canonical order
+    for (bit, sym) in [
+        (1 << 0, "meta"),
+        (1 << 1, "control"),
+        (1 << 2, "shift"),
+        (1 << 3, "hyper"),
+        (1 << 4, "super"),
+        (1 << 5, "alt"),
+        (1 << 6, "click"),
+        (1 << 7, "down"),
+        (1 << 8, "drag"),
+        (1 << 9, "double"),
+        (1 << 10, "triple"),
+        (1 << 11, "up"),
+    ] {
+        if modifiers_bits & bit != 0 {
+            out.push(Value::symbol(sym));
+        }
+    }
     Ok(Value::list(out))
+}
+
+/// Parse event symbol modifiers matching GNU keyboard.c logic.
+/// Returns (modifier_bitmask, base_event_name).
+fn parse_event_modifiers_gnu(name: &str) -> (u32, &str) {
+    let mut bits: u32 = 0;
+    let mut rest = name;
+
+    loop {
+        if let Some(r) = rest.strip_prefix("M-") {
+            bits |= 1 << 0;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("C-") {
+            bits |= 1 << 1;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("S-") {
+            bits |= 1 << 2;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("H-") {
+            bits |= 1 << 3;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("s-") {
+            bits |= 1 << 4;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("A-") {
+            bits |= 1 << 5;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("down-") {
+            bits |= 1 << 7;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("drag-") {
+            bits |= 1 << 8;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("double-") {
+            bits |= 1 << 9;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("triple-") {
+            bits |= 1 << 10;
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("up-") {
+            bits |= 1 << 11;
+            rest = r;
+        } else {
+            break;
+        }
+    }
+
+    // GNU: mouse-N events without down/drag/up get implicit click
+    if rest.starts_with("mouse-") && (bits & ((1 << 7) | (1 << 8) | (1 << 11))) == 0 {
+        bits |= 1 << 6; // click
+    }
+
+    (bits, rest)
 }
 
 pub(crate) fn builtin_internal_handle_focus_in(args: Vec<Value>) -> EvalResult {
