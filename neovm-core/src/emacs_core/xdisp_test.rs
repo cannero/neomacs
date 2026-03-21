@@ -9,6 +9,7 @@ fn test_register_bootstrap_vars_include_tab_bar_display_vars() {
     let mut obarray = crate::emacs_core::symbol::Obarray::new();
     register_bootstrap_vars(&mut obarray);
 
+    assert_eq!(obarray.symbol_value("inhibit-redisplay"), Some(&Value::Nil));
     assert_eq!(
         obarray.symbol_value("auto-resize-tab-bars"),
         Some(&Value::True)

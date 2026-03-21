@@ -3000,6 +3000,7 @@ pub(crate) fn builtin_posn_at_x_y_in_state(
 
 pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray) {
     obarray.set_symbol_value("redisplay--inhibit-bidi", Value::True);
+    obarray.set_symbol_value("inhibit-redisplay", Value::Nil);
     obarray.set_symbol_value("blink-matching-delay", Value::Int(1));
     obarray.set_symbol_value("blink-matching-paren", Value::True);
     obarray.set_symbol_value("mouse-autoselect-window", Value::Nil);
