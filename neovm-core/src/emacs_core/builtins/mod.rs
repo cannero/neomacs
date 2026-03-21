@@ -923,6 +923,7 @@ pub(crate) fn dispatch_builtin(
             return Some(builtin_internal_make_var_non_special_eval(eval, args));
         }
         "indirect-variable" => return Some(builtin_indirect_variable_eval(eval, args)),
+        "handler-bind-1" => return Some(builtin_handler_bind_1_eval(eval, args)),
         "symbol-value" => return Some(builtin_symbol_value(eval, args)),
         "symbol-function" => return Some(builtin_symbol_function(eval, args)),
         "set" => return Some(builtin_set(eval, args)),
@@ -3155,7 +3156,7 @@ pub(crate) fn dispatch_builtin(
         }
         "encode-coding-region" => builtin_encode_coding_region(args),
         "find-operation-coding-system" => builtin_find_operation_coding_system(args),
-        "handler-bind-1" => builtin_handler_bind_1(args),
+        "handler-bind-1" => return None,
         "iso-charset" => builtin_iso_charset(args),
         "keymap--get-keyelt" => builtin_keymap_get_keyelt(args),
         "keymap-prompt" => builtin_keymap_prompt(args),
@@ -4061,7 +4062,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         }
         "encode-coding-region" => builtin_encode_coding_region(args),
         "find-operation-coding-system" => builtin_find_operation_coding_system(args),
-        "handler-bind-1" => builtin_handler_bind_1(args),
+        "handler-bind-1" => return None,
         "iso-charset" => builtin_iso_charset(args),
         "keymap--get-keyelt" => builtin_keymap_get_keyelt(args),
         "keymap-prompt" => builtin_keymap_prompt(args),

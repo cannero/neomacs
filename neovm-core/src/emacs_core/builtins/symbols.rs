@@ -4552,7 +4552,55 @@ pub(crate) fn builtin_find_operation_coding_system(args: Vec<Value>) -> EvalResu
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_handler_bind_1(args: Vec<Value>) -> EvalResult {
+fn push_signal_temp_roots(eval: &mut super::eval::Evaluator, sig: &super::error::SignalData) {
+    for value in &sig.data {
+        eval.push_temp_root(*value);
+    }
+    if let Some(raw) = &sig.raw_data {
+        eval.push_temp_root(*raw);
+    }
+}
+
+fn resume_handler_bind_signal(
+    eval: &mut super::eval::Evaluator,
+    handlers: &[(Value, Value)],
+    start: usize,
+    sig: super::error::SignalData,
+) -> EvalResult {
+    let saved = eval.save_temp_roots();
+    push_signal_temp_roots(eval, &sig);
+
+    for (idx, (conditions, handler)) in handlers.iter().enumerate().skip(start) {
+        if !crate::emacs_core::errors::signal_matches_condition_value(
+            eval.obarray(),
+            sig.symbol_name(),
+            conditions,
+        ) {
+            continue;
+        }
+
+        let result = eval.apply(
+            *handler,
+            vec![super::error::make_signal_binding_value(&sig)],
+        );
+        eval.restore_temp_roots(saved);
+        return match result {
+            Ok(_) => resume_handler_bind_signal(eval, handlers, idx + 1, sig),
+            Err(Flow::Signal(next_sig)) => {
+                resume_handler_bind_signal(eval, handlers, idx + 1, next_sig)
+            }
+            Err(flow @ Flow::Throw { .. }) => Err(flow),
+        };
+    }
+
+    eval.restore_temp_roots(saved);
+    Err(Flow::Signal(sig))
+}
+
+pub(crate) fn builtin_handler_bind_1_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -4562,7 +4610,34 @@ pub(crate) fn builtin_handler_bind_1(args: Vec<Value>) -> EvalResult {
             ],
         ));
     }
-    Ok(Value::Nil)
+    if args.len() % 2 == 0 {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "Trailing CONDITIONS without HANDLER in `handler-bind`",
+            )],
+        ));
+    }
+
+    let saved = eval.save_temp_roots();
+    for value in &args {
+        eval.push_temp_root(*value);
+    }
+
+    let bodyfun = args[0];
+    let handlers: Vec<(Value, Value)> = args[1..]
+        .chunks_exact(2)
+        .filter_map(|pair| (!pair[0].is_nil()).then_some((pair[0], pair[1])))
+        .collect();
+
+    let result = match eval.apply(bodyfun, vec![]) {
+        Ok(value) => Ok(value),
+        Err(Flow::Signal(sig)) => resume_handler_bind_signal(eval, &handlers, 0, sig),
+        Err(flow @ Flow::Throw { .. }) => Err(flow),
+    };
+
+    eval.restore_temp_roots(saved);
+    result
 }
 
 pub(crate) fn builtin_defconst_1(args: Vec<Value>) -> EvalResult {

@@ -5263,13 +5263,13 @@ fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
             .expect("builtin find-operation-coding-system should evaluate");
     assert!(find_operation.is_nil());
 
-    let handler_bind = dispatch_builtin_pure(
-        "handler-bind-1",
-        vec![Value::list(vec![]), Value::symbol("body")],
-    )
-    .expect("builtin handler-bind-1 should resolve")
-    .expect("builtin handler-bind-1 should evaluate");
-    assert!(handler_bind.is_nil());
+    assert!(
+        dispatch_builtin_pure(
+            "handler-bind-1",
+            vec![Value::list(vec![]), Value::symbol("body")],
+        )
+        .is_none()
+    );
 }
 
 #[test]

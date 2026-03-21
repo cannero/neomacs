@@ -251,6 +251,15 @@ fn gnu_simple_eval_expression_eval() -> Evaluator {
     ev
 }
 
+fn read_first_object(ev: &mut Evaluator, src: &str) -> Value {
+    let result = crate::emacs_core::reader::builtin_read_from_string(ev, vec![Value::string(src)])
+        .unwrap_or_else(|err| panic!("read-from-string failed for {src:?}: {err:?}"));
+    let Value::Cons(cell) = result else {
+        panic!("expected cons from read-from-string, got {result:?}");
+    };
+    crate::emacs_core::value::read_cons(cell).car
+}
+
 fn gnu_simple_command_execute_with_eval_expression_eval() -> Evaluator {
     let mut ev = gnu_simple_command_execute_eval();
     load_gnu_eval_expression_into(&mut ev);
@@ -3486,6 +3495,22 @@ fn call_interactively_eval_expression_reads_stdin_in_batch() {
 }
 
 #[test]
+fn bootstrap_read_expression_internal_map_installs_try_read_binding() {
+    let result = bootstrap_eval_all(
+        r#"(list (lookup-key read-expression-map (kbd "RET"))
+                 (lookup-key read--expression-map (kbd "RET"))
+                 (lookup-key read--expression-map (kbd "C-j")))"#,
+    )
+    .into_iter()
+    .next()
+    .expect("bootstrap read--expression-map result");
+    assert_eq!(
+        result,
+        "OK (exit-minibuffer read--expression-try-read read--expression-try-read)"
+    );
+}
+
+#[test]
 fn eval_expression_rejects_too_many_args() {
     let mut ev = gnu_simple_eval_expression_eval();
     let result = ev
@@ -3508,6 +3533,59 @@ fn eval_expression_rejects_too_many_args() {
         }
         other => panic!("unexpected flow: {other:?}"),
     }
+}
+
+#[test]
+fn eval_expression_apply_executes_form_argument() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+
+    let expr = read_first_object(&mut ev, r#"(message "NEO-OK")"#);
+    let result = ev
+        .apply(
+            Value::symbol("eval-expression"),
+            vec![expr, Value::Nil, Value::Nil, Value::Int(127)],
+        )
+        .expect("eval-expression should evaluate message form");
+    let rendered = crate::emacs_core::print::print_value(&result);
+    let current_message = ev
+        .apply(Value::symbol("current-message"), vec![])
+        .expect("current-message should be readable after eval-expression");
+
+    assert_eq!(
+        result.as_str(),
+        Some("NEO-OK"),
+        "unexpected eval-expression result={rendered} current-message={:?}",
+        current_message.as_str()
+    );
+}
+
+#[test]
+fn call_interactively_eval_expression_executes_read_expression_result() {
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+
+    eval_all_with(
+        &mut ev,
+        r#"
+        (defun read--expression (&rest _args) '(message "NEO-OK"))
+        (defun eval-expression-get-print-arguments (&rest _args) nil)
+        "#,
+    );
+
+    let result = builtin_call_interactively(&mut ev, vec![Value::symbol("eval-expression")])
+        .expect("call-interactively eval-expression should succeed");
+    let rendered = crate::emacs_core::print::print_value(&result);
+    let current_message = ev
+        .apply(Value::symbol("current-message"), vec![])
+        .expect("current-message should be readable after call-interactively");
+
+    assert_eq!(
+        result.as_str(),
+        Some("NEO-OK"),
+        "unexpected interactive eval-expression result={rendered} current-message={:?}",
+        current_message.as_str()
+    );
 }
 
 #[test]

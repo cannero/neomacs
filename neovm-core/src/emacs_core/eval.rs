@@ -1981,12 +1981,10 @@ impl Evaluator {
         let completion_in_region_mode_map = make_sparse_list_keymap();
         let completion_list_mode_map = make_sparse_list_keymap();
         let minibuffer_local_map = make_sparse_list_keymap();
-        // Keep only the base minibuffer map here.  GNU Lisp mutates this map in
-        // minibuffer.el, while the derived minibuffer/read maps are defined in
-        // Lisp via defvar/defvar-keymap.  Prebinding those derived maps here
-        // prevents GNU's Lisp definitions from installing their real bindings.
-        let read_expression_map = make_sparse_list_keymap();
-        let read_expression_internal_map = make_sparse_list_keymap();
+        // Keep only the base minibuffer map here. GNU Lisp defines
+        // `read-expression-map` / `read--expression-map` itself in simple.el via
+        // `defvar-keymap`; prebinding them here causes those definitions to be
+        // skipped, which leaves RET/C-j handling diverged from GNU Emacs.
         // Standard keymaps required by loadup.el files (normally created by C code)
         // `global-map`, `esc-map`, `ctl-x-map`, and `help-map` are defined in GNU Lisp,
         // so keep them unbound here and let the Lisp `defvar` / `defvar-keymap`
@@ -2007,9 +2005,6 @@ impl Evaluator {
         // (keyboard.c:13097). Without this, bindings in function-key-map
         // (like [backspace] → [?\C-?]) are not found during key translation.
         list_keymap_set_parent(local_function_key_map, function_key_map);
-
-        list_keymap_set_parent(read_expression_map, minibuffer_local_map);
-        list_keymap_set_parent(read_expression_internal_map, read_expression_map);
 
         let standard_syntax_table = super::syntax::builtin_standard_syntax_table(Vec::new())
             .expect("startup seeding requires standard syntax table");
@@ -2151,6 +2146,10 @@ impl Evaluator {
         obarray.set_symbol_value("print-integers-as-characters", Value::Nil);
         obarray.set_symbol_value("print-unreadable-function", Value::Nil);
         obarray.set_symbol_value("text-quoting-style", Value::Nil);
+        // GNU seeds these from C before Lisp startup: `values` in lread.c and
+        // `debugger` in eval.c. `eval-expression` relies on both.
+        obarray.set_symbol_value("values", Value::Nil);
+        obarray.set_symbol_value("debugger", Value::symbol("debug-early"));
         obarray.set_symbol_value("standard-output", Value::True);
         obarray.set_symbol_value("buffer-read-only", Value::Nil);
         obarray.set_symbol_value("left-margin-width", Value::Nil);
@@ -2412,8 +2411,6 @@ impl Evaluator {
             "read-answer-map--memoize",
             Value::hash_table(HashTableTest::Equal),
         );
-        obarray.set_symbol_value("read-expression-map", read_expression_map);
-        obarray.set_symbol_value("read--expression-map", read_expression_internal_map);
         obarray.set_symbol_value("read-extended-command-mode", Value::Nil);
         obarray.set_symbol_value("read-extended-command-mode-hook", Value::Nil);
         obarray.set_symbol_value("read-extended-command-predicate", Value::Nil);
@@ -2908,6 +2905,7 @@ impl Evaluator {
         // Mark standard variables as special (dynamically bound)
         for name in &[
             "debug-on-error",
+            "debugger",
             "lexical-binding",
             "load-prefer-newer",
             "load-path",
