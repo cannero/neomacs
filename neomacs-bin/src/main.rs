@@ -615,6 +615,8 @@ fn main() {
 
     // 3. Bootstrap the host-side initial frame/buffers.
     let _bootstrap = bootstrap_buffers(&mut evaluator, width, height, bootstrap_display);
+    neovm_core::emacs_core::load::apply_runtime_startup_state(&mut evaluator)
+        .expect("runtime startup state should succeed");
     let frame_id = evaluator
         .frame_manager()
         .selected_frame()
@@ -783,36 +785,49 @@ fn bootstrap_buffers(
     display: BootstrapDisplayConfig,
 ) -> BootstrapResult {
     let frame_metrics = bootstrap_frame_metrics();
+    let find_or_create_buffer = |eval: &mut Evaluator, name: &str| {
+        eval.buffer_manager()
+            .find_buffer_by_name(name)
+            .unwrap_or_else(|| eval.buffer_manager_mut().create_buffer(name))
+    };
 
-    // Create *scratch* buffer with initial content
-    let scratch_id = eval.buffer_manager_mut().create_buffer("*scratch*");
+    // Reuse GNU startup buffers instead of creating duplicate names on top of
+    // cached bootstrap state.
+    let scratch_id = find_or_create_buffer(eval, "*scratch*");
+    let _ = eval
+        .buffer_manager_mut()
+        .clear_buffer_labeled_restrictions(scratch_id);
     if let Some(buf) = eval.buffer_manager_mut().get_mut(scratch_id) {
+        buf.widen();
         let content = ";; This buffer is for text that is not saved, and for Lisp evaluation.\n\
                        ;; To create a file, visit it with C-x C-f and enter text in its buffer.\n\n";
-        buf.text.insert_str(0, content);
-        let cc = buf.text.char_count();
-        buf.begv = 0;
-        buf.zv = cc;
-        buf.pt = cc;
+        if buf.text.len() == 0 {
+            buf.goto_byte(0);
+            buf.insert(content);
+            buf.set_modified(false);
+        }
+        buf.goto_byte(buf.point_max());
     }
 
     // Set *scratch* as the current buffer
     eval.buffer_manager_mut().set_current(scratch_id);
 
-    // Create *Messages* buffer
-    let msg_id = eval.buffer_manager_mut().create_buffer("*Messages*");
+    let msg_id = find_or_create_buffer(eval, "*Messages*");
+    let _ = eval
+        .buffer_manager_mut()
+        .clear_buffer_labeled_restrictions(msg_id);
     if let Some(buf) = eval.buffer_manager_mut().get_mut(msg_id) {
-        buf.begv = 0;
-        buf.zv = 0;
-        buf.pt = 0;
+        buf.widen();
+        buf.goto_byte(0);
     }
 
-    // Create *Minibuf-0*
-    let mini_id = eval.buffer_manager_mut().create_buffer(" *Minibuf-0*");
+    let mini_id = find_or_create_buffer(eval, " *Minibuf-0*");
+    let _ = eval
+        .buffer_manager_mut()
+        .clear_buffer_labeled_restrictions(mini_id);
     if let Some(buf) = eval.buffer_manager_mut().get_mut(mini_id) {
-        buf.begv = 0;
-        buf.zv = 0;
-        buf.pt = 0;
+        buf.widen();
+        buf.goto_byte(0);
     }
 
     let frame_id = {
@@ -1118,7 +1133,8 @@ mod tests {
     use neovm_core::emacs_core::GuiFrameHostRequest;
     use neovm_core::emacs_core::Value;
     use neovm_core::emacs_core::load::{
-        create_bootstrap_evaluator_cached_with_features, create_bootstrap_evaluator_with_features,
+        apply_runtime_startup_state, create_bootstrap_evaluator_cached_with_features,
+        create_bootstrap_evaluator_with_features,
     };
     use neovm_core::emacs_core::parse_forms;
     use neovm_core::emacs_core::print_value_with_eval;
@@ -1147,6 +1163,18 @@ mod tests {
             forwarded_args,
             terminal_device: None,
         }
+    }
+
+    fn bootstrap_runtime_gui_startup(eval: &mut Evaluator) -> FrameId {
+        let _bootstrap = bootstrap_buffers(eval, 960, 640, gui_display());
+        apply_runtime_startup_state(eval).expect("runtime startup state should succeed");
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        configure_gnu_startup_state(eval, frame_id, &gui_startup());
+        frame_id
     }
 
     #[test]
@@ -1451,16 +1479,35 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_buffers_reuses_existing_named_buffers_in_cached_bootstrap() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let original_scratch = eval
+            .buffer_manager()
+            .find_buffer_by_name("*scratch*")
+            .expect("bootstrap scratch");
+
+        let bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+
+        assert_eq!(bootstrap.scratch_id, original_scratch);
+        let scratch_count = eval
+            .buffer_manager()
+            .buffer_list()
+            .into_iter()
+            .filter(|id| {
+                eval.buffer_manager()
+                    .get(*id)
+                    .is_some_and(|buffer| buffer.name == "*scratch*")
+            })
+            .count();
+        assert_eq!(scratch_count, 1);
+    }
+
+    #[test]
     fn gnu_startup_keeps_scratch_selected_under_q_startup() {
         let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
             .expect("cached bootstrap evaluator");
-        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
-        let frame_id = eval
-            .frame_manager()
-            .selected_frame()
-            .expect("selected frame after bootstrap")
-            .id;
-        configure_gnu_startup_state(&mut eval, frame_id, &gui_startup());
+        let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
         run_gnu_startup(&mut eval);
 
@@ -1469,6 +1516,36 @@ mod tests {
             .current_buffer()
             .expect("current buffer after startup");
         assert_eq!(current.name, "*scratch*");
+    }
+
+    #[test]
+    fn gnu_startup_keeps_scratch_text_accessible_under_q_startup() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+        run_gnu_startup(&mut eval);
+
+        let forms = parse_forms(
+            r#"(with-current-buffer (current-buffer)
+                 (list (buffer-name)
+                       major-mode
+                       (> (point-max) 1)
+                       (> (buffer-size) 0)
+                       (> (length
+                           (buffer-substring-no-properties
+                            (point-min)
+                            (min (point-max) (+ (point-min) 16))))
+                          0)))"#,
+        )
+        .expect("parse scratch accessibility probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("scratch accessibility probe should evaluate");
+        assert_eq!(
+            print_value_with_eval(&mut eval, &result),
+            "(\"*scratch*\" lisp-interaction-mode t t t)"
+        );
     }
 
     #[test]
