@@ -130,6 +130,11 @@ impl StatusLineFace {
     }
 
     pub(crate) fn from_resolved(face_id: u32, face: &ResolvedFace) -> Self {
+        let font_descent = if face.font_line_height > 0.0 && face.font_ascent > 0.0 {
+            (face.font_line_height - face.font_ascent).max(0.0).round() as i32
+        } else {
+            0
+        };
         Self {
             face_id,
             foreground: Color::from_pixel(face.fg),
@@ -170,7 +175,7 @@ impl StatusLineFace {
             box_h_line_width: face.box_line_width,
             font_char_width: face.font_char_width,
             font_ascent: face.font_ascent,
-            font_descent: 0,
+            font_descent,
             underline_position: 1,
             underline_thickness: 1,
             stipple: 0,
@@ -662,12 +667,19 @@ impl LayoutEngine {
         } else {
             0.0
         };
-        let text_y = spec.y + inset;
         let ascent = if spec.face.font_ascent > 0.0 {
             spec.face.font_ascent
         } else {
             spec.ascent
         };
+        let line_height = if spec.face.font_ascent > 0.0 || spec.face.font_descent > 0 {
+            (spec.face.font_ascent + spec.face.font_descent as f32).max(1.0)
+        } else {
+            spec.height.max(1.0)
+        };
+        let available_height = (spec.height - inset * 2.0).max(0.0);
+        let vertical_padding = (available_height - line_height).max(0.0) / 2.0;
+        let text_y = spec.y + inset + vertical_padding;
 
         Self::add_stretch_for_status_line_face(
             &spec.face,
@@ -1688,5 +1700,45 @@ mod tests {
             "status-line background stretch missing"
         );
         assert!(saw_mode_line_char, "status-line text glyphs missing");
+    }
+
+    #[test]
+    fn render_rust_status_line_plain_centers_face_within_row_height() {
+        let mut engine = LayoutEngine::new();
+        let mut fgb = FrameGlyphBuffer::with_size(320.0, 200.0);
+        let mut face = ResolvedFace::default();
+        face.bg = 0x00C0C0C0;
+        face.font_family = "monospace".to_string();
+        face.font_size = 14.0;
+        face.font_char_width = 8.0;
+        face.font_ascent = 9.0;
+        face.font_line_height = 12.0;
+
+        engine.render_rust_status_line_plain(
+            10.0,
+            150.0,
+            200.0,
+            20.0,
+            42,
+            8.0,
+            12.0,
+            7,
+            &face,
+            "x".to_string(),
+            &mut fgb,
+            StatusLineKind::ModeLine,
+        );
+
+        let (glyph_y, glyph_baseline) = fgb
+            .glyphs
+            .iter()
+            .find_map(|glyph| match glyph {
+                FrameGlyph::Char { y, baseline, .. } => Some((*y, *baseline)),
+                _ => None,
+            })
+            .expect("status-line text glyph missing");
+
+        assert_eq!(glyph_y, 154.0);
+        assert_eq!(glyph_baseline, 163.0);
     }
 }
