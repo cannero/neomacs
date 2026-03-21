@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::Evaluator;
 use crate::emacs_core::value::{
     StringTextPropertyRun, get_string_text_properties_table, set_string_text_properties,
 };
@@ -827,6 +828,56 @@ fn test_format_mode_line_position_o_and_q_specs() {
     .expect("top pos");
     // window_start=0 and window_end(=zv)=100 >= zv → All
     assert_eq!(at_top, Value::string("All|All"));
+}
+
+#[test]
+fn test_format_mode_line_percent_specs_use_window_buffer_and_completed_window_end() {
+    let mut eval = Evaluator::new();
+    let target_id = eval.buffers.create_buffer("window-target");
+    {
+        let buffer = eval.buffers.get_mut(target_id).expect("target buffer");
+        buffer.insert(&"x".repeat(100));
+    }
+    let other_id = eval.buffers.create_buffer("other-buffer");
+    {
+        let buffer = eval.buffers.get_mut(other_id).expect("other buffer");
+        buffer.insert(&"y".repeat(1000));
+    }
+    let frame_id = eval.frames.create_frame("pos-frame", 80, 24, target_id);
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
+    {
+        let target = eval.buffers.get(target_id).expect("target buffer");
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        let window = frame
+            .find_window_mut(selected_window)
+            .expect("selected window");
+        match window {
+            crate::window::Window::Leaf { window_start, .. } => {
+                *window_start = 20;
+                window.set_window_end_from_positions(
+                    target.point_max_char().saturating_add(1),
+                    target.point_max_byte(),
+                    target.point_max_char(),
+                    target.point_max_byte(),
+                    0,
+                );
+            }
+            other => panic!("expected leaf window, got {:?}", other),
+        }
+    }
+    eval.buffers.set_current(other_id);
+
+    let rendered = builtin_format_mode_line_eval(
+        &mut eval,
+        vec![
+            Value::string("%o|%p|%P"),
+            Value::Nil,
+            Value::Window(selected_window.0),
+        ],
+    )
+    .expect("mode-line percent specs");
+
+    assert_eq!(rendered, Value::string("Bottom|Bottom|Bottom"));
 }
 
 #[test]

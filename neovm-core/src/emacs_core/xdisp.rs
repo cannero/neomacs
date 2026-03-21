@@ -469,6 +469,10 @@ fn build_mode_line_percent_context(
 
     // --- Window start/end (GNU: w->start, BUF_Z(b) - w->window_end_pos) ---
     let resolved_window = resolve_mode_line_window(frames, window_arg);
+    let context_buffer = resolved_window
+        .and_then(|window| window.buffer_id())
+        .and_then(|buffer_id| buffers.get(buffer_id))
+        .or_else(|| buffers.current_buffer());
     if let Some(window) = resolved_window {
         if let crate::window::Window::Leaf {
             window_start,
@@ -479,25 +483,23 @@ fn build_mode_line_percent_context(
             // Window positions are 1-indexed (Elisp convention); convert to
             // 0-indexed to match buffer begv/zv.
             ctx.window_start = window_start.saturating_sub(1);
-            if let Some(buf) = buffers.current_buffer() {
+            if let Some(buf) = context_buffer {
                 ctx.window_end = buf
                     .point_max_char()
                     .saturating_add(1)
-                    .saturating_sub(*window_end_pos)
-                    .saturating_sub(1);
+                    .saturating_sub(*window_end_pos);
             } else {
                 ctx.window_end = ctx.window_start;
             }
         }
-    } else if let Some(buf) = buffers.current_buffer() {
+    } else if let Some(buf) = context_buffer {
         // Fallback: use buffer positions when no window is available.
         ctx.window_start = 0;
         ctx.window_end = buf.point_max_char();
     }
 
     // --- Coding system mnemonic (GNU: decode_mode_spec_coding) ---
-    let cs_name = buffers
-        .current_buffer()
+    let cs_name = context_buffer
         .and_then(|b| b.get_buffer_local("buffer-file-coding-system"))
         .and_then(|v| v.as_symbol_name().map(|s| s.to_string()));
     if let Some(ref name) = cs_name {
