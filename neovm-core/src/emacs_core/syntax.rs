@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{RuntimeBindingValue, Value, read_cons, with_heap};
+use super::value::{RuntimeBindingValue, Value, list_to_vec, read_cons, with_heap};
 use crate::buffer::{Buffer, BufferManager};
 
 thread_local! {
@@ -2539,67 +2539,487 @@ pub(crate) fn builtin_scan_sexps_in_manager(
     }
 }
 
-fn parse_state_from_range(buf: &Buffer, table: &SyntaxTable, from: i64, to: i64) -> Value {
-    let chars: Vec<char> = buf.buffer_string().chars().collect();
-    let from_idx = if from > 0 { from as usize - 1 } else { 0 };
-    let to_idx = if to > 0 { to as usize - 1 } else { 0 }.min(chars.len());
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParseStringState {
+    Delim(char),
+    Fence,
+}
 
-    let mut depth = 0i64;
-    let mut stack: Vec<i64> = Vec::new();
-    let mut last_sexp_start: Option<i64> = None;
-    let mut completed_toplevel_list_start: Option<i64> = None;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParseCommentState {
+    Syntax {
+        depth: i64,
+        style_b: bool,
+        nestable: bool,
+    },
+    Fence {
+        depth: i64,
+    },
+}
 
-    if to_idx > from_idx {
-        for (idx, ch) in chars[from_idx..to_idx].iter().enumerate() {
-            let pos1 = (from_idx + idx + 1) as i64;
-            match table.char_syntax(*ch) {
-                SyntaxClass::Open => {
-                    depth += 1;
-                    stack.push(pos1);
-                }
-                SyntaxClass::Close => {
-                    if depth > 0 {
-                        depth -= 1;
-                    }
-                    if let Some(open_pos) = stack.pop() {
-                        if depth == 0 {
-                            completed_toplevel_list_start = Some(open_pos);
-                        }
-                    }
-                }
-                SyntaxClass::Whitespace | SyntaxClass::Comment | SyntaxClass::EndComment => {}
-                _ => {
-                    if last_sexp_start.is_none() {
-                        last_sexp_start = Some(pos1);
-                    }
-                }
-            }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommentStopMode {
+    None,
+    Comment,
+    SyntaxTable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PartialParseState {
+    depth: i64,
+    mindepth: i64,
+    stack: Vec<i64>,
+    last_sexp_start: Option<i64>,
+    completed_toplevel_list_start: Option<i64>,
+    in_string: Option<ParseStringState>,
+    in_comment: Option<ParseCommentState>,
+    comment_or_string_start: Option<i64>,
+    quoted: bool,
+}
+
+impl PartialParseState {
+    fn new() -> Self {
+        Self {
+            depth: 0,
+            mindepth: 0,
+            stack: Vec::new(),
+            last_sexp_start: None,
+            completed_toplevel_list_start: None,
+            in_string: None,
+            in_comment: None,
+            comment_or_string_start: None,
+            quoted: false,
         }
     }
 
-    if let Some(open_pos) = completed_toplevel_list_start {
-        last_sexp_start = Some(open_pos);
+    fn from_oldstate(oldstate: Option<&Value>) -> Self {
+        let mut state = Self::new();
+        let Some(oldstate) = oldstate else {
+            return state;
+        };
+        let Some(items) = list_to_vec(oldstate) else {
+            return state;
+        };
+
+        state.depth = items
+            .first()
+            .and_then(|v| match v {
+                Value::Int(n) => Some(*n),
+                _ => None,
+            })
+            .unwrap_or(0);
+
+        if let Some(Value::Int(start)) = items.get(8) {
+            state.comment_or_string_start = Some(*start);
+        }
+
+        if let Some(Value::True) = items.get(5) {
+            state.quoted = true;
+        }
+
+        if let Some(item) = items.get(3) {
+            state.in_string = match item {
+                Value::Nil => None,
+                Value::True => Some(ParseStringState::Fence),
+                Value::Int(n) => u32::try_from(*n)
+                    .ok()
+                    .and_then(char::from_u32)
+                    .map(ParseStringState::Delim),
+                _ => None,
+            };
+        }
+
+        if let Some(item) = items.get(4) {
+            state.in_comment = match item {
+                Value::Nil => None,
+                Value::True => Some(ParseCommentState::Syntax {
+                    depth: 1,
+                    style_b: false,
+                    nestable: false,
+                }),
+                Value::Int(n) => Some(ParseCommentState::Syntax {
+                    depth: *n,
+                    style_b: false,
+                    nestable: true,
+                }),
+                _ => None,
+            };
+        }
+
+        if let Some(item) = items.get(9)
+            && let Some(stack_items) = list_to_vec(item)
+        {
+            state.stack = stack_items
+                .into_iter()
+                .filter_map(|v| match v {
+                    Value::Int(n) => Some(n),
+                    _ => None,
+                })
+                .collect();
+        }
+
+        state
     }
 
-    let stack_value = if depth > 0 {
-        Value::list(stack.iter().map(|p| Value::Int(*p)).collect())
-    } else {
-        Value::Nil
-    };
+    fn into_value(mut self) -> Value {
+        if let Some(open_pos) = self.completed_toplevel_list_start {
+            self.last_sexp_start = Some(open_pos);
+        }
 
-    Value::list(vec![
-        Value::Int(depth),
-        stack.last().map_or(Value::Nil, |p| Value::Int(*p)),
-        last_sexp_start.map_or(Value::Nil, Value::Int),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(0),
-        Value::Nil,
-        Value::Nil,
-        stack_value,
-        Value::Nil,
-    ])
+        let stack_value = if self.depth > 0 {
+            Value::list(self.stack.iter().map(|p| Value::Int(*p)).collect())
+        } else {
+            Value::Nil
+        };
+
+        let string_value = match self.in_string {
+            Some(ParseStringState::Delim(term)) => Value::Int(term as i64),
+            Some(ParseStringState::Fence) => Value::True,
+            None => Value::Nil,
+        };
+
+        let comment_value = match self.in_comment {
+            Some(ParseCommentState::Syntax {
+                depth: comment_depth,
+                nestable: false,
+                ..
+            }) => {
+                debug_assert_eq!(comment_depth, 1);
+                Value::True
+            }
+            Some(ParseCommentState::Syntax {
+                depth: comment_depth,
+                nestable: true,
+                ..
+            }) => Value::Int(comment_depth),
+            Some(ParseCommentState::Fence {
+                depth: comment_depth,
+            }) => Value::Int(comment_depth),
+            None => Value::Nil,
+        };
+
+        Value::list(vec![
+            Value::Int(self.depth),
+            self.stack.last().map_or(Value::Nil, |p| Value::Int(*p)),
+            self.last_sexp_start.map_or(Value::Nil, Value::Int),
+            string_value,
+            comment_value,
+            if self.quoted { Value::True } else { Value::Nil },
+            Value::Int(self.mindepth),
+            Value::Nil,
+            self.comment_or_string_start.map_or(Value::Nil, Value::Int),
+            stack_value,
+            Value::Nil,
+        ])
+    }
+}
+
+fn syntax_class_and_flags(table: &SyntaxTable, ch: char) -> (SyntaxClass, SyntaxFlags) {
+    if let Some(entry) = table.get_entry(ch) {
+        (entry.class, entry.flags)
+    } else {
+        (table.char_syntax(ch), SyntaxFlags::empty())
+    }
+}
+
+fn parse_commentstop_mode(arg: Option<&Value>) -> CommentStopMode {
+    match arg {
+        None | Some(Value::Nil) => CommentStopMode::None,
+        Some(Value::Symbol(sym)) if resolve_sym(*sym) == "syntax-table" => {
+            CommentStopMode::SyntaxTable
+        }
+        Some(_) => CommentStopMode::Comment,
+    }
+}
+
+fn parse_state_from_range_with_options(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    from: i64,
+    to: i64,
+    oldstate: Option<&Value>,
+    commentstop: CommentStopMode,
+) -> (Value, i64) {
+    let chars: Vec<char> = buf.buffer_string().chars().collect();
+    let from_idx = if from > 0 { from as usize - 1 } else { 0 }.min(chars.len());
+    let to_idx = if to > 0 { to as usize - 1 } else { 0 }.min(chars.len());
+
+    let mut state = PartialParseState::from_oldstate(oldstate);
+    let mut idx = from_idx;
+
+    while idx < to_idx {
+        let pos1 = (idx + 1) as i64;
+        let ch = chars[idx];
+        let (class, flags) = syntax_class_and_flags(table, ch);
+
+        if state.quoted {
+            state.quoted = false;
+            idx += 1;
+            continue;
+        }
+
+        if let Some(string_state) = state.in_string {
+            match class {
+                SyntaxClass::Escape | SyntaxClass::CharQuote => {
+                    idx += 1;
+                    if idx < to_idx {
+                        idx += 1;
+                    } else {
+                        state.quoted = true;
+                    }
+                    continue;
+                }
+                SyntaxClass::StringFence if string_state == ParseStringState::Fence => {
+                    state.in_string = None;
+                    state.comment_or_string_start = None;
+                    idx += 1;
+                    if commentstop == CommentStopMode::SyntaxTable {
+                        break;
+                    }
+                    continue;
+                }
+                SyntaxClass::StringDelim if matches!(string_state, ParseStringState::Delim(term) if ch == term) =>
+                {
+                    state.in_string = None;
+                    state.comment_or_string_start = None;
+                    idx += 1;
+                    if commentstop == CommentStopMode::SyntaxTable {
+                        break;
+                    }
+                    continue;
+                }
+                _ => {
+                    idx += 1;
+                    continue;
+                }
+            }
+        }
+
+        if let Some(comment_state) = state.in_comment {
+            match comment_state {
+                ParseCommentState::Fence {
+                    depth: comment_depth,
+                } => {
+                    if class == SyntaxClass::Generic {
+                        let next_depth = comment_depth - 1;
+                        idx += 1;
+                        if next_depth <= 0 {
+                            state.in_comment = None;
+                            state.comment_or_string_start = None;
+                        } else {
+                            state.in_comment = Some(ParseCommentState::Fence { depth: next_depth });
+                        }
+                        if commentstop == CommentStopMode::SyntaxTable {
+                            break;
+                        }
+                        continue;
+                    }
+                    if matches!(class, SyntaxClass::Escape | SyntaxClass::CharQuote) {
+                        idx += 1;
+                        if idx < to_idx {
+                            idx += 1;
+                        } else {
+                            state.quoted = true;
+                        }
+                        continue;
+                    }
+                    idx += 1;
+                    continue;
+                }
+                ParseCommentState::Syntax {
+                    depth: comment_depth,
+                    style_b,
+                    nestable,
+                } => {
+                    if matches!(class, SyntaxClass::Escape | SyntaxClass::CharQuote) {
+                        idx += 1;
+                        if idx < to_idx {
+                            idx += 1;
+                        } else {
+                            state.quoted = true;
+                        }
+                        continue;
+                    }
+
+                    if nestable {
+                        if class == SyntaxClass::Comment
+                            && flags.contains(SyntaxFlags::COMMENT_STYLE_B) == style_b
+                        {
+                            state.in_comment = Some(ParseCommentState::Syntax {
+                                depth: comment_depth + 1,
+                                style_b,
+                                nestable,
+                            });
+                            idx += 1;
+                            continue;
+                        }
+
+                        if flags.contains(SyntaxFlags::COMMENT_START_FIRST) && idx + 1 < to_idx {
+                            let (_, next_flags) = syntax_class_and_flags(table, chars[idx + 1]);
+                            if next_flags.contains(SyntaxFlags::COMMENT_START_SECOND)
+                                && next_flags.contains(SyntaxFlags::COMMENT_STYLE_B) == style_b
+                            {
+                                state.in_comment = Some(ParseCommentState::Syntax {
+                                    depth: comment_depth + 1,
+                                    style_b,
+                                    nestable,
+                                });
+                                idx += 2;
+                                continue;
+                            }
+                        }
+                    }
+
+                    if class == SyntaxClass::EndComment
+                        && flags.contains(SyntaxFlags::COMMENT_STYLE_B) == style_b
+                    {
+                        let next_depth = comment_depth - 1;
+                        idx += 1;
+                        if next_depth <= 0 {
+                            state.in_comment = None;
+                            state.comment_or_string_start = None;
+                        } else {
+                            state.in_comment = Some(ParseCommentState::Syntax {
+                                depth: next_depth,
+                                style_b,
+                                nestable,
+                            });
+                        }
+                        if commentstop == CommentStopMode::SyntaxTable {
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if flags.contains(SyntaxFlags::COMMENT_END_FIRST) && idx + 1 < to_idx {
+                        let (_, next_flags) = syntax_class_and_flags(table, chars[idx + 1]);
+                        if next_flags.contains(SyntaxFlags::COMMENT_END_SECOND)
+                            && next_flags.contains(SyntaxFlags::COMMENT_STYLE_B) == style_b
+                        {
+                            let next_depth = comment_depth - 1;
+                            idx += 2;
+                            if next_depth <= 0 {
+                                state.in_comment = None;
+                                state.comment_or_string_start = None;
+                            } else {
+                                state.in_comment = Some(ParseCommentState::Syntax {
+                                    depth: next_depth,
+                                    style_b,
+                                    nestable,
+                                });
+                            }
+                            if commentstop == CommentStopMode::SyntaxTable {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+
+                    idx += 1;
+                    continue;
+                }
+            }
+        }
+
+        if flags.contains(SyntaxFlags::COMMENT_START_FIRST) && idx + 1 < to_idx {
+            let (_, next_flags) = syntax_class_and_flags(table, chars[idx + 1]);
+            if next_flags.contains(SyntaxFlags::COMMENT_START_SECOND) {
+                state.in_comment = Some(ParseCommentState::Syntax {
+                    depth: 1,
+                    style_b: next_flags.contains(SyntaxFlags::COMMENT_STYLE_B),
+                    nestable: flags.contains(SyntaxFlags::COMMENT_NESTABLE)
+                        || next_flags.contains(SyntaxFlags::COMMENT_NESTABLE),
+                });
+                state.comment_or_string_start = Some(pos1);
+                idx += 2;
+                if commentstop != CommentStopMode::None {
+                    break;
+                }
+                continue;
+            }
+        }
+
+        match class {
+            SyntaxClass::Open => {
+                state.depth += 1;
+                state.stack.push(pos1);
+            }
+            SyntaxClass::Close => {
+                if state.depth > 0 {
+                    state.depth -= 1;
+                    state.mindepth = state.mindepth.min(state.depth);
+                }
+                if let Some(open_pos) = state.stack.pop() {
+                    if state.depth == 0 {
+                        state.completed_toplevel_list_start = Some(open_pos);
+                    }
+                }
+            }
+            SyntaxClass::StringDelim => {
+                state.in_string = Some(ParseStringState::Delim(ch));
+                state.comment_or_string_start = Some(pos1);
+                idx += 1;
+                if commentstop == CommentStopMode::SyntaxTable {
+                    break;
+                }
+                continue;
+            }
+            SyntaxClass::StringFence => {
+                state.in_string = Some(ParseStringState::Fence);
+                state.comment_or_string_start = Some(pos1);
+                idx += 1;
+                if commentstop == CommentStopMode::SyntaxTable {
+                    break;
+                }
+                continue;
+            }
+            SyntaxClass::Comment => {
+                state.in_comment = Some(ParseCommentState::Syntax {
+                    depth: 1,
+                    style_b: flags.contains(SyntaxFlags::COMMENT_STYLE_B),
+                    nestable: flags.contains(SyntaxFlags::COMMENT_NESTABLE),
+                });
+                state.comment_or_string_start = Some(pos1);
+                idx += 1;
+                if commentstop != CommentStopMode::None {
+                    break;
+                }
+                continue;
+            }
+            SyntaxClass::Generic => {
+                state.in_comment = Some(ParseCommentState::Fence { depth: 1 });
+                state.comment_or_string_start = Some(pos1);
+                idx += 1;
+                if commentstop != CommentStopMode::None {
+                    break;
+                }
+                continue;
+            }
+            SyntaxClass::Escape | SyntaxClass::CharQuote => {
+                if idx + 1 < to_idx {
+                    idx += 2;
+                    continue;
+                }
+                state.quoted = true;
+                idx += 1;
+                continue;
+            }
+            SyntaxClass::Whitespace | SyntaxClass::EndComment => {}
+            _ => {
+                if state.last_sexp_start.is_none() {
+                    state.last_sexp_start = Some(pos1);
+                }
+            }
+        }
+
+        idx += 1;
+    }
+
+    (state.into_value(), idx as i64 + 1)
+}
+
+fn parse_state_from_range(buf: &Buffer, table: &SyntaxTable, from: i64, to: i64) -> Value {
+    parse_state_from_range_with_options(buf, table, from, to, None, CommentStopMode::None).0
 }
 
 /// `(parse-partial-sexp FROM TO &optional TARGETDEPTH STOPBEFORE STATE COMMENTSTOP)`
@@ -2608,11 +3028,11 @@ pub(crate) fn builtin_parse_partial_sexp(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_parse_partial_sexp_in_manager(&eval.buffers, args)
+    builtin_parse_partial_sexp_in_manager(&mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_parse_partial_sexp_in_manager(
-    buffers: &crate::buffer::BufferManager,
+    buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() < 2 || args.len() > 6 {
@@ -2644,11 +3064,26 @@ pub(crate) fn builtin_parse_partial_sexp_in_manager(
         }
     };
 
+    if to < from {
+        return Err(signal(
+            "error",
+            vec![Value::string("End position is smaller than start position")],
+        ));
+    }
+
     let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = buf.syntax_table.clone();
-    Ok(parse_state_from_range(buf, &table, from, to))
+    let oldstate = args.get(4).filter(|v| !v.is_nil());
+    let commentstop = parse_commentstop_mode(args.get(5));
+    let (state, stop_pos) =
+        parse_state_from_range_with_options(buf, &table, from, to, oldstate, commentstop);
+    let stop_byte = lisp_pos_to_byte(buf, stop_pos);
+    if let Some(buf_mut) = buffers.current_buffer_mut() {
+        buf_mut.goto_char(stop_byte);
+    }
+    Ok(state)
 }
 
 /// `(syntax-ppss &optional POS)` — parser state at POS.

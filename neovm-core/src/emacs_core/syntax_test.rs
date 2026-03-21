@@ -1040,3 +1040,152 @@ fn syntax_ppss_baseline_shape() {
         ])
     );
 }
+
+#[test]
+fn parse_partial_sexp_enters_single_char_line_comment_state() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.syntax_table
+            .modify_syntax_entry(';', SyntaxEntry::simple(SyntaxClass::Comment));
+        buf.syntax_table
+            .modify_syntax_entry('\n', SyntaxEntry::simple(SyntaxClass::EndComment));
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert(";; x\n");
+    }
+
+    let state = builtin_parse_partial_sexp(&mut eval, vec![Value::Int(1), Value::Int(2)]).unwrap();
+    assert_eq!(
+        state,
+        Value::list(vec![
+            Value::Int(0),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::True,
+            Value::Nil,
+            Value::Int(0),
+            Value::Nil,
+            Value::Int(1),
+            Value::Nil,
+            Value::Nil,
+        ])
+    );
+}
+
+#[test]
+fn syntax_ppss_reports_string_state_and_start_position() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert("\"ab");
+    }
+
+    let state = builtin_syntax_ppss(&mut eval, vec![Value::Int(2)]).unwrap();
+    assert_eq!(
+        state,
+        Value::list(vec![
+            Value::Int(0),
+            Value::Nil,
+            Value::Nil,
+            Value::Int('"' as i64),
+            Value::Nil,
+            Value::Nil,
+            Value::Int(0),
+            Value::Nil,
+            Value::Int(1),
+            Value::Nil,
+            Value::Nil,
+        ])
+    );
+}
+
+#[test]
+fn parse_partial_sexp_commentstop_syntax_table_moves_point_across_comment() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.syntax_table
+            .modify_syntax_entry(';', SyntaxEntry::simple(SyntaxClass::Comment));
+        buf.syntax_table
+            .modify_syntax_entry('\n', SyntaxEntry::simple(SyntaxClass::EndComment));
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert(";; x\nfoo");
+        buf.goto_char(buf.point_min());
+    }
+
+    let first = builtin_parse_partial_sexp(
+        &mut eval,
+        vec![
+            Value::Int(1),
+            Value::Int(9),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::symbol("syntax-table"),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        first,
+        Value::list(vec![
+            Value::Int(0),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::True,
+            Value::Nil,
+            Value::Int(0),
+            Value::Nil,
+            Value::Int(1),
+            Value::Nil,
+            Value::Nil,
+        ])
+    );
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .point_char() as i64
+            + 1,
+        2
+    );
+
+    let second = builtin_parse_partial_sexp(
+        &mut eval,
+        vec![
+            Value::Int(2),
+            Value::Int(9),
+            Value::Nil,
+            Value::Nil,
+            first,
+            Value::symbol("syntax-table"),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        second,
+        Value::list(vec![
+            Value::Int(0),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Int(0),
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+            Value::Nil,
+        ])
+    );
+    assert_eq!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .point_char() as i64
+            + 1,
+        6
+    );
+}

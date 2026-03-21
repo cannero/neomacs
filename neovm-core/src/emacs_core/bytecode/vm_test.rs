@@ -7057,6 +7057,26 @@ fn vm_parse_partial_sexp_uses_shared_current_buffer_state() {
 }
 
 #[test]
+fn vm_parse_partial_sexp_commentstop_syntax_table_advances_point() {
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (set-syntax-table (copy-syntax-table (standard-syntax-table)))
+                 (modify-syntax-entry ?\; "<")
+                 (modify-syntax-entry ?\n ">")
+                 (erase-buffer)
+                 (insert ";; x\nfoo")
+                 (goto-char 1)
+                 (let* ((state1 (parse-partial-sexp (point) (point-max) nil nil nil 'syntax-table))
+                        (point1 (point))
+                        (state2 (parse-partial-sexp (point) (point-max) nil nil state1 'syntax-table)))
+                   (list state1 point1 state2 (point))))"#
+        ),
+        "OK ((0 nil nil nil t nil 0 nil 1 nil nil) 2 (0 nil nil nil nil nil 0 nil nil nil nil) 6)"
+    );
+}
+
+#[test]
 fn vm_overlay_builtins_use_shared_current_buffer_state() {
     assert_eq!(
         vm_eval_str(

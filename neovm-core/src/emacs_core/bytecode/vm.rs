@@ -4955,7 +4955,7 @@ impl<'a> Vm<'a> {
             "scan-sexps" => Some(self.builtin_scan_sexps_shared(args)),
             "parse-partial-sexp" => Some(
                 crate::emacs_core::syntax::builtin_parse_partial_sexp_in_manager(
-                    &*self.shared.buffers,
+                    self.shared.buffers,
                     args.to_vec(),
                 ),
             ),
