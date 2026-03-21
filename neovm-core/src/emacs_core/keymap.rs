@@ -918,19 +918,19 @@ pub fn list_keymap_lookup_seq(keymap: &Value, events: &[Value]) -> Value {
     let mut current_map = *keymap;
     for (i, event) in events.iter().enumerate() {
         let binding = list_keymap_lookup_one(&current_map, event);
+        let is_last = i == events.len() - 1;
+        if is_last {
+            // GNU: for the last key, return binding directly (even nil)
+            return binding;
+        }
         if binding.is_nil() {
-            // No binding for this event.  If we haven't consumed any
-            // prefix keys yet (i == 0), the whole key is undefined → nil.
-            // Otherwise we consumed `i` prefix events before failing →
-            // return that count as an integer (official Emacs semantics).
+            // No binding for a non-last event. We consumed `i` prefix
+            // events → return count (official Emacs semantics).
             return if i == 0 {
                 Value::Nil
             } else {
                 Value::Int(i as i64)
             };
-        }
-        if i == events.len() - 1 {
-            return binding;
         }
         // Must be a prefix keymap to continue
         if is_list_keymap(&binding) {
