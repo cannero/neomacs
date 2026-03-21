@@ -743,14 +743,15 @@ impl<'a> VmSharedState<'a> {
         self.kmacro
     }
 
-    pub(crate) fn sync_pending_resize_events(&mut self) {
-        sync_pending_resize_events_in_runtime(
+    pub(crate) fn sync_pending_resize_events(&mut self) -> bool {
+        let applied_resize = sync_pending_resize_events_in_runtime(
             self.frames,
             self.pending_input_events,
             self.input_rx,
             self.command_loop,
         );
         sync_opening_gui_frame_size_from_host_in_runtime(self.frames, self.display_host.as_deref());
+        applied_resize
     }
 
     pub(crate) fn begin_lambda_call(
@@ -1789,7 +1790,8 @@ fn sync_pending_resize_events_in_runtime(
     pending_input_events: &mut VecDeque<crate::keyboard::InputEvent>,
     input_rx: &mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
     command_loop: &mut crate::keyboard::CommandLoop,
-) {
+) -> bool {
+    let mut applied_resize = false;
     let mut deferred = VecDeque::new();
 
     loop {
@@ -1807,6 +1809,7 @@ fn sync_pending_resize_events_in_runtime(
                 let (width, height, emacs_frame_id) = (*width, *height, *emacs_frame_id);
                 pending_input_events.pop_front();
                 apply_resize_input_event_in_runtime(frames, width, height, emacs_frame_id);
+                applied_resize = true;
             }
             _ => break,
         }
@@ -1816,14 +1819,14 @@ fn sync_pending_resize_events_in_runtime(
         while let Some(event) = deferred.pop_back() {
             pending_input_events.push_front(event);
         }
-        return;
+        return applied_resize;
     }
 
     let Some(rx) = input_rx.clone() else {
         while let Some(event) = deferred.pop_back() {
             pending_input_events.push_front(event);
         }
-        return;
+        return applied_resize;
     };
 
     loop {
@@ -1834,6 +1837,7 @@ fn sync_pending_resize_events_in_runtime(
                 emacs_frame_id,
             }) => {
                 apply_resize_input_event_in_runtime(frames, width, height, emacs_frame_id);
+                applied_resize = true;
             }
             Ok(event @ crate::keyboard::InputEvent::Focus(_)) => {
                 deferred.push_back(event);
@@ -1853,6 +1857,8 @@ fn sync_pending_resize_events_in_runtime(
     while let Some(event) = deferred.pop_back() {
         pending_input_events.push_front(event);
     }
+
+    applied_resize
 }
 
 fn sync_opening_gui_frame_size_from_host_in_runtime(
@@ -3517,8 +3523,8 @@ impl Evaluator {
         }
     }
 
-    pub(crate) fn sync_pending_resize_events(&mut self) {
-        sync_pending_resize_events_in_runtime(
+    pub(crate) fn sync_pending_resize_events(&mut self) -> bool {
+        let applied_resize = sync_pending_resize_events_in_runtime(
             &mut self.frames,
             &mut self.pending_input_events,
             &mut self.input_rx,
@@ -3528,6 +3534,7 @@ impl Evaluator {
             &mut self.frames,
             self.display_host.as_deref(),
         );
+        applied_resize
     }
 
     // -----------------------------------------------------------------------
@@ -4031,22 +4038,28 @@ impl Evaluator {
             }
         }
 
-        // 3. Redisplay before blocking (same as GNU Emacs)
+        // 3. Apply any queued resizes before the pre-block redisplay so
+        // already-delivered host geometry updates paint in the same cycle.
+        self.sync_pending_resize_events();
+
+        // 4. Redisplay before blocking (same as GNU Emacs)
         self.redisplay();
 
-        // 4. Fire any already-expired timers before blocking
+        // 5. Fire any already-expired timers before blocking
         self.fire_pending_timers();
 
-        // 4b. Poll process output before blocking (like GNU Emacs)
+        // 5b. Poll process output before blocking (like GNU Emacs)
         self.poll_process_output();
 
-        // 5. Block on input (with timer-aware timeout)
+        // 6. Block on input (with timer-aware timeout)
         tracing::debug!(
             "read_char: blocking on input (input_rx={})...",
             self.input_rx.is_some()
         );
         loop {
-            self.sync_pending_resize_events();
+            if self.sync_pending_resize_events() {
+                self.redisplay();
+            }
 
             let event = if let Some(event) = self.pending_input_events.pop_front() {
                 event

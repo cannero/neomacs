@@ -222,6 +222,55 @@ fn read_char_triggers_redisplay_after_resize_event() {
 }
 
 #[test]
+fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let redisplay_calls_in_cb = redisplay_calls.clone();
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let tx_in_cb = tx.clone();
+    let injected = Rc::new(RefCell::new(false));
+    let injected_in_cb = injected.clone();
+
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        let frame = ev
+            .frames
+            .selected_frame()
+            .expect("selected frame during redisplay");
+        redisplay_calls_in_cb
+            .borrow_mut()
+            .push((frame.width, frame.height));
+
+        if !*injected_in_cb.borrow() {
+            *injected_in_cb.borrow_mut() = true;
+            tx_in_cb
+                .send(crate::keyboard::InputEvent::Resize {
+                    width: 700,
+                    height: 800,
+                    emacs_frame_id: 0,
+                })
+                .expect("enqueue resize after first redisplay");
+            tx_in_cb
+                .send(crate::keyboard::InputEvent::KeyPress(
+                    crate::keyboard::KeyEvent::char('a'),
+                ))
+                .expect("enqueue keypress after resize");
+        }
+    }));
+
+    ev.input_rx = Some(rx);
+
+    let event = ev.read_char().expect("read_char should return a keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(*redisplay_calls.borrow(), vec![(960, 640), (700, 800)]);
+}
+
+#[test]
 fn redisplay_applies_pending_resize_before_callback() {
     let mut ev = Evaluator::new();
     let fid = ev

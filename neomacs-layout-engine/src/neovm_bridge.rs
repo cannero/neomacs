@@ -90,6 +90,20 @@ pub(crate) fn buffer_local_string_owned(buffer: &Buffer, name: &str) -> Option<S
     buffer_local_value(buffer, name).and_then(Value::as_str_owned)
 }
 
+fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f32 {
+    let line_height = if face.font_line_height > 0.0 {
+        face.font_line_height.round()
+    } else {
+        fallback_char_height.round()
+    };
+    let box_pixels = if face.box_type != 0 && face.box_line_width != 0 {
+        2.0 * face.box_line_width.unsigned_abs() as f32
+    } else {
+        0.0
+    };
+    (line_height + box_pixels).max(1.0)
+}
+
 pub(crate) fn buffer_local_list_values(buffer: &Buffer, name: &str) -> Vec<Value> {
     buffer_local_value(buffer, name)
         .and_then(list_to_vec)
@@ -324,6 +338,8 @@ pub fn window_params_from_neovm(
         .background
         .map(|color| color_to_pixel(&color))
         .unwrap_or(0x00FFFFFF);
+    let face_resolver =
+        FaceResolver::new(face_table, default_fg, default_bg, frame.font_pixel_size);
 
     // Convert neovm-core Rect to display Rect (same fields, different types).
     let display_bounds = Rect::new(bounds.x, bounds.y, bounds.width, bounds.height);
@@ -343,8 +359,21 @@ pub fn window_params_from_neovm(
     let word_wrap = buffer_local_bool(buffer, "word-wrap");
     let tab_width = buffer_local_int(buffer, "tab-width", 8) as i32;
 
-    // Mode-line: non-minibuffer windows get one line of mode-line.
-    let mode_line_height = if is_minibuffer { 0.0 } else { char_height };
+    // GNU xdisp.c sizes mode/header/tab lines from the realized face metrics,
+    // including horizontal box pixels, not just the frame default char height.
+    let mode_line_height = if is_minibuffer {
+        0.0
+    } else {
+        let mode_line_face_name = if is_selected {
+            "mode-line"
+        } else {
+            "mode-line-inactive"
+        };
+        chrome_face_pixel_height(
+            &face_resolver.resolve_named_face(mode_line_face_name),
+            char_height,
+        )
+    };
 
     let cursor_in_non_selected =
         buffer_local_bool_default(buffer, "cursor-in-non-selected-windows", true);
@@ -363,14 +392,22 @@ pub fn window_params_from_neovm(
 
     // Header-line: show if header-line-format is non-nil
     let header_line_height = if buffer_local_bool(buffer, "header-line-format") {
-        char_height
+        let header_line_face_name = if is_selected {
+            "header-line-active"
+        } else {
+            "header-line-inactive"
+        };
+        chrome_face_pixel_height(
+            &face_resolver.resolve_named_face(header_line_face_name),
+            char_height,
+        )
     } else {
         0.0
     };
 
     // Tab-line: show if tab-line-format is non-nil
     let tab_line_height = if buffer_local_bool(buffer, "tab-line-format") {
-        char_height
+        chrome_face_pixel_height(&face_resolver.resolve_named_face("tab-line"), char_height)
     } else {
         0.0
     };
@@ -1407,7 +1444,7 @@ mod tests {
         assert!(root_wp.selected); // first window is selected by default
         assert_eq!(root_wp.char_width, 7.0);
         assert_eq!(root_wp.char_height, 14.0);
-        assert_eq!(root_wp.mode_line_height, 14.0); // non-minibuffer gets mode-line
+        assert_eq!(root_wp.mode_line_height, 16.0); // mode-line includes face box pixels
 
         // Second window: minibuffer.
         let mini_wp = &wps[1];
