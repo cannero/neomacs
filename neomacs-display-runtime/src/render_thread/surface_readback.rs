@@ -1,5 +1,7 @@
 use crate::core::frame_glyphs::{FrameGlyph, FrameGlyphBuffer, GlyphRowRole};
+use image::{Rgba, RgbaImage};
 use neomacs_renderer_wgpu::WgpuRenderer;
+use std::path::Path;
 
 pub(crate) fn surface_usage_for_debug_readback(
     supported_usages: wgpu::TextureUsages,
@@ -242,8 +244,51 @@ fn log_surface_readback(
     tracing::info!("{}", diagnostic);
     eprintln!("{}", diagnostic);
 
+    if let Some(path) = std::env::var_os("NEOMACS_DEBUG_SURFACE_READBACK_PNG")
+        && let Err(err) = write_surface_readback_png(
+            Path::new(&path),
+            &mapped,
+            padded_bytes_per_row as usize,
+            format,
+            width,
+            height,
+        )
+    {
+        tracing::warn!(
+            "{label} failed to write surface readback PNG {}: {}",
+            Path::new(&path).display(),
+            err
+        );
+    }
+
     drop(mapped);
     readback.unmap();
+}
+
+fn write_surface_readback_png(
+    path: &Path,
+    mapped: &[u8],
+    padded_bytes_per_row: usize,
+    format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let mut image = RgbaImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = readback_pixel_rgba(mapped, padded_bytes_per_row, format, x, y)
+                .ok_or_else(|| {
+                    format!("failed to decode pixel at ({}, {}) from {:?}", x, y, format)
+                })?;
+            image.put_pixel(x, y, Rgba(pixel));
+        }
+    }
+
+    image
+        .save(path)
+        .map_err(|err| format!("image save error: {err}"))?;
+    tracing::info!("Wrote debug surface readback PNG {}", path.display());
+    Ok(())
 }
 
 fn widest_mode_line_rect(frame: &FrameGlyphBuffer) -> Option<(u32, u32, u32, u32)> {

@@ -121,6 +121,43 @@ die() {
     exit 1
 }
 
+session_env_value() {
+    local key="$1"
+    systemctl --user show-environment 2>/dev/null \
+        | sed -n "s/^${key}=//p" \
+        | head -1
+}
+
+x11_env_works() {
+    DISPLAY="$DISPLAY" XAUTHORITY="${XAUTHORITY:-}" xdpyinfo >/dev/null 2>&1
+}
+
+repair_x11_env_from_user_session() {
+    local session_display
+    local session_xauthority
+
+    session_display="$(session_env_value DISPLAY)"
+    session_xauthority="$(session_env_value XAUTHORITY)"
+
+    if [[ -z "${DISPLAY:-}" && -n "$session_display" ]]; then
+        DISPLAY="$session_display"
+    fi
+
+    if x11_env_works; then
+        return 0
+    fi
+
+    if [[ -n "$session_display" ]]; then
+        DISPLAY="$session_display"
+    fi
+    if [[ -n "$session_xauthority" ]]; then
+        XAUTHORITY="$session_xauthority"
+        export XAUTHORITY
+    fi
+
+    x11_env_works
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --app)
@@ -274,7 +311,7 @@ done
 command -v xdotool >/dev/null || die "xdotool is required"
 command -v import >/dev/null || die "ImageMagick import is required"
 if [[ "$START_XVFB" -eq 0 ]]; then
-    [[ -n "${DISPLAY:-}" ]] || die "DISPLAY is not set"
+    repair_x11_env_from_user_session || die "DISPLAY/XAUTHORITY cannot reach the active X11 session"
 fi
 
 if [[ -n "$WINDOW_SIZE" ]]; then
@@ -460,6 +497,7 @@ echo "log=$LOG_FILE"
 echo "output=$OUTPUT"
 echo "title-hint=$TITLE_HINT"
 echo "display=${DISPLAY:-}"
+echo "xauthority=${XAUTHORITY:-}"
 if [[ -n "$XVFB_PID" ]]; then
     echo "xvfb-pid=$XVFB_PID"
     echo "xvfb-log=$XVFB_LOG"
