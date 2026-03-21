@@ -384,6 +384,101 @@ fn list_keymap_child_overrides_parent() {
 }
 
 #[test]
+fn list_keymap_set_parent_replaces_direct_sparse_parent_without_mutating_old_parent() {
+    let parent_one = make_sparse_list_keymap();
+    let parent_two = make_sparse_list_keymap();
+    let child = make_sparse_list_keymap();
+
+    list_keymap_define(
+        parent_one,
+        Value::Int('a' as i64),
+        Value::symbol("parent-one"),
+    );
+    list_keymap_define(
+        parent_two,
+        Value::Int('b' as i64),
+        Value::symbol("parent-two"),
+    );
+
+    list_keymap_set_parent(child, parent_one);
+    assert!(keymap_value_eq(&list_keymap_parent(&child), &parent_one));
+
+    list_keymap_set_parent(child, parent_two);
+    assert!(keymap_value_eq(&list_keymap_parent(&child), &parent_two));
+    assert!(list_keymap_parent(&parent_one).is_nil());
+    assert_eq!(
+        list_keymap_lookup_one(&parent_one, &Value::Int('a' as i64)).as_symbol_name(),
+        Some("parent-one")
+    );
+    assert!(list_keymap_lookup_one(&child, &Value::Int('a' as i64)).is_nil());
+    assert_eq!(
+        list_keymap_lookup_one(&child, &Value::Int('b' as i64)).as_symbol_name(),
+        Some("parent-two")
+    );
+}
+
+#[test]
+fn list_keymap_for_each_binding_stops_before_direct_sparse_parent() {
+    let parent = make_sparse_list_keymap();
+    let child = make_sparse_list_keymap();
+
+    list_keymap_define(parent, Value::Int('a' as i64), Value::symbol("parent-cmd"));
+    list_keymap_define(child, Value::Int('x' as i64), Value::symbol("child-cmd"));
+    list_keymap_set_parent(child, parent);
+
+    let mut seen = Vec::new();
+    list_keymap_for_each_binding(&child, |event, def| seen.push((event, def)));
+
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].0, Value::Int('x' as i64));
+    assert_eq!(seen[0].1.as_symbol_name(), Some("child-cmd"));
+}
+
+#[test]
+fn list_keymap_accessible_does_not_descend_into_direct_sparse_parent() {
+    let parent = make_sparse_list_keymap();
+    let prefix_map = make_sparse_list_keymap();
+    let child = make_sparse_list_keymap();
+
+    list_keymap_define(parent, Value::Int('a' as i64), prefix_map);
+    list_keymap_set_parent(child, parent);
+
+    let mut prefix = Vec::new();
+    let mut out = Vec::new();
+    let mut seen = Vec::new();
+    list_keymap_accessible(&child, &mut prefix, &mut out, &mut seen);
+
+    assert_eq!(out.len(), 1);
+}
+
+#[test]
+fn list_keymap_copy_preserves_direct_sparse_parent_without_inlining_parent_bindings() {
+    let parent = make_sparse_list_keymap();
+    let child = make_sparse_list_keymap();
+
+    list_keymap_define(parent, Value::Int('a' as i64), Value::symbol("parent-cmd"));
+    list_keymap_define(child, Value::Int('x' as i64), Value::symbol("child-cmd"));
+    list_keymap_set_parent(child, parent);
+
+    let copy = list_keymap_copy(&child);
+
+    assert!(keymap_value_eq(&list_keymap_parent(&copy), &parent));
+    assert_eq!(
+        list_keymap_lookup_one(&copy, &Value::Int('x' as i64)).as_symbol_name(),
+        Some("child-cmd")
+    );
+    assert_eq!(
+        list_keymap_lookup_one(&copy, &Value::Int('a' as i64)).as_symbol_name(),
+        Some("parent-cmd")
+    );
+
+    let mut seen = Vec::new();
+    list_keymap_for_each_binding(&copy, |event, def| seen.push((event, def)));
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].0, Value::Int('x' as i64));
+}
+
+#[test]
 fn list_keymap_event_conversion_roundtrip() {
     let key = KeyEvent::Char {
         code: 'x',

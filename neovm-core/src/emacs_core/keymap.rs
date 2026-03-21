@@ -487,6 +487,9 @@ pub fn list_keymap_lookup_one(keymap: &Value, event: &Value) -> Value {
         let mut cursor = pair.cdr;
         let mut entries = 0;
         while let Value::Cons(entry_cell) = cursor {
+            if is_list_keymap(&cursor) {
+                break;
+            }
             entries += 1;
             if entries > 100_000 {
                 tracing::warn!(
@@ -661,6 +664,10 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
     let mut prev_cell_value = Value::Cons(root_cell);
     let mut cursor = root.cdr;
     loop {
+        if is_list_keymap(&cursor) || cursor.is_nil() {
+            prev_cell_value.set_cdr(parent);
+            return;
+        }
         match cursor {
             Value::Cons(cell) => {
                 let entry = read_cons(cell);
@@ -1017,6 +1024,10 @@ pub fn list_keymap_copy(keymap: &Value) -> Value {
     let mut tail_parent = Value::Nil;
 
     while let Value::Cons(entry_cell) = cursor {
+        if is_list_keymap(&cursor) {
+            tail_parent = cursor;
+            break;
+        }
         let entry = read_cons(entry_cell);
 
         if is_char_table(&entry.car) {
@@ -1084,6 +1095,9 @@ pub fn list_keymap_accessible(
     // Scan alist entries for prefix keymaps
     let mut cursor = pair.cdr;
     while let Value::Cons(entry_cell) = cursor {
+        if is_list_keymap(&cursor) {
+            break;
+        }
         let entry = read_cons(entry_cell);
 
         if let Value::Cons(binding_cell) = entry.car {
@@ -1128,6 +1142,9 @@ where
 
     let mut cursor = pair.cdr;
     while let Value::Cons(entry_cell) = cursor {
+        if is_list_keymap(&cursor) {
+            break;
+        }
         let entry = read_cons(entry_cell);
 
         if super::chartable::is_char_table(&entry.car) {
