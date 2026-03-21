@@ -5,11 +5,39 @@ use super::intern::resolve_sym;
 use super::value::*;
 use crate::face::{FontSlant, FontWeight, FontWidth};
 use regex::Regex;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
+use std::thread::LocalKey;
 
 pub const DEFAULT_FONTSET_NAME: &str = "-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default";
 pub const DEFAULT_FONTSET_ALIAS: &str = "fontset-default";
+
+thread_local! {
+    static FONTSET_WILDCARD_REGEX_CACHE: RefCell<HashMap<String, Regex>> = RefCell::new(HashMap::new());
+    static FONTSET_REGEXP_CACHE: RefCell<HashMap<String, Regex>> = RefCell::new(HashMap::new());
+    static FONT_ENCODING_REGEX_CACHE: RefCell<HashMap<String, Regex>> = RefCell::new(HashMap::new());
+}
+
+fn clear_regex_cache(cache: &'static LocalKey<RefCell<HashMap<String, Regex>>>) {
+    cache.with(|cache| cache.borrow_mut().clear());
+}
+
+fn cached_regex(
+    cache: &'static LocalKey<RefCell<HashMap<String, Regex>>>,
+    key: &str,
+    build: impl FnOnce() -> Option<Regex>,
+) -> Option<Regex> {
+    if let Some(cached) = cache.with(|cache| cache.borrow().get(key).cloned()) {
+        return Some(cached);
+    }
+
+    let compiled = build()?;
+    cache.with(|cache| {
+        cache.borrow_mut().insert(key.to_string(), compiled.clone());
+    });
+    Some(compiled)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredFontSpec {
@@ -382,6 +410,9 @@ pub(crate) fn reset_fontset_registry() {
     if let Ok(mut slot) = registry().write() {
         *slot = FontsetRegistry::with_defaults();
     }
+    clear_regex_cache(&FONTSET_WILDCARD_REGEX_CACHE);
+    clear_regex_cache(&FONTSET_REGEXP_CACHE);
+    clear_regex_cache(&FONT_ENCODING_REGEX_CACHE);
 }
 
 pub fn fontset_generation() -> u64 {
@@ -426,16 +457,20 @@ pub(crate) fn fontset_registry_alias_from_xlfd(name: &str) -> Option<String> {
 }
 
 fn wildcard_fontset_pattern_to_regex(pattern: &str) -> Option<Regex> {
-    let escaped = regex::escape(pattern);
-    let wildcard = escaped.replace(r"\*", ".*").replace(r"\?", ".");
-    Regex::new(&format!("^{wildcard}$")).ok()
+    cached_regex(&FONTSET_WILDCARD_REGEX_CACHE, pattern, || {
+        let escaped = regex::escape(pattern);
+        let wildcard = escaped.replace(r"\*", ".*").replace(r"\?", ".");
+        Regex::new(&format!("^{wildcard}$")).ok()
+    })
 }
 
 pub(crate) fn query_fontset_registry(pattern: &str, regexpp: bool) -> Option<String> {
     let pattern = normalize_fontset_name(pattern);
     registry().read().ok().and_then(|registry| {
         if regexpp {
-            let regex = Regex::new(&pattern).ok()?;
+            let regex = cached_regex(&FONTSET_REGEXP_CACHE, &pattern, || {
+                Regex::new(&pattern).ok()
+            })?;
             for name in &registry.ordered_names {
                 if regex.is_match(name) {
                     return Some(name.clone());
@@ -756,10 +791,12 @@ fn lookup_font_encoding(font_encoding_alist: &Value, font_name: &str) -> Option<
             .replace("\\|", "|")
             .replace("\\(", "(")
             .replace("\\)", ")");
-        let Ok(regex) = regex::RegexBuilder::new(&translated)
-            .case_insensitive(true)
-            .build()
-        else {
+        let Some(regex) = cached_regex(&FONT_ENCODING_REGEX_CACHE, &translated, || {
+            regex::RegexBuilder::new(&translated)
+                .case_insensitive(true)
+                .build()
+                .ok()
+        }) else {
             continue;
         };
         if regex.is_match(font_name) {
