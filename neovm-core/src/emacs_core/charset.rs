@@ -251,8 +251,19 @@ impl CharsetRegistry {
         eight_bit.method = CharsetMethod::Offset(0x3FFF00);
         self.register(eight_bit);
 
-        // Standard aliases matching official Emacs C charset.c registrations.
-        self.define_alias("iso-8859-1", "latin-iso8859-1");
+        // iso-8859-1 is a full 0-255 charset with identity mapping
+        // (code_offset=0, min_code=0, max_code=255, ascii_compatible=true),
+        // matching the built-in definition in GNU Emacs charset.c.
+        // This is distinct from latin-iso8859-1 which only covers the
+        // right-hand part (code points 32-127 mapping to characters 160-255).
+        let mut iso_8859_1 = Self::make_default(1, "iso-8859-1");
+        iso_8859_1.code_space = [0, 255, 0, 0, 0, 0, 0, 0];
+        iso_8859_1.min_code = 0;
+        iso_8859_1.max_code = 255;
+        iso_8859_1.ascii_compatible_p = true;
+        iso_8859_1.method = CharsetMethod::Offset(0);
+        self.register(iso_8859_1);
+
         self.define_alias("ucs", "unicode");
 
         // Default priority order.
