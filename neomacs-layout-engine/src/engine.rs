@@ -4527,6 +4527,66 @@ impl LayoutEngine {
             return;
         }
 
+        let window_start_lisp = (window_start as usize).saturating_add(1);
+        let window_end_lisp = display_rows
+            .last()
+            .and_then(|row| row.end_buffer_pos)
+            .map(|pos| pos.saturating_add(1))
+            .unwrap_or(1);
+        let window_end_byte = text_start_byte.saturating_add(byte_idx);
+        let window_end_vpos = display_rows
+            .last()
+            .map(|row| row.row.max(0) as usize)
+            .unwrap_or(0);
+
+        if let Some(info) = frame_glyphs.window_infos.last_mut()
+            && info.window_id == params.window_id
+        {
+            info.window_start = window_start_lisp as i64;
+            info.window_end = window_end_lisp as i64;
+        }
+
+        tracing::debug!(
+            "  layout_window_rust: window_start={} window_end={}",
+            window_start_lisp,
+            window_end_lisp
+        );
+
+        // GNU status-line percent specs read the live window state from the
+        // just-produced redisplay. Publish the authoritative window geometry
+        // before evaluating mode-line/header-line/tab-line forms so `%p/%P/%o`
+        // reflect the frame we are about to render, not stale state from the
+        // previous redisplay.
+        {
+            let win_id = neovm_core::window::WindowId(params.window_id as u64);
+
+            if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+                let update_window = |w: &mut neovm_core::window::Window| {
+                    if let neovm_core::window::Window::Leaf {
+                        window_start: ws, ..
+                    } = w
+                    {
+                        *ws = window_start_lisp;
+                        w.set_window_end_from_positions(
+                            buffer_z_char,
+                            buffer_z_byte,
+                            window_end_lisp,
+                            window_end_byte,
+                            window_end_vpos,
+                        );
+                    }
+                };
+
+                if let Some(window) = frame.root_window.find_mut(win_id) {
+                    update_window(window);
+                } else if let Some(ref mut mini) = frame.minibuffer_leaf
+                    && mini.id() == win_id
+                {
+                    update_window(mini);
+                }
+            }
+        }
+
         // Mode-line: evaluate format-mode-line or fall back to buffer name
         if params.mode_line_height > 0.0 {
             let ml_y = params.bounds.y + params.bounds.height - params.mode_line_height;
@@ -4637,17 +4697,6 @@ impl LayoutEngine {
             char_w,
             rows: hit_rows,
         });
-        let window_start_lisp = (window_start as usize).saturating_add(1);
-        let window_end_lisp = display_rows
-            .last()
-            .and_then(|row| row.end_buffer_pos)
-            .map(|pos| pos.saturating_add(1))
-            .unwrap_or(1);
-        let window_end_byte = text_start_byte.saturating_add(byte_idx);
-        let window_end_vpos = display_rows
-            .last()
-            .map(|row| row.row.max(0) as usize)
-            .unwrap_or(0);
 
         self.display_snapshots.push(WindowDisplaySnapshot {
             window_id: neovm_core::window::WindowId(params.window_id as u64),
@@ -4655,52 +4704,6 @@ impl LayoutEngine {
             points: display_points,
             rows: display_rows,
         });
-
-        if let Some(info) = frame_glyphs.window_infos.last_mut()
-            && info.window_id == params.window_id
-        {
-            info.window_start = window_start_lisp as i64;
-            info.window_end = window_end_lisp as i64;
-        }
-
-        tracing::debug!(
-            "  layout_window_rust: window_start={} window_end={}",
-            window_start_lisp,
-            window_end_lisp
-        );
-
-        // Write the authoritative redisplay window-start/window-end back to
-        // the evaluator's Window struct so scrolling and geometry queries
-        // reflect the layout we actually published.
-        {
-            let win_id = neovm_core::window::WindowId(params.window_id as u64);
-
-            if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-                let update_window = |w: &mut neovm_core::window::Window| {
-                    if let neovm_core::window::Window::Leaf {
-                        window_start: ws, ..
-                    } = w
-                    {
-                        *ws = window_start_lisp;
-                        w.set_window_end_from_positions(
-                            buffer_z_char,
-                            buffer_z_byte,
-                            window_end_lisp,
-                            window_end_byte,
-                            window_end_vpos,
-                        );
-                    }
-                };
-
-                if let Some(window) = frame.root_window.find_mut(win_id) {
-                    update_window(window);
-                } else if let Some(ref mut mini) = frame.minibuffer_leaf {
-                    if mini.id() == win_id {
-                        update_window(mini);
-                    }
-                }
-            }
-        }
     }
 
     /// Trigger fontification for a buffer region via the Rust Evaluator.
@@ -11335,6 +11338,93 @@ mod tests {
             }
             other => panic!("expected leaf window, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn layout_frame_rust_formats_mode_line_from_current_redisplay_geometry() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = (0..80)
+            .map(|line| format!("Line {line:02}\n"))
+            .collect::<String>();
+        let point = {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(&text);
+            buf.set_buffer_local("mode-line-format", Value::string("%o|%p|%P"));
+            buf.goto_byte(0);
+            buf.point_max_char() + 1
+        };
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-mode-line-geometry", 640, 96, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point: window_point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *window_point = point;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(640.0, 96.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let mut mode_line_glyphs = frame_glyphs
+            .glyphs
+            .iter()
+            .filter_map(|glyph| match glyph {
+                FrameGlyph::Char {
+                    char, x, row_role, ..
+                } if *row_role == GlyphRowRole::ModeLine => Some((*x, *char)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        mode_line_glyphs.sort_by(|lhs, rhs| lhs.0.total_cmp(&rhs.0));
+        let mode_line_text = mode_line_glyphs
+            .into_iter()
+            .map(|(_, ch)| ch)
+            .collect::<String>();
+        let published_window_start = {
+            let frame = eval.frame_manager().get(frame_id).expect("frame");
+            let window = frame.find_window(selected_window).expect("selected window");
+            match window {
+                neovm_core::window::Window::Leaf { window_start, .. } => *window_start,
+                other => panic!("expected leaf window, got {other:?}"),
+            }
+        };
+        let expected_mode_line = eval_status_line_format(
+            &mut eval,
+            "mode-line-format",
+            selected_window.0 as i64,
+            buf_id.0,
+        )
+        .expect("mode-line text");
+
+        assert!(
+            published_window_start > 1,
+            "expected point at EOB to advance window-start, got {published_window_start}"
+        );
+        assert!(
+            mode_line_text == expected_mode_line,
+            "expected rendered mode-line to match freshly evaluated mode-line after redisplay publish, got rendered={mode_line_text:?} expected={expected_mode_line:?}"
+        );
     }
 
     #[test]
