@@ -5169,6 +5169,26 @@ impl Evaluator {
                     }
                 }
 
+                // GNU bytecode VM uses dedicated opcodes (Bcar, Bcdr, etc.)
+                // for primitive builtins, bypassing the function cell entirely.
+                // Match that behavior: if the function cell was overridden by
+                // fset but the name is a known builtin, dispatch to the Rust
+                // implementation directly.
+                if !matches!(&func, Value::Subr(bn) if resolve_sym(*bn) == name)
+                    && !matches!(&func, Value::Macro(_))
+                    && !super::subr_info::is_special_form(name)
+                    && !super::subr_info::is_evaluator_callable_name(name)
+                    && (super::builtin_registry::is_dispatch_builtin_name(name)
+                        || builtins::is_pure_builtin_name(name))
+                {
+                    let (args, args_saved) = self.eval_args(tail)?;
+                    if let Some(result) = builtins::dispatch_builtin(self, name, args) {
+                        self.restore_temp_roots(args_saved);
+                        return result;
+                    }
+                    self.restore_temp_roots(args_saved);
+                }
+
                 // Explicit function-cell bindings override special-form fallback.
                 let (args, args_saved) = self.eval_args(tail)?;
                 if super::autoload::is_autoload_value(&func) {
