@@ -2698,6 +2698,42 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
 }
 
 #[test]
+fn x_create_frame_reserves_tab_bar_space_above_root_window() {
+    let mut ev = Evaluator::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
+    ev.frames
+        .get_mut(fid)
+        .expect("bootstrap frame")
+        .parameters
+        .insert("window-system".to_string(), Value::symbol("x"));
+
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("name"), Value::string("GUI")),
+        Value::cons(Value::symbol("width"), Value::Int(80)),
+        Value::cons(Value::symbol("height"), Value::Int(25)),
+        Value::cons(Value::symbol("tab-bar-lines"), Value::Int(1)),
+    ]);
+    let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
+
+    let created_id = match created {
+        Value::Frame(id) => crate::window::FrameId(id),
+        other => panic!("expected frame object, got {other:?}"),
+    };
+    let frame = ev.frames.get(created_id).expect("created frame");
+
+    assert_eq!(frame.tab_bar_height, 16);
+    assert_eq!(
+        *frame.root_window.bounds(),
+        crate::window::Rect::new(0.0, 16.0, 640.0, 384.0)
+    );
+    assert_eq!(
+        *frame.minibuffer_leaf.as_ref().expect("minibuffer").bounds(),
+        crate::window::Rect::new(0.0, 400.0, 640.0, 16.0)
+    );
+}
+
+#[test]
 fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
     let mut ev = Evaluator::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
@@ -2980,6 +3016,38 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
     assert_eq!(frame.height, 600);
     assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
     assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
+}
+
+#[test]
+fn modify_frame_parameters_tab_bar_lines_reflows_root_window_tree() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.char_width = 10.0;
+        frame.char_height = 20.0;
+    }
+
+    let forms = parse_forms("(modify-frame-parameters (selected-frame) '((tab-bar-lines . 1)))")
+        .expect("parse");
+    let out = ev.eval_forms(&forms);
+    assert!(
+        out[0].is_ok(),
+        "modify-frame-parameters failed: {:?}",
+        out[0]
+    );
+
+    let frame = ev.frames.get(fid).expect("frame should exist");
+    assert_eq!(frame.tab_bar_height, 20);
+    assert_eq!(
+        *frame.root_window.bounds(),
+        crate::window::Rect::new(0.0, 20.0, 800.0, 564.0)
+    );
+    assert_eq!(
+        *frame.minibuffer_leaf.as_ref().expect("minibuffer").bounds(),
+        crate::window::Rect::new(0.0, 584.0, 800.0, 16.0)
+    );
 }
 
 #[test]

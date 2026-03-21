@@ -5750,8 +5750,6 @@ pub(crate) fn builtin_x_create_frame_in_state(
         .unwrap_or_else(|| buffers.create_buffer("*scratch*"));
     let minibuffer_buffer_id = buffers.find_buffer_by_name(" *Minibuf-0*");
     let fid = frames.create_frame(&name, width_px, height_px, current_buffer_id);
-    let root_height = (height_px as f32 - metrics.minibuffer_height).max(metrics.char_height);
-    let minibuffer_y = root_height;
     {
         let frame = frames
             .get_mut(fid)
@@ -5776,13 +5774,8 @@ pub(crate) fn builtin_x_create_frame_in_state(
         for (key, value) in parsed.all {
             frame.parameters.insert(key, value);
         }
-        frame.sync_tab_bar_height_from_parameters();
-        if let Window::Leaf {
-            buffer_id, bounds, ..
-        } = &mut frame.root_window
-        {
+        if let Window::Leaf { buffer_id, .. } = &mut frame.root_window {
             *buffer_id = current_buffer_id;
-            *bounds = Rect::new(0.0, 0.0, width_px as f32, root_height);
         }
         if let Some(minibuffer_leaf) = frame.minibuffer_leaf.as_mut() {
             if let Some(minibuffer_buffer_id) = minibuffer_buffer_id {
@@ -5790,11 +5783,12 @@ pub(crate) fn builtin_x_create_frame_in_state(
             }
             minibuffer_leaf.set_bounds(Rect::new(
                 0.0,
-                minibuffer_y,
+                0.0,
                 width_px as f32,
                 metrics.minibuffer_height.min(height_px as f32),
             ));
         }
+        frame.sync_tab_bar_height_from_parameters();
     }
     if let Some(host) = display_host.as_mut() {
         host.realize_gui_frame(super::eval::GuiFrameHostRequest {

@@ -681,31 +681,7 @@ impl Frame {
     /// Must be called after any operation that changes the window tree
     /// (split, delete, resize).
     pub fn recalculate_minibuffer_bounds(&mut self) {
-        if let Some(mini) = self.minibuffer_leaf.as_mut() {
-            let mini_h = mini.bounds().height;
-            let frame_h = self.height as f32;
-
-            // Clamp root window height so root + minibuffer fit in frame.
-            // This mirrors GNU Emacs's resize_frame_windows() which
-            // explicitly reserves space for the minibuffer.
-            let max_root_h = (frame_h - mini_h).max(0.0);
-            let root_bounds = self.root_window.bounds_mut();
-            if root_bounds.height > max_root_h {
-                root_bounds.height = max_root_h;
-                // Redistribute children bounds to fit the clamped root.
-                let new_root = *self.root_window.bounds();
-                if let Window::Internal { children, .. } = &mut self.root_window {
-                    redistribute_bounds(children, new_root);
-                }
-            }
-
-            let root = self.root_window.bounds();
-            let mini_bounds = mini.bounds_mut();
-            mini_bounds.x = root.x;
-            mini_bounds.y = root.y + root.height;
-            mini_bounds.width = root.width;
-            // height stays the same (one line)
-        }
+        self.sync_window_area_bounds();
     }
 
     /// Get the selected window.
@@ -750,6 +726,49 @@ impl Frame {
         self.parameters.get(key).and_then(Value::as_int)
     }
 
+    fn chrome_top_height(&self) -> f32 {
+        self.menu_bar_height
+            .saturating_add(self.tool_bar_height)
+            .saturating_add(self.tab_bar_height) as f32
+    }
+
+    fn window_text_area_bounds(&self) -> Rect {
+        let frame_w = self.width as f32;
+        let frame_h = self.height as f32;
+        let chrome_top = self.chrome_top_height().min(frame_h);
+        let minibuffer_height = self
+            .minibuffer_leaf
+            .as_ref()
+            .map(|mini| mini.bounds().height.max(0.0))
+            .unwrap_or(0.0)
+            .min((frame_h - chrome_top).max(0.0));
+        let root_height = (frame_h - chrome_top - minibuffer_height).max(0.0);
+        Rect::new(0.0, chrome_top, frame_w, root_height)
+    }
+
+    pub fn sync_window_area_bounds(&mut self) {
+        let root_bounds = self.window_text_area_bounds();
+        resize_window_subtree(&mut self.root_window, root_bounds);
+
+        if let Some(mini) = self.minibuffer_leaf.as_mut() {
+            let mini_h = mini
+                .bounds()
+                .height
+                .max(0.0)
+                .min((self.height as f32 - (root_bounds.y + root_bounds.height)).max(0.0));
+            mini.set_bounds(Rect::new(
+                root_bounds.x,
+                root_bounds.y + root_bounds.height,
+                root_bounds.width,
+                mini_h,
+            ));
+            mini.invalidate_display_state();
+        }
+
+        self.root_window.invalidate_display_state();
+        self.display_snapshots.clear();
+    }
+
     pub fn sync_tab_bar_height_from_parameters(&mut self) {
         let lines = self
             .frame_parameter_int("tab-bar-lines")
@@ -757,6 +776,7 @@ impl Frame {
             .max(0) as u32;
         let char_height = self.char_height.max(1.0).round() as u32;
         self.tab_bar_height = lines.saturating_mul(char_height);
+        self.sync_window_area_bounds();
     }
 
     /// Select a window by ID.
@@ -841,32 +861,11 @@ impl Frame {
     pub fn resize_pixelwise(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-
-        let minibuffer_height = self
-            .minibuffer_leaf
-            .as_ref()
-            .map(|mini| mini.bounds().height.max(0.0))
-            .unwrap_or_else(|| self.char_height.max(1.0));
-        let root_height = (height as f32 - minibuffer_height).max(0.0);
-        let root_bounds = Rect::new(0.0, 0.0, width as f32, root_height);
-        resize_window_subtree(&mut self.root_window, root_bounds);
-
-        if let Some(minibuffer_leaf) = self.minibuffer_leaf.as_mut() {
-            minibuffer_leaf.set_bounds(Rect::new(
-                0.0,
-                root_height,
-                width as f32,
-                minibuffer_height.min(height as f32),
-            ));
-            minibuffer_leaf.invalidate_display_state();
-        }
-
-        self.root_window.invalidate_display_state();
-        self.display_snapshots.clear();
-        self.recalculate_minibuffer_bounds();
+        self.sync_window_area_bounds();
 
         let char_width = self.char_width.max(1.0);
         let char_height = self.char_height.max(1.0);
+        let root_height = self.root_window.bounds().height;
         let cols = ((width as f32) / char_width).floor().max(1.0) as i64;
         let text_lines = (root_height / char_height).floor().max(1.0) as i64;
         let total_lines = text_lines.saturating_add(1);
@@ -2157,5 +2156,31 @@ mod tests {
             frame.minibuffer_leaf.as_ref().unwrap().window_end_valid(),
             Some(false)
         );
+    }
+
+    #[test]
+    fn frame_resize_pixelwise_reserves_tab_bar_height_above_root_window_tree() {
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        let frame = mgr.get_mut(fid).unwrap();
+        frame.char_width = 10.0;
+        frame.char_height = 20.0;
+        frame
+            .parameters
+            .insert("tab-bar-lines".to_string(), Value::Int(1));
+
+        frame.sync_tab_bar_height_from_parameters();
+        frame.resize_pixelwise(400, 260);
+
+        assert_eq!(frame.tab_bar_height, 20);
+        assert_eq!(
+            *frame.root_window.bounds(),
+            Rect::new(0.0, 20.0, 400.0, 224.0)
+        );
+        assert_eq!(
+            *frame.minibuffer_leaf.as_ref().unwrap().bounds(),
+            Rect::new(0.0, 244.0, 400.0, 16.0)
+        );
+        assert_eq!(frame.parameters.get("height"), Some(&Value::Int(12)));
     }
 }
