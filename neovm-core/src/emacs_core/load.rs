@@ -2733,7 +2733,7 @@ fn normalize_bootstrap_runtime_surface(
     let compile_only_features = ["cl-lib", "cl-macs", "cl-seq", "cl-extra", "gv"];
     // GNU keeps gv entry points available via ldefs-boot autoloads even after
     // the gv feature itself is no longer present at -Q runtime startup.
-    let runtime_autoload_files = ["gv"];
+    let runtime_autoload_files = ["gv", "icons"];
     let (restore_autoload_args, restore_property_forms) =
         runtime_loaddefs_restore_state(project_root, &runtime_autoload_files)?;
     let mut compile_only_names = hidden_cl_runtime_entry_points();
@@ -2745,6 +2745,7 @@ fn normalize_bootstrap_runtime_surface(
     for feature in compile_only_features {
         eval.remove_feature(feature);
     }
+    strip_runtime_icons_surface(eval);
 
     for name in &compile_only_names {
         eval.obarray_mut().fmakunbound(&name);
@@ -2784,6 +2785,51 @@ fn normalize_bootstrap_runtime_surface(
     }
 
     Ok(())
+}
+
+fn strip_runtime_icons_surface(eval: &mut super::eval::Evaluator) {
+    const ICON_RUNTIME_FUNCTIONS: &[&str] = &[
+        "define-icon",
+        "icons--register",
+        "icon-spec-keywords",
+        "icon-spec-values",
+        "iconp",
+        "icon-documentation",
+        "icons--spec",
+        "icons--copy-spec",
+        "icon-complete-spec",
+        "icon-string",
+        "icon-elements",
+        "icons--merge-spec",
+        "icons--create",
+        "describe-icon",
+        "icons--describe-spec",
+    ];
+    const ICON_RUNTIME_VARIABLES: &[&str] = &["icon-preference", "icon", "icon-button"];
+    const ICON_RUNTIME_FACES: &[&str] = &["icon", "icon-button"];
+
+    eval.remove_feature("icons");
+
+    for name in ICON_RUNTIME_FUNCTIONS {
+        eval.obarray_mut().fmakunbound(name);
+        eval.autoloads.remove(name);
+        let _ = super::builtins::builtin_put(
+            eval,
+            vec![
+                Value::symbol(name),
+                Value::symbol("autoload-macro"),
+                Value::Nil,
+            ],
+        );
+    }
+
+    for name in ICON_RUNTIME_VARIABLES {
+        eval.obarray_mut().makunbound(name);
+    }
+
+    for face in ICON_RUNTIME_FACES {
+        super::font::clear_created_lisp_face(face);
+    }
 }
 
 fn bootstrap_runtime_window_system_symbol(eval: &mut super::eval::Evaluator) -> Option<Value> {

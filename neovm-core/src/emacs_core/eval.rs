@@ -1343,12 +1343,13 @@ pub(crate) enum RequirePlan {
 
 pub(crate) fn plan_require_in_state(
     obarray: &Obarray,
-    features: &[SymId],
+    features: &mut Vec<SymId>,
     require_stack: &[SymId],
     feature: Value,
     filename: Option<Value>,
     noerror: Option<Value>,
 ) -> Result<RequirePlan, Flow> {
+    refresh_features_from_variable_in_state(obarray, features);
     let sym_id = match feature {
         Value::Symbol(s) => s,
         _ => {
@@ -1423,7 +1424,7 @@ pub(crate) fn builtin_require_in_vm_runtime(
 ) -> EvalResult {
     match plan_require_in_state(
         &*shared.obarray,
-        &*shared.features,
+        shared.features,
         &*shared.require_stack,
         args.first().copied().unwrap_or(Value::Nil),
         args.get(1).copied(),
@@ -1439,6 +1440,7 @@ pub(crate) fn builtin_require_in_vm_runtime(
                 });
             let _ = shared.require_stack.pop();
             result?;
+            refresh_features_from_variable_in_state(&*shared.obarray, shared.features);
             finish_require_in_state(&*shared.features, sym_id, &name)
         }
     }
@@ -7105,7 +7107,7 @@ impl Evaluator {
     ) -> EvalResult {
         match plan_require_in_state(
             &self.obarray,
-            &self.features,
+            &mut self.features,
             &self.require_stack,
             feature,
             filename,
@@ -7116,6 +7118,7 @@ impl Evaluator {
                 self.require_stack.push(sym_id);
                 let result = (|| -> EvalResult {
                     self.load_file_internal(&path)?;
+                    self.refresh_features_from_variable();
                     finish_require_in_state(&self.features, sym_id, &name)
                 })();
                 let _ = self.require_stack.pop();

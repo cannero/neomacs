@@ -709,11 +709,56 @@ fn bootstrap_runtime_require_icons_restores_cl_loaddefs_under_gui_features() {
 }
 
 #[test]
+fn bootstrap_runtime_gui_surface_matches_gnu_icons_residency() {
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list (featurep 'icons)
+                 (fboundp 'icon-string)
+                 (autoloadp (symbol-function 'icon-string))
+                 (boundp 'icon-preference)
+                 (facep 'icon)
+                 (facep 'icon-button)
+                 (fboundp 'describe-icon)
+                 (autoloadp (symbol-function 'describe-icon))
+                 (featurep 'tab-bar)
+                 (fboundp 'tab-bar-mode)
+                 (autoloadp (symbol-function 'tab-bar-mode)))"#,
+    );
+    assert_eq!(rendered, "OK (nil nil nil nil nil nil t t t t nil)");
+}
+
+#[test]
 fn bootstrap_runtime_require_cl_lib_works_under_gui_features() {
     init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (require 'cl-lib)
+                 (list (featurep 'cl-lib)
+                       (autoloadp (symbol-function 'cl-every))
+                       (autoloadp (symbol-function 'cl-defstruct))
+                       (autoloadp (symbol-function 'cl-reduce))
+                       (autoloadp (symbol-function 'cl-subseq))))
+             (error err))"#,
+    );
+    assert_eq!(rendered, "OK (t t t t t)");
+}
+
+#[test]
+fn bootstrap_runtime_require_uses_live_features_variable_when_internal_cache_is_stale() {
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    eval.features.insert(0, intern("cl-lib"));
+
     let rendered = eval_rendered(
         &mut eval,
         r#"(condition-case err

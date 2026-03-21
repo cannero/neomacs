@@ -1404,6 +1404,18 @@ fn clear_face_overrides(face_name: &str, defaults_frame: bool) {
     });
 }
 
+pub(crate) fn clear_created_lisp_face(name: &str) {
+    CREATED_LISP_FACES.with(|slot| {
+        slot.borrow_mut().remove(name);
+    });
+    FACE_ATTR_STATE.with(|slot| {
+        let mut state = slot.borrow_mut();
+        state.selected_created.remove(name);
+        state.defaults_overrides.remove(name);
+        state.selected_overrides.remove(name);
+    });
+}
+
 fn copy_defaults_overrides(src: &str, dst: &str) {
     FACE_ATTR_STATE.with(|slot| {
         let mut state = slot.borrow_mut();
