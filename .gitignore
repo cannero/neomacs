@@ -191,6 +191,7 @@ src/gl-stamp
 core
 core.*[0-9]
 gmon.out
+perf.data
 native-lisp/
 oo/
 oo-spd/
