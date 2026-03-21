@@ -569,36 +569,49 @@ pub(crate) fn builtin_backward_char_in_manager(
     builtin_forward_char_in_manager(buffers, vec![Value::Int(-n)])
 }
 
-/// Parse a skip-chars character set string into a set of chars.
-/// Supports ranges like "a-z" and negation with "^" prefix.
+/// Parse a skip-chars set matching GNU syntax.c skip_chars behavior.
+/// Handles `\` as escape character and `-` as range operator.
 fn parse_skip_chars_set(s: &str) -> (bool, Vec<char>) {
     let mut chars: Vec<char> = Vec::new();
     let mut negate = false;
-    let mut iter = s.chars().peekable();
+    let raw: Vec<char> = s.chars().collect();
+    let mut i = 0;
 
-    if iter.peek() == Some(&'^') {
+    if i < raw.len() && raw[i] == '^' {
         negate = true;
-        iter.next();
+        i += 1;
     }
 
-    let mut prev: Option<char> = None;
-    while let Some(c) = iter.next() {
-        if c == '-' {
-            if let (Some(start), Some(end)) = (prev, iter.peek().copied()) {
-                iter.next();
-                for ch in start..=end {
+    while i < raw.len() {
+        // Handle backslash escape (GNU syntax.c: `\-` = literal `-`)
+        let c = if raw[i] == '\\' && i + 1 < raw.len() {
+            i += 1;
+            raw[i]
+        } else {
+            raw[i]
+        };
+        i += 1;
+
+        // Check for range: c followed by `-` and another char
+        if i + 1 < raw.len() && raw[i] == '-' {
+            i += 1; // skip '-'
+            let end_c = if raw[i] == '\\' && i + 1 < raw.len() {
+                i += 1;
+                raw[i]
+            } else {
+                raw[i]
+            };
+            i += 1;
+            if c <= end_c {
+                for ch in c..=end_c {
                     if !chars.contains(&ch) {
                         chars.push(ch);
                     }
                 }
-                prev = Some(end);
-                continue;
             }
-        }
-        if !chars.contains(&c) {
+        } else if !chars.contains(&c) {
             chars.push(c);
         }
-        prev = Some(c);
     }
     (negate, chars)
 }
