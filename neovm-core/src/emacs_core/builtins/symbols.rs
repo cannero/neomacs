@@ -3065,12 +3065,18 @@ pub(crate) fn builtin_new_fontset_in_state(
 ) -> EvalResult {
     expect_args("new-fontset", &args, 2)?;
     let name = expect_strict_string(&args[0])?;
+    let char_script_table =
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "char-script-table");
+    let charset_script_alist =
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "charset-script-alist");
+    let font_encoding_alist =
+        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "font-encoding-alist");
     let registered = fontset::new_fontset(
         &name,
         &args[1],
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "char-script-table").as_ref(),
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "charset-script-alist").as_ref(),
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "font-encoding-alist").as_ref(),
+        char_script_table.as_ref(),
+        charset_script_alist.as_ref(),
+        font_encoding_alist.as_ref(),
     )?;
     Ok(Value::string(registered))
 }

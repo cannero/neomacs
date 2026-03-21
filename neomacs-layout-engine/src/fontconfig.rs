@@ -11,6 +11,7 @@
 //! - candidate discovery uses Fontconfig's `FcFontList`
 //! - style selection is scored in Rust instead of delegated to Fontconfig
 
+use neovm_core::emacs_core::font::alternative_font_families;
 use neovm_core::emacs_core::fontset::{
     FontSpecEntry, StoredFontSpec, fontset_generation, matching_entries_for_char,
 };
@@ -487,7 +488,8 @@ fn match_font_from_spec(
         .and_then(|hint| hint.lang)
         .map(str::to_string);
     let query_langs = combined_query_langs(registry_lang.as_deref(), spec.lang.as_deref());
-    let requested_spacing = requested_spacing(requested_family, prefer_monospace, spec);
+    let requested_spacing = requested_spacing(spec);
+
     for family_option in family_search_order(requested_family, spec) {
         let candidates = fc_list_candidates(
             family_option.as_deref(),
@@ -499,19 +501,64 @@ fn match_font_from_spec(
             continue;
         }
 
-        let best = candidates.into_iter().min_by_key(|candidate| {
-            candidate_score(
-                candidate,
-                effective_weight,
-                italic,
-                spec.slant,
-                requested_spacing,
-                prefer_monospace,
-            )
-        })?;
-        return Some(best.matched);
+        let best = best_candidate_for_pass(
+            candidates,
+            effective_weight,
+            italic,
+            spec.slant,
+            requested_spacing,
+            prefer_monospace,
+            family_option.as_deref(),
+        )?;
+        return Some(best);
     }
+
     None
+}
+
+fn best_candidate_for_pass(
+    candidates: Vec<ListedFont>,
+    requested_weight: u16,
+    italic: bool,
+    requested_slant: Option<neovm_core::face::FontSlant>,
+    requested_spacing: Option<i32>,
+    prefer_monospace: bool,
+    queried_family: Option<&str>,
+) -> Option<FontMatch> {
+    let mut family_best: HashMap<(String, Option<String>), (usize, u32, FontMatch)> =
+        HashMap::new();
+
+    for (ordinal, candidate) in candidates.into_iter().enumerate() {
+        let score = candidate_score(
+            &candidate,
+            requested_weight,
+            italic,
+            requested_slant,
+            requested_spacing,
+            prefer_monospace,
+            queried_family,
+        );
+        let key = (
+            candidate.matched.family.clone(),
+            candidate.matched.file.clone(),
+        );
+        let matched = candidate.matched;
+        match family_best.get_mut(&key) {
+            Some((_, best_score, best_match)) if score < *best_score => {
+                *best_score = score;
+                *best_match = matched;
+            }
+            Some(_) => {}
+            None => {
+                family_best.insert(key, (ordinal, score, matched));
+            }
+        }
+    }
+
+    family_best
+        .into_values()
+        .min_by_key(|(ordinal, score, _)| (*score, *ordinal))
+        .map(|(_, _, matched)| matched)
 }
 
 fn family_search_order(requested_family: &str, spec: &StoredFontSpec) -> Vec<Option<String>> {
@@ -523,19 +570,20 @@ fn family_search_order(requested_family: &str, spec: &StoredFontSpec) -> Vec<Opt
         return vec![None];
     }
 
-    // GNU Emacs' font_find_for_lface tries the current face family first
-    // when the fontset entry itself doesn't pin a family, then retries with
-    // the family unspecified.
-    let resolved = resolve_family(requested_family);
-    if resolved == requested_family {
-        vec![Some(requested_family.to_string()), None]
-    } else {
-        vec![
-            Some(resolved.to_string()),
-            Some(requested_family.to_string()),
-            None,
-        ]
+    // GNU font_find_for_lface consults face-alternative-font-family-alist
+    // before retrying with an unspecified family.
+    let mut order = Vec::new();
+    for family in alternative_font_families(requested_family) {
+        let resolved = resolve_family(&family);
+        if resolved == family {
+            order.push(Some(family));
+        } else {
+            order.push(Some(resolved.to_string()));
+            order.push(Some(family));
+        }
     }
+    order.push(None);
+    order
 }
 
 fn candidate_score(
@@ -545,6 +593,7 @@ fn candidate_score(
     requested_slant: Option<neovm_core::face::FontSlant>,
     requested_spacing: Option<i32>,
     prefer_monospace: bool,
+    queried_family: Option<&str>,
 ) -> u32 {
     let style = candidate.style.to_ascii_lowercase();
     let candidate_weight = candidate
@@ -559,23 +608,18 @@ fn candidate_score(
     });
 
     let mut score = spacing_score(requested_spacing, candidate.spacing, prefer_monospace);
+    score += family_affinity_score(queried_family, &candidate.matched.family);
     score += u32::from(candidate_weight.abs_diff(requested_weight));
     score += slant_distance(requested_slant, candidate_slant);
     score
 }
 
-fn requested_spacing(
-    requested_family: &str,
-    prefer_monospace: bool,
-    spec: &StoredFontSpec,
-) -> Option<i32> {
-    if let Some(spec_family) = spec.family.as_deref() {
-        return family_spacing(spec_family);
-    }
-    if prefer_monospace {
-        return family_spacing(requested_family).or(Some(FONT_SPACING_MONO));
-    }
-    family_spacing(requested_family)
+fn requested_spacing(_spec: &StoredFontSpec) -> Option<i32> {
+    // GNU ftfont only filters by FC_SPACING when the font-spec itself requests
+    // spacing.  Inferring "monospace" from the current face family over-weights
+    // Fontconfig spacing metadata and makes variable CJK companions lose to
+    // unrelated fixed-pitch families.
+    None
 }
 
 fn spacing_score(
@@ -604,6 +648,29 @@ fn spacing_score(
         (Some(requested), Some(candidate)) => spacing_distance(requested, candidate),
         _ => 0,
     }
+}
+
+fn family_affinity_score(queried_family: Option<&str>, candidate_family: &str) -> u32 {
+    let Some(queried_family) = queried_family.filter(|family| !family.is_empty()) else {
+        return 0;
+    };
+
+    let queried = queried_family.to_ascii_lowercase();
+    let candidate = candidate_family.to_ascii_lowercase();
+
+    if candidate == queried {
+        return 0;
+    }
+
+    if candidate.starts_with(&queried) || queried.starts_with(&candidate) {
+        return 5;
+    }
+
+    if candidate.contains(&queried) || queried.contains(&candidate) {
+        return 15;
+    }
+
+    80
 }
 
 fn normalize_spacing(spacing: i32) -> Option<SpacingClass> {
@@ -756,6 +823,49 @@ fn add_lang_property(pattern: &mut Pattern<'_>, lang: &str) -> bool {
             pattern.as_mut_ptr(),
             fontconfig::FC_LANG.as_ptr(),
             langset.0,
+        )
+    };
+    ok != 0
+}
+
+#[cfg(unix)]
+struct FcCharSetGuard(*mut fontconfig_sys::FcCharSet);
+
+#[cfg(unix)]
+impl Drop for FcCharSetGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { fontconfig_sys::FcCharSetDestroy(self.0) };
+        }
+    }
+}
+
+#[cfg(unix)]
+fn add_charset_property(pattern: &mut Pattern<'_>, codepoints: &[u32]) -> bool {
+    if codepoints.is_empty() {
+        return true;
+    }
+
+    let charset = unsafe { fontconfig_sys::FcCharSetCreate() };
+    if charset.is_null() {
+        return false;
+    }
+    let charset = FcCharSetGuard(charset);
+
+    for &codepoint in codepoints {
+        let added = unsafe {
+            fontconfig_sys::FcCharSetAddChar(charset.0, codepoint as fontconfig_sys::FcChar32)
+        };
+        if added == 0 {
+            return false;
+        }
+    }
+
+    let ok = unsafe {
+        fontconfig_sys::FcPatternAddCharSet(
+            pattern.as_mut_ptr(),
+            fontconfig::FC_CHARSET.as_ptr(),
+            charset.0,
         )
     };
     ok != 0
@@ -916,6 +1026,12 @@ fn fc_list_candidates(
     } else {
         langs.iter().map(|lang| Some(lang.as_str())).collect()
     };
+    let mut query_codepoints = registry_query_chars.to_vec();
+    if let Some(required_char) = required_char
+        && !query_codepoints.contains(&required_char)
+    {
+        query_codepoints.push(required_char);
+    }
 
     for lang in query_langs {
         let mut pattern = Pattern::new(fc);
@@ -923,6 +1039,9 @@ fn fc_list_candidates(
             if !add_string_property(&mut pattern, fontconfig::FC_FAMILY, family) {
                 continue;
             }
+        }
+        if !add_charset_property(&mut pattern, &query_codepoints) {
+            continue;
         }
         if let Some(lang) = lang.filter(|lang| !lang.is_empty()) {
             if !add_lang_property(&mut pattern, lang) {
@@ -1334,9 +1453,9 @@ fn family_spacing(family: &str) -> Option<i32> {
 mod tests {
     use super::{
         FONT_SPACING_MONO, FONT_SPACING_PROPORTIONAL, ListedFont, SpacingClass, candidate_score,
-        combined_query_langs, fallback_frame_res_y, family_search_order, fc_list_candidates,
-        normalize_spacing, parse_fontconfig_weight, points_to_pixels_for_dpi, registry_hint,
-        registry_query_chars, style_weight, wildcard_casefold_match,
+        combined_query_langs, fallback_frame_res_y, family_affinity_score, family_search_order,
+        fc_list_candidates, normalize_spacing, parse_fontconfig_weight, points_to_pixels_for_dpi,
+        registry_hint, registry_query_chars, style_weight, wildcard_casefold_match,
     };
     use neovm_core::emacs_core::fontset::StoredFontSpec;
     use neovm_core::face::{FontSlant, FontWeight};
@@ -1495,6 +1614,7 @@ mod tests {
             None,
             Some(FONT_SPACING_MONO),
             true,
+            Some("Noto Sans Mono"),
         );
         let proportional_score = candidate_score(
             &proportional_candidate,
@@ -1503,6 +1623,7 @@ mod tests {
             None,
             Some(FONT_SPACING_MONO),
             true,
+            Some("Noto Sans Mono"),
         );
 
         assert!(
@@ -1513,25 +1634,115 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn mono_cjk_candidate_pool_contains_non_proportional_fonts() {
-        let candidates = fc_list_candidates(
+    fn family_affinity_prefers_requested_family_over_unrelated_fixed_pitch_fallback() {
+        let requested_family_candidate = ListedFont {
+            matched: super::FontMatch {
+                family: "Noto Sans Mono CJK SC".to_string(),
+                file: None,
+                postscript_name: None,
+                weight: Some(400),
+                slant: FontSlant::Normal,
+            },
+            style: "Regular".to_string(),
+            weight_css: Some(400),
+            spacing: None,
+        };
+        let unrelated_fixed_candidate = ListedFont {
+            matched: super::FontMatch {
+                family: "Sarasa Fixed Slab SC".to_string(),
+                file: None,
+                postscript_name: None,
+                weight: Some(400),
+                slant: FontSlant::Normal,
+            },
+            style: "Regular".to_string(),
+            weight_css: Some(400),
+            spacing: Some(90),
+        };
+
+        let requested_score = candidate_score(
+            &requested_family_candidate,
+            400,
+            false,
             None,
-            &['好' as u32],
-            Some('好' as u32),
-            &[String::from("zh-cn")],
+            None,
+            true,
+            Some("Noto Sans Mono"),
         );
-        let best = candidates
-            .iter()
-            .min_by_key(|candidate| {
-                candidate_score(candidate, 800, false, None, Some(FONT_SPACING_MONO), true)
-            })
-            .expect("candidates for CJK mono fallback");
-        let spacing = best.spacing.expect("best candidate spacing");
+        let fallback_score = candidate_score(
+            &unrelated_fixed_candidate,
+            400,
+            false,
+            None,
+            None,
+            true,
+            Some("Noto Sans Mono"),
+        );
+
         assert!(
-            spacing >= 90,
-            "expected non-proportional best candidate for mono fallback, got family={} spacing={spacing}",
-            best.matched.family
+            requested_score < fallback_score,
+            "expected requested-family CJK companion to outrank unrelated fixed fallback: requested={requested_score} fallback={fallback_score}"
         );
+    }
+
+    #[test]
+    fn family_affinity_treats_cjk_companion_as_close_match() {
+        assert_eq!(
+            family_affinity_score(Some("Noto Sans Mono"), "Noto Sans Mono CJK SC"),
+            5
+        );
+        assert_eq!(
+            family_affinity_score(Some("Noto Sans Mono"), "Sarasa Fixed SC"),
+            80
+        );
+    }
+
+    #[test]
+    fn best_candidate_for_pass_prefers_first_family_when_later_style_matches_catch_up() {
+        let candidates = vec![
+            ListedFont {
+                matched: super::FontMatch {
+                    family: "Noto Sans Mono CJK SC".to_string(),
+                    file: Some("mono.ttc".to_string()),
+                    postscript_name: Some("Mono-Medium".to_string()),
+                    weight: Some(500),
+                    slant: FontSlant::Normal,
+                },
+                style: "Medium".to_string(),
+                weight_css: Some(500),
+                spacing: None,
+            },
+            ListedFont {
+                matched: super::FontMatch {
+                    family: "Noto Sans CJK JP".to_string(),
+                    file: Some("sans.ttc".to_string()),
+                    postscript_name: Some("Sans-Regular".to_string()),
+                    weight: Some(400),
+                    slant: FontSlant::Normal,
+                },
+                style: "Regular".to_string(),
+                weight_css: Some(400),
+                spacing: None,
+            },
+            ListedFont {
+                matched: super::FontMatch {
+                    family: "Noto Sans Mono CJK SC".to_string(),
+                    file: Some("mono.ttc".to_string()),
+                    postscript_name: Some("Mono-Regular".to_string()),
+                    weight: Some(400),
+                    slant: FontSlant::Normal,
+                },
+                style: "Regular".to_string(),
+                weight_css: Some(400),
+                spacing: None,
+            },
+        ];
+
+        let matched =
+            super::best_candidate_for_pass(candidates, 400, false, None, None, true, None)
+                .expect("best candidate");
+        assert_eq!(matched.family, "Noto Sans Mono CJK SC");
+        assert_eq!(matched.postscript_name.as_deref(), Some("Mono-Regular"));
     }
 
     #[cfg(unix)]

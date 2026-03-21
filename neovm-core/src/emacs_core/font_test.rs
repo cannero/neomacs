@@ -1252,6 +1252,33 @@ fn internal_set_alternative_font_family_alist_converts_strings_to_symbols() {
 }
 
 #[test]
+fn internal_set_alternative_font_family_alist_updates_family_lookup_order() {
+    let input = Value::list(vec![Value::list(vec![
+        Value::string("Noto Sans Mono"),
+        Value::string("Noto Sans Mono CJK SC"),
+        Value::string("Sarasa Gothic CL"),
+    ])]);
+    builtin_internal_set_alternative_font_family_alist(vec![input]).unwrap();
+
+    assert_eq!(
+        alternative_font_families("noto sans mono"),
+        vec![
+            "Noto Sans Mono".to_string(),
+            "Noto Sans Mono CJK SC".to_string(),
+            "Sarasa Gothic CL".to_string(),
+        ]
+    );
+    assert_eq!(
+        alternative_font_families("Noto Sans Mono"),
+        vec![
+            "Noto Sans Mono".to_string(),
+            "Noto Sans Mono CJK SC".to_string(),
+            "Sarasa Gothic CL".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn internal_set_alternative_font_registry_alist_returns_nil_or_value() {
     let result = builtin_internal_set_alternative_font_registry_alist(vec![Value::Nil]).unwrap();
     assert!(result.is_nil());

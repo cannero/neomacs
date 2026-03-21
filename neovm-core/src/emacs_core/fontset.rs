@@ -1029,6 +1029,7 @@ fn font_vector_get_flexible(items: &[Value], prop: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::emacs_core::charset::{builtin_define_charset_internal, reset_charset_registry};
 
     fn registry_spec(name: &str) -> FontSpecEntry {
         FontSpecEntry::Font(StoredFontSpec {
@@ -1123,6 +1124,70 @@ mod tests {
                 slant: None,
                 width: None,
                 repertory: Some(FontRepertory::Charset("iso-8859-1".to_string())),
+            }),
+            FontsetAddMode::Append,
+        );
+        data.update_target(
+            FontsetTarget::Range(0x80, 0x10FFFF),
+            FontSpecEntry::Font(StoredFontSpec {
+                family: None,
+                registry: Some("iso10646-1".to_string()),
+                lang: None,
+                weight: None,
+                slant: None,
+                width: None,
+                repertory: Some(FontRepertory::Charset("unicode-bmp".to_string())),
+            }),
+            FontsetAddMode::Append,
+        );
+
+        let registries: Vec<_> = data
+            .matching_entries_for_char('好' as u32)
+            .into_iter()
+            .filter_map(|entry| match entry {
+                FontSpecEntry::Font(spec) => spec.registry,
+                FontSpecEntry::ExplicitNone => None,
+            })
+            .collect();
+
+        assert_eq!(registries, vec!["iso10646-1".to_string()]);
+    }
+
+    #[test]
+    fn repertory_subset_charset_filters_non_matching_entries() {
+        reset_charset_registry();
+
+        let mut parent_args = vec![Value::Nil; 17];
+        parent_args[0] = Value::symbol("latin-iso8859-2-test");
+        parent_args[1] = Value::Int(1);
+        parent_args[2] = Value::vector(vec![Value::Int(0), Value::Int(255)]);
+        parent_args[8] = Value::True;
+        parent_args[12] = Value::string("8859-2");
+        builtin_define_charset_internal(parent_args).unwrap();
+
+        let mut subset_args = vec![Value::Nil; 17];
+        subset_args[0] = Value::symbol("iso-8859-2-test");
+        subset_args[1] = Value::Int(1);
+        subset_args[2] = Value::vector(vec![Value::Int(32), Value::Int(127)]);
+        subset_args[13] = Value::list(vec![
+            Value::symbol("latin-iso8859-2-test"),
+            Value::Int(160),
+            Value::Int(255),
+            Value::Int(-128),
+        ]);
+        builtin_define_charset_internal(subset_args).unwrap();
+
+        let mut data = FontsetData::default();
+        data.update_target(
+            FontsetTarget::Range(0x80, 0x10FFFF),
+            FontSpecEntry::Font(StoredFontSpec {
+                family: None,
+                registry: Some("iso8859-2".to_string()),
+                lang: None,
+                weight: None,
+                slant: None,
+                width: None,
+                repertory: Some(FontRepertory::Charset("iso-8859-2-test".to_string())),
             }),
             FontsetAddMode::Append,
         );

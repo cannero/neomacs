@@ -209,12 +209,12 @@ impl FontMetricsService {
                     .db()
                     .face(glyph.physical((0.0, 0.0), 1.0).cache_key.font_id)?;
                 return Some(SelectedFontInfo {
-                    family: face
-                        .families
-                        .first()
-                        .map(|(name, _)| name.clone())
-                        .filter(|name| !name.is_empty())
-                        .unwrap_or_else(|| resolved.family.clone()),
+                    // TTC/variable collections frequently expose several
+                    // regional aliases, and fontdb may report the file's first
+                    // alias instead of the family we explicitly resolved for
+                    // this character. Preserve the selector's family so
+                    // `font-at` mirrors GNU Emacs' realized face semantics.
+                    family: resolved.family.clone(),
                     postscript_name: Some(face.post_script_name.clone())
                         .filter(|name| !name.is_empty()),
                     // Variable fonts often report the container face's
@@ -636,12 +636,7 @@ mod tests {
                     .db()
                     .face(glyph.physical((0.0, 0.0), 1.0).cache_key.font_id)?;
                 return Some(SelectedFontInfo {
-                    family: face
-                        .families
-                        .first()
-                        .map(|(name, _)| name.clone())
-                        .filter(|name| !name.is_empty())
-                        .unwrap_or_else(|| resolved.family.clone()),
+                    family: resolved.family.clone(),
                     postscript_name: Some(face.post_script_name.clone())
                         .filter(|name| !name.is_empty()),
                     weight: FontWeight(face.weight.0),
@@ -1359,6 +1354,16 @@ mod tests {
             .select_font_for_char('A', "Noto Sans Mono", 600, false, 24.0)
             .expect("selected font for variable family");
         assert_eq!(selected.weight, FontWeight(600));
+    }
+
+    #[test]
+    fn select_font_for_char_preserves_resolved_family_for_fallback_reports() {
+        let mut svc = make_svc();
+        let resolved = svc.resolve_font_for_char('好', "Noto Sans Mono", 400, false);
+        let selected = svc
+            .select_font_for_char('好', "Noto Sans Mono", 400, false, 24.0)
+            .expect("selected font for fallback char");
+        assert_eq!(selected.family, resolved.family);
     }
 
     #[test]

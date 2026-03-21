@@ -1601,35 +1601,70 @@ fn bootstrap_runtime_setup_default_fontset_preserves_gnu_han_order() {
     let entries = matching_entries_for_fontset(DEFAULT_FONTSET_NAME, '好');
     let registries: Vec<Option<String>> = entries
         .iter()
-        .take(19)
+        .take(23)
         .map(|entry| match entry {
             FontSpecEntry::Font(spec) => spec.registry.clone(),
             FontSpecEntry::ExplicitNone => None,
         })
         .collect();
+    // GNU Emacs 31.1 returns a shorter Han sequence here than older
+    // assumptions suggested. Normalize GNU's wildcard-heavy registry
+    // strings to Neomacs' stored registry form before comparing.
     assert_eq!(
         registries,
         vec![
             Some("gb2312.1980-0".to_string()),
             Some("jisx0208*".to_string()),
-            Some("jisx0212*".to_string()),
             Some("big5*".to_string()),
             Some("ksc5601.1987*".to_string()),
             Some("cns11643.1992-1".to_string()),
-            Some("cns11643.1992-2".to_string()),
-            Some("cns11643.1992-3".to_string()),
-            Some("cns11643.1992-4".to_string()),
-            Some("cns11643.1992-5".to_string()),
-            Some("cns11643.1992-6".to_string()),
-            Some("cns11643.1992-7".to_string()),
             Some("gbk-0".to_string()),
             Some("gb18030".to_string()),
             Some("jisx0213.2000-1".to_string()),
-            Some("jisx0213.2000-2".to_string()),
             Some("jisx0213.2004-1".to_string()),
             Some("iso10646-1".to_string()),
             Some("iso10646-1".to_string()),
+            Some("iso10646-1".to_string()),
+            Some("iso10646-1".to_string()),
+            Some("iso10646-1".to_string()),
+            Some("gb2312.1980".to_string()),
+            Some("gbk-0".to_string()),
+            Some("gb18030".to_string()),
+            Some("jisx0208".to_string()),
+            Some("ksc5601.1987".to_string()),
+            Some("cns11643.1992-1".to_string()),
+            Some("big5".to_string()),
+            Some("jisx0213.2000-1".to_string()),
+            Some("jisx0213.2004-1".to_string()),
         ]
+    );
+}
+
+#[test]
+fn bootstrap_runtime_fontset_font_for_han_matches_gnu_order() {
+    let mut eval =
+        create_bootstrap_evaluator_with_features(&["neomacs"]).expect("fresh bootstrap evaluator");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (setup-default-fontset)
+             (fontset-font t ?好 t))"#,
+    );
+
+    assert!(
+        rendered.starts_with(
+            "OK ((nil . \"gb2312.1980-0\") \
+             (nil . \"jisx0208*\") \
+             (nil . \"big5*\") \
+             (nil . \"ksc5601.1987*\") \
+             (nil . \"cns11643.1992-1\") \
+             (nil . \"gbk-0\") \
+             (nil . \"gb18030\") \
+             (nil . \"jisx0213.2000-1\") \
+             (nil . \"jisx0213.2004-1\")"
+        ),
+        "unexpected fontset-font order: {rendered}"
     );
 }
 

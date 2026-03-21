@@ -16,6 +16,7 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::sync::{OnceLock, RwLock};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
@@ -24,6 +25,32 @@ use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
 use crate::face::{Face as RuntimeFace, FaceHeight, FontSlant, FontWeight, FontWidth};
 use crate::window::{FRAME_ID_BASE, FrameId, FrameManager, WindowId};
+
+type AlternativeFontFamilyAlist = Vec<(String, Vec<String>)>;
+
+static ALTERNATIVE_FONT_FAMILY_ALIST: OnceLock<RwLock<AlternativeFontFamilyAlist>> =
+    OnceLock::new();
+
+fn alternative_font_family_alist() -> &'static RwLock<AlternativeFontFamilyAlist> {
+    ALTERNATIVE_FONT_FAMILY_ALIST.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+pub fn alternative_font_families(family: &str) -> Vec<String> {
+    let lookup = family.trim();
+    if lookup.is_empty() {
+        return Vec::new();
+    }
+
+    let Ok(alist) = alternative_font_family_alist().read() else {
+        return vec![lookup.to_string()];
+    };
+
+    let key = lookup.to_ascii_lowercase();
+    alist
+        .iter()
+        .find_map(|(name, families)| (name == &key).then_some(families.clone()))
+        .unwrap_or_else(|| vec![lookup.to_string()])
+}
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local to this module)
@@ -3092,13 +3119,17 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
     expect_args("internal-set-alternative-font-family-alist", &args, 1)?;
     let entries = proper_list_to_vec_or_listp_error(&args[0])?;
     let mut normalized = Vec::with_capacity(entries.len());
+    let mut alist = Vec::with_capacity(entries.len());
     for entry in entries {
         let members = proper_list_to_vec_or_listp_error(&entry)?;
         let mut converted = Vec::with_capacity(members.len());
+        let mut names = Vec::with_capacity(members.len());
         for member in members {
             match member {
                 Value::Str(id) => {
-                    converted.push(Value::symbol(with_heap(|h| h.get_string(id).to_owned())))
+                    let name = with_heap(|h| h.get_string(id).to_owned());
+                    converted.push(Value::symbol(name.clone()));
+                    names.push(name);
                 }
                 other => {
                     return Err(signal(
@@ -3108,7 +3139,13 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
                 }
             }
         }
+        if let Some(name) = names.first() {
+            alist.push((name.to_ascii_lowercase(), names));
+        }
         normalized.push(Value::list(converted));
+    }
+    if let Ok(mut state) = alternative_font_family_alist().write() {
+        *state = alist;
     }
     Ok(Value::list(normalized))
 }
