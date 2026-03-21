@@ -58,6 +58,7 @@ struct StartupOptions {
     frontend: FrontendKind,
     forwarded_args: Vec<String>,
     terminal_device: Option<String>,
+    noninteractive: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +202,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
     let mut forwarded_args = vec![program];
     let mut frontend = FrontendKind::Gui;
     let mut terminal_device = None;
+    let mut noninteractive = false;
     let mut index = 0usize;
 
     while index < args.len() {
@@ -211,6 +213,13 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         }
 
         if matches!(arg.as_str(), "-nw" | "--no-window-system" | "--no-windows") {
+            frontend = FrontendKind::Tty;
+            index += 1;
+            continue;
+        }
+
+        if matches!(arg.as_str(), "--batch" | "-batch") {
+            noninteractive = true;
             frontend = FrontendKind::Tty;
             index += 1;
             continue;
@@ -254,6 +263,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         frontend,
         forwarded_args,
         terminal_device,
+        noninteractive,
     })
 }
 
@@ -957,7 +967,14 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup:
     eval.set_variable("command-line-args", Value::list(argv));
     eval.set_variable("command-line-args-left", Value::list(argv_left));
     eval.set_variable("command-line-processed", Value::Nil);
-    eval.set_variable("noninteractive", Value::Nil);
+    eval.set_variable(
+        "noninteractive",
+        if startup.noninteractive {
+            Value::True
+        } else {
+            Value::Nil
+        },
+    );
     match startup.frontend {
         FrontendKind::Gui => {
             let window_system = Value::symbol(gui_window_system_symbol());
@@ -1152,6 +1169,7 @@ mod tests {
             frontend: FrontendKind::Gui,
             forwarded_args: vec!["neomacs".to_string()],
             terminal_device: None,
+            noninteractive: false,
         }
     }
 
@@ -1162,6 +1180,7 @@ mod tests {
             frontend: FrontendKind::Gui,
             forwarded_args,
             terminal_device: None,
+            noninteractive: false,
         }
     }
 
@@ -1300,10 +1319,33 @@ mod tests {
         .expect("startup options should parse");
 
         assert_eq!(parsed.frontend, FrontendKind::Tty);
+        assert!(!parsed.noninteractive);
         assert_eq!(parsed.terminal_device.as_deref(), Some("/dev/pts/7"));
         assert_eq!(
             parsed.forwarded_args,
             vec!["neomacs".to_string(), "README.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn startup_option_parser_promotes_batch_to_noninteractive_and_strips_batch_flag() {
+        let parsed = parse_startup_options(
+            ["neomacs", "--batch", "-Q", "--eval", "(princ 1)"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect("startup options should parse");
+
+        assert_eq!(parsed.frontend, FrontendKind::Tty);
+        assert!(parsed.noninteractive);
+        assert_eq!(
+            parsed.forwarded_args,
+            vec![
+                "neomacs".to_string(),
+                "-Q".to_string(),
+                "--eval".to_string(),
+                "(princ 1)".to_string()
+            ]
         );
     }
 
@@ -1348,6 +1390,7 @@ mod tests {
             frontend: FrontendKind::Tty,
             forwarded_args: vec!["neomacs".to_string(), "-q".to_string()],
             terminal_device: Some("/dev/tty".to_string()),
+            noninteractive: false,
         };
         configure_gnu_startup_state(&mut eval, FrameId(7), &startup);
 
@@ -1369,6 +1412,37 @@ mod tests {
         assert_eq!(
             eval.obarray().symbol_value("command-line-args-left"),
             Some(&Value::list(vec![Value::string("-q")]))
+        );
+    }
+
+    #[test]
+    fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
+        let mut eval = Evaluator::new();
+        let startup = StartupOptions {
+            frontend: FrontendKind::Tty,
+            forwarded_args: vec![
+                "neomacs".to_string(),
+                "-Q".to_string(),
+                "--eval".to_string(),
+                "(princ 1)".to_string(),
+            ],
+            terminal_device: None,
+            noninteractive: true,
+        };
+        configure_gnu_startup_state(&mut eval, FrameId(9), &startup);
+
+        assert_eq!(
+            eval.obarray().symbol_value("noninteractive"),
+            Some(&Value::True)
+        );
+        assert_eq!(
+            eval.obarray().symbol_value("command-line-args"),
+            Some(&Value::list(vec![
+                Value::string("neomacs"),
+                Value::string("-Q"),
+                Value::string("--eval"),
+                Value::string("(princ 1)"),
+            ]))
         );
     }
 
