@@ -517,6 +517,42 @@ fn underline_style_from_code(code: u8) -> UnderlineStyle {
 }
 
 impl LayoutEngine {
+    fn ensure_status_line_face_metrics(
+        &mut self,
+        face: &mut StatusLineFace,
+        fallback_char_width: f32,
+        fallback_ascent: f32,
+        row_height: f32,
+    ) {
+        let needs_metrics = face.font_char_width <= 0.0
+            || face.font_ascent <= 0.0
+            || (face.font_ascent + face.font_descent as f32) <= 0.0;
+
+        if needs_metrics {
+            let metrics = self.status_line_font_metrics(face);
+
+            if face.font_char_width <= 0.0 && metrics.char_width > 0.0 {
+                face.font_char_width = metrics.char_width;
+            }
+            if face.font_ascent <= 0.0 && metrics.ascent > 0.0 {
+                face.font_ascent = metrics.ascent;
+            }
+            if (face.font_ascent + face.font_descent as f32) <= 0.0 && metrics.line_height > 0.0 {
+                face.font_descent = (metrics.line_height - metrics.ascent).max(0.0).round() as i32;
+            }
+        }
+
+        if face.font_char_width <= 0.0 {
+            face.font_char_width = fallback_char_width.max(1.0);
+        }
+        if face.font_ascent <= 0.0 {
+            face.font_ascent = fallback_ascent.max(1.0);
+        }
+        if (face.font_ascent + face.font_descent as f32) <= 0.0 {
+            face.font_descent = (row_height - face.font_ascent).max(0.0).round() as i32;
+        }
+    }
+
     fn build_ffi_status_line_spec(
         &mut self,
         x: f32,
@@ -894,7 +930,8 @@ impl LayoutEngine {
         frame_glyphs: &mut FrameGlyphBuffer,
         kind: StatusLineKind,
     ) {
-        let face = StatusLineFace::from_resolved(face_id, face);
+        let mut face = StatusLineFace::from_resolved(face_id, face);
+        self.ensure_status_line_face_metrics(&mut face, char_w, ascent, height);
         let char_width = self.status_line_char_width(&face, char_w);
         let spec = StatusLineSpec::plain(
             kind, x, y, width, height, window_id, char_width, ascent, face, text,
@@ -1740,5 +1777,48 @@ mod tests {
 
         assert_eq!(glyph_y, 154.0);
         assert_eq!(glyph_baseline, 163.0);
+    }
+
+    #[test]
+    fn render_rust_status_line_plain_realizes_missing_face_metrics() {
+        let mut engine = LayoutEngine::new();
+        let mut fgb = FrameGlyphBuffer::with_size(320.0, 200.0);
+        let mut face = ResolvedFace::default();
+        face.bg = 0x00C0C0C0;
+        face.font_family = "monospace".to_string();
+        face.font_size = 14.0;
+
+        engine.render_rust_status_line_plain(
+            10.0,
+            150.0,
+            200.0,
+            20.0,
+            42,
+            8.0,
+            12.0,
+            7,
+            &face,
+            "x".to_string(),
+            &mut fgb,
+            StatusLineKind::ModeLine,
+        );
+
+        let (glyph_y, glyph_baseline) = fgb
+            .glyphs
+            .iter()
+            .find_map(|glyph| match glyph {
+                FrameGlyph::Char { y, baseline, .. } => Some((*y, *baseline)),
+                _ => None,
+            })
+            .expect("status-line text glyph missing");
+
+        assert!(
+            glyph_y > 150.0,
+            "expected missing face metrics to be realized and vertically centered, got top-aligned glyph y {glyph_y}"
+        );
+        assert!(
+            glyph_baseline > glyph_y,
+            "expected a positive realized baseline after metric population, got glyph_y={glyph_y} baseline={glyph_baseline}"
+        );
     }
 }

@@ -5013,6 +5013,31 @@ impl LayoutEngine {
         fallback_char_width
     }
 
+    pub(crate) fn status_line_font_metrics(
+        &mut self,
+        face: &StatusLineFace,
+    ) -> crate::font_metrics::FontMetrics {
+        if self.font_metrics.is_none() {
+            self.font_metrics = Some(FontMetricsService::new());
+        }
+
+        if let Some(ref mut svc) = self.font_metrics {
+            return svc.font_metrics(
+                &face.font_family,
+                face.font_weight,
+                face.italic,
+                face.font_size,
+            );
+        }
+
+        crate::font_metrics::FontMetrics {
+            ascent: face.font_ascent.max(1.0),
+            descent: face.font_descent.max(0) as f32,
+            line_height: (face.font_ascent + face.font_descent as f32).max(1.0),
+            char_width: face.font_char_width.max(1.0),
+        }
+    }
+
     /// Measure the advance of a status-line glyph using the backend requested by the spec.
     pub(crate) unsafe fn status_line_advance(
         &mut self,
@@ -11424,6 +11449,49 @@ mod tests {
         assert!(
             mode_line_text == expected_mode_line,
             "expected rendered mode-line to match freshly evaluated mode-line after redisplay publish, got rendered={mode_line_text:?} expected={expected_mode_line:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_renders_header_line_text_for_non_nil_header_line_format() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("body line\n");
+            buf.set_buffer_local("header-line-format", Value::string("LEFT HEADER"));
+        }
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-header-line", 640, 160, buf_id);
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(640.0, 160.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let mut header_glyphs = frame_glyphs
+            .glyphs
+            .iter()
+            .filter_map(|glyph| match glyph {
+                FrameGlyph::Char {
+                    char, x, row_role, ..
+                } if *row_role == GlyphRowRole::HeaderLine => Some((*x, *char)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        header_glyphs.sort_by(|lhs, rhs| lhs.0.total_cmp(&rhs.0));
+        let header_text = header_glyphs
+            .into_iter()
+            .map(|(_, ch)| ch)
+            .collect::<String>();
+
+        assert!(
+            header_text.contains("LEFT HEADER"),
+            "expected header-line row to render buffer-local header-line-format text, got {header_text:?}"
         );
     }
 
