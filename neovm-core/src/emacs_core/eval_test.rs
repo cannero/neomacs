@@ -1890,9 +1890,10 @@ fn fset_restoring_subr_object_keeps_callability() {
 
 #[test]
 fn funcall_subr_object_ignores_symbol_function_rebinding() {
-    // GNU Emacs byte-compiled code uses Bcar opcode which bypasses the
-    // function cell entirely.  NeoVM now matches this: overriding `car`'s
-    // function cell via `fset` does NOT affect direct `(car ...)` calls.
+    // GNU Emacs tree-walking evaluator respects fset: after (fset 'car shadow),
+    // calling (car ...) uses the shadow function. Only the bytecode VM
+    // bypasses via dedicated opcodes (Bcar).
+    // funcall with the original subr object still uses the original.
     assert_eq!(
         eval_one(
             "(let ((orig (symbol-function 'car))
@@ -1903,7 +1904,7 @@ fn funcall_subr_object_ignores_symbol_function_rebinding() {
                      (list (funcall snap '(1 2)) (car '(1 2))))
                  (fset 'car orig)))"
         ),
-        "OK (1 1)"
+        "OK (1 shadow)"
     );
 }
 
