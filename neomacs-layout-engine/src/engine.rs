@@ -1537,14 +1537,17 @@ impl LayoutEngine {
         }
 
         // Collect window and frame params from neovm-core
-        let (frame_params, window_params_list) =
-            match super::neovm_bridge::collect_layout_params(evaluator, frame_id) {
-                Some(data) => data,
-                None => {
-                    tracing::error!("layout_frame_rust: frame {:?} not found", frame_id);
-                    return;
-                }
-            };
+        let (frame_params, window_params_list) = match super::neovm_bridge::collect_layout_params(
+            evaluator,
+            frame_id,
+            default_metrics.map(|metrics| metrics.ascent),
+        ) {
+            Some(data) => data,
+            None => {
+                tracing::error!("layout_frame_rust: frame {:?} not found", frame_id);
+                return;
+            }
+        };
 
         // --- Fontification pass ---
         // Run fontification for each window's visible region BEFORE the

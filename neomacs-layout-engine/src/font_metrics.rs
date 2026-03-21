@@ -15,9 +15,9 @@ use std::collections::HashMap;
 /// Font metrics returned for a given face configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct FontMetrics {
-    /// Distance from baseline to top of tallest glyph
+    /// Baseline offset from the top of the line box.
     pub ascent: f32,
-    /// Distance from baseline to bottom of lowest glyph (positive value)
+    /// Distance from the baseline to the bottom of the line box.
     pub descent: f32,
     /// Total line height (ascent + descent + leading)
     pub line_height: f32,
@@ -217,7 +217,11 @@ impl FontMetricsService {
                         .unwrap_or_else(|| resolved.family.clone()),
                     postscript_name: Some(face.post_script_name.clone())
                         .filter(|name| !name.is_empty()),
-                    weight: FontWeight(face.weight.0),
+                    // Variable fonts often report the container face's
+                    // metadata weight here even when shaping used a different
+                    // requested instance. Preserve the resolved CSS weight so
+                    // `font-at` mirrors GNU Emacs' realized face semantics.
+                    weight: FontWeight(resolved.weight),
                     slant: font_slant_from_fontdb(face.style),
                     width: font_width_from_stretch_number(face.stretch.to_number()),
                 });
@@ -486,16 +490,19 @@ impl FontMetricsService {
         let line_height = font_size * 1.3;
         let metrics = Metrics::new(font_size, line_height);
 
-        // Shape a space character to extract line metrics
+        // Keep a leading space so the width probe matches the cell advance we
+        // use elsewhere, but also include ascender/descender glyphs so line
+        // metrics reflect the realized font rather than whitespace only.
+        let sample = " Mg";
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(
             &mut self.font_system,
-            Some(font_size * 4.0),
+            Some(font_size * 8.0),
             Some(font_size * 2.0),
         );
         buffer.set_text(
             &mut self.font_system,
-            " ",
+            sample,
             &attrs,
             cosmic_text::Shaping::Advanced,
             None,
@@ -504,23 +511,26 @@ impl FontMetricsService {
 
         let mut char_width = font_size * 0.6;
         let mut actual_line_height = line_height;
+        let mut ascent = font_size * 0.8;
 
-        for run in buffer.layout_runs() {
-            // cosmic-text's line_y gives the baseline position
-            actual_line_height = run.line_height;
-            for glyph in run.glyphs.iter() {
-                char_width = glyph.w;
-                break;
+        if let Some(layout) = buffer.line_layout(&mut self.font_system, 0) {
+            if let Some(line) = layout.first() {
+                actual_line_height = line.line_height_opt.unwrap_or(line_height);
+                if let Some(space_glyph) = line.glyphs.iter().find(|glyph| glyph.start == 0) {
+                    char_width = space_glyph.w;
+                }
+
+                // Match cosmic-text's row baseline placement:
+                // line_y = line_top + ((line_height - glyph_height) / 2) + max_ascent
+                let glyph_height = line.max_ascent + line.max_descent;
+                let centering_offset = (actual_line_height - glyph_height) / 2.0;
+                ascent = centering_offset + line.max_ascent;
             }
-            break;
         }
 
-        // Derive ascent/descent from font metrics
-        // cosmic-text provides line_height; approximate ascent ≈ 80% of font_size
-        let ascent = font_size * 0.8;
         let mut descent = actual_line_height - ascent;
         if descent < 0.0 {
-            descent = font_size * 0.2;
+            descent = 0.0;
         }
 
         let fm = FontMetrics {
@@ -922,6 +932,66 @@ mod tests {
         assert_eq!(m1.line_height, m2.line_height);
     }
 
+    #[test]
+    fn font_metrics_match_cosmic_text_centered_baseline() {
+        let mut svc = make_svc();
+        let family = "monospace";
+        let weight = 400;
+        let italic = false;
+        let font_size = 14.0;
+        let fm = svc.font_metrics(family, weight, italic, font_size);
+
+        let attrs = svc.build_attrs(
+            family,
+            weight,
+            if italic {
+                FontSlant::Italic
+            } else {
+                FontSlant::Normal
+            },
+        );
+        let line_height = font_size * 1.3;
+        let metrics = Metrics::new(font_size, line_height);
+        let mut buffer = Buffer::new(&mut svc.font_system, metrics);
+        buffer.set_size(
+            &mut svc.font_system,
+            Some(font_size * 8.0),
+            Some(font_size * 2.0),
+        );
+        buffer.set_text(
+            &mut svc.font_system,
+            " Mg",
+            &attrs,
+            cosmic_text::Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(&mut svc.font_system, false);
+
+        let layout = buffer
+            .line_layout(&mut svc.font_system, 0)
+            .expect("sample line should layout");
+        let line = layout
+            .first()
+            .expect("sample line should have one layout line");
+        let actual_line_height = line.line_height_opt.unwrap_or(line_height);
+        let glyph_height = line.max_ascent + line.max_descent;
+        let expected_ascent = (actual_line_height - glyph_height) / 2.0 + line.max_ascent;
+        let expected_descent = actual_line_height - expected_ascent;
+
+        assert!(
+            (fm.ascent - expected_ascent).abs() < 0.01,
+            "expected ascent {:.3}, got {:.3}",
+            expected_ascent,
+            fm.ascent
+        );
+        assert!(
+            (fm.descent - expected_descent).abs() < 0.01,
+            "expected descent {:.3}, got {:.3}",
+            expected_descent,
+            fm.descent
+        );
+    }
+
     // ---------------------------------------------------------------
     // bold / italic variants
     // ---------------------------------------------------------------
@@ -1272,6 +1342,23 @@ mod tests {
         let realized = realized_face_info(&mut svc, '好', "JetBrains Mono", 800, false, 24.0)
             .expect("realized fallback face");
         assert_eq!(selected, realized);
+    }
+
+    #[test]
+    fn select_font_for_char_preserves_resolved_weight_for_variable_family_reports() {
+        let mut svc = make_svc();
+        if !svc.font_system.db().faces().any(|face| {
+            face.families
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("Noto Sans Mono"))
+        }) {
+            return;
+        }
+
+        let selected = svc
+            .select_font_for_char('A', "Noto Sans Mono", 600, false, 24.0)
+            .expect("selected font for variable family");
+        assert_eq!(selected.weight, FontWeight(600));
     }
 
     #[test]

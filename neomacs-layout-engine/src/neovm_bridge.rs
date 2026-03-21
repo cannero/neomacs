@@ -267,6 +267,7 @@ pub fn window_params_from_neovm(
     buffer: &Buffer,
     frame: &Frame,
     face_table: &FaceTable,
+    default_font_ascent: Option<f32>,
     is_selected: bool,
     is_minibuffer: bool,
     window_cursor_type: Value,
@@ -415,9 +416,9 @@ pub fn window_params_from_neovm(
         char_width,
         char_height,
         font_pixel_size: frame.font_pixel_size,
-        // FIXME: 0.8 ratio is a rough heuristic.  Store actual font_ascent on
-        // Frame (via FontMetricsService) when Phase 3 face/font integration lands.
-        font_ascent: frame.font_pixel_size * 0.8,
+        font_ascent: default_font_ascent
+            .filter(|ascent| *ascent > 0.0)
+            .unwrap_or(frame.font_pixel_size * 0.8),
         mode_line_height,
         header_line_height,
         tab_line_height,
@@ -459,6 +460,7 @@ pub fn window_params_from_neovm(
 pub fn collect_layout_params(
     evaluator: &Evaluator,
     frame_id: FrameId,
+    default_font_ascent: Option<f32>,
 ) -> Option<(FrameParams, Vec<WindowParams>)> {
     let frame = evaluator.frame_manager().get(frame_id)?;
     let frame_params = frame_params_from_neovm(frame, evaluator.face_table());
@@ -484,6 +486,7 @@ pub fn collect_layout_params(
             buffer,
             frame,
             evaluator.face_table(),
+            default_font_ascent,
             is_selected,
             false,
             window_cursor_type,
@@ -524,6 +527,7 @@ pub fn collect_layout_params(
                 buffer,
                 frame,
                 evaluator.face_table(),
+                default_font_ascent,
                 is_selected,
                 true,
                 window_cursor_type,
@@ -1383,7 +1387,7 @@ mod tests {
             frame.char_height = 14.0;
         }
 
-        let (fp, wps) = collect_layout_params(&evaluator, frame_id)
+        let (fp, wps) = collect_layout_params(&evaluator, frame_id, None)
             .expect("collect_layout_params should succeed");
 
         // Check FrameParams.
@@ -1451,6 +1455,7 @@ mod tests {
             &buf,
             frame,
             evaluator.face_table(),
+            None,
             false,
             false,
             Value::True,
@@ -1497,6 +1502,7 @@ mod tests {
             buffer,
             frame,
             evaluator.face_table(),
+            None,
             true,
             false,
             Value::True,
@@ -1592,7 +1598,7 @@ mod tests {
             .frame_manager_mut()
             .create_frame("test", 800, 600, buf_id);
 
-        let (_, wps) = collect_layout_params(&evaluator, frame_id).unwrap();
+        let (_, wps) = collect_layout_params(&evaluator, frame_id, None).unwrap();
 
         // The root window should pick up the buffer-local vars.
         let wp = &wps[0];
@@ -1623,7 +1629,7 @@ mod tests {
             }
         }
 
-        let (_, wps) = collect_layout_params(&evaluator, frame_id).unwrap();
+        let (_, wps) = collect_layout_params(&evaluator, frame_id, None).unwrap();
         let wp = &wps[0];
 
         assert_eq!(wp.left_fringe_width, 10.0);
@@ -1639,7 +1645,7 @@ mod tests {
     #[test]
     fn test_collect_nonexistent_frame() {
         let evaluator = neovm_core::emacs_core::Evaluator::new();
-        let result = collect_layout_params(&evaluator, FrameId(999999));
+        let result = collect_layout_params(&evaluator, FrameId(999999), None);
         assert!(result.is_none());
     }
 

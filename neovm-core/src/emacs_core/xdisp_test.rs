@@ -4,6 +4,29 @@ use crate::emacs_core::value::{
 };
 
 #[test]
+fn test_register_bootstrap_vars_include_tab_bar_display_vars() {
+    let mut obarray = crate::emacs_core::symbol::Obarray::new();
+    register_bootstrap_vars(&mut obarray);
+
+    assert_eq!(
+        obarray.symbol_value("auto-resize-tab-bars"),
+        Some(&Value::True)
+    );
+    assert_eq!(
+        obarray.symbol_value("auto-raise-tab-bar-buttons"),
+        Some(&Value::True)
+    );
+    assert_eq!(
+        obarray.symbol_value("tab-bar-border"),
+        Some(&Value::symbol("internal-border-width"))
+    );
+    assert_eq!(
+        obarray.symbol_value("tab-bar-button-margin"),
+        Some(&Value::Int(1))
+    );
+}
+
+#[test]
 fn test_format_mode_line() {
     let result =
         builtin_format_mode_line(vec![Value::string("test"), Value::symbol("default")]).unwrap();
