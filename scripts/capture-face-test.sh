@@ -7,6 +7,7 @@ EMACS_BIN_DEFAULT="/home/exec/Projects/github.com/emacs-mirror/emacs/src/emacs"
 NEOMACS_BIN_RELEASE="$ROOT_DIR/target/release/neomacs"
 NEOMACS_BIN_DEBUG="$ROOT_DIR/target/debug/neomacs"
 TEST_FILE_DEFAULT="$ROOT_DIR/test/neomacs/neomacs-face-test.el"
+TEST_FILE="$TEST_FILE_DEFAULT"
 
 APP="neomacs"
 BIN_OVERRIDE=""
@@ -59,12 +60,14 @@ usage() {
     cat <<'EOF'
 Usage: capture-face-test.sh [options]
 
-Launch Neomacs or GNU Emacs on the face test file, wait for a visible X11
-window, optionally send keys, and capture a screenshot.
+Launch Neomacs or GNU Emacs, optionally load a test file, wait for a visible
+X11 window, optionally send keys, and capture a screenshot.
 
 Options:
   --app APP            neomacs or emacs (default: neomacs)
   --bin PATH           Override the editor binary path
+  --test-file FILE     Load FILE after -Q instead of the default face test
+  --no-test-file       Do not load any default test file; run plain -Q
   --output FILE        Screenshot output path
   --log FILE           Log output path
   --wait SECONDS       Seconds to wait for a visible window (default: 180)
@@ -105,6 +108,7 @@ Options:
 
 Examples:
   ./scripts/capture-face-test.sh --app neomacs --output /tmp/neomacs-face.png
+  ./scripts/capture-face-test.sh --app neomacs --no-test-file --key ctrl+x --key ctrl+c
   ./scripts/capture-face-test.sh --app emacs --key Next --output /tmp/emacs-face-page2.png
   ./scripts/capture-face-test.sh --app neomacs --key ctrl+s --type "UNDERLINE (5 styles)" --key Return
   ./scripts/capture-face-test.sh --app neomacs --window-size 1400x1600 --startup-eval "(neomacs-face-test-write-matrix-report \"/tmp/report.txt\")"
@@ -130,6 +134,14 @@ while [[ $# -gt 0 ]]; do
         --bin)
             BIN_OVERRIDE="$2"
             shift 2
+            ;;
+        --test-file)
+            TEST_FILE="$2"
+            shift 2
+            ;;
+        --no-test-file)
+            TEST_FILE=""
+            shift
             ;;
         --log)
             LOG_FILE="$2"
@@ -314,14 +326,14 @@ case "$APP" in
         TITLE_HINT="Neomacs"
         DEFAULT_OUTPUT="/tmp/neomacs-face-test.png"
         DEFAULT_LOG="/tmp/neomacs-face-test.log"
-        CMD=("$BIN" -Q -l "$TEST_FILE_DEFAULT")
+        CMD=("$BIN" -Q)
         ;;
     emacs)
         BIN="$EMACS_BIN_DEFAULT"
         TITLE_HINT="Emacs"
         DEFAULT_OUTPUT="/tmp/emacs-face-test.png"
         DEFAULT_LOG="/tmp/emacs-face-test.log"
-        CMD=("$BIN" -Q -l "$TEST_FILE_DEFAULT")
+        CMD=("$BIN" -Q)
         ;;
     *)
         die "unsupported app: $APP"
@@ -333,6 +345,9 @@ if [[ -n "$BIN_OVERRIDE" ]]; then
 fi
 
 [[ -x "$BIN" ]] || die "binary not found or not executable: $BIN"
+if [[ -n "$TEST_FILE" && ! -f "$TEST_FILE" ]]; then
+    die "test file not found: $TEST_FILE"
+fi
 
 if [[ -z "$OUTPUT" ]]; then
     OUTPUT="$DEFAULT_OUTPUT"
@@ -342,6 +357,9 @@ if [[ -z "$LOG_FILE" ]]; then
 fi
 
 CMD+=("${EXTRA_ARGS[@]}")
+if [[ -n "$TEST_FILE" ]]; then
+    CMD+=(-l "$TEST_FILE")
+fi
 for load_file in "${LOAD_FILES[@]}"; do
     CMD+=(-l "$load_file")
 done
