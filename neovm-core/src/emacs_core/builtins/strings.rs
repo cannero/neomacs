@@ -882,29 +882,25 @@ fn format_int_spec(n: i64, spec: &FormatSpec) -> String {
             }
         }
         'o' => {
-            let prefix = if spec.sharp { "0" } else { "" };
-            if n >= 0 {
-                format!("{}{:o}", prefix, n)
-            } else {
-                // Emacs treats negative numbers as large unsigned for %o
-                format!("{}{:o}", prefix, n as u64)
-            }
+            let negative = n < 0;
+            let abs_val = (n as i128).unsigned_abs() as u64;
+            let sign = if negative { "-" } else { "" };
+            let prefix = if spec.sharp && abs_val != 0 { "0" } else { "" };
+            format!("{}{}{:o}", sign, prefix, abs_val)
         }
         'x' => {
-            let prefix = if spec.sharp { "0x" } else { "" };
-            if n >= 0 {
-                format!("{}{:x}", prefix, n)
-            } else {
-                format!("{}{:x}", prefix, n as u64)
-            }
+            let negative = n < 0;
+            let abs_val = (n as i128).unsigned_abs() as u64;
+            let sign = if negative { "-" } else { "" };
+            let prefix = if spec.sharp && abs_val != 0 { "0x" } else { "" };
+            format!("{}{}{:x}", sign, prefix, abs_val)
         }
         'X' => {
-            let prefix = if spec.sharp { "0X" } else { "" };
-            if n >= 0 {
-                format!("{}{:X}", prefix, n)
-            } else {
-                format!("{}{:X}", prefix, n as u64)
-            }
+            let negative = n < 0;
+            let abs_val = (n as i128).unsigned_abs() as u64;
+            let sign = if negative { "-" } else { "" };
+            let prefix = if spec.sharp && abs_val != 0 { "0X" } else { "" };
+            format!("{}{}{:X}", sign, prefix, abs_val)
         }
         _ => n.to_string(),
     };
