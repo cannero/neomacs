@@ -5224,6 +5224,20 @@ impl Evaluator {
                     return Err(signal("void-function", vec![Value::symbol(name)]));
                 }
 
+                // Follow symbol indirection chain to detect macros behind
+                // defalias aliases (e.g. cl-incf -> incf where incf is a
+                // macro).  Only replace `func` when the target is a macro
+                // — non-macro aliases are handled by the apply path below.
+                if let Value::Symbol(alias_id) = func {
+                    if let Some(resolved) = self.obarray.indirect_function(resolve_sym(alias_id)) {
+                        let is_macro = matches!(resolved, Value::Macro(_))
+                            || (resolved.is_cons() && resolved.cons_car().is_symbol_named("macro"));
+                        if is_macro {
+                            func = resolved;
+                        }
+                    }
+                }
+
                 if super::autoload::is_autoload_value(&func) {
                     // GNU eval.c handles macro autoloads before argument
                     // evaluation: load the file only if the autoload TYPE is
@@ -7906,9 +7920,7 @@ impl Evaluator {
                         "wrong-type-argument",
                         vec![Value::symbol("symbolp"), function],
                     ))
-                } else if function.cons_car().is_symbol_named("lambda")
-                    || function.cons_car().is_symbol_named("closure")
-                {
+                } else if function.cons_car().is_symbol_named("lambda") {
                     match self.eval_value(&function) {
                         Ok(callable) => self.apply(callable, args),
                         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument" => {
@@ -7916,12 +7928,69 @@ impl Evaluator {
                         }
                         Err(err) => Err(err),
                     }
+                } else if function.cons_car().is_symbol_named("closure") {
+                    // (closure ENV ARGS BODY...) — convert to Lambda and apply.
+                    // This mirrors GNU Emacs funcall_lambda which handles
+                    // closure cons cells by extracting env, arglist, and body.
+                    match self.convert_closure_cons_to_lambda(function) {
+                        Ok(callable) => self.apply(callable, args),
+                        Err(_) => Err(signal("invalid-function", vec![function])),
+                    }
                 } else {
                     Err(signal("invalid-function", vec![function]))
                 }
             }
             other => Err(signal("invalid-function", vec![other])),
         }
+    }
+
+    /// Convert a `(closure ENV ARGS BODY...)` cons cell into a
+    /// `Value::Lambda` so it can be applied.  This mirrors GNU Emacs
+    /// `funcall_lambda` which extracts env, arglist, and body from closure
+    /// cons cells produced by `(function (lambda ...))` under lexical binding.
+    fn convert_closure_cons_to_lambda(&mut self, closure_cons: Value) -> EvalResult {
+        // Structure: (closure ENV ARGS [DOCSTRING] BODY...)
+        let items = list_to_vec(&closure_cons)
+            .ok_or_else(|| signal("invalid-function", vec![closure_cons]))?;
+        // items[0] = symbol "closure", items[1] = ENV, items[2] = ARGS, items[3..] = BODY
+        if items.len() < 3 {
+            return Err(signal("invalid-function", vec![closure_cons]));
+        }
+        let env_value = items[1];
+        let params_value = items[2];
+
+        // Determine body start (skip optional docstring)
+        let (body_start, docstring_value) = if items.len() > 3 {
+            if items[3].is_string() && items.len() > 4 {
+                (4, items[3])
+            } else {
+                (3, Value::Nil)
+            }
+        } else {
+            (3, Value::Nil)
+        };
+
+        let body_value = if body_start < items.len() {
+            Value::list(items[body_start..].to_vec())
+        } else {
+            Value::Nil
+        };
+
+        let saved = self.save_temp_roots();
+        self.push_temp_root(env_value);
+        self.push_temp_root(params_value);
+        self.push_temp_root(body_value);
+        self.push_temp_root(docstring_value);
+
+        let result = builtins::symbols::make_interpreted_closure_from_parts(
+            &params_value,
+            &body_value,
+            &env_value,
+            Some(&docstring_value),
+            Some(&Value::Nil),
+        );
+        self.restore_temp_roots(saved);
+        result
     }
 
     #[inline]
