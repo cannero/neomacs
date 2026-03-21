@@ -276,7 +276,9 @@ fn quoted_macro_invalid_designator(function: &Value) -> Option<EvalResult> {
         return Some(Err(signal("void-function", vec![Value::Nil])));
     }
 
-    Some(Err(signal("invalid-function", vec![payload])))
+    // GNU extracts the docstring from the function part of (macro . fn),
+    // rather than signaling invalid-function.
+    Some(function_doc_or_error(payload))
 }
 
 fn documentation_plan_from_property_value(
