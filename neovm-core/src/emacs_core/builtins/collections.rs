@@ -278,6 +278,22 @@ fn hash_test_from_designator(value: &Value) -> Option<HashTableTest> {
     }
 }
 
+fn hash_test_from_user_test_pair(test: &Value, hash: &Value) -> Option<HashTableTest> {
+    let test_name = test.as_symbol_name()?;
+    let hash_name = hash.as_symbol_name()?;
+    match (test_name, hash_name) {
+        ("eq", "sxhash-eq") => Some(HashTableTest::Eq),
+        ("eql", "sxhash-eql") => Some(HashTableTest::Eql),
+        ("equal", "sxhash-equal")
+        | ("equal", "sxhash-equal-including-properties")
+        | ("equal-including-properties", "sxhash-equal")
+        | ("equal-including-properties", "sxhash-equal-including-properties") => {
+            Some(HashTableTest::Equal)
+        }
+        _ => None,
+    }
+}
+
 fn register_hash_table_test_alias(name: &str, test: HashTableTest) {
     HASH_TABLE_TEST_ALIASES.with(|slot| slot.borrow_mut().insert(name.to_string(), test));
 }
@@ -317,7 +333,9 @@ pub(crate) fn builtin_define_hash_table_test(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("symbolp"), args[0]],
         ));
     };
-    if let Some(test) = hash_test_from_designator(&args[1]) {
+    if let Some(test) = hash_test_from_user_test_pair(&args[1], &args[2])
+        .or_else(|| hash_test_from_designator(&args[1]))
+    {
         register_hash_table_test_alias(alias_name, test);
     }
     Ok(Value::list(vec![args[1], args[2]]))

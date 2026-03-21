@@ -835,6 +835,27 @@ fn bootstrap_runtime_tab_bar_mode_restores_cl_loaddefs_under_gui_features() {
 }
 
 #[test]
+fn bootstrap_runtime_tab_bar_make_keymap_supports_auto_width_hash_test() {
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (require 'tab-bar)
+                 (setq tab-bar-show 1)
+                 (tab-bar-mode 1)
+                 (tab-bar-new-tab)
+                 (switch-to-buffer (get-buffer-create "*tb-2*"))
+                 (tab-bar-select-tab 1)
+                 (and (string-match-p "\\*tb-2\\*" (prin1-to-string (tab-bar-make-keymap-1))) t))
+             (error (list 'error err)))"#,
+    );
+    assert_eq!(rendered, "OK t");
+}
+
+#[test]
 fn bootstrap_runtime_cached_gui_surface_clears_transient_loader_state() {
     let eval = create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"])
         .expect("bootstrap evaluator");

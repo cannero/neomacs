@@ -3606,6 +3606,44 @@ fn pure_dispatch_typed_define_hash_table_test_registers_alias() {
 }
 
 #[test]
+fn pure_dispatch_typed_define_hash_table_test_accepts_equal_including_properties_pair() {
+    let alias = Value::symbol("neovm--equal-props-test-alias");
+
+    let defined = dispatch_builtin_pure(
+        "define-hash-table-test",
+        vec![
+            alias,
+            Value::symbol("equal-including-properties"),
+            Value::symbol("sxhash-equal-including-properties"),
+        ],
+    )
+    .expect("define-hash-table-test should resolve")
+    .expect("define-hash-table-test should evaluate");
+    assert_eq!(
+        defined,
+        Value::list(vec![
+            Value::symbol("equal-including-properties"),
+            Value::symbol("sxhash-equal-including-properties"),
+        ])
+    );
+
+    let table = dispatch_builtin_pure("make-hash-table", vec![Value::keyword(":test"), alias])
+        .expect("make-hash-table should resolve")
+        .expect("make-hash-table should evaluate");
+    let observed = crate::emacs_core::hashtab::builtin_hash_table_test(vec![table])
+        .expect("hash-table-test should evaluate");
+    assert_eq!(observed, alias);
+
+    let Value::HashTable(table) = table else {
+        panic!("expected hash table");
+    };
+    assert!(matches!(
+        with_heap(|h| h.get_hash_table(table).test.clone()),
+        HashTableTest::Equal
+    ));
+}
+
+#[test]
 fn define_hash_table_test_alias_is_thread_local() {
     let alias_name = "neovm--cross-thread-eq-test-alias";
     // Register alias on a spawned thread
