@@ -3838,10 +3838,11 @@ impl LayoutEngine {
         self.run_buf.clear();
 
         let point_is_visible_eob =
-            params.point == params.buffer_size + 1 && charpos == params.buffer_size;
+            params.point == params.buffer_size && charpos == params.buffer_size;
 
         // Capture cursor at end-of-buffer position.
         // GNU Emacs shows point at point-max+1 as a real cursor location.
+        // In the layout engine's internal 0-based space, that is `buffer_size`.
         if cursor_info.is_none() && (charpos == params.point || point_is_visible_eob) {
             if point_is_visible_eob {
                 tracing::debug!(
@@ -4429,6 +4430,11 @@ impl LayoutEngine {
         // retry selection goes wrong.
         let visible_end_lisp = display_rows.iter().rev().find_map(|row| row.end_buffer_pos);
         let point_lisp = (params.point as usize).saturating_add(1);
+        let visible_end_lisp = if point_is_visible_eob {
+            Some(visible_end_lisp.unwrap_or(point_lisp).max(point_lisp))
+        } else {
+            visible_end_lisp
+        };
         let visible_progress = visible_end_lisp
             .map(|end_lisp| end_lisp as i64)
             .unwrap_or(charpos);
@@ -11263,6 +11269,72 @@ mod tests {
             snapshot.points,
             snapshot.rows
         );
+    }
+
+    #[test]
+    fn layout_frame_rust_keeps_visible_eob_cursor_on_short_trailing_newline_buffer() {
+        let mut eval = Evaluator::new();
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        let text = "LEFT WINDOW\nLine 2\nLine 3\n";
+        let point = {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert(text);
+            buf.goto_byte(0);
+            buf.point_max_char() + 1
+        };
+        let frame_id =
+            eval.frame_manager_mut()
+                .create_frame("layout-eob-visible", 320, 640, buf_id);
+        let selected_window = eval
+            .frame_manager()
+            .get(frame_id)
+            .expect("frame")
+            .selected_window;
+        {
+            let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+            let window = frame
+                .find_window_mut(selected_window)
+                .expect("selected window");
+            if let neovm_core::window::Window::Leaf {
+                window_start,
+                point: window_point,
+                ..
+            } = window
+            {
+                *window_start = 1;
+                *window_point = point;
+            }
+        }
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 640.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        let snapshot = frame
+            .window_display_snapshot(selected_window)
+            .expect("display snapshot");
+        let window = frame.find_window(selected_window).expect("selected window");
+
+        assert!(
+            snapshot.point_for_buffer_pos(1).is_some(),
+            "expected first line to remain visible when EOB cursor is already onscreen, points={:?}, rows={:?}",
+            snapshot.points,
+            snapshot.rows
+        );
+        match window {
+            neovm_core::window::Window::Leaf { window_start, .. } => {
+                assert_eq!(
+                    *window_start, 1,
+                    "expected visible EOB cursor not to force a retry scroll"
+                );
+            }
+            other => panic!("expected leaf window, got {other:?}"),
+        }
     }
 
     #[test]
