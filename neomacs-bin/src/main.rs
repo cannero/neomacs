@@ -443,12 +443,10 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                     title: request.title,
                 })
                 .map_err(|err| format!("failed to update primary window title: {err}"))?;
-            self.cmd_tx
-                .send(RenderCommand::SetWindowSize {
-                    width: request.width,
-                    height: request.height,
-                })
-                .map_err(|err| format!("failed to update primary window size: {err}"))?;
+            // The opening GUI frame adopts the already-existing primary host
+            // window. Do not push stale Lisp bootstrap dimensions back into
+            // that window during adoption; host resize events remain the
+            // source of truth until the window is fully realized.
             self.primary_window_adopted = true;
             self.primary_frame_id = Some(request.frame_id);
         } else {
@@ -1110,11 +1108,14 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 mod tests {
     use super::{
         BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
-        StartupOptions, bootstrap_buffers, bootstrap_display_config, bootstrap_frame_metrics,
-        classify_early_cli_action, configure_gnu_startup_state, current_layout_frame_id,
-        parse_startup_options, render_help_text, render_version_text, run_gnu_startup,
+        PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, bootstrap_buffers,
+        bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
+        configure_gnu_startup_state, current_layout_frame_id, parse_startup_options,
+        render_help_text, render_version_text, run_gnu_startup,
     };
+    use neomacs_display_runtime::thread_comm::RenderCommand;
     use neovm_core::emacs_core::Evaluator;
+    use neovm_core::emacs_core::GuiFrameHostRequest;
     use neovm_core::emacs_core::Value;
     use neovm_core::emacs_core::load::{
         create_bootstrap_evaluator_cached_with_features, create_bootstrap_evaluator_with_features,
@@ -1146,6 +1147,41 @@ mod tests {
             forwarded_args,
             terminal_device: None,
         }
+    }
+
+    #[test]
+    fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+        let mut host = PrimaryWindowDisplayHost {
+            cmd_tx,
+            primary_window_adopted: false,
+            primary_frame_id: None,
+            font_metrics: None,
+            primary_window_size: Arc::new(Mutex::new(PrimaryWindowSize {
+                width: 1600,
+                height: 1800,
+            })),
+        };
+
+        neovm_core::emacs_core::DisplayHost::realize_gui_frame(
+            &mut host,
+            GuiFrameHostRequest {
+                frame_id: FrameId(0x100000001),
+                width: 960,
+                height: 640,
+                title: "Neomacs".to_string(),
+            },
+        )
+        .expect("adopt opening gui frame");
+
+        let commands: Vec<_> = cmd_rx.try_iter().collect();
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            RenderCommand::SetWindowTitle { title } => assert_eq!(title, "Neomacs"),
+            other => panic!("expected SetWindowTitle, got {other:?}"),
+        }
+        assert!(host.primary_window_adopted);
+        assert_eq!(host.primary_frame_id, Some(FrameId(0x100000001)));
     }
 
     #[test]
