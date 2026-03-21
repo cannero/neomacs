@@ -229,8 +229,15 @@ pub(super) fn builtin_make_sparse_keymap(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("make-sparse-keymap", &args, 1)?;
-    // Name argument is accepted but not stored in list keymap format
-    // (official Emacs doesn't store it in the list either)
+    // GNU keymap.c: (make-sparse-keymap "prompt") → (keymap "prompt")
+    if let Some(prompt) = args.first() {
+        if prompt.is_string() {
+            return Ok(Value::cons(
+                Value::symbol("keymap"),
+                Value::cons(*prompt, Value::Nil),
+            ));
+        }
+    }
     Ok(make_sparse_list_keymap())
 }
 
