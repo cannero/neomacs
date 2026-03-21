@@ -866,9 +866,18 @@ pub(crate) fn dump_charset_registry() -> DumpCharsetRegistry {
                 unify_map: info.unify_map,
                 method: match info.method {
                     CharsetMethodSnapshot::Offset(offset) => DumpCharsetMethod::Offset(offset),
-                    CharsetMethodSnapshot::Map => DumpCharsetMethod::Map,
-                    CharsetMethodSnapshot::Subset => DumpCharsetMethod::Subset,
-                    CharsetMethodSnapshot::Superset => DumpCharsetMethod::Superset,
+                    CharsetMethodSnapshot::Map(map_name) => DumpCharsetMethod::Map(map_name),
+                    CharsetMethodSnapshot::Subset(subset) => {
+                        DumpCharsetMethod::Subset(DumpCharsetSubsetSpec {
+                            parent: subset.parent,
+                            parent_min_code: subset.parent_min_code,
+                            parent_max_code: subset.parent_max_code,
+                            offset: subset.offset,
+                        })
+                    }
+                    CharsetMethodSnapshot::Superset(members) => {
+                        DumpCharsetMethod::Superset(members)
+                    }
                 },
                 plist: info
                     .plist
@@ -2071,11 +2080,22 @@ pub(crate) fn load_charset_registry(dcr: &DumpCharsetRegistry) {
                 supplementary_p: info.supplementary_p,
                 invalid_code: info.invalid_code,
                 unify_map: info.unify_map.clone(),
-                method: match info.method {
-                    DumpCharsetMethod::Offset(offset) => CharsetMethodSnapshot::Offset(offset),
-                    DumpCharsetMethod::Map => CharsetMethodSnapshot::Map,
-                    DumpCharsetMethod::Subset => CharsetMethodSnapshot::Subset,
-                    DumpCharsetMethod::Superset => CharsetMethodSnapshot::Superset,
+                method: match &info.method {
+                    DumpCharsetMethod::Offset(offset) => CharsetMethodSnapshot::Offset(*offset),
+                    DumpCharsetMethod::Map(map_name) => {
+                        CharsetMethodSnapshot::Map(map_name.clone())
+                    }
+                    DumpCharsetMethod::Subset(subset) => CharsetMethodSnapshot::Subset(
+                        crate::emacs_core::charset::CharsetSubsetSpec {
+                            parent: subset.parent.clone(),
+                            parent_min_code: subset.parent_min_code,
+                            parent_max_code: subset.parent_max_code,
+                            offset: subset.offset,
+                        },
+                    ),
+                    DumpCharsetMethod::Superset(members) => {
+                        CharsetMethodSnapshot::Superset(members.clone())
+                    }
                 },
                 plist: info
                     .plist

@@ -12,11 +12,81 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 
 const RAW_BYTE_SENTINEL_MIN: u32 = 0xE080;
 const RAW_BYTE_SENTINEL_MAX: u32 = 0xE0FF;
 const UNIBYTE_BYTE_SENTINEL_MIN: u32 = 0xE300;
 const UNIBYTE_BYTE_SENTINEL_MAX: u32 = 0xE3FF;
+
+static CHARSET_MAP_CACHE: OnceLock<RwLock<HashMap<String, Option<CharsetMapData>>>> =
+    OnceLock::new();
+
+fn charset_map_cache() -> &'static RwLock<HashMap<String, Option<CharsetMapData>>> {
+    CHARSET_MAP_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn charset_map_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../etc/charsets")
+}
+
+fn parse_hex_i64(value: &str) -> Option<i64> {
+    i64::from_str_radix(value.trim().trim_start_matches("0x"), 16).ok()
+}
+
+fn parse_hex_range(value: &str) -> Option<(i64, i64)> {
+    let value = value.trim();
+    if let Some((from, to)) = value.split_once('-') {
+        Some((parse_hex_i64(from)?, parse_hex_i64(to)?))
+    } else {
+        let code = parse_hex_i64(value)?;
+        Some((code, code))
+    }
+}
+
+fn parse_charset_map_file(path: &Path) -> Option<CharsetMapData> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut code_to_char = HashMap::new();
+    let mut char_to_code = HashMap::new();
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split_whitespace();
+        let source = fields.next()?;
+        let target = fields.next()?;
+        let (from, to) = parse_hex_range(source)?;
+        let target_base = parse_hex_i64(target)?;
+        for (index, code) in (from..=to).enumerate() {
+            let ch = target_base + index as i64;
+            code_to_char.insert(code, ch);
+            char_to_code.insert(ch, code);
+        }
+    }
+
+    Some(CharsetMapData {
+        code_to_char,
+        char_to_code,
+    })
+}
+
+fn load_charset_map(map_name: &str) -> Option<CharsetMapData> {
+    let key = map_name.to_string();
+    if let Ok(cache) = charset_map_cache().read()
+        && let Some(cached) = cache.get(&key)
+    {
+        return cached.clone();
+    }
+
+    let loaded = parse_charset_map_file(&charset_map_dir().join(format!("{map_name}.map")));
+    if let Ok(mut cache) = charset_map_cache().write() {
+        cache.insert(key, loaded.clone());
+    }
+    loaded
+}
 
 // ---------------------------------------------------------------------------
 // Charset data types
@@ -27,20 +97,34 @@ const UNIBYTE_BYTE_SENTINEL_MAX: u32 = 0xE3FF;
 enum CharsetMethod {
     /// code → code + offset (most common, e.g. ASCII, latin-iso8859-1)
     Offset(i64),
-    /// Explicit mapping table (currently unused beyond registration)
-    Map,
+    /// Explicit mapping table backed by an Emacs `.map` file.
+    Map(String),
     /// Subset of another charset
-    Subset,
+    Subset(CharsetSubsetSpec),
     /// Superset of other charsets
-    Superset,
+    Superset(Vec<(String, i64)>),
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum CharsetMethodSnapshot {
     Offset(i64),
-    Map,
-    Subset,
-    Superset,
+    Map(String),
+    Subset(CharsetSubsetSpec),
+    Superset(Vec<(String, i64)>),
+}
+
+#[derive(Clone, Debug)]
+struct CharsetMapData {
+    code_to_char: HashMap<i64, i64>,
+    char_to_code: HashMap<i64, i64>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CharsetSubsetSpec {
+    pub parent: String,
+    pub parent_min_code: i64,
+    pub parent_max_code: i64,
+    pub offset: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -271,9 +355,15 @@ impl CharsetRegistry {
                 unify_map: info.unify_map,
                 method: match info.method {
                     CharsetMethod::Offset(offset) => CharsetMethodSnapshot::Offset(offset),
-                    CharsetMethod::Map => CharsetMethodSnapshot::Map,
-                    CharsetMethod::Subset => CharsetMethodSnapshot::Subset,
-                    CharsetMethod::Superset => CharsetMethodSnapshot::Superset,
+                    CharsetMethod::Map(ref map_name) => {
+                        CharsetMethodSnapshot::Map(map_name.clone())
+                    }
+                    CharsetMethod::Subset(ref subset) => {
+                        CharsetMethodSnapshot::Subset(subset.clone())
+                    }
+                    CharsetMethod::Superset(ref members) => {
+                        CharsetMethodSnapshot::Superset(members.clone())
+                    }
                 },
                 plist: info.plist,
             })
@@ -308,9 +398,11 @@ impl CharsetRegistry {
                     unify_map: info.unify_map,
                     method: match info.method {
                         CharsetMethodSnapshot::Offset(offset) => CharsetMethod::Offset(offset),
-                        CharsetMethodSnapshot::Map => CharsetMethod::Map,
-                        CharsetMethodSnapshot::Subset => CharsetMethod::Subset,
-                        CharsetMethodSnapshot::Superset => CharsetMethod::Superset,
+                        CharsetMethodSnapshot::Map(map_name) => CharsetMethod::Map(map_name),
+                        CharsetMethodSnapshot::Subset(subset) => CharsetMethod::Subset(subset),
+                        CharsetMethodSnapshot::Superset(members) => {
+                            CharsetMethod::Superset(members)
+                        }
                     },
                     plist: info.plist,
                 },
@@ -331,6 +423,13 @@ impl CharsetRegistry {
         }
     }
 
+    fn superset_members(info: &CharsetInfo) -> Vec<(String, i64)> {
+        match &info.method {
+            CharsetMethod::Superset(members) => members.clone(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Decode a code-point in the given charset to an Emacs internal
     /// character code.  Returns `None` when the code-point is outside
     /// the charset's valid range or the charset method cannot handle it.
@@ -340,10 +439,31 @@ impl CharsetRegistry {
         if code_point < info.min_code || code_point > info.max_code {
             return None;
         }
+        if let Some(unify_map) = info.unify_map.as_deref()
+            && let Some(decoded) = load_charset_map(unify_map)
+                .and_then(|map| map.code_to_char.get(&code_point).copied())
+        {
+            return Some(decoded);
+        }
         match &info.method {
             CharsetMethod::Offset(offset) => Some(code_point + offset),
-            // Map / Subset / Superset not yet supported — return None.
-            _ => None,
+            CharsetMethod::Map(map_name) => load_charset_map(map_name)
+                .and_then(|map| map.code_to_char.get(&code_point).copied()),
+            CharsetMethod::Subset(subset) => {
+                let parent_code = code_point - subset.offset;
+                if parent_code < subset.parent_min_code || parent_code > subset.parent_max_code {
+                    None
+                } else {
+                    self.decode_char(&subset.parent, parent_code)
+                }
+            }
+            CharsetMethod::Superset(_) => {
+                Self::superset_members(info)
+                    .into_iter()
+                    .find_map(|(parent_name, code_offset)| {
+                        self.decode_char(&parent_name, code_point - code_offset)
+                    })
+            }
         }
     }
 
@@ -352,6 +472,12 @@ impl CharsetRegistry {
     /// represented in the charset.
     pub fn encode_char(&self, name: &str, ch: i64) -> Option<i64> {
         let info = self.charsets.get(name)?;
+        if let Some(unify_map) = info.unify_map.as_deref()
+            && let Some(encoded) =
+                load_charset_map(unify_map).and_then(|map| map.char_to_code.get(&ch).copied())
+        {
+            return Some(encoded);
+        }
         match &info.method {
             CharsetMethod::Offset(offset) => {
                 let code_point = ch - offset;
@@ -361,8 +487,25 @@ impl CharsetRegistry {
                     None
                 }
             }
-            // Map / Subset / Superset not yet supported — return None.
-            _ => None,
+            CharsetMethod::Map(map_name) => {
+                load_charset_map(map_name).and_then(|map| map.char_to_code.get(&ch).copied())
+            }
+            CharsetMethod::Subset(subset) => {
+                let parent_code = self.encode_char(&subset.parent, ch)?;
+                if parent_code < subset.parent_min_code || parent_code > subset.parent_max_code {
+                    None
+                } else {
+                    Some(parent_code + subset.offset)
+                }
+            }
+            CharsetMethod::Superset(_) => {
+                Self::superset_members(info)
+                    .into_iter()
+                    .find_map(|(parent_name, code_offset)| {
+                        self.encode_char(&parent_name, ch)
+                            .map(|code| code + code_offset)
+                    })
+            }
         }
     }
 }
@@ -380,6 +523,9 @@ thread_local! {
 /// Reset charset registry to default state (called from Evaluator::new).
 pub(crate) fn reset_charset_registry() {
     CHARSET_REGISTRY.with(|slot| *slot.borrow_mut() = CharsetRegistry::new());
+    if let Ok(mut cache) = charset_map_cache().write() {
+        cache.clear();
+    }
 }
 
 pub(crate) fn snapshot_charset_registry() -> CharsetRegistrySnapshot {
@@ -407,7 +553,25 @@ pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
                 let to = u32::try_from(to).ok()?;
                 Some(vec![(from.min(to), from.max(to))])
             }
-            CharsetMethod::Map | CharsetMethod::Subset | CharsetMethod::Superset => None,
+            CharsetMethod::Map(ref map_name) => {
+                let values = load_charset_map(map_name)?
+                    .code_to_char
+                    .values()
+                    .filter_map(|ch| u32::try_from(*ch).ok())
+                    .collect();
+                coalesce_u32_ranges(values)
+            }
+            CharsetMethod::Subset(_) => None,
+            CharsetMethod::Superset(_) => {
+                let mut values = Vec::new();
+                for (parent_name, _) in CharsetRegistry::superset_members(info) {
+                    let ranges = charset_target_ranges(&parent_name)?;
+                    for (from, to) in ranges {
+                        values.extend(from..=to);
+                    }
+                }
+                coalesce_u32_ranges(values)
+            }
         }
     })
 }
@@ -419,14 +583,8 @@ pub(crate) fn charset_exists(name: &str) -> bool {
 pub(crate) fn charset_contains_char(name: &str, ch: u32) -> Option<bool> {
     CHARSET_REGISTRY.with(|slot| {
         let reg = slot.borrow();
-        let info = reg.charsets.get(name)?;
-        if info.unify_map.is_some() {
-            return None;
-        }
-        match info.method {
-            CharsetMethod::Offset(_) => Some(reg.encode_char(name, i64::from(ch)).is_some()),
-            CharsetMethod::Map | CharsetMethod::Subset | CharsetMethod::Superset => None,
-        }
+        reg.charsets.get(name)?;
+        Some(reg.encode_char(name, i64::from(ch)).is_some())
     })
 }
 
@@ -545,6 +703,49 @@ fn encode_char_input(value: &Value) -> Result<i64, Flow> {
             vec![Value::symbol("characterp"), *other],
         )),
     }
+}
+
+fn charset_value_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Str(id) => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_string()),
+        _ => None,
+    }
+}
+
+fn parse_map_name(value: &Value) -> Option<String> {
+    charset_value_text(value)
+}
+
+fn parse_subset_spec(value: &Value) -> Option<CharsetSubsetSpec> {
+    let items = list_to_vec(value)?;
+    if items.len() != 4 {
+        return None;
+    }
+    Some(CharsetSubsetSpec {
+        parent: charset_value_text(&items[0])?,
+        parent_min_code: decode_code_arg(&items[1]),
+        parent_max_code: decode_code_arg(&items[2]),
+        offset: int_or_zero(&items[3]),
+    })
+}
+
+fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
+    let items = list_to_vec(value)?;
+    let members = items
+        .into_iter()
+        .map(|item| match item {
+            Value::Symbol(id) | Value::Keyword(id) => Some((resolve_sym(id).to_string(), 0)),
+            Value::Cons(cell) => {
+                let pair = read_cons(cell);
+                let name = pair.car.as_symbol_name()?.to_string();
+                Some((name, int_or_zero(&pair.cdr)))
+            }
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    Some(members)
 }
 
 // ---------------------------------------------------------------------------
@@ -751,6 +952,32 @@ fn parse_plist(val: &Value) -> Vec<(String, Value)> {
     result
 }
 
+fn coalesce_u32_ranges(mut values: Vec<u32>) -> Option<Vec<(u32, u32)>> {
+    if values.is_empty() {
+        return None;
+    }
+
+    values.sort_unstable();
+    values.dedup();
+
+    let mut ranges = Vec::new();
+    let mut start = values[0];
+    let mut end = values[0];
+
+    for value in values.into_iter().skip(1) {
+        if value == end.saturating_add(1) {
+            end = value;
+        } else {
+            ranges.push((start, end));
+            start = value;
+            end = value;
+        }
+    }
+
+    ranges.push((start, end));
+    Some(ranges)
+}
+
 /// `(define-charset-internal NAME DIM CODE-SPACE MIN-CODE MAX-CODE
 ///    ISO-FINAL ISO-REVISION EMACS-MULE-ID ASCII-COMPAT-P SUPPLEMENTARY-P
 ///    INVALID-CODE CODE-OFFSET MAP SUBSET SUPERSET UNIFY-MAP PLIST)`
@@ -858,11 +1085,21 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     let method = if !args[11].is_nil() {
         CharsetMethod::Offset(int_or_zero(&args[11]))
     } else if !args[12].is_nil() {
-        CharsetMethod::Map
+        CharsetMethod::Map(parse_map_name(&args[12]).unwrap_or_default())
     } else if !args[13].is_nil() {
-        CharsetMethod::Subset
+        CharsetMethod::Subset(parse_subset_spec(&args[13]).ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), args[13]],
+            )
+        })?)
     } else if !args[14].is_nil() {
-        CharsetMethod::Superset
+        CharsetMethod::Superset(parse_superset_spec(&args[14]).ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), args[14]],
+            )
+        })?)
     } else {
         // Default to offset 0 if nothing specified
         CharsetMethod::Offset(0)
@@ -1123,10 +1360,12 @@ pub(crate) fn builtin_encode_char(args: Vec<Value>) -> EvalResult {
     Ok(encoded.map_or(Value::Nil, Value::Int))
 }
 
-/// `(clear-charset-maps)` -- clear charset-related caches (currently no cache
-/// state is stored) and return nil.
+/// `(clear-charset-maps)` -- clear charset-related caches and return nil.
 pub(crate) fn builtin_clear_charset_maps(args: Vec<Value>) -> EvalResult {
     expect_max_args("clear-charset-maps", &args, 0)?;
+    if let Ok(mut cache) = charset_map_cache().write() {
+        cache.clear();
+    }
     Ok(Value::Nil)
 }
 

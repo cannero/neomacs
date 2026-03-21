@@ -726,11 +726,19 @@ pub struct DumpCodingSystemManager {
 
 // Charset
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpCharsetSubsetSpec {
+    pub parent: String,
+    pub parent_min_code: i64,
+    pub parent_max_code: i64,
+    pub offset: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DumpCharsetMethod {
     Offset(i64),
-    Map,
-    Subset,
-    Superset,
+    Map(String),
+    Subset(DumpCharsetSubsetSpec),
+    Superset(Vec<(String, i64)>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

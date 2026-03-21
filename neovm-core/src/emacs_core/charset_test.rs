@@ -326,6 +326,140 @@ fn define_charset_internal_short_code_space_signals_error() {
     }
 }
 
+#[test]
+fn charset_contains_char_supports_map_and_subset_charsets() {
+    reset_charset_registry();
+
+    let mut parent_args = vec![Value::Nil; 17];
+    parent_args[0] = Value::symbol("latin-iso8859-2-test");
+    parent_args[1] = Value::Int(1);
+    parent_args[2] = Value::vector(vec![Value::Int(0), Value::Int(255)]);
+    parent_args[8] = Value::True;
+    parent_args[12] = Value::string("8859-2");
+    builtin_define_charset_internal(parent_args).unwrap();
+
+    let mut subset_args = vec![Value::Nil; 17];
+    subset_args[0] = Value::symbol("iso-8859-2-test");
+    subset_args[1] = Value::Int(1);
+    subset_args[2] = Value::vector(vec![Value::Int(32), Value::Int(127)]);
+    subset_args[13] = Value::list(vec![
+        Value::symbol("latin-iso8859-2-test"),
+        Value::Int(160),
+        Value::Int(255),
+        Value::Int(-128),
+    ]);
+    builtin_define_charset_internal(subset_args).unwrap();
+
+    assert_eq!(
+        charset_contains_char("latin-iso8859-2-test", 'Ą' as u32),
+        Some(true)
+    );
+    assert_eq!(
+        charset_contains_char("latin-iso8859-2-test", '好' as u32),
+        Some(false)
+    );
+    assert_eq!(
+        charset_contains_char("iso-8859-2-test", 'Ą' as u32),
+        Some(true)
+    );
+    assert_eq!(
+        charset_contains_char("iso-8859-2-test", '好' as u32),
+        Some(false)
+    );
+}
+
+#[test]
+fn charset_target_ranges_support_map_charsets() {
+    reset_charset_registry();
+
+    let mut args = vec![Value::Nil; 17];
+    args[0] = Value::symbol("latin-iso8859-2-test");
+    args[1] = Value::Int(1);
+    args[2] = Value::vector(vec![Value::Int(0), Value::Int(255)]);
+    args[8] = Value::True;
+    args[12] = Value::string("8859-2");
+    builtin_define_charset_internal(args).unwrap();
+
+    let ranges = charset_target_ranges("latin-iso8859-2-test").expect("map ranges");
+    assert!(
+        ranges
+            .iter()
+            .any(|(from, to)| ('Ą' as u32) >= *from && ('Ą' as u32) <= *to)
+    );
+}
+
+#[test]
+fn charset_superset_supports_offsets_membership_and_ranges() {
+    reset_charset_registry();
+
+    let mut thai_args = vec![Value::Nil; 17];
+    thai_args[0] = Value::symbol("thai-offset-test");
+    thai_args[1] = Value::Int(1);
+    thai_args[2] = Value::vector(vec![Value::Int(0), Value::Int(127)]);
+    thai_args[8] = Value::True;
+    thai_args[11] = Value::Int(0x0E00);
+    builtin_define_charset_internal(thai_args).unwrap();
+
+    let superset_members = Value::list(vec![
+        Value::symbol("ascii"),
+        Value::cons(Value::symbol("thai-offset-test"), Value::Int(128)),
+    ]);
+
+    let mut superset_args = vec![Value::Nil; 17];
+    superset_args[0] = Value::symbol("thai-ascii-superset-test");
+    superset_args[1] = Value::Int(1);
+    superset_args[2] = Value::vector(vec![Value::Int(0), Value::Int(255)]);
+    superset_args[14] = superset_members;
+    superset_args[16] = Value::list(vec![Value::symbol("superset"), superset_members]);
+    builtin_define_charset_internal(superset_args).unwrap();
+
+    let thai_ko_kai = 'ก' as i64;
+    CHARSET_REGISTRY.with(|slot| {
+        let reg = slot.borrow();
+        assert_eq!(
+            reg.decode_char("thai-ascii-superset-test", 65),
+            Some('A' as i64)
+        );
+        assert_eq!(
+            reg.decode_char("thai-ascii-superset-test", 129),
+            Some(thai_ko_kai)
+        );
+        assert_eq!(
+            reg.encode_char("thai-ascii-superset-test", 'A' as i64),
+            Some(65)
+        );
+        assert_eq!(
+            reg.encode_char("thai-ascii-superset-test", thai_ko_kai),
+            Some(129)
+        );
+    });
+
+    assert_eq!(
+        charset_contains_char("thai-ascii-superset-test", 'A' as u32),
+        Some(true)
+    );
+    assert_eq!(
+        charset_contains_char("thai-ascii-superset-test", 'ก' as u32),
+        Some(true)
+    );
+    assert_eq!(
+        charset_contains_char("thai-ascii-superset-test", '好' as u32),
+        Some(false)
+    );
+
+    let ranges = charset_target_ranges("thai-ascii-superset-test").expect("superset ranges");
+    assert!(
+        ranges
+            .iter()
+            .any(|(from, to)| ('A' as u32) >= *from && ('A' as u32) <= *to)
+    );
+    assert!(
+        ranges
+            .iter()
+            .any(|(from, to)| ('ก' as u32) >= *from && ('ก' as u32) <= *to)
+    );
+}
+
 // -----------------------------------------------------------------------
 // Builtin tests: find-charset-region
 // -----------------------------------------------------------------------
