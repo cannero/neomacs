@@ -517,6 +517,39 @@ fn underline_style_from_code(code: u8) -> UnderlineStyle {
 }
 
 impl LayoutEngine {
+    fn realize_status_line_face(
+        &mut self,
+        face_id: u32,
+        face: &ResolvedFace,
+        char_w: f32,
+        ascent: f32,
+        row_height: f32,
+    ) -> StatusLineFace {
+        let mut face = StatusLineFace::from_resolved(face_id, face);
+        self.ensure_status_line_face_metrics(&mut face, char_w, ascent, row_height);
+        face
+    }
+
+    pub(crate) fn status_line_row_height_for_face(
+        &mut self,
+        face: &ResolvedFace,
+        char_w: f32,
+        fallback_ascent: f32,
+        fallback_row_height: f32,
+    ) -> f32 {
+        let face =
+            self.realize_status_line_face(0, face, char_w, fallback_ascent, fallback_row_height);
+        let line_height = (face.font_ascent + face.font_descent as f32)
+            .max(1.0)
+            .ceil();
+        let box_pixels = if face.box_type != BoxType::None && face.box_h_line_width != 0 {
+            2.0 * face.box_h_line_width.unsigned_abs() as f32
+        } else {
+            0.0
+        };
+        (line_height + box_pixels).max(1.0)
+    }
+
     fn ensure_status_line_face_metrics(
         &mut self,
         face: &mut StatusLineFace,
@@ -930,8 +963,7 @@ impl LayoutEngine {
         frame_glyphs: &mut FrameGlyphBuffer,
         kind: StatusLineKind,
     ) {
-        let mut face = StatusLineFace::from_resolved(face_id, face);
-        self.ensure_status_line_face_metrics(&mut face, char_w, ascent, height);
+        let face = self.realize_status_line_face(face_id, face, char_w, ascent, height);
         let char_width = self.status_line_char_width(&face, char_w);
         let spec = StatusLineSpec::plain(
             kind, x, y, width, height, window_id, char_width, ascent, face, text,
@@ -1767,6 +1799,23 @@ mod tests {
 
         assert_eq!(glyph_y, 154.0);
         assert_eq!(glyph_baseline, 163.0);
+    }
+
+    #[test]
+    fn status_line_row_height_for_face_uses_realized_line_height_and_box() {
+        let mut engine = LayoutEngine::new();
+        let mut face = ResolvedFace::default();
+        face.font_family = "monospace".to_string();
+        face.font_size = 14.0;
+        face.font_ascent = 9.0;
+        face.font_line_height = 12.0;
+        face.box_type = 1;
+        face.box_line_width = 1;
+
+        assert_eq!(
+            engine.status_line_row_height_for_face(&face, 8.0, 12.0, 20.0),
+            14.0
+        );
     }
 
     #[test]

@@ -1888,39 +1888,6 @@ impl LayoutEngine {
             None
         };
 
-        // Text area (excluding fringes, margins, mode-line)
-        let text_x = params.text_bounds.x;
-        let text_y = params.text_bounds.y + params.header_line_height + params.tab_line_height;
-        let text_width = params.text_bounds.width;
-        let text_height = params.bounds.height
-            - params.mode_line_height
-            - params.header_line_height
-            - params.tab_line_height;
-
-        // Authoritative draw context for this window's content rows.
-        frame_glyphs.set_draw_context(
-            params.window_id,
-            if params.is_minibuffer {
-                GlyphRowRole::Minibuffer
-            } else {
-                GlyphRowRole::Text
-            },
-            Some(Rect::new(text_x, text_y, text_width, text_height.max(0.0))),
-        );
-
-        // Apply vertical scroll: shift content up by vscroll pixels.
-        // In Emacs, w->vscroll is a Y offset, always <= 0 (negative = up):
-        //   set-window-vscroll(100) -> w->vscroll = -100
-        // Negate to get the positive pixel shift, then reduce text_height.
-        // When shift >= text_height the window renders empty
-        // (used by vertico-posframe to hide the minibuffer).
-        let vscroll = (-params.vscroll).max(0) as f32;
-        let text_height = (text_height - vscroll).max(0.0);
-
-        if text_height <= 0.0 || text_width <= 0.0 {
-            return;
-        }
-
         // Line number configuration from buffer-local variables
         let lnum_mode = match super::neovm_bridge::buffer_display_line_numbers_mode(buffer) {
             super::neovm_bridge::DisplayLineNumbersMode::Off => 0,
@@ -1952,6 +1919,94 @@ impl LayoutEngine {
         let line_prefix_str = super::neovm_bridge::buffer_local_string_owned(buffer, "line-prefix");
         let wrap_prefix_str = super::neovm_bridge::buffer_local_string_owned(buffer, "wrap-prefix");
         let has_prefix = line_prefix_str.is_some() || wrap_prefix_str.is_some();
+
+        // Use face_resolver's default face for this window.
+        // Chrome row reservation must use the same realized face metrics as
+        // the final status-line renderer, otherwise rows drift from GNU
+        // redisplay when faces override font size, ascent, or box widths.
+        let default_resolved = face_resolver.default_face();
+        let default_fg = Color::from_pixel(default_resolved.fg);
+        let default_bg = Color::from_pixel(default_resolved.bg);
+
+        let (default_face_char_w, default_face_h, default_face_ascent) =
+            if let Some(ref mut svc) = self.font_metrics {
+                let m = svc.font_metrics(
+                    &default_resolved.font_family,
+                    default_resolved.font_weight,
+                    default_resolved.italic,
+                    default_resolved.font_size,
+                );
+                (m.char_width, m.line_height, m.ascent)
+            } else {
+                (char_w, char_h, font_ascent)
+            };
+
+        tracing::debug!(
+            "layout font metrics: family={:?} weight={} italic={} size={} char_w={:.2} char_h={:.2} ascent={:.2} (window char_w={:.2} char_h={:.2})",
+            default_resolved.font_family,
+            default_resolved.font_weight,
+            default_resolved.italic,
+            default_resolved.font_size,
+            default_face_char_w,
+            default_face_h,
+            default_face_ascent,
+            char_w,
+            char_h,
+        );
+
+        let mode_line_face = if params.mode_line_height > 0.0 {
+            Some(face_resolver.resolve_named_face(if params.selected {
+                "mode-line"
+            } else {
+                "mode-line-inactive"
+            }))
+        } else {
+            None
+        };
+        let header_line_face = if params.header_line_height > 0.0 {
+            Some(face_resolver.resolve_named_face(if params.selected {
+                "header-line-active"
+            } else {
+                "header-line-inactive"
+            }))
+        } else {
+            None
+        };
+        let tab_line_face = if params.tab_line_height > 0.0 {
+            Some(face_resolver.resolve_named_face("tab-line"))
+        } else {
+            None
+        };
+
+        let mode_line_height = mode_line_face.as_ref().map_or(0.0, |face| {
+            self.status_line_row_height_for_face(face, char_w, default_face_ascent, default_face_h)
+        });
+        let header_line_height = header_line_face.as_ref().map_or(0.0, |face| {
+            self.status_line_row_height_for_face(face, char_w, default_face_ascent, default_face_h)
+        });
+        let tab_line_height = tab_line_face.as_ref().map_or(0.0, |face| {
+            self.status_line_row_height_for_face(face, char_w, default_face_ascent, default_face_h)
+        });
+
+        let text_x = params.text_bounds.x;
+        let text_y = params.text_bounds.y + header_line_height + tab_line_height;
+        let text_width = params.text_bounds.width;
+        let text_height =
+            params.bounds.height - mode_line_height - header_line_height - tab_line_height;
+
+        frame_glyphs.set_draw_context(
+            params.window_id,
+            if params.is_minibuffer {
+                GlyphRowRole::Minibuffer
+            } else {
+                GlyphRowRole::Text
+            },
+            Some(Rect::new(text_x, text_y, text_width, text_height.max(0.0))),
+        );
+
+        // In Emacs, w->vscroll is negative when content is shifted up.
+        let vscroll = (-params.vscroll).max(0) as f32;
+        let text_height = (text_height - vscroll).max(0.0);
 
         // Compute line number column width
         let lnum_cols = if lnum_enabled {
@@ -2069,38 +2124,9 @@ impl LayoutEngine {
             bytes_read
         );
 
-        // Use face_resolver's default face for this window
-        let default_resolved = face_resolver.default_face();
-        let default_fg = Color::from_pixel(default_resolved.fg);
-        let default_bg = Color::from_pixel(default_resolved.bg);
-
-        // Query default face metrics from FontMetricsService if available.
-        // These serve as the baseline and fallback when no per-face metrics are available.
-        let (default_face_char_w, default_face_h, default_face_ascent) =
-            if let Some(ref mut svc) = self.font_metrics {
-                let m = svc.font_metrics(
-                    &default_resolved.font_family,
-                    default_resolved.font_weight,
-                    default_resolved.italic,
-                    default_resolved.font_size,
-                );
-                (m.char_width, m.line_height, m.ascent)
-            } else {
-                (char_w, char_h, font_ascent)
-            };
-
-        tracing::debug!(
-            "layout font metrics: family={:?} weight={} italic={} size={} char_w={:.2} char_h={:.2} ascent={:.2} (window char_w={:.2} char_h={:.2})",
-            default_resolved.font_family,
-            default_resolved.font_weight,
-            default_resolved.italic,
-            default_resolved.font_size,
-            default_face_char_w,
-            default_face_h,
-            default_face_ascent,
-            char_w,
-            char_h,
-        );
+        if text_height <= 0.0 || text_width <= 0.0 {
+            return;
+        }
 
         // Per-face metrics — start with defaults, updated on face change
         let mut face_char_w = default_face_char_w;
@@ -4697,13 +4723,10 @@ impl LayoutEngine {
 
         // Mode-line: evaluate format-mode-line or fall back to buffer name
         if params.mode_line_height > 0.0 {
-            let ml_y = params.bounds.y + params.bounds.height - params.mode_line_height;
-            let ml_face_name = if params.selected {
-                "mode-line"
-            } else {
-                "mode-line-inactive"
-            };
-            let ml_face = face_resolver.resolve_named_face(ml_face_name);
+            let ml_y = params.bounds.y + params.bounds.height - mode_line_height;
+            let ml_face = mode_line_face
+                .as_ref()
+                .expect("mode-line face should exist when mode-line height is positive");
 
             let mode_text = {
                 let result = eval_status_line_format(
@@ -4725,12 +4748,12 @@ impl LayoutEngine {
                 params.bounds.x,
                 ml_y,
                 params.bounds.width,
-                params.mode_line_height,
+                mode_line_height,
                 params.window_id,
                 char_w,
                 font_ascent,
                 current_face_id,
-                &ml_face,
+                ml_face,
                 mode_text,
                 frame_glyphs,
                 StatusLineKind::ModeLine,
@@ -4740,8 +4763,10 @@ impl LayoutEngine {
 
         // Header-line: evaluate format-mode-line with header-line-format
         if params.header_line_height > 0.0 {
-            let hl_y = params.bounds.y + params.tab_line_height;
-            let hl_face = face_resolver.resolve_named_face("header-line");
+            let hl_y = params.bounds.y + tab_line_height;
+            let hl_face = header_line_face
+                .as_ref()
+                .expect("header-line face should exist when header-line height is positive");
 
             let header_text = eval_status_line_format(
                 evaluator,
@@ -4755,12 +4780,12 @@ impl LayoutEngine {
                 params.bounds.x,
                 hl_y,
                 params.bounds.width,
-                params.header_line_height,
+                header_line_height,
                 params.window_id,
                 char_w,
                 font_ascent,
                 current_face_id,
-                &hl_face,
+                hl_face,
                 header_text,
                 frame_glyphs,
                 StatusLineKind::HeaderLine,
@@ -4772,7 +4797,9 @@ impl LayoutEngine {
         if params.tab_line_height > 0.0 {
             // Tab-line is above header-line (at the very top of the window)
             let tl_y = params.bounds.y;
-            let tl_face = face_resolver.resolve_named_face("tab-line");
+            let tl_face = tab_line_face
+                .as_ref()
+                .expect("tab-line face should exist when tab-line height is positive");
 
             let tab_text = eval_status_line_format(
                 evaluator,
@@ -4786,12 +4813,12 @@ impl LayoutEngine {
                 params.bounds.x,
                 tl_y,
                 params.bounds.width,
-                params.tab_line_height,
+                tab_line_height,
                 params.window_id,
                 char_w,
                 font_ascent,
                 current_face_id,
-                &tl_face,
+                tl_face,
                 tab_text,
                 frame_glyphs,
                 StatusLineKind::TabLine,
