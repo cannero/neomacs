@@ -16,6 +16,7 @@ WAIT_SECONDS=180
 POST_WAIT=1
 AFTER_RESIZE_WAIT=0
 AFTER_EVAL_WAIT=0
+AFTER_READY_WAIT=0
 KEEP_RUNNING=0
 RUST_LOG_VALUE="${RUST_LOG:-debug}"
 WINDOW_SIZE=""
@@ -29,6 +30,8 @@ LOAD_FILES=()
 KEYS=()
 TYPES=()
 EVAL_ELISP=()
+ACTION_KINDS=()
+ACTION_VALUES=()
 STARTUP_EVALS=()
 KEY_DELAY=0.3
 TYPE_DELAY_MS=0
@@ -70,6 +73,8 @@ Options:
                        Extra delay after an X11 resize before input/capture
   --after-eval-wait SECONDS
                        Extra delay after each M-: eval before capture
+  --after-ready-wait SECONDS
+                       Extra delay after wait-file/wait-log succeeds
   --window-size WxH    Resize the X11 window before capture
   --xvfb               Start a private Xvfb display for this run
   --xvfb-display DISP  Xvfb display number or 'auto' (default: auto)
@@ -146,6 +151,10 @@ while [[ $# -gt 0 ]]; do
             AFTER_EVAL_WAIT="$2"
             shift 2
             ;;
+        --after-ready-wait)
+            AFTER_READY_WAIT="$2"
+            shift 2
+            ;;
         --window-size)
             WINDOW_SIZE="$2"
             shift 2
@@ -172,10 +181,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --key)
             KEYS+=("$2")
+            ACTION_KINDS+=("key")
+            ACTION_VALUES+=("$2")
             shift 2
             ;;
         --type)
             TYPES+=("$2")
+            ACTION_KINDS+=("type")
+            ACTION_VALUES+=("$2")
             shift 2
             ;;
         --type-delay)
@@ -184,6 +197,8 @@ while [[ $# -gt 0 ]]; do
             ;;
         --eval-elisp)
             EVAL_ELISP+=("$2")
+            ACTION_KINDS+=("eval")
+            ACTION_VALUES+=("$2")
             shift 2
             ;;
         --startup-eval)
@@ -492,26 +507,33 @@ if [[ -n "$WINDOW_SIZE" ]]; then
 fi
 sleep "$KEY_DELAY"
 
-for key in "${KEYS[@]}"; do
-    xdotool key --window "$wid" --clearmodifiers "$key"
-    sleep "$KEY_DELAY"
-done
-
-for text in "${TYPES[@]}"; do
-    xdotool type --window "$wid" --clearmodifiers --delay "$TYPE_DELAY_MS" "$text"
-    sleep "$KEY_DELAY"
-done
-
-for expr in "${EVAL_ELISP[@]}"; do
-    xdotool key --window "$wid" --clearmodifiers alt+shift+semicolon
-    sleep "$KEY_DELAY"
-    xdotool type --window "$wid" --clearmodifiers --delay "$TYPE_DELAY_MS" "$expr"
-    sleep "$KEY_DELAY"
-    xdotool key --window "$wid" --clearmodifiers Return
-    sleep "$KEY_DELAY"
-    if [[ "$AFTER_EVAL_WAIT" != "0" ]]; then
-        sleep "$AFTER_EVAL_WAIT"
-    fi
+for idx in "${!ACTION_KINDS[@]}"; do
+    kind="${ACTION_KINDS[$idx]}"
+    value="${ACTION_VALUES[$idx]}"
+    case "$kind" in
+        key)
+            xdotool key --window "$wid" --clearmodifiers "$value"
+            sleep "$KEY_DELAY"
+            ;;
+        type)
+            xdotool type --window "$wid" --clearmodifiers --delay "$TYPE_DELAY_MS" "$value"
+            sleep "$KEY_DELAY"
+            ;;
+        eval)
+            xdotool key --window "$wid" --clearmodifiers alt+shift+semicolon
+            sleep "$KEY_DELAY"
+            xdotool type --window "$wid" --clearmodifiers --delay "$TYPE_DELAY_MS" "$value"
+            sleep "$KEY_DELAY"
+            xdotool key --window "$wid" --clearmodifiers Return
+            sleep "$KEY_DELAY"
+            if [[ "$AFTER_EVAL_WAIT" != "0" ]]; then
+                sleep "$AFTER_EVAL_WAIT"
+            fi
+            ;;
+        *)
+            die "unknown action kind: $kind"
+            ;;
+    esac
 done
 
 if [[ -n "$WAIT_FOR_FILE" ]]; then
@@ -520,6 +542,10 @@ fi
 
 if [[ -n "$WAIT_FOR_LOG_PATTERN" ]]; then
     wait_for_log_pattern "$WAIT_FOR_LOG_PATTERN"
+fi
+
+if [[ "$AFTER_READY_WAIT" != "0" ]]; then
+    sleep "$AFTER_READY_WAIT"
 fi
 
 import -window "$wid" "$OUTPUT"
