@@ -24,6 +24,8 @@ use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::expr::Expr;
 use neovm_core::emacs_core::intern::intern;
+use neovm_core::emacs_core::keymap::is_list_keymap;
+use neovm_core::emacs_core::value::{list_to_vec, read_cons};
 use neovm_core::window::{DisplayPointSnapshot, DisplayRowSnapshot, WindowDisplaySnapshot};
 
 /// Maximum number of characters in a ligature run before forced flush.
@@ -64,6 +66,100 @@ fn eval_status_line_format(
         .ok()
         .and_then(|val| val.as_str_owned())
         .filter(|s| !s.is_empty())
+}
+
+fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
+    if let Some(items) = list_to_vec(&entry) {
+        if items.get(1).and_then(Value::as_symbol_name) == Some("menu-item") {
+            return items.get(2)?.as_str_owned();
+        }
+    }
+
+    let Value::Cons(cell) = entry else {
+        return None;
+    };
+    let pair = read_cons(cell);
+    let items = list_to_vec(&pair.cdr)?;
+    if items.first().and_then(Value::as_symbol_name) != Some("menu-item") {
+        return None;
+    }
+    items.get(1)?.as_str_owned()
+}
+
+fn build_tab_bar_plain_text(
+    evaluator: &mut neovm_core::emacs_core::Evaluator,
+    frame_id: u64,
+) -> Option<String> {
+    evaluator.setup_thread_locals();
+    if !evaluator.obarray().fboundp("tab-bar-make-keymap-1") {
+        return None;
+    }
+
+    let saved_frame = evaluator
+        .eval_expr(&Expr::List(vec![Expr::Symbol(intern("selected-frame"))]))
+        .ok();
+    let saved_window = evaluator
+        .eval_expr(&Expr::List(vec![Expr::Symbol(intern("selected-window"))]))
+        .ok();
+    let saved_buffer = evaluator
+        .buffer_manager()
+        .current_buffer()
+        .map(|buffer| buffer.id);
+
+    evaluator
+        .eval_expr(&Expr::List(vec![
+            Expr::Symbol(intern("select-frame")),
+            Expr::OpaqueValue(Value::Frame(frame_id)),
+            Expr::OpaqueValue(Value::Nil),
+        ]))
+        .ok()?;
+
+    let result = evaluator
+        .eval_expr(&Expr::List(vec![Expr::Symbol(intern(
+            "tab-bar-make-keymap-1",
+        ))]))
+        .ok()
+        .and_then(|keymap| list_to_vec(&keymap))
+        .and_then(|entries| {
+            let mut text = String::new();
+            for (index, entry) in entries.iter().enumerate() {
+                if index == 0 && entry.is_symbol_named("keymap") {
+                    continue;
+                }
+
+                if is_list_keymap(entry) {
+                    break;
+                }
+
+                if let Some(caption) = tab_bar_menu_item_caption(*entry) {
+                    text.push_str(&caption);
+                }
+            }
+
+            (!text.is_empty()).then_some(text)
+        });
+
+    if let Some(frame) = saved_frame {
+        let _ = evaluator.eval_expr(&Expr::List(vec![
+            Expr::Symbol(intern("select-frame")),
+            Expr::OpaqueValue(frame),
+            Expr::OpaqueValue(Value::Nil),
+        ]));
+    }
+    if let Some(window) = saved_window {
+        let _ = evaluator.eval_expr(&Expr::List(vec![
+            Expr::Symbol(intern("select-window")),
+            Expr::OpaqueValue(window),
+            Expr::OpaqueValue(Value::Nil),
+        ]));
+    }
+    if let Some(buffer_id) = saved_buffer {
+        if evaluator.buffer_manager().get(buffer_id).is_some() {
+            evaluator.buffer_manager_mut().set_current(buffer_id);
+        }
+    }
+
+    result
 }
 
 impl LigatureRunBuffer {
@@ -1227,7 +1323,7 @@ impl LayoutEngine {
         }
 
         // Render frame-level tab-bar (tab-bar-mode) via the status-line pipeline.
-        let tab_bar_height = neomacs_layout_tab_bar_height(frame);
+        let tab_bar_height = frame_params.tab_bar_height;
         if tab_bar_height > 0.0 {
             self.render_frame_tab_bar(frame, frame_params, frame_glyphs, tab_bar_height);
         }
@@ -1593,6 +1689,18 @@ impl LayoutEngine {
         }
 
         apply_resolved_face(frame_glyphs, 0, default_resolved, default_metrics);
+
+        let tab_bar_height = frame_params.tab_bar_height;
+        if tab_bar_height > 0.0 {
+            self.render_frame_tab_bar_rust(
+                evaluator,
+                frame_id.0 as i64,
+                &face_resolver,
+                &frame_params,
+                frame_glyphs,
+                tab_bar_height,
+            );
+        }
 
         tracing::debug!(
             "layout_frame_rust: {}x{} char={}x{} windows={}",
@@ -5065,7 +5173,7 @@ impl LayoutEngine {
         }
     }
 
-    /// Render the frame-level tab-bar via the status-line pipeline.
+    /// Render the frame-level tab-bar via the legacy FFI status-line pipeline.
     unsafe fn render_frame_tab_bar(
         &mut self,
         frame: EmacsFrame,
@@ -5073,15 +5181,12 @@ impl LayoutEngine {
         frame_glyphs: &mut FrameGlyphBuffer,
         tab_bar_height: f32,
     ) {
-        // Tab-bar is positioned at y=0 (topmost, no menu bar in Neomacs).
         let x = 0.0;
         let y = 0.0;
         let width = frame_params.width;
-        // Use the tab-bar window pointer as a synthetic window_id for draw context.
         let window_id = frame as i64;
-
         let char_w = frame_params.char_width;
-        let ascent = frame_params.char_height * 0.8; // approximate ascent
+        let ascent = frame_params.char_height * 0.8;
 
         if let Some(spec) = self.build_ffi_tab_bar_spec(
             x,
@@ -5095,6 +5200,47 @@ impl LayoutEngine {
         ) {
             self.render_status_line_spec(&spec, Some(frame), frame_glyphs);
         }
+    }
+
+    /// Render the frame-level tab-bar from GNU Lisp keymap output on the Rust path.
+    fn render_frame_tab_bar_rust(
+        &mut self,
+        evaluator: &mut neovm_core::emacs_core::Evaluator,
+        frame_window_id: i64,
+        face_resolver: &super::neovm_bridge::FaceResolver,
+        frame_params: &FrameParams,
+        frame_glyphs: &mut FrameGlyphBuffer,
+        tab_bar_height: f32,
+    ) {
+        let Some(tab_bar_text) = build_tab_bar_plain_text(evaluator, frame_window_id as u64) else {
+            return;
+        };
+
+        // Tab-bar is positioned at y=0 (topmost, no menu bar in Neomacs).
+        let x = 0.0;
+        let y = 0.0;
+        let width = frame_params.width;
+        let tab_bar_face = face_resolver.resolve_named_face("tab-bar");
+        let ascent = if tab_bar_face.font_ascent > 0.0 {
+            tab_bar_face.font_ascent
+        } else {
+            frame_params.char_height * 0.8
+        };
+
+        self.render_rust_status_line_plain(
+            x,
+            y,
+            width,
+            tab_bar_height,
+            frame_window_id,
+            frame_params.char_width,
+            ascent,
+            0,
+            &tab_bar_face,
+            tab_bar_text,
+            frame_glyphs,
+            StatusLineKind::TabBar,
+        );
     }
 
     /// Layout a single window's buffer content.
@@ -9498,6 +9644,9 @@ mod tests {
     use crate::neovm_bridge::RustBufferAccess;
     use neomacs_display_protocol::frame_glyphs::FrameGlyph;
     use neovm_core::emacs_core::Evaluator;
+    use neovm_core::emacs_core::load::{
+        apply_runtime_startup_state, create_bootstrap_evaluator_cached_with_features,
+    };
     use neovm_core::window::DisplayRowSnapshot;
 
     fn test_window_params() -> WindowParams {
@@ -11492,6 +11641,134 @@ mod tests {
         assert!(
             header_text.contains("LEFT HEADER"),
             "expected header-line row to render buffer-local header-line-format text, got {header_text:?}"
+        );
+    }
+
+    #[test]
+    fn layout_frame_rust_renders_tab_bar_text_from_lisp_tab_bar_keymap() {
+        let mut eval =
+            create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+        apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+        let selected_frame = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame")
+            .id;
+        let buf_id = eval
+            .buffer_manager()
+            .current_buffer()
+            .expect("current buffer")
+            .id;
+        {
+            let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+            buf.insert("body line\n");
+        }
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("layout-tab-bar", 1600, 160, buf_id);
+        let forms = neovm_core::emacs_core::parse_forms(
+            r#"
+              (require 'tab-bar)
+              (setq tab-bar-show 1)
+              (tab-bar-mode 1)
+              (switch-to-buffer (get-buffer-create "*frame-a*"))
+              (tab-bar-new-tab)
+              (switch-to-buffer (get-buffer-create "*frame-a-2*"))
+              (tab-bar-select-tab 1)
+              (select-frame layout-target-frame)
+              (tab-bar-new-tab)
+              (switch-to-buffer (get-buffer-create "*tb-2*"))
+              (tab-bar-select-tab 1)
+            "#,
+        )
+        .expect("parse tab-bar forms");
+        eval.obarray_mut()
+            .set_symbol_value("layout-target-frame", Value::Frame(frame_id.0));
+        for expr in forms {
+            let expr_text = format!("{expr:?}");
+            if let Err(err) = eval.eval_expr(&expr) {
+                panic!("eval tab-bar form failed for {expr_text}: {err}");
+            }
+        }
+        eval.eval_expr(&Expr::List(vec![
+            Expr::Symbol(intern("select-frame")),
+            Expr::OpaqueValue(Value::Frame(frame_id.0)),
+            Expr::OpaqueValue(Value::Nil),
+        ]))
+        .expect("select target frame for tab-bar debug");
+        let keymap_debug = match eval.eval_expr(&Expr::List(vec![Expr::Symbol(intern(
+            "tab-bar-make-keymap-1",
+        ))])) {
+            Ok(value) => eval
+                .eval_expr(&Expr::List(vec![
+                    Expr::Symbol(intern("prin1-to-string")),
+                    Expr::OpaqueValue(value),
+                ]))
+                .ok()
+                .and_then(|rendered| rendered.as_str_owned())
+                .unwrap_or_else(|| "<render-unavailable>".to_string()),
+            Err(err) => format!("<error: {err}>"),
+        };
+        let tabs_debug = eval
+            .eval_expr(&Expr::List(vec![
+                Expr::Symbol(intern("prin1-to-string")),
+                Expr::List(vec![
+                    Expr::Symbol(intern("frame-parameter")),
+                    Expr::OpaqueValue(Value::Nil),
+                    Expr::OpaqueValue(Value::symbol("tabs")),
+                ]),
+            ]))
+            .ok()
+            .and_then(|value| value.as_str_owned())
+            .unwrap_or_else(|| "<unavailable>".to_string());
+        let format_debug = eval
+            .eval_expr(&Expr::List(vec![
+                Expr::Symbol(intern("prin1-to-string")),
+                Expr::Symbol(intern("tab-bar-format")),
+            ]))
+            .ok()
+            .and_then(|value| value.as_str_owned())
+            .unwrap_or_else(|| "<unavailable>".to_string());
+        eval.eval_expr(&Expr::List(vec![
+            Expr::Symbol(intern("select-frame")),
+            Expr::OpaqueValue(Value::Frame(selected_frame.0)),
+            Expr::OpaqueValue(Value::Nil),
+        ]))
+        .expect("restore selected frame");
+
+        let frame = eval.frame_manager().get(frame_id).expect("frame");
+        assert!(
+            frame.tab_bar_height > 0,
+            "expected tab-bar-mode to reserve frame tab-bar height"
+        );
+
+        let mut engine = LayoutEngine::new();
+        let mut frame_glyphs = FrameGlyphBuffer::with_size(1600.0, 160.0);
+        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+
+        let mut tab_bar_glyphs = frame_glyphs
+            .glyphs
+            .iter()
+            .filter_map(|glyph| match glyph {
+                FrameGlyph::Char {
+                    char, x, row_role, ..
+                } if *row_role == GlyphRowRole::TabBar => Some((*x, *char)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        tab_bar_glyphs.sort_by(|lhs, rhs| lhs.0.total_cmp(&rhs.0));
+        let tab_bar_text = tab_bar_glyphs
+            .into_iter()
+            .map(|(_, ch)| ch)
+            .collect::<String>();
+
+        assert!(
+            tab_bar_text.contains("*tb-2*"),
+            "expected tab-bar row to render tab captions from tab-bar keymap, got {tab_bar_text:?}; tabs={tabs_debug}; format={format_debug}; keymap={keymap_debug}"
+        );
+        assert!(
+            !tab_bar_text.contains("*frame-a-2*"),
+            "expected tab-bar row to come from layout target frame, got {tab_bar_text:?}; tabs={tabs_debug}; format={format_debug}; keymap={keymap_debug}"
         );
     }
 

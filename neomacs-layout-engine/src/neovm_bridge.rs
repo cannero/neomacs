@@ -48,6 +48,7 @@ pub fn frame_params_from_neovm(frame: &Frame, face_table: &FaceTable) -> FramePa
     FrameParams {
         width: frame.width as f32,
         height: frame.height as f32,
+        tab_bar_height: frame.tab_bar_height as f32,
         char_width: frame.char_width,
         char_height: frame.char_height,
         font_pixel_size: frame.font_pixel_size,
@@ -1429,6 +1430,7 @@ mod tests {
         let fp = frame_params_from_neovm(frame, &face_table);
         assert_eq!(fp.width, 1024.0);
         assert_eq!(fp.height, 768.0);
+        assert_eq!(fp.tab_bar_height, 0.0);
     }
 
     #[test]

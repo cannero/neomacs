@@ -242,6 +242,8 @@ pub struct FrameParams {
     /// Frame pixel dimensions
     pub width: f32,
     pub height: f32,
+    /// Frame-level tab-bar height in pixels.
+    pub tab_bar_height: f32,
     /// Default character cell dimensions
     pub char_width: f32,
     pub char_height: f32,
@@ -813,6 +815,7 @@ mod tests {
         let fp = FrameParams {
             width: 1920.0,
             height: 1080.0,
+            tab_bar_height: 0.0,
             char_width: 8.0,
             char_height: 16.0,
             font_pixel_size: 14.0,
@@ -839,6 +842,7 @@ mod tests {
         let fp = FrameParams {
             width: 800.0,
             height: 600.0,
+            tab_bar_height: 0.0,
             char_width: 7.0,
             char_height: 14.0,
             font_pixel_size: 12.0,
@@ -859,6 +863,7 @@ mod tests {
         let fp = FrameParams {
             width: 1024.0,
             height: 768.0,
+            tab_bar_height: 0.0,
             char_width: 9.0,
             char_height: 18.0,
             font_pixel_size: 16.0,
@@ -882,6 +887,7 @@ mod tests {
         let fp = FrameParams {
             width: 800.0,
             height: 600.0,
+            tab_bar_height: 0.0,
             char_width: 8.0,
             char_height: 16.0,
             font_pixel_size: 14.0,

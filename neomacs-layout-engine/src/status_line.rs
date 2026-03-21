@@ -992,16 +992,6 @@ impl LayoutEngine {
         let display_props = parse_display_props(&line_buf, display_start, ndisplay);
         let align_entries = parse_status_line_align_entries(&line_buf, align_start, naligns);
 
-        tracing::debug!(
-            "build_ffi_tab_bar_spec: text_len={} nruns={} ndisplay={} naligns={} width={} height={}",
-            text_len,
-            nruns,
-            ndisplay,
-            naligns,
-            width,
-            height
-        );
-
         Some(StatusLineSpec {
             kind: StatusLineKind::TabBar,
             x,
