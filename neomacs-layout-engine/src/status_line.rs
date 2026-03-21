@@ -131,7 +131,7 @@ impl StatusLineFace {
 
     pub(crate) fn from_resolved(face_id: u32, face: &ResolvedFace) -> Self {
         let font_descent = if face.font_line_height > 0.0 && face.font_ascent > 0.0 {
-            (face.font_line_height - face.font_ascent).max(0.0).round() as i32
+            (face.font_line_height - face.font_ascent).max(0.0).ceil() as i32
         } else {
             0
         };
@@ -538,7 +538,7 @@ impl LayoutEngine {
                 face.font_ascent = metrics.ascent;
             }
             if (face.font_ascent + face.font_descent as f32) <= 0.0 && metrics.line_height > 0.0 {
-                face.font_descent = (metrics.line_height - metrics.ascent).max(0.0).round() as i32;
+                face.font_descent = (metrics.line_height - metrics.ascent).max(0.0).ceil() as i32;
             }
         }
 
@@ -549,7 +549,7 @@ impl LayoutEngine {
             face.font_ascent = fallback_ascent.max(1.0);
         }
         if (face.font_ascent + face.font_descent as f32) <= 0.0 {
-            face.font_descent = (row_height - face.font_ascent).max(0.0).round() as i32;
+            face.font_descent = (row_height - face.font_ascent).max(0.0).ceil() as i32;
         }
     }
 

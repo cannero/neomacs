@@ -92,9 +92,9 @@ pub(crate) fn buffer_local_string_owned(buffer: &Buffer, name: &str) -> Option<S
 
 fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f32 {
     let line_height = if face.font_line_height > 0.0 {
-        face.font_line_height.round()
+        face.font_line_height.ceil()
     } else {
-        fallback_char_height.round()
+        fallback_char_height.ceil()
     };
     let box_pixels = if face.box_type != 0 && face.box_line_width != 0 {
         2.0 * face.box_line_width.unsigned_abs() as f32
@@ -1468,6 +1468,19 @@ mod tests {
         assert_eq!(fp.width, 1024.0);
         assert_eq!(fp.height, 768.0);
         assert_eq!(fp.tab_bar_height, 0.0);
+    }
+
+    #[test]
+    fn chrome_face_pixel_height_uses_ceil_for_fractional_metrics() {
+        let mut face = ResolvedFace::default();
+        face.font_line_height = 17.2;
+        face.box_type = 1;
+        face.box_line_width = 1;
+
+        assert_eq!(chrome_face_pixel_height(&face, 14.1), 20.0);
+
+        face.font_line_height = 0.0;
+        assert_eq!(chrome_face_pixel_height(&face, 14.1), 17.0);
     }
 
     #[test]

@@ -969,7 +969,7 @@ fn measured_face_status_line_face(
     if let Some(metrics) = metrics {
         render_face.font_char_width = metrics.char_width;
         render_face.font_ascent = metrics.ascent;
-        render_face.font_descent = metrics.descent.max(0.0).round() as i32;
+        render_face.font_descent = metrics.descent.max(0.0).ceil() as i32;
     }
     render_face
 }
