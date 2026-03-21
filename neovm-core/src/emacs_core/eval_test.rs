@@ -68,6 +68,39 @@ fn gnu_timer_after(delay: Duration, callback: &str) -> Value {
     ])
 }
 
+#[derive(Clone, Default)]
+struct RecordingDisplayHost {
+    primary_size: Option<GuiFrameHostSize>,
+    opening_frame_pending: bool,
+}
+
+impl RecordingDisplayHost {
+    fn opening_with_primary_size(width: u32, height: u32) -> Self {
+        Self {
+            primary_size: Some(GuiFrameHostSize { width, height }),
+            opening_frame_pending: true,
+        }
+    }
+}
+
+impl DisplayHost for RecordingDisplayHost {
+    fn realize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn opening_gui_frame_pending(&self) -> bool {
+        self.opening_frame_pending
+    }
+
+    fn current_primary_window_size(&self) -> Option<GuiFrameHostSize> {
+        self.primary_size
+    }
+}
+
 #[test]
 fn eval_with_explicit_lexenv_restores_outer_lexenv() {
     assert_eq!(
@@ -223,6 +256,38 @@ fn redisplay_applies_pending_resize_before_callback() {
 }
 
 #[test]
+fn redisplay_syncs_opening_gui_frame_size_from_display_host() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    ev.frames
+        .get_mut(fid)
+        .expect("frame should exist")
+        .set_window_system(Some(Value::symbol("x")));
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let redisplay_calls_in_cb = redisplay_calls.clone();
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        let frame = ev
+            .frames
+            .selected_frame()
+            .expect("selected frame during redisplay");
+        redisplay_calls_in_cb
+            .borrow_mut()
+            .push((frame.width, frame.height));
+    }));
+
+    ev.set_display_host(Box::new(RecordingDisplayHost::opening_with_primary_size(
+        1500, 1900,
+    )));
+
+    ev.redisplay();
+
+    assert_eq!(*redisplay_calls.borrow(), vec![(1500, 1900)]);
+}
+
+#[test]
 fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
     let mut ev = Evaluator::new();
     let setup = parse_forms("(setq top-level '(setq neo-top-level-hit t))").expect("parse");
@@ -307,6 +372,74 @@ fn frame_native_width_syncs_pending_resize_behind_focus_event() {
 
     assert_eq!(width, Value::Int(700));
     assert_eq!(height, Value::Int(800));
+}
+
+#[test]
+fn redisplay_applies_resize_already_queued_behind_focus_event() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
+
+    let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
+    let redisplay_calls_in_cb = redisplay_calls.clone();
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+        let frame = ev
+            .frames
+            .selected_frame()
+            .expect("selected frame during redisplay");
+        redisplay_calls_in_cb
+            .borrow_mut()
+            .push((frame.width, frame.height));
+    }));
+
+    ev.pending_input_events
+        .push_back(crate::keyboard::InputEvent::Focus(true));
+    ev.pending_input_events
+        .push_back(crate::keyboard::InputEvent::Resize {
+            width: 700,
+            height: 800,
+            emacs_frame_id: 0,
+        });
+
+    ev.redisplay();
+
+    assert_eq!(*redisplay_calls.borrow(), vec![(700, 800)]);
+    assert!(matches!(
+        ev.pending_input_events.front(),
+        Some(crate::keyboard::InputEvent::Focus(true))
+    ));
+    assert_eq!(ev.pending_input_events.len(), 1);
+}
+
+#[test]
+fn read_char_preserves_keypress_after_queued_focus_and_resize() {
+    let mut ev = Evaluator::new();
+    let fid = ev
+        .frames
+        .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
+    assert_eq!(ev.frames.selected_frame().map(|frame| frame.id), Some(fid));
+
+    ev.pending_input_events
+        .push_back(crate::keyboard::InputEvent::Focus(true));
+    ev.pending_input_events
+        .push_back(crate::keyboard::InputEvent::Resize {
+            width: 700,
+            height: 800,
+            emacs_frame_id: 0,
+        });
+    ev.pending_input_events
+        .push_back(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('a'),
+        ));
+
+    let event = ev.read_char().expect("read_char should return a keypress");
+    assert_eq!(event, Value::Int('a' as i64));
+
+    let frame = ev.frames.get(fid).expect("frame should still be live");
+    assert_eq!(frame.width, 700);
+    assert_eq!(frame.height, 800);
 }
 
 #[test]

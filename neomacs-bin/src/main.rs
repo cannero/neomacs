@@ -817,20 +817,41 @@ fn bootstrap_buffers(
         buf.pt = 0;
     }
 
-    // Create frame with *scratch* as the displayed buffer
-    let frame_id = eval
-        .frame_manager_mut()
-        .create_frame("F1", width, height, scratch_id);
-    tracing::info!(
-        "Created frame {:?} ({}x{}) with *scratch*={:?}",
-        frame_id,
-        width,
-        height,
-        scratch_id
-    );
+    let frame_id = {
+        let frame_manager = eval.frame_manager();
+        let selected = frame_manager.selected_frame().map(|frame| frame.id);
+        let should_reuse_existing = selected.is_some() && frame_manager.frame_list().len() == 1;
+        (selected, should_reuse_existing)
+    };
+    let frame_id = if frame_id.1 {
+        let frame_id = frame_id.0.expect("selected startup frame");
+        tracing::info!(
+            "Reusing existing startup frame {:?} as bootstrap frame ({}x{})",
+            frame_id,
+            width,
+            height
+        );
+        frame_id
+    } else {
+        let frame_id = eval
+            .frame_manager_mut()
+            .create_frame("F1", width, height, scratch_id);
+        tracing::info!(
+            "Created frame {:?} ({}x{}) with *scratch*={:?}",
+            frame_id,
+            width,
+            height,
+            scratch_id
+        );
+        frame_id
+    };
+    let _ = eval.frame_manager_mut().select_frame(frame_id);
 
     // Seed frame parameters so GNU Lisp startup sees the correct host surface.
-    if let Some(frame) = eval.frame_manager_mut().selected_frame_mut() {
+    if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
+        frame.width = width;
+        frame.height = height;
+        frame.visible = true;
         if let Some(window_system) = display.window_system_symbol() {
             frame.set_window_system(Some(Value::symbol(window_system)));
         } else {
@@ -850,18 +871,20 @@ fn bootstrap_buffers(
         frame.char_height = frame_metrics.char_height;
         frame.sync_tab_bar_height_from_parameters();
         if let Window::Leaf {
+            buffer_id,
             window_start,
             point,
             ..
         } = &mut frame.root_window
         {
+            *buffer_id = scratch_id;
             *window_start = 0;
             *point = 0;
         }
     }
 
     // Fix window geometry: root window takes frame height minus minibuffer.
-    if let Some(frame) = eval.frame_manager_mut().selected_frame_mut() {
+    if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
         let mini_h = frame.char_height.max(1.0);
         let mini_y = height as f32 - mini_h;
         if let Window::Leaf { bounds, .. } = &mut frame.root_window {
@@ -1320,6 +1343,75 @@ mod tests {
             .bounds()
             .height;
         assert_eq!(minibuffer_height, metrics.char_height);
+    }
+
+    #[test]
+    fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
+        let metrics = bootstrap_frame_metrics();
+        let mut eval = Evaluator::new();
+        let old_buffer = eval.buffer_manager_mut().create_buffer("*old*");
+        let old_frame = eval
+            .frame_manager_mut()
+            .create_frame("old", 320, 200, old_buffer);
+        {
+            let frame = eval
+                .frame_manager_mut()
+                .get_mut(old_frame)
+                .expect("old frame should exist");
+            frame.title = "old".to_string();
+        }
+
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+
+        assert_eq!(eval.frame_manager().frame_list().len(), 1);
+        let selected = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap");
+        assert_eq!(selected.id, old_frame);
+        assert_eq!(selected.width, 960);
+        assert_eq!(selected.height, 640);
+        assert_eq!(
+            selected.effective_window_system(),
+            Some(Value::symbol("neomacs"))
+        );
+        assert_eq!(selected.title, "Neomacs");
+        assert_eq!(selected.char_width, metrics.char_width);
+        assert_eq!(selected.char_height, metrics.char_height);
+        let minibuffer_height = selected
+            .minibuffer_leaf
+            .as_ref()
+            .expect("minibuffer leaf")
+            .bounds()
+            .height;
+        assert_eq!(minibuffer_height, metrics.char_height);
+    }
+
+    #[test]
+    fn bootstrap_buffers_reuses_cached_surrogate_frame_when_it_is_the_only_selected_frame() {
+        let metrics = bootstrap_frame_metrics();
+        let mut eval = Evaluator::new();
+        let old_buffer = eval.buffer_manager_mut().create_buffer("*old*");
+        let surrogate = eval
+            .frame_manager_mut()
+            .create_frame("F1", 80, 25, old_buffer);
+
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+
+        assert_eq!(eval.frame_manager().frame_list().len(), 1);
+        let selected = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap");
+        assert_eq!(selected.id, surrogate);
+        assert_eq!(selected.width, 960);
+        assert_eq!(selected.height, 640);
+        assert_eq!(
+            selected.effective_window_system(),
+            Some(Value::symbol("neomacs"))
+        );
+        assert_eq!(selected.char_width, metrics.char_width);
+        assert_eq!(selected.char_height, metrics.char_height);
     }
 
     #[test]

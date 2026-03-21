@@ -750,6 +750,7 @@ impl<'a> VmSharedState<'a> {
             self.input_rx,
             self.command_loop,
         );
+        sync_opening_gui_frame_size_from_host_in_runtime(self.frames, self.display_host.as_deref());
     }
 
     pub(crate) fn begin_lambda_call(
@@ -1791,12 +1792,23 @@ fn sync_pending_resize_events_in_runtime(
 ) {
     let mut deferred = VecDeque::new();
 
-    while matches!(
-        pending_input_events.front(),
-        Some(crate::keyboard::InputEvent::Focus(_))
-    ) {
-        if let Some(event) = pending_input_events.pop_front() {
-            deferred.push_back(event);
+    loop {
+        match pending_input_events.front() {
+            Some(crate::keyboard::InputEvent::Focus(_)) => {
+                if let Some(event) = pending_input_events.pop_front() {
+                    deferred.push_back(event);
+                }
+            }
+            Some(crate::keyboard::InputEvent::Resize {
+                width,
+                height,
+                emacs_frame_id,
+            }) => {
+                let (width, height, emacs_frame_id) = (*width, *height, *emacs_frame_id);
+                pending_input_events.pop_front();
+                apply_resize_input_event_in_runtime(frames, width, height, emacs_frame_id);
+            }
+            _ => break,
         }
     }
 
@@ -1841,6 +1853,89 @@ fn sync_pending_resize_events_in_runtime(
     while let Some(event) = deferred.pop_back() {
         pending_input_events.push_front(event);
     }
+}
+
+fn sync_opening_gui_frame_size_from_host_in_runtime(
+    frames: &mut FrameManager,
+    display_host: Option<&dyn DisplayHost>,
+) {
+    let trace_host_sync = std::env::var("NEOMACS_TRACE_HOST_SYNC")
+        .ok()
+        .is_some_and(|value| value == "1");
+    let Some(host) = display_host else {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: no display host");
+        }
+        return;
+    };
+    if !host.opening_gui_frame_pending() {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: no opening gui frame pending");
+        }
+        return;
+    }
+    let Some(size) = host.current_primary_window_size() else {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: host size unavailable");
+        }
+        return;
+    };
+    if size.width == 0 || size.height == 0 {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: ignoring zero host size {}x{}",
+                size.width,
+                size.height
+            );
+        }
+        return;
+    }
+    let Some(fid) = frames.selected_frame().map(|frame| frame.id) else {
+        if trace_host_sync {
+            tracing::debug!("sync_opening_gui_frame_size_from_host: no selected frame");
+        }
+        return;
+    };
+    let Some(frame) = frames.get_mut(fid) else {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: selected frame {:?} missing",
+                fid
+            );
+        }
+        return;
+    };
+    if frame.effective_window_system().is_none() {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: selected frame {:?} is not gui (size={}x{})",
+                fid,
+                frame.width,
+                frame.height
+            );
+        }
+        return;
+    }
+    if frame.width == size.width && frame.height == size.height {
+        if trace_host_sync {
+            tracing::debug!(
+                "sync_opening_gui_frame_size_from_host: selected frame {:?} already matches host size {}x{}",
+                fid,
+                size.width,
+                size.height
+            );
+        }
+        return;
+    }
+    tracing::debug!(
+        "sync_opening_gui_frame_size_from_host: resizing selected frame {:?} from {}x{} to {}x{}",
+        fid,
+        frame.width,
+        frame.height,
+        size.width,
+        size.height
+    );
+    frame.resize_pixelwise(size.width, size.height);
 }
 
 impl Default for Evaluator {
@@ -3428,6 +3523,10 @@ impl Evaluator {
             &mut self.pending_input_events,
             &mut self.input_rx,
             &mut self.command_loop,
+        );
+        sync_opening_gui_frame_size_from_host_in_runtime(
+            &mut self.frames,
+            self.display_host.as_deref(),
         );
     }
 
