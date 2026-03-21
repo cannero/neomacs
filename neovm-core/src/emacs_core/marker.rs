@@ -375,6 +375,23 @@ pub(crate) fn builtin_marker_buffer(args: Vec<Value>) -> EvalResult {
     Ok(marker_buffer_value(&args[0]))
 }
 
+/// Evaluator-aware marker-buffer that returns nil for killed buffers.
+/// GNU returns nil when the marker's buffer has been killed.
+pub(crate) fn builtin_marker_buffer_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("marker-buffer", &args, 1)?;
+    expect_marker("marker-buffer", &args[0])?;
+    let buf_val = marker_buffer_value(&args[0]);
+    if let Some(name) = buf_val.as_str() {
+        if let Some(bid) = eval.buffers.find_buffer_by_name(name) {
+            return Ok(Value::Buffer(bid));
+        }
+    }
+    Ok(Value::Nil)
+}
+
 /// (marker-insertion-type MARKER) -> t or nil
 pub(crate) fn builtin_marker_insertion_type(args: Vec<Value>) -> EvalResult {
     expect_args("marker-insertion-type", &args, 1)?;
