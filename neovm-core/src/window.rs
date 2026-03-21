@@ -746,6 +746,19 @@ impl Frame {
         }
     }
 
+    pub fn frame_parameter_int(&self, key: &str) -> Option<i64> {
+        self.parameters.get(key).and_then(Value::as_int)
+    }
+
+    pub fn sync_tab_bar_height_from_parameters(&mut self) {
+        let lines = self
+            .frame_parameter_int("tab-bar-lines")
+            .unwrap_or(0)
+            .max(0) as u32;
+        let char_height = self.char_height.max(1.0).round() as u32;
+        self.tab_bar_height = lines.saturating_mul(char_height);
+    }
+
     /// Select a window by ID.
     pub fn select_window(&mut self, id: WindowId) -> bool {
         if self.find_window(id).is_some() {

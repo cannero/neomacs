@@ -848,6 +848,7 @@ fn bootstrap_buffers(
         frame.font_pixel_size = frame_metrics.font_pixel_size;
         frame.char_width = frame_metrics.char_width;
         frame.char_height = frame_metrics.char_height;
+        frame.sync_tab_bar_height_from_parameters();
         if let Window::Leaf {
             window_start,
             point,

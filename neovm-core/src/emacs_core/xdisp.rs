@@ -2338,11 +2338,24 @@ pub(crate) fn builtin_tab_bar_height_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args_range("tab-bar-height", &args, 0, 2)?;
-    if let Some(frame) = args.first().filter(|frame| !frame.is_nil()) {
-        let _ =
-            super::window_cmds::resolve_frame_id_in_state(frames, buffers, Some(frame), "framep")?;
+    let fid = match args.first().filter(|frame| !frame.is_nil()) {
+        Some(frame) => {
+            super::window_cmds::resolve_frame_id_in_state(frames, buffers, Some(frame), "framep")?
+        }
+        None => super::window_cmds::ensure_selected_frame_id_in_state(frames, buffers),
+    };
+    let frame = frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    let lines = frame
+        .frame_parameter_int("tab-bar-lines")
+        .unwrap_or(0)
+        .max(0);
+    if args.get(1).is_some_and(|pixelwise| !pixelwise.is_nil()) {
+        Ok(Value::Int(frame.tab_bar_height as i64))
+    } else {
+        Ok(Value::Int(lines))
     }
-    Ok(Value::Int(0))
 }
 
 /// (line-number-display-width &optional ON-DISPLAY) -> integer

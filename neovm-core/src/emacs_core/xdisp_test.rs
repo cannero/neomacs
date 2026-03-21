@@ -1648,6 +1648,40 @@ fn test_tab_bar_height_eval_frame_validation() {
 }
 
 #[test]
+fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
+    let mut eval = super::super::eval::Evaluator::new();
+    let frame_id = super::super::window_cmds::ensure_selected_frame_id(&mut eval);
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("selected frame");
+        frame.char_height = 20.0;
+    }
+    super::super::window_cmds::builtin_modify_frame_parameters_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        vec![
+            Value::Int(frame_id.0 as i64),
+            Value::list(vec![Value::cons(
+                Value::symbol("tab-bar-lines"),
+                Value::Int(1),
+            )]),
+        ],
+    )
+    .unwrap();
+
+    let lines =
+        builtin_tab_bar_height_eval(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
+    assert_eq!(lines, Value::Int(1));
+
+    let pixels =
+        builtin_tab_bar_height_eval(&mut eval, vec![Value::Int(frame_id.0 as i64), Value::True])
+            .unwrap();
+    assert_eq!(pixels, Value::Int(20));
+
+    let frame = eval.frames.get(frame_id).expect("selected frame");
+    assert_eq!(frame.tab_bar_height, 20);
+}
+
+#[test]
 fn test_line_number_display_width() {
     let result = builtin_line_number_display_width(vec![]).unwrap();
     assert_eq!(result, Value::Int(0));

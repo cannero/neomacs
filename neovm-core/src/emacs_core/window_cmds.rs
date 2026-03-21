@@ -5776,6 +5776,7 @@ pub(crate) fn builtin_x_create_frame_in_state(
         for (key, value) in parsed.all {
             frame.parameters.insert(key, value);
         }
+        frame.sync_tab_bar_height_from_parameters();
         if let Window::Leaf {
             buffer_id, bounds, ..
         } = &mut frame.root_window
@@ -6000,6 +6001,7 @@ pub(crate) fn builtin_modify_frame_parameters_in_state(
             }
         }
     }
+    frame.sync_tab_bar_height_from_parameters();
     Ok(Value::Nil)
 }
 
