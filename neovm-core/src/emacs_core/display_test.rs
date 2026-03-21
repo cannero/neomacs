@@ -847,10 +847,14 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
 #[test]
 fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
     let mut eval = crate::emacs_core::Evaluator::new();
-    let frame =
-        Value::Int(crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64);
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    let frame = Value::Int(frame_id.0 as i64);
     eval.set_variable("initial-window-system", Value::Nil);
     eval.set_variable("window-system", Value::symbol(gui_window_system_symbol()));
+    eval.frames
+        .get_mut(frame_id)
+        .expect("selected frame")
+        .set_window_system(Some(Value::symbol(gui_window_system_symbol())));
 
     assert_eq!(
         builtin_x_display_grayscale_p_eval(&mut eval, vec![]).unwrap(),
@@ -879,6 +883,49 @@ fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
     assert_eq!(
         builtin_x_display_visual_class_eval(&mut eval, vec![Value::Nil]).unwrap(),
         Value::symbol("true-color")
+    );
+    assert_eq!(
+        builtin_x_display_visual_class_eval(&mut eval, vec![frame]).unwrap(),
+        Value::symbol("true-color")
+    );
+}
+
+#[test]
+fn display_queries_default_to_selected_frame_window_system_surface() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    let frame = Value::Int(frame_id.0 as i64);
+
+    eval.frames
+        .get_mut(frame_id)
+        .expect("selected frame")
+        .set_window_system(Some(Value::symbol(gui_window_system_symbol())));
+    eval.set_variable("initial-window-system", Value::Nil);
+    eval.set_variable("window-system", Value::Nil);
+
+    assert_eq!(
+        builtin_display_graphic_p_eval(&mut eval, vec![]).unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        builtin_display_color_cells_eval(&mut eval, vec![]).unwrap(),
+        Value::Int(16_777_216)
+    );
+    assert_eq!(
+        builtin_display_color_cells_eval(&mut eval, vec![frame]).unwrap(),
+        Value::Int(16_777_216)
+    );
+    assert_eq!(
+        builtin_display_planes_eval(&mut eval, vec![]).unwrap(),
+        Value::Int(24)
+    );
+    assert_eq!(
+        builtin_display_visual_class_eval(&mut eval, vec![]).unwrap(),
+        Value::symbol("true-color")
+    );
+    assert_eq!(
+        builtin_x_display_color_cells_eval(&mut eval, vec![Value::Nil]).unwrap(),
+        Value::Int(16_777_216)
     );
     assert_eq!(
         builtin_x_display_visual_class_eval(&mut eval, vec![frame]).unwrap(),

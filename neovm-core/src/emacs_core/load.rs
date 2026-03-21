@@ -2786,6 +2786,52 @@ fn normalize_bootstrap_runtime_surface(
     Ok(())
 }
 
+fn bootstrap_runtime_window_system_symbol(eval: &mut super::eval::Evaluator) -> Option<Value> {
+    if eval.feature_present(super::display::gui_window_system_symbol()) {
+        Some(Value::symbol(super::display::gui_window_system_symbol()))
+    } else if eval.feature_present("x") {
+        Some(Value::symbol("x"))
+    } else {
+        None
+    }
+}
+
+fn restore_cached_runtime_window_system_surface(eval: &mut super::eval::Evaluator) {
+    let Some(window_system) = bootstrap_runtime_window_system_symbol(eval) else {
+        return;
+    };
+
+    if eval.frames.selected_frame().is_none()
+        && let Some(frame_id) = eval.frames.frame_list().into_iter().next()
+    {
+        let _ = eval.frames.select_frame(frame_id);
+    }
+
+    let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
+    if let Some(frame) = eval.frames.get_mut(frame_id) {
+        frame.set_window_system(Some(window_system));
+        frame
+            .parameters
+            .entry("display-type".to_string())
+            .or_insert(Value::symbol("color"));
+        frame
+            .parameters
+            .entry("background-mode".to_string())
+            .or_insert(Value::symbol("light"));
+    }
+
+    eval.set_variable("window-system", window_system);
+    eval.set_variable("initial-window-system", window_system);
+}
+
+fn clear_runtime_loader_state(eval: &mut super::eval::Evaluator) {
+    // These stacks only describe in-flight bootstrap loads/requires.
+    // Letting them leak into the runtime surface makes later `require`
+    // calls falsely look recursive/already-active.
+    eval.require_stack.clear();
+    eval.loads_in_progress.clear();
+}
+
 fn eval_first_form_after_marker(
     eval: &mut super::eval::Evaluator,
     path: &Path,
@@ -2937,7 +2983,9 @@ fn finalize_cached_bootstrap_eval(
     eval: &mut super::eval::Evaluator,
     project_root: &Path,
 ) -> Result<(), EvalError> {
+    clear_runtime_loader_state(eval);
     ensure_startup_compat_variables(eval, project_root);
+    restore_cached_runtime_window_system_surface(eval);
     normalize_bootstrap_runtime_surface(eval, project_root)?;
     restore_runtime_prefix_keymaps_from_subr(eval, project_root)?;
     repair_runtime_global_prefix_links(eval, project_root)?;
@@ -3475,6 +3523,7 @@ pub fn create_bootstrap_evaluator_with_features(
         // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
         // and interactive evaluation. Match this for oracle test parity.
         eval.set_lexical_binding(true);
+        clear_runtime_loader_state(&mut eval);
 
         Ok(eval)
     })

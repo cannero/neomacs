@@ -689,6 +689,140 @@ fn bootstrap_runtime_require_cl_lib_works() {
 }
 
 #[test]
+fn bootstrap_runtime_require_icons_restores_cl_loaddefs_under_gui_features() {
+    init_test_tracing();
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (require 'icons)
+                 (list (featurep 'icons)
+                       (featurep 'cl-lib)
+                       (fboundp 'cl-every)
+                       (autoloadp (symbol-function 'cl-every))))
+             (error (list 'error err)))"#,
+    );
+    assert_eq!(rendered, "OK (t t t t)");
+}
+
+#[test]
+fn bootstrap_runtime_require_cl_lib_works_under_gui_features() {
+    init_test_tracing();
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (require 'cl-lib)
+                 (list (featurep 'cl-lib)
+                       (autoloadp (symbol-function 'cl-every))
+                       (autoloadp (symbol-function 'cl-defstruct))
+                       (autoloadp (symbol-function 'cl-reduce))
+                       (autoloadp (symbol-function 'cl-subseq))))
+             (error err))"#,
+    );
+    assert_eq!(rendered, "OK (t t t t t)");
+}
+
+#[test]
+fn bootstrap_runtime_require_cl_lib_works_under_fresh_gui_features() {
+    init_test_tracing();
+    let mut eval =
+        create_bootstrap_evaluator_with_features(&["x", "neomacs"]).expect("fresh bootstrap");
+    let project_root = compile_time_project_root();
+    finalize_cached_bootstrap_eval(&mut eval, &project_root).expect("finalize runtime surface");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (require 'cl-lib)
+                 (list (featurep 'cl-lib)
+                       (autoloadp (symbol-function 'cl-every))
+                       (autoloadp (symbol-function 'cl-defstruct))
+                       (autoloadp (symbol-function 'cl-reduce))
+                       (autoloadp (symbol-function 'cl-subseq))))
+             (error err))"#,
+    );
+    assert_eq!(rendered, "OK (t t t t t)");
+}
+
+#[test]
+fn icons_v2_cache_preserves_top_level_require_cl_lib() {
+    let path = compile_time_project_root().join("lisp/emacs-lisp/icons.el");
+    let source = fs::read_to_string(&path).expect("read icons.el");
+    let forms =
+        maybe_load_expanded_cache(&path, &source, lexical_binding_enabled_for_source(&source))
+            .expect("load V2 cache for icons");
+    let rendered = forms.iter().map(print_expr).collect::<Vec<_>>();
+    assert!(
+        rendered.first() == Some(&"(require 'cl-lib)".to_string()),
+        "expected cached icons replay to start with require cl-lib, got first forms: {:?}",
+        rendered.iter().take(5).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn bootstrap_runtime_tab_bar_mode_restores_cl_loaddefs_under_gui_features() {
+    init_test_tracing();
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (require 'tab-bar)
+                 (tab-bar-mode 1)
+                 (list (featurep 'tab-bar)
+                       (featurep 'icons)
+                       (featurep 'cl-lib)
+                       (fboundp 'cl-every)
+                       (autoloadp (symbol-function 'cl-every))))
+             (error (list 'error err)))"#,
+    );
+    assert_eq!(rendered, "OK (t t t t nil)");
+}
+
+#[test]
+fn bootstrap_runtime_cached_gui_surface_clears_transient_loader_state() {
+    let eval = create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"])
+        .expect("bootstrap evaluator");
+    assert!(
+        eval.require_stack.is_empty(),
+        "require_stack leaked from bootstrap"
+    );
+    assert!(
+        eval.loads_in_progress.is_empty(),
+        "loads_in_progress leaked from bootstrap"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_cached_gui_surface_restores_window_system_surface() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"])
+        .expect("bootstrap evaluator");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list (window-system)
+                 initial-window-system
+                 (frame-parameter nil 'window-system)
+                 (frame-parameter nil 'display-type)
+                 (display-color-cells)
+                 (display-visual-class))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (neomacs neomacs neomacs color 16777216 true-color)"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_require_eieio_restores_cl_loaddefs_surface() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");

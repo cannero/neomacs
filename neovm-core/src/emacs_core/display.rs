@@ -89,6 +89,35 @@ fn dynamic_or_global_symbol_value_in_state(
     obarray.symbol_value(name).cloned()
 }
 
+fn global_window_system_symbol(eval: &super::eval::Evaluator) -> Option<Value> {
+    dynamic_or_global_symbol_value(eval, "initial-window-system")
+        .filter(|value| !value.is_nil())
+        .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"))
+}
+
+fn global_window_system_symbol_in_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+) -> Option<Value> {
+    dynamic_or_global_symbol_value_in_state(obarray, dynamic, "initial-window-system")
+        .filter(|value| !value.is_nil())
+        .or_else(|| dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system"))
+}
+
+fn selected_frame_window_system_symbol(eval: &super::eval::Evaluator) -> Option<Value> {
+    eval.frames
+        .selected_frame()
+        .and_then(|frame| frame.effective_window_system())
+}
+
+fn selected_frame_window_system_symbol_in_state(
+    frames: &crate::window::FrameManager,
+) -> Option<Value> {
+    frames
+        .selected_frame()
+        .and_then(|frame| frame.effective_window_system())
+}
+
 pub(crate) fn live_frame_designator_p_in_state(
     frames: &crate::window::FrameManager,
     value: &Value,
@@ -334,9 +363,8 @@ fn gui_window_system_active_value(value: Value) -> bool {
 }
 
 pub(crate) fn x_window_system_active(eval: &super::eval::Evaluator) -> bool {
-    let host_window_system = dynamic_or_global_symbol_value(eval, "initial-window-system")
-        .filter(|value| !value.is_nil())
-        .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"));
+    let host_window_system =
+        selected_frame_window_system_symbol(eval).or_else(|| global_window_system_symbol(eval));
     host_window_system.is_some_and(gui_window_system_active_value)
 }
 
@@ -344,11 +372,67 @@ pub(crate) fn x_window_system_active_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
 ) -> bool {
-    let host_window_system =
-        dynamic_or_global_symbol_value_in_state(obarray, dynamic, "initial-window-system")
-            .filter(|value| !value.is_nil())
-            .or_else(|| dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system"));
+    let host_window_system = global_window_system_symbol_in_state(obarray, dynamic);
     host_window_system.is_some_and(gui_window_system_active_value)
+}
+
+fn display_window_system_symbol_eval(
+    eval: &mut super::eval::Evaluator,
+    display: Option<&Value>,
+) -> Result<Option<Value>, Flow> {
+    match display {
+        None | Some(Value::Nil) => Ok(frame_window_system_symbol(eval, display)?
+            .or_else(|| global_window_system_symbol(eval))),
+        Some(display) if terminal_designator_p(display) => Ok(None),
+        Some(display) if live_frame_designator_p(eval, display) => {
+            frame_window_system_symbol(eval, Some(display))
+        }
+        Some(Value::Str(_)) => Err(display_does_not_exist_error(
+            display.unwrap().as_str().unwrap(),
+        )),
+        Some(other) => Err(invalid_get_device_terminal_error_eval(eval, other)),
+    }
+}
+
+fn frame_window_system_symbol_read_only_in_state(
+    frames: &crate::window::FrameManager,
+    frame: Option<&Value>,
+) -> Result<Option<Value>, Flow> {
+    match frame {
+        None | Some(Value::Nil) => Ok(selected_frame_window_system_symbol_in_state(frames)),
+        Some(Value::Int(id)) if *id >= 0 => Ok(frames
+            .get(FrameId(*id as u64))
+            .and_then(|frame| frame.effective_window_system())),
+        Some(Value::Frame(id)) => Ok(frames
+            .get(FrameId(*id))
+            .and_then(|frame| frame.effective_window_system())),
+        Some(other) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("framep"), *other],
+        )),
+    }
+}
+
+fn display_window_system_symbol_in_state(
+    frames: &crate::window::FrameManager,
+    obarray: &crate::emacs_core::symbol::Obarray,
+    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
+    display: Option<&Value>,
+) -> Result<Option<Value>, Flow> {
+    match display {
+        None | Some(Value::Nil) => Ok(frame_window_system_symbol_read_only_in_state(
+            frames, display,
+        )?
+        .or_else(|| global_window_system_symbol_in_state(obarray, dynamic))),
+        Some(display) if terminal_designator_p(display) => Ok(None),
+        Some(display) if live_frame_designator_p_in_state(frames, display) => {
+            frame_window_system_symbol_read_only_in_state(frames, Some(display))
+        }
+        Some(Value::Str(_)) => Err(display_does_not_exist_error(
+            display.unwrap().as_str().unwrap(),
+        )),
+        Some(other) => Err(invalid_get_device_terminal_error(other)),
+    }
 }
 
 const GUI_X_DISPLAY_PLANES: i64 = 24;
@@ -361,7 +445,9 @@ fn gui_x_query_target_eval(
     args: &[Value],
 ) -> Result<bool, Flow> {
     expect_max_args(name, args, 1)?;
-    if !x_window_system_active(eval) {
+    if !display_window_system_symbol_eval(eval, args.first())?
+        .is_some_and(gui_window_system_active_value)
+    {
         return Ok(false);
     }
     Ok(match args.first() {
@@ -378,7 +464,9 @@ fn gui_x_query_target_in_state(
     args: &[Value],
 ) -> Result<bool, Flow> {
     expect_max_args(name, args, 1)?;
-    if !x_window_system_active_in_state(obarray, dynamic) {
+    if !display_window_system_symbol_in_state(frames, obarray, dynamic, args.first())?
+        .is_some_and(gui_window_system_active_value)
+    {
         return Ok(false);
     }
     Ok(match args.first() {
@@ -841,7 +929,9 @@ pub(crate) fn builtin_display_color_cells_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-color-cells", &args)?;
-    if x_window_system_active(eval) {
+    if display_window_system_symbol_eval(eval, args.first())?
+        .is_some_and(gui_window_system_active_value)
+    {
         Ok(Value::Int(16777216)) // 2^24 = 24-bit TrueColor
     } else if terminal_runtime_supports_color() {
         Ok(Value::Int(terminal_runtime_color_cells()))
@@ -860,7 +950,9 @@ pub(crate) fn builtin_display_color_cells_in_state(
     if let Some(display) = args.first() {
         expect_display_designator_in_state(frames, display)?;
     }
-    if x_window_system_active_in_state(obarray, dynamic) {
+    if display_window_system_symbol_in_state(frames, obarray, dynamic, args.first())?
+        .is_some_and(gui_window_system_active_value)
+    {
         Ok(Value::Int(16777216))
     } else if terminal_runtime_supports_color() {
         Ok(Value::Int(terminal_runtime_color_cells()))
@@ -875,7 +967,9 @@ pub(crate) fn builtin_display_planes_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-planes", &args)?;
-    if x_window_system_active(eval) {
+    if display_window_system_symbol_eval(eval, args.first())?
+        .is_some_and(gui_window_system_active_value)
+    {
         Ok(Value::Int(24))
     } else if terminal_runtime_supports_color() {
         Ok(Value::Int(if terminal_runtime_color_cells() >= 16777216 {
@@ -894,7 +988,9 @@ pub(crate) fn builtin_display_visual_class_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-visual-class", &args)?;
-    if x_window_system_active(eval) {
+    if display_window_system_symbol_eval(eval, args.first())?
+        .is_some_and(gui_window_system_active_value)
+    {
         Ok(Value::symbol("true-color"))
     } else if terminal_runtime_supports_color() {
         Ok(Value::symbol("color"))
