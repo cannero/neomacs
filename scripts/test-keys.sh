@@ -1,59 +1,122 @@
-#!/bin/bash
-# Test keyboard input in neomacs using xdotool
-# Usage: ./scripts/test-keys.sh [log_file]
+#!/usr/bin/env bash
+set -euo pipefail
 
-LOG="${1:-/tmp/neomacs-keytest.log}"
-RUST_LOG="${RUST_LOG:-info}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CAPTURE_SCRIPT="$ROOT_DIR/scripts/capture-face-test.sh"
 
-echo "Starting neomacs -Q with RUST_LOG=$RUST_LOG..."
-RUST_LOG=$RUST_LOG ./target/release/neomacs -Q > "$LOG" 2>&1 &
-PID=$!
+BIN="${BIN:-$ROOT_DIR/target/debug/neomacs}"
+LOG="${LOG:-/tmp/neomacs-keytest.log}"
+OUTPUT="${OUTPUT:-/tmp/neomacs-keytest.png}"
+RUST_LOG="${RUST_LOG:-debug}"
+WINDOW_SIZE="${WINDOW_SIZE:-1400x1000}"
+APP="${APP:-neomacs}"
 
-# Wait for window to appear
-echo "Waiting for Neomacs window..."
-for i in $(seq 1 20); do
-  WID=$(xdotool search --name "Neomacs" 2>/dev/null | head -1)
-  if [ -n "$WID" ]; then
-    echo "Found window: $WID (after ${i}s)"
-    break
-  fi
-  sleep 1
+usage() {
+    cat <<EOF
+Usage: $0 [options]
+
+Keyboard smoke test for Neomacs/Emacs using xdotool through capture-face-test.sh.
+
+Options:
+  --bin PATH          Editor binary (default: $BIN)
+  --log PATH          Log file (default: $LOG)
+  --output PATH       Screenshot path (default: $OUTPUT)
+  --window-size WxH   Window size (default: $WINDOW_SIZE)
+  --app NAME          App hint for capture helper (default: $APP)
+  -h, --help          Show this help
+
+Environment overrides:
+  BIN, LOG, OUTPUT, WINDOW_SIZE, APP, RUST_LOG
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --bin)
+            BIN="$2"
+            shift 2
+            ;;
+        --log)
+            LOG="$2"
+            shift 2
+            ;;
+        --output)
+            OUTPUT="$2"
+            shift 2
+            ;;
+        --window-size)
+            WINDOW_SIZE="$2"
+            shift 2
+            ;;
+        --app)
+            APP="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "unknown argument: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
 done
 
-if [ -z "$WID" ]; then
-  echo "ERROR: Neomacs window not found after 20s"
-  kill $PID 2>/dev/null
-  exit 1
+if [[ ! -x "$CAPTURE_SCRIPT" ]]; then
+    echo "missing capture helper: $CAPTURE_SCRIPT" >&2
+    exit 1
 fi
 
-# Focus and activate
-xdotool windowactivate --sync $WID
-sleep 0.5
+if [[ ! -x "$BIN" ]]; then
+    echo "missing editor binary: $BIN" >&2
+    echo "build it first with: cargo build -p neomacs-bin" >&2
+    exit 1
+fi
 
-# Send test keys
-echo "Sending: j k BackSpace M-x"
-xdotool key j
-sleep 0.5
-xdotool key k
-sleep 0.5
-xdotool key BackSpace
-sleep 0.5
-xdotool key alt+x
-sleep 2
-
-# Capture screenshot
-import -window root /tmp/neomacs-keytest.png 2>/dev/null
-
-# Kill neomacs
-kill $PID 2>/dev/null
-wait $PID 2>/dev/null
-
-echo ""
-echo "=== Key dispatch results ==="
-grep -a "command_loop_1.*binding=\|Undefined key\|is undefined\|read_char.*received\|Command error" "$LOG" | tail -20
-echo ""
-echo "=== Warnings ==="
-grep -a "WARN" "$LOG" | tail -5
-echo ""
+echo "Running keyboard smoke test with $BIN"
 echo "Log: $LOG"
-echo "Screenshot: /tmp/neomacs-keytest.png"
+echo "Screenshot: $OUTPUT"
+
+env RUST_LOG="$RUST_LOG" "$CAPTURE_SCRIPT" \
+    --app "$APP" \
+    --bin "$BIN" \
+    --no-test-file \
+    --xvfb \
+    --log "$LOG" \
+    --output "$OUTPUT" \
+    --window-size "$WINDOW_SIZE" \
+    --wait 120 \
+    --after-ready-wait 1 \
+    --type "hello keyboard path" \
+    --key Return \
+    --key ctrl+x \
+    --key 2 \
+    --key ctrl+x \
+    --key o \
+    --type "other pane text" \
+    --key alt+x \
+    --type "list-buffers" \
+    --key Return \
+    --key ctrl+x \
+    --key b \
+    --type "*Messages*" \
+    --key Return
+
+echo
+echo "=== Error Scan ==="
+if rg -n "entry limit reached|list_keymap_lookup_one|Command error|panic|buffer-read-only|unknown key|unhandled" "$LOG"; then
+    echo
+    echo "keyboard smoke test found runtime errors in $LOG" >&2
+    exit 1
+else
+    echo "no keyboard/runtime errors found"
+fi
+
+echo
+echo "=== Warning Summary ==="
+rg -n " WARN |warning:" "$LOG" | tail -20 || true
+
+echo
+echo "Keyboard smoke test completed"
