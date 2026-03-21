@@ -623,6 +623,23 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
 
 /// `(system-name)` -> string.
 ///
+/// `(fixnump OBJ)` — return t if OBJ is a fixnum (small integer).
+/// NeoVM has no bignums, so all integers are fixnums.
+pub(crate) fn builtin_fixnump(args: Vec<Value>) -> EvalResult {
+    expect_args("fixnump", &args, 1)?;
+    Ok(Value::bool(matches!(
+        args[0],
+        Value::Int(_) | Value::Char(_)
+    )))
+}
+
+/// `(bignump OBJ)` — return t if OBJ is a bignum.
+/// NeoVM has no bignums, so always returns nil.
+pub(crate) fn builtin_bignump(args: Vec<Value>) -> EvalResult {
+    expect_args("bignump", &args, 1)?;
+    Ok(Value::Nil)
+}
+
 /// GNU editfns.c:1283 — returns the host name via `gethostname(2)`,
 /// replacing spaces and tabs with `-`.
 pub(crate) fn builtin_system_name(args: Vec<Value>) -> EvalResult {

@@ -2881,6 +2881,8 @@ pub(crate) fn dispatch_builtin(
         "byte-code-function-p" => super::builtins_extra::builtin_byte_code_function_p(args),
         "closurep" => super::builtins_extra::builtin_closurep(args),
         "natnump" => super::builtins_extra::builtin_natnump(args),
+        "fixnump" => super::builtins_extra::builtin_fixnump(args),
+        "bignump" => super::builtins_extra::builtin_bignump(args),
         "user-login-name" => super::builtins_extra::builtin_user_login_name(args),
         "user-real-login-name" => super::builtins_extra::builtin_user_real_login_name(args),
         "user-full-name" => super::builtins_extra::builtin_user_full_name(args),

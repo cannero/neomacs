@@ -109,7 +109,11 @@ pub(crate) fn builtin_stringp(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_vectorp(args: Vec<Value>) -> EvalResult {
     expect_args("vectorp", &args, 1)?;
-    Ok(Value::bool(args[0].is_vector()))
+    // GNU: vectorp returns nil for char-tables and bool-vectors
+    let is_vec = args[0].is_vector()
+        && !super::chartable::is_char_table(&args[0])
+        && !super::chartable::is_bool_vector(&args[0]);
+    Ok(Value::bool(is_vec))
 }
 
 pub(crate) fn builtin_vector_or_char_table_p(args: Vec<Value>) -> EvalResult {
@@ -302,18 +306,17 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_sequencep(args: Vec<Value>) -> EvalResult {
     expect_args("sequencep", &args, 1)?;
-    // In official Emacs, closures are cons lists → sequences.
-    let is_seq = args[0].is_list()
-        || args[0].is_vector()
-        || args[0].is_string()
-        || args[0].is_record()
-        || matches!(args[0], Value::Lambda(_));
+    // GNU: sequences are lists, vectors, strings, bool-vectors, char-tables.
+    // Lambdas and records are NOT sequences.
+    let is_seq = args[0].is_list() || args[0].is_vector() || args[0].is_string();
     Ok(Value::bool(is_seq))
 }
 
 pub(crate) fn builtin_arrayp(args: Vec<Value>) -> EvalResult {
     expect_args("arrayp", &args, 1)?;
-    let is_arr = args[0].is_vector() || args[0].is_string() || args[0].is_record();
+    // GNU: arrays are vectors, strings, char-tables, bool-vectors.
+    // Records are NOT arrays.
+    let is_arr = args[0].is_vector() || args[0].is_string();
     Ok(Value::bool(is_arr))
 }
 

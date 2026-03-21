@@ -312,47 +312,41 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
         return Ok(Value::Int(0));
     }
 
-    // Traverse once while running tortoise-and-hare cycle detection.
-    // `length` tracks visited cons cells via `slow`.
-    let mut slow = *list;
-    let mut fast = *list;
+    // GNU uses FOR_EACH_TAIL_SAFE which implements Brent's cycle
+    // detection (teleporting tortoise). This matches the exact count
+    // GNU returns for circular lists.
+    let mut tortoise = *list;
+    let mut hare = *list;
     let mut length: i64 = 0;
+    let mut power: i64 = 1;
+    let mut step: i64 = 0;
 
     loop {
-        // Advance slow by 1
-        match slow {
+        match hare {
             Value::Cons(cell) => {
                 let pair = read_cons(cell);
-                slow = pair.cdr;
+                hare = pair.cdr;
                 length += 1;
+                step += 1;
             }
             _ => return Ok(Value::Int(length)),
         }
 
-        // Advance fast by 2 when possible. If it reaches a non-cons, we still
-        // continue counting via `slow` so proper odd-length lists are exact.
-        for _ in 0..2 {
-            match fast {
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
-                    fast = pair.cdr;
-                }
-                _ => {
-                    fast = Value::Nil;
-                    break;
-                }
-            }
-        }
-
-        // Check for cycle (pointer equality)
-        if let (Value::Cons(a), Value::Cons(b)) = (&slow, &fast) {
+        // Brent's: check if hare caught up to tortoise
+        if let (Value::Cons(a), Value::Cons(b)) = (&hare, &tortoise) {
             if a == b {
-                // Circular list detected; return count so far
                 return Ok(Value::Int(length));
             }
         }
 
-        // Safety limit to avoid infinite loops
+        // Teleport tortoise: when step count reaches power, move
+        // tortoise to hare's position and double the power.
+        if step == power {
+            tortoise = hare;
+            power *= 2;
+            step = 0;
+        }
+
         if length > 10_000_000 {
             return Ok(Value::Int(length));
         }
