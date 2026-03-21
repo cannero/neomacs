@@ -507,24 +507,35 @@ if [[ -n "$WINDOW_SIZE" ]]; then
 fi
 sleep "$KEY_DELAY"
 
+# winit ignores XSendEvent-style targeted input from `xdotool --window`.
+# After the target window is focused, use global XTest events instead so
+# Neomacs receives scripted keyboard input the same way GNU Emacs does.
+send_focused_key() {
+    xdotool key --clearmodifiers "$1"
+}
+
+send_focused_type() {
+    xdotool type --clearmodifiers --delay "$TYPE_DELAY_MS" "$1"
+}
+
 for idx in "${!ACTION_KINDS[@]}"; do
     kind="${ACTION_KINDS[$idx]}"
     value="${ACTION_VALUES[$idx]}"
     case "$kind" in
         key)
-            xdotool key --window "$wid" --clearmodifiers "$value"
+            send_focused_key "$value"
             sleep "$KEY_DELAY"
             ;;
         type)
-            xdotool type --window "$wid" --clearmodifiers --delay "$TYPE_DELAY_MS" "$value"
+            send_focused_type "$value"
             sleep "$KEY_DELAY"
             ;;
         eval)
-            xdotool key --window "$wid" --clearmodifiers alt+shift+semicolon
+            send_focused_key alt+shift+semicolon
             sleep "$KEY_DELAY"
-            xdotool type --window "$wid" --clearmodifiers --delay "$TYPE_DELAY_MS" "$value"
+            send_focused_type "$value"
             sleep "$KEY_DELAY"
-            xdotool key --window "$wid" --clearmodifiers Return
+            send_focused_key Return
             sleep "$KEY_DELAY"
             if [[ "$AFTER_EVAL_WAIT" != "0" ]]; then
                 sleep "$AFTER_EVAL_WAIT"
