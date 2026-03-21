@@ -527,6 +527,17 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 requested_italic,
                 font_size,
             );
+        tracing::debug!(
+            target: "neomacs::font_at",
+            character = %request.character,
+            requested_family,
+            requested_weight,
+            requested_italic,
+            font_size,
+            request_face = ?request.face,
+            selected = ?selected,
+            "display host resolved font-at request"
+        );
         Ok(selected.map(|font| ResolvedFontMatch {
             family: font.family,
             foundry: None,
@@ -1783,6 +1794,68 @@ mod tests {
             .eval_expr(&forms[0])
             .expect("startup load-option probe should evaluate");
         let items = list_to_vec(&result).expect("load-option result list");
+        assert_eq!(items[0], Value::True);
+        assert_eq!(items[1], Value::True);
+        assert_eq!(
+            print_value_with_eval(&mut eval, &items[2]),
+            "\"*Neomacs Face Test*\""
+        );
+    }
+
+    #[test]
+    fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+        let frame_id = eval
+            .frame_manager()
+            .selected_frame()
+            .expect("selected frame after bootstrap")
+            .id;
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crate lives in workspace root");
+        let face_test = repo_root.join("test/neomacs/neomacs-face-test.el");
+        let startup = gui_startup_with_args(&[
+            "-Q",
+            "-l",
+            face_test
+                .to_str()
+                .expect("face test path must be valid utf-8"),
+        ]);
+        configure_gnu_startup_state(&mut eval, frame_id, &startup);
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        tx.send(neovm_core::keyboard::InputEvent::CloseRequested)
+            .expect("queue close request");
+        drop(tx);
+        let mut wake_pipe = [0; 2];
+        let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+        assert_eq!(pipe_result, 0, "pipe should initialize");
+        eval.init_input_system(rx, wake_pipe[0]);
+
+        let result = eval.recursive_edit();
+        unsafe {
+            libc::close(wake_pipe[0]);
+            libc::close(wake_pipe[1]);
+        }
+        let err = result.expect_err("close request should unwind recursive edit");
+        assert!(
+            err.contains("quit"),
+            "close request should surface quit, got: {err}"
+        );
+
+        let forms = parse_forms(
+            r#"(list
+                 (fboundp 'neomacs-face-test-write-matrix-report)
+                 (buffer-live-p (get-buffer "*Neomacs Face Test*"))
+                 (buffer-name (window-buffer (selected-window))))"#,
+        )
+        .expect("parse recursive-edit load-option probe");
+        let result = eval
+            .eval_expr(&forms[0])
+            .expect("recursive-edit load-option probe should evaluate");
+        let items = list_to_vec(&result).expect("recursive-edit result list");
         assert_eq!(items[0], Value::True);
         assert_eq!(items[1], Value::True);
         assert_eq!(

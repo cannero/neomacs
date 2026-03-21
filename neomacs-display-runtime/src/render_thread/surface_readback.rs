@@ -1,11 +1,12 @@
 use crate::core::frame_glyphs::{FrameGlyph, FrameGlyphBuffer, GlyphRowRole};
 use neomacs_renderer_wgpu::WgpuRenderer;
 
-pub(crate) fn surface_usage_for_first_frame_readback(
+pub(crate) fn surface_usage_for_debug_readback(
     supported_usages: wgpu::TextureUsages,
     pending: &mut bool,
+    continuous_enabled: bool,
 ) -> wgpu::TextureUsages {
-    if !*pending {
+    if !*pending && !continuous_enabled {
         return wgpu::TextureUsages::RENDER_ATTACHMENT;
     }
 
@@ -33,15 +34,47 @@ pub(crate) fn maybe_log_first_frame_surface_readback(
         return;
     }
 
+    log_surface_readback(
+        "First-frame surface readback",
+        texture,
+        renderer,
+        frame,
+        width,
+        height,
+    );
+    *pending = false;
+}
+
+pub(crate) fn maybe_log_debug_surface_readback(
+    remaining_frames: &mut u32,
+    texture: &wgpu::Texture,
+    renderer: &WgpuRenderer,
+    frame: &FrameGlyphBuffer,
+    width: u32,
+    height: u32,
+) {
+    if *remaining_frames == 0 {
+        return;
+    }
+
+    let label = format!("Debug surface readback (remaining={})", *remaining_frames);
+    log_surface_readback(&label, texture, renderer, frame, width, height);
+    *remaining_frames -= 1;
+}
+
+fn log_surface_readback(
+    label: &str,
+    texture: &wgpu::Texture,
+    renderer: &WgpuRenderer,
+    frame: &FrameGlyphBuffer,
+    width: u32,
+    height: u32,
+) {
     let format = renderer.surface_format();
     let bytes_per_pixel = match readback_bytes_per_pixel(format) {
         Some(bytes_per_pixel) => bytes_per_pixel,
         None => {
-            tracing::warn!(
-                "First-frame surface readback skipped: unsupported surface format {:?}",
-                format
-            );
-            *pending = false;
+            tracing::warn!("{label} skipped: unsupported surface format {:?}", format);
             return;
         }
     };
@@ -97,20 +130,17 @@ pub(crate) fn maybe_log_first_frame_surface_readback(
         timeout: Some(std::time::Duration::from_secs(2)),
     });
     if let Err(err) = poll_result {
-        tracing::warn!("First-frame surface readback poll failed: {:?}", err);
-        *pending = false;
+        tracing::warn!("{label} poll failed: {:?}", err);
         return;
     }
     match rx.recv_timeout(std::time::Duration::from_secs(2)) {
         Ok(Ok(())) => {}
         Ok(Err(err)) => {
-            tracing::warn!("First-frame surface readback map failed: {:?}", err);
-            *pending = false;
+            tracing::warn!("{label} map failed: {:?}", err);
             return;
         }
         Err(err) => {
-            tracing::warn!("First-frame surface readback recv failed: {:?}", err);
-            *pending = false;
+            tracing::warn!("{label} recv failed: {:?}", err);
             return;
         }
     }
@@ -174,6 +204,16 @@ pub(crate) fn maybe_log_first_frame_surface_readback(
             color[3]
         ));
     }
+    for sample in colorful_glyph_box_logs(
+        frame,
+        &mapped,
+        padded_bytes_per_row as usize,
+        width,
+        height,
+        format,
+    ) {
+        sample_logs.push(sample);
+    }
 
     let mode_band_log = mode_band
         .flatten()
@@ -193,7 +233,7 @@ pub(crate) fn maybe_log_first_frame_surface_readback(
         })
         .unwrap_or_else(|| "bottom_band_avg=missing".to_string());
     let diagnostic = format!(
-        "First-frame surface readback: format={:?} {} {} {}",
+        "{label}: format={:?} {} {} {}",
         format,
         mode_band_log,
         bottom_band_log,
@@ -204,7 +244,6 @@ pub(crate) fn maybe_log_first_frame_surface_readback(
 
     drop(mapped);
     readback.unmap();
-    *pending = false;
 }
 
 fn widest_mode_line_rect(frame: &FrameGlyphBuffer) -> Option<(u32, u32, u32, u32)> {
@@ -266,6 +305,136 @@ fn average_band_rgba(
         total[2] as f32 / count as f32,
         total[3] as f32 / count as f32,
     ))
+}
+
+fn average_box_rgba(
+    mapped: &[u8],
+    padded_bytes_per_row: usize,
+    surface_width: u32,
+    surface_height: u32,
+    format: wgpu::TextureFormat,
+    x_start: u32,
+    x_end: u32,
+    y_start: u32,
+    y_end: u32,
+) -> Option<(f32, f32, f32, f32)> {
+    if x_start >= x_end || y_start >= y_end || surface_width == 0 || surface_height == 0 {
+        return None;
+    }
+
+    let clamped_x_end = x_end.min(surface_width);
+    let clamped_y_end = y_end.min(surface_height);
+    if x_start >= clamped_x_end || y_start >= clamped_y_end {
+        return None;
+    }
+
+    let mut total = [0u64; 4];
+    let mut count = 0u64;
+    for y in y_start..clamped_y_end {
+        for x in x_start..clamped_x_end {
+            let pixel = readback_pixel_rgba(mapped, padded_bytes_per_row, format, x, y)?;
+            total[0] += pixel[0] as u64;
+            total[1] += pixel[1] as u64;
+            total[2] += pixel[2] as u64;
+            total[3] += pixel[3] as u64;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+
+    Some((
+        total[0] as f32 / count as f32,
+        total[1] as f32 / count as f32,
+        total[2] as f32 / count as f32,
+        total[3] as f32 / count as f32,
+    ))
+}
+
+fn colorful_glyph_box_logs(
+    frame: &FrameGlyphBuffer,
+    mapped: &[u8],
+    padded_bytes_per_row: usize,
+    surface_width: u32,
+    surface_height: u32,
+    format: wgpu::TextureFormat,
+) -> Vec<String> {
+    let mut logs = Vec::new();
+    for glyph in frame.glyphs.iter().filter_map(|glyph| match glyph {
+        FrameGlyph::Char {
+            char,
+            x,
+            y,
+            width,
+            height,
+            fg,
+            ..
+        } if !char.is_whitespace() && !color_is_grayscale(*fg) => {
+            Some((*char, *x, *y, *width, *height, *fg))
+        }
+        _ => None,
+    }) {
+        if logs.len() >= 4 {
+            break;
+        }
+
+        let (ch, x, y, width, height, fg) = glyph;
+        let x0 = x.max(0.0).floor() as u32;
+        let y0 = y.max(0.0).floor() as u32;
+        let x1 = (x + width).max(0.0).ceil() as u32;
+        let y1 = (y + height).max(0.0).ceil() as u32;
+        let avg = average_box_rgba(
+            mapped,
+            padded_bytes_per_row,
+            surface_width,
+            surface_height,
+            format,
+            x0,
+            x1,
+            y0,
+            y1,
+        );
+        let avg_log = avg
+            .map(|rgba| {
+                format!(
+                    "glyph_box='{}' box=({},{})->({},{}) fg=({},{},{},{}) avg=({:.1},{:.1},{:.1},{:.1})",
+                    ch,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    (fg.r * 255.0).round() as u8,
+                    (fg.g * 255.0).round() as u8,
+                    (fg.b * 255.0).round() as u8,
+                    (fg.a * 255.0).round() as u8,
+                    rgba.0,
+                    rgba.1,
+                    rgba.2,
+                    rgba.3,
+                )
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "glyph_box='{}' box=({},{})->({},{}) fg=({},{},{},{}) avg=missing",
+                    ch,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    (fg.r * 255.0).round() as u8,
+                    (fg.g * 255.0).round() as u8,
+                    (fg.b * 255.0).round() as u8,
+                    (fg.a * 255.0).round() as u8,
+                )
+            });
+        logs.push(avg_log);
+    }
+    logs
+}
+
+fn color_is_grayscale(color: crate::core::types::Color) -> bool {
+    (color.r - color.g).abs() < 0.001 && (color.g - color.b).abs() < 0.001
 }
 
 fn readback_pixel_rgba(

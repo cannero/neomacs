@@ -464,6 +464,14 @@ impl RenderApp {
                 self.width,
                 self.height,
             );
+            surface_readback::maybe_log_debug_surface_readback(
+                &mut self.debug_surface_readback_frames_remaining,
+                &output.texture,
+                renderer,
+                frame,
+                self.width,
+                self.height,
+            );
         }
 
         // Present the frame

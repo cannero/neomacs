@@ -330,6 +330,7 @@ pub(super) struct RenderApp {
     pub(super) shared_monitors: Option<SharedMonitorInfo>,
     pub(super) monitors_populated: bool,
     pub(super) debug_first_frame_readback_pending: bool,
+    pub(super) debug_surface_readback_frames_remaining: u32,
     pub(super) resumed_seen: bool,
     pub(super) about_to_wait_seen: bool,
 }
@@ -432,6 +433,19 @@ impl RenderApp {
                 "NEOMACS_DEBUG_FIRST_FRAME_READBACK",
             )
             .is_some(),
+            debug_surface_readback_frames_remaining: std::env::var(
+                "NEOMACS_DEBUG_SURFACE_READBACK",
+            )
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|count| *count > 0)
+            .unwrap_or_else(|| {
+                if std::env::var_os("NEOMACS_DEBUG_SURFACE_READBACK").is_some() {
+                    32
+                } else {
+                    0
+                }
+            }),
             resumed_seen: false,
             about_to_wait_seen: false,
         }

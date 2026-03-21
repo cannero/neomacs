@@ -10,7 +10,11 @@ use neomacs_display_protocol::frame_glyphs::{
     CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole,
 };
 use neomacs_display_protocol::types::{AnimatedCursor, Color, Rect};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 use wgpu::util::DeviceExt;
 
 /// Draw effect vertices produced by a pure effect function.
@@ -84,6 +88,120 @@ struct BoxSpan {
     bg: Option<Color>,
 }
 
+fn trace_face_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("NEOMACS_TRACE_FACE_COLORS").is_some())
+}
+
+fn next_face_debug_call_id() -> u64 {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    NEXT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+fn color_is_grayscale(color: Color) -> bool {
+    (color.r - color.g).abs() < 0.0001 && (color.g - color.b).abs() < 0.0001
+}
+
+fn log_face_debug_summary(
+    call_id: u64,
+    frame_glyphs: &FrameGlyphBuffer,
+    faces: &HashMap<u32, Face>,
+) {
+    if !trace_face_debug_enabled() {
+        return;
+    }
+
+    let mut used_face_ids = BTreeSet::new();
+    for glyph in &frame_glyphs.glyphs {
+        match glyph {
+            FrameGlyph::Char { face_id, .. } | FrameGlyph::Stretch { face_id, .. } => {
+                used_face_ids.insert(*face_id);
+            }
+            _ => {}
+        }
+    }
+
+    tracing::info!(
+        "face-debug call={} frame={}x{} used_faces={} faces_map={}",
+        call_id,
+        frame_glyphs.width,
+        frame_glyphs.height,
+        used_face_ids.len(),
+        faces.len()
+    );
+
+    for face_id in used_face_ids.iter().take(48) {
+        if let Some(face) = faces.get(face_id) {
+            tracing::info!(
+                "face-debug call={} face id={} fg=({:.3},{:.3},{:.3},{:.3}) bg=({:.3},{:.3},{:.3},{:.3}) family={:?} size={:.1} weight={} attrs={:?}",
+                call_id,
+                face_id,
+                face.foreground.r,
+                face.foreground.g,
+                face.foreground.b,
+                face.foreground.a,
+                face.background.r,
+                face.background.g,
+                face.background.b,
+                face.background.a,
+                face.font_family,
+                face.font_size,
+                face.font_weight,
+                face.attributes
+            );
+        } else {
+            tracing::info!("face-debug call={} face id={} missing", call_id, face_id);
+        }
+    }
+
+    let mut logged_chars = 0usize;
+    for glyph in &frame_glyphs.glyphs {
+        let FrameGlyph::Char {
+            char,
+            x,
+            y,
+            fg,
+            bg,
+            face_id,
+            row_role,
+            ..
+        } = glyph
+        else {
+            continue;
+        };
+
+        let colorful_fg = !color_is_grayscale(*fg);
+        let colorful_bg = bg.is_some_and(|color| !color_is_grayscale(color));
+        if colorful_fg || colorful_bg {
+            tracing::info!(
+                "face-debug call={} glyph char={:?} face={} pos=({:.1},{:.1}) role={:?} fg=({:.3},{:.3},{:.3},{:.3}) bg={:?}",
+                call_id,
+                char,
+                face_id,
+                x,
+                y,
+                row_role,
+                fg.r,
+                fg.g,
+                fg.b,
+                fg.a,
+                bg.map(|color| (color.r, color.g, color.b, color.a))
+            );
+            logged_chars += 1;
+            if logged_chars >= 48 {
+                break;
+            }
+        }
+    }
+
+    if logged_chars == 0 {
+        tracing::info!(
+            "face-debug call={} no colorful char glyphs found in frame",
+            call_id
+        );
+    }
+}
+
 impl WgpuRenderer {
     /// Render frame glyphs to a texture view
     ///
@@ -102,6 +220,12 @@ impl WgpuRenderer {
         mouse_pos: (f32, f32),
         background_gradient: Option<((f32, f32, f32), (f32, f32, f32))>,
     ) {
+        let face_debug_call_id = if trace_face_debug_enabled() {
+            next_face_debug_call_id()
+        } else {
+            0
+        };
+
         tracing::trace!(
             "render_frame_glyphs: frame={}x{} surface={}x{}, {} glyphs, {} faces",
             frame_glyphs.width,
@@ -112,13 +236,35 @@ impl WgpuRenderer {
             faces.len(),
         );
 
+        log_face_debug_summary(face_debug_call_id, frame_glyphs, faces);
+
         self.refresh_frame_animation_state(frame_glyphs);
+        if trace_face_debug_enabled() {
+            tracing::info!(
+                "face-debug call={} milestone=after_refresh",
+                face_debug_call_id
+            );
+        }
 
         // Advance glyph atlas generation for LRU tracking
         glyph_atlas.advance_generation();
+        if trace_face_debug_enabled() {
+            tracing::info!(
+                "face-debug call={} milestone=after_advance_generation",
+                face_debug_call_id
+            );
+        }
 
         let (logical_w, logical_h) =
             self.prepare_frame_uniforms(frame_glyphs, surface_width, surface_height);
+        if trace_face_debug_enabled() {
+            tracing::info!(
+                "face-debug call={} milestone=after_prepare_uniforms logical=({:.1},{:.1})",
+                face_debug_call_id,
+                logical_w,
+                logical_h
+            );
+        }
 
         // Rendering order for correct z-layering (inverse video cursor):
         //   1. Non-overlay backgrounds (window bg, stretches, char bg)
@@ -1322,6 +1468,13 @@ impl WgpuRenderer {
                 // Composed glyphs rendered individually (each is unique, no batching)
                 let mut composed_mask_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])> = Vec::new();
                 let mut composed_color_data: Vec<(ComposedGlyphKey, [GlyphVertex; 6])> = Vec::new();
+                if trace_face_debug_enabled() {
+                    tracing::info!(
+                        "face-debug call={} milestone=before_glyph_loop overlay={}",
+                        face_debug_call_id,
+                        want_overlay
+                    );
+                }
 
                 for glyph in &frame_glyphs.glyphs {
                     if let FrameGlyph::Char {
@@ -1384,6 +1537,23 @@ impl WgpuRenderer {
                                 x_bin,
                                 y_bin,
                             };
+                            if trace_face_debug_enabled()
+                                && !want_overlay
+                                && !color_is_grayscale(*fg)
+                            {
+                                tracing::info!(
+                                    "face-debug call={} milestone=before_get_or_create char={:?} face={} pos=({:.1},{:.1}) fg=({:.3},{:.3},{:.3},{:.3})",
+                                    face_debug_call_id,
+                                    char,
+                                    face_id,
+                                    x,
+                                    y,
+                                    fg.r,
+                                    fg.g,
+                                    fg.b,
+                                    fg.a
+                                );
+                            }
                             glyph_atlas.get_or_create(&self.device, &self.queue, &key, face)
                         };
 
@@ -1635,6 +1805,17 @@ impl WgpuRenderer {
                     mask_data.len(),
                     color_data.len()
                 );
+                if trace_face_debug_enabled() {
+                    tracing::info!(
+                        "face-debug call={} milestone=after_glyph_loop overlay={} mask={} color={} composed_mask={} composed_color={}",
+                        face_debug_call_id,
+                        want_overlay,
+                        mask_data.len(),
+                        color_data.len(),
+                        composed_mask_data.len(),
+                        composed_color_data.len()
+                    );
+                }
                 // Debug: dump first few glyph positions
                 if !mask_data.is_empty() && !want_overlay {
                     for (i, (key, verts)) in mask_data.iter().take(3).enumerate() {
@@ -1673,6 +1854,53 @@ impl WgpuRenderer {
                         .iter()
                         .flat_map(|(_, verts)| verts.iter().copied())
                         .collect();
+
+                    if trace_face_debug_enabled() {
+                        for (idx, vertex) in all_vertices.iter().take(6).enumerate() {
+                            let raw = bytemuck::bytes_of(vertex);
+                            tracing::info!(
+                                "face-debug call={} mask-vertex idx={} pos=({:.1},{:.1}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}) raw={:02x?}",
+                                face_debug_call_id,
+                                idx,
+                                vertex.position[0],
+                                vertex.position[1],
+                                vertex.tex_coords[0],
+                                vertex.tex_coords[1],
+                                vertex.color[0],
+                                vertex.color[1],
+                                vertex.color[2],
+                                vertex.color[3],
+                                raw,
+                            );
+                        }
+                        if let Some((idx, vertex)) =
+                            all_vertices.iter().enumerate().find(|(_, v)| {
+                                let [r, g, b, _] = v.color;
+                                (r - g).abs() > 0.001 || (g - b).abs() > 0.001
+                            })
+                        {
+                            let raw = bytemuck::bytes_of(vertex);
+                            tracing::info!(
+                                "face-debug call={} mask-vertex-colored idx={} pos=({:.1},{:.1}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}) raw={:02x?}",
+                                face_debug_call_id,
+                                idx,
+                                vertex.position[0],
+                                vertex.position[1],
+                                vertex.tex_coords[0],
+                                vertex.tex_coords[1],
+                                vertex.color[0],
+                                vertex.color[1],
+                                vertex.color[2],
+                                vertex.color[3],
+                                raw,
+                            );
+                        } else {
+                            tracing::info!(
+                                "face-debug call={} mask-vertex-colored none",
+                                face_debug_call_id
+                            );
+                        }
+                    }
 
                     let glyph_buffer =
                         self.device

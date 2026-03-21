@@ -61,7 +61,8 @@
 
 (defun neomacs-face-test-line-probe--char-info (pos win)
   "Return plist describing POS in WIN."
-  (let* ((posn (posn-at-point pos win))
+  (let* ((face-prop (get-text-property pos 'face))
+         (posn (posn-at-point pos win))
          (next-posn (and posn (posn-at-point (1+ pos) win)))
          (xy (and posn (posn-x-y posn)))
          (col-row (and posn (posn-col-row posn)))
@@ -70,6 +71,15 @@
          (x2 (and next-xy (car next-xy))))
     (list :pos pos
           :char (char-after pos)
+          :face-prop face-prop
+          :face-head (car-safe face-prop)
+          :face-head-keywordp (and (consp face-prop)
+                                   (keywordp (car face-prop)))
+          :face-head-type (and (consp face-prop)
+                               (type-of (car face-prop)))
+          :font-lock-face-prop (get-text-property pos 'font-lock-face)
+          :char-face-prop (get-char-property pos 'face)
+          :text-props (text-properties-at pos)
           :font (when (fboundp 'font-at)
                   (font-at pos win))
           :advance (when (and (numberp x1) (numberp x2))

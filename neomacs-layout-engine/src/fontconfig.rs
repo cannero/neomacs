@@ -18,10 +18,13 @@ use neovm_core::face::FontSlant;
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::ffi::{CStr, CString};
+#[cfg(not(unix))]
 use std::process::Command;
 #[cfg(unix)]
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
+#[cfg(unix)]
+use x11_dl::xlib;
 #[cfg(unix)]
 use {fontconfig::Pattern, fontconfig_sys};
 
@@ -33,7 +36,7 @@ static FC_CHAR_MATCH_CACHE: OnceLock<Mutex<HashMap<CharMatchCacheKey, Option<Fon
 #[cfg(unix)]
 static FC_HANDLE: OnceLock<Option<fontconfig::Fontconfig>> = OnceLock::new();
 
-/// Cached Xft.dpi value from X resources.
+/// Cached Xft.dpi/frame DPI value from the active X display.
 static XFT_DPI: OnceLock<f32> = OnceLock::new();
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -362,12 +365,27 @@ pub fn match_font_for_char(
     matched
 }
 
+fn points_to_pixels_for_dpi(points: f32, dpi: f32) -> f32 {
+    (points * dpi / 72.0).round()
+}
+
+fn fallback_frame_res_y(display_height_px: i32, display_height_mm: i32) -> f32 {
+    if display_height_mm < 1 {
+        100.0
+    } else {
+        display_height_px as f32 * 25.4 / display_height_mm as f32
+    }
+}
+
 /// Get the effective DPI for font sizing.
 ///
-/// Reads `Xft.dpi` from X resources (same as GNU Emacs), falling back to 96.
+/// Mirrors GNU Emacs `xterm.c`:
+/// - read `Xft.dpi` from X resources via `XGetDefault`
+/// - otherwise fall back to display-height / display-height-mm
+/// - if the X server reports bogus mm dimensions, fall back to 100 DPI
 pub fn xft_dpi() -> f32 {
     *XFT_DPI.get_or_init(|| {
-        let dpi = query_xft_dpi().unwrap_or(96.0);
+        let dpi = query_xft_dpi().unwrap_or(100.0);
         tracing::info!("Xft.dpi: {}", dpi);
         dpi
     })
@@ -375,7 +393,7 @@ pub fn xft_dpi() -> f32 {
 
 /// Convert a point size to pixels using GNU Emacs' X11 rule.
 pub fn points_to_pixels(points: f32) -> f32 {
-    points * xft_dpi() / 72.0
+    points_to_pixels_for_dpi(points, xft_dpi())
 }
 
 /// Convert a face height in 1/10 pt to pixels using GNU Emacs' X11 rule.
@@ -461,7 +479,7 @@ fn match_font_from_spec(
         .weight
         .map(|weight| weight.0)
         .unwrap_or(requested_weight);
-    let query_chars = registry_query_chars(spec.registry.as_deref(), ch);
+    let registry_query_chars = registry_query_chars(spec.registry.as_deref(), ch);
     let registry_lang = spec
         .registry
         .as_deref()
@@ -471,7 +489,12 @@ fn match_font_from_spec(
     let query_langs = combined_query_langs(registry_lang.as_deref(), spec.lang.as_deref());
     let requested_spacing = requested_spacing(requested_family, prefer_monospace, spec);
     for family_option in family_search_order(requested_family, spec) {
-        let candidates = fc_list_candidates(family_option.as_deref(), &query_chars, &query_langs);
+        let candidates = fc_list_candidates(
+            family_option.as_deref(),
+            &registry_query_chars,
+            Some(ch as u32),
+            &query_langs,
+        );
         if candidates.is_empty() {
             continue;
         }
@@ -496,24 +519,13 @@ fn family_search_order(requested_family: &str, spec: &StoredFontSpec) -> Vec<Opt
         return vec![Some(resolve_family(spec_family).to_string())];
     }
 
-    if spec.registry.is_some()
-        || spec.lang.is_some()
-        || spec.repertory.is_some()
-        || spec.weight.is_some()
-        || spec.slant.is_some()
-        || spec.width.is_some()
-    {
-        // GNU Emacs' ftfont_spec_pattern only adds FC_FAMILY when the
-        // font-spec explicitly names one. Registry/lang/repertory-driven
-        // fontset entries must query Fontconfig without leaking the current
-        // face's Latin family into the fallback search.
-        return vec![None];
-    }
-
     if requested_family.is_empty() {
         return vec![None];
     }
 
+    // GNU Emacs' font_find_for_lface tries the current face family first
+    // when the fontset entry itself doesn't pin a family, then retries with
+    // the family unspecified.
     let resolved = resolve_family(requested_family);
     if resolved == requested_family {
         vec![Some(requested_family.to_string()), None]
@@ -873,7 +885,8 @@ fn map_fontconfig_weight_raw(weight: i32) -> u16 {
         90..=139 => 500,
         140..=189 => 600,
         190..=204 => 700,
-        205..=212 => 900,
+        205..=209 => 800,
+        210..=212 => 900,
         _ => 900,
     }
 }
@@ -890,7 +903,8 @@ fn map_fontconfig_slant_raw(slant: i32) -> FontSlant {
 #[cfg(unix)]
 fn fc_list_candidates(
     family: Option<&str>,
-    query_chars: &[u32],
+    registry_query_chars: &[u32],
+    required_char: Option<u32>,
     langs: &[String],
 ) -> Vec<ListedFont> {
     let Some(fc) = fontconfig_handle() else {
@@ -915,7 +929,8 @@ fn fc_list_candidates(
                 continue;
             }
         }
-        let Some(object_set) = build_candidate_object_set(!query_chars.is_empty()) else {
+        let include_charset = !registry_query_chars.is_empty() || required_char.is_some();
+        let Some(object_set) = build_candidate_object_set(include_charset) else {
             continue;
         };
         let fontset = unsafe {
@@ -932,7 +947,8 @@ fn fc_list_candidates(
         tracing::trace!(
             family = family.unwrap_or(""),
             lang = lang.unwrap_or(""),
-            query_chars = ?query_chars,
+            registry_query_chars = ?registry_query_chars,
+            required_char,
             nfont,
             "fontconfig raw candidate list"
         );
@@ -947,7 +963,12 @@ fn fc_list_candidates(
         let before = candidates.len();
 
         for &candidate_pattern in patterns {
-            if !raw_pattern_supports_any_char(candidate_pattern, query_chars) {
+            if let Some(required_char) = required_char
+                && !raw_pattern_supports_any_char(candidate_pattern, &[required_char])
+            {
+                continue;
+            }
+            if !raw_pattern_supports_any_char(candidate_pattern, registry_query_chars) {
                 continue;
             }
             let Some(candidate) = listed_font_from_raw_pattern(candidate_pattern) else {
@@ -960,7 +981,8 @@ fn fc_list_candidates(
         tracing::trace!(
             family = family.unwrap_or(""),
             lang = lang.unwrap_or(""),
-            query_chars = ?query_chars,
+            registry_query_chars = ?registry_query_chars,
+            required_char,
             added = candidates.len().saturating_sub(before),
             total = candidates.len(),
             "fontconfig filtered candidate list"
@@ -972,7 +994,8 @@ fn fc_list_candidates(
 #[cfg(not(unix))]
 fn fc_list_candidates(
     family: Option<&str>,
-    query_chars: &[u32],
+    registry_query_chars: &[u32],
+    required_char: Option<u32>,
     langs: &[String],
 ) -> Vec<ListedFont> {
     let mut candidates = Vec::new();
@@ -984,7 +1007,13 @@ fn fc_list_candidates(
 
     for lang in query_langs {
         let mut pattern = String::from(":charset=");
-        for (index, codepoint) in query_chars.iter().enumerate() {
+        let mut all_query_chars = registry_query_chars.to_vec();
+        if let Some(required_char) = required_char
+            && !all_query_chars.contains(&required_char)
+        {
+            all_query_chars.push(required_char);
+        }
+        for (index, codepoint) in all_query_chars.iter().enumerate() {
             if index > 0 {
                 pattern.push(' ');
             }
@@ -1090,7 +1119,8 @@ fn parse_fontconfig_weight(raw: &str) -> Option<u16> {
         90..=139 => 500,
         140..=189 => 600,
         190..=204 => 700,
-        205..=212 => 900,
+        205..=209 => 800,
+        210..=212 => 900,
         _ => 900,
     })
 }
@@ -1157,20 +1187,49 @@ fn wildcard_casefold_match(pattern: &str, text: &str) -> bool {
     p == pattern.len()
 }
 
-/// Query Xft.dpi from X resources via `xrdb -query`.
+#[cfg(unix)]
+/// Query `Xft.dpi` from the active X display, mirroring GNU Emacs `xterm.c`.
 fn query_xft_dpi() -> Option<f32> {
-    let output = Command::new("xrdb").arg("-query").output().ok()?;
-
-    if !output.status.success() {
+    let xlib = xlib::Xlib::open().ok()?;
+    let display = unsafe { (xlib.XOpenDisplay)(ptr::null()) };
+    if display.is_null() {
         return None;
     }
 
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    for line in stdout.lines() {
-        if let Some(rest) = line.strip_prefix("Xft.dpi:") {
-            return rest.trim().parse::<f32>().ok();
+    let class = CString::new("Xft").ok()?;
+    let name = CString::new("dpi").ok()?;
+
+    let dpi = unsafe {
+        let resource = (xlib.XGetDefault)(display, class.as_ptr(), name.as_ptr());
+        let parsed = if resource.is_null() {
+            None
+        } else {
+            CStr::from_ptr(resource)
+                .to_str()
+                .ok()
+                .and_then(|s| s.trim().parse::<f32>().ok())
+        };
+
+        match parsed {
+            Some(dpi) if dpi.is_finite() && dpi > 0.0 => Some(dpi),
+            _ => {
+                let screen = (xlib.XDefaultScreen)(display);
+                let pixels = (xlib.XDisplayHeight)(display, screen);
+                let mm = (xlib.XDisplayHeightMM)(display, screen);
+                Some(fallback_frame_res_y(pixels, mm))
+            }
         }
+    };
+
+    unsafe {
+        (xlib.XCloseDisplay)(display);
     }
+
+    dpi
+}
+
+#[cfg(not(unix))]
+fn query_xft_dpi() -> Option<f32> {
     None
 }
 
@@ -1275,9 +1334,9 @@ fn family_spacing(family: &str) -> Option<i32> {
 mod tests {
     use super::{
         FONT_SPACING_MONO, FONT_SPACING_PROPORTIONAL, ListedFont, SpacingClass, candidate_score,
-        combined_query_langs, family_search_order, fc_list_candidates, normalize_spacing,
-        parse_fontconfig_weight, registry_hint, registry_query_chars, style_weight,
-        wildcard_casefold_match,
+        combined_query_langs, fallback_frame_res_y, family_search_order, fc_list_candidates,
+        normalize_spacing, parse_fontconfig_weight, points_to_pixels_for_dpi, registry_hint,
+        registry_query_chars, style_weight, wildcard_casefold_match,
     };
     use neovm_core::emacs_core::fontset::StoredFontSpec;
     use neovm_core::face::{FontSlant, FontWeight};
@@ -1329,7 +1388,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_only_fontset_specs_do_not_reuse_requested_family() {
+    fn registry_only_fontset_specs_try_requested_family_before_unspecified_fallback() {
         let spec = StoredFontSpec {
             family: None,
             registry: Some("gb2312.1980-0".to_string()),
@@ -1339,11 +1398,13 @@ mod tests {
             width: None,
             repertory: None,
         };
-        assert_eq!(family_search_order("monospace", &spec), vec![None]);
+        let order = family_search_order("monospace", &spec);
+        assert!(matches!(order.first(), Some(Some(_))));
+        assert!(matches!(order.last(), Some(None)));
     }
 
     #[test]
-    fn constrained_fontset_specs_without_family_do_not_reuse_requested_family() {
+    fn constrained_fontset_specs_without_family_try_requested_family_first() {
         let spec = StoredFontSpec {
             family: None,
             registry: None,
@@ -1353,7 +1414,9 @@ mod tests {
             width: None,
             repertory: None,
         };
-        assert_eq!(family_search_order("monospace", &spec), vec![None]);
+        let order = family_search_order("monospace", &spec);
+        assert!(matches!(order.first(), Some(Some(_))));
+        assert!(matches!(order.last(), Some(None)));
     }
 
     #[test]
@@ -1365,8 +1428,23 @@ mod tests {
         assert_eq!(parse_fontconfig_weight("100"), Some(500));
         assert_eq!(parse_fontconfig_weight("180"), Some(600));
         assert_eq!(parse_fontconfig_weight("200"), Some(700));
+        assert_eq!(parse_fontconfig_weight("205"), Some(800));
         assert_eq!(parse_fontconfig_weight("210"), Some(900));
         assert_eq!(parse_fontconfig_weight("[80 200]"), None);
+    }
+
+    #[test]
+    fn points_to_pixels_rounds_like_gnu_point_to_pixel() {
+        assert_eq!(points_to_pixels_for_dpi(10.0, 100.0), 14.0);
+        assert_eq!(points_to_pixels_for_dpi(12.0, 100.0), 17.0);
+        assert_eq!(points_to_pixels_for_dpi(16.0, 100.0), 22.0);
+    }
+
+    #[test]
+    fn frame_res_fallback_uses_display_height_and_mm() {
+        let dpi = fallback_frame_res_y(1080, 274);
+        assert!((dpi - 100.14).abs() < 0.1);
+        assert_eq!(fallback_frame_res_y(1080, 0), 100.0);
     }
 
     #[test]
@@ -1436,7 +1514,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn mono_cjk_candidate_pool_contains_non_proportional_fonts() {
-        let candidates = fc_list_candidates(None, &['好' as u32], &[String::from("zh-cn")]);
+        let candidates = fc_list_candidates(
+            None,
+            &['好' as u32],
+            Some('好' as u32),
+            &[String::from("zh-cn")],
+        );
         let best = candidates
             .iter()
             .min_by_key(|candidate| {
@@ -1457,6 +1540,7 @@ mod tests {
         let _ = fc_list_candidates(
             Some("definitely-missing-neomacs-font-family"),
             &[0x10FFFF],
+            Some(0x10FFFF),
             &[String::from("zz-zz")],
         );
     }

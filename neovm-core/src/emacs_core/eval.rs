@@ -3555,11 +3555,16 @@ impl Evaluator {
             .unwrap_or(Value::Nil);
 
         if top_level.is_nil() {
+            self.log_startup_state("top-level-nil");
             return Ok(Value::Nil);
         }
 
+        self.log_startup_state("top-level-before");
         match self.eval_value(&top_level) {
-            Ok(_) => Ok(Value::Nil),
+            Ok(_) => {
+                self.log_startup_state("top-level-after");
+                Ok(Value::Nil)
+            }
             Err(Flow::Signal(sig)) => {
                 let data_str = sig
                     .data
@@ -3577,11 +3582,65 @@ impl Evaluator {
                     "message",
                     vec![Value::string(&error_msg)],
                 );
+                self.log_startup_state("top-level-signal");
                 tracing::warn!("Top-level startup error: {}", error_msg);
                 Ok(Value::Nil)
             }
             Err(flow) => Err(flow),
         }
+    }
+
+    fn trace_startup_state_enabled(&self) -> bool {
+        std::env::var("NEOMACS_TRACE_STARTUP_STATE")
+            .ok()
+            .is_some_and(|value| value == "1")
+    }
+
+    fn log_startup_state(&self, phase: &str) {
+        if !self.trace_startup_state_enabled() {
+            return;
+        }
+
+        let current_buffer = self
+            .buffers
+            .current_buffer()
+            .map(|buffer| buffer.name.clone())
+            .unwrap_or_else(|| "<none>".to_string());
+        let selected_frame = self.frames.selected_frame().map(|frame| {
+            let selected_window_buffer = frame
+                .selected_window()
+                .and_then(|window| window.buffer_id())
+                .and_then(|buffer_id| self.buffers.get(buffer_id))
+                .map(|buffer| buffer.name.clone())
+                .unwrap_or_else(|| "<missing>".to_string());
+            format!(
+                "id=0x{:x} size={}x{} selected-window=0x{:x} selected-window-buffer={}",
+                frame.id.0,
+                frame.width,
+                frame.height,
+                frame.selected_window.0,
+                selected_window_buffer
+            )
+        });
+        let frames = self
+            .frames
+            .frame_list()
+            .into_iter()
+            .map(|fid| format!("0x{:x}", fid.0))
+            .collect::<Vec<_>>();
+
+        tracing::info!(
+            "startup-state phase={} command-line-args={} command-line-args-left={} command-line-processed={} window-system={} initial-window-system={} current-buffer={} selected-frame={:?} frames={:?}",
+            phase,
+            format_startup_value(self.obarray.symbol_value("command-line-args")),
+            format_startup_value(self.obarray.symbol_value("command-line-args-left")),
+            format_startup_value(self.obarray.symbol_value("command-line-processed")),
+            format_startup_value(self.obarray.symbol_value("window-system")),
+            format_startup_value(self.obarray.symbol_value("initial-window-system")),
+            current_buffer,
+            selected_frame,
+            frames
+        );
     }
 
     /// Command loop with error recovery.
@@ -8639,6 +8698,12 @@ pub fn quote_to_value(expr: &Expr) -> Value {
 /// Used to root them in temp_roots before evaluating the Expr.
 pub(crate) fn collect_opaque_values(expr: &Expr, out: &mut Vec<Value>) {
     expr.collect_opaque_values(out);
+}
+
+fn format_startup_value(value: Option<&Value>) -> String {
+    value
+        .map(super::print::print_value)
+        .unwrap_or_else(|| "<unbound>".to_string())
 }
 
 /// Convert a Value back to an Expr (for macro expansion).

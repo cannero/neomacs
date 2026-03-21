@@ -2,6 +2,8 @@ use super::*;
 use crate::emacs_core::eval::{
     DisplayHost, FontResolveRequest, GuiFrameHostRequest, ResolvedFontMatch,
 };
+use std::cell::RefCell;
+use std::rc::Rc;
 
 // -----------------------------------------------------------------------
 // Font builtins
@@ -30,6 +32,28 @@ impl DisplayHost for FontAtDisplayHost {
         } else {
             Ok(None)
         }
+    }
+}
+
+struct CapturingFontAtDisplayHost {
+    last_request: Rc<RefCell<Option<FontResolveRequest>>>,
+}
+
+impl DisplayHost for CapturingFontAtDisplayHost {
+    fn realize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resolve_font_for_char(
+        &mut self,
+        request: FontResolveRequest,
+    ) -> Result<Option<ResolvedFontMatch>, String> {
+        *self.last_request.borrow_mut() = Some(request);
+        Ok(None)
     }
 }
 
@@ -429,6 +453,50 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
     assert_eq!(
         builtin_font_get(vec![font, Value::keyword("height")]).unwrap(),
         Value::Int(120)
+    );
+}
+
+#[test]
+fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+
+    let captured = Rc::new(RefCell::new(None));
+    eval.set_display_host(Box::new(CapturingFontAtDisplayHost {
+        last_request: captured.clone(),
+    }));
+
+    let buffer = eval
+        .buffers
+        .current_buffer_mut()
+        .expect("current buffer for captured font-at test");
+    buffer.insert("ab");
+    let inline_face = Value::list(vec![
+        Value::symbol(":family"),
+        Value::string("Noto Sans Mono"),
+        Value::symbol(":height"),
+        Value::Float(0.9, next_float_id()),
+        Value::symbol(":weight"),
+        Value::symbol("semi-bold"),
+    ]);
+    let start = buffer.text.char_to_byte(0);
+    let end = buffer.text.char_to_byte(2);
+    buffer
+        .text_props
+        .put_property(start, end, "face", inline_face);
+
+    let _ = builtin_font_at_eval(&mut eval, vec![Value::Int(1)]).unwrap();
+
+    let request = captured
+        .borrow()
+        .clone()
+        .expect("display host should capture font-at request");
+    assert_eq!(request.character, 'a');
+    assert_eq!(request.face.family.as_deref(), Some("Noto Sans Mono"));
+    assert_eq!(request.face.weight, Some(FontWeight::SEMI_BOLD));
+    assert_eq!(
+        request.face.height,
+        Some(crate::face::FaceHeight::Absolute(90))
     );
 }
 

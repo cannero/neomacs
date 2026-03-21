@@ -95,9 +95,10 @@ impl RenderApp {
         } else {
             caps.alpha_modes[0]
         };
-        let surface_usage = surface_readback::surface_usage_for_first_frame_readback(
+        let surface_usage = surface_readback::surface_usage_for_debug_readback(
             caps.usages,
             &mut self.debug_first_frame_readback_pending,
+            self.debug_surface_readback_frames_remaining > 0,
         );
         let config = wgpu::SurfaceConfiguration {
             usage: surface_usage,
