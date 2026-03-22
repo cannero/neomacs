@@ -38,7 +38,7 @@ use neovm_core::emacs_core::terminal::pure::{
     TerminalRuntimeConfig, configure_terminal_runtime, reset_terminal_runtime,
 };
 use neovm_core::emacs_core::{DisplayHost, Evaluator, GuiFrameHostRequest};
-use neovm_core::face::{FaceHeight, FontWeight};
+use neovm_core::face::{FaceHeight, FontSlant, FontWeight, FontWidth};
 use neovm_core::window::{FrameId, Window};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -777,6 +777,85 @@ struct BootstrapFrameMetrics {
     font_pixel_size: f32,
 }
 
+fn font_weight_symbol(weight: FontWeight) -> &'static str {
+    match weight.0 {
+        0..=150 => "thin",
+        151..=250 => "extra-light",
+        251..=350 => "light",
+        351..=450 => "normal",
+        451..=550 => "medium",
+        551..=650 => "semi-bold",
+        651..=750 => "bold",
+        751..=850 => "extra-bold",
+        _ => "black",
+    }
+}
+
+fn font_slant_symbol(slant: FontSlant) -> &'static str {
+    match slant {
+        FontSlant::Normal => "normal",
+        FontSlant::Italic => "italic",
+        FontSlant::Oblique => "oblique",
+        FontSlant::ReverseItalic => "reverse-italic",
+        FontSlant::ReverseOblique => "reverse-oblique",
+    }
+}
+
+fn font_width_symbol(width: FontWidth) -> &'static str {
+    match width {
+        FontWidth::UltraCondensed => "ultra-condensed",
+        FontWidth::ExtraCondensed => "extra-condensed",
+        FontWidth::Condensed => "condensed",
+        FontWidth::SemiCondensed => "semi-condensed",
+        FontWidth::Normal => "normal",
+        FontWidth::SemiExpanded => "semi-expanded",
+        FontWidth::Expanded => "expanded",
+        FontWidth::ExtraExpanded => "extra-expanded",
+        FontWidth::UltraExpanded => "ultra-expanded",
+    }
+}
+
+fn bootstrap_default_font_parameter(font_pixel_size: f32) -> Value {
+    let mut metrics_svc = FontMetricsService::new();
+    let selected = metrics_svc.select_font_for_char('M', "Monospace", 400, false, font_pixel_size);
+
+    let family = selected
+        .as_ref()
+        .map(|font| font.family.as_str())
+        .unwrap_or("Monospace");
+    let weight = selected
+        .as_ref()
+        .map(|font| font_weight_symbol(font.weight))
+        .unwrap_or("normal");
+    let slant = selected
+        .as_ref()
+        .map(|font| font_slant_symbol(font.slant))
+        .unwrap_or("normal");
+    let width = selected
+        .as_ref()
+        .map(|font| font_width_symbol(font.width))
+        .unwrap_or("normal");
+
+    Value::vector(vec![
+        Value::keyword("font-object"),
+        Value::keyword("family"),
+        Value::string(family),
+        Value::keyword("weight"),
+        Value::symbol(weight),
+        Value::keyword("slant"),
+        Value::symbol(slant),
+        Value::keyword("width"),
+        Value::symbol(width),
+        // GNU stores default-face absolute size in 1/10pt.  Use 100 as the
+        // neutral startup default so faces.el can realize the selected font
+        // without falling back to the bootstrap `height=1` placeholder.
+        Value::keyword("size"),
+        Value::Int(100),
+        Value::keyword("height"),
+        Value::Int(100),
+    ])
+}
+
 fn bootstrap_frame_metrics() -> BootstrapFrameMetrics {
     let font_pixel_size = 16.0;
     let mut metrics_svc = FontMetricsService::new();
@@ -872,6 +951,7 @@ fn bootstrap_buffers(
 
     // Seed frame parameters so GNU Lisp startup sees the correct host surface.
     if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
+        let default_font = bootstrap_default_font_parameter(frame_metrics.font_pixel_size);
         frame.width = width;
         frame.height = height;
         frame.visible = true;
@@ -888,6 +968,12 @@ fn bootstrap_buffers(
             "background-mode".to_string(),
             Value::symbol(display.background_mode),
         );
+        frame
+            .parameters
+            .insert("font".to_string(), default_font.clone());
+        frame
+            .parameters
+            .insert("font-parameter".to_string(), default_font);
         frame.title = "Neomacs".to_string();
         frame.font_pixel_size = frame_metrics.font_pixel_size;
         frame.char_width = frame_metrics.char_width;
@@ -975,44 +1061,49 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup:
             Value::Nil
         },
     );
-    match startup.frontend {
+    let (terminal_frame, frame_initial_frame, default_minibuffer_frame) = match startup.frontend {
         FrontendKind::Gui => {
             let window_system = Value::symbol(gui_window_system_symbol());
             eval.set_variable("window-system", window_system);
             eval.set_variable("initial-window-system", window_system);
+            (
+                Value::Nil,
+                Value::Frame(frame_id.0),
+                Value::Frame(frame_id.0),
+            )
         }
         FrontendKind::Tty => {
             eval.set_variable("window-system", Value::Nil);
             eval.set_variable("initial-window-system", Value::Nil);
+            (Value::Frame(frame_id.0), Value::Nil, Value::Nil)
         }
-    }
+    };
     eval.set_variable("invocation-name", Value::string(invocation_name));
     eval.set_variable("invocation-directory", Value::string(invocation_directory));
     let cwd = std::env::current_dir()
         .map(|p| ensure_dir_string(&p))
         .unwrap_or_else(|_| "/".to_string());
     eval.set_variable("default-directory", Value::string(&cwd));
-    eval.set_variable("terminal-frame", Value::Frame(frame_id.0));
-    eval.set_variable("frame-initial-frame", Value::Nil);
-    eval.set_variable("default-minibuffer-frame", Value::Nil);
+    eval.set_variable("terminal-frame", terminal_frame);
+    eval.set_variable("frame-initial-frame", frame_initial_frame);
+    eval.set_variable("default-minibuffer-frame", default_minibuffer_frame);
     // Skip the splash screen — its fill-region is extremely slow through
     // with_mirrored_evaluator.  Users who want it can set this to nil in
     // their init file.
     eval.set_variable("inhibit-startup-screen", Value::True);
 }
 
-/// Recalculate face specs for the GUI frame.
+/// Re-run GNU face initialization for the initial GUI frame.
 ///
 /// During pdump bootstrap, faces are evaluated on a TTY-like frame
-/// (no color support), so defface specs like mode-line fall through
-/// to the `(t :inverse-video t)` clause. Now that we have a GUI frame
-/// with display-type=color, re-evaluate all face specs so they pick
-/// up the correct (class color) attributes.
+/// (no color support), so GNU's frame-local face setup has to run again
+/// once we have a real GUI frame and its frame parameters.
 fn recalc_faces_for_gui_frame(eval: &mut Evaluator) {
     let elisp = r#"
-(when (fboundp 'face-spec-recalc)
-  (face-spec-recalc 'mode-line (selected-frame))
-  (face-spec-recalc 'mode-line-inactive (selected-frame)))
+(when (fboundp 'face-set-after-frame-default)
+  (face-set-after-frame-default
+   (selected-frame)
+   (frame-parameters (selected-frame))))
 "#;
     eval.setup_thread_locals();
     match neovm_core::emacs_core::parse_forms(elisp) {
@@ -1350,21 +1441,21 @@ mod tests {
     }
 
     #[test]
-    fn configure_gnu_startup_state_marks_bootstrap_frame_as_terminal_frame() {
+    fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
         let mut eval = Evaluator::new();
         configure_gnu_startup_state(&mut eval, FrameId(42), &gui_startup());
 
         assert_eq!(
             eval.obarray().symbol_value("terminal-frame"),
-            Some(&Value::Frame(42))
+            Some(&Value::Nil)
         );
         assert_eq!(
             eval.obarray().symbol_value("frame-initial-frame"),
-            Some(&Value::Nil)
+            Some(&Value::Frame(42))
         );
         assert_eq!(
             eval.obarray().symbol_value("default-minibuffer-frame"),
-            Some(&Value::Nil)
+            Some(&Value::Frame(42))
         );
     }
 
@@ -1474,6 +1565,11 @@ mod tests {
         assert_eq!(frame.char_width, metrics.char_width);
         assert_eq!(frame.char_height, metrics.char_height);
         assert_eq!(frame.font_pixel_size, metrics.font_pixel_size);
+        let font_param = frame
+            .parameters
+            .get("font")
+            .expect("bootstrap GUI frame should seed a font frame parameter");
+        assert!(matches!(font_param, Value::Vector(_)));
         let minibuffer_height = frame
             .minibuffer_leaf
             .as_ref()
@@ -1590,6 +1686,25 @@ mod tests {
             .current_buffer()
             .expect("current buffer after startup");
         assert_eq!(current.name, "*scratch*");
+    }
+
+    #[test]
+    fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame() {
+        let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+            .expect("cached bootstrap evaluator");
+        let frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+        run_gnu_startup(&mut eval);
+
+        let frame_ids: Vec<_> = eval.frame_manager().frame_list().into_iter().collect();
+        assert_eq!(frame_ids, vec![frame_id]);
+        assert_eq!(
+            eval.frame_manager()
+                .selected_frame()
+                .expect("selected frame after startup")
+                .id,
+            frame_id
+        );
     }
 
     #[test]

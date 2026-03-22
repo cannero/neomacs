@@ -1672,6 +1672,58 @@ fn default_face_attribute_value(attr: &str) -> Value {
     }
 }
 
+fn is_reset_like_face_attr_value(value: &Value) -> bool {
+    matches!(value, Value::Symbol(id) if {
+        let s = resolve_sym(*id);
+        s == "unspecified" || s == ":ignore-defface" || s == "reset"
+    })
+}
+
+fn derived_face_attrs_from_font_value(value: &Value) -> Vec<(String, Value)> {
+    let Value::Vector(id) = value else {
+        return Vec::new();
+    };
+    if !is_font(value) {
+        return Vec::new();
+    }
+
+    let elems = with_heap(|h| h.get_vector(*id).clone());
+    let mut derived = Vec::new();
+
+    for (field, attr) in [
+        ("family", ":family"),
+        ("foundry", ":foundry"),
+        ("weight", ":weight"),
+        ("slant", ":slant"),
+        ("width", ":width"),
+    ] {
+        if let Some(v) = font_vector_get_flexible(&elems, field) {
+            derived.push((attr.to_string(), v));
+        }
+    }
+
+    if let Some(v) = font_vector_get_flexible(&elems, "height")
+        .or_else(|| font_vector_get_flexible(&elems, "size"))
+    {
+        derived.push((":height".to_string(), v));
+    }
+
+    derived
+}
+
+fn apply_derived_font_face_overrides(
+    face_name: &str,
+    font_value: &Value,
+    defaults_frame: bool,
+) -> Result<(), Flow> {
+    for (attr_name, attr_value) in derived_face_attrs_from_font_value(font_value) {
+        let (canonical_attr, canonical_value) =
+            normalize_face_attr_for_set(face_name, &attr_name, attr_value)?;
+        set_face_override(face_name, &canonical_attr, canonical_value, defaults_frame);
+    }
+    Ok(())
+}
+
 fn lisp_face_attribute_base_value(face: &str, attr: &str, defaults_frame: bool) -> Value {
     if defaults_frame {
         return Value::symbol("unspecified");
@@ -1822,7 +1874,7 @@ fn normalize_face_attr_for_set(
         }
         _ => value,
     };
-    let is_reset_like = matches!(&normalized, Value::Symbol(id) if { let s = resolve_sym(*id); s == "unspecified" || s == ":ignore-defface" || s == "reset" });
+    let is_reset_like = is_reset_like_face_attr_value(&normalized);
 
     match attr {
         ":family" | ":foundry" => {
@@ -2172,6 +2224,9 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(args: Vec<Value>) -> Eval
         let (canonical_attr, canonical_value) =
             normalize_face_attr_for_set(&face_name, &attr_name, value)?;
         set_face_override(&face_name, &canonical_attr, canonical_value, defaults_frame);
+        if canonical_attr == ":font" && !is_reset_like_face_attr_value(&canonical_value) {
+            apply_derived_font_face_overrides(&face_name, &canonical_value, defaults_frame)?;
+        }
         Ok(())
     };
 
@@ -2263,6 +2318,13 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_eval(
             let face_attr = lisp_value_to_face_attr(&attr_name, value);
             if let Some(fav) = face_attr {
                 eval.set_face_attribute(&face_name, &attr_name, fav);
+            }
+            if attr_name == ":font" {
+                for (derived_attr, derived_value) in derived_face_attrs_from_font_value(&value) {
+                    if let Some(fav) = lisp_value_to_face_attr(&derived_attr, derived_value) {
+                        eval.set_face_attribute(&face_name, &derived_attr, fav);
+                    }
+                }
             }
         }
     }

@@ -775,6 +775,58 @@ fn internal_get_lisp_face_attribute_invalid_attr_errors() {
 }
 
 #[test]
+fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
+    let font_object = Value::vector(vec![
+        Value::keyword(FONT_OBJECT_TAG),
+        Value::keyword("family"),
+        Value::string("Hack"),
+        Value::keyword("weight"),
+        Value::symbol("regular"),
+        Value::keyword("slant"),
+        Value::symbol("normal"),
+        Value::keyword("width"),
+        Value::symbol("normal"),
+        Value::keyword("size"),
+        Value::Int(102),
+    ]);
+
+    builtin_internal_set_lisp_face_attribute(vec![
+        Value::symbol("default"),
+        Value::Keyword(intern("font")),
+        font_object,
+    ])
+    .unwrap();
+
+    assert_eq!(
+        builtin_internal_get_lisp_face_attribute(vec![
+            Value::symbol("default"),
+            Value::Keyword(intern(":family")),
+        ])
+        .unwrap()
+        .as_str(),
+        Some("Hack")
+    );
+    assert_eq!(
+        builtin_internal_get_lisp_face_attribute(vec![
+            Value::symbol("default"),
+            Value::Keyword(intern(":weight")),
+        ])
+        .unwrap()
+        .as_symbol_name(),
+        Some("regular")
+    );
+    assert_eq!(
+        builtin_internal_get_lisp_face_attribute(vec![
+            Value::symbol("default"),
+            Value::Keyword(intern(":height")),
+        ])
+        .unwrap()
+        .as_int(),
+        Some(102)
+    );
+}
+
+#[test]
 fn internal_lisp_face_attribute_values_discrete_boolean_attrs() {
     let result =
         builtin_internal_lisp_face_attribute_values(vec![Value::Keyword(intern(":underline"))])
