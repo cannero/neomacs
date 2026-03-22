@@ -50,6 +50,7 @@ fn oracle_prop_defmacro_rest_body() {
 
     // with-timing: wraps body in let + progn, returns (elapsed . result)
     let form = r#"(progn
+                    (require 'cl-lib)
                     (defmacro neovm--pat-with-accumulator (var init &rest body)
                       `(let ((,var ,init))
                          ,@body

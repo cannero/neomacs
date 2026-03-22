@@ -279,7 +279,7 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
     register_simple(
         obarray,
         "recursion-error",
-        "Excessive recursive calling",
+        "Excessive recursive calling error",
         &["error"],
     );
 
@@ -361,8 +361,8 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
     register_simple(
         obarray,
         "excessive-lisp-nesting",
-        "Lisp nesting exceeds maximum",
-        &["error"],
+        "Lisp nesting exceeds `max-lisp-eval-depth'",
+        &["recursion-error"],
     );
 }
 

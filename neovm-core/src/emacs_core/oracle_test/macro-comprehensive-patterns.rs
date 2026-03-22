@@ -452,6 +452,7 @@ fn oracle_prop_macro_control_flow_dsl() {
 
     // Build a pipeline macro and a pattern-matching-like cond macro.
     let form = r#"(progn
+  (require 'cl-lib)
   ;; Pipeline: (-> val (fn1 args) (fn2 args) ...) threads val through
   (defmacro neovm--mcp--> (initial &rest forms)
     (let ((result initial))

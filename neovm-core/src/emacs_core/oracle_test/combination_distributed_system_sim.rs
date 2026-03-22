@@ -449,6 +449,7 @@ fn oracle_prop_combination_dist_sys_gossip_protocol() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     let form = r#"(progn
+  (require 'cl-lib)
   ;; Gossip: each node periodically shares its knowledge with a random peer.
   ;; We simulate with a deterministic peer selection (round-robin) for testability.
 

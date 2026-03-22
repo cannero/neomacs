@@ -1595,6 +1595,18 @@ fn bind_lexical_value_rooted_in_state(
     temp_roots.truncate(saved_roots);
 }
 
+/// Build a `(MIN . MAX)` cons cell representing the arity of a lambda/closure,
+/// matching the format GNU Emacs uses in `wrong-number-of-arguments` errors.
+/// `MAX` is the symbol `many` when the function accepts `&rest`.
+fn lambda_arity_cons(params: &LambdaParams) -> Value {
+    let min_val = Value::Int(params.min_arity() as i64);
+    let max_val = match params.max_arity() {
+        Some(n) => Value::Int(n as i64),
+        None => Value::symbol("many"),
+    };
+    Value::cons(min_val, max_val)
+}
+
 fn begin_lambda_call_in_state(
     obarray: &mut Obarray,
     dynamic: &mut Vec<OrderedRuntimeBindingMap>,
@@ -1615,17 +1627,19 @@ fn begin_lambda_call_in_state(
             params,
             lambda.docstring
         );
+        let arity_val = lambda_arity_cons(params);
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![func_value, Value::Int(args.len() as i64)],
+            vec![arity_val, Value::Int(args.len() as i64)],
         ));
     }
     if let Some(max) = params.max_arity()
         && args.len() > max
     {
+        let arity_val = lambda_arity_cons(params);
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![func_value, Value::Int(args.len() as i64)],
+            vec![arity_val, Value::Int(args.len() as i64)],
         ));
     }
 

@@ -113,6 +113,7 @@ fn oracle_prop_datalog_rules_with_join() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--dl-var-p
     (lambda (x) (and (symbolp x) (string-prefix-p "?" (symbol-name x)))))
 
@@ -237,6 +238,7 @@ fn oracle_prop_datalog_transitive_closure_ancestor() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--dl-var-p
     (lambda (x) (and (symbolp x) (string-prefix-p "?" (symbol-name x)))))
 
@@ -351,6 +353,7 @@ fn oracle_prop_datalog_graph_path_finding() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--dl-var-p
     (lambda (x) (and (symbolp x) (string-prefix-p "?" (symbol-name x)))))
 
