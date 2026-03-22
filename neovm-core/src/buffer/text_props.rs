@@ -91,9 +91,9 @@ impl PropertyInterval {
 
     /// Iterate properties in insertion order (most recently added first).
     pub fn ordered_properties(&self) -> impl Iterator<Item = (&str, &Value)> {
-        self.key_order.iter().filter_map(move |k| {
-            self.properties.get(k).map(|v| (k.as_str(), v))
-        })
+        self.key_order
+            .iter()
+            .filter_map(move |k| self.properties.get(k).map(|v| (k.as_str(), v)))
     }
 }
 
@@ -213,7 +213,8 @@ impl TextPropertyTable {
                 break;
             }
             if pos >= interval.start && pos < interval.end {
-                return interval.ordered_properties()
+                return interval
+                    .ordered_properties()
                     .map(|(k, v)| (k.to_string(), *v))
                     .collect();
             }

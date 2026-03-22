@@ -513,8 +513,8 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value) -> Option<Value> {
                 if (*code & KEY_CHAR_MOD_MASK) == 0 {
                     let base = *code & KEY_CHAR_CODE_MASK;
                     if base >= 0 && base <= 0x3FFFFF {
-                        let result = builtin_char_table_range(vec![entry.car, *event])
-                            .unwrap_or(Value::Nil);
+                        let result =
+                            builtin_char_table_range(vec![entry.car, *event]).unwrap_or(Value::Nil);
                         if !result.is_nil() {
                             return Some(get_keyelt(result));
                         }

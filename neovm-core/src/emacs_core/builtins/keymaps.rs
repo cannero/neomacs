@@ -271,10 +271,7 @@ pub(super) fn builtin_define_key(
         events = expanded;
     }
     if let Err(msg) = list_keymap_define_seq_in_obarray(eval.obarray(), keymap, &events, def) {
-        return Err(signal(
-            "error",
-            vec![Value::string(msg)],
-        ));
+        return Err(signal("error", vec![Value::string(msg)]));
     }
     Ok(def)
 }
