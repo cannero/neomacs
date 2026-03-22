@@ -637,11 +637,16 @@ fn test_region_active_p_requires_mark() {
     let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
-        "(let ((transient-mark-mode t)
-               (mark-active t))
-           (region-active-p))",
+        "(condition-case err
+             (let ((transient-mark-mode t)
+                   (mark-active t))
+               (region-active-p))
+           (error (list (car err) (cdr err))))",
     );
-    assert!(active.is_nil());
+    assert_eq!(
+        active,
+        eval_str(&mut ev, "'(cl-assertion-failed ((mark)))",)
+    );
 }
 
 #[test]
