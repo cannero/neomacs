@@ -2,8 +2,8 @@ use super::{
     BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
     PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, bootstrap_buffers,
     bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
-    configure_gnu_startup_state, current_layout_frame_id, parse_startup_options, render_help_text,
-    render_version_text, run_gnu_startup,
+    configure_gnu_startup_state, current_layout_frame_id, parse_startup_options,
+    recalc_faces_for_gui_frame, render_help_text, render_version_text, run_gnu_startup,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Evaluator;
@@ -1078,4 +1078,35 @@ fn frame_set_background_mode_uses_live_gui_window_system_after_startup_clears_in
         .eval_expr(&forms[0])
         .expect("frame-set-background-mode probe should evaluate");
     assert_eq!(result, Value::symbol("ok"));
+}
+
+#[test]
+fn gnu_startup_seeds_light_gui_chrome_faces_from_faces_el() {
+    let mut eval = create_bootstrap_evaluator_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+    recalc_faces_for_gui_frame(&mut eval);
+    run_gnu_startup(&mut eval);
+
+    let forms = parse_forms(
+        r#"(list
+             (face-background 'mode-line nil t)
+             (face-foreground 'mode-line nil t)
+             (face-background 'mode-line-inactive nil t)
+             (face-background 'header-line nil t)
+             (face-background 'tab-bar nil t)
+             (face-background 'tab-line nil t))"#,
+    )
+    .expect("parse chrome face probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("chrome face probe should evaluate");
+    let values = list_to_vec(&result).expect("chrome face probe should return a list");
+    assert_eq!(values.len(), 6);
+    assert_eq!(print_value_with_eval(&mut eval, &values[0]), "\"grey75\"");
+    assert_eq!(print_value_with_eval(&mut eval, &values[1]), "\"black\"");
+    assert_eq!(print_value_with_eval(&mut eval, &values[2]), "\"grey90\"");
+    assert_eq!(print_value_with_eval(&mut eval, &values[3]), "\"grey90\"");
+    assert_eq!(print_value_with_eval(&mut eval, &values[4]), "\"grey85\"");
+    assert_eq!(print_value_with_eval(&mut eval, &values[5]), "\"grey85\"");
 }
