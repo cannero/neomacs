@@ -161,6 +161,7 @@ fn subr_x_string_helpers_bootstrap_match_gnu() {
     let results = bootstrap_eval(
         r#"
         (load "subr-x")
+        (special-variable-p 'fill-column)
         (let ((pad (symbol-function 'string-pad))
               (limit (symbol-function 'string-limit))
               (glyph (symbol-function 'string-glyph-split)))
@@ -177,11 +178,12 @@ fn subr_x_string_helpers_bootstrap_match_gnu() {
         "#,
     );
     assert_eq!(results[0], "OK t");
-    assert_eq!(results[1], r#"OK (nil nil nil "000x" "bcd" ("a" "b" "c"))"#);
-    assert_eq!(results[2], r#"OK "x""#);
-    assert_eq!(results[3], "OK \"aa bb\nccc d\"");
-    assert_eq!(results[4], "OK \"a b\n\nc d\"");
-    assert_eq!(results[5], "OK \"\u{1}\"");
+    assert_eq!(results[1], "OK t");
+    assert_eq!(results[2], r#"OK (nil nil nil "000x" "bcd" ("a" "b" "c"))"#);
+    assert_eq!(results[3], r#"OK "x""#);
+    assert_eq!(results[4], "OK \"aa bb\nccc d\"");
+    assert_eq!(results[5], "OK \"a b\n\nc d\"");
+    assert_eq!(results[6], "OK \"\u{1}\"");
 }
 
 #[test]

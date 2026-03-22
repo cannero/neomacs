@@ -109,6 +109,17 @@ impl GnuTimerTimestamp {
 
         Duration::new(secs, nanos)
     }
+
+    fn from_duration(duration: std::time::Duration) -> Self {
+        let secs = duration.as_secs() as i64;
+        let usecs = duration.subsec_micros() as i64;
+        Self {
+            high_seconds: secs >> 16,
+            low_seconds: secs & 0xFFFF,
+            usecs,
+            psecs: 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1214,6 +1225,10 @@ pub struct Evaluator {
     input_mode_interrupt: bool,
     /// True while the command loop is blocked waiting for external input.
     waiting_for_user_input: bool,
+    /// GNU-style idle timer epoch: when Emacs most recently became idle.
+    idle_start_time: Option<std::time::Instant>,
+    /// Last idle epoch preserved across non-user internal events.
+    last_idle_start_time: Option<std::time::Instant>,
     /// Frame manager — owns all frames and windows.
     pub(crate) frames: FrameManager,
     /// Mode registry — major/minor modes.
@@ -3089,6 +3104,7 @@ impl Evaluator {
         macro_rules! defvar_per_buffer {
             ($name:expr, $val:expr) => {
                 custom.make_variable_buffer_local($name);
+                obarray.make_special($name);
                 obarray.set_symbol_value($name, $val);
             };
         }
@@ -3217,6 +3233,8 @@ impl Evaluator {
             shutdown_request: None,
             input_mode_interrupt: true,
             waiting_for_user_input: false,
+            idle_start_time: None,
+            last_idle_start_time: None,
             frames: FrameManager::new(),
             modes: ModeRegistry::new(),
             threads: ThreadManager::new(),
@@ -3326,6 +3344,8 @@ impl Evaluator {
             shutdown_request: None,
             input_mode_interrupt: true,
             waiting_for_user_input: false,
+            idle_start_time: None,
+            last_idle_start_time: None,
             frames: FrameManager::new(),
             modes,
             threads: ThreadManager::new(),
@@ -3714,6 +3734,24 @@ impl Evaluator {
                 } else {
                     format!("{}: {}", sig.symbol_name(), data_str)
                 };
+                if cfg!(test) {
+                    let last_phase = self
+                        .obarray
+                        .symbol_value("neomacs--startup-last-phase")
+                        .copied()
+                        .map(|value| crate::emacs_core::print_value_with_eval(self, &value))
+                        .unwrap_or_else(|| "nil".to_string());
+                    let last_call = self
+                        .obarray
+                        .symbol_value("neomacs--startup-last-call")
+                        .copied()
+                        .map(|value| crate::emacs_core::print_value_with_eval(self, &value))
+                        .unwrap_or_else(|| "nil".to_string());
+                    eprintln!(
+                        "top-level startup signal: {} last-phase={} last-call={}",
+                        error_msg, last_phase, last_call
+                    );
+                }
                 let _ = super::builtins::dispatch_builtin(
                     self,
                     "message",
@@ -4093,6 +4131,7 @@ impl Evaluator {
             }
 
             let event = if let Some(event) = self.pending_input_events.pop_front() {
+                self.timer_stop_idle();
                 event
             } else {
                 let rx = match self.input_rx {
@@ -4106,7 +4145,15 @@ impl Evaluator {
                 // Like GNU keyboard.c, bound the wait by the earliest pending
                 // timer or process poll deadline so Lisp timers can run while the
                 // editor is otherwise idle.
+                self.timer_start_idle();
                 let timeout = self.next_input_wait_timeout();
+                if cfg!(test) {
+                    eprintln!(
+                        "read_char wait timeout={:?} idle={:?}",
+                        timeout,
+                        self.current_idle_duration()
+                    );
+                }
 
                 self.waiting_for_user_input = true;
                 let wait_result = if let Some(timeout) = timeout {
@@ -4118,8 +4165,22 @@ impl Evaluator {
                 self.waiting_for_user_input = false;
 
                 match wait_result {
-                    Ok(event) => event,
+                    Ok(event) => {
+                        if cfg!(test) {
+                            eprintln!("read_char recv event={:?}", event);
+                        }
+                        self.timer_stop_idle();
+                        event
+                    }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        if cfg!(test) {
+                            eprintln!(
+                                "read_char timeout idle={:?} ordinary={:?} idle-timer={:?}",
+                                self.current_idle_duration(),
+                                self.next_ordinary_gnu_timer_timeout(),
+                                self.next_idle_gnu_timer_timeout()
+                            );
+                        }
                         // Timer fired or process poll interval — run pending work and loop back
                         self.fire_pending_timers();
                         self.poll_process_output();
@@ -4149,10 +4210,12 @@ impl Evaluator {
                     emacs_frame_id,
                 } => {
                     self.apply_resize_input_event(width, height, emacs_frame_id, true);
+                    self.timer_resume_idle();
                     continue;
                 }
                 InputEvent::Focus(_focused) => {
                     // TODO: run focus hooks
+                    self.timer_resume_idle();
                     continue;
                 }
                 InputEvent::KeyPress(ref key) => {
@@ -4210,6 +4273,7 @@ impl Evaluator {
                 InputEvent::MouseMove { .. } => {
                     // Movement events are not typically returned by
                     // read_char — they are handled by tracking state.
+                    self.timer_resume_idle();
                     continue;
                 }
             }
@@ -4312,6 +4376,35 @@ impl Evaluator {
         })
     }
 
+    fn pending_gnu_idle_timer(timer: Value) -> Option<PendingGnuTimer> {
+        let Value::Vector(timer_id) = timer else {
+            return None;
+        };
+
+        let slots = with_heap(|heap| heap.get_vector(timer_id).clone());
+        if !(9..=10).contains(&slots.len()) {
+            return None;
+        }
+
+        if !slots[0].is_nil() {
+            return None;
+        }
+
+        if slots[7].is_nil() {
+            return None;
+        }
+
+        Some(PendingGnuTimer {
+            timer,
+            when: GnuTimerTimestamp {
+                high_seconds: slots[1].as_int()?,
+                low_seconds: slots[2].as_int()?,
+                usecs: slots[3].as_int()?,
+                psecs: slots.get(8).and_then(Value::as_int).unwrap_or(0),
+            },
+        })
+    }
+
     fn due_gnu_timers_snapshot(&self) -> Vec<Value> {
         let timers = self
             .obarray
@@ -4323,6 +4416,43 @@ impl Evaluator {
         timers
             .into_iter()
             .filter_map(Self::pending_gnu_timer)
+            .filter(|timer| timer.when <= now)
+            .map(|timer| timer.timer)
+            .collect()
+    }
+
+    pub(crate) fn current_idle_duration(&self) -> Option<std::time::Duration> {
+        self.idle_start_time.map(|start| start.elapsed())
+    }
+
+    pub(crate) fn current_idle_time_value(&self) -> Value {
+        let Some(idle_duration) = self.current_idle_duration() else {
+            return Value::Nil;
+        };
+        let secs = idle_duration.as_secs() as i64;
+        let usecs = idle_duration.subsec_micros() as i64;
+        Value::list(vec![
+            Value::Int((secs >> 16) & 0xFFFF_FFFF),
+            Value::Int(secs & 0xFFFF),
+            Value::Int(usecs),
+            Value::Int(0),
+        ])
+    }
+
+    fn due_gnu_idle_timers_snapshot(&self) -> Vec<Value> {
+        let Some(idle_duration) = self.current_idle_duration() else {
+            return Vec::new();
+        };
+        let idle_timers = self
+            .obarray
+            .symbol_value("timer-idle-list")
+            .and_then(list_to_vec)
+            .unwrap_or_default();
+        let now = GnuTimerTimestamp::from_duration(idle_duration);
+
+        idle_timers
+            .into_iter()
+            .filter_map(Self::pending_gnu_idle_timer)
             .filter(|timer| timer.when <= now)
             .map(|timer| timer.timer)
             .collect()
@@ -4343,11 +4473,33 @@ impl Evaluator {
             .min()
     }
 
+    pub(crate) fn next_idle_gnu_timer_timeout(&self) -> Option<std::time::Duration> {
+        let Some(idle_duration) = self.current_idle_duration() else {
+            return None;
+        };
+        let idle_timers = self
+            .obarray
+            .symbol_value("timer-idle-list")
+            .and_then(list_to_vec)
+            .unwrap_or_default();
+        let now = GnuTimerTimestamp::from_duration(idle_duration);
+
+        idle_timers
+            .into_iter()
+            .filter_map(Self::pending_gnu_idle_timer)
+            .map(|timer| timer.when.duration_until(now))
+            .min()
+    }
+
     pub(crate) fn next_input_wait_timeout(&self) -> Option<std::time::Duration> {
         let mut timeout = self.timers.next_fire_time();
 
         if let Some(gnu_timeout) = self.next_ordinary_gnu_timer_timeout() {
             timeout = Some(timeout.map_or(gnu_timeout, |current| current.min(gnu_timeout)));
+        }
+
+        if let Some(idle_timeout) = self.next_idle_gnu_timer_timeout() {
+            timeout = Some(timeout.map_or(idle_timeout, |current| current.min(idle_timeout)));
         }
 
         if !self.processes.live_process_ids().is_empty() {
@@ -4356,6 +4508,33 @@ impl Evaluator {
         }
 
         timeout
+    }
+
+    fn timer_start_idle(&mut self) {
+        if self.idle_start_time.is_some() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        self.idle_start_time = Some(now);
+        self.last_idle_start_time = Some(now);
+
+        if self.obarray.fboundp("internal-timer-start-idle") {
+            if let Err(err) = self.apply(Value::symbol("internal-timer-start-idle"), vec![]) {
+                tracing::warn!("internal-timer-start-idle failed: {:?}", err);
+            }
+        }
+    }
+
+    fn timer_stop_idle(&mut self) {
+        if let Some(start) = self.idle_start_time.take() {
+            self.last_idle_start_time = Some(start);
+        }
+    }
+
+    fn timer_resume_idle(&mut self) {
+        if self.idle_start_time.is_none() {
+            self.idle_start_time = self.last_idle_start_time;
+        }
     }
 
     /// Run a named hook if it is bound and non-nil.
@@ -4373,6 +4552,21 @@ impl Evaluator {
             }
             if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
                 tracing::warn!("GNU Lisp timer callback error: {:?}", e);
+            }
+        }
+
+        for timer in self.due_gnu_idle_timers_snapshot() {
+            fired_any = true;
+            if let Value::Vector(timer_id) = timer {
+                with_heap_mut(|heap| heap.get_vector_mut(timer_id)[0] = Value::True);
+            }
+            if cfg!(test) {
+                eprintln!("fire_pending_timers idle timer={:?}", timer);
+            }
+            if let Err(e) = self.apply(Value::symbol("timer-event-handler"), vec![timer]) {
+                tracing::warn!("GNU Lisp idle timer callback error: {:?}", e);
+            } else if cfg!(test) {
+                eprintln!("fire_pending_timers idle callback returned");
             }
         }
 
