@@ -23,6 +23,10 @@ use crate::emacs_core::coding::{CodingSystemInfo, CodingSystemManager, EolType};
 use crate::emacs_core::custom::{CustomGroup, CustomManager, CustomVariable};
 use crate::emacs_core::eval::Evaluator;
 use crate::emacs_core::expr::Expr;
+use crate::emacs_core::fontset::{
+    FontRepertory, FontSpecEntry, FontsetDataSnapshot, FontsetRangeEntrySnapshot,
+    FontsetRegistrySnapshot, StoredFontSpec, restore_fontset_registry, snapshot_fontset_registry,
+};
 use crate::emacs_core::interactive::{InteractiveRegistry, InteractiveSpec};
 use crate::emacs_core::intern::{self, StringInterner, SymId};
 use crate::emacs_core::kmacro::KmacroManager;
@@ -40,8 +44,8 @@ use crate::emacs_core::value::{
     OrderedRuntimeBindingMap, OrderedSymMap, RuntimeBindingValue, StringTextPropertyRun, Value,
 };
 use crate::face::{
-    BoxBorder, BoxStyle, Color, Face, FaceHeight, FaceTable, FontSlant, FontWeight, Underline,
-    UnderlineStyle,
+    BoxBorder, BoxStyle, Color, Face, FaceHeight, FaceTable, FontSlant, FontWeight, FontWidth,
+    Underline, UnderlineStyle,
 };
 use crate::gc::heap::LispHeap;
 use crate::gc::types::{HeapObject, ObjId};
@@ -892,6 +896,82 @@ pub(crate) fn dump_charset_registry() -> DumpCharsetRegistry {
     }
 }
 
+fn dump_font_width(width: &FontWidth) -> DumpFontWidth {
+    match width {
+        FontWidth::UltraCondensed => DumpFontWidth::UltraCondensed,
+        FontWidth::ExtraCondensed => DumpFontWidth::ExtraCondensed,
+        FontWidth::Condensed => DumpFontWidth::Condensed,
+        FontWidth::SemiCondensed => DumpFontWidth::SemiCondensed,
+        FontWidth::Normal => DumpFontWidth::Normal,
+        FontWidth::SemiExpanded => DumpFontWidth::SemiExpanded,
+        FontWidth::Expanded => DumpFontWidth::Expanded,
+        FontWidth::ExtraExpanded => DumpFontWidth::ExtraExpanded,
+        FontWidth::UltraExpanded => DumpFontWidth::UltraExpanded,
+    }
+}
+
+fn dump_font_repertory(repertory: FontRepertory) -> DumpFontRepertory {
+    match repertory {
+        FontRepertory::Charset(name) => DumpFontRepertory::Charset(name),
+        FontRepertory::CharTableRanges(ranges) => DumpFontRepertory::CharTableRanges(ranges),
+    }
+}
+
+fn dump_stored_font_spec(spec: StoredFontSpec) -> DumpStoredFontSpec {
+    DumpStoredFontSpec {
+        family: spec.family,
+        registry: spec.registry,
+        lang: spec.lang,
+        weight: spec.weight.map(|weight| weight.0),
+        slant: spec.slant.map(|slant| dump_font_slant(&slant)),
+        width: spec.width.map(|width| dump_font_width(&width)),
+        repertory: spec.repertory.map(dump_font_repertory),
+    }
+}
+
+fn dump_font_spec_entry(entry: FontSpecEntry) -> DumpFontSpecEntry {
+    match entry {
+        FontSpecEntry::Font(spec) => DumpFontSpecEntry::Font(dump_stored_font_spec(spec)),
+        FontSpecEntry::ExplicitNone => DumpFontSpecEntry::ExplicitNone,
+    }
+}
+
+pub(crate) fn dump_fontset_registry() -> DumpFontsetRegistry {
+    let snapshot = snapshot_fontset_registry();
+    DumpFontsetRegistry {
+        ordered_names: snapshot.ordered_names,
+        alias_to_name: snapshot.alias_to_name,
+        fontsets: snapshot
+            .fontsets
+            .into_iter()
+            .map(|(name, data)| {
+                (
+                    name,
+                    DumpFontsetData {
+                        ranges: data
+                            .ranges
+                            .into_iter()
+                            .map(|range| DumpFontsetRangeEntry {
+                                from: range.from,
+                                to: range.to,
+                                entries: range
+                                    .entries
+                                    .into_iter()
+                                    .map(dump_font_spec_entry)
+                                    .collect(),
+                            })
+                            .collect(),
+                        fallback: data
+                            .fallback
+                            .map(|entries| entries.into_iter().map(dump_font_spec_entry).collect()),
+                    },
+                )
+            })
+            .collect(),
+        generation: snapshot.generation,
+    }
+}
+
 fn dump_color(c: &Color) -> DumpColor {
     DumpColor {
         r: c.r,
@@ -1204,6 +1284,7 @@ pub(crate) fn dump_evaluator(eval: &Evaluator) -> DumpEvaluatorState {
         modes: dump_mode_registry(&eval.modes),
         coding_systems: dump_coding_system_manager(&eval.coding_systems),
         charset_registry: dump_charset_registry(),
+        fontset_registry: dump_fontset_registry(),
         face_table: dump_face_table(&eval.face_table),
         category_manager: dump_category_manager(&eval.category_manager),
         abbrevs: dump_abbrev_manager(&eval.abbrevs),
@@ -2110,6 +2191,77 @@ pub(crate) fn load_charset_registry(dcr: &DumpCharsetRegistry) {
         next_id: dcr.next_id,
     };
     restore_charset_registry(snapshot);
+}
+
+fn load_font_width(width: &DumpFontWidth) -> FontWidth {
+    match width {
+        DumpFontWidth::UltraCondensed => FontWidth::UltraCondensed,
+        DumpFontWidth::ExtraCondensed => FontWidth::ExtraCondensed,
+        DumpFontWidth::Condensed => FontWidth::Condensed,
+        DumpFontWidth::SemiCondensed => FontWidth::SemiCondensed,
+        DumpFontWidth::Normal => FontWidth::Normal,
+        DumpFontWidth::SemiExpanded => FontWidth::SemiExpanded,
+        DumpFontWidth::Expanded => FontWidth::Expanded,
+        DumpFontWidth::ExtraExpanded => FontWidth::ExtraExpanded,
+        DumpFontWidth::UltraExpanded => FontWidth::UltraExpanded,
+    }
+}
+
+fn load_font_repertory(repertory: &DumpFontRepertory) -> FontRepertory {
+    match repertory {
+        DumpFontRepertory::Charset(name) => FontRepertory::Charset(name.clone()),
+        DumpFontRepertory::CharTableRanges(ranges) => {
+            FontRepertory::CharTableRanges(ranges.clone())
+        }
+    }
+}
+
+fn load_font_spec_entry(entry: &DumpFontSpecEntry) -> FontSpecEntry {
+    match entry {
+        DumpFontSpecEntry::Font(spec) => FontSpecEntry::Font(StoredFontSpec {
+            family: spec.family.clone(),
+            registry: spec.registry.clone(),
+            lang: spec.lang.clone(),
+            weight: spec.weight.map(FontWeight),
+            slant: spec.slant.as_ref().map(load_font_slant),
+            width: spec.width.as_ref().map(load_font_width),
+            repertory: spec.repertory.as_ref().map(load_font_repertory),
+        }),
+        DumpFontSpecEntry::ExplicitNone => FontSpecEntry::ExplicitNone,
+    }
+}
+
+pub(crate) fn load_fontset_registry(dfr: &DumpFontsetRegistry) {
+    let snapshot = FontsetRegistrySnapshot {
+        ordered_names: dfr.ordered_names.clone(),
+        alias_to_name: dfr.alias_to_name.clone(),
+        fontsets: dfr
+            .fontsets
+            .iter()
+            .map(|(name, data)| {
+                (
+                    name.clone(),
+                    FontsetDataSnapshot {
+                        ranges: data
+                            .ranges
+                            .iter()
+                            .map(|range| FontsetRangeEntrySnapshot {
+                                from: range.from,
+                                to: range.to,
+                                entries: range.entries.iter().map(load_font_spec_entry).collect(),
+                            })
+                            .collect(),
+                        fallback: data
+                            .fallback
+                            .as_ref()
+                            .map(|entries| entries.iter().map(load_font_spec_entry).collect()),
+                    },
+                )
+            })
+            .collect(),
+        generation: dfr.generation,
+    };
+    restore_fontset_registry(snapshot);
 }
 
 fn load_color(c: &DumpColor) -> Color {

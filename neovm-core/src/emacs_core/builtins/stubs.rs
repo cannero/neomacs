@@ -1439,7 +1439,12 @@ pub(crate) fn builtin_font_get_system_normal_font(args: Vec<Value>) -> EvalResul
 
 fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
     match value {
-        Value::Int(n) if *n >= 0 => Ok((*n as u8) as char),
+        Value::Int(n) if *n >= 0 => char::from_u32(*n as u32).ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("characterp"), *value],
+            )
+        }),
         Value::Char(c) => Ok(*c),
         other => Err(signal(
             "wrong-type-argument",

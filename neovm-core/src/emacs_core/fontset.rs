@@ -81,6 +81,27 @@ struct FontsetData {
     fallback: Option<Vec<FontSpecEntry>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FontsetRangeEntrySnapshot {
+    pub from: u32,
+    pub to: u32,
+    pub entries: Vec<FontSpecEntry>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FontsetDataSnapshot {
+    pub ranges: Vec<FontsetRangeEntrySnapshot>,
+    pub fallback: Option<Vec<FontSpecEntry>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FontsetRegistrySnapshot {
+    pub ordered_names: Vec<String>,
+    pub alias_to_name: Vec<(String, String)>,
+    pub fontsets: Vec<(String, FontsetDataSnapshot)>,
+    pub generation: u64,
+}
+
 #[derive(Clone, Debug)]
 struct FontsetRegistry {
     ordered_names: Vec<String>,
@@ -406,13 +427,107 @@ fn registry() -> &'static RwLock<FontsetRegistry> {
     FONTSET_REGISTRY.get_or_init(|| RwLock::new(FontsetRegistry::with_defaults()))
 }
 
+fn clear_fontset_regex_caches() {
+    clear_regex_cache(&FONTSET_WILDCARD_REGEX_CACHE);
+    clear_regex_cache(&FONTSET_REGEXP_CACHE);
+    clear_regex_cache(&FONT_ENCODING_REGEX_CACHE);
+}
+
 pub(crate) fn reset_fontset_registry() {
     if let Ok(mut slot) = registry().write() {
         *slot = FontsetRegistry::with_defaults();
     }
-    clear_regex_cache(&FONTSET_WILDCARD_REGEX_CACHE);
-    clear_regex_cache(&FONTSET_REGEXP_CACHE);
-    clear_regex_cache(&FONT_ENCODING_REGEX_CACHE);
+    clear_fontset_regex_caches();
+}
+
+pub(crate) fn snapshot_fontset_registry() -> FontsetRegistrySnapshot {
+    registry()
+        .read()
+        .map(|slot| {
+            let mut alias_to_name: Vec<_> = slot
+                .alias_to_name
+                .iter()
+                .map(|(alias, name)| (alias.clone(), name.clone()))
+                .collect();
+            alias_to_name.sort();
+
+            let mut fontsets: Vec<_> = slot
+                .fontsets
+                .iter()
+                .map(|(name, data)| {
+                    (
+                        name.clone(),
+                        FontsetDataSnapshot {
+                            ranges: data
+                                .ranges
+                                .iter()
+                                .map(|range| FontsetRangeEntrySnapshot {
+                                    from: range.from,
+                                    to: range.to,
+                                    entries: range.entries.clone(),
+                                })
+                                .collect(),
+                            fallback: data.fallback.clone(),
+                        },
+                    )
+                })
+                .collect();
+            fontsets.sort_by(|left, right| left.0.cmp(&right.0));
+
+            FontsetRegistrySnapshot {
+                ordered_names: slot.ordered_names.clone(),
+                alias_to_name,
+                fontsets,
+                generation: slot.generation,
+            }
+        })
+        .unwrap_or_else(|_| FontsetRegistrySnapshot {
+            ordered_names: vec![DEFAULT_FONTSET_NAME.to_string()],
+            alias_to_name: vec![(
+                DEFAULT_FONTSET_ALIAS.to_string(),
+                DEFAULT_FONTSET_NAME.to_string(),
+            )],
+            fontsets: vec![(
+                DEFAULT_FONTSET_NAME.to_string(),
+                FontsetDataSnapshot::default(),
+            )],
+            generation: 1,
+        })
+}
+
+pub(crate) fn restore_fontset_registry(snapshot: FontsetRegistrySnapshot) {
+    let alias_to_name = snapshot.alias_to_name.into_iter().collect();
+    let fontsets = snapshot
+        .fontsets
+        .into_iter()
+        .map(|(name, data)| {
+            (
+                name,
+                FontsetData {
+                    ranges: data
+                        .ranges
+                        .into_iter()
+                        .map(|range| RangeEntry {
+                            from: range.from,
+                            to: range.to,
+                            entries: range.entries,
+                        })
+                        .collect(),
+                    fallback: data.fallback,
+                },
+            )
+        })
+        .collect();
+    let restored = FontsetRegistry {
+        ordered_names: snapshot.ordered_names,
+        alias_to_name,
+        fontsets,
+        generation: snapshot.generation.max(1),
+    };
+    if let Ok(mut slot) = registry().write() {
+        *slot = restored;
+    }
+    clear_fontset_regex_caches();
 }
 
 pub fn fontset_generation() -> u64 {

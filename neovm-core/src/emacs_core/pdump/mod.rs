@@ -27,7 +27,7 @@ use crate::emacs_core::intern::{self, set_current_interner};
 use crate::emacs_core::value::{self, set_current_heap};
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]
@@ -186,6 +186,7 @@ fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpErr
     // 4b. Restore thread-local registries whose contents are semantic runtime
     // state, not disposable caches.
     load_charset_registry(&state.charset_registry);
+    load_fontset_registry(&state.fontset_registry);
 
     // 5. Reconstruct all subsystems
     let obarray = load_obarray(&state.obarray);
@@ -441,9 +442,21 @@ mod tests {
     }
 
     #[test]
-    fn test_pdump_round_trip_preserves_charset_registry_for_default_fontset_setup() {
-        let eval = crate::emacs_core::load::create_bootstrap_evaluator_with_features(&["neomacs"])
-            .expect("bootstrap should succeed");
+    fn test_pdump_round_trip_preserves_default_fontset_han_order() {
+        let mut eval =
+            crate::emacs_core::load::create_bootstrap_evaluator_with_features(&["neomacs"])
+                .expect("bootstrap should succeed");
+        let setup = crate::emacs_core::parser::parse_forms(
+            r#"(new-fontset
+                "fontset-default"
+                '((han
+                   (nil . "GB2312.1980-0")
+                   (nil . "JISX0208*")
+                   (nil . "gb18030"))))"#,
+        )
+        .unwrap();
+        eval.eval_expr(&setup[0])
+            .expect("han-only fontset should install before dump");
 
         let dir = tempfile::tempdir().unwrap();
         let dump_path = dir.path().join("bootstrap-charsets.pdump");
@@ -453,20 +466,25 @@ mod tests {
         let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
         let probe = crate::emacs_core::parser::parse_forms(
             r#"(list
-                 (charsetp 'devanagari-cdac)
-                 (condition-case err
-                     (progn
-                       (setup-default-fontset)
-                       (not (null (fontset-font t (string-to-char "好") t))))
-                   (error (list 'error err))))"#,
+                (fontset-font t ?好 t)
+                (fontset-font t (string-to-char "好") t))"#,
         )
         .unwrap();
         let result = loaded
             .eval_expr(&probe[0])
-            .expect("pdump charset probe should run");
-        assert_eq!(
-            crate::emacs_core::print_value_with_buffers(&result, &loaded.buffers),
-            "(t t)"
+            .expect("pdump fontset probe should run");
+        let rendered = crate::emacs_core::print_value_with_buffers(&result, &loaded.buffers);
+
+        assert!(
+            rendered.starts_with(
+                "(((nil . \"gb2312.1980-0\") \
+                  (nil . \"jisx0208*\") \
+                  (nil . \"gb18030\")) \
+                 ((nil . \"gb2312.1980-0\") \
+                  (nil . \"jisx0208*\") \
+                  (nil . \"gb18030\")))"
+            ),
+            "unexpected pdump fontset order: {rendered}"
         );
     }
 

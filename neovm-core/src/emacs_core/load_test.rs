@@ -1669,6 +1669,35 @@ fn bootstrap_runtime_fontset_font_for_han_matches_gnu_order() {
 }
 
 #[test]
+fn bootstrap_runtime_fontset_font_accepts_multibyte_character_ints() {
+    let mut eval =
+        create_bootstrap_evaluator_with_features(&["neomacs"]).expect("fresh bootstrap evaluator");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (setup-default-fontset)
+             (let ((ch (string-to-char "好")))
+               (list ch (fontset-font t ch t))))"#,
+    );
+
+    assert!(
+        rendered.starts_with(
+            "OK (22909 ((nil . \"gb2312.1980-0\") \
+             (nil . \"jisx0208*\") \
+             (nil . \"big5*\") \
+             (nil . \"ksc5601.1987*\") \
+             (nil . \"cns11643.1992-1\") \
+             (nil . \"gbk-0\") \
+             (nil . \"gb18030\") \
+             (nil . \"jisx0213.2000-1\") \
+             (nil . \"jisx0213.2004-1\")"
+        ),
+        "unexpected fontset-font result for multibyte int character: {rendered}"
+    );
+}
+
+#[test]
 fn bootstrap_x_runtime_prebinds_gnu_x_globals_before_x_win_initialization() {
     let mut eval = create_bootstrap_evaluator_with_features(&["x"]).expect("x bootstrap evaluator");
     let rendered = eval_rendered(

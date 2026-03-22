@@ -775,6 +775,63 @@ pub struct DumpCharsetRegistry {
     pub next_id: i64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum DumpFontWidth {
+    UltraCondensed,
+    ExtraCondensed,
+    Condensed,
+    SemiCondensed,
+    Normal,
+    SemiExpanded,
+    Expanded,
+    ExtraExpanded,
+    UltraExpanded,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum DumpFontRepertory {
+    Charset(String),
+    CharTableRanges(Vec<(u32, u32)>),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpStoredFontSpec {
+    pub family: Option<String>,
+    pub registry: Option<String>,
+    pub lang: Option<String>,
+    pub weight: Option<u16>,
+    pub slant: Option<DumpFontSlant>,
+    pub width: Option<DumpFontWidth>,
+    pub repertory: Option<DumpFontRepertory>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum DumpFontSpecEntry {
+    Font(DumpStoredFontSpec),
+    ExplicitNone,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpFontsetRangeEntry {
+    pub from: u32,
+    pub to: u32,
+    pub entries: Vec<DumpFontSpecEntry>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpFontsetData {
+    pub ranges: Vec<DumpFontsetRangeEntry>,
+    pub fallback: Option<Vec<DumpFontSpecEntry>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DumpFontsetRegistry {
+    pub ordered_names: Vec<String>,
+    pub alias_to_name: Vec<(String, String)>,
+    pub fontsets: Vec<(String, DumpFontsetData)>,
+    pub generation: u64,
+}
+
 // Face
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct DumpColor {
@@ -944,6 +1001,7 @@ pub struct DumpEvaluatorState {
     pub modes: DumpModeRegistry,
     pub coding_systems: DumpCodingSystemManager,
     pub charset_registry: DumpCharsetRegistry,
+    pub fontset_registry: DumpFontsetRegistry,
     pub face_table: DumpFaceTable,
     pub category_manager: DumpCategoryManager,
     pub abbrevs: DumpAbbrevManager,
