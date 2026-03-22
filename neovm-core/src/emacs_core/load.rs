@@ -2152,10 +2152,10 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 }
 
 // Bump when bootstrap image semantics change in ways an older dump cannot
-// represent correctly. V14 invalidates older caches because GUI startup now
-// boots through term/neomacs-win with window-system `neomacs`; older dumps
-// preserve the incorrect X-only startup state.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 14;
+// represent correctly. V15 invalidates older caches because GUI startup now
+// boots through term/neo-win with window-system `neo`; older dumps preserve
+// the previous backend identity surface.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 15;
 const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
     Some(seed) => seed,
     None => "dev",
@@ -2833,7 +2833,9 @@ fn strip_runtime_icons_surface(eval: &mut super::eval::Evaluator) {
 }
 
 fn bootstrap_runtime_window_system_symbol(eval: &mut super::eval::Evaluator) -> Option<Value> {
-    if eval.feature_present(super::display::gui_window_system_symbol()) {
+    if eval.feature_present("neomacs")
+        || eval.feature_present(super::display::gui_window_system_symbol())
+    {
         Some(Value::symbol(super::display::gui_window_system_symbol()))
     } else if eval.feature_present("x") {
         Some(Value::symbol("x"))
@@ -3478,7 +3480,7 @@ pub fn create_bootstrap_evaluator_with_features(
             }
             if *name == "!load-x-win" {
                 let gui_term_files: Option<&[&str]> = if eval.feature_present("neomacs") {
-                    Some(&["term/common-win", "term/neomacs-win"])
+                    Some(&["term/common-win", "term/neo-win"])
                 } else if eval.feature_present("x") {
                     Some(&["term/common-win", "term/x-win"])
                 } else {

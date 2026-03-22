@@ -1,4 +1,4 @@
-;;; neomacs-win.el --- parse relevant switches and set up for Neomacs  -*- lexical-binding: t -*-
+;;; neo-win.el --- parse relevant switches and set up for Neomacs  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2024-2026 Free Software Foundation, Inc.
 
@@ -28,7 +28,7 @@
 
 (eval-when-compile (require 'cl-lib))
 (unless (featurep 'neomacs)
-  (error "%s: Loading neomacs-win.el but not compiled with NEOMACS"
+  (error "%s: Loading neo-win.el but not compiled with NEOMACS"
          invocation-name))
 
 ;; Documentation-purposes only: actually loaded in loadup.el.
@@ -45,7 +45,7 @@
 
 (defun neomacs-suspend-error ()
   "Don't allow suspending if any of the frames are Neomacs frames."
-  (if (memq 'neomacs (mapcar 'window-system (frame-list)))
+  (if (memq 'neo (mapcar 'window-system (frame-list)))
       (error "Cannot suspend Emacs while a Neomacs GUI frame exists")))
 
 (defalias 'x-win-suspend-error #'neomacs-suspend-error)
@@ -62,10 +62,10 @@
   "The display name specifying the display to connect to.")
 
 ;; Do the actual window system setup here.
-(cl-defmethod window-system-initialization (&context (window-system neomacs)
+(cl-defmethod window-system-initialization (&context (window-system neo)
                                             &optional display)
   "Initialize the Neomacs window system.
-WINDOW-SYSTEM is, aptly, `neomacs'.
+WINDOW-SYSTEM is, aptly, `neo'.
 DISPLAY is the name of the display Emacs should connect to."
   (cl-assert (not neomacs-initialized))
 
@@ -128,12 +128,12 @@ DISPLAY is the name of the display Emacs should connect to."
   (setq neomacs-initialized t))
 
 ;; Handle args function (required by common-win)
-(cl-defmethod handle-args-function (args &context (window-system neomacs))
+(cl-defmethod handle-args-function (args &context (window-system neo))
   (x-handle-args args))
 
 ;; Frame creation for Neomacs
 ;; Use x-create-frame-with-faces to properly initialize faces with colors
-(cl-defmethod frame-creation-function (params &context (window-system neomacs))
+(cl-defmethod frame-creation-function (params &context (window-system neo))
   (x-create-frame-with-faces params))
 
 ;; Cursor blink integration: delegate to render thread
@@ -265,7 +265,7 @@ Used as `interprogram-paste-function'."
 
 ;; Selection protocol (CLIPBOARD + PRIMARY)
 (cl-defmethod gui-backend-set-selection (selection value
-                                         &context (window-system neomacs))
+                                         &context (window-system neo))
   "Set SELECTION to VALUE on the Neomacs display.
 SELECTION is a symbol like `CLIPBOARD' or `PRIMARY'."
   (when value
@@ -281,7 +281,7 @@ SELECTION is a symbol like `CLIPBOARD' or `PRIMARY'."
           (neomacs-primary-selection-set text)))))))
 
 (cl-defmethod gui-backend-get-selection (selection-symbol _target-type
-                                          &context (window-system neomacs)
+                                          &context (window-system neo)
                                           &optional _time-stamp _terminal)
   "Get the value of SELECTION-SYMBOL from the Neomacs display."
   (cond
@@ -293,7 +293,7 @@ SELECTION is a symbol like `CLIPBOARD' or `PRIMARY'."
       (neomacs-primary-selection-get)))))
 
 (cl-defmethod gui-backend-selection-exists-p (selection
-                                              &context (window-system neomacs))
+                                              &context (window-system neo))
   "Return non-nil if SELECTION has content on the Neomacs display."
   (cond
    ((eq selection 'CLIPBOARD)
@@ -10081,7 +10081,7 @@ Non-nil renders animated flowing color bands at the top of the frame."
             val))))
 
 ;; Provide the feature
-(provide 'neomacs-win)
-(provide 'term/neomacs-win)
+(provide 'neo-win)
+(provide 'term/neo-win)
 
-;;; neomacs-win.el ends here
+;;; neo-win.el ends here

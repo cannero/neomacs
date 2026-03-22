@@ -229,17 +229,17 @@ fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
 }
 
 #[test]
-fn configure_gnu_startup_state_reports_neomacs_window_system_for_gui_boots() {
+fn configure_gnu_startup_state_reports_neo_window_system_for_gui_boots() {
     let mut eval = Evaluator::new();
     configure_gnu_startup_state(&mut eval, FrameId(42), &gui_startup());
 
     assert_eq!(
         eval.obarray().symbol_value("window-system"),
-        Some(&Value::symbol("neomacs"))
+        Some(&Value::symbol("neo"))
     );
     assert_eq!(
         eval.obarray().symbol_value("initial-window-system"),
-        Some(&Value::symbol("neomacs"))
+        Some(&Value::symbol("neo"))
     );
 }
 
@@ -376,7 +376,7 @@ fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
     assert_eq!(selected.height, 640);
     assert_eq!(
         selected.effective_window_system(),
-        Some(Value::symbol("neomacs"))
+        Some(Value::symbol("neo"))
     );
     assert_eq!(selected.title, "Neomacs");
     assert_eq!(selected.char_width, metrics.char_width);
@@ -411,7 +411,7 @@ fn bootstrap_buffers_reuses_cached_surrogate_frame_when_it_is_the_only_selected_
     assert_eq!(selected.height, 640);
     assert_eq!(
         selected.effective_window_system(),
-        Some(Value::symbol("neomacs"))
+        Some(Value::symbol("neo"))
     );
     assert_eq!(selected.char_width, metrics.char_width);
     assert_eq!(selected.char_height, metrics.char_height);

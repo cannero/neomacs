@@ -33,7 +33,7 @@ fn eval_with_gui_frame(src: &str) -> Vec<String> {
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame");
-        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.set_window_system(Some(Value::symbol("neo")));
     }
     ev.eval_forms(&forms)
         .iter()
@@ -689,7 +689,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     {
         let frame = ev.frames.get_mut(fid).expect("frame");
-        frame.set_window_system(Some(Value::symbol("neomacs")));
+        frame.set_window_system(Some(Value::symbol("neo")));
     }
 
     assert_eq!(

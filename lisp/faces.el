@@ -1565,7 +1565,7 @@ If FRAME is nil, the current FRAME is used."
 	    match (cond ((eq req 'type)
 			 (or (memq (window-system frame) options)
 			     (and (memq 'graphic options)
-				  (memq (window-system frame) '(x w32 ns pgtk neomacs)))
+				  (memq (window-system frame) '(x w32 ns pgtk neo)))
 			     ;; FIXME: This should be revisited to use
 			     ;; display-graphic-p, provided that the
 			     ;; color selection depends on the number
@@ -2954,7 +2954,7 @@ Note: Other faces cannot inherit from the cursor face."
     (((type haiku))
      :foreground "B_MENU_ITEM_TEXT_COLOR"
      :background "B_MENU_BACKGROUND_COLOR")
-    (((type x w32 ns pgtk android neomacs) (class color))
+    (((type x w32 ns pgtk android neo) (class color))
      :background "grey75")
     (((type x) (class mono))
      :background "grey"))

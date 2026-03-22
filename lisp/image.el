@@ -471,7 +471,7 @@ type if we can't otherwise guess it."
         (signal 'unknown-image-type '("Cannot determine image type")))))
   ;; Neomacs: if detected type is not available, try neomacs as fallback
   (when (and (not (eq type 'image-convert))
-             (not (eq type 'neomacs))
+             (not (eq type 'neo))
              (not (memq type (and (boundp 'image-types) image-types))))
     (if (image-type-available-p 'neomacs)
         (setq type 'neomacs)

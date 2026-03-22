@@ -882,10 +882,7 @@ fn bootstrap_runtime_cached_gui_surface_restores_window_system_surface() {
                  (display-color-cells)
                  (display-visual-class))"#,
     );
-    assert_eq!(
-        rendered,
-        "OK (neomacs neomacs neomacs color 16777216 true-color)"
-    );
+    assert_eq!(rendered, "OK (neo neo neo color 16777216 true-color)");
 }
 
 #[test]
@@ -1737,21 +1734,21 @@ fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
 }
 
 #[test]
-fn bootstrap_neomacs_runtime_loads_neomacs_term_layer() {
+fn bootstrap_neomacs_runtime_loads_neo_term_layer() {
     let mut eval = create_bootstrap_evaluator_with_features(&["neomacs"])
         .expect("neomacs bootstrap evaluator");
     assert!(eval.feature_present("neomacs"));
-    assert!(eval.feature_present("neomacs-win"));
+    assert!(eval.feature_present("neo-win"));
     assert!(!eval.feature_present("x-win"));
 }
 
 #[test]
-fn bootstrap_neomacs_gui_runtime_prefers_neomacs_term_layer_over_x_term() {
+fn bootstrap_neomacs_gui_runtime_prefers_neo_term_layer_over_x_term() {
     let mut eval = create_bootstrap_evaluator_with_features(&["neomacs", "x"])
         .expect("neomacs+x bootstrap evaluator");
     assert!(eval.feature_present("neomacs"));
     assert!(eval.feature_present("x"));
-    assert!(eval.feature_present("neomacs-win"));
+    assert!(eval.feature_present("neo-win"));
     assert!(!eval.feature_present("x-win"));
 }
 

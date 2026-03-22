@@ -355,7 +355,7 @@ fn window_system_not_initialized_error() -> Flow {
 }
 
 pub fn gui_window_system_symbol() -> &'static str {
-    "neomacs"
+    "neo"
 }
 
 fn gui_window_system_active_value(value: Value) -> bool {

@@ -834,7 +834,7 @@ fn face_font_eval_returns_font_name_on_live_gui_frame() {
         .frame_manager_mut()
         .get_mut(frame_id)
         .expect("selected frame");
-    frame.window_system = Some(Value::symbol("neomacs"));
+    frame.window_system = Some(Value::symbol("neo"));
     frame.font_pixel_size = 16.0;
     frame.char_width = 8.0;
     frame.char_height = 16.0;
@@ -853,7 +853,7 @@ fn font_info_eval_accepts_font_object_on_live_gui_frame() {
             .frame_manager_mut()
             .get_mut(frame_id)
             .expect("selected frame");
-        frame.window_system = Some(Value::symbol("neomacs"));
+        frame.window_system = Some(Value::symbol("neo"));
         frame.font_pixel_size = 18.0;
         frame.char_width = 9.0;
         frame.char_height = 18.0;
