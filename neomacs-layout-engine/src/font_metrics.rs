@@ -11,6 +11,7 @@ use crate::font_loader::FontFileCache;
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Style, Weight};
 use neovm_core::face::{FontSlant, FontWeight, FontWidth};
 use std::collections::HashMap;
+use ttf_parser::Face as TtfFace;
 
 /// Font metrics returned for a given face configuration.
 #[derive(Debug, Clone, Copy)]
@@ -19,7 +20,7 @@ pub struct FontMetrics {
     pub ascent: f32,
     /// Distance from the baseline to the bottom of the line box.
     pub descent: f32,
-    /// Total line height (ascent + descent + leading)
+    /// Total font height in pixels.
     pub line_height: f32,
     /// Default character width (space character width for monospace)
     pub char_width: f32,
@@ -170,6 +171,92 @@ impl FontMetricsService {
         }
 
         attrs
+    }
+
+    fn selected_font_id_and_space_width(
+        &mut self,
+        family: &str,
+        weight: u16,
+        italic: bool,
+        font_size: f32,
+    ) -> (Option<fontdb::ID>, f32) {
+        let attrs = self.build_attrs(
+            family,
+            weight,
+            if italic {
+                FontSlant::Italic
+            } else {
+                FontSlant::Normal
+            },
+        );
+        let metrics = Metrics::new(font_size, font_size * 1.3);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        buffer.set_size(
+            &mut self.font_system,
+            Some(font_size * 4.0),
+            Some(font_size * 2.0),
+        );
+        buffer.set_text(
+            &mut self.font_system,
+            " ",
+            &attrs,
+            cosmic_text::Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(&mut self.font_system, false);
+
+        for run in buffer.layout_runs() {
+            if let Some(glyph) = run.glyphs.first() {
+                return (
+                    Some(glyph.physical((0.0, 0.0), 1.0).cache_key.font_id),
+                    glyph.w,
+                );
+            }
+        }
+
+        (None, font_size * 0.6)
+    }
+
+    fn font_metrics_from_selected_face(
+        &mut self,
+        font_id: fontdb::ID,
+        font_size: f32,
+    ) -> Option<FontMetrics> {
+        self.font_system
+            .db()
+            .with_face_data(font_id, |font_data, face_index| {
+                let face = TtfFace::parse(font_data, face_index).ok()?;
+                let units_per_em = face.units_per_em().max(1) as f32;
+                let scale = font_size / units_per_em;
+                let ascent = (face.ascender() as f32 * scale).max(0.0);
+                let descent = (-(face.descender() as f32) * scale).max(0.0);
+                let line_height = ((face.height() as f32) * scale)
+                    .max(ascent + descent)
+                    .max(1.0);
+
+                // GNU xdisp.c prefers font-global metrics (FONT_BASE /
+                // FONT_DESCENT) and only falls back to per-glyph extents for
+                // pathological fonts. Reject obviously bogus table data here
+                // and let the caller fall back to glyph-box probing.
+                if !ascent.is_finite()
+                    || !descent.is_finite()
+                    || !line_height.is_finite()
+                    || ascent <= 0.0
+                    || descent <= 0.0
+                    || line_height <= 0.0
+                    || line_height > font_size * 4.0
+                {
+                    return None;
+                }
+
+                Some(FontMetrics {
+                    ascent,
+                    descent,
+                    line_height,
+                    char_width: 0.0,
+                })
+            })
+            .flatten()
     }
 
     pub fn select_font_for_char(
@@ -478,6 +565,32 @@ impl FontMetricsService {
             return *m;
         }
 
+        let (selected_font_id, char_width) =
+            self.selected_font_id_and_space_width(family, weight, italic, font_size);
+
+        let fm = if let Some(font_id) = selected_font_id {
+            if let Some(mut metrics) = self.font_metrics_from_selected_face(font_id, font_size) {
+                metrics.char_width = char_width.max(0.0);
+                metrics
+            } else {
+                self.glyph_box_fallback_metrics(family, weight, italic, font_size, char_width)
+            }
+        } else {
+            self.glyph_box_fallback_metrics(family, weight, italic, font_size, char_width)
+        };
+
+        self.metrics_cache.insert(key, fm);
+        fm
+    }
+
+    fn glyph_box_fallback_metrics(
+        &mut self,
+        family: &str,
+        weight: u16,
+        italic: bool,
+        font_size: f32,
+        default_char_width: f32,
+    ) -> FontMetrics {
         let attrs = self.build_attrs(
             family,
             weight,
@@ -490,9 +603,8 @@ impl FontMetricsService {
         let line_height = font_size * 1.3;
         let metrics = Metrics::new(font_size, line_height);
 
-        // Keep a leading space so the width probe matches the cell advance we
-        // use elsewhere, but also include ascender/descender glyphs so line
-        // metrics reflect the realized font rather than whitespace only.
+        // Fallback only: measure a representative glyph box when the selected
+        // font's global tables are unavailable or obviously pathological.
         let sample = " Mg";
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(
@@ -509,42 +621,28 @@ impl FontMetricsService {
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
 
-        let mut char_width = font_size * 0.6;
+        let mut char_width = default_char_width.max(font_size * 0.6);
         let mut actual_line_height = line_height;
         let mut ascent = font_size * 0.8;
 
         if let Some(layout) = buffer.line_layout(&mut self.font_system, 0) {
             if let Some(line) = layout.first() {
                 let glyph_height = (line.max_ascent + line.max_descent).max(1.0);
-                // Match GNU Emacs by basing row height on realized font metrics,
-                // not on the synthetic shaping line-height request.  Preserve
-                // only the subpixel remainder introduced by pixel rounding.
                 actual_line_height = glyph_height.ceil();
                 if let Some(space_glyph) = line.glyphs.iter().find(|glyph| glyph.start == 0) {
                     char_width = space_glyph.w;
                 }
-
-                // Center only the rounded pixel remainder around the realized
-                // ascent/descent pair.
                 let centering_offset = (actual_line_height - glyph_height) / 2.0;
                 ascent = centering_offset + line.max_ascent;
             }
         }
 
-        let mut descent = actual_line_height - ascent;
-        if descent < 0.0 {
-            descent = 0.0;
-        }
-
-        let fm = FontMetrics {
+        FontMetrics {
             ascent,
-            descent,
+            descent: (actual_line_height - ascent).max(0.0),
             line_height: actual_line_height,
             char_width,
-        };
-
-        self.metrics_cache.insert(key, fm);
-        fm
+        }
     }
 
     /// Clear all caches. Call when fonts change (e.g., text-scale-adjust).
@@ -931,7 +1029,7 @@ mod tests {
     }
 
     #[test]
-    fn font_metrics_match_cosmic_text_centered_baseline() {
+    fn font_metrics_match_selected_font_face_table_metrics() {
         let mut svc = make_svc();
         let family = "monospace";
         let weight = 400;
@@ -939,59 +1037,27 @@ mod tests {
         let font_size = 14.0;
         let fm = svc.font_metrics(family, weight, italic, font_size);
 
-        let attrs = svc.build_attrs(
-            family,
-            weight,
-            if italic {
-                FontSlant::Italic
-            } else {
-                FontSlant::Normal
-            },
-        );
-        let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
-        let mut buffer = Buffer::new(&mut svc.font_system, metrics);
-        buffer.set_size(
-            &mut svc.font_system,
-            Some(font_size * 8.0),
-            Some(font_size * 2.0),
-        );
-        buffer.set_text(
-            &mut svc.font_system,
-            " Mg",
-            &attrs,
-            cosmic_text::Shaping::Advanced,
-            None,
-        );
-        buffer.shape_until_scroll(&mut svc.font_system, false);
-
-        let layout = buffer
-            .line_layout(&mut svc.font_system, 0)
-            .expect("sample line should layout");
-        let line = layout
-            .first()
-            .expect("sample line should have one layout line");
-        let glyph_height = line.max_ascent + line.max_descent;
-        let actual_line_height = glyph_height.ceil().max(1.0);
-        let expected_ascent = (actual_line_height - glyph_height) / 2.0 + line.max_ascent;
-        let expected_descent = actual_line_height - expected_ascent;
+        let (font_id, _) = svc.selected_font_id_and_space_width(family, weight, italic, font_size);
+        let expected = svc
+            .font_metrics_from_selected_face(font_id.expect("selected font id"), font_size)
+            .expect("selected font table metrics");
 
         assert!(
-            (fm.line_height - actual_line_height).abs() < 0.01,
+            (fm.line_height - expected.line_height).abs() < 0.01,
             "expected line height {:.3}, got {:.3}",
-            actual_line_height,
+            expected.line_height,
             fm.line_height
         );
         assert!(
-            (fm.ascent - expected_ascent).abs() < 0.01,
+            (fm.ascent - expected.ascent).abs() < 0.01,
             "expected ascent {:.3}, got {:.3}",
-            expected_ascent,
+            expected.ascent,
             fm.ascent
         );
         assert!(
-            (fm.descent - expected_descent).abs() < 0.01,
+            (fm.descent - expected.descent).abs() < 0.01,
             "expected descent {:.3}, got {:.3}",
-            expected_descent,
+            expected.descent,
             fm.descent
         );
     }
