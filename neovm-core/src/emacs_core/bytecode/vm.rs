@@ -3095,7 +3095,7 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::keymaps::builtin_current_active_maps_in_state(
             &mut *self.shared.obarray,
             self.shared.dynamic.as_slice(),
-            *self.shared.current_local_map,
+            self.shared.buffers.current_local_map(),
             args,
         )
     }
@@ -3204,7 +3204,7 @@ impl<'a> Vm<'a> {
             &*self.shared.obarray,
             self.shared.dynamic.as_slice(),
             &*self.shared.buffers,
-            *self.shared.current_local_map,
+            self.shared.buffers.current_local_map(),
             args.to_vec(),
         )
     }
@@ -3214,14 +3214,14 @@ impl<'a> Vm<'a> {
             &mut *self.shared.obarray,
             self.shared.dynamic.as_slice(),
             &*self.shared.buffers,
-            *self.shared.current_local_map,
+            self.shared.buffers.current_local_map(),
             args.to_vec(),
         )
     }
 
     fn builtin_local_key_binding_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::interactive::builtin_local_key_binding_in_state(
-            *self.shared.current_local_map,
+            self.shared.buffers.current_local_map(),
             args.to_vec(),
         )
     }
@@ -3565,7 +3565,6 @@ impl<'a> Vm<'a> {
         crate::emacs_core::builtins::builtin_kill_all_local_variables_in_state(
             &*self.shared.obarray,
             &mut *self.shared.buffers,
-            self.shared.current_local_map,
             args.to_vec(),
         )
     }
@@ -5236,13 +5235,13 @@ impl<'a> Vm<'a> {
             "use-local-map" => Some(
                 crate::emacs_core::builtins::keymaps::builtin_use_local_map_in_state(
                     self.shared.obarray,
-                    self.shared.current_local_map,
+                    self.shared.buffers,
                     args,
                 ),
             ),
             "current-local-map" => Some(
                 crate::emacs_core::builtins::keymaps::builtin_current_local_map_in_state(
-                    *self.shared.current_local_map,
+                    self.shared.buffers.current_local_map(),
                     args,
                 ),
             ),

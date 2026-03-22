@@ -141,6 +141,8 @@ pub struct Buffer {
     pub markers: Vec<MarkerEntry>,
     /// Buffer-local variables (name -> runtime binding state).
     pub properties: HashMap<String, RuntimeBindingValue>,
+    /// Buffer-local keymap, mirroring GNU `current_buffer->keymap`.
+    pub local_map: Value,
     /// Text properties attached to ranges of text.
     pub text_props: TextPropertyTable,
     /// Overlays attached to the buffer.
@@ -256,6 +258,7 @@ impl Buffer {
             auto_save_file_name: None,
             markers: Vec::new(),
             properties,
+            local_map: Value::Nil,
             text_props: TextPropertyTable::new(),
             overlays: OverlayList::new(),
             syntax_table: SyntaxTable::new_standard(),
@@ -818,6 +821,14 @@ impl Buffer {
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
         self.properties.contains_key(name)
+    }
+
+    pub fn local_map(&self) -> Value {
+        self.local_map
+    }
+
+    pub fn set_local_map(&mut self, keymap: Value) {
+        self.local_map = keymap;
     }
 
     pub fn buffer_local_value(&self, name: &str) -> Option<Value> {
@@ -1432,6 +1443,7 @@ impl BufferManager {
         let buf = self.buffers.get_mut(&id)?;
         buf.properties.clear();
         Buffer::seed_builtin_buffer_local_defaults(&mut buf.properties);
+        buf.local_map = Value::Nil;
         Some(())
     }
 
@@ -1574,6 +1586,26 @@ impl BufferManager {
     ) -> Option<()> {
         self.buffers.get_mut(&id)?.set_buffer_local(name, value);
         Some(())
+    }
+
+    pub fn buffer_local_map(&self, id: BufferId) -> Option<Value> {
+        Some(self.buffers.get(&id)?.local_map())
+    }
+
+    pub fn current_local_map(&self) -> Value {
+        self.current
+            .and_then(|id| self.buffer_local_map(id))
+            .unwrap_or(Value::Nil)
+    }
+
+    pub fn set_buffer_local_map(&mut self, id: BufferId, keymap: Value) -> Option<()> {
+        self.buffers.get_mut(&id)?.set_local_map(keymap);
+        Some(())
+    }
+
+    pub fn set_current_local_map(&mut self, keymap: Value) -> Option<()> {
+        let id = self.current?;
+        self.set_buffer_local_map(id, keymap)
     }
 
     pub fn set_buffer_local_void_property(&mut self, id: BufferId, name: &str) -> Option<()> {
@@ -1999,6 +2031,7 @@ impl Default for BufferManager {
 impl GcTrace for BufferManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for buffer in self.buffers.values() {
+            roots.push(buffer.local_map);
             for value in buffer.properties.values() {
                 if let RuntimeBindingValue::Bound(value) = value {
                     roots.push(*value);

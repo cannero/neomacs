@@ -4367,6 +4367,29 @@ fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
 }
 
 #[test]
+fn switch_to_buffer_restores_buffer_local_map_for_key_lookup() {
+    assert_eq!(
+        eval_one(
+            r#"(let* ((b1 (get-buffer-create "*km-a*"))
+                      (b2 (get-buffer-create "*km-b*"))
+                      (m1 (make-sparse-keymap))
+                      (m2 (make-sparse-keymap)))
+                 (define-key m1 "a" 'forward-char)
+                 (define-key m2 "h" 'describe-mode)
+                 (set-buffer b1)
+                 (use-local-map m1)
+                 (set-buffer b2)
+                 (use-local-map m2)
+                 (set-buffer b1)
+                 (list (eq (current-local-map) m1)
+                       (key-binding "a")
+                       (key-binding "h")))"#
+        ),
+        "OK (t forward-char self-insert-command)"
+    );
+}
+
+#[test]
 fn command_remapping_checks_minor_mode_maps_before_local_and_global() {
     assert_eq!(
         eval_one(

@@ -514,7 +514,7 @@ pub(crate) fn builtin_command_remapping(eval: &mut Evaluator, args: Vec<Value>) 
         &eval.obarray,
         eval.dynamic.as_slice(),
         &eval.buffers,
-        eval.current_local_map,
+        eval.buffers.current_local_map(),
         args,
     )
 }
@@ -2647,7 +2647,7 @@ pub(crate) fn builtin_key_binding(eval: &mut Evaluator, args: Vec<Value>) -> Eva
         &mut eval.obarray,
         eval.dynamic.as_slice(),
         &eval.buffers,
-        eval.current_local_map,
+        eval.buffers.current_local_map(),
         args,
     )
 }
@@ -2788,7 +2788,7 @@ fn interactive_validate_integer_position_arg_in_buffers(
 
 /// `(local-key-binding KEY &optional ACCEPT-DEFAULTS)`
 pub(crate) fn builtin_local_key_binding(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
-    builtin_local_key_binding_in_state(eval.current_local_map, args)
+    builtin_local_key_binding_in_state(eval.buffers.current_local_map(), args)
 }
 
 pub(crate) fn builtin_local_key_binding_in_state(
@@ -2920,7 +2920,7 @@ fn key_binding_apply_remap(eval: &Evaluator, binding: Value, no_remap: bool) -> 
     key_binding_apply_remap_in_state(
         &eval.obarray,
         eval.dynamic.as_slice(),
-        eval.current_local_map,
+        eval.buffers.current_local_map(),
         binding,
         no_remap,
     )
@@ -3535,7 +3535,7 @@ fn command_remapping_lookup_in_active_keymaps(
     command_remapping_lookup_in_active_keymaps_in_state(
         &eval.obarray,
         eval.dynamic.as_slice(),
-        eval.current_local_map,
+        eval.buffers.current_local_map(),
         command_name,
     )
 }
@@ -3760,7 +3760,7 @@ fn where_is_internal_active_keymaps(eval: &mut Evaluator) -> Vec<Value> {
     match super::builtins::keymaps::builtin_current_active_maps_in_state(
         &mut eval.obarray,
         eval.dynamic.as_slice(),
-        eval.current_local_map,
+        eval.buffers.current_local_map(),
         &[],
     ) {
         Ok(value) => list_to_vec(&value).unwrap_or_default(),

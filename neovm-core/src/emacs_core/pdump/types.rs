@@ -50,6 +50,12 @@ pub enum DumpValue {
     Timer(u64),
 }
 
+impl Default for DumpValue {
+    fn default() -> Self {
+        Self::Nil
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Heap objects
 // ---------------------------------------------------------------------------
@@ -482,6 +488,8 @@ pub struct DumpBuffer {
     pub auto_save_file_name: Option<String>,
     pub markers: Vec<DumpMarkerEntry>,
     pub properties: Vec<(String, DumpRuntimeBindingValue)>,
+    #[serde(default)]
+    pub local_map: DumpValue,
     pub text_props: DumpTextPropertyTable,
     pub overlays: DumpOverlayList,
     pub syntax_table: DumpSyntaxTable,

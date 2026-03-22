@@ -356,12 +356,12 @@ pub(super) fn builtin_local_set_key(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("local-set-key", &args, 2)?;
-    let local = if eval.current_local_map.is_nil() {
+    let local = if eval.buffers.current_local_map().is_nil() {
         let km = make_sparse_list_keymap();
-        eval.current_local_map = km;
+        let _ = eval.buffers.set_current_local_map(km);
         km
     } else {
-        eval.current_local_map
+        eval.buffers.current_local_map()
     };
     let events = expect_key_events(&args[0])?;
     let def = args[1];
@@ -380,21 +380,22 @@ pub(super) fn builtin_use_local_map(
     } else {
         expect_keymap(eval, &args[0])?
     };
-    eval.current_local_map = keymap;
+    let _ = eval.buffers.set_current_local_map(keymap);
     Ok(Value::Nil)
 }
 
 pub(crate) fn builtin_use_local_map_in_state(
     obarray: &Obarray,
-    current_local_map: &mut Value,
+    buffers: &mut crate::buffer::BufferManager,
     args: &[Value],
 ) -> EvalResult {
     expect_args("use-local-map", args, 1)?;
-    if args[0].is_nil() {
-        *current_local_map = Value::Nil;
+    let keymap = if args[0].is_nil() {
+        Value::Nil
     } else {
-        *current_local_map = expect_keymap_in_obarray(obarray, &args[0])?;
-    }
+        expect_keymap_in_obarray(obarray, &args[0])?
+    };
+    let _ = buffers.set_current_local_map(keymap);
     Ok(Value::Nil)
 }
 
@@ -421,7 +422,7 @@ pub(super) fn builtin_current_local_map(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_current_local_map_in_state(eval.current_local_map, &args)
+    builtin_current_local_map_in_state(eval.buffers.current_local_map(), &args)
 }
 
 pub(crate) fn builtin_current_local_map_in_state(
@@ -452,7 +453,7 @@ pub(super) fn builtin_current_active_maps(
     builtin_current_active_maps_in_state(
         &mut eval.obarray,
         eval.dynamic.as_slice(),
-        eval.current_local_map,
+        eval.buffers.current_local_map(),
         &args,
     )
 }

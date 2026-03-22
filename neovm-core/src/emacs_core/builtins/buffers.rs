@@ -1257,18 +1257,12 @@ pub(crate) fn builtin_kill_all_local_variables(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_kill_all_local_variables_in_state(
-        &eval.obarray,
-        &mut eval.buffers,
-        &mut eval.current_local_map,
-        args,
-    )
+    builtin_kill_all_local_variables_in_state(&eval.obarray, &mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_kill_all_local_variables_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &mut BufferManager,
-    current_local_map: &mut Value,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("kill-all-local-variables", &args, 0, 1)?;
@@ -1282,7 +1276,6 @@ pub(crate) fn builtin_kill_all_local_variables_in_state(
     // re-seeds defaults from seed_builtin_buffer_local_defaults (mode-name,
     // major-mode, buffer-read-only, etc.).
     let _ = buffers.clear_buffer_local_properties(current_id);
-    *current_local_map = Value::Nil;
     Ok(Value::Nil)
 }
 

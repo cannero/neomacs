@@ -2164,7 +2164,9 @@ fn kill_all_local_variables_clears_buffer_locals() {
         buf.set_buffer_local("mode-name", Value::string("Neo"));
         buf.set_buffer_local("buffer-undo-list", Value::True);
     }
-    eval.current_local_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    let _ = eval
+        .buffers
+        .set_current_local_map(crate::emacs_core::keymap::make_sparse_list_keymap());
 
     assert_eq!(
         builtin_kill_all_local_variables(&mut eval, vec![]).unwrap(),
@@ -2184,7 +2186,7 @@ fn kill_all_local_variables_clears_buffer_locals() {
         Some(&Value::string("Fundamental"))
     );
     assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(&Value::Nil));
-    assert!(eval.current_local_map.is_nil());
+    assert!(eval.buffers.current_local_map().is_nil());
 }
 
 #[test]

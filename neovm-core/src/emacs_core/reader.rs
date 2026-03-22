@@ -689,7 +689,6 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
         &mut eval.buffers,
         &mut eval.frames,
         &mut eval.minibuffers,
-        &mut eval.current_local_map,
         &mut eval.minibuffer_selected_window,
         &mut eval.active_minibuffer_window,
         eval.command_loop.recursive_depth,
@@ -733,7 +732,6 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     buffers: &mut crate::buffer::BufferManager,
     frames: &mut crate::window::FrameManager,
     minibuffers: &mut crate::emacs_core::minibuffer::MinibufferManager,
-    current_local_map: &mut Value,
     minibuffer_selected_window: &mut Option<crate::window::WindowId>,
     active_minibuffer_window: &mut Option<crate::window::WindowId>,
     recursive_depth: usize,
@@ -752,7 +750,6 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let default_val = args.get(5).copied().unwrap_or(Value::Nil);
 
     // Save state
-    let saved_local_map = *current_local_map;
     let saved_buffer_id = buffers.current_buffer().map(|b| b.id);
 
     // Find or create *Minibuf-N* buffer
@@ -824,7 +821,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
             .copied()
             .unwrap_or(Value::Nil)
     };
-    *current_local_map = minibuf_keymap;
+    let _ = buffers.set_current_local_map(minibuf_keymap);
 
     // Set minibuffer-related variables
     obarray.set_symbol_value("minibuffer-prompt", Value::string(prompt));
@@ -862,7 +859,6 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     }
 
     // Restore state
-    *current_local_map = saved_local_map;
     if let Some(saved) = active_window_state {
         restore_minibuffer_window_in_state(
             frames,
@@ -1212,7 +1208,6 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     let history_name = minibuffer_history_name(args.get(4));
     let default_val = args.get(5).copied().unwrap_or(Value::Nil);
 
-    let saved_local_map = *shared.current_local_map;
     let saved_buffer_id = shared.buffers.current_buffer().map(|b| b.id);
     let recursive_depth = shared.recursive_command_loop_depth();
 
@@ -1288,7 +1283,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
             .copied()
             .unwrap_or(Value::Nil)
     };
-    *shared.current_local_map = minibuf_keymap;
+    let _ = shared.buffers.set_current_local_map(minibuf_keymap);
     shared
         .obarray
         .set_symbol_value("minibuffer-prompt", Value::string(&prompt));
@@ -1328,7 +1323,6 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         }
     }
 
-    *shared.current_local_map = saved_local_map;
     if let Some(saved) = active_window_state {
         restore_minibuffer_window_in_state(
             &mut *shared.frames,
