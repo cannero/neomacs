@@ -1143,6 +1143,11 @@ pub(crate) fn dispatch_builtin(
         "font-info" => return Some(super::font::builtin_font_info_eval(eval, args)),
         "new-fontset" => return Some(builtin_new_fontset_eval(eval, args)),
         "set-fontset-font" => return Some(builtin_set_fontset_font_eval(eval, args)),
+        "frame--face-hash-table" => {
+            return Some(super::xfaces::builtin_frame_face_hash_table_eval(
+                eval, args,
+            ));
+        }
 
         // File I/O (evaluator-dependent)
         "access-file" => return Some(super::fileio::builtin_access_file_eval(eval, args)),
@@ -2001,6 +2006,9 @@ pub(crate) fn dispatch_builtin(
         "x-get-resource" => return Some(super::display::builtin_x_get_resource_eval(eval, args)),
         "x-list-fonts" => return Some(super::display::builtin_x_list_fonts_eval(eval, args)),
         "window-system" => return Some(super::display::builtin_window_system_eval(eval, args)),
+        "current-idle-time" => {
+            return Some(builtin_current_idle_time_eval(eval, args));
+        }
         "display-supports-face-attributes-p" => {
             return Some(
                 super::display::builtin_display_supports_face_attributes_p_eval(eval, args),
@@ -2958,14 +2966,20 @@ pub(crate) fn dispatch_builtin(
             ));
         }
         "internal-get-lisp-face-attribute" => {
-            super::font::builtin_internal_get_lisp_face_attribute(args)
+            return Some(super::font::builtin_internal_get_lisp_face_attribute_eval(
+                eval, args,
+            ));
         }
         "internal-lisp-face-attribute-values" => {
             super::font::builtin_internal_lisp_face_attribute_values(args)
         }
         "internal-lisp-face-equal-p" => super::font::builtin_internal_lisp_face_equal_p(args),
         "internal-lisp-face-empty-p" => super::font::builtin_internal_lisp_face_empty_p(args),
-        "internal-merge-in-global-face" => super::font::builtin_internal_merge_in_global_face(args),
+        "internal-merge-in-global-face" => {
+            return Some(super::font::builtin_internal_merge_in_global_face_eval(
+                eval, args,
+            ));
+        }
         "face-attribute-relative-p" => super::font::builtin_face_attribute_relative_p(args),
         "merge-face-attribute" => super::font::builtin_merge_face_attribute(args),
         "color-gray-p" => super::font::builtin_color_gray_p(args),
@@ -3458,7 +3472,6 @@ pub(crate) fn dispatch_builtin(
 
         // Format/string utilities (pure)
         "format-time-string" => super::format::builtin_format_time_string(args),
-        "string-fill" => super::format::builtin_string_fill(args),
         // Marker (pure)
         "markerp" => super::marker::builtin_markerp(args),
         "marker-buffer" => super::marker::builtin_marker_buffer(args),

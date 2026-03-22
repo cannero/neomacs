@@ -4,7 +4,6 @@
 //! - `format-time-string` — format time like strftime
 //! - `string-chop-newline` — remove trailing newline
 //! - `string-clean-whitespace` — collapse whitespace and trim
-//! - `string-fill` — fill/wrap text at a given column width
 //! - `string-pixel-width` — batch-compatible display-column width
 
 use super::error::{EvalResult, Flow, signal};
@@ -43,16 +42,6 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
-        )),
-    }
-}
-
-fn require_natnum(val: &Value) -> Result<usize, Flow> {
-    match val {
-        Value::Int(n) if *n >= 0 => Ok(*n as usize),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("wholenump"), *other],
         )),
     }
 }
@@ -451,18 +440,23 @@ fn format_time(fmt: &str, tm: &BrokenDownTime) -> String {
                     result.push_str(DAY_ABBREVS[tm.weekday as usize % 7]);
                     result.push(' ');
                     result.push_str(MONTH_ABBREVS[(tm.month as usize).saturating_sub(1) % 12]);
-                    result.push_str(&format!(" {:2} {:02}:{:02}:{:02} {:04}",
-                        tm.day, tm.hour, tm.minute, tm.second, tm.year));
+                    result.push_str(&format!(
+                        " {:2} {:02}:{:02}:{:02} {:04}",
+                        tm.day, tm.hour, tm.minute, tm.second, tm.year
+                    ));
                 }
                 'x' => {
                     // Preferred date representation (C locale): "%m/%d/%y"
-                    result.push_str(&format!("{:02}/{:02}/{:02}",
-                        tm.month, tm.day, tm.year % 100));
+                    result.push_str(&format!(
+                        "{:02}/{:02}/{:02}",
+                        tm.month,
+                        tm.day,
+                        tm.year % 100
+                    ));
                 }
                 'X' => {
                     // Preferred time representation (C locale): "%H:%M:%S"
-                    result.push_str(&format!("{:02}:{:02}:{:02}",
-                        tm.hour, tm.minute, tm.second));
+                    result.push_str(&format!("{:02}:{:02}:{:02}", tm.hour, tm.minute, tm.second));
                 }
                 other => {
                     // Unknown directive -- emit as-is.
@@ -493,143 +487,6 @@ pub(crate) fn builtin_string_chop_newline(args: Vec<Value>) -> EvalResult {
     let s = require_string("string-chop-newline", &args[0])?;
     let trimmed = s.trim_end_matches(['\n', '\r']).to_string();
     Ok(Value::string(trimmed))
-}
-
-// ---------------------------------------------------------------------------
-// string-fill
-// ---------------------------------------------------------------------------
-
-/// `(string-fill STRING WIDTH)` -- word-wrap STRING at column WIDTH.
-///
-/// Breaks STRING at whitespace boundaries so that no line exceeds WIDTH
-/// display columns.  Paragraph boundaries (blank lines) are preserved.
-/// Individual words wider than WIDTH are left intact (lines may exceed WIDTH
-/// in that case).
-///
-/// Matches GNU Emacs `string-fill` from subr-x.el.
-pub(crate) fn builtin_string_fill(args: Vec<Value>) -> EvalResult {
-    expect_args("string-fill", &args, 2)?;
-    // GNU Emacs string-fill uses (insert STRING) which accepts both strings
-    // and integers (character codes).  Match that permissive behaviour.
-    let s = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-        Value::Int(n) => {
-            if let Some(ch) = char::from_u32(*n as u32) {
-                ch.to_string()
-            } else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("characterp"), args[0]],
-                ));
-            }
-        }
-        Value::Char(c) => c.to_string(),
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
-            ));
-        }
-    };
-    let width = require_natnum(&args[1])?;
-    Ok(Value::string(string_fill_impl(&s, width)))
-}
-
-/// Core word-fill algorithm.
-///
-/// GNU Emacs `fill-region` treats blank lines as paragraph separators.
-/// Within each paragraph it collapses internal newlines to spaces, then
-/// greedily wraps at the last whitespace that keeps the line within `width`.
-fn string_fill_impl(s: &str, width: usize) -> String {
-    // Split into paragraphs separated by blank lines ("\n\n").
-    // We preserve the exact paragraph structure.
-    let mut result = String::with_capacity(s.len());
-
-    // Iterate over paragraph groups.  A "paragraph break" is one or more
-    // consecutive blank lines (i.e. a run of "\n" where at least two
-    // newlines appear with only whitespace between them).
-    //
-    // We split on runs of \n\n+ keeping the separators.
-    let paragraphs = split_paragraphs(s);
-
-    for (i, para) in paragraphs.iter().enumerate() {
-        if i > 0 {
-            result.push('\n');
-        }
-        if para.is_empty() {
-            // A blank-line separator: emit an empty line
-            continue;
-        }
-        // Collapse all whitespace (including single newlines) to spaces.
-        let words = para.split_whitespace().collect::<Vec<_>>();
-        if words.is_empty() {
-            continue;
-        }
-        let mut col = 0usize;
-        for (wi, word) in words.iter().enumerate() {
-            let wlen = word.chars().count();
-            if wi == 0 {
-                // First word of paragraph: always emit.
-                result.push_str(word);
-                col = wlen;
-            } else if col + 1 + wlen <= width {
-                // Fits on the current line.
-                result.push(' ');
-                result.push_str(word);
-                col += 1 + wlen;
-            } else {
-                // Break to a new line.
-                result.push('\n');
-                result.push_str(word);
-                col = wlen;
-            }
-        }
-    }
-
-    result
-}
-
-/// Split a string into paragraphs, where a paragraph break is a blank line
-/// (two or more consecutive newlines, possibly with only spaces/tabs between
-/// them).  Returns a vector of paragraph content strings -- blank-line
-/// separators produce empty strings between content paragraphs.
-fn split_paragraphs(s: &str) -> Vec<String> {
-    let mut paragraphs = Vec::new();
-    let mut current = String::new();
-    let lines: Vec<&str> = s.split('\n').collect();
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i];
-        if line.trim().is_empty() && !current.is_empty() {
-            // End of current paragraph.
-            paragraphs.push(std::mem::take(&mut current));
-            // Consume consecutive blank lines -- each pair produces one
-            // paragraph separator (empty string).
-            while i < lines.len() && lines[i].trim().is_empty() {
-                i += 1;
-            }
-            paragraphs.push(String::new()); // paragraph separator
-            continue;
-        } else if line.trim().is_empty() && current.is_empty() {
-            // Leading blank lines -- skip.
-            i += 1;
-            continue;
-        }
-        // Append to current paragraph.
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(line);
-        i += 1;
-    }
-    if !current.is_empty() {
-        paragraphs.push(current);
-    }
-    if paragraphs.is_empty() {
-        paragraphs.push(s.to_string());
-    }
-    paragraphs
 }
 
 // ---------------------------------------------------------------------------
