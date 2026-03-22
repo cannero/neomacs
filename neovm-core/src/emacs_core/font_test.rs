@@ -827,6 +827,55 @@ fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
 }
 
 #[test]
+fn face_font_eval_returns_font_name_on_live_gui_frame() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    let frame = eval
+        .frame_manager_mut()
+        .get_mut(frame_id)
+        .expect("selected frame");
+    frame.window_system = Some(Value::symbol("neomacs"));
+    frame.font_pixel_size = 16.0;
+    frame.char_width = 8.0;
+    frame.char_height = 16.0;
+
+    let result = builtin_face_font_eval(&mut eval, vec![Value::symbol("default")]).unwrap();
+    assert!(result.is_string());
+    assert!(result.as_str().is_some_and(|name| !name.is_empty()));
+}
+
+#[test]
+fn font_info_eval_accepts_font_object_on_live_gui_frame() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    {
+        let frame = eval
+            .frame_manager_mut()
+            .get_mut(frame_id)
+            .expect("selected frame");
+        frame.window_system = Some(Value::symbol("neomacs"));
+        frame.font_pixel_size = 18.0;
+        frame.char_width = 9.0;
+        frame.char_height = 18.0;
+    }
+    eval.buffers
+        .current_buffer_mut()
+        .expect("current buffer")
+        .insert("a");
+
+    let font = builtin_font_at_eval(&mut eval, vec![Value::Int(1)]).unwrap();
+    let info = builtin_font_info_eval(&mut eval, vec![font]).unwrap();
+    let Value::Vector(id) = info else {
+        panic!("expected font info vector");
+    };
+    let values = with_heap(|heap| heap.get_vector(id).clone());
+    assert_eq!(values.len(), 14);
+    assert_eq!(values[3].as_int(), Some(18));
+    assert_eq!(values[10].as_int(), Some(9));
+    assert_eq!(values[11].as_int(), Some(9));
+}
+
+#[test]
 fn internal_lisp_face_attribute_values_discrete_boolean_attrs() {
     let result =
         builtin_internal_lisp_face_attribute_values(vec![Value::Keyword(intern(":underline"))])

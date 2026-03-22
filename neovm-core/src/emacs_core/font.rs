@@ -97,6 +97,14 @@ fn live_frame_designator_in_state(frames: &FrameManager, value: &Value) -> bool 
     }
 }
 
+fn frame_id_from_designator(value: &Value) -> Option<FrameId> {
+    match value {
+        Value::Int(id) if *id >= 0 => Some(FrameId(*id as u64)),
+        Value::Frame(id) => Some(FrameId(*id)),
+        _ => None,
+    }
+}
+
 fn expect_optional_frame_designator_in_state(
     frames: &FrameManager,
     value: Option<&Value>,
@@ -1008,6 +1016,59 @@ fn build_font_object_for_match(
     selected.slant = Some(matched.slant);
     selected.width = Some(matched.width);
     build_font_object(&selected)
+}
+
+fn font_name_value(font_like: &Value) -> Option<Value> {
+    match font_like {
+        Value::Str(_) => Some(*font_like),
+        Value::Vector(id) if is_font(font_like) => {
+            let elems = with_heap(|h| h.get_vector(*id).clone());
+            if let Some(value) = font_vector_get_flexible(&elems, "name") {
+                return match value {
+                    Value::Str(_) => Some(value),
+                    Value::Symbol(sym) | Value::Keyword(sym) => {
+                        Some(Value::string(resolve_sym(sym).to_owned()))
+                    }
+                    _ => None,
+                };
+            }
+            match builtin_font_xlfd_name(vec![*font_like]) {
+                Ok(Value::Str(_)) => builtin_font_xlfd_name(vec![*font_like]).ok(),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn font_info_vector_for_runtime_font(font_like: &Value, frame: &crate::window::Frame) -> Value {
+    let opened_name = font_name_value(font_like).unwrap_or_else(|| Value::string(""));
+    let full_name = opened_name;
+    let size = frame.font_pixel_size.max(1.0).round() as i64;
+    let height = frame.char_height.max(1.0).round() as i64;
+    let average_width = frame.char_width.max(1.0).round() as i64;
+    let space_width = average_width;
+    let max_width = average_width;
+    let ascent = ((height as f32) * 0.75).round() as i64;
+    let descent = (height - ascent).max(0);
+    let default_ascent = ascent;
+
+    Value::vector(vec![
+        opened_name,
+        full_name,
+        Value::Int(size),
+        Value::Int(height),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(default_ascent),
+        Value::Int(max_width),
+        Value::Int(ascent),
+        Value::Int(descent),
+        Value::Int(space_width),
+        Value::Int(average_width),
+        Value::Nil,
+        Value::Nil,
+    ])
 }
 
 fn resolve_font_match(
@@ -3098,6 +3159,122 @@ pub(crate) fn builtin_face_font(args: Vec<Value>) -> EvalResult {
         _ => Err(signal(
             "error",
             vec![Value::string("Invalid face"), args[0]],
+        )),
+    }
+}
+
+pub(crate) fn builtin_face_font_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("face-font", &args, 1)?;
+    expect_max_args("face-font", &args, 3)?;
+
+    let defaults_frame = matches!(args.get(1), Some(Value::True));
+    if defaults_frame {
+        let face_name = resolve_face_name_for_domain(&args[0], true)?;
+        let mut styles = Vec::new();
+        let weight = lisp_face_attribute_value(&face_name, ":weight", true);
+        if matches!(weight.as_symbol_name(), Some(name) if name != "normal" && name != "unspecified")
+        {
+            styles.push(Value::symbol("bold"));
+        }
+        let slant = lisp_face_attribute_value(&face_name, ":slant", true);
+        if matches!(slant.as_symbol_name(), Some(name) if name != "normal" && name != "unspecified")
+        {
+            styles.push(Value::symbol("italic"));
+        }
+        return if styles.is_empty() {
+            Ok(Value::Nil)
+        } else {
+            Ok(Value::list(styles))
+        };
+    }
+
+    let frame_id = match args.get(1) {
+        None | Some(Value::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
+        Some(frame) if live_frame_designator_in_state(&eval.frames, frame) => {
+            frame_id_from_designator(frame)
+                .expect("live frame designator should decode to frame id")
+        }
+        Some(other) => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("frame-live-p"), *other],
+            ));
+        }
+    };
+    let frame = eval
+        .frames
+        .get(frame_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+    if frame.window_system.is_none() {
+        return builtin_face_font(args);
+    }
+
+    let face_name = resolve_face_name_for_domain(&args[0], false)?;
+    let face = eval.face_table.resolve(&face_name);
+    if let Some(character) = args.get(2).filter(|value| !value.is_nil()) {
+        let ch = match character {
+            Value::Char(ch) => *ch,
+            Value::Int(code) => char::from_u32(*code as u32).ok_or_else(|| {
+                signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("characterp"), *character],
+                )
+            })?,
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("characterp"), *character],
+                ));
+            }
+        };
+        if let Some(matched) = resolve_font_match(eval, frame_id, ch, &face) {
+            return Ok(
+                font_name_value(&build_font_object_for_match(&face, &matched))
+                    .unwrap_or(Value::Nil),
+            );
+        }
+    }
+
+    Ok(font_name_value(&build_font_object(&face)).unwrap_or(Value::Nil))
+}
+
+pub(crate) fn builtin_font_info_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("font-info", &args, 1)?;
+    expect_max_args("font-info", &args, 2)?;
+
+    let frame_id = match args.get(1) {
+        None | Some(Value::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
+        Some(frame) if live_frame_designator_in_state(&eval.frames, frame) => {
+            frame_id_from_designator(frame)
+                .expect("live frame designator should decode to frame id")
+        }
+        Some(other) => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("frame-live-p"), *other],
+            ));
+        }
+    };
+    let frame = eval
+        .frames
+        .get(frame_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+    if frame.window_system.is_none() {
+        return crate::emacs_core::builtins::builtin_font_info(args);
+    }
+
+    match &args[0] {
+        Value::Str(_) => Ok(font_info_vector_for_runtime_font(&args[0], frame)),
+        value if is_font(value) => Ok(font_info_vector_for_runtime_font(value, frame)),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *other],
         )),
     }
 }

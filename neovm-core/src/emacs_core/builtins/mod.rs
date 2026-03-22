@@ -1140,6 +1140,7 @@ pub(crate) fn dispatch_builtin(
         "list-fonts" => return Some(super::font::builtin_list_fonts_eval(eval, args)),
         "find-font" => return Some(super::font::builtin_find_font_eval(eval, args)),
         "font-family-list" => return Some(super::font::builtin_font_family_list_eval(eval, args)),
+        "font-info" => return Some(super::font::builtin_font_info_eval(eval, args)),
         "new-fontset" => return Some(builtin_new_fontset_eval(eval, args)),
         "set-fontset-font" => return Some(builtin_set_fontset_font_eval(eval, args)),
 
@@ -2971,7 +2972,7 @@ pub(crate) fn dispatch_builtin(
         "color-supported-p" => super::font::builtin_color_supported_p(args),
         "color-distance" => super::font::builtin_color_distance(args),
         "color-values-from-color-spec" => super::font::builtin_color_values_from_color_spec(args),
-        "face-font" => super::font::builtin_face_font(args),
+        "face-font" => return Some(super::font::builtin_face_font_eval(eval, args)),
         "internal-face-x-get-resource" => super::font::builtin_internal_face_x_get_resource(args),
         "internal-set-font-selection-order" => {
             super::font::builtin_internal_set_font_selection_order(args)

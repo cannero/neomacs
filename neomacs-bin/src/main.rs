@@ -863,6 +863,28 @@ fn bootstrap_default_font_parameter(font_pixel_size: f32) -> Value {
     ])
 }
 
+fn bootstrap_default_font_name(font_pixel_size: f32) -> Value {
+    let mut metrics_svc = FontMetricsService::new();
+    let selected = metrics_svc.select_font_for_char('M', "Monospace", 400, false, font_pixel_size);
+
+    let family = selected
+        .as_ref()
+        .map(|font| font.family.as_str())
+        .unwrap_or("Monospace");
+    let weight = selected
+        .as_ref()
+        .map(|font| font_weight_symbol(font.weight))
+        .unwrap_or("normal");
+    let slant = selected
+        .as_ref()
+        .map(|font| font_slant_symbol(font.slant))
+        .unwrap_or("normal");
+
+    Value::string(format!(
+        "-*-{family}-{weight}-{slant}-*-*-100-*-*-*-*-*-*-*"
+    ))
+}
+
 fn bootstrap_frame_metrics() -> BootstrapFrameMetrics {
     let font_pixel_size = 16.0;
     let mut metrics_svc = FontMetricsService::new();
@@ -959,6 +981,7 @@ fn bootstrap_buffers(
     // Seed frame parameters so GNU Lisp startup sees the correct host surface.
     if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
         let default_font = bootstrap_default_font_parameter(frame_metrics.font_pixel_size);
+        let default_font_name = bootstrap_default_font_name(frame_metrics.font_pixel_size);
         frame.width = width;
         frame.height = height;
         frame.visible = true;
@@ -977,7 +1000,7 @@ fn bootstrap_buffers(
         );
         frame
             .parameters
-            .insert("font".to_string(), default_font.clone());
+            .insert("font".to_string(), default_font_name);
         frame
             .parameters
             .insert("font-parameter".to_string(), default_font);

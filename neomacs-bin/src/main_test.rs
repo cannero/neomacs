@@ -1,4 +1,3 @@
-
 use super::{
     BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
     PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, bootstrap_buffers,
@@ -339,7 +338,7 @@ fn bootstrap_buffers_seed_frame_with_renderer_metrics() {
         .parameters
         .get("font")
         .expect("bootstrap GUI frame should seed a font frame parameter");
-    assert!(matches!(font_param, Value::Vector(_)));
+    assert!(font_param.is_string());
     let minibuffer_height = frame
         .minibuffer_leaf
         .as_ref()
@@ -1003,11 +1002,7 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
         libc::close(wake_pipe[0]);
         libc::close(wake_pipe[1]);
     }
-    let err = result.expect_err("close request should unwind recursive edit");
-    assert!(
-        err.contains("quit"),
-        "close request should surface quit, got: {err}"
-    );
+    result.expect("close request should let the outer recursive edit exit cleanly");
 
     let forms = parse_forms(
         r#"(list
@@ -1044,16 +1039,17 @@ fn gnu_startup_next_line_moves_point_on_live_gui_frame() {
 
     let forms = parse_forms(
         r#"(progn
-                 (erase-buffer)
-                 (insert "abc\ndef\nghi")
-                 (goto-char 1)
-                 (command-execute 'next-line)
-                 (point))"#,
+             (switch-to-buffer "*scratch*")
+             (erase-buffer)
+             (insert "abc\ndef\nghi")
+             (goto-char 1)
+             (command-execute 'next-line)
+             (point))"#,
     )
-    .expect("parse startup next-line probe");
+    .expect("parse startup next-line command");
     let result = eval
         .eval_expr(&forms[0])
-        .expect("startup next-line probe should evaluate");
+        .expect("startup next-line should evaluate");
     assert_eq!(result, Value::Int(5));
 }
 

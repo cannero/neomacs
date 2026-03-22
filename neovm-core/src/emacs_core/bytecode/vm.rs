@@ -6359,7 +6359,9 @@ impl<'a> Vm<'a> {
             "font-has-char-p" => Some(
                 crate::emacs_core::builtins::builtin_font_has_char_p(args.to_vec()),
             ),
-            "font-info" => Some(crate::emacs_core::builtins::builtin_font_info(args.to_vec())),
+            "font-info" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::font::builtin_font_info_eval(eval, args.to_vec())
+            })),
             "font-match-p" => Some(
                 crate::emacs_core::builtins::builtin_font_match_p(args.to_vec()),
             ),
@@ -6649,7 +6651,9 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "face-id" => Some(crate::emacs_core::font::builtin_face_id(args.to_vec())),
-            "face-font" => Some(crate::emacs_core::font::builtin_face_font(args.to_vec())),
+            "face-font" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::font::builtin_face_font_eval(eval, args.to_vec())
+            })),
             "internal-face-x-get-resource" => Some(
                 crate::emacs_core::font::builtin_internal_face_x_get_resource(args.to_vec()),
             ),
