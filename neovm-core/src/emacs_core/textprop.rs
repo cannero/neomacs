@@ -155,6 +155,24 @@ fn elisp_pos_to_byte(buf: &crate::buffer::buffer::Buffer, pos: i64) -> usize {
     buf.text.char_to_byte(clamped)
 }
 
+/// Validate that BEG and END are within the buffer's accessible range.
+/// GNU Emacs signals `args-out-of-range` if positions are outside [point-min, point-max].
+fn validate_buffer_range(
+    buf: &crate::buffer::buffer::Buffer,
+    beg: i64,
+    end: i64,
+) -> Result<(), Flow> {
+    let point_min = buf.point_min_char() as i64 + 1; // 1-based
+    let point_max = buf.text.char_count() as i64 + 1; // 1-based, exclusive end
+    if beg < point_min || beg > point_max || end < point_min || end > point_max {
+        return Err(signal(
+            "args-out-of-range",
+            vec![Value::Int(beg), Value::Int(end)],
+        ));
+    }
+    Ok(())
+}
+
 /// Convert a 0-based byte position to a 1-based Elisp char position.
 fn byte_to_elisp_pos(buf: &crate::buffer::buffer::Buffer, byte_pos: usize) -> i64 {
     buf.text.byte_to_char(byte_pos) as i64 + 1
@@ -261,9 +279,25 @@ fn plist_pairs(plist: &Value) -> Result<Vec<(String, Value)>, Flow> {
 }
 
 /// Convert a HashMap<String, Value> to an Elisp plist (alternating symbols and values).
+///
+/// Keys are sorted alphabetically to produce deterministic output.
+/// Used for overlays and other contexts where insertion order isn't tracked.
 fn hashmap_to_plist(map: &std::collections::HashMap<String, Value>) -> Value {
+    let mut keys: Vec<&String> = map.keys().collect();
+    keys.sort();
     let mut items = Vec::new();
-    for (key, val) in map {
+    for key in keys {
+        items.push(Value::symbol(key.clone()));
+        items.push(map[key]);
+    }
+    Value::list(items)
+}
+
+/// Convert ordered property pairs to an Elisp plist.
+/// Preserves the order from the property interval (matching GNU Emacs behavior).
+fn ordered_pairs_to_plist(pairs: &[(String, Value)]) -> Value {
+    let mut items = Vec::new();
+    for (key, val) in pairs {
         items.push(Value::symbol(key.clone()));
         items.push(*val);
     }
@@ -440,11 +474,14 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
         let mut table = get_string_text_properties_table(str_id).unwrap_or_default();
         let byte_beg = string_elisp_pos_to_byte(&s, beg);
         let byte_end = string_elisp_pos_to_byte(&s, end);
+        let mut any_changed = false;
         for (name, val) in pairs {
-            table.put_property(byte_beg, byte_end, &name, val);
+            if table.put_property(byte_beg, byte_end, &name, val) {
+                any_changed = true;
+            }
         }
         save_string_props(str_id, table);
-        return Ok(Value::True);
+        return Ok(if any_changed { Value::True } else { Value::Nil });
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
@@ -454,10 +491,16 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
+    let mut any_changed = false;
     for (name, val) in pairs {
-        let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
+        if buffers
+            .put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val)
+            .unwrap_or(false)
+        {
+            any_changed = true;
+        }
     }
-    Ok(Value::True)
+    Ok(if any_changed { Value::True } else { Value::Nil })
 }
 
 fn merge_face_property(existing: Option<Value>, new_face: Value, append: bool) -> Value {
@@ -726,8 +769,8 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
         let s = with_heap(|h| h.get_string(str_id).to_owned());
         if let Some(table) = get_string_text_properties_table(str_id) {
             let byte_pos = string_elisp_pos_to_byte(&s, pos);
-            let props = table.get_properties(byte_pos);
-            return Ok(hashmap_to_plist(&props));
+            let props = table.get_properties_ordered(byte_pos);
+            return Ok(ordered_pairs_to_plist(&props));
         }
         return Ok(Value::Nil);
     }
@@ -738,8 +781,8 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    let props = buf.text_props.get_properties(byte_pos);
-    Ok(hashmap_to_plist(&props))
+    let props = buf.text_props.get_properties_ordered(byte_pos);
+    Ok(ordered_pairs_to_plist(&props))
 }
 
 /// (next-single-property-change POS PROP &optional OBJECT LIMIT)
@@ -1126,6 +1169,7 @@ pub(crate) fn builtin_text_property_any_in_buffers(
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
+    validate_buffer_range(buf, beg, end)?;
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
 
@@ -1192,6 +1236,7 @@ pub(crate) fn builtin_text_property_not_all_in_buffers(
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
+    validate_buffer_range(buf, beg, end)?;
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
     let mut cursor = byte_beg;

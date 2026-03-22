@@ -1705,14 +1705,17 @@ fn load_marker(m: &DumpMarkerEntry, text: &BufferText) -> MarkerEntry {
 }
 
 fn load_property_interval(pi: &DumpPropertyInterval) -> PropertyInterval {
+    let properties: std::collections::HashMap<String, crate::emacs_core::value::Value> = pi
+        .properties
+        .iter()
+        .map(|(k, v)| (k.clone(), load_value(v)))
+        .collect();
+    let key_order: Vec<String> = pi.properties.iter().map(|(k, _)| k.clone()).collect();
     PropertyInterval {
         start: pi.start,
         end: pi.end,
-        properties: pi
-            .properties
-            .iter()
-            .map(|(k, v)| (k.clone(), load_value(v)))
-            .collect(),
+        properties,
+        key_order,
     }
 }
 

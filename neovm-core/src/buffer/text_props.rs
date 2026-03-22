@@ -19,7 +19,9 @@ use crate::gc::GcTrace;
 /// A single text property interval: [start, end) with properties.
 ///
 /// Each interval covers a half-open byte range and holds a map of named
-/// properties.
+/// properties.  Properties are stored internally in a HashMap for efficient
+/// lookup, but also maintain an insertion-order list so that serialization
+/// to plists is deterministic (matching GNU Emacs's prepend-based ordering).
 #[derive(Clone, Debug)]
 pub struct PropertyInterval {
     /// Byte position where this interval starts (inclusive).
@@ -28,6 +30,9 @@ pub struct PropertyInterval {
     pub end: usize,
     /// The property map for this interval.
     pub properties: HashMap<String, Value>,
+    /// Property names in insertion order (most recently added first,
+    /// matching GNU Emacs's prepend semantics).
+    pub(crate) key_order: Vec<String>,
 }
 
 impl PropertyInterval {
@@ -36,20 +41,59 @@ impl PropertyInterval {
             start,
             end,
             properties: HashMap::new(),
+            key_order: Vec::new(),
         }
     }
 
     pub fn with_properties(start: usize, end: usize, properties: HashMap<String, Value>) -> Self {
+        let key_order: Vec<String> = properties.keys().cloned().collect();
         Self {
             start,
             end,
             properties,
+            key_order,
         }
+    }
+
+    /// Insert or update a property, maintaining key_order.
+    /// New properties are prepended (matching GNU Emacs behavior).
+    /// Returns true if the property was actually changed.
+    fn insert_property(&mut self, name: &str, value: Value) -> bool {
+        let already_equal = self
+            .properties
+            .get(name)
+            .map_or(false, |existing| equal_value(existing, &value, 0));
+        if already_equal {
+            return false;
+        }
+        let is_new = !self.properties.contains_key(name);
+        self.properties.insert(name.to_string(), value);
+        if is_new {
+            // Prepend new properties (GNU Emacs behavior)
+            self.key_order.insert(0, name.to_string());
+        }
+        true
+    }
+
+    /// Remove a property by name.
+    fn remove_property(&mut self, name: &str) -> Option<Value> {
+        let result = self.properties.remove(name);
+        if result.is_some() {
+            self.key_order.retain(|k| k != name);
+        }
+        result
     }
 
     /// Returns true if the interval has no properties.
     fn is_empty_props(&self) -> bool {
         self.properties.is_empty()
+    }
+
+    /// Iterate properties in insertion order (most recently added first).
+    pub fn ordered_properties(&self) -> impl Iterator<Item = (&str, &Value)> {
+        self.key_order.iter().filter_map(move |k| {
+            self.properties.get(k).map(|v| (k.as_str(), v))
+        })
     }
 }
 
@@ -102,9 +146,12 @@ impl TextPropertyTable {
     /// boundaries, and the named property is set on all intervals within
     /// the range. Adjacent intervals with identical properties are then
     /// merged.
-    pub fn put_property(&mut self, start: usize, end: usize, name: &str, value: Value) {
+    ///
+    /// Returns `true` if any property value was actually changed (or added),
+    /// `false` if all intervals already had the property with an equal value.
+    pub fn put_property(&mut self, start: usize, end: usize, name: &str, value: Value) -> bool {
         if start >= end {
-            return;
+            return false;
         }
 
         self.split_at(start);
@@ -113,6 +160,7 @@ impl TextPropertyTable {
         // Ensure there is coverage for the entire [start, end) range.
         self.ensure_coverage(start, end);
 
+        let mut changed = false;
         // Set the property on all intervals within [start, end).
         for interval in &mut self.intervals {
             if interval.start >= end {
@@ -122,10 +170,13 @@ impl TextPropertyTable {
                 continue;
             }
             // This interval overlaps [start, end).
-            interval.properties.insert(name.to_string(), value);
+            if interval.insert_property(name, value) {
+                changed = true;
+            }
         }
 
         self.merge_adjacent();
+        changed
     }
 
     /// Get a single property at a byte position.
@@ -154,6 +205,22 @@ impl TextPropertyTable {
         HashMap::new()
     }
 
+    /// Get all properties at a byte position in insertion order (most recently added first).
+    /// Returns a list of (name, value) pairs in the order matching GNU Emacs plist output.
+    pub fn get_properties_ordered(&self, pos: usize) -> Vec<(String, Value)> {
+        for interval in &self.intervals {
+            if interval.start > pos {
+                break;
+            }
+            if pos >= interval.start && pos < interval.end {
+                return interval.ordered_properties()
+                    .map(|(k, v)| (k.to_string(), *v))
+                    .collect();
+            }
+        }
+        Vec::new()
+    }
+
     /// Remove a single named property from the byte range `[start, end)`.
     /// Returns `true` if any property was actually removed, `false` otherwise.
     pub fn remove_property(&mut self, start: usize, end: usize, name: &str) -> bool {
@@ -172,7 +239,7 @@ impl TextPropertyTable {
             if interval.end <= start {
                 continue;
             }
-            if interval.properties.remove(name).is_some() {
+            if interval.remove_property(name).is_some() {
                 removed = true;
             }
         }
@@ -201,6 +268,7 @@ impl TextPropertyTable {
                 continue;
             }
             interval.properties.clear();
+            interval.key_order.clear();
         }
 
         self.cleanup();
@@ -310,12 +378,13 @@ impl TextPropertyTable {
         for i in 0..self.intervals.len() {
             let interval = &self.intervals[i];
             if interval.start < pos && pos < interval.end {
-                // Split this interval.
-                let second = PropertyInterval::with_properties(
-                    pos,
-                    interval.end,
-                    interval.properties.clone(),
-                );
+                // Split this interval, preserving key_order.
+                let second = PropertyInterval {
+                    start: pos,
+                    end: interval.end,
+                    properties: interval.properties.clone(),
+                    key_order: interval.key_order.clone(),
+                };
                 self.intervals[i].end = pos;
                 self.intervals.insert(i + 1, second);
                 return;
@@ -415,11 +484,12 @@ impl TextPropertyTable {
             let new_start = iv.start.max(start) - start;
             let new_end = iv.end.min(end) - start;
             if new_start < new_end && !iv.properties.is_empty() {
-                result.push(PropertyInterval::with_properties(
-                    new_start,
-                    new_end,
-                    iv.properties.clone(),
-                ));
+                result.push(PropertyInterval {
+                    start: new_start,
+                    end: new_end,
+                    properties: iv.properties.clone(),
+                    key_order: iv.key_order.clone(),
+                });
             }
         }
         TextPropertyTable { intervals: result }
@@ -431,11 +501,12 @@ impl TextPropertyTable {
             if iv.properties.is_empty() {
                 continue;
             }
-            self.intervals.push(PropertyInterval::with_properties(
-                iv.start + byte_offset,
-                iv.end + byte_offset,
-                iv.properties.clone(),
-            ));
+            self.intervals.push(PropertyInterval {
+                start: iv.start + byte_offset,
+                end: iv.end + byte_offset,
+                properties: iv.properties.clone(),
+                key_order: iv.key_order.clone(),
+            });
         }
         self.merge_adjacent();
     }

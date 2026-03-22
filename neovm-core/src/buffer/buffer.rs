@@ -1454,16 +1454,21 @@ impl BufferManager {
         end: usize,
         name: &str,
         value: Value,
-    ) -> Option<()> {
+    ) -> Option<bool> {
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
+        let mut any_changed = false;
         for shared_id in shared_ids {
-            self.buffers
+            if self
+                .buffers
                 .get_mut(&shared_id)?
                 .text_props
-                .put_property(start, end, name, value);
+                .put_property(start, end, name, value)
+            {
+                any_changed = true;
+            }
         }
-        Some(())
+        Some(any_changed)
     }
 
     pub fn append_buffer_text_properties(

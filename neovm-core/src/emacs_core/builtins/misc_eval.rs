@@ -1610,13 +1610,20 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    // Parse and apply plist properties
+    // Parse and apply plist properties.
+    // GNU Emacs's `propertize` reverses the property list before calling
+    // `add_text_properties`, which then prepends each property. The net
+    // effect is that properties appear in the original order in the plist.
+    // We match this by iterating the pairs in reverse order, since our
+    // `put_property` prepends new properties.
     if args.len() > 1 {
         let byte_len = s.len();
         let mut table = get_string_text_properties_table(new_id)
             .unwrap_or_else(|| crate::buffer::text_props::TextPropertyTable::new());
         let pairs = &args[1..];
-        for chunk in pairs.chunks(2) {
+        // Collect chunks and iterate in reverse to match GNU's reversal behavior
+        let chunks: Vec<&[Value]> = pairs.chunks(2).collect();
+        for chunk in chunks.iter().rev() {
             if chunk.len() == 2 {
                 if let Some(name) = chunk[0].as_symbol_name() {
                     table.put_property(0, byte_len, name, chunk[1]);

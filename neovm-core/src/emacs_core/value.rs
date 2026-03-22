@@ -411,8 +411,8 @@ pub fn get_string_text_properties(id: ObjId) -> Option<Vec<StringTextPropertyRun
                 continue;
             }
             let mut plist_items = Vec::new();
-            for (key, val) in &interval.properties {
-                plist_items.push(Value::symbol(key.clone()));
+            for (key, val) in interval.ordered_properties() {
+                plist_items.push(Value::symbol(key.to_string()));
                 plist_items.push(*val);
             }
             runs.push(StringTextPropertyRun {
