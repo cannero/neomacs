@@ -5741,10 +5741,10 @@ impl<'a> Vm<'a> {
                 self.shared.features,
                 args.to_vec(),
             )),
-            "provide" => Some(crate::emacs_core::builtins::builtin_provide_in_state(
-                self.shared.obarray,
-                self.shared.features,
-                args.to_vec(),
+            "provide" => Some(crate::emacs_core::eval::builtin_provide_in_vm_runtime(
+                &mut self.shared,
+                &[],
+                args,
             )),
             "eval" => Some(crate::emacs_core::eval::builtin_eval_in_vm_runtime(
                 &mut self.shared,

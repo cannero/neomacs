@@ -1448,6 +1448,27 @@ pub(crate) fn builtin_require_in_vm_runtime(
     }
 }
 
+/// VM-side `provide` that delegates to the parent evaluator so that
+/// `after-load-alist` callbacks are executed (matching GNU's Fprovide).
+pub(crate) fn builtin_provide_in_vm_runtime(
+    shared: &mut VmSharedState<'_>,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+) -> EvalResult {
+    if args.is_empty() || args.len() > 2 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("provide"), Value::Int(args.len() as i64)],
+        ));
+    }
+    let feature = args[0];
+    let subfeatures = args.get(1).copied();
+    let extra_roots = args.to_vec();
+    shared.with_parent_evaluator_vm_roots(vm_gc_roots, &extra_roots, move |eval| {
+        eval.provide_value(feature, subfeatures)
+    })
+}
+
 pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option<Value>), Flow> {
     let Some(arg) = arg else {
         return Ok((false, None));
@@ -7219,7 +7240,57 @@ impl Evaluator {
         feature: Value,
         subfeatures: Option<Value>,
     ) -> EvalResult {
-        provide_value_in_state(&mut self.obarray, &mut self.features, feature, subfeatures)
+        provide_value_in_state(&mut self.obarray, &mut self.features, feature, subfeatures)?;
+        // GNU Emacs Fprovide (fns.c): after adding the feature, run any
+        // load-hooks registered in `after-load-alist`.
+        //   tem = Fassq(feature, Vafter_load_alist);
+        //   if (CONSP(tem))  Fmapc(Qfuncall, XCDR(tem));
+        self.run_after_load_hooks_for_feature(feature)?;
+        Ok(feature)
+    }
+
+    /// Run `after-load-alist` callbacks for FEATURE, mirroring GNU's
+    /// `Fprovide` behavior: `(mapc #'funcall (cdr (assq feature after-load-alist)))`.
+    fn run_after_load_hooks_for_feature(&mut self, feature: Value) -> Result<(), Flow> {
+        let after_load_alist = self
+            .obarray
+            .symbol_value("after-load-alist")
+            .cloned()
+            .unwrap_or(Value::Nil);
+        if after_load_alist.is_nil() {
+            return Ok(());
+        }
+        // Walk after-load-alist looking for an entry whose car `eq` FEATURE.
+        let entry = {
+            let mut cursor = after_load_alist;
+            let mut found = Value::Nil;
+            while let Value::Cons(cell) = cursor {
+                let pair = crate::emacs_core::value::read_cons(cell);
+                if let Value::Cons(inner) = pair.car {
+                    let inner_pair = crate::emacs_core::value::read_cons(inner);
+                    if inner_pair.car == feature {
+                        found = pair.car;
+                        break;
+                    }
+                }
+                cursor = pair.cdr;
+            }
+            found
+        };
+        if entry.is_nil() {
+            return Ok(());
+        }
+        // entry is (FEATURE callback1 callback2 ...).
+        // Call funcall on each callback in the cdr.
+        let callbacks = entry.cons_cdr();
+        let mut cursor = callbacks;
+        while let Value::Cons(cell) = cursor {
+            let pair = crate::emacs_core::value::read_cons(cell);
+            let callback = pair.car;
+            self.apply(callback, vec![])?;
+            cursor = pair.cdr;
+        }
+        Ok(())
     }
 
     #[tracing::instrument(level = "info", skip(self), err(Debug))]

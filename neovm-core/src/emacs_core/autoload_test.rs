@@ -455,3 +455,53 @@ fn autoload_registers_in_autoload_manager() {
     assert!(entry.interactive);
     assert_eq!(entry.autoload_type, AutoloadType::Macro);
 }
+
+// -----------------------------------------------------------------------
+// eval-after-load / provide integration (bootstrap required)
+// -----------------------------------------------------------------------
+
+#[test]
+fn eval_after_load_deferred_fires_on_provide() {
+    // Register eval-after-load BEFORE providing the feature.
+    // When provide is called, the deferred callback should fire.
+    let results = bootstrap_eval_all(
+        r#"(defvar neovm--eal-test-log nil)
+           (eval-after-load 'neovm--eal-test-feat
+             '(setq neovm--eal-test-log (cons 'deferred neovm--eal-test-log)))
+           neovm--eal-test-log
+           (provide 'neovm--eal-test-feat)
+           neovm--eal-test-log"#,
+    );
+    // Before provide: log should be nil
+    assert_eq!(results[2], "OK nil");
+    // After provide: callback should have fired
+    assert_eq!(results[4], "OK (deferred)");
+}
+
+#[test]
+fn eval_after_load_immediate_fires_when_already_provided() {
+    // When eval-after-load is called for an already-provided feature,
+    // the callback should fire immediately.
+    let results = bootstrap_eval_all(
+        r#"(defvar neovm--eal-imm-log nil)
+           (provide 'neovm--eal-imm-feat)
+           (eval-after-load 'neovm--eal-imm-feat
+             '(setq neovm--eal-imm-log (cons 'immediate neovm--eal-imm-log)))
+           neovm--eal-imm-log"#,
+    );
+    // Should have fired immediately
+    assert_eq!(results[3], "OK (immediate)");
+}
+
+#[test]
+fn with_eval_after_load_fires_when_already_provided() {
+    // with-eval-after-load macro wraps body in a lambda and calls eval-after-load.
+    let results = bootstrap_eval_all(
+        r#"(defvar neovm--weal-test-result nil)
+           (provide 'neovm--weal-test-feat)
+           (with-eval-after-load 'neovm--weal-test-feat
+             (setq neovm--weal-test-result 'executed))
+           neovm--weal-test-result"#,
+    );
+    assert_eq!(results[3], "OK executed");
+}

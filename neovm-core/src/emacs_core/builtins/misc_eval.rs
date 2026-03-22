@@ -468,7 +468,8 @@ pub(crate) fn plan_defalias_in_obarray(
 }
 
 pub(crate) fn builtin_provide(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
-    builtin_provide_in_state(&mut eval.obarray, &mut eval.features, args)
+    expect_range_args("provide", &args, 1, 2)?;
+    eval.provide_value(args[0], args.get(1).cloned())
 }
 
 pub(crate) fn builtin_provide_in_state(
