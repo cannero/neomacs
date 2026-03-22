@@ -2730,11 +2730,17 @@ pub(crate) fn builtin_window_mode_line_height_in_state(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    let height = if is_minibuffer_window(frames, fid, wid) {
-        0
-    } else {
-        1
-    };
+    let height = window_chrome_height_in_state(
+        frames,
+        fid,
+        wid,
+        WindowChromeMetric::ModeLine,
+        if is_minibuffer_window(frames, fid, wid) {
+            0
+        } else {
+            1
+        },
+    );
     Ok(Value::Int(height))
 }
 
@@ -2753,8 +2759,67 @@ pub(crate) fn builtin_window_header_line_height_in_state(
 ) -> EvalResult {
     expect_max_args("window-header-line-height", &args, 1)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let _ = resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Int(0))
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(Value::Int(window_chrome_height_in_state(
+        frames,
+        fid,
+        wid,
+        WindowChromeMetric::HeaderLine,
+        0,
+    )))
+}
+
+/// `(window-tab-line-height &optional WINDOW)` -> integer.
+pub(crate) fn builtin_window_tab_line_height(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_window_tab_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_window_tab_line_height_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("window-tab-line-height", &args, 1)?;
+    let _ = ensure_selected_frame_id_in_state(frames, buffers);
+    let (fid, wid) =
+        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
+    Ok(Value::Int(window_chrome_height_in_state(
+        frames,
+        fid,
+        wid,
+        WindowChromeMetric::TabLine,
+        0,
+    )))
+}
+
+#[derive(Clone, Copy)]
+enum WindowChromeMetric {
+    ModeLine,
+    HeaderLine,
+    TabLine,
+}
+
+fn window_chrome_height_in_state(
+    frames: &FrameManager,
+    fid: FrameId,
+    wid: WindowId,
+    metric: WindowChromeMetric,
+    fallback: i64,
+) -> i64 {
+    frames
+        .get(fid)
+        .and_then(|frame| frame.window_display_snapshot(wid))
+        .map(|snapshot| match metric {
+            WindowChromeMetric::ModeLine => snapshot.mode_line_height,
+            WindowChromeMetric::HeaderLine => snapshot.header_line_height,
+            WindowChromeMetric::TabLine => snapshot.tab_line_height,
+        })
+        .unwrap_or(fallback)
+        .max(0)
 }
 
 /// `(window-pixel-height &optional WINDOW)` -> integer.

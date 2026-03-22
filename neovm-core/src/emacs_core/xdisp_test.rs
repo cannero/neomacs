@@ -1175,6 +1175,7 @@ fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
                 start_buffer_pos: Some(5),
                 end_buffer_pos: Some(5),
             }],
+            ..crate::window::WindowDisplaySnapshot::default()
         }]);
     }
 
@@ -1222,6 +1223,7 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
                 start_buffer_pos: Some(5),
                 end_buffer_pos: Some(5),
             }],
+            ..crate::window::WindowDisplaySnapshot::default()
         }]);
     }
 
@@ -1307,6 +1309,7 @@ fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
                 start_buffer_pos: Some(10),
                 end_buffer_pos: Some(14),
             }],
+            ..crate::window::WindowDisplaySnapshot::default()
         }]);
     }
 
@@ -1401,6 +1404,7 @@ fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row(
                     end_buffer_pos: Some(4),
                 },
             ],
+            ..crate::window::WindowDisplaySnapshot::default()
         }]);
     }
 

@@ -1617,6 +1617,35 @@ fn vm_window_geometry_builtins_use_shared_runtime_state() {
 }
 
 #[test]
+fn vm_window_chrome_height_builtins_use_last_redisplay_snapshot() {
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(list (window-mode-line-height)
+                     (window-header-line-height)
+                     (window-tab-line-height))"#,
+            |eval| {
+                let fid = crate::emacs_core::window_cmds::ensure_selected_frame_id_in_state(
+                    &mut eval.frames,
+                    &mut eval.buffers,
+                );
+                let wid = eval.frames.get(fid).expect("frame").selected_window;
+                eval.frames
+                    .get_mut(fid)
+                    .expect("frame")
+                    .replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+                        window_id: wid,
+                        mode_line_height: 35,
+                        header_line_height: 35,
+                        tab_line_height: 34,
+                        ..crate::window::WindowDisplaySnapshot::default()
+                    }]);
+            }
+        ),
+        "OK (35 35 34)"
+    );
+}
+
+#[test]
 fn vm_interactive_minibuffer_query_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm_eval_with_init_str(

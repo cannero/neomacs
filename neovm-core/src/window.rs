@@ -464,6 +464,12 @@ pub struct WindowDisplaySnapshot {
     pub window_id: WindowId,
     /// Text-area offset from the window's left edge, in pixels.
     pub text_area_left_offset: i64,
+    /// Last redisplay mode-line height in pixels.
+    pub mode_line_height: i64,
+    /// Last redisplay header-line height in pixels.
+    pub header_line_height: i64,
+    /// Last redisplay tab-line height in pixels.
+    pub tab_line_height: i64,
     /// Visible source-position geometry, sorted by `buffer_pos`.
     pub points: Vec<DisplayPointSnapshot>,
     /// Visible row metrics, sorted by `row`.
@@ -577,6 +583,9 @@ impl Default for WindowDisplaySnapshot {
         Self {
             window_id: WindowId(0),
             text_area_left_offset: 0,
+            mode_line_height: 0,
+            header_line_height: 0,
+            tab_line_height: 0,
             points: Vec::new(),
             rows: Vec::new(),
         }

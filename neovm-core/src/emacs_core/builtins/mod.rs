@@ -1722,6 +1722,11 @@ pub(crate) fn dispatch_builtin(
                 eval, args,
             ));
         }
+        "window-tab-line-height" => {
+            return Some(super::window_cmds::builtin_window_tab_line_height(
+                eval, args,
+            ));
+        }
         "window-pixel-height" => {
             return Some(super::window_cmds::builtin_window_pixel_height(eval, args));
         }

@@ -8246,7 +8246,11 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "window-tab-line-height" => Some(
-                crate::emacs_core::builtins::builtin_window_tab_line_height(args.to_vec()),
+                crate::emacs_core::window_cmds::builtin_window_tab_line_height_in_state(
+                    self.shared.frames,
+                    self.shared.buffers,
+                    args.to_vec(),
+                ),
             ),
             "select-window" => Some(
                 crate::emacs_core::window_cmds::builtin_select_window_in_state(

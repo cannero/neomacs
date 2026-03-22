@@ -3312,6 +3312,39 @@ fn window_end_prefers_last_redisplay_snapshot_when_available() {
 }
 
 #[test]
+fn window_chrome_height_queries_prefer_last_redisplay_snapshot_when_available() {
+    let mut ev = Evaluator::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    let wid = ev.frames.get(fid).expect("frame").selected_window;
+
+    {
+        let frame = ev.frames.get_mut(fid).expect("frame");
+        frame.replace_display_snapshots(vec![crate::window::WindowDisplaySnapshot {
+            window_id: wid,
+            mode_line_height: 35,
+            header_line_height: 35,
+            tab_line_height: 34,
+            ..crate::window::WindowDisplaySnapshot::default()
+        }]);
+    }
+
+    assert_eq!(
+        super::builtin_window_mode_line_height(&mut ev, vec![]).expect("mode-line height"),
+        Value::Int(35)
+    );
+    assert_eq!(
+        super::builtin_window_header_line_height(&mut ev, vec![]).expect("header-line height"),
+        Value::Int(35)
+    );
+    assert_eq!(
+        super::builtin_window_tab_line_height(&mut ev, vec![]).expect("tab-line height"),
+        Value::Int(34)
+    );
+}
+
+#[test]
 fn display_buffer_returns_window() {
     let results = bootstrap_eval_with_frame(
         "(get-buffer-create \"disp-buf\")

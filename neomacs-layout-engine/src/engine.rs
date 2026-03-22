@@ -4836,6 +4836,9 @@ impl LayoutEngine {
         self.display_snapshots.push(WindowDisplaySnapshot {
             window_id: neovm_core::window::WindowId(params.window_id as u64),
             text_area_left_offset: (text_area_left - params.bounds.x).round() as i64,
+            mode_line_height: mode_line_height.round() as i64,
+            header_line_height: header_line_height.round() as i64,
+            tab_line_height: tab_line_height.round() as i64,
             points: display_points,
             rows: display_rows,
         });
