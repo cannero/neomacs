@@ -392,6 +392,23 @@ pub(crate) fn builtin_marker_buffer_eval(
     Ok(Value::Nil)
 }
 
+/// Buffer-aware marker-buffer for the VM fast dispatch path.
+/// Returns nil for killed buffers (same as the eval-aware version).
+pub(crate) fn builtin_marker_buffer_in_buffers(
+    buffers: &BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("marker-buffer", &args, 1)?;
+    expect_marker("marker-buffer", &args[0])?;
+    let buf_val = marker_buffer_value(&args[0]);
+    if let Some(name) = buf_val.as_str() {
+        if let Some(bid) = buffers.find_buffer_by_name(name) {
+            return Ok(Value::Buffer(bid));
+        }
+    }
+    Ok(Value::Nil)
+}
+
 /// (marker-insertion-type MARKER) -> t or nil
 pub(crate) fn builtin_marker_insertion_type(args: Vec<Value>) -> EvalResult {
     expect_args("marker-insertion-type", &args, 1)?;

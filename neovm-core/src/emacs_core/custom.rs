@@ -604,25 +604,57 @@ pub(crate) fn builtin_default_value_in_state(
 }
 
 /// `(set-default SYMBOL VALUE)` -- set the default (global) value.
+///
+/// GNU design for PLAINVAL (non-buffer-local) variables: `set-default`
+/// delegates to `set_internal`, which writes to the dynamic frame when
+/// let-bound, so the let-bound value is updated.  After the let unwinds,
+/// the obarray value (saved "old" default) is restored.
+///
+/// For buffer-local variables, `set-default` writes to the obarray
+/// (default cell) directly, not to the dynamic frame or buffer-local slot.
 pub(crate) fn builtin_set_default(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    let result = builtin_set_default_in_obarray(eval.obarray_mut(), args.clone())?;
+    expect_args("set-default", &args, 2)?;
     let symbol = match args[0] {
         Value::Nil => intern("nil"),
         Value::True => intern("t"),
         Value::Symbol(id) | Value::Keyword(id) => id,
-        _ => unreachable!("validated by builtin_set_default_in_obarray"),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), args[0]],
+            ));
+        }
     };
     let resolved = super::builtins::resolve_variable_alias_id(eval, symbol)?;
     let resolved_name = resolve_sym(resolved);
+    if eval.obarray().is_constant_id(resolved) {
+        return Err(signal("setting-constant", vec![args[0]]));
+    }
     let value = args[1];
+
+    // GNU PLAINVAL path: for non-buffer-local variables, `set-default`
+    // behaves like `set` -- writes to the dynamic frame if let-bound.
+    let is_buffer_local = eval.custom.is_auto_buffer_local(resolved_name);
+    if !is_buffer_local {
+        // PLAINVAL: delegate to set_runtime_binding which writes to the
+        // dynamic frame if the variable is let-bound, else to the obarray.
+        eval.set_runtime_binding_by_id(resolved, value);
+    } else {
+        // LOCALIZED: write to the obarray (default cell) directly.
+        eval.obarray_mut().set_symbol_value_id(resolved, value);
+    }
+
+    // Fire watchers AFTER the write with operation="set".
+    // When the symbol was resolved through an alias, fire watchers twice
+    // (matching GNU where both set_default_internal and set_internal notify).
     eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
     if resolved != symbol {
         eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
     }
-    Ok(result)
+    Ok(value)
 }
 
 pub(crate) fn builtin_set_default_in_obarray(

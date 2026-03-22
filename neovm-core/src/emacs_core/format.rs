@@ -426,6 +426,44 @@ fn format_time(fmt: &str, tm: &BrokenDownTime) -> String {
                     tm.day,
                     tm.year % 100
                 )),
+                'U' => {
+                    // Week number of the year (Sunday as first day), 00-53
+                    let wnum = (tm.yearday + 7 - tm.weekday) / 7;
+                    if suppress_pad {
+                        result.push_str(&wnum.to_string());
+                    } else {
+                        result.push_str(&format!("{:02}", wnum));
+                    }
+                }
+                'W' => {
+                    // Week number of the year (Monday as first day), 00-53
+                    let monday_weekday = if tm.weekday == 0 { 6 } else { tm.weekday - 1 };
+                    let wnum = (tm.yearday + 7 - monday_weekday) / 7;
+                    if suppress_pad {
+                        result.push_str(&wnum.to_string());
+                    } else {
+                        result.push_str(&format!("{:02}", wnum));
+                    }
+                }
+                'c' => {
+                    // Preferred date and time representation (C locale):
+                    // equivalent to "%a %b %e %H:%M:%S %Y"
+                    result.push_str(DAY_ABBREVS[tm.weekday as usize % 7]);
+                    result.push(' ');
+                    result.push_str(MONTH_ABBREVS[(tm.month as usize).saturating_sub(1) % 12]);
+                    result.push_str(&format!(" {:2} {:02}:{:02}:{:02} {:04}",
+                        tm.day, tm.hour, tm.minute, tm.second, tm.year));
+                }
+                'x' => {
+                    // Preferred date representation (C locale): "%m/%d/%y"
+                    result.push_str(&format!("{:02}/{:02}/{:02}",
+                        tm.month, tm.day, tm.year % 100));
+                }
+                'X' => {
+                    // Preferred time representation (C locale): "%H:%M:%S"
+                    result.push_str(&format!("{:02}:{:02}:{:02}",
+                        tm.hour, tm.minute, tm.second));
+                }
                 other => {
                     // Unknown directive -- emit as-is.
                     result.push('%');

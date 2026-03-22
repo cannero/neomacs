@@ -52,6 +52,8 @@ struct TimeMicros {
     secs: i64,
     /// Microseconds within the current second, always in [0, 999_999].
     usecs: i64,
+    /// Picoseconds within the current microsecond, always in [0, 999_999].
+    psecs: i64,
 }
 
 impl TimeMicros {
@@ -60,25 +62,27 @@ impl TimeMicros {
             Ok(dur) => TimeMicros {
                 secs: dur.as_secs() as i64,
                 usecs: dur.subsec_micros() as i64,
+                psecs: 0,
             },
             Err(e) => {
                 let dur = e.duration();
                 TimeMicros {
                     secs: -(dur.as_secs() as i64),
                     usecs: -(dur.subsec_micros() as i64),
+                    psecs: 0,
                 }
             }
         }
     }
 
     fn to_list(&self) -> Value {
-        let high = (self.secs >> 16) & 0xFFFF_FFFF;
+        let high = self.secs >> 16;
         let low = self.secs & 0xFFFF;
         Value::list(vec![
             Value::Int(high),
             Value::Int(low),
             Value::Int(self.usecs),
-            Value::Int(0), // PSEC
+            Value::Int(self.psecs),
         ])
     }
 
@@ -87,8 +91,16 @@ impl TimeMicros {
     }
 
     fn add(self, other: TimeMicros) -> TimeMicros {
+        let mut psecs = self.psecs + other.psecs;
         let mut usecs = self.usecs + other.usecs;
         let mut secs = self.secs + other.secs;
+        if psecs >= 1_000_000 {
+            psecs -= 1_000_000;
+            usecs += 1;
+        } else if psecs < 0 {
+            psecs += 1_000_000;
+            usecs -= 1;
+        }
         if usecs >= 1_000_000 {
             usecs -= 1_000_000;
             secs += 1;
@@ -96,12 +108,20 @@ impl TimeMicros {
             usecs += 1_000_000;
             secs -= 1;
         }
-        TimeMicros { secs, usecs }
+        TimeMicros { secs, usecs, psecs }
     }
 
     fn sub(self, other: TimeMicros) -> TimeMicros {
+        let mut psecs = self.psecs - other.psecs;
         let mut usecs = self.usecs - other.usecs;
         let mut secs = self.secs - other.secs;
+        if psecs < 0 {
+            psecs += 1_000_000;
+            usecs -= 1;
+        } else if psecs >= 1_000_000 {
+            psecs -= 1_000_000;
+            usecs += 1;
+        }
         if usecs < 0 {
             usecs += 1_000_000;
             secs -= 1;
@@ -109,19 +129,21 @@ impl TimeMicros {
             usecs -= 1_000_000;
             secs += 1;
         }
-        TimeMicros { secs, usecs }
+        TimeMicros { secs, usecs, psecs }
     }
 
     fn less_than(self, other: TimeMicros) -> bool {
         if self.secs != other.secs {
             self.secs < other.secs
-        } else {
+        } else if self.usecs != other.usecs {
             self.usecs < other.usecs
+        } else {
+            self.psecs < other.psecs
         }
     }
 
     fn equal(self, other: TimeMicros) -> bool {
-        self.secs == other.secs && self.usecs == other.usecs
+        self.secs == other.secs && self.usecs == other.usecs && self.psecs == other.psecs
     }
 }
 
@@ -137,11 +159,11 @@ impl TimeMicros {
 fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
     match val {
         Value::Nil => Ok(TimeMicros::now()),
-        Value::Int(n) => Ok(TimeMicros { secs: *n, usecs: 0 }),
+        Value::Int(n) => Ok(TimeMicros { secs: *n, usecs: 0, psecs: 0 }),
         Value::Float(f, _) => {
             let secs = f.floor() as i64;
             let usecs = ((f - f.floor()) * 1_000_000.0).round() as i64;
-            Ok(TimeMicros { secs, usecs })
+            Ok(TimeMicros { secs, usecs, psecs: 0 })
         }
         Value::Cons(_) => {
             let items = list_to_vec(val)
@@ -169,9 +191,13 @@ fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
             } else {
                 0
             };
-            // PSEC (items[3]) is ignored
+            let psec = if items.len() > 3 {
+                items[3].as_int().unwrap_or(0)
+            } else {
+                0
+            };
             let secs = high * 65536 + low;
-            Ok(TimeMicros { secs, usecs: usec })
+            Ok(TimeMicros { secs, usecs: usec, psecs: psec })
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -653,7 +679,7 @@ pub(crate) fn builtin_encode_time(args: Vec<Value>) -> EvalResult {
     let local_secs = encode_to_epoch_secs(sec, min, hour, day, month, year);
     let zone_offset = encode_time_zone_offset(&zone, local_secs)?;
     let total_secs = local_secs - zone_offset;
-    let high = (total_secs >> 16) & 0xFFFF_FFFF;
+    let high = total_secs >> 16;
     let low = total_secs & 0xFFFF;
     Ok(Value::list(vec![Value::Int(high), Value::Int(low)]))
 }

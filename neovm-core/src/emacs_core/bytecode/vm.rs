@@ -2403,27 +2403,54 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_set_default_shared(&mut self, args: &[Value]) -> EvalResult {
-        let result = crate::emacs_core::custom::builtin_set_default_in_obarray(
-            self.shared.obarray,
-            args.to_vec(),
-        )?;
+        use crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray;
+
+        if args.len() != 2 {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("set-default"), Value::Int(args.len() as i64)],
+            ));
+        }
         let symbol = match args[0] {
             Value::Nil => intern("nil"),
             Value::True => intern("t"),
             Value::Symbol(id) | Value::Keyword(id) => id,
-            _ => unreachable!("validated by builtin_set_default_in_obarray"),
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("symbolp"), args[0]],
+                ));
+            }
         };
-        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+        let resolved = resolve_variable_alias_id_in_obarray(
             &*self.shared.obarray,
             symbol,
         )?;
         let resolved_name = resolve_sym(resolved);
-        let value = args[1];
-        self.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
-        if resolved != symbol {
-            self.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        if self.shared.obarray.is_constant_id(resolved) {
+            return Err(signal("setting-constant", vec![args[0]]));
         }
-        Ok(result)
+        let value = args[1];
+
+        // GNU PLAINVAL path: for non-buffer-local variables, `set-default`
+        // behaves like `set` -- writes to dynamic frame if let-bound.
+        let is_buffer_local = self.shared.custom.is_auto_buffer_local(resolved_name);
+        if !is_buffer_local {
+            crate::emacs_core::eval::set_runtime_binding_in_state(
+                self.shared.obarray,
+                self.shared.dynamic.as_mut_slice(),
+                self.shared.buffers,
+                &*self.shared.custom,
+                resolved,
+                value,
+            );
+        } else {
+            self.shared.obarray.set_symbol_value_id(resolved, value);
+        }
+
+        // Fire watchers AFTER the write.
+        self.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        Ok(value)
     }
 
     fn builtin_set_default_toplevel_value_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -5198,6 +5225,10 @@ impl<'a> Vm<'a> {
                 ),
             ),
             "mark-marker" => Some(crate::emacs_core::marker::builtin_mark_marker_in_buffers(
+                &*self.shared.buffers,
+                args.to_vec(),
+            )),
+            "marker-buffer" => Some(crate::emacs_core::marker::builtin_marker_buffer_in_buffers(
                 &*self.shared.buffers,
                 args.to_vec(),
             )),

@@ -34,6 +34,7 @@ fn time_micros_roundtrip_to_list() {
     let tm = TimeMicros {
         secs: 1_700_000_000,
         usecs: 123_456,
+        psecs: 0,
     };
     let list = tm.to_list();
     let items = list_to_vec(&list).unwrap();
@@ -52,6 +53,7 @@ fn time_micros_to_float() {
     let tm = TimeMicros {
         secs: 1000,
         usecs: 500_000,
+        psecs: 0,
     };
     let f = tm.to_float();
     assert!((f - 1000.5).abs() < 1e-6);
@@ -62,10 +64,12 @@ fn time_micros_add() {
     let a = TimeMicros {
         secs: 10,
         usecs: 800_000,
+        psecs: 0,
     };
     let b = TimeMicros {
         secs: 5,
         usecs: 400_000,
+        psecs: 0,
     };
     let c = a.add(b);
     assert_eq!(c.secs, 16);
@@ -77,10 +81,12 @@ fn time_micros_sub() {
     let a = TimeMicros {
         secs: 10,
         usecs: 200_000,
+        psecs: 0,
     };
     let b = TimeMicros {
         secs: 5,
         usecs: 400_000,
+        psecs: 0,
     };
     let c = a.sub(b);
     assert_eq!(c.secs, 4);
@@ -89,8 +95,8 @@ fn time_micros_sub() {
 
 #[test]
 fn time_micros_less_than() {
-    let a = TimeMicros { secs: 10, usecs: 0 };
-    let b = TimeMicros { secs: 10, usecs: 1 };
+    let a = TimeMicros { secs: 10, usecs: 0, psecs: 0 };
+    let b = TimeMicros { secs: 10, usecs: 1, psecs: 0 };
     assert!(a.less_than(b));
     assert!(!b.less_than(a));
     assert!(!a.less_than(a));
@@ -101,15 +107,18 @@ fn time_micros_equal() {
     let a = TimeMicros {
         secs: 42,
         usecs: 123,
+        psecs: 0,
     };
     let b = TimeMicros {
         secs: 42,
         usecs: 123,
+        psecs: 0,
     };
     assert!(a.equal(b));
     let c = TimeMicros {
         secs: 42,
         usecs: 124,
+        psecs: 0,
     };
     assert!(!a.equal(c));
 }
