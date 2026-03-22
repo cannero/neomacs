@@ -17,7 +17,7 @@ use super::common::{assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_orac
 fn oracle_prop_seq_lib_elt_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; seq-elt on lists at boundaries
@@ -50,7 +50,7 @@ fn oracle_prop_seq_lib_elt_comprehensive() {
 fn oracle_prop_seq_lib_do_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (let ((acc nil))
     (seq-do (lambda (x) (push (* x x) acc)) '(1 2 3 4 5))
@@ -76,7 +76,7 @@ fn oracle_prop_seq_lib_do_comprehensive() {
 fn oracle_prop_seq_lib_map_indexed() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; map-indexed on list: pair each element with its index
@@ -102,7 +102,7 @@ fn oracle_prop_seq_lib_map_indexed() {
 fn oracle_prop_seq_lib_contains_position() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; seq-contains-p basic
@@ -141,7 +141,7 @@ fn oracle_prop_seq_lib_contains_position() {
 fn oracle_prop_seq_lib_concatenate() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; Concatenate lists into list
@@ -173,7 +173,7 @@ fn oracle_prop_seq_lib_concatenate() {
 fn oracle_prop_seq_lib_partition() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; Partition into evens and odds
@@ -202,7 +202,7 @@ fn oracle_prop_seq_lib_partition() {
 fn oracle_prop_seq_lib_group_by() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; Group by even/odd
@@ -231,7 +231,7 @@ fn oracle_prop_seq_lib_group_by() {
 fn oracle_prop_seq_lib_min_max() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; seq-min on various lists
@@ -261,7 +261,7 @@ fn oracle_prop_seq_lib_min_max() {
 fn oracle_prop_seq_lib_take_drop_while() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; seq-take
@@ -299,7 +299,7 @@ fn oracle_prop_seq_lib_take_drop_while() {
 fn oracle_prop_seq_lib_into() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; List to vector
@@ -333,7 +333,7 @@ fn oracle_prop_seq_lib_into() {
 fn oracle_prop_seq_lib_chained_transformations() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (let ((data '(34 67 23 89 12 56 78 45 91 15 38 72)))
     (list
@@ -370,7 +370,7 @@ fn oracle_prop_seq_lib_chained_transformations() {
 fn oracle_prop_seq_lib_nested_data_operations() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (let ((students '((:name "Alice"   :grade 92 :subject "math")
                     (:name "Bob"     :grade 85 :subject "science")

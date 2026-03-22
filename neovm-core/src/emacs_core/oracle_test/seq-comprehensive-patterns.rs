@@ -17,7 +17,7 @@ fn oracle_prop_seq_map_filter_reduce_all_types() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Test seq-map, seq-filter, seq-reduce across all three sequence types
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
       ;; seq-map on list
       (seq-map #'1+ '(1 2 3 4 5))
       ;; seq-map on vector
@@ -56,7 +56,7 @@ fn oracle_prop_seq_map_filter_reduce_all_types() {
 fn oracle_prop_seq_find_some_every() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
       ;; seq-find: first even number
       (seq-find #'cl-evenp '(1 3 5 4 7 8))
       ;; seq-find: not found returns nil
@@ -97,7 +97,7 @@ fn oracle_prop_seq_find_some_every() {
 fn oracle_prop_seq_count_length_elt() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
       ;; seq-count
       (seq-count #'cl-evenp '(1 2 3 4 5 6))
       (seq-count (lambda (x) (> x 3)) '(1 2 3 4 5 6))
@@ -128,7 +128,7 @@ fn oracle_prop_seq_count_length_elt() {
 fn oracle_prop_seq_uniq_remove() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
       ;; seq-uniq: basic dedup with default eq
       (seq-uniq '(1 2 3 2 1 4 3 5))
       ;; seq-uniq on symbols
@@ -163,7 +163,7 @@ fn oracle_prop_seq_uniq_remove() {
 fn oracle_prop_seq_sort_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
       ;; seq-sort on list (ascending)
       (seq-sort #'< '(5 3 8 1 4 2 7 6))
       ;; seq-sort on list (descending)
@@ -195,7 +195,7 @@ fn oracle_prop_seq_data_pipeline() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Simulate a data analysis pipeline: filter, transform, aggregate
-    let form = r#"(let ((records '((alice 28 85000)
+    let form = r#"((require (quote cl-lib)) let ((records '((alice 28 85000)
                                    (bob 35 92000)
                                    (carol 42 78000)
                                    (dave 23 65000)
@@ -244,7 +244,7 @@ fn oracle_prop_seq_set_operations() {
 
     // Implement set operations (union, intersection, difference,
     // symmetric difference) using seq functions
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (fset 'neovm--seq-union
     (lambda (a b)
       (seq-uniq (append a b))))

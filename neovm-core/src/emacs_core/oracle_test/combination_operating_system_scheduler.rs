@@ -20,7 +20,7 @@ fn oracle_prop_combination_os_scheduler_mlfq_basic() {
     // Processes start at highest priority (queue 0). If they use their
     // entire time quantum they drop to the next lower queue. I/O-bound
     // processes that yield early stay at their current level.
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   ;; Process: (pid name queue cpu-used io-waiting burst-remaining time-quantum-used)
   (fset 'neovm--sched-make-proc
@@ -104,7 +104,7 @@ fn oracle_prop_combination_os_scheduler_mlfq_basic() {
     (fmakunbound 'neovm--sched-tq-used)
     (fmakunbound 'neovm--sched-quantum)
     (fmakunbound 'neovm--sched-tick)
-    (fmakunbound 'neovm--sched-run-proc)))"#;
+    (fmakunbound 'neovm--sched-run-proc))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -117,7 +117,7 @@ fn oracle_prop_combination_os_scheduler_priority_aging() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Processes that wait too long at low priority get boosted back up
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   ;; Process: (pid queue wait-ticks age-threshold)
   ;; age-threshold: after this many wait ticks, promote by 1 level
@@ -176,7 +176,7 @@ fn oracle_prop_combination_os_scheduler_priority_aging() {
     (fmakunbound 'neovm--age-queue)
     (fmakunbound 'neovm--age-wait)
     (fmakunbound 'neovm--age-tick-wait)
-    (fmakunbound 'neovm--age-simulate)))"#;
+    (fmakunbound 'neovm--age-simulate))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -190,7 +190,7 @@ fn oracle_prop_combination_os_scheduler_io_burst() {
 
     // I/O-bound processes voluntarily yield before their quantum expires.
     // They should keep their current priority level (not be demoted).
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   ;; Process: (pid queue cpu-total bursts) where bursts = list of (type . duration)
   ;; type: cpu or io
@@ -249,7 +249,7 @@ fn oracle_prop_combination_os_scheduler_io_burst() {
           (nth 0 mixed)
           (nth 1 mixed)))
 
-    (fmakunbound 'neovm--iob-simulate)))"#;
+    (fmakunbound 'neovm--iob-simulate))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -262,7 +262,7 @@ fn oracle_prop_combination_os_scheduler_context_switch() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Track the overhead of context switches in a round-robin scheduler
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--csw-round-robin
     (lambda (processes quantum switch-cost)
@@ -318,7 +318,7 @@ fn oracle_prop_combination_os_scheduler_context_switch() {
           (nth 2 result-large-q)
           (nth 3 result-large-q)))
 
-    (fmakunbound 'neovm--csw-round-robin)))"#;
+    (fmakunbound 'neovm--csw-round-robin))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -331,7 +331,7 @@ fn oracle_prop_combination_os_scheduler_cpu_utilization() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Track CPU busy vs idle time over a scheduling window
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--util-schedule
     (lambda (arrivals total-time quantum)
@@ -405,7 +405,7 @@ fn oracle_prop_combination_os_scheduler_cpu_utilization() {
           ;; r3: busy=10, idle=0, utilization=100%
           (nth 0 r3) (nth 1 r3) (nth 2 r3)))
 
-    (fmakunbound 'neovm--util-schedule)))"#;
+    (fmakunbound 'neovm--util-schedule))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -418,7 +418,7 @@ fn oracle_prop_combination_os_scheduler_starvation_detection() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Detect starvation: a process waiting longer than a threshold
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--starv-detect
     (lambda (schedule-log threshold)
@@ -467,7 +467,7 @@ fn oracle_prop_combination_os_scheduler_starvation_detection() {
           ;; Fair: max gap is 2 for both, not starved
           r2))
 
-    (fmakunbound 'neovm--starv-detect)))"#;
+    (fmakunbound 'neovm--starv-detect))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -480,7 +480,7 @@ fn oracle_prop_combination_os_scheduler_fair_share() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Groups get proportional CPU shares. Within a group, round-robin.
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   ;; Group: (group-id share processes)
   ;; Process: (pid . remaining)
@@ -559,6 +559,6 @@ fn oracle_prop_combination_os_scheduler_fair_share() {
                 (b-cpu (nth 1 (cadr r1))))
             (list a-cpu b-cpu (>= b-cpu (* 2 (1- a-cpu)))))))
 
-    (fmakunbound 'neovm--fs-schedule)))"#;
+    (fmakunbound 'neovm--fs-schedule))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }

@@ -17,7 +17,7 @@ fn oracle_prop_seq_mapn_multiple_sequences() {
 
     // seq-mapn maps a function over corresponding elements of N sequences.
     // Stops at the shortest sequence.
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
                     ;; Two lists, element-wise addition
                     (seq-mapn #'+ '(1 2 3 4) '(10 20 30 40))
                     ;; Three lists, build triples
@@ -41,7 +41,7 @@ fn oracle_prop_seq_group_by() {
 
     // seq-group-by returns an alist of (key . elements).
     // We sort the result for deterministic comparison.
-    let form = r#"(let ((result (seq-group-by #'cl-evenp '(1 2 3 4 5 6 7 8))))
+    let form = r#"((require (quote cl-lib)) let ((result (seq-group-by #'cl-evenp '(1 2 3 4 5 6 7 8))))
                     ;; Sort by key for determinism
                     (sort result (lambda (a b)
                                    (and (null (car a)) (car b)))))"#;
@@ -53,7 +53,7 @@ fn oracle_prop_seq_group_by_complex_key() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Group words by their length
-    let form = r#"(let ((words '("a" "bb" "ccc" "dd" "e" "fff" "gg")))
+    let form = r#"((require (quote cl-lib)) let ((words '("a" "bb" "ccc" "dd" "e" "fff" "gg")))
                     (let ((groups (seq-group-by #'length words)))
                       ;; Sort by key (length) for determinism
                       (sort groups (lambda (a b) (< (car a) (car b))))))"#;
@@ -69,7 +69,7 @@ fn oracle_prop_seq_sort_by() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-sort-by sorts a sequence by comparing extracted keys.
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
                     ;; Sort strings by length
                     (seq-sort-by #'length #'<
                                  '("banana" "fig" "apple" "kiwi" "elderberry"))
@@ -90,7 +90,7 @@ fn oracle_prop_seq_min_max() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-min and seq-max return the minimum/maximum element.
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
                     (seq-min '(3 1 4 1 5 9 2 6))
                     (seq-max '(3 1 4 1 5 9 2 6))
                     (seq-min [100 50 200 25 300])
@@ -113,7 +113,7 @@ fn oracle_prop_seq_partition() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-partition returns a list of two lists: (matching non-matching)
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
                     ;; Partition by evenness
                     (seq-partition #'cl-evenp '(1 2 3 4 5 6 7 8 9 10))
                     ;; Partition by type
@@ -136,7 +136,7 @@ fn oracle_prop_seq_subseq() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-subseq extracts a portion of a sequence.
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
                     ;; List subseq with start and end
                     (seq-subseq '(a b c d e f) 1 4)
                     ;; List subseq with only start (to end)
@@ -165,7 +165,7 @@ fn oracle_prop_seq_data_analysis_pipeline() {
 
     // Multi-step data analysis: students with grades across subjects.
     // Compute per-student averages, find top performers, group by tier.
-    let form = r#"(let ((students
+    let form = r#"((require (quote cl-lib)) let ((students
                          '((alice (math . 92) (eng . 88) (sci . 95))
                            (bob (math . 75) (eng . 82) (sci . 70))
                            (carol (math . 98) (eng . 94) (sci . 91))
@@ -228,7 +228,7 @@ fn oracle_prop_seq_custom_set_operations() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Set operations on structured data using custom equality (by 'id field).
-    let form = r#"(let ((set-a '((:id 1 :name "Alice")
+    let form = r#"((require (quote cl-lib)) let ((set-a '((:id 1 :name "Alice")
                                   (:id 2 :name "Bob")
                                   (:id 3 :name "Carol")))
                         (set-b '((:id 2 :name "Bob-Updated")

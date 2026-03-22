@@ -19,7 +19,7 @@ fn oracle_prop_combination_regalloc_liveness_defuse() {
 
     // Build def/use chains from instruction sequences.
     // Each instruction: (op dest src1 src2) or (op dest src) or (ret src)
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--ra-extract-defs
     (lambda (instr)
@@ -109,7 +109,7 @@ fn oracle_prop_combination_regalloc_liveness_defuse() {
 
     (fmakunbound 'neovm--ra-extract-defs)
     (fmakunbound 'neovm--ra-extract-uses)
-    (fmakunbound 'neovm--ra-liveness)))"#;
+    (fmakunbound 'neovm--ra-liveness))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -122,7 +122,7 @@ fn oracle_prop_combination_regalloc_interference_graph() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Two variables interfere if they are both live at the same program point
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--ra-build-interference
     (lambda (live-sets)
@@ -176,7 +176,7 @@ fn oracle_prop_combination_regalloc_interference_graph() {
           ;; Total directed edges
           total-edges))
 
-    (fmakunbound 'neovm--ra-build-interference)))"#;
+    (fmakunbound 'neovm--ra-build-interference))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -190,7 +190,7 @@ fn oracle_prop_combination_regalloc_graph_coloring() {
 
     // Chaitin's algorithm: iteratively remove nodes with degree < k,
     // push onto stack, then pop and assign colors.
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--ra-degree
     (lambda (node graph)
@@ -277,7 +277,7 @@ fn oracle_prop_combination_regalloc_graph_coloring() {
 
     (fmakunbound 'neovm--ra-degree)
     (fmakunbound 'neovm--ra-remove-node)
-    (fmakunbound 'neovm--ra-color-graph)))"#;
+    (fmakunbound 'neovm--ra-color-graph))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -291,7 +291,7 @@ fn oracle_prop_combination_regalloc_spill_cost() {
 
     // Spill cost = (uses + defs) * loop_depth / degree
     // Lower spill cost = better candidate for spilling
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--ra-spill-cost
     (lambda (var-info graph)
@@ -333,7 +333,7 @@ fn oracle_prop_combination_regalloc_spill_cost() {
           ;; b should be expensive: loop depth 2 makes weight huge
           (< (cdr (assq 'd costs)) (cdr (assq 'b costs)))))
 
-    (fmakunbound 'neovm--ra-spill-cost)))"#;
+    (fmakunbound 'neovm--ra-spill-cost))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -347,7 +347,7 @@ fn oracle_prop_combination_regalloc_coalescing() {
 
     // Coalescing: merge two non-interfering move-related variables
     // into one to eliminate MOV instructions.
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--ra-interferes-p
     (lambda (v1 v2 graph)
@@ -423,7 +423,7 @@ fn oracle_prop_combination_regalloc_coalescing() {
           (length (nth 0 r3))))
 
     (fmakunbound 'neovm--ra-interferes-p)
-    (fmakunbound 'neovm--ra-coalesce)))"#;
+    (fmakunbound 'neovm--ra-coalesce))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -437,7 +437,7 @@ fn oracle_prop_combination_regalloc_split_everywhere() {
 
     // Split-everywhere: for each use of a spilled variable, insert a reload
     // before the use and a spill after the definition.
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--ra-split-everywhere
     (lambda (instrs spilled-var)
@@ -509,7 +509,7 @@ fn oracle_prop_combination_regalloc_split_everywhere() {
           (length prog1)))
 
     (fmakunbound 'neovm--ra-split-everywhere)
-    (fmakunbound 'neovm--ra-count-spill-ops)))"#;
+    (fmakunbound 'neovm--ra-count-spill-ops))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -523,7 +523,7 @@ fn oracle_prop_combination_regalloc_assignment_verification() {
 
     // Verify that a register assignment is valid: no two simultaneously
     // live variables share the same register.
-    let form = r#"
+    let form = r#"(progn (require (quote cl-lib))
 (progn
   (fset 'neovm--ra-verify-assignment
     (lambda (live-sets assignment)
@@ -585,6 +585,6 @@ fn oracle_prop_combination_regalloc_assignment_verification() {
           (car v3)))
 
     (fmakunbound 'neovm--ra-verify-assignment)
-    (fmakunbound 'neovm--ra-min-registers)))"#;
+    (fmakunbound 'neovm--ra-min-registers))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }

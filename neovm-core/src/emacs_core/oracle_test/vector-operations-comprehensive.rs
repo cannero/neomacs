@@ -16,7 +16,7 @@ use super::common::{assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_orac
 fn oracle_prop_vector_ops_comp_make_vector_aref_aset_roundtrip() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(let ((v (make-vector 8 nil)))
+    let form = r#"((require (quote cl-lib)) let ((v (make-vector 8 nil)))
   ;; Fill with computed values: index * 10 + 3
   (let ((i 0))
     (while (< i 8)
@@ -44,7 +44,7 @@ fn oracle_prop_vector_ops_comp_make_vector_aref_aset_roundtrip() {
 fn oracle_prop_vector_ops_comp_vector_constructor_and_vconcat_mixed() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(let* ((v1 (vector 1 2 3))
+    let form = r#"((require (quote cl-lib)) let* ((v1 (vector 1 2 3))
        (v2 (vector 'a 'b 'c))
        (v3 (vector "x" "y"))
        (v4 (vector nil t 0 1.5))
@@ -70,7 +70,7 @@ fn oracle_prop_vector_ops_comp_vector_constructor_and_vconcat_mixed() {
 fn oracle_prop_vector_ops_comp_fillarray_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(let ((v1 (make-vector 5 0))
+    let form = r#"((require (quote cl-lib)) let ((v1 (make-vector 5 0))
       (v2 (vector 1 2 3 4 5))
       (v3 (make-vector 3 'old)))
   ;; fillarray returns the array itself
@@ -102,7 +102,7 @@ fn oracle_prop_vector_ops_comp_fillarray_comprehensive() {
 fn oracle_prop_vector_ops_comp_copy_sequence_independence() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(let* ((orig (vector 1 2 3 4 5))
+    let form = r#"((require (quote cl-lib)) let* ((orig (vector 1 2 3 4 5))
        (copy (copy-sequence orig)))
   ;; Copy is equal but not eq
   (let ((pre-equal (equal orig copy))
@@ -134,7 +134,7 @@ fn oracle_prop_vector_ops_comp_copy_sequence_independence() {
 fn oracle_prop_vector_ops_comp_sort_vectors() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
   ;; Sort integers
   (let ((v (vector 5 3 8 1 9 2 7 4 6)))
     (sort v #'<))
@@ -165,7 +165,7 @@ fn oracle_prop_vector_ops_comp_sort_vectors() {
 fn oracle_prop_vector_ops_comp_cl_coerce_roundtrip() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'cl-lib)
   (list
     ;; vector -> list
@@ -199,7 +199,7 @@ fn oracle_prop_vector_ops_comp_cl_coerce_roundtrip() {
 fn oracle_prop_vector_ops_comp_seq_map_filter_reduce() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; seq-map: double each element
@@ -235,7 +235,7 @@ fn oracle_prop_vector_ops_comp_seq_map_filter_reduce() {
 fn oracle_prop_vector_ops_comp_seq_into_conversions() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (list
     ;; vector -> list via seq-into
@@ -265,7 +265,7 @@ fn oracle_prop_vector_ops_comp_seq_into_conversions() {
 fn oracle_prop_vector_ops_comp_cl_map_result_type_vector() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'cl-lib)
   (list
     ;; cl-map with result-type 'vector over a vector
@@ -295,7 +295,7 @@ fn oracle_prop_vector_ops_comp_cl_map_result_type_vector() {
 fn oracle_prop_vector_ops_comp_cl_substitute() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'cl-lib)
   (list
     ;; Basic substitution in vector
@@ -325,7 +325,7 @@ fn oracle_prop_vector_ops_comp_cl_substitute() {
 fn oracle_prop_vector_ops_comp_equality_comparison() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(list
+    let form = r#"((require (quote cl-lib)) list
   ;; eq: same object
   (let ((v [1 2 3])) (eq v v))
   ;; eq: different objects with same content
@@ -359,7 +359,7 @@ fn oracle_prop_vector_ops_comp_equality_comparison() {
 fn oracle_prop_vector_ops_comp_nesting_and_higher_order() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (require 'seq)
   (let* (;; Matrix as vector of vectors
          (matrix (vector (vector 1 2 3) (vector 4 5 6) (vector 7 8 9)))

@@ -16,7 +16,7 @@ use super::common::{assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_orac
 fn oracle_prop_proto_tcp_state_machine() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   ;; TCP states: closed, listen, syn-sent, syn-received, established,
   ;;             fin-wait-1, fin-wait-2, close-wait, closing, last-ack, time-wait
   (fset 'neovm--tcp-make
@@ -157,7 +157,7 @@ fn oracle_prop_proto_tcp_state_machine() {
 fn oracle_prop_proto_http_state_machine() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (fset 'neovm--http-make-request
     (lambda (method path headers body)
       (list 'request method path headers body)))
@@ -251,7 +251,7 @@ fn oracle_prop_proto_http_state_machine() {
 fn oracle_prop_proto_token_auth_flow() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (fset 'neovm--auth-make-store
     (lambda ()
       (let ((st (make-hash-table :test 'equal)))
@@ -333,7 +333,7 @@ fn oracle_prop_proto_token_auth_flow() {
 fn oracle_prop_proto_exponential_backoff() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (fset 'neovm--backoff-retry
     (lambda (op max-retries base-delay max-delay jitter-seed)
       ;; Simulate retry with exponential backoff
@@ -393,7 +393,7 @@ fn oracle_prop_proto_exponential_backoff() {
 fn oracle_prop_proto_connection_pool() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (fset 'neovm--pool-make
     (lambda (max-size)
       (let ((pool (make-hash-table :test 'eq)))
@@ -481,7 +481,7 @@ fn oracle_prop_proto_connection_pool() {
 fn oracle_prop_proto_multiplexing() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   ;; Simulate multiplexing multiple logical streams over one channel
   ;; Each frame: (stream-id type payload)
   ;; Types: 'headers, 'data, 'rst, 'window-update, 'end-stream
@@ -578,7 +578,7 @@ fn oracle_prop_proto_multiplexing() {
 fn oracle_prop_proto_sliding_window() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"(progn
+    let form = r#"((require (quote cl-lib)) progn
   (fset 'neovm--sw-make
     (lambda (window-size)
       (let ((sw (make-hash-table :test 'eq)))
