@@ -263,9 +263,19 @@ pub(super) fn builtin_define_key(
     expect_min_args("define-key", &args, 3)?;
     expect_max_args("define-key", &args, 4)?;
     let keymap = expect_keymap(eval, &args[0])?;
-    let events = expect_key_events(&args[1])?;
+    let mut events = expect_key_events(&args[1])?;
     let def = args[2];
-    list_keymap_define_seq_in_obarray(eval.obarray(), keymap, &events, def);
+    // Expand meta-prefixed events to ESC + base, matching GNU Emacs
+    // Fdefine_key's metized handling.
+    if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(eval.obarray(), &events) {
+        events = expanded;
+    }
+    if let Err(msg) = list_keymap_define_seq_in_obarray(eval.obarray(), keymap, &events, def) {
+        return Err(signal(
+            "error",
+            vec![Value::string(msg)],
+        ));
+    }
     Ok(def)
 }
 
@@ -292,7 +302,9 @@ pub(crate) fn builtin_lookup_key_in_obarray(obarray: &Obarray, args: &[Value]) -
     if direct.is_nil() || matches!(direct, Value::Int(_)) {
         if let Some(expanded) = expand_meta_prefix_char_events_in_obarray(obarray, &events) {
             let expanded_result = lookup_key_in_obarray(obarray, &keymap, &expanded);
-            if !expanded_result.is_nil() {
+            // Only use the expanded result if it found an actual binding
+            // (not nil and not a "too long" integer).
+            if !expanded_result.is_nil() && !matches!(expanded_result, Value::Int(_)) {
                 return Ok(expanded_result);
             }
         }
@@ -309,16 +321,23 @@ fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value]) ->
     let mut current_map = *keymap;
     for (i, event) in events.iter().enumerate() {
         let binding = list_keymap_lookup_one(&current_map, event);
-        if binding.is_nil() {
-            return if i == 0 {
-                Value::Nil
-            } else {
-                Value::Int(i as i64)
-            };
-        }
-        if i == events.len() - 1 {
+        let is_last = i == events.len() - 1;
+
+        // For the last key in the sequence, return the binding directly
+        // (even if nil), matching GNU Emacs lookup_key_1 behavior.
+        if is_last {
             return binding;
         }
+
+        // For non-last keys, the binding must be a prefix keymap.
+        // If nil/unbound, the key sequence is invalid — return
+        // the number of keys consumed so far (matching GNU which
+        // returns make_fixnum(idx) where idx is already incremented).
+        if binding.is_nil() {
+            return Value::Int((i + 1) as i64);
+        }
+
+        // Try to resolve to a keymap for the next level of lookup.
         if is_list_keymap(&binding) {
             current_map = binding;
             continue;
@@ -331,6 +350,7 @@ fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value]) ->
                 }
             }
         }
+        // Non-prefix binding found before all keys consumed: "too long"
         return Value::Int((i + 1) as i64);
     }
 
@@ -346,7 +366,9 @@ pub(super) fn builtin_global_set_key(
     let global = ensure_global_keymap(eval);
     let events = expect_key_events(&args[0])?;
     let def = args[1];
-    list_keymap_define_seq_in_obarray(eval.obarray(), global, &events, def);
+    if let Err(msg) = list_keymap_define_seq_in_obarray(eval.obarray(), global, &events, def) {
+        return Err(signal("error", vec![Value::string(msg)]));
+    }
     Ok(def)
 }
 
@@ -365,7 +387,9 @@ pub(super) fn builtin_local_set_key(
     };
     let events = expect_key_events(&args[0])?;
     let def = args[1];
-    list_keymap_define_seq_in_obarray(eval.obarray(), local, &events, def);
+    if let Err(msg) = list_keymap_define_seq_in_obarray(eval.obarray(), local, &events, def) {
+        return Err(signal("error", vec![Value::string(msg)]));
+    }
     Ok(def)
 }
 

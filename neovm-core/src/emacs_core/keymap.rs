@@ -11,10 +11,11 @@ use super::chartable::{
 };
 use super::intern::resolve_sym;
 use super::keyboard::pure::{
-    KEY_CHAR_CODE_MASK, KEY_CHAR_CTRL, KEY_CHAR_META, KEY_CHAR_SHIFT, KEY_CHAR_SUPER,
+    KEY_CHAR_CODE_MASK, KEY_CHAR_CTRL, KEY_CHAR_META, KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT,
+    KEY_CHAR_SUPER,
 };
 use super::symbol::Obarray;
-use super::value::{Value, read_cons};
+use super::value::{Value, read_cons, with_heap, with_heap_mut};
 
 // ---------------------------------------------------------------------------
 // Key events
@@ -461,79 +462,195 @@ fn get_keyelt(binding: Value) -> Value {
 
 /// Look up a single event in a keymap, following the parent chain.
 ///
+/// This mirrors GNU Emacs `access_keymap` with `noinherit=false`.
+/// When a prefix keymap is found, it is composed with parent prefix
+/// keymaps to create a merged keymap that includes all bindings from
+/// the entire inheritance chain.
+///
 /// Returns the binding or `Value::Nil` if not found.
 pub fn list_keymap_lookup_one(keymap: &Value, event: &Value) -> Value {
+    list_keymap_access(keymap, event, false)
+}
+
+/// Look up a single event in a keymap without following the parent chain.
+///
+/// This mirrors GNU Emacs `access_keymap` with `noinherit=true`.
+/// Used by `define-key` to only check the current keymap level.
+pub fn list_keymap_lookup_one_noinherit(keymap: &Value, event: &Value) -> Value {
+    list_keymap_access(keymap, event, true)
+}
+
+/// Look up a single event in one level of a keymap (no parent following).
+///
+/// Helper: scans only the entries in the given keymap (not parents).
+/// Returns `Some(binding)` if found (even if binding is nil), or
+/// `None` if not found. This distinction is critical: an explicit
+/// nil binding shadows parent bindings, while "not found" falls through.
+fn lookup_in_keymap_level(keymap: &Value, event: &Value) -> Option<Value> {
+    let Value::Cons(cell) = keymap else {
+        return None;
+    };
+    let pair = read_cons(*cell);
+    if pair.car.as_symbol_name() != Some("keymap") {
+        return None;
+    }
+
+    let mut cursor = pair.cdr;
+    let mut entries = 0;
+    while let Value::Cons(entry_cell) = cursor {
+        if is_list_keymap(&cursor) {
+            break; // parent boundary
+        }
+        entries += 1;
+        if entries > 100_000 {
+            return None;
+        }
+        let entry = read_cons(entry_cell);
+
+        // Char-table: only look up characters WITHOUT modifier bits
+        if is_char_table(&entry.car) {
+            if let Value::Int(code) = event {
+                if (*code & KEY_CHAR_MOD_MASK) == 0 {
+                    let base = *code & KEY_CHAR_CODE_MASK;
+                    if base >= 0 && base <= 0x3FFFFF {
+                        let result = builtin_char_table_range(vec![entry.car, *event])
+                            .unwrap_or(Value::Nil);
+                        if !result.is_nil() {
+                            return Some(get_keyelt(result));
+                        }
+                        // nil in char-table means unbound (char-tables use Qt
+                        // for explicitly-nil, but we don't implement that yet)
+                    }
+                }
+            }
+            cursor = entry.cdr;
+            continue;
+        }
+
+        // Alist entry: (EVENT . DEF)
+        if let Value::Cons(binding_cell) = entry.car {
+            let binding = read_cons(binding_cell);
+            if events_match(&binding.car, event) {
+                return Some(get_keyelt(binding.cdr));
+            }
+        }
+
+        cursor = entry.cdr;
+    }
+
+    None
+}
+
+/// Get the parent keymap from a keymap (the tail after all alist entries).
+fn get_keymap_tail_parent(keymap: &Value) -> Value {
+    let Value::Cons(cell) = keymap else {
+        return Value::Nil;
+    };
+    let pair = read_cons(*cell);
+    if pair.car.as_symbol_name() != Some("keymap") {
+        return Value::Nil;
+    }
+    let mut cursor = pair.cdr;
+    while let Value::Cons(entry_cell) = cursor {
+        if is_list_keymap(&cursor) {
+            return cursor;
+        }
+        let entry = read_cons(entry_cell);
+        cursor = entry.cdr;
+    }
+    Value::Nil
+}
+
+/// Core event lookup in a keymap, optionally following the parent chain.
+///
+/// Mirrors GNU Emacs `access_keymap`:
+/// - Walks the keymap list scanning bindings (char-tables, alist entries)
+/// - When `noinherit` is false: follows parent keymap chain; if a prefix
+///   keymap is found, it composes it with prefix keymaps from parent
+///   levels to create a proper inheritance chain
+/// - When `noinherit` is true: stops at the first parent boundary
+///
+/// An explicit nil binding (e.g. from `define-key m [?b] nil`) shadows
+/// parent bindings, matching GNU Emacs behavior where nil != unbound.
+fn list_keymap_access(keymap: &Value, event: &Value, noinherit: bool) -> Value {
     let mut current = *keymap;
     let mut depth = 0;
-    const MAX_KEYMAP_DEPTH: usize = 50; // prevent infinite parent loops
+    const MAX_KEYMAP_DEPTH: usize = 50;
 
     loop {
         depth += 1;
         if depth > MAX_KEYMAP_DEPTH {
-            tracing::warn!("list_keymap_lookup_one: depth limit reached, possible cycle");
+            tracing::warn!("list_keymap_access: depth limit reached, possible cycle");
             return Value::Nil;
         }
 
-        let Value::Cons(cell) = current else {
-            return Value::Nil;
-        };
-        let pair = read_cons(cell);
-        // First element must be 'keymap
-        if pair.car.as_symbol_name() != Some("keymap") {
-            return Value::Nil;
-        }
-
-        // Walk the CDR chain scanning for the binding
-        let mut cursor = pair.cdr;
-        let mut entries = 0;
-        while let Value::Cons(entry_cell) = cursor {
-            if is_list_keymap(&cursor) {
-                break;
-            }
-            entries += 1;
-            if entries > 100_000 {
-                tracing::warn!(
-                    "list_keymap_lookup_one: entry limit reached, possible circular list"
-                );
-                return Value::Nil;
-            }
-            let entry = read_cons(entry_cell);
-
-            // Check if this element is a char-table
-            if is_char_table(&entry.car) {
-                // For integer events in range, look up in char-table
-                if let Value::Int(code) = event {
-                    let base = *code & KEY_CHAR_CODE_MASK;
-                    if base >= 0 && (base <= 0x3FFFFF) {
-                        let result =
-                            builtin_char_table_range(vec![entry.car, *event]).unwrap_or(Value::Nil);
-                        if !result.is_nil() {
-                            return get_keyelt(result);
+        // Look up the event in the current keymap level only.
+        // Some(val) means "found" (val may be nil for explicit nil binding).
+        // None means "not found at this level".
+        match lookup_in_keymap_level(&current, event) {
+            Some(binding) => {
+                if !noinherit && is_list_keymap(&binding) {
+                    // Found a prefix keymap at this level. Check if parent
+                    // also has a prefix keymap for the same event. If so,
+                    // create a composed keymap: (keymap child-sub . parent-sub)
+                    let parent = get_keymap_tail_parent(&current);
+                    if !parent.is_nil() {
+                        let parent_binding = list_keymap_access(&parent, event, false);
+                        if is_list_keymap(&parent_binding) {
+                            return compose_keymaps(&binding, &parent_binding);
                         }
                     }
                 }
-                cursor = entry.cdr;
-                continue;
+                // Return the found binding (even if nil — nil shadows parents)
+                return binding;
             }
-
-            // Check if this element is an alist entry: (EVENT . DEF)
-            if let Value::Cons(binding_cell) = entry.car {
-                let binding = read_cons(binding_cell);
-                if events_match(&binding.car, event) {
-                    return get_keyelt(binding.cdr);
+            None => {
+                // No binding at this level. Follow parent chain if allowed.
+                if noinherit {
+                    return Value::Nil;
                 }
+                let parent = get_keymap_tail_parent(&current);
+                if parent.is_nil() {
+                    return Value::Nil;
+                }
+                current = parent;
             }
-
-            cursor = entry.cdr;
-        }
-
-        // If last CDR is itself a keymap, follow as parent
-        if is_list_keymap(&cursor) {
-            current = cursor;
-        } else {
-            return Value::Nil;
         }
     }
+}
+
+/// Create a composed keymap: a shallow copy of `child` with `parent` set
+/// as its parent keymap. This does NOT mutate either input keymap.
+///
+/// Result: `(keymap <child entries>... . parent)`
+fn compose_keymaps(child: &Value, parent: &Value) -> Value {
+    let Value::Cons(cell) = child else {
+        return *parent;
+    };
+    let pair = read_cons(*cell);
+    if pair.car.as_symbol_name() != Some("keymap") {
+        return *parent;
+    }
+
+    // Collect child's own entries (excluding its existing parent)
+    let mut elements = vec![Value::symbol("keymap")];
+    let mut cursor = pair.cdr;
+    while let Value::Cons(entry_cell) = cursor {
+        if is_list_keymap(&cursor) {
+            // Don't include child's existing parent; we'll set a new one
+            break;
+        }
+        let entry = read_cons(entry_cell);
+        elements.push(entry.car);
+        cursor = entry.cdr;
+    }
+
+    // Build: (keymap entries... . parent)
+    let mut result = *parent;
+    for elem in elements.into_iter().rev() {
+        result = Value::cons(elem, result);
+    }
+    result
 }
 
 /// Check if two event values match for keymap lookup purposes.
@@ -924,13 +1041,10 @@ pub fn list_keymap_lookup_seq(keymap: &Value, events: &[Value]) -> Value {
             return binding;
         }
         if binding.is_nil() {
-            // No binding for a non-last event. We consumed `i` prefix
-            // events → return count (official Emacs semantics).
-            return if i == 0 {
-                Value::Nil
-            } else {
-                Value::Int(i as i64)
-            };
+            // No binding for a non-last event → return the number of keys
+            // consumed (matching GNU which returns make_fixnum(idx) where
+            // idx is already post-incremented).
+            return Value::Int((i + 1) as i64);
         }
         // Must be a prefix keymap to continue
         if is_list_keymap(&binding) {
@@ -949,68 +1063,133 @@ pub fn list_keymap_lookup_seq(keymap: &Value, events: &[Value]) -> Value {
 }
 
 /// Define a key in a keymap, auto-creating prefix maps for multi-key sequences.
-pub fn list_keymap_define_seq(keymap: Value, events: &[Value], def: Value) {
+///
+/// Returns `Err` if an intermediate key is already bound to a non-prefix
+/// command (matching GNU Emacs behavior which signals an error).
+pub fn list_keymap_define_seq(keymap: Value, events: &[Value], def: Value) -> Result<(), String> {
     if events.is_empty() {
-        return;
+        return Ok(());
     }
     if events.len() == 1 {
         list_keymap_define(keymap, events[0], def);
-        return;
+        return Ok(());
     }
 
     let mut current_map = keymap;
     for (i, event) in events.iter().enumerate() {
         if i == events.len() - 1 {
             list_keymap_define(current_map, *event, def);
-            return;
+            return Ok(());
         }
-        let binding = list_keymap_lookup_one(&current_map, event);
+        // Use noinherit: only look in current keymap level for prefix,
+        // matching GNU Emacs define-key which uses access_keymap(noinherit=1)
+        let binding = list_keymap_lookup_one_noinherit(&current_map, event);
         if is_list_keymap(&binding) {
             current_map = binding;
-        } else {
-            // Create a new prefix keymap
+        } else if binding.is_nil() {
+            // No binding at this level, create a new prefix keymap
             let prefix_map = make_sparse_list_keymap();
             list_keymap_define(current_map, *event, prefix_map);
             current_map = prefix_map;
+        } else {
+            // Non-prefix binding found — error (matching GNU Emacs)
+            return Err(format!("Key sequence starts with non-prefix key"));
         }
     }
+    Ok(())
 }
 
 /// Define a key in a keymap, resolving symbol prefix bindings through the
 /// obarray before auto-creating nested prefix maps.
+///
+/// Uses noinherit lookup for prefix keys, matching GNU Emacs `Fdefine_key`
+/// which calls `access_keymap(noinherit=1)`.
+///
+/// Returns `Err` with a descriptive message if an intermediate key is already
+/// bound to a non-prefix command (matching GNU Emacs behavior which signals
+/// an error like "Key sequence <f1> a starts with non-prefix key <f1>").
 pub fn list_keymap_define_seq_in_obarray(
     obarray: &Obarray,
     keymap: Value,
     events: &[Value],
     def: Value,
-) {
+) -> Result<(), String> {
     if events.is_empty() {
-        return;
+        return Ok(());
     }
     if events.len() == 1 {
         list_keymap_define(keymap, events[0], def);
-        return;
+        return Ok(());
     }
 
     let mut current_map = keymap;
     for (i, event) in events.iter().enumerate() {
         if i == events.len() - 1 {
             list_keymap_define(current_map, *event, def);
-            return;
+            return Ok(());
         }
-        let binding = list_keymap_lookup_one(&current_map, event);
+        // Use noinherit: only look in current keymap level for prefix,
+        // matching GNU Emacs define-key which uses access_keymap(noinherit=1)
+        let binding = list_keymap_lookup_one_noinherit(&current_map, event);
         if let Some(prefix_map) = resolve_prefix_keymap_binding_in_obarray(obarray, &binding) {
             current_map = prefix_map;
-        } else {
+        } else if binding.is_nil() {
+            // No binding, create a new prefix keymap
             let prefix_map = make_sparse_list_keymap();
             list_keymap_define(current_map, *event, prefix_map);
             current_map = prefix_map;
+        } else {
+            // Non-prefix binding found — error (matching GNU Emacs).
+            // Generate key descriptions for the error message.
+            let full_key = describe_event_sequence(events);
+            let prefix_key = describe_event_sequence(&events[..=i]);
+            return Err(format!(
+                "Key sequence {} starts with non-prefix key {}",
+                full_key, prefix_key
+            ));
         }
     }
+    Ok(())
+}
+
+/// Generate a human-readable description of an event sequence for error messages.
+/// Uses the same format as GNU Emacs `key-description`: function keys use
+/// angle brackets (e.g., `<f1>`), characters use their standard description.
+fn describe_event_sequence(events: &[Value]) -> String {
+    use super::keyboard::pure::describe_single_key_value;
+    events
+        .iter()
+        .map(|e| {
+            describe_single_key_value(e, false).unwrap_or_else(|_| {
+                if let Some(name) = e.as_symbol_name() {
+                    format!("<{}>", name)
+                } else {
+                    format!("{:?}", e)
+                }
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Deep-copy a keymap cons-list structure.
+///
+/// Mirrors GNU Emacs `copy_keymap_1`:
+/// - Copies the cons-list structure
+/// - Deep-copies char-tables (via vector clone + recursive entry copy)
+/// - Recursively copies sub-keymaps (prefix key maps)
+/// - Copies alist bindings whose values are keymaps
+/// - Preserves parent keymap as shared (not recursively copied)
 pub fn list_keymap_copy(keymap: &Value) -> Value {
+    list_keymap_copy_impl(keymap, 0)
+}
+
+fn list_keymap_copy_impl(keymap: &Value, depth: usize) -> Value {
+    if depth > 100 {
+        tracing::warn!("list_keymap_copy: recursion depth limit, possible infinite loop");
+        return *keymap;
+    }
+
     let Value::Cons(cell) = keymap else {
         return *keymap;
     };
@@ -1025,36 +1204,28 @@ pub fn list_keymap_copy(keymap: &Value) -> Value {
 
     while let Value::Cons(entry_cell) = cursor {
         if is_list_keymap(&cursor) {
+            // Parent keymap: keep shared (don't recursively copy parent chain)
             tail_parent = cursor;
             break;
         }
         let entry = read_cons(entry_cell);
 
         if is_char_table(&entry.car) {
-            // Copy char-table: for now we share (char-tables are mutable vectors)
-            // A proper deep copy would require cloning the vector
-            elements.push(entry.car);
+            // Deep-copy char-table: clone the vector, then recursively copy
+            // any keymap entries within it.
+            elements.push(copy_char_table_for_keymap(&entry.car, depth));
         } else if is_list_keymap(&entry.car) {
-            // Nested keymap in an alist entry — recursively copy
-            elements.push(list_keymap_copy(&entry.car));
+            // Nested keymap element — recursively copy
+            elements.push(list_keymap_copy_impl(&entry.car, depth + 1));
         } else if let Value::Cons(binding_cell) = entry.car {
             // Alist entry (EVENT . DEF) — copy the cons, recurse if DEF is a keymap
             let binding = read_cons(binding_cell);
-            if is_list_keymap(&binding.cdr) {
-                elements.push(Value::cons(binding.car, list_keymap_copy(&binding.cdr)));
-            } else {
-                elements.push(Value::cons(binding.car, binding.cdr));
-            }
+            let copied_def = copy_keymap_item(&binding.cdr, depth);
+            elements.push(Value::cons(binding.car, copied_def));
         } else {
             elements.push(entry.car);
         }
 
-        // Check if cdr is a parent keymap
-        if is_list_keymap(&entry.cdr) {
-            // Keep parent shared (don't recursively copy parent chain)
-            tail_parent = entry.cdr;
-            break;
-        }
         cursor = entry.cdr;
     }
 
@@ -1064,6 +1235,49 @@ pub fn list_keymap_copy(keymap: &Value) -> Value {
         result = Value::cons(elem, result);
     }
     result
+}
+
+/// Copy a keymap item (the DEF part of an alist entry).
+/// If it's a keymap, recursively copy it. Otherwise return as-is.
+/// Mirrors GNU `copy_keymap_item`.
+fn copy_keymap_item(item: &Value, depth: usize) -> Value {
+    if is_list_keymap(item) {
+        return list_keymap_copy_impl(item, depth + 1);
+    }
+    // Handle menu items etc. — for now, just return as-is for non-keymaps
+    *item
+}
+
+/// Deep-copy a char-table used in a keymap.
+/// Clones the underlying vector and recursively copies any keymap entries.
+fn copy_char_table_for_keymap(ct: &Value, depth: usize) -> Value {
+    let Value::Vector(arc) = ct else {
+        return *ct;
+    };
+    let old_vec = with_heap(|h| h.get_vector(*arc).clone());
+    let mut new_vec = old_vec.clone();
+
+    // Walk the data pairs and recursively copy any keymap values.
+    // Char-table layout: [tag, default, parent, subtype, extra_count, ...extras..., ...data-pairs...]
+    // Data pairs start after extra slots (CT_EXTRA_START + n_extras),
+    // stored as consecutive (char-code, value) pairs.
+    let ct_extra_start = 5; // matches chartable.rs CT_EXTRA_START
+    let n_extras = match new_vec.get(4) {
+        Some(Value::Int(n)) => *n as usize,
+        _ => 0,
+    };
+    let data_start = ct_extra_start + n_extras;
+    let mut i = data_start;
+    while i + 1 < new_vec.len() {
+        // i is the char-code, i+1 is the value
+        let val = new_vec[i + 1];
+        if is_list_keymap(&val) {
+            new_vec[i + 1] = list_keymap_copy_impl(&val, depth + 1);
+        }
+        i += 2;
+    }
+
+    Value::vector(new_vec)
 }
 
 /// Collect all accessible sub-keymaps with their key prefixes.

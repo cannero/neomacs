@@ -94,8 +94,39 @@ pub(crate) fn key_events_from_designator(
             Ok(s.chars()
                 .map(|ch| {
                     let code_u32 = ch as u32;
-                    // Emacs unibyte: chars 128-255 = Meta + (char - 128)
-                    if (0x80..=0xFF).contains(&code_u32) {
+                    // NeoVM unibyte sentinel range: our string_escape module
+                    // stores unibyte chars 0x80..0xFF as U+E300..U+E3FF.
+                    // Decode back to the raw byte, then apply meta logic.
+                    let raw_byte = if (0xE300..=0xE3FF).contains(&code_u32) {
+                        Some((code_u32 - 0xE300) as u8)
+                    } else {
+                        None
+                    };
+
+                    if let Some(byte) = raw_byte {
+                        // Unibyte sentinel: byte 128-255 = Meta + (byte - 128)
+                        if byte >= 0x80 {
+                            let base_byte = byte - 0x80;
+                            let base = char::from_u32(base_byte as u32).unwrap_or(ch);
+                            KeyEvent::Char {
+                                code: base,
+                                ctrl: false,
+                                meta: true,
+                                shift: false,
+                                super_: false,
+                            }
+                        } else {
+                            let base = char::from_u32(byte as u32).unwrap_or(ch);
+                            KeyEvent::Char {
+                                code: base,
+                                ctrl: false,
+                                meta: false,
+                                shift: false,
+                                super_: false,
+                            }
+                        }
+                    } else if (0x80..=0xFF).contains(&code_u32) {
+                        // Direct unibyte: chars 128-255 = Meta + (char - 128)
                         let base = char::from_u32(code_u32 - 0x80).unwrap_or(ch);
                         KeyEvent::Char {
                             code: base,
@@ -130,8 +161,36 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
             Ok(s.chars()
                 .map(|ch| {
                     let code_u32 = ch as u32;
-                    // Emacs unibyte convention: chars 128-255 encode Meta + (char - 128)
-                    if (0x80..=0xFF).contains(&code_u32) {
+                    // NeoVM unibyte sentinel range (0xE300..0xE3FF)
+                    let raw_byte = if (0xE300..=0xE3FF).contains(&code_u32) {
+                        Some((code_u32 - 0xE300) as u8)
+                    } else {
+                        None
+                    };
+
+                    if let Some(byte) = raw_byte {
+                        if byte >= 0x80 {
+                            let base = (byte - 0x80) as u32;
+                            let base_char = char::from_u32(base).unwrap_or(ch);
+                            KeyEvent::Char {
+                                code: base_char,
+                                ctrl: false,
+                                meta: true,
+                                shift: false,
+                                super_: false,
+                            }
+                        } else {
+                            let base_char = char::from_u32(byte as u32).unwrap_or(ch);
+                            KeyEvent::Char {
+                                code: base_char,
+                                ctrl: false,
+                                meta: false,
+                                shift: false,
+                                super_: false,
+                            }
+                        }
+                    } else if (0x80..=0xFF).contains(&code_u32) {
+                        // Direct unibyte: chars 128-255 encode Meta + (char - 128)
                         let base = code_u32 - 0x80;
                         let base_char = char::from_u32(base).unwrap_or(ch);
                         KeyEvent::Char {

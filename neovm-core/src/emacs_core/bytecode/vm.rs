@@ -5862,14 +5862,24 @@ impl<'a> Vm<'a> {
                         self.shared.obarray,
                         &args[0],
                     )?;
-                let events = crate::emacs_core::builtins::keymaps::expect_key_events(&args[1])?;
+                let mut events = crate::emacs_core::builtins::keymaps::expect_key_events(&args[1])?;
                 let def = args[2];
-                crate::emacs_core::keymap::list_keymap_define_seq_in_obarray(
+                // Expand meta-prefixed events to ESC + base, matching GNU
+                // Emacs Fdefine_key's metized handling.
+                if let Some(expanded) = crate::emacs_core::keymap::expand_meta_prefix_char_events_in_obarray(self.shared.obarray, &events) {
+                    events = expanded;
+                }
+                if let Err(msg) = crate::emacs_core::keymap::list_keymap_define_seq_in_obarray(
                     self.shared.obarray,
                     keymap,
                     &events,
                     def,
-                );
+                ) {
+                    return Err(crate::emacs_core::error::signal(
+                        "error",
+                        vec![Value::string(msg)],
+                    ));
+                }
                 Ok(def)
             })()),
             "get" => Some((|| -> EvalResult {
