@@ -17,7 +17,7 @@ fn oracle_prop_seq_mapn_multiple_sequences() {
 
     // seq-mapn maps a function over corresponding elements of N sequences.
     // Stops at the shortest sequence.
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
                     ;; Two lists, element-wise addition
                     (seq-mapn #'+ '(1 2 3 4) '(10 20 30 40))
                     ;; Three lists, build triples
@@ -27,7 +27,7 @@ fn oracle_prop_seq_mapn_multiple_sequences() {
                     ;; With vector and list
                     (seq-mapn #'* [2 3 4] '(10 20 30))
                     ;; Single sequence degenerates to seq-map
-                    (seq-mapn #'1+ '(5 6 7)))"#;
+                    (seq-mapn #'1+ '(5 6 7))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -69,7 +69,7 @@ fn oracle_prop_seq_sort_by() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-sort-by sorts a sequence by comparing extracted keys.
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
                     ;; Sort strings by length
                     (seq-sort-by #'length #'<
                                  '("banana" "fig" "apple" "kiwi" "elderberry"))
@@ -77,7 +77,7 @@ fn oracle_prop_seq_sort_by() {
                     (seq-sort-by #'cdr #'<
                                  '((alice . 30) (bob . 25) (carol . 35) (dave . 28)))
                     ;; Sort numbers by absolute value
-                    (seq-sort-by #'abs #'< '(-5 3 -1 4 -2 0)))"#;
+                    (seq-sort-by #'abs #'< '(-5 3 -1 4 -2 0))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -90,7 +90,7 @@ fn oracle_prop_seq_min_max() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-min and seq-max return the minimum/maximum element.
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
                     (seq-min '(3 1 4 1 5 9 2 6))
                     (seq-max '(3 1 4 1 5 9 2 6))
                     (seq-min [100 50 200 25 300])
@@ -100,7 +100,7 @@ fn oracle_prop_seq_min_max() {
                     (seq-max '(42))
                     ;; Negative numbers
                     (seq-min '(-10 -5 -20 -1))
-                    (seq-max '(-10 -5 -20 -1)))"#;
+                    (seq-max '(-10 -5 -20 -1))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -113,7 +113,7 @@ fn oracle_prop_seq_partition() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-partition returns a list of two lists: (matching non-matching)
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
                     ;; Partition by evenness
                     (seq-partition #'cl-evenp '(1 2 3 4 5 6 7 8 9 10))
                     ;; Partition by type
@@ -123,7 +123,7 @@ fn oracle_prop_seq_partition() {
                     ;; None match
                     (seq-partition #'numberp '("a" "b" "c"))
                     ;; Empty
-                    (seq-partition #'numberp nil))"#;
+                    (seq-partition #'numberp nil)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -136,7 +136,7 @@ fn oracle_prop_seq_subseq() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // seq-subseq extracts a portion of a sequence.
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
                     ;; List subseq with start and end
                     (seq-subseq '(a b c d e f) 1 4)
                     ;; List subseq with only start (to end)
@@ -151,7 +151,7 @@ fn oracle_prop_seq_subseq() {
                     (seq-subseq '(1 2 3) 2 2)
                     ;; Negative indices (from end)
                     (seq-subseq '(a b c d e) -3)
-                    (seq-subseq "abcdef" -4 -1))"#;
+                    (seq-subseq "abcdef" -4 -1)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 

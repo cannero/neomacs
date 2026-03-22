@@ -16,7 +16,7 @@ use super::common::{assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_orac
 fn oracle_prop_nconc_nreverse_comp_nconc_zero_to_five_args() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; 0 args
   (nconc)
   ;; 1 arg: single list
@@ -45,7 +45,7 @@ fn oracle_prop_nconc_nreverse_comp_nconc_zero_to_five_args() {
   ;; 5 args: all nil except last which is atom
   (nconc nil nil nil nil 42)
   ;; 5 args: all nil
-  (nconc nil nil nil nil nil))"#;
+  (nconc nil nil nil nil nil)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -57,7 +57,7 @@ fn oracle_prop_nconc_nreverse_comp_nconc_zero_to_five_args() {
 fn oracle_prop_nconc_nreverse_comp_nreverse_various_lists() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; empty list
   (nreverse nil)
   ;; single element
@@ -81,7 +81,7 @@ fn oracle_prop_nconc_nreverse_comp_nreverse_various_lists() {
   (let* ((inner (list 'inside))
          (outer (list 1 inner 3)))
     (let ((rev (nreverse (copy-sequence outer))))
-      (eq (nth 1 rev) inner))))"#;
+      (eq (nth 1 rev) inner)))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -93,7 +93,7 @@ fn oracle_prop_nconc_nreverse_comp_nreverse_various_lists() {
 fn oracle_prop_nconc_nreverse_comp_nbutlast_with_n() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; nbutlast with default N=1
   (nbutlast (list 1 2 3 4 5))
   ;; nbutlast with N=0 (removes nothing)
@@ -117,7 +117,7 @@ fn oracle_prop_nconc_nreverse_comp_nbutlast_with_n() {
          (nbl-result (nbutlast a 2)))
     (list (equal bl-result nbl-result) bl-result nbl-result))
   ;; nbutlast with N=1 on two-element list
-  (nbutlast (list 'first 'second) 1))"#;
+  (nbutlast (list 'first 'second) 1)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -129,7 +129,7 @@ fn oracle_prop_nconc_nreverse_comp_nbutlast_with_n() {
 fn oracle_prop_nconc_nreverse_comp_sort_predicates() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; sort ascending
   (sort (list 5 3 1 4 2) #'<)
   ;; sort descending
@@ -158,7 +158,7 @@ fn oracle_prop_nconc_nreverse_comp_sort_predicates() {
   (let* ((data (list '(a 2) '(b 1) '(c 2) '(d 1) '(e 3)))
          (sorted (sort (copy-sequence data)
                        (lambda (x y) (< (cadr x) (cadr y))))))
-    (mapcar #'car sorted)))"#;
+    (mapcar #'car sorted))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -170,7 +170,7 @@ fn oracle_prop_nconc_nreverse_comp_sort_predicates() {
 fn oracle_prop_nconc_nreverse_comp_delete_vs_remove() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; delq removes by eq: remove symbol from list
   (delq 'b (list 'a 'b 'c 'b 'd))
   ;; delete removes by equal: remove string from list
@@ -197,7 +197,7 @@ fn oracle_prop_nconc_nreverse_comp_delete_vs_remove() {
   ;; delq with nil as element to remove
   (delq nil (list 1 nil 2 nil 3))
   ;; delete with equal on nested structure
-  (delete '(1 2) (list '(1 2) '(3 4) '(1 2) '(5 6))))"#;
+  (delete '(1 2) (list '(1 2) '(3 4) '(1 2) '(5 6)))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -242,7 +242,7 @@ fn oracle_prop_nconc_nreverse_comp_cl_delete_if() {
 fn oracle_prop_nconc_nreverse_comp_destructive_vs_nondestructive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; reverse vs nreverse: same result, different mutation
   (let* ((a (list 1 2 3 4 5))
          (b (copy-sequence a))
@@ -273,7 +273,7 @@ fn oracle_prop_nconc_nreverse_comp_destructive_vs_nondestructive() {
   (let* ((orig '(5 3 1 4 2))
          (copied (copy-sequence orig))
          (sorted (sort copied #'<)))
-    (list (equal orig '(5 3 1 4 2)) sorted)))"#;
+    (list (equal orig '(5 3 1 4 2)) sorted))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -285,7 +285,7 @@ fn oracle_prop_nconc_nreverse_comp_destructive_vs_nondestructive() {
 fn oracle_prop_nconc_nreverse_comp_structure_sharing() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; nconc creates sharing: tail of a IS b
   (let* ((a (list 1 2))
          (b (list 3 4))
@@ -321,7 +321,7 @@ fn oracle_prop_nconc_nreverse_comp_structure_sharing() {
   (let ((result nil))
     (dotimes (i 5)
       (setq result (nconc result (list (* i i)))))
-    result))"#;
+    result)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -333,7 +333,7 @@ fn oracle_prop_nconc_nreverse_comp_structure_sharing() {
 fn oracle_prop_nconc_nreverse_comp_dotted_results() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; nconc with atom as last argument produces dotted list
   (nconc (list 1 2 3) 'end)
   ;; nconc with number as last arg
@@ -347,7 +347,7 @@ fn oracle_prop_nconc_nreverse_comp_dotted_results() {
   ;; All nils then atom
   (nconc nil nil 'solo)
   ;; Single nil then atom
-  (nconc nil 'alone))"#;
+  (nconc nil 'alone)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -359,7 +359,7 @@ fn oracle_prop_nconc_nreverse_comp_dotted_results() {
 fn oracle_prop_nconc_nreverse_comp_combined_patterns() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; Idiomatic push-then-nreverse pattern for building lists
   (let ((acc nil))
     (dolist (x '(1 2 3 4 5))
@@ -396,7 +396,7 @@ fn oracle_prop_nconc_nreverse_comp_combined_patterns() {
       (unless (gethash x seen)
         (puthash x t seen)
         (setq result (cons x result))))
-    (nreverse result)))"#;
+    (nreverse result))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 

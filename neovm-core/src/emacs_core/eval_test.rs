@@ -2581,7 +2581,10 @@ fn provide_does_not_refire_after_load_callbacks_on_redundant_provide() {
            test-eal-count"#,
     );
     assert_eq!(results[3], "OK 1", "first provide should fire callback");
-    assert_eq!(results[5], "OK 2", "second provide should also fire callback");
+    assert_eq!(
+        results[5], "OK 2",
+        "second provide should also fire callback"
+    );
 }
 
 #[test]

@@ -17,7 +17,7 @@ fn oracle_prop_seq_map_filter_reduce_all_types() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // Test seq-map, seq-filter, seq-reduce across all three sequence types
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
       ;; seq-map on list
       (seq-map #'1+ '(1 2 3 4 5))
       ;; seq-map on vector
@@ -44,7 +44,7 @@ fn oracle_prop_seq_map_filter_reduce_all_types() {
                               (progn (setcdr entry (1+ (cdr entry))) acc)
                             (cons (cons c 1) acc))))
                       "abracadabra" nil)))
-        (sort result (lambda (a b) (< (car a) (car b))))))"#;
+        (sort result (lambda (a b) (< (car a) (car b)))))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -56,7 +56,7 @@ fn oracle_prop_seq_map_filter_reduce_all_types() {
 fn oracle_prop_seq_find_some_every() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
       ;; seq-find: first even number
       (seq-find #'cl-evenp '(1 3 5 4 7 8))
       ;; seq-find: not found returns nil
@@ -85,7 +85,7 @@ fn oracle_prop_seq_find_some_every() {
       (seq-every-p #'cl-evenp nil)
       ;; seq-every-p on string
       (seq-every-p (lambda (c) (and (>= c ?a) (<= c ?z))) "hello")
-      (seq-every-p (lambda (c) (and (>= c ?a) (<= c ?z))) "Hello"))"#;
+      (seq-every-p (lambda (c) (and (>= c ?a) (<= c ?z))) "Hello")))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -97,7 +97,7 @@ fn oracle_prop_seq_find_some_every() {
 fn oracle_prop_seq_count_length_elt() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
       ;; seq-count
       (seq-count #'cl-evenp '(1 2 3 4 5 6))
       (seq-count (lambda (x) (> x 3)) '(1 2 3 4 5 6))
@@ -116,7 +116,7 @@ fn oracle_prop_seq_count_length_elt() {
       (seq-elt [10 20 30 40] 1)
       (seq-elt [10 20 30 40] 3)
       (seq-elt "abcde" 0)
-      (seq-elt "abcde" 4))"#;
+      (seq-elt "abcde" 4)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -128,7 +128,7 @@ fn oracle_prop_seq_count_length_elt() {
 fn oracle_prop_seq_uniq_remove() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
       ;; seq-uniq: basic dedup with default eq
       (seq-uniq '(1 2 3 2 1 4 3 5))
       ;; seq-uniq on symbols
@@ -151,7 +151,7 @@ fn oracle_prop_seq_uniq_remove() {
       ;; seq-remove: remove everything
       (seq-remove #'numberp '(1 2 3))
       ;; seq-remove on string
-      (seq-remove (lambda (c) (= c ?l)) "hello world"))"#;
+      (seq-remove (lambda (c) (= c ?l)) "hello world")))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -163,7 +163,7 @@ fn oracle_prop_seq_uniq_remove() {
 fn oracle_prop_seq_sort_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
       ;; seq-sort on list (ascending)
       (seq-sort #'< '(5 3 8 1 4 2 7 6))
       ;; seq-sort on list (descending)
@@ -182,7 +182,7 @@ fn oracle_prop_seq_sort_comprehensive() {
       ;; seq-sort already sorted
       (seq-sort #'< '(1 2 3 4 5))
       ;; seq-sort reversed
-      (seq-sort #'< '(5 4 3 2 1)))"#;
+      (seq-sort #'< '(5 4 3 2 1))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 

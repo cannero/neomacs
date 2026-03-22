@@ -134,7 +134,7 @@ fn oracle_prop_vector_ops_comp_copy_sequence_independence() {
 fn oracle_prop_vector_ops_comp_sort_vectors() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; Sort integers
   (let ((v (vector 5 3 8 1 9 2 7 4 6)))
     (sort v #'<))
@@ -153,7 +153,7 @@ fn oracle_prop_vector_ops_comp_sort_vectors() {
   (sort (vector 5 3 5 1 3 1) #'<)
   ;; Sort by absolute value using a wrapper
   (let ((v (vector -3 1 -5 2 -1 4)))
-    (sort v (lambda (a b) (< (abs a) (abs b))))))"#;
+    (sort v (lambda (a b) (< (abs a) (abs b)))))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -325,7 +325,7 @@ fn oracle_prop_vector_ops_comp_cl_substitute() {
 fn oracle_prop_vector_ops_comp_equality_comparison() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; eq: same object
   (let ((v [1 2 3])) (eq v v))
   ;; eq: different objects with same content
@@ -347,7 +347,7 @@ fn oracle_prop_vector_ops_comp_equality_comparison() {
   ;; Predicate checks
   (list (vectorp [1 2 3]) (vectorp '(1 2 3)) (vectorp "abc")
         (arrayp [1 2 3]) (arrayp "abc") (arrayp '(1 2))
-        (sequencep [1]) (sequencep '(1)) (sequencep "a")))"#;
+        (sequencep [1]) (sequencep '(1)) (sequencep "a"))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 

@@ -18,7 +18,7 @@ use super::common::{assert_ok_eq, assert_oracle_parity_with_bootstrap, eval_orac
 fn oracle_prop_seq_take_drop_all_types() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; seq-take on list
   (seq-take '(a b c d e f) 3)
   (seq-take '(a b c) 0)
@@ -47,7 +47,7 @@ fn oracle_prop_seq_take_drop_all_types() {
   (seq-drop "abc" 10)
   ;; Complementary: (append (seq-take s n) (seq-drop s n)) = s
   (let ((s '(1 2 3 4 5)))
-    (equal s (append (seq-take s 3) (seq-drop s 3)))))"#;
+    (equal s (append (seq-take s 3) (seq-drop s 3))))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -59,7 +59,7 @@ fn oracle_prop_seq_take_drop_all_types() {
 fn oracle_prop_seq_take_while_drop_while_complex() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; seq-take-while: take while ascending
   (seq-take-while (let ((prev -999))
                     (lambda (x)
@@ -89,7 +89,7 @@ fn oracle_prop_seq_take_while_drop_while_complex() {
   ;; Complementary: (append (take-while p s) (drop-while p s)) = s
   (let ((s '(2 4 6 7 8 10)))
     (equal s (append (seq-take-while #'cl-evenp s)
-                     (seq-drop-while #'cl-evenp s)))))"#;
+                     (seq-drop-while #'cl-evenp s))))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -101,7 +101,7 @@ fn oracle_prop_seq_take_while_drop_while_complex() {
 fn oracle_prop_seq_empty_p_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; Empty cases
   (seq-empty-p nil)
   (seq-empty-p '())
@@ -124,7 +124,7 @@ fn oracle_prop_seq_empty_p_comprehensive() {
   ;; seq-length of non-empty
   (seq-length '(a b c d e))
   (seq-length [1 2 3])
-  (seq-length "hello"))"#;
+  (seq-length "hello")))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -136,7 +136,7 @@ fn oracle_prop_seq_empty_p_comprehensive() {
 fn oracle_prop_seq_reduce_accumulator_patterns() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; Build reversed list
   (seq-reduce (lambda (acc x) (cons x acc)) '(1 2 3 4 5) nil)
   ;; Running maximum
@@ -169,7 +169,7 @@ fn oracle_prop_seq_reduce_accumulator_patterns() {
                 "mississippi" nil)))
     (sort freqs (lambda (a b) (< (car a) (car b)))))
   ;; Reduce empty sequence returns initial value
-  (seq-reduce #'+ nil 42))"#;
+  (seq-reduce #'+ nil 42)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -181,7 +181,7 @@ fn oracle_prop_seq_reduce_accumulator_patterns() {
 fn oracle_prop_seq_find_some_every_edge_cases() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; seq-find returns the element, not the predicate result
   (seq-find (lambda (x) (> x 10)) '(5 8 12 15))
   ;; seq-find with default when not found
@@ -210,7 +210,7 @@ fn oracle_prop_seq_find_some_every_edge_cases() {
                '((1 2 3) (4 5 6) (7 8 9)))
   (seq-every-p (lambda (sub)
                  (seq-every-p #'numberp sub))
-               '((1 2 3) (4 "x" 6) (7 8 9))))"#;
+               '((1 2 3) (4 "x" 6) (7 8 9)))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -222,7 +222,7 @@ fn oracle_prop_seq_find_some_every_edge_cases() {
 fn oracle_prop_seq_count_complex_predicates() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; Basic count
   (seq-count #'cl-evenp '(1 2 3 4 5 6 7 8 9 10))
   ;; Count elements greater than mean
@@ -245,7 +245,7 @@ fn oracle_prop_seq_count_complex_predicates() {
   ;; Count where predicate always true
   (seq-count #'identity '(t t t t))
   ;; Count where predicate always false
-  (seq-count #'null '(1 2 3 4)))"#;
+  (seq-count #'null '(1 2 3 4))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -257,7 +257,7 @@ fn oracle_prop_seq_count_complex_predicates() {
 fn oracle_prop_seq_uniq_custom_test_functions() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; Default equality (eq for symbols)
   (seq-uniq '(a b a c b d c e))
   ;; With #'equal for structural equality
@@ -278,7 +278,7 @@ fn oracle_prop_seq_uniq_custom_test_functions() {
   ;; seq-uniq on empty
   (seq-uniq nil)
   ;; seq-uniq single element
-  (seq-uniq '(42)))"#;
+  (seq-uniq '(42))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -290,7 +290,7 @@ fn oracle_prop_seq_uniq_custom_test_functions() {
 fn oracle_prop_seq_sort_sort_by_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; seq-sort: stable sort check (equal elements preserve order)
   (let ((data '((a . 3) (b . 1) (c . 3) (d . 1) (e . 2))))
     (seq-map #'car
@@ -315,7 +315,7 @@ fn oracle_prop_seq_sort_sort_by_comprehensive() {
                        (string< a b))))
             '("fig" "date" "apple" "kiwi" "banana" "cherry" "pear"))
   ;; seq-sort empty
-  (seq-sort #'< nil))"#;
+  (seq-sort #'< nil)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -327,7 +327,7 @@ fn oracle_prop_seq_sort_sort_by_comprehensive() {
 fn oracle_prop_seq_group_by_partition_comprehensive() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; seq-partition: split by predicate
   (seq-partition #'cl-evenp '(1 2 3 4 5 6 7 8 9 10))
   ;; seq-partition: all match
@@ -355,7 +355,7 @@ fn oracle_prop_seq_group_by_partition_comprehensive() {
   ;; seq-group-by: group by remainder mod 3
   (let ((groups (seq-group-by (lambda (x) (% x 3))
                                '(1 2 3 4 5 6 7 8 9 10 11 12))))
-    (sort groups (lambda (a b) (< (car a) (car b))))))"#;
+    (sort groups (lambda (a b) (< (car a) (car b)))))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 
@@ -367,7 +367,7 @@ fn oracle_prop_seq_group_by_partition_comprehensive() {
 fn oracle_prop_seq_concatenate_into_advanced() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
-    let form = r#"((require (quote cl-lib)) list
+    let form = r#"(progn (require (quote cl-lib)) (list
   ;; seq-concatenate: multiple lists into vector
   (seq-concatenate 'vector '(1 2 3) '(4 5 6) '(7 8 9))
   ;; seq-concatenate: mix types into list
@@ -392,7 +392,7 @@ fn oracle_prop_seq_concatenate_into_advanced() {
   (seq-into (seq-filter #'cl-evenp '(1 2 3 4 5 6)) 'vector)
   ;; seq-into: empty
   (seq-into nil 'vector)
-  (seq-into [] 'list))"#;
+  (seq-into [] 'list)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 

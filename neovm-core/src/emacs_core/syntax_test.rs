@@ -847,7 +847,10 @@ fn forward_comment_backward_single_line_comments() {
         .expect("current buffer")
         .point_char() as i64
         + 1;
-    assert_eq!(point_1based, 18, "after -1 skip, point should be at 18 (;; c3)");
+    assert_eq!(
+        point_1based, 18,
+        "after -1 skip, point should be at 18 (;; c3)"
+    );
 
     // Reset to point-max, forward-comment -3: skip back three comments
     {
@@ -862,7 +865,10 @@ fn forward_comment_backward_single_line_comments() {
         .expect("current buffer")
         .point_char() as i64
         + 1;
-    assert_eq!(point_1based, 6, "after -3 skip, point should be at 6 (;; c1)");
+    assert_eq!(
+        point_1based, 6,
+        "after -3 skip, point should be at 6 (;; c1)"
+    );
 }
 
 /// Backward comment traversal stops on non-comment text.
@@ -917,7 +923,11 @@ fn forward_comment_backward_stops_at_non_comment() {
 
     // forward-comment -100 from point-max: try to skip more comments than exist
     let out = builtin_forward_comment(&mut eval, vec![Value::Int(-100)]).unwrap();
-    assert_eq!(out, Value::Nil, "forward-comment -100 should return nil (not enough comments)");
+    assert_eq!(
+        out,
+        Value::Nil,
+        "forward-comment -100 should return nil (not enough comments)"
+    );
     // Point should be after "code" — at position 5 in 1-based Emacs terms
     let point_1based = eval
         .buffers
@@ -925,7 +935,10 @@ fn forward_comment_backward_stops_at_non_comment() {
         .expect("current buffer")
         .point_char() as i64
         + 1;
-    assert_eq!(point_1based, 5, "after failed -100 skip, point should be at 5");
+    assert_eq!(
+        point_1based, 5,
+        "after failed -100 skip, point should be at 5"
+    );
 }
 
 #[test]

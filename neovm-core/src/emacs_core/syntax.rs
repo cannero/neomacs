@@ -2046,14 +2046,11 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64) -> bool {
                 if prev_pos > min {
                     if let Some(ch2) = buf.char_before(prev_pos) {
                         let entry2 = buf.syntax_table.get_entry(ch2);
-                        let flags2 =
-                            entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                        let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
                         if flags2.contains(SyntaxFlags::COMMENT_END_FIRST) {
                             code = SyntaxClass::EndComment;
-                            comstyle_b =
-                                flags.contains(SyntaxFlags::COMMENT_STYLE_B);
-                            nested = nested
-                                || flags2.contains(SyntaxFlags::COMMENT_NESTABLE);
+                            comstyle_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
+                            nested = nested || flags2.contains(SyntaxFlags::COMMENT_NESTABLE);
                             // Move past both chars of the two-char end.
                             buf.goto_char(prev_pos - ch2.len_utf8());
                         }
@@ -2178,8 +2175,7 @@ fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> 
             if prev_pos > min {
                 if let Some(ch2) = buf.char_before(prev_pos) {
                     let entry2 = buf.syntax_table.get_entry(ch2);
-                    let flags2 =
-                        entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
                     if flags2.contains(SyntaxFlags::COMMENT_END_FIRST) {
                         let se_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
                         if se_b == style_b {
@@ -2241,8 +2237,7 @@ fn scan_backward_comment_body(buf: &mut Buffer, style_b: bool, nested: bool) -> 
             if prev_pos > min {
                 if let Some(ch2) = buf.char_before(prev_pos) {
                     let entry2 = buf.syntax_table.get_entry(ch2);
-                    let flags2 =
-                        entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
+                    let flags2 = entry2.map(|e| e.flags).unwrap_or(SyntaxFlags::empty());
                     if flags2.contains(SyntaxFlags::COMMENT_START_FIRST) {
                         let sc_b = flags.contains(SyntaxFlags::COMMENT_STYLE_B);
                         if sc_b == style_b {
