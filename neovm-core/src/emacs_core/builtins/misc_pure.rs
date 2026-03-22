@@ -28,17 +28,21 @@ pub(crate) fn builtin_ignore(_args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_message(args: Vec<Value>) -> EvalResult {
     expect_min_args("message", &args, 1)?;
-    if args.len() == 1 && args[0].is_nil() {
+    // GNU Emacs: nil or empty string clears the echo area and returns as-is.
+    if args[0].is_nil() {
         return Ok(Value::Nil);
     }
-    let msg = if args.len() == 1 {
-        expect_strict_string(&args[0])?
-    } else {
-        // GNU Emacs's `message` uses `format-message` internally.
-        match builtin_format_message(args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-            _ => String::new(),
+    if let Value::Str(id) = &args[0] {
+        if with_heap(|h| h.get_string(*id).is_empty()) {
+            return Ok(args[0]);
         }
+    }
+    // GNU Emacs's `message` ALWAYS calls `format-message` on the args,
+    // even for a single string argument.  This converts %% -> % and
+    // applies text-quoting (curly quotes).
+    let msg = match builtin_format_message(args.clone())? {
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+        _ => String::new(),
     };
     eprintln!("{}", msg);
     Ok(Value::string(msg))
@@ -46,16 +50,13 @@ pub(crate) fn builtin_message(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_message_box(args: Vec<Value>) -> EvalResult {
     expect_min_args("message-box", &args, 1)?;
-    if args.len() == 1 && args[0].is_nil() {
+    if args[0].is_nil() {
         return Ok(Value::Nil);
     }
-    let msg = if args.len() == 1 {
-        expect_strict_string(&args[0])?
-    } else {
-        match builtin_format_wrapper_strict(args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-            _ => String::new(),
-        }
+    // GNU Emacs: always calls format-message, even for single-arg.
+    let msg = match builtin_format_message(args.clone())? {
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+        _ => String::new(),
     };
     eprintln!("{}", msg);
     Ok(Value::string(msg))
@@ -63,16 +64,13 @@ pub(crate) fn builtin_message_box(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_message_or_box(args: Vec<Value>) -> EvalResult {
     expect_min_args("message-or-box", &args, 1)?;
-    if args.len() == 1 && args[0].is_nil() {
+    if args[0].is_nil() {
         return Ok(Value::Nil);
     }
-    let msg = if args.len() == 1 {
-        expect_strict_string(&args[0])?
-    } else {
-        match builtin_format_wrapper_strict(args.clone())? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-            _ => String::new(),
-        }
+    // GNU Emacs: always calls format-message, even for single-arg.
+    let msg = match builtin_format_message(args.clone())? {
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+        _ => String::new(),
     };
     eprintln!("{}", msg);
     Ok(Value::string(msg))
@@ -101,7 +99,7 @@ pub(crate) fn builtin_message_eval(
 
 pub(crate) fn builtin_message_in_state(
     obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
+    _dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
     frames: &crate::window::FrameManager,
     threads: &crate::emacs_core::threads::ThreadManager,
@@ -109,24 +107,29 @@ pub(crate) fn builtin_message_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message", &args, 1)?;
-    if args.len() == 1 && args[0].is_nil() {
+    // GNU Emacs: nil or empty string clears the echo area and returns as-is.
+    if args[0].is_nil() {
         *current_message = None;
         return Ok(Value::Nil);
     }
-    let msg = if args.len() == 1 {
-        expect_strict_string(&args[0])?
-    } else {
-        // GNU Emacs's `message` uses `format-message` internally.
-        match super::strings::builtin_format_message_in_state(
-            obarray,
-            buffers,
-            frames,
-            threads,
-            args.clone(),
-        )? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-            _ => String::new(),
+    if let Value::Str(id) = &args[0] {
+        if with_heap(|h| h.get_string(*id).is_empty()) {
+            *current_message = None;
+            return Ok(args[0]);
         }
+    }
+    // GNU Emacs's `message` ALWAYS calls `format-message` on the args,
+    // even for a single string argument.  This converts %% -> % and
+    // applies text-quoting (curly quotes).
+    let msg = match super::strings::builtin_format_message_in_state(
+        obarray,
+        buffers,
+        frames,
+        threads,
+        args.clone(),
+    )? {
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+        _ => String::new(),
     };
     *current_message = Some(msg.clone());
     eprintln!("{}", msg);
@@ -154,22 +157,19 @@ pub(crate) fn builtin_message_box_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message-box", &args, 1)?;
-    if args.len() == 1 && args[0].is_nil() {
+    if args[0].is_nil() {
         return Ok(Value::Nil);
     }
-    let msg = if args.len() == 1 {
-        expect_strict_string(&args[0])?
-    } else {
-        match super::strings::builtin_format_in_state(
-            obarray,
-            buffers,
-            frames,
-            threads,
-            args.clone(),
-        )? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-            _ => String::new(),
-        }
+    // GNU Emacs: always calls format-message, even for single-arg.
+    let msg = match super::strings::builtin_format_message_in_state(
+        obarray,
+        buffers,
+        frames,
+        threads,
+        args.clone(),
+    )? {
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+        _ => String::new(),
     };
     eprintln!("{}", msg);
     Ok(Value::string(msg))
@@ -196,22 +196,19 @@ pub(crate) fn builtin_message_or_box_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("message-or-box", &args, 1)?;
-    if args.len() == 1 && args[0].is_nil() {
+    if args[0].is_nil() {
         return Ok(Value::Nil);
     }
-    let msg = if args.len() == 1 {
-        expect_strict_string(&args[0])?
-    } else {
-        match super::strings::builtin_format_in_state(
-            obarray,
-            buffers,
-            frames,
-            threads,
-            args.clone(),
-        )? {
-            Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
-            _ => String::new(),
-        }
+    // GNU Emacs: always calls format-message, even for single-arg.
+    let msg = match super::strings::builtin_format_message_in_state(
+        obarray,
+        buffers,
+        frames,
+        threads,
+        args.clone(),
+    )? {
+        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+        _ => String::new(),
     };
     eprintln!("{}", msg);
     Ok(Value::string(msg))
