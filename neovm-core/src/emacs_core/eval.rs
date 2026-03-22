@@ -1595,16 +1595,17 @@ fn bind_lexical_value_rooted_in_state(
     temp_roots.truncate(saved_roots);
 }
 
-/// Build a `(MIN . MAX)` cons cell representing the arity of a lambda/closure,
-/// matching the format GNU Emacs uses in `wrong-number-of-arguments` errors.
-/// `MAX` is the symbol `many` when the function accepts `&rest`.
+/// Build a `(MIN . NONREST)` cons cell representing the arity of a
+/// lambda/closure, matching the format GNU Emacs's bytecode VM uses in
+/// `wrong-number-of-arguments` errors.
+///
+/// GNU's convention: `MIN` = mandatory arg count, `NONREST` = mandatory +
+/// optional arg count (excluding `&rest`).  This differs from `subr-arity`
+/// which uses `(MIN . many)` for `&rest` functions.
 fn lambda_arity_cons(params: &LambdaParams) -> Value {
     let min_val = Value::Int(params.min_arity() as i64);
-    let max_val = match params.max_arity() {
-        Some(n) => Value::Int(n as i64),
-        None => Value::symbol("many"),
-    };
-    Value::cons(min_val, max_val)
+    let nonrest = (params.required.len() + params.optional.len()) as i64;
+    Value::cons(min_val, Value::Int(nonrest))
 }
 
 fn begin_lambda_call_in_state(
@@ -5687,6 +5688,7 @@ impl Evaluator {
             "while" => self.sf_while(tail),
             "progn" => self.sf_progn(tail),
             "prog1" => self.sf_prog1(tail),
+            "`" => self.sf_backquote(tail),
             "lambda" => self.eval_lambda(tail),
             "defun" => self.sf_defun(tail),
             "defvar" => self.sf_defvar(tail),
@@ -5772,6 +5774,93 @@ impl Evaluator {
             ));
         }
         Ok(self.quote_to_runtime_value(&tail[0]))
+    }
+
+    /// Built-in backquote expander (`` ` ``).
+    ///
+    /// Handles `` `template `` by walking the template, evaluating `,expr`
+    /// sub-forms and splicing `,@expr` sub-forms.
+    fn sf_backquote(&mut self, tail: &[Expr]) -> EvalResult {
+        if tail.len() != 1 {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("`"), Value::Int(tail.len() as i64)],
+            ));
+        }
+        self.expand_backquote(&tail[0])
+    }
+
+    /// Recursively expand a backquote template.
+    fn expand_backquote(&mut self, expr: &Expr) -> EvalResult {
+        match expr {
+            // (,  form) -> evaluate form
+            Expr::List(items) if items.len() == 2
+                && matches!(&items[0], Expr::Symbol(id) if resolve_sym(*id) == ",") =>
+            {
+                self.eval(&items[1])
+            }
+            // (,@ form) at the top level is an error (splice only valid inside a list)
+            Expr::List(items) if items.len() == 2
+                && matches!(&items[0], Expr::Symbol(id) if resolve_sym(*id) == ",@") =>
+            {
+                Err(signal("error", vec![Value::string(",@ not inside list")]))
+            }
+            // A list template: expand each element, handling splicing
+            Expr::List(items) if !items.is_empty() => {
+                // Check for nested backquote: (`  form) -> quote the whole thing
+                if matches!(&items[0], Expr::Symbol(id) if resolve_sym(*id) == "`") {
+                    // Nested backquote: return as-is (like quote)
+                    return Ok(self.quote_to_runtime_value(expr));
+                }
+                let mut result = Vec::new();
+                for item in items {
+                    match item {
+                        // (,@ form) -> splice the result into the list
+                        Expr::List(sub) if sub.len() == 2
+                            && matches!(&sub[0], Expr::Symbol(id) if resolve_sym(*id) == ",@") =>
+                        {
+                            let val = self.eval(&sub[1])?;
+                            // Splice: iterate over the list value
+                            let mut cursor = val;
+                            loop {
+                                match cursor {
+                                    Value::Nil => break,
+                                    Value::Cons(cell) => {
+                                        let pair = read_cons(cell);
+                                        result.push(pair.car);
+                                        cursor = pair.cdr;
+                                    }
+                                    _ => {
+                                        // Non-list: just append
+                                        result.push(cursor);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        // (,  form) -> evaluate and include
+                        Expr::List(sub) if sub.len() == 2
+                            && matches!(&sub[0], Expr::Symbol(id) if resolve_sym(*id) == ",") =>
+                        {
+                            let val = self.eval(&sub[1])?;
+                            result.push(val);
+                        }
+                        // Nested list: recursively expand
+                        Expr::List(_) => {
+                            let val = self.expand_backquote(item)?;
+                            result.push(val);
+                        }
+                        // Non-list: quote it
+                        _ => {
+                            result.push(self.quote_to_runtime_value(item));
+                        }
+                    }
+                }
+                Ok(Value::list(result))
+            }
+            // Non-list: just quote it
+            _ => Ok(self.quote_to_runtime_value(expr)),
+        }
     }
 
     fn sf_function(&mut self, tail: &[Expr]) -> EvalResult {

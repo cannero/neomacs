@@ -198,6 +198,7 @@ impl OverlayList {
     /// - Endpoints before the deleted range are unchanged.
     /// - Endpoints within the deleted range are clamped to `start`.
     /// - Endpoints after the deleted range are shifted left by `end - start`.
+    /// - Overlays with the `evaporate` property that become zero-width are removed.
     pub fn adjust_for_delete(&mut self, start: usize, end: usize) {
         if start >= end {
             return;
@@ -219,6 +220,19 @@ impl OverlayList {
                 ov.end = start;
             }
         }
+
+        // GNU Emacs: overlays with the `evaporate` property are deleted when
+        // they become empty (start == end) after text deletion.
+        self.overlays.retain(|ov| {
+            if ov.start == ov.end {
+                if let Some(val) = ov.properties.get("evaporate") {
+                    if val.is_truthy() {
+                        return false; // remove this overlay
+                    }
+                }
+            }
+            true
+        });
     }
 
     /// Set the `front_advance` flag on an overlay.

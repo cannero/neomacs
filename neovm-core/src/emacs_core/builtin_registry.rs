@@ -679,6 +679,7 @@ const DISPATCH_BUILTIN_NAMES: &[&str] = &[
     "make-terminal-frame",
     "make-thread",
     "make-variable-buffer-local",
+    "macrop",
     "makunbound",
     "map-char-table",
     "mapatoms",

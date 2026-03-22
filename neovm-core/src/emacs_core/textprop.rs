@@ -1623,26 +1623,76 @@ pub(crate) fn builtin_move_overlay_in_buffers(
 ) -> EvalResult {
     expect_min_args("move-overlay", &args, 3)?;
     expect_max_args("move-overlay", &args, 4)?;
-    let (ov_id, buf_id) = expect_overlay(&args[0])?;
-    ensure_marker_points_into_buffer(buffers, &args[1], buf_id)?;
-    ensure_marker_points_into_buffer(buffers, &args[2], buf_id)?;
+    let (ov_id, old_buf_id) = expect_overlay(&args[0])?;
+
+    // Resolve target buffer: use BUFFER arg if given, otherwise same buffer.
+    let new_buf_id = if let Some(buf_arg) = args.get(3) {
+        if buf_arg.is_truthy() {
+            resolve_buffer_id_in_buffers(buffers, Some(buf_arg))?
+        } else {
+            old_buf_id
+        }
+    } else {
+        old_buf_id
+    };
+
     let mut beg = expect_integer_or_marker_in_buffers(buffers, &args[1])?;
     let mut end = expect_integer_or_marker_in_buffers(buffers, &args[2])?;
     if beg > end {
         std::mem::swap(&mut beg, &mut end);
     }
-    // Optional BUFFER argument — if given, we'd need to move between buffers.
-    // For simplicity, we move within the same buffer.
-    let _new_buf = args.get(3);
 
-    let buf = buffers
-        .get_mut(buf_id)
-        .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+    if new_buf_id == old_buf_id {
+        // Same buffer: just move within the buffer.
+        let buf = buffers
+            .get_mut(old_buf_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+        let byte_beg = elisp_pos_to_byte(buf, beg);
+        let byte_end = elisp_pos_to_byte(buf, end);
+        buf.overlays.move_overlay(ov_id, byte_beg, byte_end);
+        Ok(args[0])
+    } else {
+        // Different buffer: remove from old, add to new, update overlay value.
+        // Extract overlay properties from old buffer.
+        let old_overlay = buffers
+            .get(old_buf_id)
+            .and_then(|buf| buf.overlays.get(ov_id).cloned());
 
-    let byte_beg = elisp_pos_to_byte(buf, beg);
-    let byte_end = elisp_pos_to_byte(buf, end);
-    buf.overlays.move_overlay(ov_id, byte_beg, byte_end);
-    Ok(args[0])
+        // Remove from old buffer.
+        if let Some(buf) = buffers.get_mut(old_buf_id) {
+            buf.overlays.delete_overlay(ov_id);
+        }
+
+        // Compute byte positions in new buffer.
+        let new_buf = buffers
+            .get_mut(new_buf_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+        let byte_beg = elisp_pos_to_byte(new_buf, beg);
+        let byte_end = elisp_pos_to_byte(new_buf, end);
+
+        // Create new overlay in the new buffer with the same id.
+        let new_ov_id = new_buf.overlays.make_overlay(byte_beg, byte_end);
+
+        // Copy properties from old overlay.
+        if let Some(old_ov) = old_overlay {
+            for (key, val) in &old_ov.properties {
+                new_buf.overlays.overlay_put(new_ov_id, key, *val);
+            }
+            new_buf.overlays.set_front_advance(new_ov_id, old_ov.front_advance);
+            new_buf.overlays.set_rear_advance(new_ov_id, old_ov.rear_advance);
+        }
+
+        // Update the overlay value's cons cell to point to the new buffer
+        // and new overlay id.
+        if let Value::Cons(cell) = &args[0] {
+            with_heap_mut(|h| {
+                h.set_car(*cell, Value::Int(new_ov_id as i64));
+                h.set_cdr(*cell, Value::Buffer(new_buf_id));
+            });
+        }
+
+        Ok(args[0])
+    }
 }
 
 /// (overlay-start OVERLAY)

@@ -876,6 +876,10 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
         }
         Value::Str(id) => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
+            // GNU Emacs: (copy-sequence "") returns "" itself (eq).
+            if s.is_empty() {
+                return Ok(args[0]);
+            }
             let new_val = Value::string(&s);
             // Copy text properties
             if let Value::Str(new_id) = &new_val {
@@ -885,7 +889,14 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             }
             Ok(new_val)
         }
-        Value::Vector(v) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
+        Value::Vector(v) => {
+            let elems = with_heap(|h| h.get_vector(*v).clone());
+            // GNU Emacs: (copy-sequence (vector)) returns the same empty vector (eq).
+            if elems.is_empty() {
+                return Ok(args[0]);
+            }
+            Ok(Value::vector(elems))
+        }
         Value::Record(v) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             let id = with_heap_mut(|h| h.alloc_vector(items));
