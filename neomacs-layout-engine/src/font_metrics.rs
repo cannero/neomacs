@@ -515,14 +515,17 @@ impl FontMetricsService {
 
         if let Some(layout) = buffer.line_layout(&mut self.font_system, 0) {
             if let Some(line) = layout.first() {
-                actual_line_height = line.line_height_opt.unwrap_or(line_height);
+                let glyph_height = (line.max_ascent + line.max_descent).max(1.0);
+                // Match GNU Emacs by basing row height on realized font metrics,
+                // not on the synthetic shaping line-height request.  Preserve
+                // only the subpixel remainder introduced by pixel rounding.
+                actual_line_height = glyph_height.ceil();
                 if let Some(space_glyph) = line.glyphs.iter().find(|glyph| glyph.start == 0) {
                     char_width = space_glyph.w;
                 }
 
-                // Match cosmic-text's row baseline placement:
-                // line_y = line_top + ((line_height - glyph_height) / 2) + max_ascent
-                let glyph_height = line.max_ascent + line.max_descent;
+                // Center only the rounded pixel remainder around the realized
+                // ascent/descent pair.
                 let centering_offset = (actual_line_height - glyph_height) / 2.0;
                 ascent = centering_offset + line.max_ascent;
             }
@@ -968,11 +971,17 @@ mod tests {
         let line = layout
             .first()
             .expect("sample line should have one layout line");
-        let actual_line_height = line.line_height_opt.unwrap_or(line_height);
         let glyph_height = line.max_ascent + line.max_descent;
+        let actual_line_height = glyph_height.ceil().max(1.0);
         let expected_ascent = (actual_line_height - glyph_height) / 2.0 + line.max_ascent;
         let expected_descent = actual_line_height - expected_ascent;
 
+        assert!(
+            (fm.line_height - actual_line_height).abs() < 0.01,
+            "expected line height {:.3}, got {:.3}",
+            actual_line_height,
+            fm.line_height
+        );
         assert!(
             (fm.ascent - expected_ascent).abs() < 0.01,
             "expected ascent {:.3}, got {:.3}",
