@@ -2769,11 +2769,6 @@ impl Evaluator {
         );
         obarray.set_symbol_value("image-scaling-factor", Value::Float(1.0, next_float_id()));
 
-        // GC / memory management (C DEFVAR in official Emacs)
-        obarray.set_symbol_value("gc-cons-threshold", Value::Int(800_000));
-        obarray.set_symbol_value("gc-cons-percentage", Value::Float(0.1, next_float_id()));
-        obarray.set_symbol_value("garbage-collection-messages", Value::Nil);
-
         // User init / startup (C DEFVAR in official Emacs)
         obarray.set_symbol_value("user-init-file", Value::Nil);
         obarray.set_symbol_value("user-emacs-directory", Value::string("~/.emacs.d/"));
@@ -2782,6 +2777,7 @@ impl Evaluator {
         obarray.set_symbol_value("frame--special-parameters", Value::Nil);
 
         // Initialize distributed bootstrap variables
+        super::alloc::register_bootstrap_vars(&mut obarray);
         super::load::register_bootstrap_vars(&mut obarray);
         super::fileio::register_bootstrap_vars(&mut obarray);
         super::window_cmds::register_bootstrap_vars(&mut obarray);

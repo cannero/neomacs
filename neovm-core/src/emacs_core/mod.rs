@@ -11,6 +11,7 @@
 
 pub mod abbrev;
 pub mod advice;
+pub mod alloc;
 pub mod autoload;
 pub mod bookmark;
 pub mod buffer;
