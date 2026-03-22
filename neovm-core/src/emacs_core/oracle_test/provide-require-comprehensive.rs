@@ -115,11 +115,12 @@ fn oracle_prop_provide_require_featurep_subfeature() {
     let form = r#"(progn
   ;; featurep can take an optional subfeature argument
   ;; (featurep FEATURE SUBFEATURE) checks if SUBFEATURE is in the
-  ;; subfeature list of FEATURE
+  ;; subfeature list of FEATURE.
+  ;; GNU provide takes a LIST of subfeatures as the second argument.
   (unwind-protect
       (progn
-        (provide 'neovm--test-feat-versioned 'neovm--test-sub-v1)
-        (provide 'neovm--test-feat-versioned 'neovm--test-sub-v2)
+        (provide 'neovm--test-feat-versioned
+                 '(neovm--test-sub-v1 neovm--test-sub-v2))
         (list
          ;; Feature itself is provided
          (featurep 'neovm--test-feat-versioned)

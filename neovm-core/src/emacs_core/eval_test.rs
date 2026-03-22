@@ -2522,6 +2522,69 @@ fn provide_require() {
 }
 
 #[test]
+fn provide_stores_subfeatures_list() {
+    // GNU provide stores the SUBFEATURES list via (put FEATURE 'subfeatures LIST).
+    // featurep with a subfeature arg checks membership in that list.
+    let results = eval_all(
+        r#"(provide 'test-sf-feat '(sub-a sub-b))
+           (featurep 'test-sf-feat)
+           (featurep 'test-sf-feat 'sub-a)
+           (featurep 'test-sf-feat 'sub-b)
+           (featurep 'test-sf-feat 'sub-c)
+           (get 'test-sf-feat 'subfeatures)"#,
+    );
+    assert_eq!(results[0], "OK test-sf-feat");
+    assert_eq!(results[1], "OK t");
+    assert_eq!(results[2], "OK t", "sub-a should be in subfeatures");
+    assert_eq!(results[3], "OK t", "sub-b should be in subfeatures");
+    assert_eq!(results[4], "OK nil", "sub-c should NOT be in subfeatures");
+    assert_eq!(results[5], "OK (sub-a sub-b)");
+}
+
+#[test]
+fn provide_runs_after_load_alist_callbacks() {
+    // GNU Fprovide runs (mapc #'funcall (cdr (assq feature after-load-alist)))
+    // after adding the feature to the features list.
+    let results = eval_all(
+        r#"(defvar test-eal-log nil)
+           ;; Set up after-load-alist with a callback for the feature.
+           ;; Each entry is (FEATURE-OR-REGEXP callback1 callback2 ...)
+           (setq after-load-alist
+                 (list (list 'test-eal-feat
+                             (lambda () (setq test-eal-log
+                                              (cons 'fired-1 test-eal-log)))
+                             (lambda () (setq test-eal-log
+                                              (cons 'fired-2 test-eal-log))))))
+           ;; Provide should trigger the callbacks
+           (provide 'test-eal-feat)
+           test-eal-log"#,
+    );
+    // Both callbacks should have fired (in order: fired-1 pushed, then fired-2)
+    assert_eq!(results[3], "OK (fired-2 fired-1)");
+}
+
+#[test]
+fn provide_does_not_refire_after_load_callbacks_on_redundant_provide() {
+    // When provide is called again for an already-provided feature,
+    // the after-load-alist callbacks should still fire (GNU behavior:
+    // Fprovide always runs the hooks regardless of whether the feature
+    // was already present).
+    let results = eval_all(
+        r#"(defvar test-eal-count 0)
+           (setq after-load-alist
+                 (list (list 'test-refire-feat
+                             (lambda () (setq test-eal-count
+                                              (1+ test-eal-count))))))
+           (provide 'test-refire-feat)
+           test-eal-count
+           (provide 'test-refire-feat)
+           test-eal-count"#,
+    );
+    assert_eq!(results[3], "OK 1", "first provide should fire callback");
+    assert_eq!(results[5], "OK 2", "second provide should also fire callback");
+}
+
+#[test]
 fn default_directory_is_bound_to_directory_path() {
     let results = eval_all(
         "(stringp default-directory)
