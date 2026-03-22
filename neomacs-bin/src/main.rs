@@ -676,7 +676,11 @@ fn main() {
                 Arc::clone(&shared_monitors),
                 #[cfg(feature = "neo-term")]
                 Arc::new(Mutex::new(HashMap::new())),
-            );
+            )
+            .unwrap_or_else(|err| {
+                eprintln!("neomacs: failed to start GUI frontend: {err}");
+                std::process::exit(1);
+            });
             tracing::info!("GUI render thread spawned ({}x{})", width, height);
             FrontendHandle::Gui(render_thread)
         }
