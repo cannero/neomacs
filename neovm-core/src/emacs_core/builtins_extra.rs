@@ -11,6 +11,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
+use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
 use super::value::{Value, read_cons, with_heap};
 #[cfg(unix)]
 use std::ffi::CStr;
@@ -241,20 +242,20 @@ pub(crate) fn builtin_take(args: Vec<Value>) -> EvalResult {
 // ---------------------------------------------------------------------------
 
 /// `(string-search NEEDLE HAYSTACK &optional START)`.
+///
+/// START is a character position (not byte offset).  The return value
+/// is also a character position, matching GNU Emacs semantics.
 pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
     expect_min_args("string-search", &args, 2)?;
     let needle = expect_string(&args[0])?;
     let haystack = expect_string(&args[1])?;
-    let start = if args.len() > 2 {
+    let char_len = storage_char_len(&haystack);
+    let start_char = if args.len() > 2 {
         let n = expect_int(&args[2])?;
-        if n < 0 {
+        if n < 0 || n as usize > char_len {
             return Err(signal(
                 "args-out-of-range",
-                vec![
-                    args[2],
-                    Value::Int(0),
-                    Value::Int(haystack.chars().count() as i64),
-                ],
+                vec![args[2], Value::Int(0), Value::Int(char_len as i64)],
             ));
         }
         n as usize
@@ -262,9 +263,16 @@ pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
         0
     };
 
-    let search_in = &haystack[start.min(haystack.len())..];
+    // Convert the start character position to a byte offset for slicing.
+    let start_byte = storage_char_to_byte(&haystack, start_char);
+    let search_in = &haystack[start_byte..];
     match search_in.find(&needle) {
-        Some(pos) => Ok(Value::Int((start + pos) as i64)),
+        Some(byte_pos) => {
+            // Convert the absolute byte position back to a character position.
+            let abs_byte = start_byte + byte_pos;
+            let char_pos = storage_byte_to_char(&haystack, abs_byte);
+            Ok(Value::Int(char_pos as i64))
+        }
         None => Ok(Value::Nil),
     }
 }
