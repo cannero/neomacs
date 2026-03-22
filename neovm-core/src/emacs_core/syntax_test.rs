@@ -795,6 +795,139 @@ fn forward_comment_validates_arity_and_type() {
     }
 }
 
+/// Backward comment traversal with single-line (`;` ... `\n`) comments.
+///
+/// Buffer: "code\n;; c1\n;; c2\n;; c3\n"
+/// Emacs 1-based positions:
+///   1..4   "code"
+///   5      \n
+///   6..10  ";; c1"
+///   11     \n
+///   12..16 ";; c2"
+///   17     \n
+///   18..22 ";; c3"
+///   23     \n
+///
+/// From point-max (24):
+///   (forward-comment -1) => t, point=18  (before ";; c3")
+///   (forward-comment -3) => t, point=6   (before ";; c1")
+#[test]
+fn forward_comment_backward_single_line_comments() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        // Set up ; as comment start, \n as comment end
+        buf.syntax_table.modify_syntax_entry(
+            ';',
+            SyntaxEntry {
+                class: SyntaxClass::Comment,
+                matching_char: None,
+                flags: SyntaxFlags::empty(),
+            },
+        );
+        buf.syntax_table.modify_syntax_entry(
+            '\n',
+            SyntaxEntry {
+                class: SyntaxClass::EndComment,
+                matching_char: None,
+                flags: SyntaxFlags::empty(),
+            },
+        );
+        buf.insert("code\n;; c1\n;; c2\n;; c3\n");
+        buf.goto_char(buf.point_max());
+    }
+
+    // forward-comment -1 from point-max: skip back one comment
+    let out = builtin_forward_comment(&mut eval, vec![Value::Int(-1)]).unwrap();
+    assert_eq!(out, Value::True, "forward-comment -1 should return t");
+    let point_1based = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .point_char() as i64
+        + 1;
+    assert_eq!(point_1based, 18, "after -1 skip, point should be at 18 (;; c3)");
+
+    // Reset to point-max, forward-comment -3: skip back three comments
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.goto_char(buf.point_max());
+    }
+    let out = builtin_forward_comment(&mut eval, vec![Value::Int(-3)]).unwrap();
+    assert_eq!(out, Value::True, "forward-comment -3 should return t");
+    let point_1based = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .point_char() as i64
+        + 1;
+    assert_eq!(point_1based, 6, "after -3 skip, point should be at 6 (;; c1)");
+}
+
+/// Backward comment traversal stops on non-comment text.
+///
+/// Buffer: "code\n;; c1\n;; c2\n;; c3\n"
+/// From point-max, (forward-comment -100) should stop at "code" boundary,
+/// returning nil with point at 6 (the start of ";; c1").
+/// Actually GNU returns nil at position 5 (after "code\n") since it can't
+/// skip past "code".  Let me reconsider...
+///
+/// GNU's logic: from point-max(24), going backward:
+///   Skips \n (EndComment/whitespace), then comment 3, then comment 2,
+///   then comment 1. After skipping 3 comments, point is at 6 (before
+///   ";; c1"). The \n at position 5 is EndComment — back_comment is
+///   called, it tries to find a matching comment start before pos 5.
+///   It finds no comment start (only "code"), so back_comment fails.
+///   Since ch=='\n', treat as whitespace. Now at pos 4 (after "code"),
+///   char_before is 'e' — class=Word, not whitespace/comment.
+///   Return false → nil, point stays at 5.
+///
+/// Wait, that means -100 returns nil and point=5 (after skipping
+/// the 3 comments but failing on the 4th).
+/// Actually let me re-examine: in GNU when back_comment fails on the
+/// \n and treats it as whitespace, it continues the inner loop.
+/// Next char before pos 4 is 'e', class=Word → returns nil.
+/// But GNU does `inc_both` at the leave label, so point = 5.
+#[test]
+fn forward_comment_backward_stops_at_non_comment() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.syntax_table.modify_syntax_entry(
+            ';',
+            SyntaxEntry {
+                class: SyntaxClass::Comment,
+                matching_char: None,
+                flags: SyntaxFlags::empty(),
+            },
+        );
+        buf.syntax_table.modify_syntax_entry(
+            '\n',
+            SyntaxEntry {
+                class: SyntaxClass::EndComment,
+                matching_char: None,
+                flags: SyntaxFlags::empty(),
+            },
+        );
+        buf.insert("code\n;; c1\n;; c2\n;; c3\n");
+        buf.goto_char(buf.point_max());
+    }
+
+    // forward-comment -100 from point-max: try to skip more comments than exist
+    let out = builtin_forward_comment(&mut eval, vec![Value::Int(-100)]).unwrap();
+    assert_eq!(out, Value::Nil, "forward-comment -100 should return nil (not enough comments)");
+    // Point should be after "code" — at position 5 in 1-based Emacs terms
+    let point_1based = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .point_char() as i64
+        + 1;
+    assert_eq!(point_1based, 5, "after failed -100 skip, point should be at 5");
+}
+
 #[test]
 fn backward_prefix_chars_default_is_noop() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
