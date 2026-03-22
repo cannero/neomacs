@@ -2806,7 +2806,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
         other => panic!("expected frame object, got {other:?}"),
     };
     let frame = ev.frames.get(created_id).expect("created opening frame");
-    assert_eq!(frame.effective_window_system(), Some(Value::symbol("x")));
+    assert_eq!(frame.effective_window_system(), Some(Value::symbol("neo")));
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 540);
     assert_eq!(
