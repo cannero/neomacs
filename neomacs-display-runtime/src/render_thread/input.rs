@@ -76,6 +76,25 @@ impl RenderApp {
         }
     }
 
+    /// Extract a single control-character keysym from committed text.
+    ///
+    /// Some backends report `Ctrl+n` / `Ctrl+p` style input as a control-text
+    /// payload even when modifier-state delivery is delayed relative to the key
+    /// event. Preserve that byte so the keyboard layer can recover the GNU
+    /// control event instead of silently degrading it into plain text.
+    pub(super) fn translate_control_text(text: &str) -> Option<u32> {
+        let mut chars = text.chars();
+        let ch = chars.next()?;
+        if chars.next().is_some() {
+            return None;
+        }
+        if ch.is_control() {
+            Some(ch as u32)
+        } else {
+            None
+        }
+    }
+
     /// Hit-test toolbar items. Returns the index of the item under (x, y), or None.
     pub(super) fn toolbar_hit_test(&self, x: f32, y: f32) -> Option<u32> {
         if self.toolbar_height <= 0.0 || y >= self.toolbar_height {
@@ -514,6 +533,20 @@ mod tests {
             RenderApp::translate_committed_text("x", NEOMACS_SUPER_MASK),
             None
         );
+    }
+
+    #[test]
+    fn translate_control_text_preserves_single_control_bytes() {
+        assert_eq!(RenderApp::translate_control_text("\u{0e}"), Some(0x0e)); // C-n
+        assert_eq!(RenderApp::translate_control_text("\u{10}"), Some(0x10)); // C-p
+        assert_eq!(RenderApp::translate_control_text("\r"), Some(0x0d));
+    }
+
+    #[test]
+    fn translate_control_text_ignores_printable_and_multi_char_text() {
+        assert_eq!(RenderApp::translate_control_text("n"), None);
+        assert_eq!(RenderApp::translate_control_text("np"), None);
+        assert_eq!(RenderApp::translate_control_text(""), None);
     }
 
     // ===================================================================

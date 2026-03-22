@@ -193,7 +193,21 @@ impl RenderApp {
                     if state == ElementState::Pressed {
                         if let Some(ref txt) = text {
                             let s = txt.as_str();
-                            if let Some(keysyms) = Self::translate_committed_text(s, self.modifiers)
+                            if let Some(control_keysym) = Self::translate_control_text(s) {
+                                tracing::debug!(
+                                    "KeyboardInput control text path: text={:?} keysym=0x{:04x} mods=0x{:x}",
+                                    s,
+                                    control_keysym,
+                                    self.modifiers
+                                );
+                                self.comms.send_input(InputEvent::Key {
+                                    keysym: control_keysym,
+                                    modifiers: self.modifiers,
+                                    pressed: true,
+                                });
+                                handled_via_text = true;
+                            } else if let Some(keysyms) =
+                                Self::translate_committed_text(s, self.modifiers)
                             {
                                 tracing::debug!(
                                     "KeyboardInput committed text path: text={:?} keysyms={:?} mods=0x{:x}",
