@@ -4,6 +4,38 @@ fn mgr() -> CodingSystemManager {
     CodingSystemManager::new()
 }
 
+fn mgr_with_latin9() -> CodingSystemManager {
+    let mut m = mgr();
+    m.register(CodingSystemInfo::new(
+        "iso-latin-9",
+        "charset",
+        '0',
+        EolType::Undecided,
+    ));
+    m.register(CodingSystemInfo::new(
+        "iso-latin-9-unix",
+        "charset",
+        '0',
+        EolType::Unix,
+    ));
+    m.register(CodingSystemInfo::new(
+        "iso-latin-9-dos",
+        "charset",
+        '0',
+        EolType::Dos,
+    ));
+    m.register(CodingSystemInfo::new(
+        "iso-latin-9-mac",
+        "charset",
+        '0',
+        EolType::Mac,
+    ));
+    m.add_alias("iso-8859-15", "iso-latin-9");
+    m.add_alias("latin-9", "iso-latin-9");
+    m.add_alias("latin-0", "iso-latin-9");
+    m
+}
+
 fn plist_get(value: &Value, key: &str) -> Option<Value> {
     let needle = key.trim_start_matches(':');
     let items = list_to_vec(value)?;
@@ -696,6 +728,100 @@ fn set_keyboard_coding_system_preserves_explicit_unix_spelling() {
     let ascii_unix =
         builtin_set_keyboard_coding_system(&mut m, vec![Value::symbol("ascii-unix")]).unwrap();
     assert_eq!(ascii_unix, Value::symbol("ascii-unix"));
+}
+
+#[test]
+fn coding_system_change_eol_conversion_canonicalizes_alias_families() {
+    let m = mgr();
+
+    assert_eq!(
+        builtin_coding_system_change_eol_conversion(
+            &m,
+            vec![Value::symbol("latin-1"), Value::Int(0)],
+        )
+        .unwrap(),
+        Value::symbol("iso-latin-1-unix")
+    );
+    assert_eq!(
+        builtin_coding_system_change_eol_conversion(
+            &m,
+            vec![Value::symbol("latin-1-unix"), Value::Nil],
+        )
+        .unwrap(),
+        Value::symbol("iso-latin-1")
+    );
+    assert_eq!(
+        builtin_coding_system_change_eol_conversion(
+            &m,
+            vec![Value::symbol("latin-1-unix"), Value::Int(1)],
+        )
+        .unwrap(),
+        Value::symbol("iso-latin-1-dos")
+    );
+}
+
+#[test]
+fn coding_system_change_eol_conversion_canonicalizes_latin9_alias_family() {
+    let m = mgr_with_latin9();
+
+    assert_eq!(
+        builtin_coding_system_change_eol_conversion(
+            &m,
+            vec![Value::symbol("iso-8859-15"), Value::Int(0)],
+        )
+        .unwrap(),
+        Value::symbol("iso-latin-9-unix")
+    );
+    assert_eq!(
+        builtin_coding_system_change_eol_conversion(
+            &m,
+            vec![Value::symbol("iso-8859-15-unix"), Value::Nil],
+        )
+        .unwrap(),
+        Value::symbol("iso-latin-9")
+    );
+    assert_eq!(
+        builtin_coding_system_base(&m, vec![Value::symbol("iso-8859-15-unix")]).unwrap(),
+        Value::symbol("iso-latin-9")
+    );
+}
+
+#[test]
+fn set_keyboard_coding_system_normalizes_latin9_alias_family() {
+    let mut m = mgr_with_latin9();
+
+    let set =
+        builtin_set_keyboard_coding_system(&mut m, vec![Value::symbol("iso-8859-15")]).unwrap();
+    assert_eq!(set, Value::symbol("iso-latin-9-unix"));
+
+    let get = builtin_keyboard_coding_system(&m, vec![]).unwrap();
+    assert_eq!(get, Value::symbol("iso-latin-9-unix"));
+}
+
+#[test]
+fn set_keyboard_coding_system_accepts_alias_derived_variants() {
+    let mut m = mgr();
+
+    let latin_unix =
+        builtin_set_keyboard_coding_system(&mut m, vec![Value::symbol("latin-1-unix")]).unwrap();
+    assert_eq!(latin_unix, Value::symbol("latin-1-unix"));
+
+    let latin_dos =
+        builtin_set_keyboard_coding_system(&mut m, vec![Value::symbol("latin-1-dos")]).unwrap();
+    assert_eq!(latin_dos, Value::symbol("iso-latin-1-unix"));
+}
+
+#[test]
+fn set_terminal_coding_system_accepts_alias_derived_variants() {
+    let mut m = mgr();
+
+    assert!(
+        builtin_set_terminal_coding_system(&mut m, vec![Value::symbol("latin-1-unix")]).is_ok()
+    );
+    assert_eq!(
+        builtin_terminal_coding_system(&m, vec![]).unwrap(),
+        Value::symbol("latin-1-unix")
+    );
 }
 
 #[test]

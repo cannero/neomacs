@@ -71,14 +71,7 @@ fn expect_integer_or_marker(val: &Value) -> Result<(), Flow> {
 }
 
 fn is_known_or_derived_coding_system(mgr: &CodingSystemManager, name: &str) -> bool {
-    if mgr.is_known(name) {
-        return true;
-    }
-    let base = strip_eol_suffix(name);
-    if base == name || !allows_derived_eol_variant(base) {
-        return false;
-    }
-    mgr.is_known(base)
+    resolve_runtime_name(mgr, name).is_some()
 }
 
 fn normalize_keyboard_coding_system(name: &str) -> String {
@@ -98,6 +91,7 @@ fn normalize_keyboard_coding_system(name: &str) -> String {
         "emacs-internal" => "emacs-internal".to_string(),
         "ascii" | "us-ascii" => "us-ascii-unix".to_string(),
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1-unix".to_string(),
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9-unix".to_string(),
         _ => format!("{name}-unix"),
     }
 }
@@ -744,7 +738,8 @@ fn plist_contains_key(plist: &[Value], key: &str) -> bool {
 fn coding_category_for_base(base: &str) -> &'static str {
     match base {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "emacs-internal" => "coding-category-utf-8",
-        "latin-1" | "ascii" => "coding-category-charset",
+        "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-0" | "latin-9" | "iso-8859-15"
+        | "iso-latin-9" | "ascii" | "us-ascii" => "coding-category-charset",
         "raw-text" | "binary" | "no-conversion" => "coding-category-raw-text",
         "undecided" | "prefer-utf-8" => "coding-category-undecided",
         _ => "coding-category-undecided",
@@ -756,8 +751,13 @@ fn coding_docstring_for_base(base: &str) -> Option<&'static str> {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "emacs-internal" => {
             Some("UTF-8 (no signature (BOM))")
         }
-        "latin-1" => Some("ISO 2022 based 8-bit encoding for Latin-1 (MIME:ISO-8859-1)."),
-        "ascii" => Some("ASCII encoding."),
+        "latin-1" | "iso-8859-1" | "iso-latin-1" => {
+            Some("ISO 2022 based 8-bit encoding for Latin-1 (MIME:ISO-8859-1).")
+        }
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
+            Some("ISO 2022 based 8-bit encoding for Latin-9 (MIME:ISO-8859-15).")
+        }
+        "ascii" | "us-ascii" => Some("ASCII encoding."),
         "no-conversion" | "binary" | "raw-text" => Some("Do no conversion."),
         "undecided" => Some("Automatic conversion on decode."),
         _ => None,
@@ -769,8 +769,11 @@ fn coding_charset_list_for_base(base: &str) -> Option<Vec<Value>> {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "emacs-internal" => {
             Some(vec![Value::symbol("unicode")])
         }
-        "latin-1" => Some(vec![Value::symbol("iso-8859-1")]),
-        "ascii" => Some(vec![Value::symbol("ascii")]),
+        "latin-1" | "iso-8859-1" | "iso-latin-1" => Some(vec![Value::symbol("iso-8859-1")]),
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
+            Some(vec![Value::symbol("iso-8859-15")])
+        }
+        "ascii" | "us-ascii" => Some(vec![Value::symbol("ascii")]),
         _ => None,
     }
 }
@@ -778,8 +781,9 @@ fn coding_charset_list_for_base(base: &str) -> Option<Vec<Value>> {
 fn coding_mime_charset_for_base(base: &str) -> Option<&'static str> {
     match base {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "emacs-internal" => Some("utf-8"),
-        "latin-1" => Some("iso-8859-1"),
-        "ascii" => Some("us-ascii"),
+        "latin-1" | "iso-8859-1" | "iso-latin-1" => Some("iso-8859-1"),
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => Some("iso-8859-15"),
+        "ascii" | "us-ascii" => Some("us-ascii"),
         _ => None,
     }
 }
@@ -1007,8 +1011,14 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
     if !is_nil_coding && resolve_runtime_name(mgr, &raw_name).is_none() {
         return Err(signal("coding-system-error", vec![args[0]]));
     }
-    let resolved_name = normalize_coding_name_for_lookup(&raw_name).to_string();
-    let resolved_base = strip_eol_suffix(&resolved_name);
+    let canonical_name = if is_nil_coding {
+        "no-conversion".to_string()
+    } else {
+        canonical_runtime_name(mgr, &raw_name)
+            .ok_or_else(|| signal("coding-system-error", vec![args[0]]))?
+    };
+    let canonical_base = strip_eol_suffix(&canonical_name);
+    let resolved_base = canonical_base;
     let no_conversion_family = is_nil_coding || matches!(resolved_base, "no-conversion" | "binary");
 
     if no_conversion_family {
@@ -1084,9 +1094,9 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
     let raw_base = strip_eol_suffix(&raw_name);
     if target_eol.is_none() {
         if EolType::from_suffix(&raw_name).is_some() {
-            return Ok(Value::symbol(display_base_name(raw_base)));
+            return Ok(Value::symbol(display_base_name(canonical_base)));
         }
-        if raw_base == "emacs-internal" {
+        if canonical_base == "emacs-internal" {
             return Ok(Value::symbol("utf-8-emacs"));
         }
         return Ok(Value::symbol(raw_name));
@@ -1106,7 +1116,7 @@ pub(crate) fn builtin_coding_system_change_eol_conversion(
         ));
     }
 
-    if let Some(derived) = derive_coding_for_eol(resolved_base, eol) {
+    if let Some(derived) = derive_coding_for_eol(canonical_base, eol) {
         Ok(Value::symbol(derived))
     } else {
         Ok(Value::Nil)
@@ -1568,7 +1578,13 @@ pub(crate) fn builtin_set_keyboard_coding_system(
     if !is_known_or_derived_coding_system(mgr, &name) {
         return Err(signal("coding-system-error", vec![args[0]]));
     }
-    let base = strip_eol_suffix(&name);
+    let normalization_input = if matches!(EolType::from_suffix(&name), Some(EolType::Unix)) {
+        name.clone()
+    } else {
+        canonical_runtime_name(mgr, &name)
+            .ok_or_else(|| signal("coding-system-error", vec![args[0]]))?
+    };
+    let base = strip_eol_suffix(&normalization_input);
     if matches!(base, "utf-8-auto" | "prefer-utf-8") {
         return Err(signal(
             "error",
@@ -1581,11 +1597,11 @@ pub(crate) fn builtin_set_keyboard_coding_system(
         return Err(signal(
             "error",
             vec![Value::string(format!(
-                "Unsupported coding system for keyboard: {name}"
+                "Unsupported coding system for keyboard: {normalization_input}"
             ))],
         ));
     }
-    let normalized = normalize_keyboard_coding_system(&name);
+    let normalized = normalize_keyboard_coding_system(&normalization_input);
     mgr.keyboard_coding = normalized.clone();
     Ok(Value::symbol(normalized))
 }
@@ -1708,6 +1724,10 @@ fn allows_derived_eol_variant(base: &str) -> bool {
             | "latin-1"
             | "iso-8859-1"
             | "iso-latin-1"
+            | "latin-0"
+            | "latin-9"
+            | "iso-8859-15"
+            | "iso-latin-9"
             | "ascii"
             | "us-ascii"
             | "raw-text"
@@ -1725,6 +1745,7 @@ fn normalize_coding_name_for_lookup(name: &str) -> &str {
 fn display_base_name(base: &str) -> &str {
     match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
         "ascii" | "us-ascii" => "us-ascii",
         "binary" | "no-conversion" | "nil" => "no-conversion",
         "emacs-internal" | "utf-8-emacs" => "utf-8-emacs",
@@ -1736,7 +1757,8 @@ fn display_base_name(base: &str) -> &str {
 fn coding_type_for_base(base: &str) -> Option<&'static str> {
     match base {
         "utf-8" | "mule-utf-8" | "utf-8-auto" | "emacs-internal" | "utf-8-emacs" => Some("utf-8"),
-        "latin-1" | "iso-8859-1" | "iso-latin-1" | "ascii" | "us-ascii" => Some("charset"),
+        "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-0" | "latin-9" | "iso-8859-15"
+        | "iso-latin-9" | "ascii" | "us-ascii" => Some("charset"),
         "raw-text" | "binary" | "no-conversion" => Some("raw-text"),
         "undecided" | "prefer-utf-8" => Some("undecided"),
         _ => None,
@@ -1749,6 +1771,7 @@ fn default_mnemonic_for_base(base: &str) -> Option<i64> {
             Some('U' as i64)
         }
         "latin-1" | "iso-8859-1" | "iso-latin-1" => Some('1' as i64),
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => Some('0' as i64),
         "ascii" | "us-ascii" | "undecided" | "prefer-utf-8" => Some('-' as i64),
         "raw-text" => Some('t' as i64),
         "binary" | "no-conversion" => Some('=' as i64),
@@ -1759,6 +1782,7 @@ fn default_mnemonic_for_base(base: &str) -> Option<i64> {
 fn properties_bucket_base(base: &str) -> &str {
     match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
         "ascii" | "us-ascii" => "us-ascii",
         "binary" | "no-conversion" | "nil" => "no-conversion",
         "emacs-internal" | "utf-8-emacs" => "utf-8-emacs",
@@ -1770,6 +1794,7 @@ fn properties_bucket_base(base: &str) -> &str {
 fn eol_vector_base(base: &str) -> &str {
     match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
         "ascii" | "us-ascii" => "us-ascii",
         "mule-utf-8" => "utf-8",
         "emacs-internal" | "utf-8-emacs" => "utf-8-emacs",
@@ -1786,6 +1811,9 @@ fn derive_coding_for_eol(base: &str, eol: i64) -> Option<String> {
     };
     let derived = match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => format!("iso-latin-1{suffix}"),
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
+            format!("iso-latin-9{suffix}")
+        }
         "ascii" | "us-ascii" => format!("us-ascii{suffix}"),
         "mule-utf-8" | "utf-8" => format!("utf-8{suffix}"),
         "utf-8-auto" => format!("utf-8-auto{suffix}"),
@@ -1820,11 +1848,25 @@ fn derive_coding_for_eol(base: &str, eol: i64) -> Option<String> {
 
 fn resolve_runtime_name(mgr: &CodingSystemManager, name: &str) -> Option<String> {
     let normalized = normalize_coding_name_for_lookup(name);
-    if is_known_or_derived_coding_system(mgr, normalized) {
-        Some(normalized.to_string())
-    } else {
-        None
+    if mgr.resolve(normalized).is_some() {
+        return Some(normalized.to_string());
     }
+
+    let eol = EolType::from_suffix(normalized)?;
+    let base = strip_eol_suffix(normalized);
+    let canonical_base = mgr.resolve(base)?;
+    derive_coding_for_eol(canonical_base, eol.to_int()).map(|_| normalized.to_string())
+}
+
+fn canonical_runtime_name(mgr: &CodingSystemManager, name: &str) -> Option<String> {
+    let normalized = normalize_coding_name_for_lookup(name);
+    if let Some(eol) = EolType::from_suffix(normalized) {
+        let base = strip_eol_suffix(normalized);
+        let canonical_base = mgr.resolve(base)?;
+        return derive_coding_for_eol(canonical_base, eol.to_int());
+    }
+
+    mgr.resolve(normalized).map(str::to_string)
 }
 
 fn runtime_bucket_name(mgr: &CodingSystemManager, resolved_name: &str) -> Option<String> {
@@ -1849,6 +1891,12 @@ fn alias_sort_rank(canonical: &str, alias: &str) -> usize {
             "iso-8859-1" => 0,
             "latin-1" => 1,
             _ => 2,
+        },
+        "iso-latin-9" => match alias {
+            "iso-8859-15" => 0,
+            "latin-9" => 1,
+            "latin-0" => 2,
+            _ => 3,
         },
         "us-ascii" => match alias {
             "iso-safe" => 0,
@@ -1887,7 +1935,7 @@ fn raw_coding_candidates(mgr: &CodingSystemManager, exclude: Option<&[Value]>) -
 fn coding_can_encode_char(coding: &str, ch: char) -> bool {
     match properties_bucket_base(coding) {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "prefer-utf-8" => true,
-        "iso-latin-1" => (ch as u32) <= 0xFF,
+        "iso-latin-1" | "iso-latin-9" => (ch as u32) <= 0xFF,
         "us-ascii" => ch.is_ascii(),
         _ => false,
     }
