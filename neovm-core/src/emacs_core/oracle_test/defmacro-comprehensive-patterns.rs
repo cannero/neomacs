@@ -242,6 +242,7 @@ fn oracle_prop_defmacro_comp_gensym_hygiene() {
     // Macros that use make-symbol to prevent variable capture.
     // Test that expansion doesn't interfere with user variables.
     let form = r#"(progn
+  (require 'cl-lib)
   ;; once-only: evaluate expression exactly once
   (defmacro neovm--dcp-once-only (var expr &rest body)
     (let ((temp (make-symbol "once")))

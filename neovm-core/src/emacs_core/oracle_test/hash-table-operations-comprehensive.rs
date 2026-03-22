@@ -272,7 +272,7 @@ fn oracle_prop_hash_table_ops_keys_and_values() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     // hash-table-keys and hash-table-values should return all entries
-    let form = r#"(let ((h (make-hash-table :test 'eq)))
+    let form = r#"(progn (require 'subr-x) (let ((h (make-hash-table :test 'eq)))
                     (puthash 'x 10 h) (puthash 'y 20 h)
                     (puthash 'z 30 h) (puthash 'w 40 h)
                     (let ((ks (sort (hash-table-keys h)
@@ -287,7 +287,7 @@ fn oracle_prop_hash_table_ops_keys_and_values() {
                             (vs2 (sort (hash-table-values h) '<)))
                         (list ks vs
                               ks2 vs2
-                              (length ks) (length ks2)))))"#;
+                              (length ks) (length ks2))))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
 

@@ -240,14 +240,15 @@ impl<'a> Vm<'a> {
         // wrong-number-of-arguments immediately instead of nil-padding missing
         // required args.
         if !(n_required <= nargs && (has_rest || nargs <= nonrest)) {
-            let first = if func_value.is_nil() {
-                Value::cons(Value::Int(n_required as i64), Value::Int(nonrest as i64))
+            let max_val = if has_rest {
+                Value::symbol("many")
             } else {
-                func_value
+                Value::Int(nonrest as i64)
             };
+            let arity = Value::cons(Value::Int(n_required as i64), max_val);
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![first, Value::Int(nargs as i64)],
+                vec![arity, Value::Int(nargs as i64)],
             ));
         }
 

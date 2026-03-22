@@ -114,6 +114,7 @@ fn oracle_prop_deductive_db_rules_forward_chaining() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--ddb2-var-p
     (lambda (x) (and (symbolp x) (string-prefix-p "?" (symbol-name x)))))
 
@@ -234,6 +235,7 @@ fn oracle_prop_deductive_db_recursive_transitive_closure() {
     return_if_neovm_enable_oracle_proptest_not_set!();
 
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--ddb3-var-p
     (lambda (x) (and (symbolp x) (string-prefix-p "?" (symbol-name x)))))
 
@@ -482,6 +484,7 @@ fn oracle_prop_deductive_db_magic_sets() {
     // Magic sets: restrict evaluation to facts relevant to a specific query
     // by propagating "magic" seed facts top-down before bottom-up evaluation.
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--ddb5-var-p
     (lambda (x) (and (symbolp x) (string-prefix-p "?" (symbol-name x)))))
 

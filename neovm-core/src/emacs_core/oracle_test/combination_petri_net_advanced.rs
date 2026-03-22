@@ -275,6 +275,7 @@ fn oracle_prop_petri_net_adv_p_invariant_verification() {
 
     let form = format!(
         r#"(progn
+  (require 'cl-lib)
   {defs}
   ;; Compute weighted sum for a place invariant
   (fset 'neovm--pna-invariant-sum

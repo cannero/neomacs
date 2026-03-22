@@ -97,6 +97,7 @@ fn oracle_prop_lattice_hasse_diagram() {
     // Hasse diagram: keep only edges (a,b) where there's no intermediate c
     // with a < c < b.
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--lat-direct-above
     (lambda (pairs elem)
       (let ((result nil))
@@ -281,6 +282,7 @@ fn oracle_prop_lattice_validation() {
     // A set with a partial order is a lattice iff every pair of elements
     // has both a join and a meet.
     let form = r#"(progn
+  (require 'cl-lib)
   (fset 'neovm--lat-all-above
     (lambda (pairs elem)
       (let ((visited nil) (queue (list elem)))

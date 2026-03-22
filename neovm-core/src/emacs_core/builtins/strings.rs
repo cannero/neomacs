@@ -1052,8 +1052,14 @@ fn do_format(
                 format_string_spec(&s, &spec)
             }
             'd' | 'o' | 'x' | 'X' => {
-                let n =
-                    expect_int(&args[arg_idx]).map_err(|_| format_spec_type_mismatch_error())?;
+                let n = match &args[arg_idx] {
+                    Value::Int(i) => *i,
+                    Value::Char(c) => *c as i64,
+                    Value::Float(f, _) => *f as i64,
+                    _ => {
+                        return Err(format_spec_type_mismatch_error());
+                    }
+                };
                 arg_idx += 1;
                 format_int_spec(n, &spec)
             }
