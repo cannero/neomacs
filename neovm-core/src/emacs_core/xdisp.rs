@@ -2640,12 +2640,11 @@ fn resolve_live_window_display_context(
     let body_height = (body_bottom - body_top).max(1);
     let body_lines = ((body_height + char_height - 1) / char_height).max(1);
     let chars = buffer.text.to_string().chars().collect::<Vec<_>>();
-    let window_point =
-        if frame.selected_window == wid && buffers.current_buffer_id() == Some(buffer_id) {
-            buffer.point_char().saturating_add(1)
-        } else {
-            (*point).max(1)
-        };
+    let window_point = if frame.selected_window == wid {
+        buffer.point_char().saturating_add(1)
+    } else {
+        (*point).max(1)
+    };
 
     Ok(Some(ApproxWindowDisplayContext {
         body_height,

@@ -120,6 +120,37 @@ fn test_format_mode_line_eval_optional_designators() {
 }
 
 #[test]
+fn test_resolve_live_window_display_context_uses_selected_window_buffer_point() {
+    let mut eval = Evaluator::new();
+    let selected_buffer_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval
+        .frames
+        .create_frame("xdisp-selected-point", 800, 600, selected_buffer_id);
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
+    {
+        let buffer = eval
+            .buffers
+            .get_mut(selected_buffer_id)
+            .expect("selected window buffer");
+        buffer.insert("abc\ndef\n");
+        buffer.goto_byte(5);
+    }
+    let other_id = eval.buffers.create_buffer("*other*");
+    eval.buffers.set_current(other_id);
+
+    let ctx = resolve_live_window_display_context(
+        &eval.frames,
+        &eval.buffers,
+        Some(&Value::Window(selected_window.0)),
+    )
+    .expect("display context")
+    .expect("selected window context");
+
+    assert_eq!(ctx.window_point, 6);
+    assert_eq!(eval.buffers.current_buffer_id(), Some(other_id));
+}
+
+#[test]
 fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
     let mut eval = super::super::eval::Evaluator::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");

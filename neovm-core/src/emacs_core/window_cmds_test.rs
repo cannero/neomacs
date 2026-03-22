@@ -515,6 +515,47 @@ fn set_window_point_and_read() {
 }
 
 #[test]
+fn window_point_selected_window_uses_live_buffer_point_when_current_buffer_differs() {
+    let r = eval_one_with_frame(
+        r#"(let* ((w (selected-window))
+                  (orig (window-buffer w))
+                  (other (get-buffer-create "*other*")))
+             (with-current-buffer orig
+               (erase-buffer)
+               (insert "abc
+def
+")
+               (goto-char 5))
+             (with-current-buffer other
+               (list (eq (current-buffer) orig)
+                     (window-point w)
+                     (with-current-buffer orig (point)))))"#,
+    );
+    assert_eq!(r, "OK (nil 5 5)");
+}
+
+#[test]
+fn set_window_point_selected_window_updates_live_buffer_point_when_current_buffer_differs() {
+    let r = eval_one_with_frame(
+        r#"(let* ((w (selected-window))
+                  (orig (window-buffer w))
+                  (other (get-buffer-create "*other*")))
+             (with-current-buffer orig
+               (erase-buffer)
+               (insert "abc
+def
+")
+               (goto-char 5))
+             (with-current-buffer other
+               (set-window-point w 2)
+               (list (buffer-name (current-buffer))
+                     (window-point w)
+                     (with-current-buffer orig (point)))))"#,
+    );
+    assert_eq!(r, "OK (\"*other*\" 2 2)");
+}
+
+#[test]
 fn set_window_start_point_and_group_start_accept_marker_positions() {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");

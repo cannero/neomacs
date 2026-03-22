@@ -1675,7 +1675,7 @@ pub(crate) fn builtin_window_point_in_state(
             let selected_live_window = frames.get(fid).is_some_and(|frame| {
                 frame.selected_window == wid && frame.selected_window != WindowId(0)
             });
-            if selected_live_window && buffers.current_buffer_id() == Some(*buffer_id) {
+            if selected_live_window {
                 if let Some(buffer) = buffers.get(*buffer_id) {
                     return Ok(Value::Int(buffer.point_char().saturating_add(1) as i64));
                 }
@@ -1842,7 +1842,7 @@ pub(crate) fn builtin_set_window_point_in_state(
                         .and_then(|frame| frame.find_window_mut(wid))
                     {
                         *point = clamped;
-                        if selected_live_window && buffers.current_buffer_id() == Some(*buffer_id) {
+                        if selected_live_window {
                             if let Some(buffer) = buffers.get(*buffer_id) {
                                 buffer_to_move =
                                     Some((*buffer_id, buffer.lisp_pos_to_byte(clamped as i64)));
@@ -1879,7 +1879,7 @@ pub(crate) fn builtin_set_window_point_in_state(
                     .and_then(|frame| frame.find_window_mut(wid))
                 {
                     *point = clamped;
-                    if selected_live_window && buffers.current_buffer_id() == Some(*buffer_id) {
+                    if selected_live_window {
                         if let Some(buffer) = buffers.get(*buffer_id) {
                             buffer_to_move =
                                 Some((*buffer_id, buffer.lisp_pos_to_byte(clamped as i64)));
