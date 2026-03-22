@@ -17,9 +17,18 @@
       (prin1
        (list :frame-width (frame-pixel-width)
              :frame-height (frame-pixel-height)
+             :frame-char-height (frame-char-height)
              :buffer (buffer-name (current-buffer))
              :header-line header-line-format
-             :tab-bar-lines (frame-parameter nil 'tab-bar-lines))
+             :mode-line-height (window-mode-line-height)
+             :header-line-height (window-header-line-height)
+             :tab-line-height (window-tab-line-height)
+             :tab-bar-lines (frame-parameter nil 'tab-bar-lines)
+             :tab-bar-height (when (fboundp 'tab-bar-height)
+                               (tab-bar-height))
+             :default-text-height (when (fboundp 'default-text-height)
+                                    (default-text-height))
+             :line-spacing line-spacing)
        (current-buffer))
       (insert "\n"))))
 
