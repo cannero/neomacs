@@ -115,7 +115,8 @@ fn chrome_face_pixel_height(face: &ResolvedFace, fallback_char_height: f32) -> f
     } else {
         0.0
     };
-    (line_height + box_pixels).max(1.0)
+    let minimum_row_height = fallback_char_height.ceil().max(1.0);
+    (line_height + box_pixels).max(minimum_row_height)
 }
 
 pub(crate) fn buffer_local_list_values(buffer: &Buffer, name: &str) -> Vec<Value> {
@@ -374,8 +375,8 @@ pub fn window_params_from_neovm(
     let word_wrap = effective_buffer_bool(buffer, obarray, "word-wrap");
     let tab_width = effective_buffer_int(buffer, obarray, "tab-width", 8) as i32;
 
-    // GNU xdisp.c sizes mode/header/tab lines from the realized face metrics,
-    // including horizontal box pixels, not just the frame default char height.
+    // GNU xdisp.c's estimate_mode_line_height starts from the frame line
+    // height and lets realized face metrics grow from there.
     let mode_line_height = if is_minibuffer {
         0.0
     } else {
@@ -1500,6 +1501,14 @@ mod tests {
 
         face.font_line_height = 0.0;
         assert_eq!(chrome_face_pixel_height(&face, 14.1), 17.0);
+    }
+
+    #[test]
+    fn chrome_face_pixel_height_never_shrinks_below_frame_line_height() {
+        let mut face = ResolvedFace::default();
+        face.font_line_height = 12.0;
+
+        assert_eq!(chrome_face_pixel_height(&face, 14.1), 15.0);
     }
 
     #[test]

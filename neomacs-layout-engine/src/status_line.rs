@@ -547,7 +547,8 @@ impl LayoutEngine {
         } else {
             0.0
         };
-        (line_height + box_pixels).max(1.0)
+        let minimum_row_height = fallback_row_height.ceil().max(1.0);
+        (line_height + box_pixels).max(minimum_row_height)
     }
 
     fn ensure_status_line_face_metrics(
@@ -1814,7 +1815,7 @@ mod tests {
 
         assert_eq!(
             engine.status_line_row_height_for_face(&face, 8.0, 12.0, 20.0),
-            14.0
+            20.0
         );
     }
 
