@@ -694,11 +694,16 @@ fn main() {
         }
     };
 
-    // 6. Run initial layout and send first frame
+    // 6. Allocate the glyph buffer, but do not publish a pre-startup frame.
+    //
+    // GNU's outer command loop evaluates `top-level` before blocking for the
+    // first input, and `read_char` performs the first redisplay only after
+    // that startup work finishes.  Publishing a frame here paints stale
+    // pre-startup face state (notably chrome faces like mode-line) and leaves
+    // it visible until some later input or timer happens to trigger a
+    // redisplay.  Keep the frontend window alive, but let the first real frame
+    // come from the command loop's redisplay path.
     let mut frame_glyphs = FrameGlyphBuffer::with_size(width as f32, height as f32);
-    run_layout(&mut evaluator, &mut frame_glyphs);
-    let _ = emacs_comms.frame_tx.try_send(frame_glyphs.clone());
-    tracing::info!("Initial frame sent ({} glyphs)", frame_glyphs.glyphs.len());
 
     // 7. Create input bridge: convert display runtime events → keyboard events
     let (input_tx, input_rx) = crossbeam_channel::unbounded();
