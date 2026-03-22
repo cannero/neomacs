@@ -567,7 +567,10 @@ sleep "$KEY_DELAY"
 # After the target window is focused, use global XTest events instead so
 # Neomacs receives scripted keyboard input the same way GNU Emacs does.
 send_focused_key() {
-    xdotool key --clearmodifiers "$1"
+    local sequence="$1"
+    local -a keys=()
+    read -r -a keys <<<"$sequence"
+    xdotool key --clearmodifiers "${keys[@]}"
 }
 
 send_focused_type() {

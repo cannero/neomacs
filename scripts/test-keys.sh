@@ -10,6 +10,7 @@ OUTPUT="${OUTPUT:-/tmp/neomacs-keytest.png}"
 RUST_LOG="${RUST_LOG:-debug}"
 WINDOW_SIZE="${WINDOW_SIZE:-1400x1000}"
 APP="${APP:-neomacs}"
+USE_XVFB="${USE_XVFB:-0}"
 
 usage() {
     cat <<EOF
@@ -23,10 +24,11 @@ Options:
   --output PATH       Screenshot path (default: $OUTPUT)
   --window-size WxH   Window size (default: $WINDOW_SIZE)
   --app NAME          App hint for capture helper (default: $APP)
+  --xvfb              Run inside a private Xvfb instead of the current DISPLAY
   -h, --help          Show this help
 
 Environment overrides:
-  BIN, LOG, OUTPUT, WINDOW_SIZE, APP, RUST_LOG
+  BIN, LOG, OUTPUT, WINDOW_SIZE, APP, RUST_LOG, USE_XVFB
 EOF
 }
 
@@ -51,6 +53,10 @@ while [[ $# -gt 0 ]]; do
         --app)
             APP="$2"
             shift 2
+            ;;
+        --xvfb)
+            USE_XVFB=1
+            shift
             ;;
         -h|--help)
             usage
@@ -79,15 +85,16 @@ echo "Running keyboard smoke test with $BIN"
 echo "Log: $LOG"
 echo "Screenshot: $OUTPUT"
 
-env RUST_LOG="$RUST_LOG" "$CAPTURE_SCRIPT" \
+MARKER="$(mktemp "${TMPDIR:-/tmp}/neomacs-keytest.XXXXXX.ok")"
+CAPTURE_ARGS=(
     --app "$APP" \
     --bin "$BIN" \
     --no-test-file \
-    --xvfb \
     --log "$LOG" \
     --output "$OUTPUT" \
     --window-size "$WINDOW_SIZE" \
     --wait 120 \
+    --after-eval-wait 1 \
     --after-ready-wait 1 \
     --type "hello keyboard path" \
     --key Return \
@@ -102,16 +109,30 @@ env RUST_LOG="$RUST_LOG" "$CAPTURE_SCRIPT" \
     --key ctrl+x \
     --key b \
     --type "*Messages*" \
-    --key Return
+    --key Return \
+    --eval-elisp "(with-temp-file \"$MARKER\" (insert \"keyboard-ok\"))" \
+    --wait-file "$MARKER"
+)
+
+if [[ "$USE_XVFB" -eq 1 ]]; then
+    CAPTURE_ARGS+=(--xvfb)
+fi
+
+env RUST_LOG="$RUST_LOG" "$CAPTURE_SCRIPT" "${CAPTURE_ARGS[@]}"
 
 echo
 echo "=== Error Scan ==="
-if rg -n "entry limit reached|list_keymap_lookup_one|Command error|panic|buffer-read-only|unknown key|unhandled" "$LOG"; then
+if rg -n "entry limit reached|list_keymap_lookup_one|panic|buffer-read-only|invalid-function|unknown key|unhandled" "$LOG"; then
     echo
     echo "keyboard smoke test found runtime errors in $LOG" >&2
     exit 1
 else
     echo "no keyboard/runtime errors found"
+fi
+
+if [[ ! -f "$MARKER" ]]; then
+    echo "keyboard smoke marker was not created: $MARKER" >&2
+    exit 1
 fi
 
 echo
