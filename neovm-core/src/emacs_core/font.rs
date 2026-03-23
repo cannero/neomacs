@@ -1077,6 +1077,67 @@ fn font_name_value(font_like: &Value) -> Option<Value> {
     }
 }
 
+fn font_value_matches_frame_font_parameter(
+    frame: &crate::window::Frame,
+    requested: &Value,
+) -> bool {
+    let Some(frame_font) = frame.parameters.get("font") else {
+        return false;
+    };
+    match (frame_font, requested) {
+        (Value::Str(expected), Value::Str(actual)) => {
+            with_heap(|heap| heap.get_string(*expected) == heap.get_string(*actual))
+        }
+        _ => false,
+    }
+}
+
+fn resolved_live_frame_font_value(
+    eval: &super::eval::Evaluator,
+    frame_id: FrameId,
+    requested: &Value,
+) -> Value {
+    if is_font(requested) {
+        return *requested;
+    }
+
+    let Some(frame) = eval.frames.get(frame_id) else {
+        return *requested;
+    };
+    if !font_value_matches_frame_font_parameter(frame, requested) {
+        return *requested;
+    }
+
+    frame
+        .parameters
+        .get("font-parameter")
+        .copied()
+        .filter(is_font)
+        .unwrap_or(*requested)
+}
+
+fn live_frame_font_attribute_fallback(
+    eval: &super::eval::Evaluator,
+    frame_id: FrameId,
+    attr_name: &str,
+) -> Option<Value> {
+    let frame = eval.frames.get(frame_id)?;
+    let font_value = frame.parameters.get("font-parameter").copied()?;
+    if !is_font(&font_value) {
+        return None;
+    }
+
+    if attr_name == ":font" {
+        return Some(font_value);
+    }
+
+    derived_face_attrs_from_font_value(&font_value)
+        .into_iter()
+        .find_map(|(derived_attr, derived_value)| {
+            (derived_attr == attr_name).then_some(derived_value)
+        })
+}
+
 fn font_info_vector_for_runtime_font(font_like: &Value, frame: &crate::window::Frame) -> Value {
     let opened_name = font_name_value(font_like).unwrap_or_else(|| Value::string(""));
     let full_name = opened_name;
@@ -2430,12 +2491,27 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_eval(
         let value = args[2];
 
         if !face_name.is_empty() && !attr_name.is_empty() {
-            let face_attr = lisp_value_to_face_attr(&attr_name, value);
+            let effective_value = if attr_name == ":font" {
+                live_frame_id_for_face_update(eval, args.get(3))?
+                    .map(|frame_id| resolved_live_frame_font_value(eval, frame_id, &value))
+                    .unwrap_or(value)
+            } else {
+                value
+            };
+
+            if attr_name == ":font" && effective_value != value {
+                set_face_override(&face_name, &attr_name, effective_value, false);
+            }
+
+            let face_attr = lisp_value_to_face_attr(&attr_name, effective_value);
             if let Some(fav) = face_attr {
                 eval.set_face_attribute(&face_name, &attr_name, fav);
             }
             if attr_name == ":font" {
-                for (derived_attr, derived_value) in derived_face_attrs_from_font_value(&value) {
+                for (derived_attr, derived_value) in
+                    derived_face_attrs_from_font_value(&effective_value)
+                {
+                    set_face_override(&face_name, &derived_attr, derived_value, false);
                     if let Some(fav) = lisp_value_to_face_attr(&derived_attr, derived_value) {
                         eval.set_face_attribute(&face_name, &derived_attr, fav);
                     }
@@ -2946,6 +3022,26 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute_eval(
 
     if defaults_frame {
         return Ok(lisp_face_attribute_value(&face_name, &attr_name, true));
+    }
+
+    let frame_id = match args.get(2) {
+        None | Some(Value::Nil) => Some(super::window_cmds::ensure_selected_frame_id(eval)),
+        Some(frame) if frame_device_designator_p(frame) => frame_id_from_designator(frame),
+        _ => None,
+    };
+
+    if face_name == "default"
+        && get_face_override(&face_name, &attr_name, false).is_none()
+        && matches!(
+            attr_name.as_str(),
+            ":font" | ":family" | ":foundry" | ":weight" | ":slant" | ":width" | ":height"
+        )
+    {
+        if let Some(frame_id) = frame_id {
+            if let Some(fallback) = live_frame_font_attribute_fallback(eval, frame_id, &attr_name) {
+                return Ok(fallback);
+            }
+        }
     }
 
     let lisp_value = lisp_face_attribute_value(&face_name, &attr_name, false);

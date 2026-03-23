@@ -841,6 +841,92 @@ fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
 }
 
 #[test]
+fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_default_face() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    let font_name = Value::string("-*-Hack-regular-normal-*-*-102-*-*-*-m-0-iso10646-1");
+    let font_object = Value::vector(vec![
+        Value::keyword(FONT_OBJECT_TAG),
+        Value::keyword("family"),
+        Value::string("Hack"),
+        Value::keyword("weight"),
+        Value::symbol("regular"),
+        Value::keyword("slant"),
+        Value::symbol("normal"),
+        Value::keyword("width"),
+        Value::symbol("normal"),
+        Value::keyword("size"),
+        Value::Int(102),
+        Value::keyword("height"),
+        Value::Int(102),
+        Value::keyword("name"),
+        font_name,
+    ]);
+
+    {
+        let frame = eval
+            .frame_manager_mut()
+            .get_mut(frame_id)
+            .expect("selected frame");
+        frame.window_system = Some(Value::symbol("neo"));
+        frame.parameters.insert("font".to_string(), font_name);
+        frame
+            .parameters
+            .insert("font-parameter".to_string(), font_object);
+    }
+
+    builtin_internal_set_lisp_face_attribute_eval(
+        &mut eval,
+        vec![
+            Value::symbol("default"),
+            Value::Keyword(intern("font")),
+            font_name,
+            Value::Frame(frame_id.0),
+        ],
+    )
+    .expect("set live default face font");
+
+    assert_eq!(
+        builtin_internal_get_lisp_face_attribute_eval(
+            &mut eval,
+            vec![
+                Value::symbol("default"),
+                Value::Keyword(intern(":font")),
+                Value::Frame(frame_id.0),
+            ],
+        )
+        .expect("default face font"),
+        font_object
+    );
+    assert_eq!(
+        builtin_internal_get_lisp_face_attribute_eval(
+            &mut eval,
+            vec![
+                Value::symbol("default"),
+                Value::Keyword(intern(":family")),
+                Value::Frame(frame_id.0),
+            ],
+        )
+        .expect("default face family")
+        .as_str(),
+        Some("Hack")
+    );
+    assert_eq!(
+        builtin_internal_get_lisp_face_attribute_eval(
+            &mut eval,
+            vec![
+                Value::symbol("default"),
+                Value::Keyword(intern(":height")),
+                Value::Frame(frame_id.0),
+            ],
+        )
+        .expect("default face height")
+        .as_int(),
+        Some(102)
+    );
+}
+
+#[test]
 fn face_font_eval_returns_font_name_on_live_gui_frame() {
     let mut eval = crate::emacs_core::Evaluator::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
