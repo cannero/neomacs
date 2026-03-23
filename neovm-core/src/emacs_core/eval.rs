@@ -8149,7 +8149,15 @@ impl Evaluator {
         }
 
         let params_value = quote_to_value(&tail[0]);
-        let body_value = Value::list(tail[body_start..].iter().map(quote_to_value).collect());
+        // GNU Emacs (eval.c:613-614): "Make sure the body is never empty!"
+        // If no body forms, use (nil) instead of nil so cconv's
+        // (cl-assert (consp body)) doesn't fail.
+        let body_forms: Vec<Value> = tail[body_start..].iter().map(quote_to_value).collect();
+        let body_value = if body_forms.is_empty() {
+            Value::list(vec![Value::Nil])
+        } else {
+            Value::list(body_forms)
+        };
         let env_value = if self.lexical_binding() || self.lexenv != Value::Nil {
             if self.lexenv == Value::Nil {
                 Value::list(vec![Value::True])
