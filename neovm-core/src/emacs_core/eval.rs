@@ -2833,7 +2833,7 @@ impl Evaluator {
         // sub-expression including primitive calls (get, fboundp, etc.), so
         // the same Elisp code uses ~5x more depth units. Use 10000 to match
         // effective GNU depth capacity.
-        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(2400));
+        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(3200));
         obarray.set_symbol_value("max-specpdl-size", Value::Int(1800));
         obarray.set_symbol_value("inhibit-load-charset-map", Value::Nil);
 
@@ -3309,7 +3309,7 @@ impl Evaluator {
             face_table: FaceTable::new(),
             face_change_count: 0,
             depth: 0,
-            max_depth: 2400, // Matches GNU Emacs default (max-lisp-eval-depth)
+            max_depth: 3200, // Matches GNU Emacs default (max-lisp-eval-depth)
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
@@ -3420,7 +3420,7 @@ impl Evaluator {
             face_table,
             face_change_count: 0,
             depth: 0,
-            max_depth: 2400,
+            max_depth: 3200,
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
@@ -5253,6 +5253,15 @@ impl Evaluator {
         result
     }
 
+    /// Evaluate a subform without incrementing depth. Used by special form
+    /// handlers (if, let, while, progn, etc.) to match GNU Emacs behavior
+    /// where special form body evaluation doesn't re-enter eval_sub.
+    pub(crate) fn eval_subform(&mut self, expr: &Expr) -> EvalResult {
+        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+            self.eval_inner(expr)
+        })
+    }
+
     fn eval_inner(&mut self, expr: &Expr) -> EvalResult {
         match expr {
             Expr::Int(v) => Ok(Value::Int(*v)),
@@ -5935,6 +5944,17 @@ impl Evaluator {
     // -----------------------------------------------------------------------
 
     fn try_special_form(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
+        // GNU Emacs handles special forms inline in eval_sub without
+        // re-incrementing lisp_eval_depth for each subform. Save and
+        // restore depth so special form body evaluation doesn't
+        // accumulate depth beyond the initial call's increment.
+        let saved_depth = self.depth;
+        let result = self.try_special_form_inner(name, tail);
+        self.depth = saved_depth;
+        result
+    }
+
+    fn try_special_form_inner(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
         Some(match name {
             "quote" => self.sf_quote(tail),
             "function" => self.sf_function(tail),
