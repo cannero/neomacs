@@ -91,6 +91,7 @@ fn normalize_keyboard_coding_system(name: &str) -> String {
         "emacs-internal" => "emacs-internal".to_string(),
         "ascii" | "us-ascii" => "us-ascii-unix".to_string(),
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1-unix".to_string(),
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5-unix".to_string(),
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9-unix".to_string(),
         _ => format!("{name}-unix"),
     }
@@ -322,6 +323,30 @@ impl CodingSystemManager {
             EolType::Mac,
         ));
         mgr.register(CodingSystemInfo::new(
+            "iso-latin-5",
+            "charset",
+            '9',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "iso-latin-5-unix",
+            "charset",
+            '9',
+            EolType::Unix,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "iso-latin-5-dos",
+            "charset",
+            '9',
+            EolType::Dos,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "iso-latin-5-mac",
+            "charset",
+            '9',
+            EolType::Mac,
+        ));
+        mgr.register(CodingSystemInfo::new(
             "iso-latin-9",
             "charset",
             '0',
@@ -463,6 +488,10 @@ impl CodingSystemManager {
             .insert("iso-8859-1".to_string(), "iso-latin-1".to_string());
         mgr.aliases
             .insert("latin-1".to_string(), "iso-latin-1".to_string());
+        mgr.aliases
+            .insert("iso-8859-9".to_string(), "iso-latin-5".to_string());
+        mgr.aliases
+            .insert("latin-5".to_string(), "iso-latin-5".to_string());
         mgr.aliases
             .insert("iso-8859-15".to_string(), "iso-latin-9".to_string());
         mgr.aliases
@@ -768,8 +797,10 @@ fn plist_contains_key(plist: &[Value], key: &str) -> bool {
 fn coding_category_for_base(base: &str) -> &'static str {
     match base {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "emacs-internal" => "coding-category-utf-8",
-        "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-0" | "latin-9" | "iso-8859-15"
-        | "iso-latin-9" | "ascii" | "us-ascii" => "coding-category-charset",
+        "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-5" | "iso-8859-9" | "iso-latin-5"
+        | "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" | "ascii" | "us-ascii" => {
+            "coding-category-charset"
+        }
         "raw-text" | "binary" | "no-conversion" => "coding-category-raw-text",
         "undecided" | "prefer-utf-8" => "coding-category-undecided",
         _ => "coding-category-undecided",
@@ -783,6 +814,9 @@ fn coding_docstring_for_base(base: &str) -> Option<&'static str> {
         }
         "latin-1" | "iso-8859-1" | "iso-latin-1" => {
             Some("ISO 2022 based 8-bit encoding for Latin-1 (MIME:ISO-8859-1).")
+        }
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => {
+            Some("ISO 2022 based 8-bit encoding for Latin-5 (MIME:ISO-8859-9).")
         }
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
             Some("ISO 2022 based 8-bit encoding for Latin-9 (MIME:ISO-8859-15).")
@@ -800,6 +834,7 @@ fn coding_charset_list_for_base(base: &str) -> Option<Vec<Value>> {
             Some(vec![Value::symbol("unicode")])
         }
         "latin-1" | "iso-8859-1" | "iso-latin-1" => Some(vec![Value::symbol("iso-8859-1")]),
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => Some(vec![Value::symbol("iso-8859-9")]),
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
             Some(vec![Value::symbol("iso-8859-15")])
         }
@@ -812,6 +847,7 @@ fn coding_mime_charset_for_base(base: &str) -> Option<&'static str> {
     match base {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "emacs-internal" => Some("utf-8"),
         "latin-1" | "iso-8859-1" | "iso-latin-1" => Some("iso-8859-1"),
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => Some("iso-8859-9"),
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => Some("iso-8859-15"),
         "ascii" | "us-ascii" => Some("us-ascii"),
         _ => None,
@@ -1754,6 +1790,9 @@ fn allows_derived_eol_variant(base: &str) -> bool {
             | "latin-1"
             | "iso-8859-1"
             | "iso-latin-1"
+            | "latin-5"
+            | "iso-8859-9"
+            | "iso-latin-5"
             | "latin-0"
             | "latin-9"
             | "iso-8859-15"
@@ -1775,6 +1814,7 @@ fn normalize_coding_name_for_lookup(name: &str) -> &str {
 fn display_base_name(base: &str) -> &str {
     match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
         "ascii" | "us-ascii" => "us-ascii",
         "binary" | "no-conversion" | "nil" => "no-conversion",
@@ -1787,8 +1827,10 @@ fn display_base_name(base: &str) -> &str {
 fn coding_type_for_base(base: &str) -> Option<&'static str> {
     match base {
         "utf-8" | "mule-utf-8" | "utf-8-auto" | "emacs-internal" | "utf-8-emacs" => Some("utf-8"),
-        "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-0" | "latin-9" | "iso-8859-15"
-        | "iso-latin-9" | "ascii" | "us-ascii" => Some("charset"),
+        "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-5" | "iso-8859-9" | "iso-latin-5"
+        | "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" | "ascii" | "us-ascii" => {
+            Some("charset")
+        }
         "raw-text" | "binary" | "no-conversion" => Some("raw-text"),
         "undecided" | "prefer-utf-8" => Some("undecided"),
         _ => None,
@@ -1801,6 +1843,7 @@ fn default_mnemonic_for_base(base: &str) -> Option<i64> {
             Some('U' as i64)
         }
         "latin-1" | "iso-8859-1" | "iso-latin-1" => Some('1' as i64),
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => Some('9' as i64),
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => Some('0' as i64),
         "ascii" | "us-ascii" | "undecided" | "prefer-utf-8" => Some('-' as i64),
         "raw-text" => Some('t' as i64),
@@ -1812,6 +1855,7 @@ fn default_mnemonic_for_base(base: &str) -> Option<i64> {
 fn properties_bucket_base(base: &str) -> &str {
     match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
         "ascii" | "us-ascii" => "us-ascii",
         "binary" | "no-conversion" | "nil" => "no-conversion",
@@ -1824,6 +1868,7 @@ fn properties_bucket_base(base: &str) -> &str {
 fn eol_vector_base(base: &str) -> &str {
     match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
         "ascii" | "us-ascii" => "us-ascii",
         "mule-utf-8" => "utf-8",
@@ -1841,6 +1886,7 @@ fn derive_coding_for_eol(base: &str, eol: i64) -> Option<String> {
     };
     let derived = match base {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => format!("iso-latin-1{suffix}"),
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => format!("iso-latin-5{suffix}"),
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
             format!("iso-latin-9{suffix}")
         }
@@ -1925,6 +1971,11 @@ fn alias_sort_rank(canonical: &str, alias: &str) -> usize {
             "latin-1" => 1,
             _ => 2,
         },
+        "iso-latin-5" => match alias {
+            "iso-8859-9" => 0,
+            "latin-5" => 1,
+            _ => 2,
+        },
         "iso-latin-9" => match alias {
             "iso-8859-15" => 0,
             "latin-9" => 1,
@@ -1968,7 +2019,7 @@ fn raw_coding_candidates(mgr: &CodingSystemManager, exclude: Option<&[Value]>) -
 fn coding_can_encode_char(coding: &str, ch: char) -> bool {
     match properties_bucket_base(coding) {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "prefer-utf-8" => true,
-        "iso-latin-1" | "iso-latin-9" => (ch as u32) <= 0xFF,
+        "iso-latin-1" | "iso-latin-5" | "iso-latin-9" => (ch as u32) <= 0xFF,
         "us-ascii" => ch.is_ascii(),
         _ => false,
     }

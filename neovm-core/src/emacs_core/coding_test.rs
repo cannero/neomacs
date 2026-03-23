@@ -68,6 +68,10 @@ fn new_manager_has_standard_systems() {
     assert!(m.is_known("undecided"));
     assert!(m.is_known("emacs-internal"));
     assert!(m.is_known("no-conversion"));
+    assert!(m.is_known("iso-latin-5"));
+    assert!(m.is_known("iso-latin-5-unix"));
+    assert!(m.is_known("iso-8859-9"));
+    assert!(m.is_known("latin-5"));
     assert!(m.is_known("iso-latin-9"));
     assert!(m.is_known("iso-latin-9-unix"));
     assert!(m.is_known("iso-8859-15"));
@@ -78,10 +82,12 @@ fn new_manager_has_standard_systems() {
 fn aliases_resolve() {
     let m = mgr();
     assert!(m.is_known("iso-8859-1")); // alias for latin-1
+    assert!(m.is_known("iso-8859-9")); // alias for latin-5
     assert!(m.is_known("iso-8859-15")); // alias for latin-9
     assert!(m.is_known("us-ascii")); // alias for ascii
     assert!(m.is_known("mule-utf-8")); // alias for utf-8
     assert_eq!(m.resolve("iso-8859-1"), Some("iso-latin-1"));
+    assert_eq!(m.resolve("iso-8859-9"), Some("iso-latin-5"));
     assert_eq!(m.resolve("iso-8859-15"), Some("iso-latin-9"));
     assert_eq!(m.resolve("ascii"), Some("us-ascii"));
 }
