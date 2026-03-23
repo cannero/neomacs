@@ -598,6 +598,12 @@ fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
 }
 
 fn main() {
+    // Increase the stack size to 64 MB, matching GNU Emacs which adjusts
+    // RLIMIT_STACK in main(). Deep Elisp evaluation chains (startup.el →
+    // normal-top-level → command-line → init → Doom hooks) can exhaust
+    // the default 8 MB stack.
+    increase_stack_limit();
+
     if let Some(action) = classify_early_cli_action(std::env::args()) {
         match action {
             EarlyCliAction::PrintHelp { program } => {
@@ -1398,6 +1404,27 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
             .layout_frame_rust(evaluator, frame_id, frame_glyphs);
     });
 }
+
+/// Increase the process stack size limit, matching GNU Emacs's behavior
+/// in emacs.c main() which adjusts RLIMIT_STACK.
+#[cfg(unix)]
+fn increase_stack_limit() {
+    const TARGET_STACK_MB: u64 = 64;
+    let target = TARGET_STACK_MB * 1024 * 1024;
+    unsafe {
+        let mut rlim = std::mem::MaybeUninit::<libc::rlimit>::uninit();
+        if libc::getrlimit(libc::RLIMIT_STACK, rlim.as_mut_ptr()) == 0 {
+            let mut rlim = rlim.assume_init();
+            if rlim.rlim_cur < target as libc::rlim_t {
+                rlim.rlim_cur = std::cmp::min(target as libc::rlim_t, rlim.rlim_max);
+                let _ = libc::setrlimit(libc::RLIMIT_STACK, &rlim);
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn increase_stack_limit() {}
 
 #[cfg(test)]
 #[path = "main_test.rs"]
