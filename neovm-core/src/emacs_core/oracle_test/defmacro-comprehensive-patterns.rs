@@ -637,3 +637,31 @@ fn oracle_prop_defmacro_comp_struct_macro() {
     (fmakunbound 'neovm--dcp-person-p)))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
+
+// ---------------------------------------------------------------------------
+// defmacro defined via (load ...) of a lexical-binding file
+// ---------------------------------------------------------------------------
+
+#[test]
+fn oracle_prop_defmacro_comp_load_file_with_declare() {
+    return_if_neovm_enable_oracle_proptest_not_set!();
+
+    // Write a temp file, load it, and check that defmacro defined the macro
+    let form = r#"(let ((tmpfile (make-temp-file "neovm-test-" nil ".el")))
+  (unwind-protect
+      (progn
+        (with-temp-file tmpfile
+          (insert ";;; -*- lexical-binding: t; -*-\n")
+          (insert "(defvar test-disabled-list nil)\n")
+          (insert "(defmacro test-file-macro! (name &rest body)\n")
+          (insert "  \"Test macro.\"\n")
+          (insert "  (declare (indent 1))\n")
+          (insert "  (unless (memq name test-disabled-list)\n")
+          (insert "    `(progn ,@body)))\n"))
+        (load tmpfile nil 'nomessage)
+        (list (fboundp 'test-file-macro!)
+              (macroexpand '(test-file-macro! foo (+ 1 2)))))
+    (delete-file tmpfile)
+    (fmakunbound 'test-file-macro!)))"#;
+    assert_oracle_parity_with_bootstrap(form);
+}
