@@ -1610,17 +1610,16 @@ fn bind_lexical_value_rooted_in_state(
     temp_roots.truncate(saved_roots);
 }
 
-/// Build a `(MIN . NONREST)` cons cell representing the arity of a
-/// lambda/closure, matching the format GNU Emacs's bytecode VM uses in
-/// `wrong-number-of-arguments` errors.
-///
-/// GNU's convention: `MIN` = mandatory arg count, `NONREST` = mandatory +
-/// optional arg count (excluding `&rest`).  This differs from `subr-arity`
-/// which uses `(MIN . many)` for `&rest` functions.
+/// Build a `(MIN . MAX)` cons cell representing the arity of a lambda/closure,
+/// matching the format GNU Emacs uses in `wrong-number-of-arguments` errors.
+/// `MAX` is the symbol `many` when the function accepts `&rest`.
 fn lambda_arity_cons(params: &LambdaParams) -> Value {
     let min_val = Value::Int(params.min_arity() as i64);
-    let nonrest = (params.required.len() + params.optional.len()) as i64;
-    Value::cons(min_val, Value::Int(nonrest))
+    let max_val = match params.max_arity() {
+        Some(n) => Value::Int(n as i64),
+        None => Value::symbol("many"),
+    };
+    Value::cons(min_val, max_val)
 }
 
 fn begin_lambda_call_in_state(
