@@ -368,6 +368,13 @@ impl FontRepertory {
     }
 }
 
+pub fn repertory_target_ranges(repertory: &FontRepertory) -> Option<Vec<(u32, u32)>> {
+    match repertory {
+        FontRepertory::Charset(name) => charset_target_ranges(name),
+        FontRepertory::CharTableRanges(ranges) => Some(ranges.clone()),
+    }
+}
+
 fn filter_entries_for_char(entries: Vec<FontSpecEntry>, code: u32) -> Vec<FontSpecEntry> {
     entries
         .into_iter()
@@ -1330,5 +1337,43 @@ mod tests {
             .collect();
 
         assert_eq!(registries, vec!["iso10646-1".to_string()]);
+    }
+
+    #[test]
+    fn repertory_target_ranges_support_subset_charsets() {
+        reset_charset_registry();
+
+        let mut parent_args = vec![Value::Nil; 17];
+        parent_args[0] = Value::symbol("latin-iso8859-2-test");
+        parent_args[1] = Value::Int(1);
+        parent_args[2] = Value::vector(vec![Value::Int(0), Value::Int(255)]);
+        parent_args[8] = Value::True;
+        parent_args[12] = Value::string("8859-2");
+        builtin_define_charset_internal(parent_args).unwrap();
+
+        let mut subset_args = vec![Value::Nil; 17];
+        subset_args[0] = Value::symbol("iso-8859-2-test");
+        subset_args[1] = Value::Int(1);
+        subset_args[2] = Value::vector(vec![Value::Int(32), Value::Int(127)]);
+        subset_args[13] = Value::list(vec![
+            Value::symbol("latin-iso8859-2-test"),
+            Value::Int(160),
+            Value::Int(255),
+            Value::Int(-128),
+        ]);
+        builtin_define_charset_internal(subset_args).unwrap();
+
+        let ranges = repertory_target_ranges(&FontRepertory::Charset("iso-8859-2-test".into()))
+            .expect("subset repertory ranges");
+        assert!(
+            ranges
+                .iter()
+                .any(|(from, to)| *from <= 0x00A0 && 0x00A0 <= *to)
+        );
+        assert!(
+            ranges
+                .iter()
+                .any(|(from, to)| *from <= 0x017D && 0x017D <= *to)
+        );
     }
 }

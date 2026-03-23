@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::eval::{
-    DisplayHost, FontResolveRequest, GuiFrameHostRequest, ResolvedFontMatch,
+    DisplayHost, FontResolveRequest, FontSpecResolveRequest, GuiFrameHostRequest,
+    ResolvedFontMatch, ResolvedFontSpecMatch,
 };
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{format_eval_result, parse_forms};
@@ -61,6 +62,29 @@ impl DisplayHost for CapturingFontAtDisplayHost {
     }
 }
 
+struct CapturingFindFontDisplayHost {
+    last_request: Rc<RefCell<Option<FontSpecResolveRequest>>>,
+    matched: Option<ResolvedFontSpecMatch>,
+}
+
+impl DisplayHost for CapturingFindFontDisplayHost {
+    fn realize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resolve_font_for_spec(
+        &mut self,
+        request: FontSpecResolveRequest,
+    ) -> Result<Option<ResolvedFontSpecMatch>, String> {
+        *self.last_request.borrow_mut() = Some(request);
+        Ok(self.matched.clone())
+    }
+}
+
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -92,6 +116,91 @@ fn font_spec_basic() {
     .unwrap();
     assert!(is_font_spec(&spec));
     assert!(builtin_fontp(vec![spec]).unwrap().is_truthy());
+}
+
+#[test]
+fn find_font_eval_requests_exact_registry_match_from_display_host() {
+    let last_request = Rc::new(RefCell::new(None));
+    let mut eval = crate::emacs_core::Evaluator::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    eval.set_display_host(Box::new(CapturingFindFontDisplayHost {
+        last_request: Rc::clone(&last_request),
+        matched: Some(ResolvedFontSpecMatch {
+            family: "Noto Sans Mono CJK SC".to_string(),
+            registry: Some("iso10646-1".to_string()),
+            weight: Some(FontWeight::NORMAL),
+            slant: Some(FontSlant::Normal),
+            width: Some(crate::face::FontWidth::Normal),
+            spacing: None,
+            postscript_name: Some("NotoSansMonoCJKsc-Regular".to_string()),
+        }),
+    }));
+
+    let spec = builtin_font_spec(vec![
+        Value::keyword("registry"),
+        Value::string("gb2312.1980-0"),
+        Value::keyword("weight"),
+        Value::symbol("normal"),
+    ])
+    .unwrap();
+    let font = builtin_find_font_eval(&mut eval, vec![spec]).unwrap();
+
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("family")])
+            .unwrap()
+            .as_str(),
+        Some("Noto Sans Mono CJK SC")
+    );
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("registry")])
+            .unwrap()
+            .as_str(),
+        Some("iso10646-1")
+    );
+    assert!(
+        builtin_fontp(vec![font, Value::symbol("font-entity")])
+            .unwrap()
+            .is_truthy()
+    );
+
+    let request = last_request
+        .borrow()
+        .clone()
+        .expect("display host should capture find-font request");
+    assert_eq!(request.registry.as_deref(), Some("gb2312.1980-0"));
+    assert_eq!(request.family, None);
+    assert_eq!(request.weight, Some(FontWeight::NORMAL));
+}
+
+#[test]
+fn find_font_eval_returns_gnu_canonical_ultra_light_weight_symbol() {
+    let last_request = Rc::new(RefCell::new(None));
+    let mut eval = crate::emacs_core::Evaluator::new();
+    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    eval.set_display_host(Box::new(CapturingFindFontDisplayHost {
+        last_request: Rc::clone(&last_request),
+        matched: Some(ResolvedFontSpecMatch {
+            family: "JetBrains Mono".to_string(),
+            registry: Some("iso10646-1".to_string()),
+            weight: Some(FontWeight::EXTRA_LIGHT),
+            slant: Some(FontSlant::Normal),
+            width: Some(crate::face::FontWidth::Normal),
+            spacing: Some(100),
+            postscript_name: None,
+        }),
+    }));
+
+    let spec = builtin_font_spec(vec![
+        Value::keyword("family"),
+        Value::string("JetBrains Mono"),
+    ])
+    .unwrap();
+    let font = builtin_find_font_eval(&mut eval, vec![spec]).unwrap();
+
+    assert_eq!(
+        builtin_font_get(vec![font, Value::keyword("weight")]).unwrap(),
+        Value::symbol("ultra-light")
+    );
 }
 
 #[test]

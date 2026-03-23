@@ -108,6 +108,14 @@ fn frame_id_from_designator(value: &Value) -> Option<FrameId> {
     }
 }
 
+fn font_value_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Str(id) => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_owned()),
+        _ => None,
+    }
+}
+
 fn expect_optional_frame_designator_in_state(
     frames: &FrameManager,
     value: Option<&Value>,
@@ -203,6 +211,7 @@ pub fn seed_live_frame_default_face_from_font_parameter(
 
 /// The tag keyword used to identify font-spec vectors: `:font-spec`.
 const FONT_SPEC_TAG: &str = "font-spec";
+const FONT_ENTITY_TAG: &str = "font-entity";
 const FONT_OBJECT_TAG: &str = "font-object";
 
 fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
@@ -226,8 +235,13 @@ fn is_font_object(val: &Value) -> bool {
     is_tagged_font_vector(val, FONT_OBJECT_TAG)
 }
 
+/// Check whether a value is represented as a font-entity vector.
+fn is_font_entity(val: &Value) -> bool {
+    is_tagged_font_vector(val, FONT_ENTITY_TAG)
+}
+
 fn is_font(val: &Value) -> bool {
-    is_font_spec(val) || is_font_object(val)
+    is_font_spec(val) || is_font_entity(val) || is_font_object(val)
 }
 
 /// Extract a property from a tagged font vector.
@@ -480,7 +494,7 @@ pub(crate) fn builtin_fontp(args: Vec<Value>) -> EvalResult {
     } else if extra_type.is_symbol_named("font-object") {
         is_font_object(object)
     } else if extra_type.is_symbol_named("font-entity") {
-        false
+        is_font_entity(object)
     } else {
         return Err(signal(
             "wrong-type-argument",
@@ -638,6 +652,75 @@ pub(crate) fn builtin_list_fonts_eval(
     builtin_list_fonts_in_state(&eval.frames, args)
 }
 
+fn font_weight_from_value(value: Value) -> Option<FontWeight> {
+    match value {
+        Value::Int(weight) if (0..=u16::MAX as i64).contains(&weight) => {
+            Some(FontWeight(weight as u16))
+        }
+        Value::Symbol(id) | Value::Keyword(id) => FontWeight::from_symbol(resolve_sym(id)),
+        _ => None,
+    }
+}
+
+fn font_slant_from_value(value: Value) -> Option<FontSlant> {
+    match value {
+        Value::Symbol(id) | Value::Keyword(id) => FontSlant::from_symbol(resolve_sym(id)),
+        _ => None,
+    }
+}
+
+fn find_font_frame_id(
+    eval: &mut super::eval::Evaluator,
+    frame: Option<&Value>,
+) -> Result<FrameId, Flow> {
+    match frame {
+        None | Some(Value::Nil) => Ok(super::window_cmds::ensure_selected_frame_id(eval)),
+        Some(value) if live_frame_designator_in_state(&eval.frames, value) => {
+            frame_id_from_designator(value).ok_or_else(|| {
+                signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("frame-live-p"), *value],
+                )
+            })
+        }
+        Some(other) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), *other],
+        )),
+    }
+}
+
+fn font_spec_resolve_request(
+    eval: &mut super::eval::Evaluator,
+    font_spec: &Value,
+    frame: Option<&Value>,
+) -> Result<super::eval::FontSpecResolveRequest, Flow> {
+    let Value::Vector(id) = font_spec else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("font-spec"), *font_spec],
+        ));
+    };
+
+    let elems = with_heap(|heap| heap.get_vector(*id).clone());
+    let family =
+        font_vector_get_flexible(&elems, "family").and_then(|value| font_value_text(&value));
+    let registry =
+        font_vector_get_flexible(&elems, "registry").and_then(|value| font_value_text(&value));
+    let lang = font_vector_get_flexible(&elems, "lang").and_then(|value| font_value_text(&value));
+    let weight = font_vector_get_flexible(&elems, "weight").and_then(font_weight_from_value);
+    let slant = font_vector_get_flexible(&elems, "slant").and_then(font_slant_from_value);
+
+    Ok(super::eval::FontSpecResolveRequest {
+        frame_id: find_font_frame_id(eval, frame)?,
+        family,
+        registry,
+        lang,
+        weight,
+        slant,
+    })
+}
+
 /// `(find-font FONT-SPEC &optional FRAME)` -- returns nil in
 /// batch-compatible mode.
 pub(crate) fn builtin_find_font(args: Vec<Value>) -> EvalResult {
@@ -672,7 +755,26 @@ pub(crate) fn builtin_find_font_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_find_font_in_state(&eval.frames, args)
+    expect_min_args("find-font", &args, 1)?;
+    expect_max_args("find-font", &args, 2)?;
+    if !is_font_spec(&args[0]) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("font-spec"), args[0]],
+        ));
+    }
+
+    let request = font_spec_resolve_request(eval, &args[0], args.get(1))?;
+    let Some(host) = eval.display_host.as_mut() else {
+        return Ok(Value::Nil);
+    };
+    let matched = host
+        .resolve_font_for_spec(request)
+        .map_err(|err| signal("error", vec![Value::string(err)]))?;
+    let Some(matched) = matched else {
+        return Ok(Value::Nil);
+    };
+    Ok(build_font_entity_for_spec_match(&matched))
 }
 
 /// `(clear-font-cache)` -- reset internal font/face caches and return nil.
@@ -1003,7 +1105,7 @@ fn face_height_to_font_value(height: &FaceHeight) -> Value {
 fn font_weight_symbol(weight: FontWeight) -> &'static str {
     match weight.0 {
         0..=150 => "thin",
-        151..=250 => "extra-light",
+        151..=250 => "ultra-light",
         251..=350 => "light",
         351..=450 => "normal",
         451..=550 => "medium",
@@ -1077,6 +1179,37 @@ fn build_font_object(face: &RuntimeFace) -> Value {
         });
     }
     font_object
+}
+
+fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch) -> Value {
+    let mut elems = vec![Value::keyword(FONT_ENTITY_TAG)];
+
+    let mut push_field = |name: &str, value: Value| {
+        elems.push(Value::keyword(name));
+        elems.push(value);
+    };
+
+    push_field("family", Value::string(matched.family.clone()));
+    if let Some(registry) = &matched.registry {
+        push_field("registry", Value::string(registry.clone()));
+    }
+    if let Some(weight) = matched.weight {
+        push_field("weight", Value::symbol(font_weight_symbol(weight)));
+    }
+    if let Some(slant) = matched.slant {
+        push_field("slant", Value::symbol(font_slant_symbol(slant)));
+    }
+    if let Some(width) = matched.width {
+        push_field("width", Value::symbol(font_width_symbol(width)));
+    }
+    if let Some(spacing) = matched.spacing {
+        push_field("spacing", Value::Int(spacing as i64));
+    }
+    if let Some(postscript_name) = &matched.postscript_name {
+        push_field("postscript-name", Value::string(postscript_name.clone()));
+    }
+
+    Value::vector(elems)
 }
 
 fn build_font_object_for_match(
@@ -2823,7 +2956,7 @@ fn runtime_weight_to_lisp_value(weight: FontWeight) -> Value {
     let name = if weight == FontWeight::THIN {
         "thin"
     } else if weight == FontWeight::EXTRA_LIGHT {
-        "extra-light"
+        "ultra-light"
     } else if weight == FontWeight::LIGHT {
         "light"
     } else if weight == FontWeight::NORMAL {

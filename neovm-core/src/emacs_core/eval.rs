@@ -1118,12 +1118,33 @@ pub struct FontResolveRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FontSpecResolveRequest {
+    pub frame_id: crate::window::FrameId,
+    pub family: Option<String>,
+    pub registry: Option<String>,
+    pub lang: Option<String>,
+    pub weight: Option<FontWeight>,
+    pub slant: Option<FontSlant>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedFontMatch {
     pub family: String,
     pub foundry: Option<String>,
     pub weight: FontWeight,
     pub slant: FontSlant,
     pub width: FontWidth,
+    pub postscript_name: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedFontSpecMatch {
+    pub family: String,
+    pub registry: Option<String>,
+    pub weight: Option<FontWeight>,
+    pub slant: Option<FontSlant>,
+    pub width: Option<FontWidth>,
+    pub spacing: Option<i32>,
     pub postscript_name: Option<String>,
 }
 
@@ -1140,6 +1161,12 @@ pub trait DisplayHost {
         &mut self,
         _request: FontResolveRequest,
     ) -> Result<Option<ResolvedFontMatch>, String> {
+        Ok(None)
+    }
+    fn resolve_font_for_spec(
+        &mut self,
+        _request: FontSpecResolveRequest,
+    ) -> Result<Option<ResolvedFontSpecMatch>, String> {
         Ok(None)
     }
 }

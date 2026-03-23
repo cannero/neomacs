@@ -572,7 +572,13 @@ pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
                     .collect();
                 coalesce_u32_ranges(values)
             }
-            CharsetMethod::Subset(_) => None,
+            CharsetMethod::Subset(ref subset) => {
+                let values = (subset.parent_min_code..=subset.parent_max_code)
+                    .filter_map(|parent_code| reg.decode_char(&subset.parent, parent_code))
+                    .filter_map(|ch| u32::try_from(ch).ok())
+                    .collect();
+                coalesce_u32_ranges(values)
+            }
             CharsetMethod::Superset(_) => {
                 let mut values = Vec::new();
                 for (parent_name, _) in CharsetRegistry::superset_members(info) {

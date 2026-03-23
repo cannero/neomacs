@@ -30,7 +30,10 @@ use neomacs_layout_engine::fontconfig::face_height_to_pixels;
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::display::gui_window_system_symbol;
-use neovm_core::emacs_core::eval::{FontResolveRequest, GuiFrameHostSize, ResolvedFontMatch};
+use neovm_core::emacs_core::eval::{
+    FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ResolvedFontMatch,
+    ResolvedFontSpecMatch,
+};
 #[cfg(test)]
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
@@ -551,6 +554,28 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             weight: font.weight,
             slant: font.slant,
             width: font.width,
+            postscript_name: font.postscript_name,
+        }))
+    }
+
+    fn resolve_font_for_spec(
+        &mut self,
+        request: FontSpecResolveRequest,
+    ) -> Result<Option<ResolvedFontSpecMatch>, String> {
+        let matched = neomacs_layout_engine::fontconfig::find_font_for_spec(
+            request.family.as_deref(),
+            request.registry.as_deref(),
+            request.lang.as_deref(),
+            request.weight.map(|weight| weight.0),
+            request.slant,
+        );
+        Ok(matched.map(|font| ResolvedFontSpecMatch {
+            family: font.family,
+            registry: Some("iso10646-1".to_string()),
+            weight: font.weight.map(FontWeight),
+            slant: Some(font.slant),
+            width: font.width,
+            spacing: font.spacing,
             postscript_name: font.postscript_name,
         }))
     }

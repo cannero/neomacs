@@ -185,15 +185,15 @@ impl FontWeight {
 
     pub fn from_symbol(name: &str) -> Option<Self> {
         match name {
-            "thin" | "ultra-light" => Some(Self::THIN),
-            "extra-light" => Some(Self::EXTRA_LIGHT),
-            "light" => Some(Self::LIGHT),
-            "normal" | "regular" | "book" => Some(Self::NORMAL),
+            "thin" => Some(Self::THIN),
+            "ultra-light" | "ultralight" | "extra-light" | "extralight" => Some(Self::EXTRA_LIGHT),
+            "light" | "semi-light" | "semilight" | "demilight" => Some(Self::LIGHT),
+            "normal" | "regular" | "unspecified" | "book" => Some(Self::NORMAL),
             "medium" => Some(Self::MEDIUM),
-            "semi-bold" | "demi-bold" | "demibold" => Some(Self::SEMI_BOLD),
+            "semi-bold" | "semibold" | "demi-bold" | "demibold" | "demi" => Some(Self::SEMI_BOLD),
             "bold" => Some(Self::BOLD),
-            "extra-bold" | "ultra-bold" => Some(Self::EXTRA_BOLD),
-            "black" | "heavy" | "ultra" => Some(Self::BLACK),
+            "extra-bold" | "extrabold" | "ultra-bold" | "ultrabold" => Some(Self::EXTRA_BOLD),
+            "black" | "heavy" | "ultra-heavy" | "ultraheavy" | "ultra" => Some(Self::BLACK),
             _ => None,
         }
     }
@@ -1454,11 +1454,19 @@ mod tests {
         assert_eq!(FontWeight::from_symbol("thin"), Some(FontWeight::THIN));
         assert_eq!(
             FontWeight::from_symbol("ultra-light"),
-            Some(FontWeight::THIN)
+            Some(FontWeight::EXTRA_LIGHT)
         );
         assert_eq!(
             FontWeight::from_symbol("extra-light"),
             Some(FontWeight::EXTRA_LIGHT)
+        );
+        assert_eq!(
+            FontWeight::from_symbol("semi-light"),
+            Some(FontWeight::LIGHT)
+        );
+        assert_eq!(
+            FontWeight::from_symbol("unspecified"),
+            Some(FontWeight::NORMAL)
         );
         assert_eq!(FontWeight::from_symbol("light"), Some(FontWeight::LIGHT));
         assert_eq!(FontWeight::from_symbol("regular"), Some(FontWeight::NORMAL));
@@ -1468,6 +1476,7 @@ mod tests {
             FontWeight::from_symbol("semi-bold"),
             Some(FontWeight::SEMI_BOLD)
         );
+        assert_eq!(FontWeight::from_symbol("demi"), Some(FontWeight::SEMI_BOLD));
         assert_eq!(
             FontWeight::from_symbol("demi-bold"),
             Some(FontWeight::SEMI_BOLD)
@@ -1478,6 +1487,10 @@ mod tests {
         );
         assert_eq!(FontWeight::from_symbol("black"), Some(FontWeight::BLACK));
         assert_eq!(FontWeight::from_symbol("heavy"), Some(FontWeight::BLACK));
+        assert_eq!(
+            FontWeight::from_symbol("ultra-heavy"),
+            Some(FontWeight::BLACK)
+        );
         assert_eq!(FontWeight::from_symbol("unknown"), None);
     }
 
