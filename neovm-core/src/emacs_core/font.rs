@@ -168,6 +168,35 @@ fn mirror_runtime_face_into_frame(
     }
 }
 
+/// Realize the selected frame's `font-parameter` into the runtime/frame-local
+/// `default` face without mutating Lisp override state.
+///
+/// GNU keeps the defface for `default` empty and realizes the actual frame
+/// font through the face subsystem in C.  Neomacs still needs the runtime
+/// `FaceTable` and per-frame face hash table populated early so startup code
+/// that depends on the realized default face does not fall back to a static
+/// global seed.
+pub fn seed_live_frame_default_face_from_font_parameter(
+    eval: &mut super::eval::Evaluator,
+    frame_id: FrameId,
+) {
+    let Some(font_value) = eval
+        .frames
+        .get(frame_id)
+        .and_then(|frame| frame.parameters.get("font-parameter").copied())
+    else {
+        return;
+    };
+
+    for (attr_name, attr_value) in derived_face_attrs_from_font_value(&font_value) {
+        if let Some(face_attr) = lisp_value_to_face_attr(&attr_name, attr_value) {
+            eval.set_face_attribute("default", &attr_name, face_attr);
+        }
+    }
+
+    mirror_runtime_face_into_frame(eval, frame_id, "default");
+}
+
 // ---------------------------------------------------------------------------
 // Font-spec helpers
 // ---------------------------------------------------------------------------

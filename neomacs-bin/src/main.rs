@@ -1026,6 +1026,12 @@ fn bootstrap_buffers(
         }
     }
 
+    if display.window_system_symbol().is_some() {
+        neovm_core::emacs_core::font::seed_live_frame_default_face_from_font_parameter(
+            eval, frame_id,
+        );
+    }
+
     // Fix window geometry: root window takes frame height minus minibuffer.
     if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
         let mini_h = frame.char_height.max(1.0);

@@ -17,6 +17,7 @@ use neovm_core::emacs_core::load::{
 use neovm_core::emacs_core::parse_forms;
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::value::list_to_vec;
+use neovm_core::face::FaceHeight;
 use neovm_core::window::FrameId;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -66,6 +67,17 @@ fn eval_after_gnu_gui_startup(source: &str) -> String {
     let forms = parse_forms(source).expect("probe should parse");
     let result = eval.eval_expr(&forms[0]).expect("probe should evaluate");
     print_value_with_eval(&mut eval, &result)
+}
+
+#[test]
+fn bootstrap_buffers_realize_default_face_from_frame_font_parameter() {
+    let mut eval = create_bootstrap_evaluator_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+    let default = eval.face_table().get("default").expect("default face");
+    assert_eq!(default.family.as_deref(), Some("Hack"));
+    assert_eq!(default.weight.map(|weight| weight.0), Some(400));
+    assert_eq!(default.height, Some(FaceHeight::Absolute(100)));
 }
 
 #[test]

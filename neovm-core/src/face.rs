@@ -739,9 +739,6 @@ impl FaceTable {
         default.background = Some(Color::rgb(255, 255, 255));
         default.weight = Some(FontWeight::NORMAL);
         default.slant = Some(FontSlant::Normal);
-        // 100 = 10pt, matching GNU Emacs's "monospace-10" default
-        default.height = Some(FaceHeight::Absolute(100));
-        default.family = Some("Monospace".to_string());
         self.define(default);
 
         // bold
@@ -1287,6 +1284,14 @@ mod tests {
         assert!(table.get("tab-line").is_some());
         assert!(table.get("font-lock-keyword-face").is_some());
         assert!(table.len() > 30);
+    }
+
+    #[test]
+    fn default_face_does_not_seed_font_family_or_height() {
+        let table = FaceTable::new();
+        let default = table.get("default").expect("default face");
+        assert!(default.family.is_none());
+        assert!(default.height.is_none());
     }
 
     #[test]
