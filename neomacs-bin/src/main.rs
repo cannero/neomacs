@@ -791,6 +791,13 @@ fn font_weight_symbol(weight: FontWeight) -> &'static str {
     }
 }
 
+fn startup_font_weight_symbol(weight: FontWeight) -> &'static str {
+    match weight.0 {
+        351..=450 => "regular",
+        _ => font_weight_symbol(weight),
+    }
+}
+
 fn font_slant_symbol(slant: FontSlant) -> &'static str {
     match slant {
         FontSlant::Normal => "normal",
@@ -826,8 +833,8 @@ fn bootstrap_default_font_parameter(font_pixel_size: f32) -> Value {
         .unwrap_or("Monospace");
     let weight = selected
         .as_ref()
-        .map(|font| font_weight_symbol(font.weight))
-        .unwrap_or("normal");
+        .map(|font| startup_font_weight_symbol(font.weight))
+        .unwrap_or("regular");
     let slant = selected
         .as_ref()
         .map(|font| font_slant_symbol(font.slant))
@@ -868,8 +875,8 @@ fn bootstrap_default_font_name(font_pixel_size: f32) -> Value {
         .unwrap_or("Monospace");
     let weight = selected
         .as_ref()
-        .map(|font| font_weight_symbol(font.weight))
-        .unwrap_or("normal");
+        .map(|font| startup_font_weight_symbol(font.weight))
+        .unwrap_or("regular");
     let slant = selected
         .as_ref()
         .map(|font| font_slant_symbol(font.slant))

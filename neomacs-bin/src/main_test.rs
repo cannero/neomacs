@@ -477,6 +477,7 @@ fn bootstrap_default_font_name_uses_pixel_size_field() {
     let font_name = bootstrap_default_font_name(font_pixel_size);
     let rendered = print_value_with_eval(&mut eval, &font_name);
     assert!(rendered.contains(&format!("-*-{}-", font_pixel_size.round() as i64)));
+    assert!(rendered.contains("-regular-"));
 }
 
 #[test]
