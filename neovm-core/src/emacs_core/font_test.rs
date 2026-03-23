@@ -902,6 +902,56 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
     .expect("set live default face font");
 
     assert_eq!(
+        builtin_font_get(vec![
+            builtin_internal_get_lisp_face_attribute_eval(
+                &mut eval,
+                vec![
+                    Value::symbol("default"),
+                    Value::Keyword(intern(":font")),
+                    Value::Frame(frame_id.0),
+                ],
+            )
+            .expect("default face font"),
+            Value::keyword(":family"),
+        ])
+        .expect("default face font family")
+        .as_str(),
+        Some("Hack")
+    );
+    assert_eq!(
+        builtin_font_get(vec![
+            builtin_internal_get_lisp_face_attribute_eval(
+                &mut eval,
+                vec![
+                    Value::symbol("default"),
+                    Value::Keyword(intern(":font")),
+                    Value::Frame(frame_id.0),
+                ],
+            )
+            .expect("default face font"),
+            Value::keyword(":size"),
+        ])
+        .expect("default face font size")
+        .as_int(),
+        Some(102)
+    );
+    assert!(
+        builtin_font_get(vec![
+            builtin_internal_get_lisp_face_attribute_eval(
+                &mut eval,
+                vec![
+                    Value::symbol("default"),
+                    Value::Keyword(intern(":font")),
+                    Value::Frame(frame_id.0),
+                ],
+            )
+            .expect("default face font"),
+            Value::keyword(":height"),
+        ])
+        .expect("default face font height")
+        .is_nil()
+    );
+    assert_eq!(
         builtin_internal_get_lisp_face_attribute_eval(
             &mut eval,
             vec![
@@ -910,8 +960,9 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
                 Value::Frame(frame_id.0),
             ],
         )
-        .expect("default face font"),
-        font_object
+        .expect("default face font")
+        .is_vector(),
+        true
     );
     assert_eq!(
         builtin_internal_get_lisp_face_attribute_eval(

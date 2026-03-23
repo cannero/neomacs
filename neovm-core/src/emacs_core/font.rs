@@ -1125,6 +1125,42 @@ fn resolved_live_frame_font_value(
         .unwrap_or(*requested)
 }
 
+fn public_live_frame_font_value(font_value: Value) -> Value {
+    let Value::Vector(id) = font_value else {
+        return font_value;
+    };
+    if !is_font(&font_value) {
+        return font_value;
+    }
+
+    let elems = with_heap(|heap| heap.get_vector(id).clone());
+    let mut filtered = Vec::with_capacity(elems.len());
+    let mut idx = 0;
+    while idx < elems.len() {
+        if idx == 0 {
+            filtered.push(elems[idx]);
+            idx += 1;
+            continue;
+        }
+
+        if idx + 1 >= elems.len() {
+            filtered.push(elems[idx]);
+            break;
+        }
+
+        let keep = !matches!(&elems[idx], Value::Keyword(sym) | Value::Symbol(sym) if {
+            resolve_sym(*sym).trim_start_matches(':') == "height"
+        });
+        if keep {
+            filtered.push(elems[idx]);
+            filtered.push(elems[idx + 1]);
+        }
+        idx += 2;
+    }
+
+    Value::vector(filtered)
+}
+
 fn live_frame_font_attribute_fallback(
     eval: &super::eval::Evaluator,
     frame_id: FrameId,
@@ -1137,7 +1173,7 @@ fn live_frame_font_attribute_fallback(
     }
 
     if attr_name == ":font" {
-        return Some(font_value);
+        return Some(public_live_frame_font_value(font_value));
     }
 
     derived_face_attrs_from_font_value(&font_value)
@@ -2507,12 +2543,17 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_eval(
             } else {
                 value
             };
+            let public_effective_value = if attr_name == ":font" {
+                public_live_frame_font_value(effective_value)
+            } else {
+                effective_value
+            };
 
             if attr_name == ":font" && effective_value != value {
-                set_face_override(&face_name, &attr_name, effective_value, false);
+                set_face_override(&face_name, &attr_name, public_effective_value, false);
             }
 
-            let face_attr = lisp_value_to_face_attr(&attr_name, effective_value);
+            let face_attr = lisp_value_to_face_attr(&attr_name, public_effective_value);
             if let Some(fav) = face_attr {
                 eval.set_face_attribute(&face_name, &attr_name, fav);
             }
