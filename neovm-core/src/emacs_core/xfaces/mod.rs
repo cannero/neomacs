@@ -14,7 +14,7 @@ use crate::face::Face as RuntimeFace;
 pub fn register_bootstrap_vars(obarray: &mut Obarray) {
     obarray.set_symbol_value("face-filters-always-match", Value::Nil);
     let face_new_frame_defaults = Value::hash_table(HashTableTest::Eq);
-    crate::emacs_core::font::seed_face_new_frame_defaults_table(face_new_frame_defaults);
+    seed_face_new_frame_defaults_table(face_new_frame_defaults);
     obarray.set_symbol_value("face--new-frame-defaults", face_new_frame_defaults);
     obarray.set_symbol_value("face-default-stipple", Value::string("gray3"));
     obarray.set_symbol_value("tty-defined-color-alist", Value::Nil);
@@ -56,6 +56,48 @@ pub(crate) fn mirror_runtime_face_into_frame(
         Value::symbol(face_name),
         crate::emacs_core::font::runtime_face_to_lisp_vector(face),
     );
+}
+
+pub(crate) fn seed_face_new_frame_defaults_table(table: Value) {
+    let face_names = crate::emacs_core::font::all_defined_face_names_sorted_by_id_desc();
+    let face_entries: Vec<(Value, Value)> = face_names
+        .into_iter()
+        .filter_map(|face_name| {
+            let face_id = crate::emacs_core::font::face_id_for_name(&face_name)?;
+            Some((
+                Value::symbol(face_name.as_str()),
+                Value::cons(
+                    Value::Int(face_id),
+                    crate::emacs_core::font::make_lisp_face_vector(),
+                ),
+            ))
+        })
+        .collect();
+
+    for (key, value) in face_entries {
+        upsert_frame_face_hash_entry(table, key, value);
+    }
+}
+
+pub(crate) fn ensure_face_new_frame_defaults_entry(
+    eval: &mut crate::emacs_core::eval::Evaluator,
+    face_name: &str,
+) -> Option<Value> {
+    let table = eval
+        .obarray()
+        .symbol_value("face--new-frame-defaults")
+        .copied()?;
+    seed_face_new_frame_defaults_table(table);
+    let face_id = crate::emacs_core::font::face_id_for_name(face_name)?;
+    upsert_frame_face_hash_entry(
+        table,
+        Value::symbol(face_name),
+        Value::cons(
+            Value::Int(face_id),
+            crate::emacs_core::font::make_lisp_face_vector(),
+        ),
+    );
+    Some(table)
 }
 
 fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {

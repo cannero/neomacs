@@ -2401,7 +2401,7 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Evaluator, project_ro
         ("face-filters-always-match", Value::Nil),
         ("face--new-frame-defaults", {
             let table = Value::hash_table(HashTableTest::Eq);
-            crate::emacs_core::font::seed_face_new_frame_defaults_table(table);
+            crate::emacs_core::xfaces::seed_face_new_frame_defaults_table(table);
             table
         }),
         ("face-default-stipple", Value::string("gray3")),

@@ -1458,7 +1458,7 @@ fn dynamic_face_id(name: &str) -> Option<i64> {
     CREATED_FACE_IDS.with(|slot| slot.borrow().get(name).copied())
 }
 
-fn face_id_for_name(name: &str) -> Option<i64> {
+pub(crate) fn face_id_for_name(name: &str) -> Option<i64> {
     if let Some(id) = known_face_id(name) {
         return Some(id);
     }
@@ -1468,7 +1468,7 @@ fn face_id_for_name(name: &str) -> Option<i64> {
     dynamic_face_id(name)
 }
 
-fn all_defined_face_names_sorted_by_id_desc() -> Vec<String> {
+pub(crate) fn all_defined_face_names_sorted_by_id_desc() -> Vec<String> {
     let mut names: Vec<String> = KNOWN_FACES.iter().map(|name| (*name).to_string()).collect();
     CREATED_LISP_FACES.with(|slot| {
         for name in slot.borrow().iter() {
@@ -1483,73 +1483,6 @@ fn all_defined_face_names_sorted_by_id_desc() -> Vec<String> {
         right_id.cmp(&left_id).then_with(|| left.cmp(right))
     });
     names
-}
-
-pub(crate) fn seed_face_new_frame_defaults_table(table: Value) {
-    let Value::HashTable(table_id) = table else {
-        return;
-    };
-
-    let face_names = all_defined_face_names_sorted_by_id_desc();
-    let face_entries: Vec<(Value, Value)> = face_names
-        .into_iter()
-        .filter_map(|face_name| {
-            let face_id = face_id_for_name(&face_name)?;
-            Some((
-                Value::symbol(face_name.as_str()),
-                Value::cons(Value::Int(face_id), make_lisp_face_vector()),
-            ))
-        })
-        .collect();
-
-    with_heap_mut(|heap| {
-        let hash_table = heap.get_hash_table_mut(table_id);
-        for (key, value) in face_entries {
-            let hash_key = match key {
-                Value::Symbol(id) => HashKey::Symbol(id),
-                Value::Keyword(id) => HashKey::Keyword(id),
-                _ => unreachable!("face defaults keys are symbols"),
-            };
-            if !hash_table.data.contains_key(&hash_key) {
-                hash_table.insertion_order.push(hash_key.clone());
-            }
-            hash_table.key_snapshots.insert(hash_key.clone(), key);
-            hash_table.data.insert(hash_key, value);
-        }
-    });
-}
-
-fn ensure_face_new_frame_defaults_entry(
-    eval: &mut super::eval::Evaluator,
-    face_name: &str,
-) -> Option<Value> {
-    let table = eval
-        .obarray()
-        .symbol_value("face--new-frame-defaults")
-        .copied()?;
-    seed_face_new_frame_defaults_table(table);
-    let face_id = face_id_for_name(face_name)?;
-    let Value::HashTable(table_id) = table else {
-        return None;
-    };
-    let key = Value::symbol(face_name);
-    with_heap_mut(|heap| {
-        let hash_table = heap.get_hash_table_mut(table_id);
-        let hash_key = match key {
-            Value::Symbol(id) => HashKey::Symbol(id),
-            Value::Keyword(id) => HashKey::Keyword(id),
-            _ => unreachable!("face defaults keys are symbols"),
-        };
-        if !hash_table.data.contains_key(&hash_key) {
-            hash_table.insertion_order.push(hash_key.clone());
-        }
-        hash_table.key_snapshots.insert(hash_key.clone(), key);
-        hash_table
-            .data
-            .entry(hash_key)
-            .or_insert_with(|| Value::cons(Value::Int(face_id), make_lisp_face_vector()));
-    });
-    Some(table)
 }
 
 fn is_selected_created_lisp_face(name: &str) -> bool {
@@ -1749,7 +1682,7 @@ fn resolve_face_name_for_merge(face: &Value) -> Result<String, Flow> {
     }
 }
 
-fn make_lisp_face_vector() -> Value {
+pub(crate) fn make_lisp_face_vector() -> Value {
     let mut values = Vec::with_capacity(LISP_FACE_VECTOR_LEN);
     values.push(Value::symbol("face"));
     values.extend((1..LISP_FACE_VECTOR_LEN).map(|_| Value::symbol("unspecified")));
@@ -2283,7 +2216,7 @@ pub(crate) fn builtin_internal_make_lisp_face_eval(
 ) -> EvalResult {
     let result = builtin_internal_make_lisp_face(args.clone())?;
     if let Ok(face_name) = require_symbol_face_name(&args[0]) {
-        ensure_face_new_frame_defaults_entry(eval, &face_name);
+        crate::emacs_core::xfaces::ensure_face_new_frame_defaults_entry(eval, &face_name);
         eval.face_table.ensure_face(&face_name);
         eval.face_change_count += 1;
     }
