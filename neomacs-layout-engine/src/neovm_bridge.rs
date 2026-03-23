@@ -5,7 +5,7 @@
 
 use neovm_core::buffer::Buffer;
 use neovm_core::emacs_core::symbol::Obarray;
-use neovm_core::emacs_core::value::list_to_vec;
+use neovm_core::emacs_core::value::{list_to_vec, read_cons};
 use neovm_core::emacs_core::{Evaluator, Value};
 use neovm_core::face::{
     Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight,
@@ -1059,10 +1059,13 @@ pub struct FaceResolver {
 
 impl FaceResolver {
     fn face_spec_is_plist(items: &[Value]) -> bool {
-        items
-            .first()
-            .and_then(Value::as_symbol_name)
-            .is_some_and(|name| name.starts_with(':'))
+        match items.first() {
+            Some(Value::Keyword(_)) => true,
+            Some(item) => item
+                .as_symbol_name()
+                .is_some_and(|name| name.starts_with(':')),
+            None => false,
+        }
     }
 
     /// Create a new `FaceResolver`.
@@ -1261,6 +1264,117 @@ impl FaceResolver {
         merged
     }
 
+    fn face_name_from_value<'a>(value: &'a Value) -> Option<&'a str> {
+        match value {
+            Value::Symbol(_) | Value::Keyword(_) => value.as_symbol_name(),
+            Value::Str(_) => value.as_str(),
+            _ => None,
+        }
+    }
+
+    fn is_filtered_face_spec(items: &[Value]) -> bool {
+        match items.first() {
+            Some(Value::Keyword(_)) => items
+                .first()
+                .and_then(Value::as_symbol_name)
+                .is_some_and(|name| name == "filtered"),
+            Some(item) => item
+                .as_symbol_name()
+                .is_some_and(|name| name == ":filtered"),
+            None => false,
+        }
+    }
+
+    fn buffer_face_remapping_specs(buffer: &Buffer, face_name: &str) -> Option<Value> {
+        let mut cursor = buffer.buffer_local_value("face-remapping-alist")?;
+        loop {
+            match cursor {
+                Value::Cons(cell) => {
+                    let entry = read_cons(cell);
+                    if let Value::Cons(mapping_cell) = entry.car {
+                        let mapping = read_cons(mapping_cell);
+                        if Self::face_name_from_value(&mapping.car)
+                            .is_some_and(|name| name == face_name)
+                        {
+                            return Some(mapping.cdr);
+                        }
+                    }
+                    cursor = entry.cdr;
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    fn resolve_buffer_face_value_over(
+        &self,
+        buffer: &Buffer,
+        base: &ResolvedFace,
+        val: &Value,
+        remap_stack: &mut Vec<String>,
+    ) -> Option<ResolvedFace> {
+        match val {
+            Value::Nil => None,
+            Value::Symbol(_) | Value::Keyword(_) | Value::Str(_) => {
+                let name = Self::face_name_from_value(val)?;
+                if name == "nil" {
+                    return None;
+                }
+
+                if !remap_stack.iter().any(|active| active == name)
+                    && let Some(specs) = Self::buffer_face_remapping_specs(buffer, name)
+                {
+                    remap_stack.push(name.to_string());
+                    let remapped =
+                        self.resolve_buffer_face_value_over(buffer, base, &specs, remap_stack);
+                    remap_stack.pop();
+                    if remapped.is_some() {
+                        return remapped;
+                    }
+                }
+
+                Some(self.apply_named_face_over(base, name))
+            }
+            Value::Cons(_) => {
+                let items = list_to_vec(val)?;
+                if items.is_empty() {
+                    return None;
+                }
+                if Self::is_filtered_face_spec(&items) {
+                    return None;
+                }
+                if Self::face_spec_is_plist(&items) {
+                    let inline = NeoFace::from_plist("--inline--", &items);
+                    return Some(self.apply_inline_face_over(base, &inline));
+                }
+
+                let mut current = base.clone();
+                let mut changed = false;
+                for item in items.iter().rev() {
+                    if let Some(next) =
+                        self.resolve_buffer_face_value_over(buffer, &current, item, remap_stack)
+                    {
+                        current = next;
+                        changed = true;
+                    }
+                }
+                changed.then_some(current)
+            }
+            _ => None,
+        }
+    }
+
+    fn resolve_buffer_default_face(&self, buffer: &Buffer) -> ResolvedFace {
+        let mut remap_stack = Vec::new();
+        self.resolve_buffer_face_value_over(
+            buffer,
+            &self.default_face,
+            &Value::symbol("default"),
+            &mut remap_stack,
+        )
+        .unwrap_or_else(|| self.default_face.clone())
+    }
+
     pub fn resolve_face_value_over(
         &self,
         base: &ResolvedFace,
@@ -1277,6 +1391,9 @@ impl FaceResolver {
                 if items.is_empty() {
                     return None;
                 }
+                if Self::is_filtered_face_spec(&items) {
+                    return None;
+                }
                 if Self::face_spec_is_plist(&items) {
                     let inline = NeoFace::from_plist("--inline--", &items);
                     return Some(self.apply_inline_face_over(base, &inline));
@@ -1284,7 +1401,7 @@ impl FaceResolver {
 
                 let mut current = base.clone();
                 let mut changed = false;
-                for item in &items {
+                for item in items.iter().rev() {
                     if let Some(next) = self.resolve_face_value_over(&current, item) {
                         current = next;
                         changed = true;
@@ -1311,18 +1428,16 @@ impl FaceResolver {
         next_check: &mut usize,
     ) -> ResolvedFace {
         let bytepos = buffer_charpos_to_bytepos(buffer, charpos);
-        let mut face_names: Vec<String> = Vec::new();
         let mut min_next = buffer.point_max_char();
+        let mut resolved = self.resolve_buffer_default_face(buffer);
+        let mut remap_stack = Vec::new();
 
         // 1. "face" text property
-        let mut plist_face: Option<NeoFace> = None;
         if let Some(val) = buffer.text_props.get_property(bytepos, "face") {
-            let names = Self::resolve_face_value(val);
-            if names.len() == 1 && names[0] == "--plist-face--" {
-                // Inline plist face — parse directly into a Face object.
-                plist_face = Self::face_from_plist(val);
-            } else {
-                face_names.extend(names);
+            if let Some(next) =
+                self.resolve_buffer_face_value_over(buffer, &resolved, val, &mut remap_stack)
+            {
+                resolved = next;
             }
         }
         // Update next_check from text property boundaries
@@ -1332,15 +1447,17 @@ impl FaceResolver {
 
         // 2. "font-lock-face" text property
         if let Some(val) = buffer.text_props.get_property(bytepos, "font-lock-face") {
-            let names = Self::resolve_face_value(val);
-            face_names.extend(names);
+            if let Some(next) =
+                self.resolve_buffer_face_value_over(buffer, &resolved, val, &mut remap_stack)
+            {
+                resolved = next;
+            }
         }
 
         // 3. Overlay faces (sorted by priority, lowest first)
         let overlay_ids = buffer.overlays.overlays_at(bytepos);
         if !overlay_ids.is_empty() {
-            // Collect (priority, face_names) pairs
-            let mut overlay_faces: Vec<(i64, Vec<String>)> = Vec::new();
+            let mut overlay_faces: Vec<(i64, Value)> = Vec::new();
             for oid in &overlay_ids {
                 let oid = *oid;
                 // Update next_check from overlay boundaries
@@ -1357,17 +1474,21 @@ impl FaceResolver {
                     .unwrap_or(0);
                 // Get face
                 if let Some(val) = buffer.overlays.overlay_get(oid, "face") {
-                    let names = Self::resolve_face_value(val);
-                    if !names.is_empty() {
-                        overlay_faces.push((priority, names));
-                    }
+                    overlay_faces.push((priority, *val));
                 }
             }
             // Sort by priority (ascending), so higher priority overlays
             // are merged later and override earlier ones.
             overlay_faces.sort_by_key(|(pri, _)| *pri);
-            for (_pri, names) in overlay_faces {
-                face_names.extend(names);
+            for (_pri, face_value) in overlay_faces {
+                if let Some(next) = self.resolve_buffer_face_value_over(
+                    buffer,
+                    &resolved,
+                    &face_value,
+                    &mut remap_stack,
+                ) {
+                    resolved = next;
+                }
             }
         }
 
@@ -1378,28 +1499,7 @@ impl FaceResolver {
         }
 
         *next_check = min_next;
-
-        // 4. If we have a plist face (and no other faces), realize it directly.
-        if let Some(pface) = plist_face {
-            if face_names.is_empty() {
-                return self.realize_face(&pface);
-            }
-            // Merge named faces first, then overlay the plist attributes.
-            let name_refs: Vec<&str> = face_names.iter().map(|s| s.as_str()).collect();
-            let merged = self.face_table.merge_faces(&name_refs);
-            let merged = merged.merge(&pface);
-            return self.realize_face(&merged);
-        }
-
-        // 5. If no faces found, return the default face.
-        if face_names.is_empty() {
-            return self.default_face.clone();
-        }
-
-        // 6. Merge all collected face names and realize.
-        let name_refs: Vec<&str> = face_names.iter().map(|s| s.as_str()).collect();
-        let merged = self.face_table.merge_faces(&name_refs);
-        self.realize_face(&merged)
+        resolved
     }
 
     /// Extract face name(s) from a Lisp Value.
@@ -2369,6 +2469,97 @@ mod tests {
         let resolved = resolver.face_at_pos(&buf, 5, &mut nc);
         // face-b (blue, priority 20) should override face-a (red, priority 10).
         assert_eq!(resolved.fg, color_to_pixel(&NeoColor::rgb(0, 0, 255)));
+    }
+
+    #[test]
+    fn test_face_resolver_face_ref_list_respects_gnu_precedence() {
+        let _evaluator = neovm_core::emacs_core::Evaluator::new();
+        let mut table = FaceTable::new();
+
+        let mut face_a = NeoFace::new("face-a");
+        face_a.foreground = Some(NeoColor::rgb(255, 0, 0));
+        table.define(face_a);
+
+        let mut face_b = NeoFace::new("face-b");
+        face_b.foreground = Some(NeoColor::rgb(0, 0, 255));
+        table.define(face_b);
+
+        let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+
+        let mut buf = neovm_core::buffer::Buffer::new(
+            neovm_core::buffer::BufferId(51),
+            "*face-ref-list*".to_string(),
+        );
+        buf.text.insert_str(0, "x");
+        buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
+        buf.text_props.put_property(
+            0,
+            1,
+            "face",
+            Value::list(vec![Value::symbol("face-a"), Value::symbol("face-b")]),
+        );
+
+        let mut next_check = buf.point_max_char();
+        let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
+        assert_eq!(resolved.fg, color_to_pixel(&NeoColor::rgb(255, 0, 0)));
+    }
+
+    #[test]
+    fn test_face_resolver_buffer_local_default_remap_applies_to_plain_text() {
+        let _evaluator = neovm_core::emacs_core::Evaluator::new();
+        let table = FaceTable::new();
+        let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+
+        let mut buf = neovm_core::buffer::Buffer::new(
+            neovm_core::buffer::BufferId(52),
+            "*default-remap*".to_string(),
+        );
+        buf.text.insert_str(0, "plain");
+        buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
+        buf.set_buffer_local(
+            "face-remapping-alist",
+            Value::list(vec![Value::list(vec![
+                Value::symbol("default"),
+                Value::list(vec![Value::keyword("foreground"), Value::string("#009acd")]),
+                Value::symbol("default"),
+            ])]),
+        );
+
+        let mut next_check = buf.point_max_char();
+        let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
+        assert_eq!(resolved.fg, color_to_pixel(&NeoColor::rgb(0, 154, 205)));
+    }
+
+    #[test]
+    fn test_face_resolver_buffer_local_named_face_remap_applies_to_face_prop() {
+        let _evaluator = neovm_core::emacs_core::Evaluator::new();
+        let table = FaceTable::new();
+        let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+
+        let mut buf = neovm_core::buffer::Buffer::new(
+            neovm_core::buffer::BufferId(53),
+            "*named-remap*".to_string(),
+        );
+        buf.text.insert_str(0, "bold");
+        buf.zv = buf.text.len();
+        buf.zv_char = buf.text.char_count();
+        buf.set_buffer_local(
+            "face-remapping-alist",
+            Value::list(vec![Value::list(vec![
+                Value::symbol("bold"),
+                Value::list(vec![Value::keyword("foreground"), Value::string("#ff4500")]),
+                Value::symbol("bold"),
+            ])]),
+        );
+        buf.text_props
+            .put_property(0, 4, "face", Value::symbol("bold"));
+
+        let mut next_check = buf.point_max_char();
+        let resolved = resolver.face_at_pos(&buf, 0, &mut next_check);
+        assert_eq!(resolved.font_weight, FontWeight::BOLD.0);
+        assert_eq!(resolved.fg, color_to_pixel(&NeoColor::rgb(255, 69, 0)));
     }
 
     #[test]
