@@ -7,7 +7,7 @@ use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
-use super::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap, with_heap_mut};
+use super::value::{HashKey, Value, list_to_vec, with_heap, with_heap_mut};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -2398,25 +2398,13 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Evaluator, project_ro
                 Value::cons(Value::symbol("display"), Value::True),
             ]),
         ),
-        ("face-filters-always-match", Value::Nil),
-        ("face--new-frame-defaults", {
-            let table = Value::hash_table(HashTableTest::Eq);
-            crate::emacs_core::xfaces::seed_face_new_frame_defaults_table(table);
-            table
-        }),
-        ("face-default-stipple", Value::string("gray3")),
-        ("scalable-fonts-allowed", Value::Nil),
-        ("face-ignored-fonts", Value::Nil),
-        ("face-remapping-alist", Value::Nil),
-        ("face-font-rescale-alist", Value::Nil),
-        ("face-near-same-color-threshold", Value::Int(30_000)),
-        ("face-font-lax-matched-attributes", Value::True),
     ];
     for (name, value) in defaults {
         if eval.obarray().symbol_value(name).is_none() {
             eval.set_variable(name, value);
         }
     }
+    crate::emacs_core::xfaces::ensure_startup_compat_variables(eval);
 }
 
 fn expr_symbol_name(expr: &Expr) -> Option<String> {

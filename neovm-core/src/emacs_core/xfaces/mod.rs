@@ -13,9 +13,10 @@ use crate::face::Face as RuntimeFace;
 /// Register bootstrap variables owned by the face subsystem.
 pub fn register_bootstrap_vars(obarray: &mut Obarray) {
     obarray.set_symbol_value("face-filters-always-match", Value::Nil);
-    let face_new_frame_defaults = Value::hash_table(HashTableTest::Eq);
-    seed_face_new_frame_defaults_table(face_new_frame_defaults);
-    obarray.set_symbol_value("face--new-frame-defaults", face_new_frame_defaults);
+    obarray.set_symbol_value(
+        "face--new-frame-defaults",
+        bootstrap_face_new_frame_defaults_table(),
+    );
     obarray.set_symbol_value("face-default-stipple", Value::string("gray3"));
     obarray.set_symbol_value("tty-defined-color-alist", Value::Nil);
     obarray.set_symbol_value("scalable-fonts-allowed", Value::Nil);
@@ -24,6 +25,31 @@ pub fn register_bootstrap_vars(obarray: &mut Obarray) {
     obarray.set_symbol_value("face-font-rescale-alist", Value::Nil);
     obarray.set_symbol_value("face-near-same-color-threshold", Value::Int(30_000));
     obarray.set_symbol_value("face-font-lax-matched-attributes", Value::True);
+}
+
+/// Backfill xfaces-owned bootstrap variables after loading a dump or partial
+/// source bootstrap. GNU owns these in xfaces.c, so load/bootstrap glue should
+/// delegate here instead of duplicating the values itself.
+pub(crate) fn ensure_startup_compat_variables(eval: &mut crate::emacs_core::eval::Evaluator) {
+    let defaults = [
+        ("face-filters-always-match", Value::Nil),
+        (
+            "face--new-frame-defaults",
+            bootstrap_face_new_frame_defaults_table(),
+        ),
+        ("face-default-stipple", Value::string("gray3")),
+        ("scalable-fonts-allowed", Value::Nil),
+        ("face-ignored-fonts", Value::Nil),
+        ("face-remapping-alist", Value::Nil),
+        ("face-font-rescale-alist", Value::Nil),
+        ("face-near-same-color-threshold", Value::Int(30_000)),
+        ("face-font-lax-matched-attributes", Value::True),
+    ];
+    for (name, value) in defaults {
+        if eval.obarray().symbol_value(name).is_none() {
+            eval.set_variable(name, value);
+        }
+    }
 }
 
 pub(crate) fn builtin_frame_face_hash_table_eval(
@@ -77,6 +103,12 @@ pub(crate) fn seed_face_new_frame_defaults_table(table: Value) {
     for (key, value) in face_entries {
         upsert_frame_face_hash_entry(table, key, value);
     }
+}
+
+fn bootstrap_face_new_frame_defaults_table() -> Value {
+    let table = Value::hash_table(HashTableTest::Eq);
+    seed_face_new_frame_defaults_table(table);
+    table
 }
 
 pub(crate) fn ensure_face_new_frame_defaults_entry(
@@ -177,5 +209,53 @@ mod tests {
         let second = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
             .expect("second face hash table");
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn ensure_startup_compat_variables_backfills_missing_xfaces_state() {
+        let mut eval = crate::emacs_core::eval::Evaluator::new();
+        for name in [
+            "face-filters-always-match",
+            "face--new-frame-defaults",
+            "face-default-stipple",
+            "scalable-fonts-allowed",
+            "face-ignored-fonts",
+            "face-remapping-alist",
+            "face-font-rescale-alist",
+            "face-near-same-color-threshold",
+            "face-font-lax-matched-attributes",
+        ] {
+            eval.obarray_mut().makunbound(name);
+        }
+
+        ensure_startup_compat_variables(&mut eval);
+
+        assert_eq!(
+            eval.obarray().symbol_value("face-default-stipple").copied(),
+            Some(Value::string("gray3"))
+        );
+        let table = eval
+            .obarray()
+            .symbol_value("face--new-frame-defaults")
+            .copied()
+            .expect("face hash table backfilled");
+        let Value::HashTable(id) = table else {
+            panic!("face--new-frame-defaults must be a hash table");
+        };
+        let has_seeded_faces = with_heap(|heap| {
+            let hash_table = heap.get_hash_table(id);
+            hash_table
+                .data
+                .contains_key(&HashKey::Symbol(crate::emacs_core::intern::intern(
+                    "default",
+                )))
+                && hash_table.data.contains_key(&HashKey::Symbol(
+                    crate::emacs_core::intern::intern("mode-line"),
+                ))
+        });
+        assert!(
+            has_seeded_faces,
+            "face--new-frame-defaults should be preseeded with GNU face entries"
+        );
     }
 }
