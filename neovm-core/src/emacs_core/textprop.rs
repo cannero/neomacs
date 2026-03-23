@@ -1678,8 +1678,12 @@ pub(crate) fn builtin_move_overlay_in_buffers(
             for (key, val) in &old_ov.properties {
                 new_buf.overlays.overlay_put(new_ov_id, key, *val);
             }
-            new_buf.overlays.set_front_advance(new_ov_id, old_ov.front_advance);
-            new_buf.overlays.set_rear_advance(new_ov_id, old_ov.rear_advance);
+            new_buf
+                .overlays
+                .set_front_advance(new_ov_id, old_ov.front_advance);
+            new_buf
+                .overlays
+                .set_rear_advance(new_ov_id, old_ov.rear_advance);
         }
 
         // Update the overlay value's cons cell to point to the new buffer

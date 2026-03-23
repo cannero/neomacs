@@ -2371,7 +2371,11 @@ pub(crate) fn dispatch_builtin(
         "marker-position" => return Some(super::marker::builtin_marker_position_eval(eval, args)),
         "marker-buffer" => return Some(super::marker::builtin_marker_buffer_eval(eval, args)),
         "copy-marker" => return Some(super::marker::builtin_copy_marker_eval(eval, args)),
-        "set-marker-insertion-type" => return Some(super::marker::builtin_set_marker_insertion_type_eval(eval, args)),
+        "set-marker-insertion-type" => {
+            return Some(super::marker::builtin_set_marker_insertion_type_eval(
+                eval, args,
+            ));
+        }
         "point-marker" => return Some(super::marker::builtin_point_marker(eval, args)),
         "point-min-marker" => return Some(super::marker::builtin_point_min_marker(eval, args)),
         "point-max-marker" => return Some(super::marker::builtin_point_max_marker(eval, args)),

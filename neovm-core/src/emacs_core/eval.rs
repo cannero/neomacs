@@ -5987,14 +5987,16 @@ impl Evaluator {
     fn expand_backquote(&mut self, expr: &Expr) -> EvalResult {
         match expr {
             // (,  form) -> evaluate form
-            Expr::List(items) if items.len() == 2
-                && matches!(&items[0], Expr::Symbol(id) if resolve_sym(*id) == ",") =>
+            Expr::List(items)
+                if items.len() == 2
+                    && matches!(&items[0], Expr::Symbol(id) if resolve_sym(*id) == ",") =>
             {
                 self.eval(&items[1])
             }
             // (,@ form) at the top level is an error (splice only valid inside a list)
-            Expr::List(items) if items.len() == 2
-                && matches!(&items[0], Expr::Symbol(id) if resolve_sym(*id) == ",@") =>
+            Expr::List(items)
+                if items.len() == 2
+                    && matches!(&items[0], Expr::Symbol(id) if resolve_sym(*id) == ",@") =>
             {
                 Err(signal("error", vec![Value::string(",@ not inside list")]))
             }
@@ -6009,8 +6011,9 @@ impl Evaluator {
                 for item in items {
                     match item {
                         // (,@ form) -> splice the result into the list
-                        Expr::List(sub) if sub.len() == 2
-                            && matches!(&sub[0], Expr::Symbol(id) if resolve_sym(*id) == ",@") =>
+                        Expr::List(sub)
+                            if sub.len() == 2
+                                && matches!(&sub[0], Expr::Symbol(id) if resolve_sym(*id) == ",@") =>
                         {
                             let val = self.eval(&sub[1])?;
                             // Splice: iterate over the list value
@@ -6032,8 +6035,9 @@ impl Evaluator {
                             }
                         }
                         // (,  form) -> evaluate and include
-                        Expr::List(sub) if sub.len() == 2
-                            && matches!(&sub[0], Expr::Symbol(id) if resolve_sym(*id) == ",") =>
+                        Expr::List(sub)
+                            if sub.len() == 2
+                                && matches!(&sub[0], Expr::Symbol(id) if resolve_sym(*id) == ",") =>
                         {
                             let val = self.eval(&sub[1])?;
                             result.push(val);
