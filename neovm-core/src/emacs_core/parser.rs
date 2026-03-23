@@ -892,13 +892,20 @@ impl<'a> Parser<'a> {
             // Parse keyword args from the list
             let mut test = super::value::HashTableTest::Eql;
             let mut data_pairs: Vec<(Expr, Expr)> = Vec::new();
+            let mut size: i64 = 0;
             let mut i = 1;
             while i < items.len() {
-                if let Expr::Keyword(kw) = &items[i] {
-                    let kw_name = resolve_sym(*kw);
+                // GNU hash table read syntax uses bare symbols (test, data, size)
+                // not keywords (:test, :data, :size). Handle both forms.
+                let kw_name = match &items[i] {
+                    Expr::Keyword(kw) => Some(resolve_sym(*kw).to_string()),
+                    Expr::Symbol(sym) => Some(resolve_sym(*sym).to_string()),
+                    _ => None,
+                };
+                if let Some(kw_name) = kw_name {
                     if i + 1 < items.len() {
-                        match kw_name {
-                            ":test" => {
+                        match kw_name.trim_start_matches(':') {
+                            "test" => {
                                 if let Expr::Symbol(id) = &items[i + 1] {
                                     test = match resolve_sym(*id) {
                                         "eq" => super::value::HashTableTest::Eq,
@@ -909,7 +916,13 @@ impl<'a> Parser<'a> {
                                 }
                                 i += 2;
                             }
-                            ":data" => {
+                            "size" => {
+                                if let Expr::Int(n) = &items[i + 1] {
+                                    size = *n;
+                                }
+                                i += 2;
+                            }
+                            "data" => {
                                 if let Expr::List(pairs) = &items[i + 1] {
                                     let mut j = 0;
                                     while j + 1 < pairs.len() {
@@ -935,6 +948,11 @@ impl<'a> Parser<'a> {
             // matching GNU Emacs reader behavior.
             use super::value::{Value, with_heap_mut};
             let ht_id = with_heap_mut(|h| h.alloc_hash_table(test));
+            if size > 0 {
+                with_heap_mut(|h| {
+                    h.get_hash_table_mut(ht_id).size = size;
+                });
+            }
             // Insert key-value pairs
             for (k_expr, v_expr) in &data_pairs {
                 let key = super::eval::quote_to_value(k_expr);
