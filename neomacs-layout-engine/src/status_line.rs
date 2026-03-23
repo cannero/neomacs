@@ -5,11 +5,15 @@
 
 use super::emacs_ffi::*;
 use super::engine::LayoutEngine;
-use super::neovm_bridge::ResolvedFace;
+use super::neovm_bridge::{FaceResolver, ResolvedFace};
 use super::unicode::decode_utf8;
 use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::frame_glyphs::{FrameGlyphBuffer, GlyphRowRole};
 use neomacs_display_protocol::types::{Color, Rect};
+use neovm_core::buffer::text_props::TextPropertyTable;
+use neovm_core::emacs_core::Value;
+use neovm_core::emacs_core::value::get_string_text_properties_table;
+use std::collections::HashMap;
 use std::ffi::CStr;
 
 /// Which kind of status line to render.
@@ -468,6 +472,7 @@ pub(crate) struct StatusLineSpec {
     face: StatusLineFace,
     text: Vec<u8>,
     face_runs: Vec<OverlayFaceRun>,
+    run_faces: HashMap<u32, StatusLineFace>,
     display_props: Vec<DisplayPropRecord>,
     align_entries: Vec<OverlayAlignEntry>,
     advance_mode: StatusLineAdvanceMode,
@@ -498,11 +503,32 @@ impl StatusLineSpec {
             face,
             text: text.into_bytes(),
             face_runs: Vec::new(),
+            run_faces: HashMap::new(),
             display_props: Vec::new(),
             align_entries: Vec::new(),
             advance_mode: StatusLineAdvanceMode::Fixed,
         }
     }
+}
+
+fn same_resolved_face(lhs: &ResolvedFace, rhs: &ResolvedFace) -> bool {
+    lhs.fg == rhs.fg
+        && lhs.bg == rhs.bg
+        && lhs.font_family == rhs.font_family
+        && lhs.font_weight == rhs.font_weight
+        && lhs.italic == rhs.italic
+        && (lhs.font_size - rhs.font_size).abs() <= f32::EPSILON
+        && lhs.underline_style == rhs.underline_style
+        && lhs.underline_color == rhs.underline_color
+        && lhs.strike_through == rhs.strike_through
+        && lhs.strike_through_color == rhs.strike_through_color
+        && lhs.overline == rhs.overline
+        && lhs.overline_color == rhs.overline_color
+        && lhs.box_type == rhs.box_type
+        && lhs.box_color == rhs.box_color
+        && lhs.box_line_width == rhs.box_line_width
+        && lhs.extend == rhs.extend
+        && lhs.overstrike == rhs.overstrike
 }
 
 fn underline_style_from_code(code: u8) -> UnderlineStyle {
@@ -671,6 +697,7 @@ impl LayoutEngine {
             face: unsafe { StatusLineFace::from_ffi(&line_face) },
             text: line_buf[..text_len.min(line_buf.len())].to_vec(),
             face_runs: parse_overlay_face_runs(&line_buf, text_len, nruns as i32),
+            run_faces: HashMap::new(),
             display_props: parse_display_props(&line_buf, display_start, ndisplay),
             align_entries: parse_status_line_align_entries(&line_buf, align_start, naligns),
             advance_mode: StatusLineAdvanceMode::Measured {
@@ -839,7 +866,28 @@ impl LayoutEngine {
                 if byte_idx >= spec.face_runs[current_run].byte_offset as usize {
                     let run = &spec.face_runs[current_run];
                     if run.fg != 0 || run.bg != 0 {
-                        if run.face_id != 0 {
+                        if let Some(run_face) = spec.run_faces.get(&run.face_id) {
+                            frame_glyphs.set_face_with_font(
+                                run_face.face_id,
+                                run_face.foreground,
+                                Some(run_face.background),
+                                &run_face.font_family,
+                                run_face.font_weight,
+                                run_face.italic,
+                                run_face.font_size,
+                                run_face.underline_style,
+                                run_face.underline_color,
+                                if run_face.strike_through { 1 } else { 0 },
+                                run_face.strike_through_color,
+                                if run_face.overline { 1 } else { 0 },
+                                run_face.overline_color,
+                                run_face.overstrike,
+                            );
+                            frame_glyphs
+                                .faces
+                                .insert(run_face.face_id, run_face.render_face());
+                            active_run_face = Some(run_face.clone());
+                        } else if run.face_id != 0 {
                             let rf = spec.face.with_color_override(
                                 run.face_id,
                                 Some(Color::from_pixel(run.fg)),
@@ -891,8 +939,13 @@ impl LayoutEngine {
             if dp_idx < spec.display_props.len() {
                 end_byte = end_byte.min(spec.display_props[dp_idx].byte_offset as usize);
             }
-            if current_run + 1 < spec.face_runs.len() {
-                end_byte = end_byte.min(spec.face_runs[current_run + 1].byte_offset as usize);
+            if current_run < spec.face_runs.len() {
+                let current_run_offset = spec.face_runs[current_run].byte_offset as usize;
+                if byte_idx < current_run_offset {
+                    end_byte = end_byte.min(current_run_offset);
+                } else if current_run + 1 < spec.face_runs.len() {
+                    end_byte = end_byte.min(spec.face_runs[current_run + 1].byte_offset as usize);
+                }
             }
             end_byte = end_byte.max(byte_idx);
 
@@ -949,6 +1002,110 @@ impl LayoutEngine {
         }
     }
 
+    fn resolved_status_line_face_at_string_byte(
+        face_resolver: &FaceResolver,
+        base_face: &ResolvedFace,
+        props: &TextPropertyTable,
+        bytepos: usize,
+    ) -> ResolvedFace {
+        let mut face = base_face.clone();
+        if let Some(value) = props.get_property(bytepos, "face")
+            && let Some(next) = face_resolver.resolve_face_value_over(&face, value)
+        {
+            face = next;
+        }
+        if let Some(value) = props.get_property(bytepos, "font-lock-face")
+            && let Some(next) = face_resolver.resolve_face_value_over(&face, value)
+        {
+            face = next;
+        }
+        face
+    }
+
+    fn build_rust_status_line_spec(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        window_id: i64,
+        char_w: f32,
+        ascent: f32,
+        next_face_id: &mut u32,
+        base_face: &ResolvedFace,
+        rendered: Value,
+        face_resolver: &FaceResolver,
+        kind: StatusLineKind,
+    ) -> Option<StatusLineSpec> {
+        let text = rendered.as_str_owned()?;
+        let base_face_id = *next_face_id;
+        *next_face_id += 1;
+        let face = self.realize_status_line_face(base_face_id, base_face, char_w, ascent, height);
+        let char_width = self.status_line_char_width(&face, char_w);
+        let mut spec = StatusLineSpec::plain(
+            kind, x, y, width, height, window_id, char_width, ascent, face, text,
+        );
+
+        let Value::Str(str_id) = rendered else {
+            return Some(spec);
+        };
+        let Some(props) = get_string_text_properties_table(str_id) else {
+            return Some(spec);
+        };
+
+        let mut boundaries = vec![0usize];
+        for interval in props.intervals() {
+            if interval.properties.contains_key("face")
+                || interval.properties.contains_key("font-lock-face")
+            {
+                boundaries.push(interval.start);
+                boundaries.push(interval.end);
+            }
+        }
+        boundaries.sort_unstable();
+        boundaries.dedup();
+
+        let mut current_face = base_face.clone();
+        for boundary in boundaries {
+            if boundary >= spec.text.len() {
+                continue;
+            }
+            let resolved = Self::resolved_status_line_face_at_string_byte(
+                face_resolver,
+                base_face,
+                &props,
+                boundary,
+            );
+            if same_resolved_face(&resolved, &current_face) {
+                continue;
+            }
+
+            let (face_id, run_face) = if same_resolved_face(&resolved, base_face) {
+                (spec.face.face_id, None)
+            } else {
+                let face_id = *next_face_id;
+                *next_face_id += 1;
+                let run_face =
+                    self.realize_status_line_face(face_id, &resolved, char_w, ascent, height);
+                (face_id, Some(run_face))
+            };
+
+            spec.face_runs.push(OverlayFaceRun {
+                byte_offset: boundary as u16,
+                fg: resolved.fg,
+                bg: resolved.bg,
+                extend: resolved.extend,
+                face_id,
+            });
+            if let Some(run_face) = run_face {
+                spec.run_faces.insert(face_id, run_face);
+            }
+            current_face = resolved;
+        }
+
+        Some(spec)
+    }
+
     pub(crate) fn render_rust_status_line_plain(
         &mut self,
         x: f32,
@@ -970,6 +1127,40 @@ impl LayoutEngine {
             kind, x, y, width, height, window_id, char_width, ascent, face, text,
         );
         self.render_status_line_spec(&spec, None, frame_glyphs);
+    }
+
+    pub(crate) fn render_rust_status_line_value(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        window_id: i64,
+        char_w: f32,
+        ascent: f32,
+        next_face_id: &mut u32,
+        face: &ResolvedFace,
+        rendered: Value,
+        face_resolver: &FaceResolver,
+        frame_glyphs: &mut FrameGlyphBuffer,
+        kind: StatusLineKind,
+    ) {
+        if let Some(spec) = self.build_rust_status_line_spec(
+            x,
+            y,
+            width,
+            height,
+            window_id,
+            char_w,
+            ascent,
+            next_face_id,
+            face,
+            rendered,
+            face_resolver,
+            kind,
+        ) {
+            self.render_status_line_spec(&spec, None, frame_glyphs);
+        }
     }
 
     /// Build a StatusLineSpec for the frame-level tab-bar.
@@ -1037,6 +1228,7 @@ impl LayoutEngine {
             face: unsafe { StatusLineFace::from_ffi(&line_face) },
             text: text_vec,
             face_runs,
+            run_faces: HashMap::new(),
             display_props,
             align_entries,
             advance_mode,
@@ -1069,6 +1261,8 @@ mod tests {
     use super::*;
     use neomacs_display_protocol::frame_glyphs::FrameGlyph;
     use neomacs_display_protocol::types::Color;
+    use neovm_core::emacs_core::eval::Evaluator;
+    use neovm_core::emacs_core::value::{StringTextPropertyRun, set_string_text_properties};
 
     // ---------------------------------------------------------------
     // Helper: build a 14-byte face run record (native-endian)
@@ -1860,5 +2054,80 @@ mod tests {
             glyph_baseline > glyph_y,
             "expected a positive realized baseline after metric population, got glyph_y={glyph_y} baseline={glyph_baseline}"
         );
+    }
+
+    #[test]
+    fn render_rust_status_line_value_preserves_string_face_properties() {
+        let eval = Evaluator::new();
+        let mut engine = LayoutEngine::new();
+        let mut fgb = FrameGlyphBuffer::with_size(320.0, 200.0);
+        let resolver = FaceResolver::new(eval.face_table(), 0x000000, 0x00ffffff, 14.0);
+        let base_face = resolver.resolve_named_face("header-line");
+        let rendered = Value::string("ABC");
+        let Value::Str(id) = rendered else {
+            panic!("expected string");
+        };
+        set_string_text_properties(
+            id,
+            vec![StringTextPropertyRun {
+                start: 1,
+                end: 2,
+                plist: Value::list(vec![
+                    Value::symbol("face"),
+                    Value::list(vec![
+                        Value::symbol(":foreground"),
+                        Value::string("yellow"),
+                        Value::symbol(":background"),
+                        Value::string("dark blue"),
+                        Value::symbol(":weight"),
+                        Value::symbol("bold"),
+                    ]),
+                ]),
+            }],
+        );
+
+        let mut next_face_id = 7;
+        engine.render_rust_status_line_value(
+            10.0,
+            150.0,
+            200.0,
+            20.0,
+            42,
+            8.0,
+            12.0,
+            &mut next_face_id,
+            &base_face,
+            rendered,
+            &resolver,
+            &mut fgb,
+            StatusLineKind::HeaderLine,
+        );
+
+        let mut chars = fgb
+            .glyphs
+            .iter()
+            .filter_map(|glyph| match glyph {
+                FrameGlyph::Char {
+                    char, x, face_id, ..
+                } => Some((*x, *char, *face_id)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        chars.sort_by(|lhs, rhs| lhs.0.total_cmp(&rhs.0));
+        assert_eq!(chars.len(), 3);
+        assert_eq!(chars[0].1, 'A');
+        assert_eq!(chars[1].1, 'B');
+        assert_eq!(chars[2].1, 'C');
+        assert_eq!(chars[0].2, 7);
+        assert_eq!(chars[2].2, 7);
+        assert_ne!(chars[1].2, 7);
+
+        let run_face = fgb
+            .faces
+            .get(&chars[1].2)
+            .expect("propertized run face should be registered");
+        assert_eq!(run_face.foreground, Color::from_pixel(0x00ffff00));
+        assert_eq!(run_face.background, Color::from_pixel(0x0000008b));
+        assert!(run_face.attributes.contains(FaceAttributes::BOLD));
     }
 }

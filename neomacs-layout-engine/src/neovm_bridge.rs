@@ -1058,6 +1058,13 @@ pub struct FaceResolver {
 }
 
 impl FaceResolver {
+    fn face_spec_is_plist(items: &[Value]) -> bool {
+        items
+            .first()
+            .and_then(Value::as_symbol_name)
+            .is_some_and(|name| name.starts_with(':'))
+    }
+
     /// Create a new `FaceResolver`.
     ///
     /// Clones the `FaceTable` so the resolver owns its data and does not
@@ -1134,6 +1141,159 @@ impl FaceResolver {
     pub fn resolve_named_face(&self, name: &str) -> ResolvedFace {
         let face = self.face_table.resolve(name);
         self.realize_face(&face)
+    }
+
+    fn apply_inline_face_over(&self, base: &ResolvedFace, face: &NeoFace) -> ResolvedFace {
+        let mut rf = base.clone();
+
+        if let Some(c) = &face.foreground {
+            rf.fg = color_to_pixel(c);
+        }
+        if let Some(c) = &face.background {
+            rf.bg = color_to_pixel(c);
+        }
+        if face.inverse_video == Some(true) {
+            std::mem::swap(&mut rf.fg, &mut rf.bg);
+        }
+
+        if let Some(family) = &face.family {
+            rf.font_family = family.clone();
+        }
+        if let Some(weight) = face.weight {
+            rf.font_weight = weight.0;
+        }
+        if let Some(slant) = face.slant {
+            rf.italic = slant.is_italic();
+        }
+        if let Some(height) = &face.height {
+            match height {
+                FaceHeight::Absolute(tenths) => {
+                    rf.font_size = face_height_to_pixels(*tenths);
+                }
+                FaceHeight::Relative(factor) => {
+                    rf.font_size = (rf.font_size * *factor as f32).max(1.0);
+                }
+            }
+        }
+
+        if let Some(underline) = &face.underline {
+            rf.underline_style = underline_style_to_u8(&underline.style);
+            rf.underline_color = underline.color.as_ref().map(color_to_pixel).unwrap_or(0);
+        }
+        if let Some(overline) = face.overline {
+            rf.overline = overline;
+        }
+        if let Some(color) = &face.overline_color {
+            rf.overline_color = color_to_pixel(color);
+        }
+        if let Some(strike) = face.strike_through {
+            rf.strike_through = strike;
+        }
+        if let Some(color) = &face.strike_through_color {
+            rf.strike_through_color = color_to_pixel(color);
+        }
+        if let Some(box_border) = &face.box_border {
+            rf.box_type = 1;
+            rf.box_color = box_border
+                .color
+                .as_ref()
+                .map(color_to_pixel)
+                .unwrap_or(rf.fg);
+            rf.box_line_width = box_border.width;
+        }
+        if let Some(extend) = face.extend {
+            rf.extend = extend;
+        }
+        if face.overstrike {
+            rf.overstrike = true;
+        }
+
+        rf
+    }
+
+    fn apply_named_face_over(&self, base: &ResolvedFace, name: &str) -> ResolvedFace {
+        let resolved = self.resolve_named_face(name);
+        let default = self.default_face();
+        let mut merged = base.clone();
+
+        if resolved.fg != default.fg {
+            merged.fg = resolved.fg;
+        }
+        if resolved.bg != default.bg {
+            merged.bg = resolved.bg;
+        }
+        if !resolved.font_family.is_empty() && resolved.font_family != default.font_family {
+            merged.font_family = resolved.font_family;
+        }
+        if resolved.font_weight != default.font_weight {
+            merged.font_weight = resolved.font_weight;
+        }
+        if resolved.italic != default.italic {
+            merged.italic = resolved.italic;
+        }
+        if (resolved.font_size - default.font_size).abs() > f32::EPSILON {
+            merged.font_size = resolved.font_size;
+        }
+        if resolved.underline_style != default.underline_style {
+            merged.underline_style = resolved.underline_style;
+            merged.underline_color = resolved.underline_color;
+        }
+        if resolved.strike_through != default.strike_through {
+            merged.strike_through = resolved.strike_through;
+            merged.strike_through_color = resolved.strike_through_color;
+        }
+        if resolved.overline != default.overline {
+            merged.overline = resolved.overline;
+            merged.overline_color = resolved.overline_color;
+        }
+        if resolved.box_type != default.box_type {
+            merged.box_type = resolved.box_type;
+            merged.box_color = resolved.box_color;
+            merged.box_line_width = resolved.box_line_width;
+        }
+        if resolved.extend != default.extend {
+            merged.extend = resolved.extend;
+        }
+        if resolved.overstrike != default.overstrike {
+            merged.overstrike = resolved.overstrike;
+        }
+
+        merged
+    }
+
+    pub fn resolve_face_value_over(
+        &self,
+        base: &ResolvedFace,
+        val: &Value,
+    ) -> Option<ResolvedFace> {
+        match val {
+            Value::Nil => None,
+            Value::Symbol(_) | Value::Keyword(_) => {
+                let name = val.as_symbol_name()?;
+                (name != "nil").then(|| self.apply_named_face_over(base, name))
+            }
+            Value::Cons(_) => {
+                let items = list_to_vec(val)?;
+                if items.is_empty() {
+                    return None;
+                }
+                if Self::face_spec_is_plist(&items) {
+                    let inline = NeoFace::from_plist("--inline--", &items);
+                    return Some(self.apply_inline_face_over(base, &inline));
+                }
+
+                let mut current = base.clone();
+                let mut changed = false;
+                for item in &items {
+                    if let Some(next) = self.resolve_face_value_over(&current, item) {
+                        current = next;
+                        changed = true;
+                    }
+                }
+                changed.then_some(current)
+            }
+            _ => None,
+        }
     }
 
     /// Resolve face attributes at a buffer position.
@@ -1267,11 +1427,7 @@ impl FaceResolver {
                 // Could be a list of face names, or a plist of face attributes.
                 if let Some(items) = list_to_vec(val) {
                     // Check if first item is a keyword (plist like :foreground "red")
-                    if items
-                        .first()
-                        .map(|v| matches!(v, Value::Keyword(_)))
-                        .unwrap_or(false)
-                    {
+                    if Self::face_spec_is_plist(&items) {
                         // Plist face — handled by face_at_pos via face_from_plist().
                         // Return a sentinel that face_at_pos recognizes.
                         vec!["--plist-face--".to_string()]
@@ -1387,13 +1543,7 @@ impl FaceResolver {
     ///
     /// Returns None if the value doesn't specify any known face names.
     pub fn resolve_face_from_value(&self, val: &Value) -> Option<ResolvedFace> {
-        let names = Self::resolve_face_value(val);
-        if names.is_empty() {
-            return None;
-        }
-        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-        let merged = self.face_table.merge_faces(&name_refs);
-        Some(self.realize_face(&merged))
+        self.resolve_face_value_over(&self.default_face, val)
     }
 }
 

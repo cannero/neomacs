@@ -53,6 +53,17 @@ fn eval_status_line_format(
     window_id: i64,
     buffer_id: u64,
 ) -> Option<String> {
+    eval_status_line_format_value(evaluator, format_symbol, window_id, buffer_id)
+        .and_then(|val| val.as_str_owned())
+        .filter(|s| !s.is_empty())
+}
+
+fn eval_status_line_format_value(
+    evaluator: &mut neovm_core::emacs_core::Evaluator,
+    format_symbol: &str,
+    window_id: i64,
+    buffer_id: u64,
+) -> Option<Value> {
     evaluator.setup_thread_locals();
     let expr = Expr::List(vec![
         Expr::Symbol(intern("format-mode-line")),
@@ -64,8 +75,7 @@ fn eval_status_line_format(
     evaluator
         .eval_expr(&expr)
         .ok()
-        .and_then(|val| val.as_str_owned())
-        .filter(|s| !s.is_empty())
+        .filter(|val| val.as_str().is_some_and(|s| !s.is_empty()))
 }
 
 fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
@@ -4729,22 +4739,25 @@ impl LayoutEngine {
                 .expect("mode-line face should exist when mode-line height is positive");
 
             let mode_text = {
-                let result = eval_status_line_format(
+                let result = eval_status_line_format_value(
                     evaluator,
                     "mode-line-format",
                     params.window_id,
                     params.buffer_id,
                 )
-                .unwrap_or_else(|| format!(" {} ", buffer_name));
+                .unwrap_or_else(|| Value::string(format!(" {} ", buffer_name)));
                 tracing::debug!(
                     "mode-line eval result: {:?} (len={})",
-                    &result[..result.len().min(120)],
-                    result.len()
+                    result
+                        .as_str()
+                        .map(|s| &s[..s.len().min(120)])
+                        .unwrap_or(""),
+                    result.as_str().map(str::len).unwrap_or(0)
                 );
                 result
             };
 
-            self.render_rust_status_line_plain(
+            self.render_rust_status_line_value(
                 params.bounds.x,
                 ml_y,
                 params.bounds.width,
@@ -4752,13 +4765,13 @@ impl LayoutEngine {
                 params.window_id,
                 char_w,
                 font_ascent,
-                current_face_id,
+                &mut current_face_id,
                 ml_face,
                 mode_text,
+                face_resolver,
                 frame_glyphs,
                 StatusLineKind::ModeLine,
             );
-            current_face_id += 1;
         }
 
         // Header-line: evaluate format-mode-line with header-line-format
@@ -4768,15 +4781,15 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("header-line face should exist when header-line height is positive");
 
-            let header_text = eval_status_line_format(
+            let header_text = eval_status_line_format_value(
                 evaluator,
                 "header-line-format",
                 params.window_id,
                 params.buffer_id,
             )
-            .unwrap_or_default();
+            .unwrap_or_else(|| Value::string(""));
 
-            self.render_rust_status_line_plain(
+            self.render_rust_status_line_value(
                 params.bounds.x,
                 hl_y,
                 params.bounds.width,
@@ -4784,13 +4797,13 @@ impl LayoutEngine {
                 params.window_id,
                 char_w,
                 font_ascent,
-                current_face_id,
+                &mut current_face_id,
                 hl_face,
                 header_text,
+                face_resolver,
                 frame_glyphs,
                 StatusLineKind::HeaderLine,
             );
-            current_face_id += 1;
         }
 
         // Tab-line: evaluate format-mode-line with tab-line-format
@@ -4801,15 +4814,15 @@ impl LayoutEngine {
                 .as_ref()
                 .expect("tab-line face should exist when tab-line height is positive");
 
-            let tab_text = eval_status_line_format(
+            let tab_text = eval_status_line_format_value(
                 evaluator,
                 "tab-line-format",
                 params.window_id,
                 params.buffer_id,
             )
-            .unwrap_or_default();
+            .unwrap_or_else(|| Value::string(""));
 
-            self.render_rust_status_line_plain(
+            self.render_rust_status_line_value(
                 params.bounds.x,
                 tl_y,
                 params.bounds.width,
@@ -4817,9 +4830,10 @@ impl LayoutEngine {
                 params.window_id,
                 char_w,
                 font_ascent,
-                current_face_id,
+                &mut current_face_id,
                 tl_face,
                 tab_text,
+                face_resolver,
                 frame_glyphs,
                 StatusLineKind::TabLine,
             );
