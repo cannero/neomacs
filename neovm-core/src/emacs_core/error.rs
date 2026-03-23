@@ -194,11 +194,21 @@ fn format_window_handle_in_state(
 }
 
 fn print_options_from_state(obarray: &super::symbol::Obarray) -> PrintOptions {
-    PrintOptions::with_print_gensym(
-        obarray
-            .symbol_value("print-gensym")
-            .is_some_and(Value::is_truthy),
-    )
+    let print_gensym = obarray
+        .symbol_value("print-gensym")
+        .is_some_and(Value::is_truthy);
+    let print_circle = obarray
+        .symbol_value("print-circle")
+        .is_some_and(Value::is_truthy);
+    let print_level = match obarray.symbol_value("print-level") {
+        Some(Value::Int(n)) if *n >= 0 => Some(*n),
+        _ => None,
+    };
+    let print_length = match obarray.symbol_value("print-length") {
+        Some(Value::Int(n)) if *n >= 0 => Some(*n),
+        _ => None,
+    };
+    PrintOptions::new(print_gensym, print_circle, print_level, print_length)
 }
 
 pub(crate) fn print_value_in_state(
@@ -228,6 +238,12 @@ fn format_value_in_state(
 ) -> String {
     if let Some(handle) = format_opaque_handle_in_state(buffers, frames, threads, value) {
         return handle;
+    }
+    // Use the stateful printer when print-circle, print-level, or print-length
+    // are active. This ensures correct handling of shared structure, depth
+    // limiting, and length limiting throughout the entire value tree.
+    if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
+        return super::print::print_value_stateful(value, options);
     }
     match value {
         super::value::Value::Cons(_) | super::value::Value::Vector(_) => {
@@ -392,6 +408,11 @@ fn format_value_bytes_in_state_with_options(
 ) -> Vec<u8> {
     if let Some(handle) = format_opaque_handle_in_state(buffers, frames, threads, value) {
         return handle.into_bytes();
+    }
+    // Use the stateful printer when print-circle, print-level, or print-length
+    // are active, then convert the result to bytes.
+    if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
+        return super::print::print_value_stateful(value, options).into_bytes();
     }
     match value {
         Value::Cons(_) => {

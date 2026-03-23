@@ -1,10 +1,12 @@
 //! Value printing (Lisp representation).
 
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::Write as _;
 
 use super::chartable::{bool_vector_length, char_table_external_slots};
 use super::expr::{self, Expr};
-use super::intern::{lookup_interned, resolve_sym};
+use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::string_escape::{format_lisp_string, format_lisp_string_bytes};
 use super::value::{
     HashTableTest, StringTextPropertyRun, Value, get_string_text_properties, list_to_vec,
@@ -15,6 +17,9 @@ use crate::gc::types::ObjId;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PrintOptions {
     pub print_gensym: bool,
+    pub print_circle: bool,
+    pub print_level: Option<i64>,
+    pub print_length: Option<i64>,
     backquote_output_level: usize,
 }
 
@@ -22,6 +27,25 @@ impl PrintOptions {
     pub const fn with_print_gensym(print_gensym: bool) -> Self {
         Self {
             print_gensym,
+            print_circle: false,
+            print_level: None,
+            print_length: None,
+            backquote_output_level: 0,
+        }
+    }
+
+    /// Full constructor for all print options.
+    pub fn new(
+        print_gensym: bool,
+        print_circle: bool,
+        print_level: Option<i64>,
+        print_length: Option<i64>,
+    ) -> Self {
+        Self {
+            print_gensym,
+            print_circle,
+            print_level,
+            print_length,
             backquote_output_level: 0,
         }
     }
@@ -43,6 +67,541 @@ impl PrintOptions {
     pub(crate) fn allow_unquote_shorthand(self) -> bool {
         self.backquote_output_level > 0
     }
+}
+
+// ---------------------------------------------------------------------------
+// Print-circle state (two-pass algorithm)
+// ---------------------------------------------------------------------------
+
+/// State for the print-circle two-pass algorithm.
+/// Keys are object identity values (ObjId index+generation or SymId).
+pub struct PrintCircleState {
+    /// Maps object identity -> label status:
+    /// 0 = seen once (removed after pass 1)
+    /// negative = assigned label, not yet printed
+    /// positive = already printed with this label
+    number_table: HashMap<u64, i64>,
+    next_label: i64,
+}
+
+impl PrintCircleState {
+    fn new() -> Self {
+        Self {
+            number_table: HashMap::new(),
+            next_label: 0,
+        }
+    }
+}
+
+/// Combined print state used by the stateful print path.
+pub(crate) struct PrintState<'a> {
+    pub options: PrintOptions,
+    pub circle: Option<&'a mut PrintCircleState>,
+    pub depth: i64,
+}
+
+/// Check if a value is a candidate for circle detection.
+/// Matches GNU Emacs's `print_circle_candidate_p`.
+fn is_print_circle_candidate(value: &Value, print_gensym: bool) -> bool {
+    match value {
+        Value::Cons(_) => true,
+        Value::Vector(v) => {
+            // Non-empty vectors only
+            with_heap(|h| !h.get_vector(*v).is_empty())
+        }
+        Value::Record(_) => true,
+        Value::HashTable(_) => true,
+        Value::Str(id) => {
+            // Non-empty strings only
+            with_heap(|h| !h.get_string(*id).is_empty())
+        }
+        Value::Symbol(id) if print_gensym => {
+            // Uninterned symbols only
+            let name = resolve_sym(*id);
+            lookup_interned(name) != Some(*id)
+        }
+        _ => false,
+    }
+}
+
+/// Return a unique identity key for a circle-candidate value.
+fn object_identity_key(value: &Value) -> Option<u64> {
+    match value {
+        Value::Cons(id)
+        | Value::Vector(id)
+        | Value::Record(id)
+        | Value::HashTable(id)
+        | Value::Str(id)
+        | Value::Lambda(id)
+        | Value::ByteCode(id) => Some(((id.index as u64) << 32) | (id.generation as u64)),
+        Value::Symbol(id) => {
+            // Use a distinct namespace to avoid collisions with ObjId keys.
+            // Set the high bit to separate from ObjId keys.
+            Some((1u64 << 63) | (id.0 as u64))
+        }
+        _ => None,
+    }
+}
+
+/// Preprocess pass: walk the value tree to find shared/circular structures.
+/// Uses an explicit stack (not recursive) matching GNU Emacs.
+fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: bool) {
+    let mut stack: Vec<Value> = vec![*value];
+    while let Some(obj) = stack.pop() {
+        if !is_print_circle_candidate(&obj, print_gensym) {
+            continue;
+        }
+        let key = match object_identity_key(&obj) {
+            Some(k) => k,
+            None => continue,
+        };
+        if let Some(status) = state.number_table.get(&key) {
+            if *status == 0 {
+                // Seen second time -- assign label
+                state.next_label += 1;
+                state.number_table.insert(key, -(state.next_label));
+            }
+            // Already labeled or already seen multiple times -- skip children
+            continue;
+        }
+        // First time seen -- mark and process children
+        state.number_table.insert(key, 0);
+        match &obj {
+            Value::Cons(cell) => {
+                let pair = read_cons(*cell);
+                // Push cdr first so car is processed first (stack is LIFO)
+                stack.push(pair.cdr);
+                stack.push(pair.car);
+            }
+            Value::Vector(v) | Value::Record(v) => {
+                let items = with_heap(|h| h.get_vector(*v).clone());
+                for item in items.iter().rev() {
+                    stack.push(*item);
+                }
+            }
+            Value::HashTable(id) => {
+                let table = with_heap(|h| h.get_hash_table(*id).clone());
+                for key_hk in table.insertion_order.iter().rev() {
+                    if let Some(val) = table.data.get(key_hk) {
+                        stack.push(*val);
+                        let key_val = super::hashtab::hash_key_to_visible_value(&table, key_hk);
+                        stack.push(key_val);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    // Remove entries seen only once
+    state.number_table.retain(|_, v| *v != 0);
+}
+
+/// Entry point for stateful printing (circle/level/length aware).
+/// Returns the printed representation as a String.
+pub(crate) fn print_value_stateful(value: &Value, options: PrintOptions) -> String {
+    let mut out = String::new();
+    if options.print_circle {
+        let mut circle = PrintCircleState::new();
+        print_preprocess(value, &mut circle, options.print_gensym);
+        let mut state = PrintState {
+            options,
+            circle: Some(&mut circle),
+            depth: 0,
+        };
+        write_value_stateful(value, &mut out, &mut state);
+    } else {
+        let mut state = PrintState {
+            options,
+            circle: None,
+            depth: 0,
+        };
+        write_value_stateful(value, &mut out, &mut state);
+    }
+    out
+}
+
+/// Core stateful print routine. Writes the printed representation of `value`
+/// into `out`, respecting print-circle, print-level, and print-length.
+fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
+    if let Some(handle) = print_special_handle(value, None) {
+        out.push_str(&handle);
+        return;
+    }
+
+    // Circle check: if this object is a circle candidate, handle #N= / #N#
+    if is_print_circle_candidate(value, state.options.print_gensym) {
+        if let Some(ref mut circle) = state.circle {
+            if let Some(key) = object_identity_key(value) {
+                if let Some(label) = circle.number_table.get_mut(&key) {
+                    if *label < 0 {
+                        // First occurrence: emit #N= prefix
+                        write!(out, "#{}=", -(*label)).unwrap();
+                        *label = -(*label); // flip to positive
+                    } else if *label > 0 {
+                        // Subsequent: emit #N# and return
+                        write!(out, "#{}#", *label).unwrap();
+                        return;
+                    }
+                    // label == 0: not shared, fall through to normal print
+                }
+            }
+        }
+    }
+
+    match value {
+        Value::Nil => out.push_str("nil"),
+        Value::True => out.push_str("t"),
+        Value::Int(v) => write!(out, "{}", v).unwrap(),
+        Value::Float(f, _) => out.push_str(&format_float(*f)),
+        Value::Symbol(id) => out.push_str(&format_symbol(*id, state.options)),
+        Value::Keyword(id) => out.push_str(resolve_sym(*id)),
+        Value::Str(id) => {
+            let s = with_heap(|h| h.get_string(*id).to_owned());
+            match get_string_text_properties(*id) {
+                Some(runs) => {
+                    out.push_str(&format_lisp_propertized_string(&s, &runs, state.options))
+                }
+                None => out.push_str(&format_lisp_string(&s)),
+            }
+        }
+        Value::Char(c) => write!(out, "{}", *c as u32).unwrap(),
+        Value::Cons(_) => {
+            // Level check for containers
+            if let Some(level) = state.options.print_level {
+                if state.depth >= level {
+                    out.push_str("#");
+                    return;
+                }
+            }
+            // Try shorthand (quote, function, backquote, etc.)
+            if let Some(shorthand) = write_list_shorthand_stateful(value, state) {
+                out.push_str(&shorthand);
+                return;
+            }
+            state.depth += 1;
+            out.push('(');
+            write_cons_stateful(value, out, state);
+            out.push(')');
+            state.depth -= 1;
+        }
+        Value::Vector(v) => {
+            if let Some(nbits) = bool_vector_length(value) {
+                out.push_str(&format_bool_vector(value, nbits as usize));
+                return;
+            }
+            if let Some(slots) = char_table_external_slots(value) {
+                // Level check for char-table
+                if let Some(level) = state.options.print_level {
+                    if state.depth >= level {
+                        out.push_str("#");
+                        return;
+                    }
+                }
+                state.depth += 1;
+                out.push_str("#^[");
+                for (idx, item) in slots.iter().enumerate() {
+                    if let Some(length) = state.options.print_length {
+                        if idx as i64 >= length {
+                            if idx > 0 {
+                                out.push(' ');
+                            }
+                            out.push_str("...");
+                            break;
+                        }
+                    }
+                    if idx > 0 {
+                        out.push(' ');
+                    }
+                    write_value_stateful(item, out, state);
+                }
+                out.push(']');
+                state.depth -= 1;
+                return;
+            }
+            // Level check
+            if let Some(level) = state.options.print_level {
+                if state.depth >= level {
+                    out.push_str("#");
+                    return;
+                }
+            }
+            state.depth += 1;
+            out.push('[');
+            let items = with_heap(|h| h.get_vector(*v).clone());
+            for (idx, item) in items.iter().enumerate() {
+                if let Some(length) = state.options.print_length {
+                    if idx as i64 >= length {
+                        if idx > 0 {
+                            out.push(' ');
+                        }
+                        out.push_str("...");
+                        break;
+                    }
+                }
+                if idx > 0 {
+                    out.push(' ');
+                }
+                write_value_stateful(item, out, state);
+            }
+            out.push(']');
+            state.depth -= 1;
+        }
+        Value::Record(v) => {
+            // Level check
+            if let Some(level) = state.options.print_level {
+                if state.depth >= level {
+                    out.push_str("#");
+                    return;
+                }
+            }
+            state.depth += 1;
+            out.push_str("#s(");
+            let items = with_heap(|h| h.get_vector(*v).clone());
+            for (idx, item) in items.iter().enumerate() {
+                if let Some(length) = state.options.print_length {
+                    if idx as i64 >= length {
+                        if idx > 0 {
+                            out.push(' ');
+                        }
+                        out.push_str("...");
+                        break;
+                    }
+                }
+                if idx > 0 {
+                    out.push(' ');
+                }
+                write_value_stateful(item, out, state);
+            }
+            out.push(')');
+            state.depth -= 1;
+        }
+        Value::HashTable(id) => {
+            // Level check
+            if let Some(level) = state.options.print_level {
+                if state.depth >= level {
+                    out.push_str("#");
+                    return;
+                }
+            }
+            state.depth += 1;
+            write_hash_table_stateful(*id, out, state);
+            state.depth -= 1;
+        }
+        Value::Lambda(id) => {
+            let text = with_print_object_guard(
+                PrintObjectRef::Lambda(*id),
+                |index| format!("#{index}"),
+                || {
+                    let lambda = value.get_lambda_data().unwrap();
+                    if lambda.env.is_some() {
+                        return format_interpreted_closure(lambda, state.options);
+                    }
+                    let params = format_params(&lambda.params);
+                    let body = lambda
+                        .body
+                        .iter()
+                        .map(expr::print_expr)
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    format!("(lambda {} {})", params, body)
+                },
+            );
+            out.push_str(&text);
+        }
+        Value::Macro(_id) => {
+            let m = value.get_lambda_data().unwrap();
+            let params = format_params(&m.params);
+            let body = m
+                .body
+                .iter()
+                .map(expr::print_expr)
+                .collect::<Vec<_>>()
+                .join(" ");
+            write!(out, "(macro {} {})", params, body).unwrap();
+        }
+        Value::Subr(id) => write!(out, "#<subr {}>", resolve_sym(*id)).unwrap(),
+        Value::ByteCode(_id) => {
+            let bc = value.get_bytecode_data().unwrap();
+            let params = format_params(&bc.params);
+            write!(out, "#<bytecode {} ({} ops)>", params, bc.ops.len()).unwrap();
+        }
+        Value::Buffer(id) => write!(out, "#<buffer {}>", id.0).unwrap(),
+        Value::Window(id) => write!(out, "#<window {}>", id).unwrap(),
+        Value::Frame(id) => out.push_str(&format_frame_handle(*id)),
+        Value::Timer(id) => write!(out, "#<timer {}>", id).unwrap(),
+    }
+}
+
+/// Try to produce a shorthand form (quote, function, backquote, etc.) using
+/// stateful printing. Returns `Some(string)` on success.
+fn write_list_shorthand_stateful(value: &Value, state: &mut PrintState) -> Option<String> {
+    let items = list_to_vec(value)?;
+    if items.len() != 2 {
+        return None;
+    }
+
+    let head = match &items[0] {
+        Value::Symbol(id) => resolve_sym(*id),
+        _ => return None,
+    };
+
+    if head == "make-hash-table-from-literal" {
+        if let Some(payload) = quote_payload_stateful(&items[1]) {
+            let mut out = String::from("#s");
+            write_value_stateful(&payload, &mut out, state);
+            return Some(out);
+        }
+        return None;
+    }
+
+    let (prefix, nested_options) = match head {
+        "quote" => ("'", state.options),
+        "function" => ("#'", state.options),
+        "`" => ("`", state.options.enter_backquote()),
+        "," => {
+            if !state.options.allow_unquote_shorthand() {
+                return None;
+            }
+            (",", state.options.exit_backquote())
+        }
+        ",@" => {
+            if !state.options.allow_unquote_shorthand() {
+                return None;
+            }
+            (",@", state.options.exit_backquote())
+        }
+        _ => return None,
+    };
+
+    let saved_options = state.options;
+    state.options = nested_options;
+    let mut out = String::from(prefix);
+    write_value_stateful(&items[1], &mut out, state);
+    state.options = saved_options;
+    Some(out)
+}
+
+fn quote_payload_stateful(value: &Value) -> Option<Value> {
+    let items = list_to_vec(value)?;
+    if items.len() != 2 {
+        return None;
+    }
+    match &items[0] {
+        Value::Symbol(id) if resolve_sym(*id) == "quote" => Some(items[1]),
+        _ => None,
+    }
+}
+
+/// Print a cons cell (list elements) with stateful print support.
+fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
+    let mut cursor = *value;
+    let mut first = true;
+    let mut count: i64 = 0;
+    loop {
+        match cursor {
+            Value::Cons(cell) => {
+                // Length check
+                if let Some(length) = state.options.print_length {
+                    if count >= length {
+                        if !first {
+                            out.push(' ');
+                        }
+                        out.push_str("...");
+                        return;
+                    }
+                }
+                if !first {
+                    out.push(' ');
+                }
+                let pair = read_cons(cell);
+
+                // Circle check on the cdr (for detecting shared tails)
+                // But first, print the car
+                write_value_stateful(&pair.car, out, state);
+                cursor = pair.cdr;
+                first = false;
+                count += 1;
+
+                // Check if cdr is a cons that has a circle label
+                if let Value::Cons(_) = cursor {
+                    if let Some(ref circle) = state.circle {
+                        if let Some(key) = object_identity_key(&cursor) {
+                            if let Some(label) = circle.number_table.get(&key) {
+                                if *label != 0 {
+                                    // This cons is shared/circular -- print as dotted pair
+                                    out.push_str(" . ");
+                                    write_value_stateful(&cursor, out, state);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Value::Nil => return,
+            other => {
+                if !first {
+                    out.push_str(" . ");
+                }
+                write_value_stateful(&other, out, state);
+                return;
+            }
+        }
+    }
+}
+
+/// Print a hash table with stateful support.
+fn write_hash_table_stateful(id: ObjId, out: &mut String, state: &mut PrintState) {
+    let table = with_heap(|h| h.get_hash_table(id).clone());
+    out.push_str("#s(hash-table");
+
+    match table.test {
+        HashTableTest::Eq => out.push_str(" test eq"),
+        HashTableTest::Equal => out.push_str(" test equal"),
+        HashTableTest::Eql => {}
+    }
+
+    if let Some(ref weakness) = table.weakness {
+        let name = match weakness {
+            super::value::HashTableWeakness::Key => "key",
+            super::value::HashTableWeakness::Value => "value",
+            super::value::HashTableWeakness::KeyOrValue => "key-or-value",
+            super::value::HashTableWeakness::KeyAndValue => "key-and-value",
+        };
+        out.push_str(" weakness ");
+        out.push_str(name);
+    }
+
+    if !table.data.is_empty() {
+        out.push_str(" data (");
+        let mut first = true;
+        let mut count: i64 = 0;
+        for key in &table.insertion_order {
+            if let Some(val) = table.data.get(key) {
+                if let Some(length) = state.options.print_length {
+                    if count >= length {
+                        if !first {
+                            out.push(' ');
+                        }
+                        out.push_str("...");
+                        break;
+                    }
+                }
+                if !first {
+                    out.push(' ');
+                }
+                let key_val = super::hashtab::hash_key_to_visible_value(&table, key);
+                write_value_stateful(&key_val, out, state);
+                out.push(' ');
+                write_value_stateful(val, out, state);
+                first = false;
+                count += 1;
+            }
+        }
+        out.push(')');
+    }
+
+    out.push(')');
 }
 
 thread_local! {
@@ -161,6 +720,10 @@ pub fn print_value_with_buffers_and_options(
     buffers: &crate::buffer::BufferManager,
     options: PrintOptions,
 ) -> String {
+    // Delegate to the stateful printer when circle/level/length are active.
+    if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
+        return print_value_stateful(value, options);
+    }
     if let Some(handle) = print_special_handle(value, Some(buffers)) {
         return handle;
     }
@@ -293,6 +856,10 @@ pub fn print_value(value: &Value) -> String {
 }
 
 pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String {
+    // Delegate to the stateful printer when circle/level/length are active.
+    if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
+        return print_value_stateful(value, options);
+    }
     if let Some(handle) = print_special_handle(value, None) {
         return handle;
     }
@@ -398,6 +965,10 @@ pub fn print_value_bytes(value: &Value) -> Vec<u8> {
 }
 
 pub fn print_value_bytes_with_options(value: &Value, options: PrintOptions) -> Vec<u8> {
+    // Delegate to the stateful printer when circle/level/length are active.
+    if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
+        return print_value_stateful(value, options).into_bytes();
+    }
     let mut out = Vec::new();
     append_print_value_bytes(value, &mut out, options);
     out
