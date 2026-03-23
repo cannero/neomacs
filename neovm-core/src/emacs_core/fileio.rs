@@ -3081,9 +3081,22 @@ fn insert_file_contents_into_current_buffer_in_state(
     if replace_requested {
         replace_accessible_portion_in_current_buffer(buffers, current_id, contents)
     } else {
+        // GNU Emacs: insert-file-contents inserts text at point but does NOT
+        // advance point past the inserted text (unlike regular `insert`).
+        // It calls TEMP_SET_PT_BOTH(BEG, BEG_BYTE) to keep point at the
+        // beginning of the inserted region.
+        let pt_before = buffers
+            .get(current_id)
+            .map(|b| (b.pt, b.pt_char))
+            .unwrap_or((0, 0));
         buffers
             .insert_into_buffer(current_id, contents)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        // Restore point to before the insertion (matching GNU).
+        if let Some(buf) = buffers.get_mut(current_id) {
+            buf.pt = pt_before.0;
+            buf.pt_char = pt_before.1;
+        }
         Ok(())
     }
 }
