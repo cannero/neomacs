@@ -3848,7 +3848,14 @@ pub(crate) fn builtin_xw_display_color_p_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("xw-display-color-p", &args, 0, 1)?;
-    if super::super::display::x_window_system_active(eval) {
+    if super::super::display::display_window_system_symbol_in_state(
+        &eval.frames,
+        &eval.obarray,
+        &eval.dynamic,
+        args.first(),
+    )?
+    .is_some_and(super::super::display::gui_window_system_active_value)
+    {
         Ok(Value::True)
     } else {
         Ok(Value::Nil)
@@ -3865,7 +3872,14 @@ pub(crate) fn builtin_xw_display_color_p_in_state(
     if let Some(display) = args.first() {
         super::super::display::expect_display_designator_in_state(frames, display)?;
     }
-    if super::super::display::x_window_system_active_in_state(obarray, dynamic) {
+    if super::super::display::display_window_system_symbol_in_state(
+        frames,
+        obarray,
+        dynamic,
+        args.first(),
+    )?
+    .is_some_and(super::super::display::gui_window_system_active_value)
+    {
         Ok(Value::True)
     } else {
         Ok(Value::Nil)

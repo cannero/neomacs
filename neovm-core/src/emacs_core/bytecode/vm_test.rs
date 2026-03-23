@@ -1235,7 +1235,7 @@ fn vm_terminal_and_display_entrypoints_use_shared_runtime() {
                   (= (length (frame-list)) (1+ before))
                   (equal (frame-parameter created 'name) "vm-x-frame")))"#,
         ),
-        "OK (t t wrong-type-argument error error error error error x t t)"
+        "OK (t t wrong-type-argument error error error error error neo t t)"
     );
 }
 
@@ -5418,7 +5418,7 @@ fn vm_terminal_query_builtins_accept_live_frame_designators() {
 }
 
 #[test]
-fn vm_x_display_query_builtins_accept_live_frame_designators() {
+fn vm_x_display_query_builtins_reject_non_window_system_frame_designators() {
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -5428,7 +5428,7 @@ fn vm_x_display_query_builtins_accept_live_frame_designators() {
                   (condition-case err (x-display-pixel-height f) (error err))
                   (condition-case err (x-server-version f) (error err))
                   (condition-case err (x-server-max-request-size f) (error err))
-                  (x-display-grayscale-p f)
+                  (condition-case err (x-display-grayscale-p f) (error err))
                   (condition-case err (x-display-backing-store f) (error err))
                   (condition-case err (x-display-color-cells f) (error err))
                   (condition-case err (x-display-mm-height f) (error err))
@@ -5440,7 +5440,7 @@ fn vm_x_display_query_builtins_accept_live_frame_designators() {
                   (condition-case err (x-display-visual-class f) (error err))
                   (condition-case err (x-server-input-extension-version f) (error err))))"#
         ),
-        r#"OK ((error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") t (error "Window system frame should be used") 16777216 (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") 24 (error "Window system frame should be used") (error "Window system frame should be used") true-color (error "Window system frame should be used"))"#
+        r#"OK ((error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used"))"#
     );
 }
 
@@ -5449,8 +5449,9 @@ fn vm_gui_display_capability_builtins_use_live_window_system_state() {
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
-                 (setq window-system 'x)
+                 (modify-frame-parameters f '((window-system . neo)))
                  (setq initial-window-system nil)
+                 (setq window-system nil)
                  (list
                   (xw-display-color-p f)
                   (display-color-cells f)))"#

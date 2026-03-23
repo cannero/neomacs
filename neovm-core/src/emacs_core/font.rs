@@ -23,7 +23,10 @@ use super::intern::{intern, resolve_sym};
 use super::textprop::string_elisp_pos_to_byte;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
-use crate::face::{Face as RuntimeFace, FaceHeight, FontSlant, FontWeight, FontWidth};
+use crate::face::{
+    BoxStyle, Color, Face as RuntimeFace, FaceHeight, FontSlant, FontWeight, FontWidth,
+    UnderlineStyle,
+};
 use crate::window::{FRAME_ID_BASE, FrameId, FrameManager, WindowId};
 
 type AlternativeFontFamilyAlist = Vec<(String, Vec<String>)>;
@@ -130,6 +133,39 @@ fn frame_device_designator_p(value: &Value) -> bool {
 
 fn optional_selected_frame_designator_p(value: &Value) -> bool {
     value.is_nil() || frame_device_designator_p(value)
+}
+
+fn live_frame_id_for_face_update(
+    eval: &mut super::eval::Evaluator,
+    frame: Option<&Value>,
+) -> Result<Option<FrameId>, Flow> {
+    match frame {
+        None | Some(Value::Nil) | Some(Value::Int(0)) => {
+            Ok(Some(super::window_cmds::ensure_selected_frame_id(eval)))
+        }
+        Some(Value::True) => Ok(None),
+        Some(value) if live_frame_designator_in_state(&eval.frames, value) => Ok(Some(
+            frame_id_from_designator(value)
+                .expect("live frame designator should decode to frame id"),
+        )),
+        Some(other) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("frame-live-p"), *other],
+        )),
+    }
+}
+
+fn mirror_runtime_face_into_frame(
+    eval: &mut super::eval::Evaluator,
+    frame_id: FrameId,
+    face_name: &str,
+) {
+    let Some(face) = eval.face_table().get(face_name).cloned() else {
+        return;
+    };
+    if let Some(frame) = eval.frames.get_mut(frame_id) {
+        frame.set_realized_face(face_name.to_string(), face);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1432,6 +1468,90 @@ fn face_id_for_name(name: &str) -> Option<i64> {
     dynamic_face_id(name)
 }
 
+fn all_defined_face_names_sorted_by_id_desc() -> Vec<String> {
+    let mut names: Vec<String> = KNOWN_FACES.iter().map(|name| (*name).to_string()).collect();
+    CREATED_LISP_FACES.with(|slot| {
+        for name in slot.borrow().iter() {
+            if !names.iter().any(|known| known == name) {
+                names.push(name.clone());
+            }
+        }
+    });
+    names.sort_by(|left, right| {
+        let left_id = face_id_for_name(left).unwrap_or(i64::MAX);
+        let right_id = face_id_for_name(right).unwrap_or(i64::MAX);
+        right_id.cmp(&left_id).then_with(|| left.cmp(right))
+    });
+    names
+}
+
+pub(crate) fn seed_face_new_frame_defaults_table(table: Value) {
+    let Value::HashTable(table_id) = table else {
+        return;
+    };
+
+    let face_names = all_defined_face_names_sorted_by_id_desc();
+    let face_entries: Vec<(Value, Value)> = face_names
+        .into_iter()
+        .filter_map(|face_name| {
+            let face_id = face_id_for_name(&face_name)?;
+            Some((
+                Value::symbol(face_name.as_str()),
+                Value::cons(Value::Int(face_id), make_lisp_face_vector()),
+            ))
+        })
+        .collect();
+
+    with_heap_mut(|heap| {
+        let hash_table = heap.get_hash_table_mut(table_id);
+        for (key, value) in face_entries {
+            let hash_key = match key {
+                Value::Symbol(id) => HashKey::Symbol(id),
+                Value::Keyword(id) => HashKey::Keyword(id),
+                _ => unreachable!("face defaults keys are symbols"),
+            };
+            if !hash_table.data.contains_key(&hash_key) {
+                hash_table.insertion_order.push(hash_key.clone());
+            }
+            hash_table.key_snapshots.insert(hash_key.clone(), key);
+            hash_table.data.insert(hash_key, value);
+        }
+    });
+}
+
+fn ensure_face_new_frame_defaults_entry(
+    eval: &mut super::eval::Evaluator,
+    face_name: &str,
+) -> Option<Value> {
+    let table = eval
+        .obarray()
+        .symbol_value("face--new-frame-defaults")
+        .copied()?;
+    seed_face_new_frame_defaults_table(table);
+    let face_id = face_id_for_name(face_name)?;
+    let Value::HashTable(table_id) = table else {
+        return None;
+    };
+    let key = Value::symbol(face_name);
+    with_heap_mut(|heap| {
+        let hash_table = heap.get_hash_table_mut(table_id);
+        let hash_key = match key {
+            Value::Symbol(id) => HashKey::Symbol(id),
+            Value::Keyword(id) => HashKey::Keyword(id),
+            _ => unreachable!("face defaults keys are symbols"),
+        };
+        if !hash_table.data.contains_key(&hash_key) {
+            hash_table.insertion_order.push(hash_key.clone());
+        }
+        hash_table.key_snapshots.insert(hash_key.clone(), key);
+        hash_table
+            .data
+            .entry(hash_key)
+            .or_insert_with(|| Value::cons(Value::Int(face_id), make_lisp_face_vector()));
+    });
+    Some(table)
+}
+
 fn is_selected_created_lisp_face(name: &str) -> bool {
     FACE_ATTR_STATE.with(|slot| slot.borrow().selected_created.contains(name))
 }
@@ -2163,6 +2283,7 @@ pub(crate) fn builtin_internal_make_lisp_face_eval(
 ) -> EvalResult {
     let result = builtin_internal_make_lisp_face(args.clone())?;
     if let Ok(face_name) = require_symbol_face_name(&args[0]) {
+        ensure_face_new_frame_defaults_entry(eval, &face_name);
         eval.face_table.ensure_face(&face_name);
         eval.face_change_count += 1;
     }
@@ -2387,6 +2508,10 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_eval(
                     }
                 }
             }
+
+            if let Some(frame_id) = live_frame_id_for_face_update(eval, args.get(3))? {
+                mirror_runtime_face_into_frame(eval, frame_id, &face_name);
+            }
         }
     }
 
@@ -2594,6 +2719,208 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
     }
 }
 
+fn runtime_color_to_lisp_value(color: &Color) -> Value {
+    match (color.r, color.g, color.b) {
+        (0, 0, 0) => Value::string("black"),
+        (255, 255, 255) => Value::string("white"),
+        (r, g, b) if r == g && g == b => {
+            let percent = ((r as i32 * 100) + 127) / 255;
+            Value::string(format!("grey{percent}"))
+        }
+        _ => Value::string(color.to_hex()),
+    }
+}
+
+fn runtime_weight_to_lisp_value(weight: FontWeight) -> Value {
+    let name = if weight == FontWeight::THIN {
+        "thin"
+    } else if weight == FontWeight::EXTRA_LIGHT {
+        "extra-light"
+    } else if weight == FontWeight::LIGHT {
+        "light"
+    } else if weight == FontWeight::NORMAL {
+        "normal"
+    } else if weight == FontWeight::MEDIUM {
+        "medium"
+    } else if weight == FontWeight::SEMI_BOLD {
+        "semi-bold"
+    } else if weight == FontWeight::BOLD {
+        "bold"
+    } else if weight == FontWeight::EXTRA_BOLD {
+        "extra-bold"
+    } else if weight == FontWeight::BLACK {
+        "black"
+    } else {
+        "normal"
+    };
+    Value::symbol(name)
+}
+
+fn runtime_slant_to_lisp_value(slant: FontSlant) -> Value {
+    Value::symbol(match slant {
+        FontSlant::Normal => "normal",
+        FontSlant::Italic => "italic",
+        FontSlant::Oblique => "oblique",
+        FontSlant::ReverseItalic => "reverse-italic",
+        FontSlant::ReverseOblique => "reverse-oblique",
+    })
+}
+
+fn runtime_width_to_lisp_value(width: FontWidth) -> Value {
+    Value::symbol(match width {
+        FontWidth::UltraCondensed => "ultra-condensed",
+        FontWidth::ExtraCondensed => "extra-condensed",
+        FontWidth::Condensed => "condensed",
+        FontWidth::SemiCondensed => "semi-condensed",
+        FontWidth::Normal => "normal",
+        FontWidth::SemiExpanded => "semi-expanded",
+        FontWidth::Expanded => "expanded",
+        FontWidth::ExtraExpanded => "extra-expanded",
+        FontWidth::UltraExpanded => "ultra-expanded",
+    })
+}
+
+pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) -> Value {
+    match attr_name {
+        ":family" => face
+            .family
+            .as_ref()
+            .map(|value| Value::string(value.clone()))
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":foundry" => face
+            .foundry
+            .as_ref()
+            .map(|value| Value::string(value.clone()))
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":height" => match face.height {
+            Some(FaceHeight::Absolute(n)) => Value::Int(n as i64),
+            Some(FaceHeight::Relative(f)) => Value::Float(f, next_float_id()),
+            None => Value::symbol("unspecified"),
+        },
+        ":weight" => face
+            .weight
+            .map(runtime_weight_to_lisp_value)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":slant" => face
+            .slant
+            .map(runtime_slant_to_lisp_value)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":width" => face
+            .width
+            .map(runtime_width_to_lisp_value)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":underline" => match &face.underline {
+            None => Value::symbol("unspecified"),
+            Some(underline)
+                if underline.color.is_none()
+                    && underline.position.is_none()
+                    && underline.style == UnderlineStyle::Line =>
+            {
+                Value::True
+            }
+            Some(underline) => {
+                let mut plist = Vec::new();
+                plist.push(Value::keyword(":style"));
+                plist.push(Value::symbol(match underline.style {
+                    UnderlineStyle::Line => "line",
+                    UnderlineStyle::Wave => "wave",
+                    UnderlineStyle::DoubleLine => "double-line",
+                    UnderlineStyle::Dot => "dot",
+                    UnderlineStyle::Dash => "dash",
+                }));
+                if let Some(color) = underline.color {
+                    plist.push(Value::keyword(":color"));
+                    plist.push(runtime_color_to_lisp_value(&color));
+                }
+                if let Some(position) = underline.position {
+                    plist.push(Value::keyword(":position"));
+                    plist.push(Value::Int(position as i64));
+                }
+                Value::list(plist)
+            }
+        },
+        ":overline" => match (face.overline, face.overline_color) {
+            (Some(true), Some(color)) => runtime_color_to_lisp_value(&color),
+            (Some(value), None) => Value::bool(value),
+            _ => Value::symbol("unspecified"),
+        },
+        ":strike-through" => match (face.strike_through, face.strike_through_color) {
+            (Some(true), Some(color)) => runtime_color_to_lisp_value(&color),
+            (Some(value), None) => Value::bool(value),
+            _ => Value::symbol("unspecified"),
+        },
+        ":box" => match &face.box_border {
+            None => Value::symbol("unspecified"),
+            Some(border) => Value::list({
+                let mut plist = Vec::new();
+                plist.push(Value::keyword(":line-width"));
+                plist.push(Value::Int(border.width as i64));
+                if let Some(color) = border.color {
+                    plist.push(Value::keyword(":color"));
+                    plist.push(runtime_color_to_lisp_value(&color));
+                }
+                plist.push(Value::keyword(":style"));
+                plist.push(Value::symbol(match border.style {
+                    BoxStyle::Flat => "flat",
+                    BoxStyle::Raised => "released-button",
+                    BoxStyle::Pressed => "pressed-button",
+                }));
+                plist
+            }),
+        },
+        ":inverse-video" => face
+            .inverse_video
+            .map(Value::bool)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":foreground" => face
+            .foreground
+            .as_ref()
+            .map(runtime_color_to_lisp_value)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":distant-foreground" => face
+            .distant_foreground
+            .as_ref()
+            .map(runtime_color_to_lisp_value)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":background" => face
+            .background
+            .as_ref()
+            .map(runtime_color_to_lisp_value)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        ":stipple" | ":font" | ":fontset" => Value::symbol("unspecified"),
+        ":inherit" => {
+            if face.inherit.is_empty() {
+                Value::Nil
+            } else if face.inherit.len() == 1 {
+                Value::symbol(face.inherit[0].as_str())
+            } else {
+                Value::list(
+                    face.inherit
+                        .iter()
+                        .map(|name| Value::symbol(name.as_str()))
+                        .collect(),
+                )
+            }
+        }
+        ":extend" => face
+            .extend
+            .map(Value::bool)
+            .unwrap_or_else(|| Value::symbol("unspecified")),
+        _ => Value::symbol("unspecified"),
+    }
+}
+
+pub(crate) fn runtime_face_to_lisp_vector(face: &RuntimeFace) -> Value {
+    let mut values = Vec::with_capacity(LISP_FACE_VECTOR_LEN);
+    values.push(Value::symbol("face"));
+    values.extend(
+        LISP_FACE_VECTOR_ATTRIBUTES
+            .iter()
+            .map(|attr| runtime_face_attribute_value(face, attr)),
+    );
+    Value::vector(values)
+}
+
 /// `(internal-get-lisp-face-attribute FACE ATTR &optional FRAME)` -- batch
 /// semantics-compatible face attribute query for core predefined faces.
 pub(crate) fn builtin_internal_get_lisp_face_attribute(args: Vec<Value>) -> EvalResult {
@@ -2656,6 +2983,58 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute_in_state(
         &attr_name,
         defaults_frame,
     ))
+}
+
+pub(crate) fn builtin_internal_get_lisp_face_attribute_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("internal-get-lisp-face-attribute", &args, 2)?;
+    expect_max_args("internal-get-lisp-face-attribute", &args, 3)?;
+    let defaults_frame = if let Some(frame) = args.get(2) {
+        if frame.is_nil() {
+            false
+        } else if matches!(frame, Value::True) {
+            true
+        } else if frame_device_designator_p(frame) {
+            false
+        } else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("frame-live-p"), *frame],
+            ));
+        }
+    } else {
+        false
+    };
+
+    let face_name = resolve_face_name_for_domain(&args[0], defaults_frame)?;
+    let attr_name = normalize_face_attribute_name(&args[1])?;
+
+    if defaults_frame {
+        return Ok(lisp_face_attribute_value(&face_name, &attr_name, true));
+    }
+
+    let lisp_value = lisp_face_attribute_value(&face_name, &attr_name, false);
+    let lisp_value_unspecified = matches!(
+        &lisp_value,
+        Value::Symbol(id) if resolve_sym(*id) == "unspecified"
+    ) || matches!(
+        (&*attr_name, &lisp_value),
+        (":foreground", Value::Str(id)) if with_heap(|h| h.get_string(*id) == "unspecified-fg")
+    ) || matches!(
+        (&*attr_name, &lisp_value),
+        (":background", Value::Str(id)) if with_heap(|h| h.get_string(*id) == "unspecified-bg")
+    );
+    if !lisp_value_unspecified {
+        return Ok(lisp_value);
+    }
+
+    if let Some(face) = eval.face_table().get(&face_name) {
+        return Ok(runtime_face_attribute_value(face, &attr_name));
+    }
+
+    Ok(lisp_value)
 }
 
 /// `(internal-lisp-face-attribute-values ATTR)` -- return valid discrete values
@@ -2744,6 +3123,37 @@ pub(crate) fn builtin_internal_merge_in_global_face_in_state(
     Ok(Value::Nil)
 }
 
+pub(crate) fn builtin_internal_merge_in_global_face_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    let result = builtin_internal_merge_in_global_face(args.clone())?;
+    let face_name = resolve_face_name_for_merge(&args[0])?;
+    FACE_ATTR_STATE.with(|slot| {
+        let state = slot.borrow();
+        if let Some(attrs) = state.defaults_overrides.get(&face_name) {
+            for (attr_name, value) in attrs {
+                if let Some(face_attr) = lisp_value_to_face_attr(attr_name, *value) {
+                    eval.set_face_attribute(&face_name, attr_name, face_attr);
+                }
+                if attr_name == ":font" {
+                    for (derived_attr, derived_value) in derived_face_attrs_from_font_value(value) {
+                        if let Some(face_attr) =
+                            lisp_value_to_face_attr(&derived_attr, derived_value)
+                        {
+                            eval.set_face_attribute(&face_name, &derived_attr, face_attr);
+                        }
+                    }
+                }
+            }
+        }
+    });
+    if let Some(frame_id) = live_frame_id_for_face_update(eval, args.get(1))? {
+        mirror_runtime_face_into_frame(eval, frame_id, &face_name);
+    }
+    Ok(result)
+}
+
 /// `(face-attribute-relative-p ATTRIBUTE VALUE)` -- return t if VALUE is the
 /// value is a relative form for ATTRIBUTE.
 pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult {
@@ -2810,7 +3220,10 @@ pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_face_list(args: Vec<Value>) -> EvalResult {
     expect_max_args("face-list", &args, 1)?;
     Ok(Value::list(
-        KNOWN_FACES.iter().map(|s| Value::symbol(*s)).collect(),
+        all_defined_face_names_sorted_by_id_desc()
+            .into_iter()
+            .map(Value::symbol)
+            .collect(),
     ))
 }
 

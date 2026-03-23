@@ -68,6 +68,23 @@ fn gnu_timer_after(delay: Duration, callback: &str) -> Value {
     ])
 }
 
+fn gnu_idle_timer_after(delay: Duration, callback: &str) -> Value {
+    let secs = delay.as_secs() as i64;
+
+    Value::vector(vec![
+        Value::Nil,
+        Value::Int(secs >> 16),
+        Value::Int(secs & 0xFFFF),
+        Value::Int(delay.subsec_micros() as i64),
+        Value::Nil,
+        Value::symbol(callback),
+        Value::Nil,
+        Value::symbol("idle"),
+        Value::Int(0),
+        Value::Nil,
+    ])
+}
+
 #[derive(Clone, Default)]
 struct RecordingDisplayHost {
     primary_size: Option<GuiFrameHostSize>,
@@ -632,6 +649,26 @@ fn next_input_wait_timeout_chooses_earliest_timer_source() {
 }
 
 #[test]
+fn next_input_wait_timeout_accounts_for_gnu_idle_timer_list_when_idle() {
+    let mut ev = Evaluator::new();
+    ev.set_variable(
+        "timer-idle-list",
+        Value::list(vec![gnu_idle_timer_after(
+            Duration::from_millis(200),
+            "ignore-idle",
+        )]),
+    );
+    ev.timer_start_idle();
+
+    let timeout = ev
+        .next_input_wait_timeout()
+        .expect("gnu idle timer should bound read_char wait");
+
+    assert!(timeout > Duration::ZERO);
+    assert!(timeout <= Duration::from_millis(200));
+}
+
+#[test]
 fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
@@ -665,6 +702,62 @@ fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
             .expect("timer flag should be bound"),
         Value::symbol("done")
     );
+}
+
+#[test]
+fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input() {
+    eprintln!("idle test: bootstrap");
+    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
+    eprintln!("idle test: runtime startup state");
+    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+
+    eprintln!("idle test: parse forms");
+    let forms = parse_forms(
+        "(progn
+           (setq vm-idle-fired nil)
+           (setq vm-idle-snapshot nil)
+           (run-with-idle-timer
+            0.01 nil
+            (lambda ()
+              (setq vm-idle-fired 'done)
+              (setq vm-idle-snapshot (current-idle-time)))))",
+    )
+    .expect("parse idle timer program");
+    eprintln!("idle test: eval schedule");
+    ev.eval_expr(&forms[0])
+        .expect("schedule GNU Lisp idle timer");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    eprintln!("idle test: spawn sender");
+    thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        tx.send(crate::keyboard::InputEvent::KeyPress(
+            crate::keyboard::KeyEvent::char('a'),
+        ))
+        .expect("send keypress");
+    });
+
+    eprintln!("idle test: read_char");
+    let event = ev
+        .read_char()
+        .expect("read_char should return queued keypress");
+    eprintln!("idle test: read_char returned {:?}", event);
+    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(
+        ev.eval_symbol("vm-idle-fired")
+            .expect("idle timer flag should be bound"),
+        Value::symbol("done")
+    );
+    let idle_snapshot = ev
+        .eval_symbol("vm-idle-snapshot")
+        .expect("idle snapshot should be bound");
+    let idle_parts = list_to_vec(&idle_snapshot).expect("idle snapshot should be a time list");
+    assert_eq!(idle_parts.len(), 4);
+    assert!(idle_parts[0].as_int().is_some());
+    assert!(idle_parts[1].as_int().is_some());
+    assert!(idle_parts[2].as_int().is_some());
+    assert_eq!(ev.current_idle_time_value(), Value::Nil);
 }
 
 #[test]

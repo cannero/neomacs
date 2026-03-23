@@ -5,7 +5,7 @@ use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
 };
 use crate::emacs_core::intern::{intern, resolve_sym};
-use crate::emacs_core::value::{HashTableTest, Value, list_to_vec, with_heap};
+use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
@@ -873,16 +873,23 @@ fn bootstrap_runtime_cached_gui_surface_clears_transient_loader_state() {
 fn bootstrap_runtime_cached_gui_surface_restores_window_system_surface() {
     let mut eval = create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"])
         .expect("bootstrap evaluator");
+    assert!(
+        eval.frames.frame_list().is_empty(),
+        "cached GUI bootstrap should not synthesize a fallback frame before host bootstrap"
+    );
     let rendered = eval_rendered(
         &mut eval,
         r#"(list (window-system)
                  initial-window-system
-                 (frame-parameter nil 'window-system)
-                 (frame-parameter nil 'display-type)
+                 (display-graphic-p)
                  (display-color-cells)
                  (display-visual-class))"#,
     );
-    assert_eq!(rendered, "OK (neo neo neo color 16777216 true-color)");
+    assert_eq!(rendered, "OK (neo neo t 16777216 true-color)");
+    assert!(
+        eval.frames.frame_list().is_empty(),
+        "display queries should not synthesize a fallback frame before host bootstrap"
+    );
 }
 
 #[test]
@@ -2336,6 +2343,19 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
     };
     let test = with_heap(|heap| heap.get_hash_table(id).test.clone());
     assert_eq!(test, HashTableTest::Eq);
+    let has_seeded_faces = with_heap(|heap| {
+        let hash_table = heap.get_hash_table(id);
+        hash_table
+            .data
+            .contains_key(&HashKey::Symbol(intern("default")))
+            && hash_table
+                .data
+                .contains_key(&HashKey::Symbol(intern("mode-line")))
+    });
+    assert!(
+        has_seeded_faces,
+        "face--new-frame-defaults should be preseeded with GNU face entries"
+    );
 }
 
 #[test]

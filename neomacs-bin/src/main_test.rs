@@ -2,8 +2,8 @@ use super::{
     BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
     PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, bootstrap_buffers,
     bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
-    configure_gnu_startup_state, current_layout_frame_id, parse_startup_options,
-    recalc_faces_for_gui_frame, render_help_text, render_version_text, run_gnu_startup,
+    configure_gnu_startup_state, current_layout_frame_id, parse_startup_options, render_help_text,
+    render_version_text, run_gnu_startup,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Evaluator;
@@ -54,6 +54,17 @@ fn bootstrap_runtime_gui_startup(eval: &mut Evaluator) -> FrameId {
         .id;
     configure_gnu_startup_state(eval, frame_id, &gui_startup());
     frame_id
+}
+
+fn eval_after_gnu_gui_startup(source: &str) -> String {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+    run_gnu_startup(&mut eval);
+
+    let forms = parse_forms(source).expect("probe should parse");
+    let result = eval.eval_expr(&forms[0]).expect("probe should evaluate");
+    print_value_with_eval(&mut eval, &result)
 }
 
 #[test]
@@ -212,19 +223,57 @@ fn startup_option_parser_promotes_batch_to_noninteractive_and_strips_batch_flag(
 #[test]
 fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
     let mut eval = Evaluator::new();
-    configure_gnu_startup_state(&mut eval, FrameId(42), &gui_startup());
+    let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+    let frame_id = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after bootstrap")
+        .id;
+    configure_gnu_startup_state(&mut eval, frame_id, &gui_startup());
+
+    let terminal_frame = *eval
+        .obarray()
+        .symbol_value("terminal-frame")
+        .expect("terminal-frame");
+    let Value::Frame(terminal_frame_id) = terminal_frame else {
+        panic!("GUI startup should seed a hidden terminal frame, got {terminal_frame:?}");
+    };
+    let terminal_frame_id = FrameId(terminal_frame_id);
+    let terminal_frame = eval
+        .frame_manager()
+        .get(terminal_frame_id)
+        .expect("hidden terminal frame");
 
     assert_eq!(
-        eval.obarray().symbol_value("terminal-frame"),
-        Some(&Value::Nil)
+        terminal_frame.visible, false,
+        "GNU frame-initialize should delete a hidden terminal frame, not the opening GUI frame"
+    );
+    assert!(
+        terminal_frame.effective_window_system().is_none(),
+        "hidden startup terminal frame must stay non-GUI"
+    );
+    assert!(
+        !terminal_frame.parameters.contains_key("display-type"),
+        "hidden startup terminal frame must not inherit GUI face parameters"
+    );
+    assert!(
+        !terminal_frame.parameters.contains_key("background-mode"),
+        "hidden startup terminal frame must not inherit GUI face parameters"
     );
     assert_eq!(
         eval.obarray().symbol_value("frame-initial-frame"),
-        Some(&Value::Frame(42))
+        Some(&Value::Frame(frame_id.0))
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("frame-initial-frame-alist"),
+        Some(&Value::list(vec![Value::cons(
+            Value::symbol("window-system"),
+            Value::symbol("neo"),
+        )]))
     );
     assert_eq!(
         eval.obarray().symbol_value("default-minibuffer-frame"),
-        Some(&Value::Frame(42))
+        Some(&Value::Frame(frame_id.0))
     );
 }
 
@@ -240,6 +289,72 @@ fn configure_gnu_startup_state_reports_neo_window_system_for_gui_boots() {
     assert_eq!(
         eval.obarray().symbol_value("initial-window-system"),
         Some(&Value::symbol("neo"))
+    );
+}
+
+#[test]
+fn cl_generic_context_dispatch_uses_neo_window_system_method() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+    let forms = parse_forms(
+        r#"
+        (progn
+          (cl-defgeneric neomacs--ctx-probe ())
+          (cl-defmethod neomacs--ctx-probe (&context (window-system nil)) 'tty)
+          (cl-defmethod neomacs--ctx-probe (&context (window-system neo)) 'neo)
+          (let ((window-system 'neo))
+            (neomacs--ctx-probe)))
+        "#,
+    )
+    .expect("context dispatch probe should parse");
+    let rendered = eval
+        .eval_expr(&forms[0])
+        .map(|value| print_value_with_eval(&mut eval, &value))
+        .unwrap_or_else(|err| format!("{err:?}"));
+    assert_eq!(rendered, "neo");
+}
+
+#[test]
+fn pdump_preserves_neo_term_generic_methods() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+
+    let pre_forms = parse_forms(
+        r#"
+        (let ((window-system 'neo))
+          (window-system-initialization)
+          neomacs-initialized)
+        "#,
+    )
+    .expect("pre probe should parse");
+    let pre = eval
+        .eval_expr(&pre_forms[0])
+        .map(|value| print_value_with_eval(&mut eval, &value))
+        .unwrap_or_else(|err| format!("{err:?}"));
+
+    let reload_forms = parse_forms(
+        r#"
+        (progn
+          (load "term/neo-win" nil t)
+          (setq neomacs-initialized nil)
+          (let ((window-system 'neo))
+            (window-system-initialization)
+            neomacs-initialized))
+        "#,
+    )
+    .expect("reload probe should parse");
+    let post = eval
+        .eval_expr(&reload_forms[0])
+        .map(|value| print_value_with_eval(&mut eval, &value))
+        .unwrap_or_else(|err| format!("{err:?}"));
+
+    assert_eq!(
+        pre, "t",
+        "runtime pdump lost neo generic methods before reload"
+    );
+    assert_eq!(
+        post, "t",
+        "reloading term/neo-win should keep neo init working"
     );
 }
 
@@ -463,16 +578,131 @@ fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame()
         .expect("cached bootstrap evaluator");
     let frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
+    let hook_probe_forms = parse_forms(
+        r#"
+        (progn
+          (setq neomacs--probe-handle-args-called nil)
+          (setq neomacs--probe-window-system-init-called nil)
+          (setq neomacs--probe-frame-initialize-called nil)
+          (setq neomacs--probe-normal-top-level-called nil)
+          (setq neomacs--probe-command-line-called nil)
+          (setq neomacs--probe-top-level-before top-level)
+          (setq neomacs--orig-handle-args-function
+                (symbol-function 'handle-args-function))
+          (setq neomacs--orig-window-system-initialization
+                (symbol-function 'window-system-initialization))
+          (setq neomacs--orig-frame-initialize
+                (symbol-function 'frame-initialize))
+          (setq neomacs--orig-normal-top-level
+                (symbol-function 'normal-top-level))
+          (setq neomacs--orig-command-line
+                (symbol-function 'command-line))
+          (fset 'handle-args-function
+                (lambda (args)
+                  (setq neomacs--probe-handle-args-called t)
+                  (funcall neomacs--orig-handle-args-function args)))
+          (fset 'window-system-initialization
+                (lambda (&optional display)
+                  (setq neomacs--probe-window-system-init-called t)
+                  (funcall neomacs--orig-window-system-initialization display)))
+          (fset 'frame-initialize
+                (lambda ()
+                  (setq neomacs--probe-frame-initialize-called t)
+                  (funcall neomacs--orig-frame-initialize)))
+          (fset 'normal-top-level
+                (lambda ()
+                  (setq neomacs--probe-normal-top-level-called t)
+                  (funcall neomacs--orig-normal-top-level)))
+          (fset 'command-line
+                (lambda (&rest args)
+                  (setq neomacs--probe-command-line-called t)
+                  (apply neomacs--orig-command-line args))))
+        "#,
+    )
+    .expect("startup hook probe should parse");
+    eval.eval_expr(&hook_probe_forms[0])
+        .expect("startup hook probe should install");
+
     run_gnu_startup(&mut eval);
+
+    let startup_probe_forms = parse_forms(
+        r#"
+         (list
+         (current-message)
+         noninteractive
+         window-system
+         initial-window-system
+         (featurep 'neo-win)
+         (featurep 'term/neo-win)
+         (featurep 'x-win)
+         (daemonp)
+         command-line-processed
+         neomacs--probe-top-level-before
+         neomacs--probe-normal-top-level-called
+         neomacs--probe-command-line-called
+         neomacs--probe-handle-args-called
+         neomacs--probe-window-system-init-called
+         neomacs--probe-frame-initialize-called
+         neomacs-initialized
+         (get 'neo 'window-system-initialized)
+         frame-initial-frame
+         neomacs--startup-last-phase
+         neomacs--startup-last-call
+         terminal-frame
+         (mapcar
+          (lambda (frame)
+            (list frame
+                  (frame-parameter frame 'window-system)
+                  (frame-parameter frame 'display-type)
+                  (frame-parameter frame 'background-mode)
+                  (frame-visible-p frame)
+                  (eq frame terminal-frame)
+                  (eq frame frame-initial-frame)
+                  (eq frame (selected-frame))
+                  (eq frame (window-frame (minibuffer-window frame)))))
+          (frame-list)))
+        "#,
+    )
+    .expect("startup probe should parse");
+    let startup_probe = eval
+        .eval_expr(&startup_probe_forms[0])
+        .expect("startup probe should evaluate");
+    let shutdown_request = eval.shutdown_request();
+    let frame_ids: Vec<_> = eval.frame_manager().frame_list().into_iter().collect();
+    let selected_frame_id = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after startup")
+        .id;
+    assert_eq!(
+        frame_ids,
+        vec![frame_id],
+        "startup probe={} shutdown_request={shutdown_request:?}",
+        print_value_with_eval(&mut eval, &startup_probe),
+    );
+    assert_eq!(
+        selected_frame_id,
+        frame_id,
+        "startup probe={} shutdown_request={shutdown_request:?}",
+        print_value_with_eval(&mut eval, &startup_probe),
+    );
+}
+
+#[test]
+fn bootstrap_gui_state_allows_gnu_frame_initialize_to_delete_terminal_frame() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+    let frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+    let forms = parse_forms("(frame-initialize)").expect("frame-initialize probe should parse");
+    eval.eval_expr(&forms[0])
+        .expect("frame-initialize should succeed on bootstrap gui state");
 
     let frame_ids: Vec<_> = eval.frame_manager().frame_list().into_iter().collect();
     assert_eq!(frame_ids, vec![frame_id]);
     assert_eq!(
-        eval.frame_manager()
-            .selected_frame()
-            .expect("selected frame after startup")
-            .id,
-        frame_id
+        eval.obarray().symbol_value("terminal-frame"),
+        Some(&Value::Nil)
     );
 }
 
@@ -1024,6 +1254,67 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
 }
 
 #[test]
+fn gui_bootstrap_accepts_iso_8859_15_coding_primitives() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+    let probes = [
+        ("known", "(coding-system-p 'iso-8859-15)", Some(Value::True)),
+        (
+            "type",
+            "(coding-system-type 'iso-8859-15)",
+            Some(Value::symbol("charset")),
+        ),
+        (
+            "eol",
+            "(coding-system-change-eol-conversion 'iso-8859-15 0)",
+            Some(Value::symbol("iso-latin-9-unix")),
+        ),
+        (
+            "terminal-set",
+            "(progn (set-terminal-coding-system 'iso-8859-15 nil t) 'ok)",
+            Some(Value::symbol("ok")),
+        ),
+        (
+            "keyboard-set",
+            "(progn (set-keyboard-coding-system 'iso-8859-15 nil) 'ok)",
+            Some(Value::symbol("ok")),
+        ),
+        (
+            "keyboard-var",
+            "keyboard-coding-system",
+            Some(Value::symbol("iso-latin-9-unix")),
+        ),
+        (
+            "terminal-var",
+            "(terminal-coding-system)",
+            Some(Value::symbol("iso-8859-15")),
+        ),
+    ];
+
+    for (label, source, expected) in probes {
+        let forms = parse_forms(source).expect("parse coding probe form");
+        let result = eval.eval_expr(&forms[0]);
+        let value = result.unwrap_or_else(|_| panic!("coding probe {label} should evaluate"));
+        if let Some(expected_value) = expected {
+            let actual_name = value
+                .as_symbol_name()
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| format!("{value:?}"));
+            let expected_name = expected_value
+                .as_symbol_name()
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| format!("{expected_value:?}"));
+            assert_eq!(
+                value, expected_value,
+                "coding probe {label} should match GNU bootstrap semantics (actual={actual_name}, expected={expected_name})"
+            );
+        }
+    }
+}
+
+#[test]
 fn gnu_startup_next_line_moves_point_on_live_gui_frame() {
     let mut eval = create_bootstrap_evaluator_with_features(BOOTSTRAP_CORE_FEATURES)
         .expect("bootstrap evaluator");
@@ -1085,11 +1376,48 @@ fn gnu_startup_seeds_light_gui_chrome_faces_from_faces_el() {
     let mut eval = create_bootstrap_evaluator_with_features(BOOTSTRAP_CORE_FEATURES)
         .expect("bootstrap evaluator");
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
-    recalc_faces_for_gui_frame(&mut eval);
     run_gnu_startup(&mut eval);
 
     let forms = parse_forms(
         r#"(list
+             (window-system)
+             (frame-parameter nil 'window-system)
+             (display-graphic-p)
+             (display-graphic-p (selected-frame))
+             (xw-display-color-p (selected-frame))
+             (frame-parameter nil 'display-type)
+             (frame-parameter nil 'background-mode)
+             (display-color-p)
+             (display-color-cells)
+             (face-default-spec 'mode-line)
+             (face-spec-choose (face-default-spec 'mode-line) (selected-frame) 'no-match)
+             (face-default-spec 'header-line)
+             (face-spec-choose (face-default-spec 'header-line) (selected-frame) 'no-match)
+             (condition-case err
+                 (progn
+                   (face-set-after-frame-default
+                    (selected-frame)
+                    (frame-parameters (selected-frame)))
+                   (list
+                    (face-background 'mode-line nil t)
+                    (face-background 'mode-line-inactive nil t)
+                    (face-background 'header-line nil t)
+                    (face-background 'tab-bar nil t)
+                    (face-background 'tab-line nil t)))
+               (error (list 'error (error-message-string err))))
+             (list
+              (face-background 'mode-line nil t)
+              (face-background 'mode-line-inactive nil t)
+              (face-background 'header-line nil t)
+              (face-background 'tab-bar nil t)
+              (face-background 'tab-line nil t))
+             (progn
+               (set-face-attribute 'mode-line (selected-frame)
+                                   :background "grey75"
+                                   :foreground "black")
+               (list
+                (face-background 'mode-line nil t)
+                (face-foreground 'mode-line nil t)))
              (face-background 'mode-line nil t)
              (face-foreground 'mode-line nil t)
              (face-background 'mode-line-inactive nil t)
@@ -1102,11 +1430,255 @@ fn gnu_startup_seeds_light_gui_chrome_faces_from_faces_el() {
         .eval_expr(&forms[0])
         .expect("chrome face probe should evaluate");
     let values = list_to_vec(&result).expect("chrome face probe should return a list");
-    assert_eq!(values.len(), 6);
-    assert_eq!(print_value_with_eval(&mut eval, &values[0]), "\"grey75\"");
-    assert_eq!(print_value_with_eval(&mut eval, &values[1]), "\"black\"");
-    assert_eq!(print_value_with_eval(&mut eval, &values[2]), "\"grey90\"");
-    assert_eq!(print_value_with_eval(&mut eval, &values[3]), "\"grey90\"");
-    assert_eq!(print_value_with_eval(&mut eval, &values[4]), "\"grey85\"");
-    assert_eq!(print_value_with_eval(&mut eval, &values[5]), "\"grey85\"");
+    assert_eq!(values.len(), 22);
+    let rendered: Vec<String> = values
+        .iter()
+        .map(|value| print_value_with_eval(&mut eval, value))
+        .collect();
+    assert_eq!(
+        rendered[0], "neo",
+        "chrome probe should still report a GUI backend: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[1], "neo",
+        "frame backend should stay on neo during startup: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[2], "t",
+        "display-graphic-p should stay true during startup: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[3], "t",
+        "display-graphic-p should stay true for the selected frame: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[4], "t",
+        "xw-display-color-p should stay true for the selected frame: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[5], "color",
+        "display-type should stay color during startup: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[6], "light",
+        "background-mode should stay light during startup: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[7], "t",
+        "display-color-p should stay true during startup: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[8], "16777216",
+        "display-color-cells should stay high-color during startup: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[9],
+        "((((class color grayscale) (min-colors 88)) :box (:line-width -1 :style released-button) :background \"grey75\" :foreground \"black\") (t :inverse-video t))",
+        "mode-line defface spec should be present: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[10],
+        "(:box (:line-width -1 :style released-button) :background \"grey75\" :foreground \"black\")",
+        "mode-line defface should match the live neo frame: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[11],
+        "((default :inherit mode-line) (((type tty)) :inverse-video nil :underline t) (((class color grayscale) (background light)) :background \"grey90\" :foreground \"grey20\" :box nil) (((class color grayscale) (background dark)) :background \"grey20\" :foreground \"grey90\" :box nil) (((class mono) (background light)) :background \"white\" :foreground \"black\" :inverse-video nil :box nil :underline t) (((class mono) (background dark)) :background \"black\" :foreground \"white\" :inverse-video nil :box nil :underline t))",
+        "header-line defface spec should be present: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[12], "(:inherit mode-line :background \"grey90\" :foreground \"grey20\" :box nil)",
+        "header-line defface should match the live neo frame: {rendered:?}"
+    );
+    assert_eq!(
+        rendered[13], "(\"grey75\" \"grey90\" \"grey90\" \"grey85\" \"grey85\")",
+        "face-set-after-frame-default probe = {rendered:?}"
+    );
+    assert_eq!(
+        rendered[14], "(\"grey75\" \"grey90\" \"grey90\" \"grey85\" \"grey85\")",
+        "chrome probe = {rendered:?}"
+    );
+    assert_eq!(
+        rendered[15], "(\"grey75\" \"black\")",
+        "manual set-face-attribute should still work on the live GUI frame: {rendered:?}"
+    );
+    assert_eq!(rendered[16], "\"grey75\"", "chrome probe = {rendered:?}");
+    assert_eq!(rendered[17], "\"black\"", "chrome probe = {rendered:?}");
+    assert_eq!(rendered[18], "\"grey90\"", "chrome probe = {rendered:?}");
+    assert_eq!(rendered[19], "\"grey90\"", "chrome probe = {rendered:?}");
+    assert_eq!(rendered[20], "\"grey85\"", "chrome probe = {rendered:?}");
+    assert_eq!(rendered[21], "\"grey85\"", "chrome probe = {rendered:?}");
+}
+
+#[test]
+fn gnu_startup_clears_terminal_frame_without_deselecting_opening_gui_frame() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let frame_id = bootstrap_runtime_gui_startup(&mut eval);
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(neovm_core::keyboard::InputEvent::CloseRequested)
+        .expect("queue close request");
+    drop(tx);
+    let mut wake_pipe = [0; 2];
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    assert_eq!(pipe_result, 0, "pipe should initialize");
+    eval.init_input_system(rx, wake_pipe[0]);
+    let result = eval.recursive_edit();
+    unsafe {
+        libc::close(wake_pipe[0]);
+        libc::close(wake_pipe[1]);
+    }
+    result.expect("close request should let recursive edit exit cleanly");
+
+    assert_eq!(
+        eval.frame_manager().selected_frame().map(|frame| frame.id),
+        Some(frame_id),
+        "GUI startup should keep the opening frame selected through the first recursive edit"
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("terminal-frame"),
+        Some(&Value::Nil),
+        "GUI startup should clear terminal-frame after the first recursive edit enters the command loop"
+    );
+}
+
+#[test]
+fn gnu_startup_set_face_attribute_returns_on_live_gui_frame() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(condition-case err
+                  (progn
+                    (set-face-attribute 'mode-line (selected-frame)
+                                        :background "grey75"
+                                        :foreground "black")
+                    (list
+                     (face-background 'mode-line nil t)
+                     (face-foreground 'mode-line nil t)))
+                (error (list 'error (error-message-string err))))"#,
+        ),
+        "(\"grey75\" \"black\")"
+    );
+}
+
+#[test]
+fn gnu_startup_face_set_after_frame_default_materializes_mode_line() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(condition-case err
+                  (progn
+                    (face-set-after-frame-default
+                     (selected-frame)
+                     (frame-parameters (selected-frame)))
+                    (list
+                     (face-background 'mode-line nil t)
+                     (face-foreground 'mode-line nil t)))
+                (error (list 'error (error-message-string err))))"#,
+        ),
+        "(\"grey75\" \"black\")"
+    );
+}
+
+#[test]
+fn gnu_startup_face_recalc_loop_materializes_gui_chrome_faces_progressively() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(let ((last :unset)
+                     changes
+                     errors)
+                 (dolist (face (nreverse (face-list)))
+                   (condition-case err
+                       (progn
+                         (face-spec-recalc face (selected-frame))
+                         (internal-merge-in-global-face face (selected-frame)))
+                     (error
+                      (push (list face (error-message-string err)) errors)))
+                   (let ((current (list (face-background 'mode-line nil t)
+                                        (face-foreground 'mode-line nil t)
+                                        (face-background 'mode-line-inactive nil t)
+                                        (face-background 'header-line nil t)
+                                        (face-background 'tab-bar nil t)
+                                        (face-background 'tab-line nil t))))
+                     (unless (equal current last)
+                       (push (list face current) changes)
+                       (setq last current))))
+                 (list (nreverse changes) (nreverse errors)))"#,
+        ),
+        "(((default (nil nil nil nil nil nil)) (mode-line (\"grey75\" \"black\" \"grey75\" \"grey75\" nil nil)) (mode-line-inactive (\"grey75\" \"black\" \"grey90\" \"grey75\" nil nil)) (header-line (\"grey75\" \"black\" \"grey90\" \"grey90\" nil nil)) (tab-bar (\"grey75\" \"black\" \"grey90\" \"grey90\" \"grey85\" nil)) (tab-line (\"grey75\" \"black\" \"grey90\" \"grey90\" \"grey85\" \"grey85\"))) nil)"
+    );
+}
+
+#[test]
+fn gnu_startup_face_spec_recalc_materializes_mode_line() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(condition-case err
+                  (progn
+                    (face-spec-recalc 'mode-line (selected-frame))
+                    (list
+                     (face-background 'mode-line nil t)
+                     (face-foreground 'mode-line nil t)))
+                (error (list 'error (error-message-string err))))"#
+        ),
+        "(\"grey75\" \"black\")"
+    );
+}
+
+#[test]
+fn gnu_startup_internal_merge_in_global_face_preserves_mode_line_after_recalc() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(condition-case err
+                  (progn
+                    (face-spec-recalc 'mode-line (selected-frame))
+                    (internal-merge-in-global-face 'mode-line (selected-frame))
+                    (list
+                     (face-background 'mode-line nil t)
+                     (face-foreground 'mode-line nil t)))
+                (error (list 'error (error-message-string err))))"#
+        ),
+        "(\"grey75\" \"black\")"
+    );
+}
+
+#[test]
+fn gnu_startup_face_background_getter_returns_on_live_gui_frame() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(condition-case err
+                  (face-background 'mode-line nil t)
+                (error (list 'error (error-message-string err))))"#
+        ),
+        "nil"
+    );
+}
+
+#[test]
+fn gnu_startup_internal_set_lisp_face_attribute_returns_on_live_gui_frame() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(condition-case err
+                  (progn
+                    (internal-set-lisp-face-attribute
+                     'mode-line :background "grey75" (selected-frame))
+                    (face-background 'mode-line nil t))
+                (error (list 'error (error-message-string err))))"#
+        ),
+        "\"grey75\""
+    );
+}
+
+#[test]
+fn gnu_startup_internal_set_lisp_face_attribute_without_getter_returns_on_live_gui_frame() {
+    assert_eq!(
+        eval_after_gnu_gui_startup(
+            r#"(condition-case err
+                  (progn
+                    (internal-set-lisp-face-attribute
+                     'mode-line :background "grey75" (selected-frame))
+                    'ok)
+                (error (list 'error (error-message-string err))))"#
+        ),
+        "ok"
+    );
 }

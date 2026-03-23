@@ -1854,6 +1854,9 @@ fn resolve_runtime_name(mgr: &CodingSystemManager, name: &str) -> Option<String>
 
     let eol = EolType::from_suffix(normalized)?;
     let base = strip_eol_suffix(normalized);
+    if !allows_derived_eol_variant(base) {
+        return None;
+    }
     let canonical_base = mgr.resolve(base)?;
     derive_coding_for_eol(canonical_base, eol.to_int()).map(|_| normalized.to_string())
 }

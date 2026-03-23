@@ -95,8 +95,16 @@ fn time_micros_sub() {
 
 #[test]
 fn time_micros_less_than() {
-    let a = TimeMicros { secs: 10, usecs: 0, psecs: 0 };
-    let b = TimeMicros { secs: 10, usecs: 1, psecs: 0 };
+    let a = TimeMicros {
+        secs: 10,
+        usecs: 0,
+        psecs: 0,
+    };
+    let b = TimeMicros {
+        secs: 10,
+        usecs: 1,
+        psecs: 0,
+    };
     assert!(a.less_than(b));
     assert!(!b.less_than(a));
     assert!(!a.less_than(a));

@@ -916,6 +916,19 @@ fn display_queries_default_to_selected_frame_window_system_surface() {
         Value::Int(16_777_216)
     );
     assert_eq!(
+        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_eval(
+            &eval,
+            vec![Value::Nil],
+        )
+        .unwrap(),
+        Value::True
+    );
+    assert_eq!(
+        crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_eval(&eval, vec![frame],)
+            .unwrap(),
+        Value::True
+    );
+    assert_eq!(
         builtin_display_planes_eval(&mut eval, vec![]).unwrap(),
         Value::Int(24)
     );
@@ -2657,11 +2670,19 @@ fn window_system_prefers_selected_frame_then_global_fallback() {
         builtin_window_system_eval(&mut eval, vec![]).unwrap(),
         Value::Nil
     );
+    assert!(
+        eval.frames.frame_list().is_empty(),
+        "window-system should not synthesize a frame when no frame exists"
+    );
 
     eval.set_variable("window-system", Value::symbol("tty"));
     assert_eq!(
         builtin_window_system_eval(&mut eval, vec![]).unwrap(),
         Value::symbol("tty")
+    );
+    assert!(
+        eval.frames.frame_list().is_empty(),
+        "window-system should use the global fallback without synthesizing a frame"
     );
 
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
@@ -2688,6 +2709,21 @@ fn window_system_prefers_selected_frame_then_global_fallback() {
         }
         other => panic!("expected wrong-type-argument, got {other:?}"),
     }
+}
+
+#[test]
+fn display_graphic_p_uses_global_window_system_without_live_frame() {
+    let mut eval = crate::emacs_core::Evaluator::new();
+    eval.set_variable("initial-window-system", Value::symbol("neo"));
+
+    assert_eq!(
+        builtin_display_graphic_p_eval(&mut eval, vec![]).unwrap(),
+        Value::True
+    );
+    assert!(
+        eval.frames.frame_list().is_empty(),
+        "display-graphic-p should not synthesize a frame when only the global backend is known"
+    );
 }
 
 #[test]

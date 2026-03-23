@@ -1661,3 +1661,11 @@ pub(crate) fn builtin_current_idle_time(args: Vec<Value>) -> EvalResult {
     // Batch mode does not track UI idle duration; Oracle returns nil here.
     Ok(Value::Nil)
 }
+
+pub(crate) fn builtin_current_idle_time_eval(
+    eval: &mut crate::emacs_core::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("current-idle-time", &args, 0)?;
+    Ok(eval.current_idle_time_value())
+}

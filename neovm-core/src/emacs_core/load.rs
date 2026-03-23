@@ -2399,10 +2399,11 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Evaluator, project_ro
             ]),
         ),
         ("face-filters-always-match", Value::Nil),
-        (
-            "face--new-frame-defaults",
-            Value::hash_table(HashTableTest::Eq),
-        ),
+        ("face--new-frame-defaults", {
+            let table = Value::hash_table(HashTableTest::Eq);
+            crate::emacs_core::font::seed_face_new_frame_defaults_table(table);
+            table
+        }),
         ("face-default-stipple", Value::string("gray3")),
         ("scalable-fonts-allowed", Value::Nil),
         ("face-ignored-fonts", Value::Nil),
@@ -2849,14 +2850,18 @@ fn restore_cached_runtime_window_system_surface(eval: &mut super::eval::Evaluato
         return;
     };
 
-    if eval.frames.selected_frame().is_none()
-        && let Some(frame_id) = eval.frames.frame_list().into_iter().next()
-    {
+    let frame_id = if let Some(frame_id) = eval.frames.selected_frame().map(|frame| frame.id) {
+        Some(frame_id)
+    } else if let Some(frame_id) = eval.frames.frame_list().into_iter().next() {
         let _ = eval.frames.select_frame(frame_id);
-    }
+        Some(frame_id)
+    } else {
+        None
+    };
 
-    let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
-    if let Some(frame) = eval.frames.get_mut(frame_id) {
+    if let Some(frame_id) = frame_id
+        && let Some(frame) = eval.frames.get_mut(frame_id)
+    {
         frame.set_window_system(Some(window_system));
         frame
             .parameters
@@ -3283,6 +3288,12 @@ fn install_bootstrap_x_window_system_vars(
     Ok(())
 }
 
+fn maybe_trace_bootstrap_step(message: impl AsRef<str>) {
+    if std::env::var_os("NEOVM_TRACE_BOOTSTRAP_STEPS").is_some() {
+        eprintln!("bootstrap-step: {}", message.as_ref());
+    }
+}
+
 pub fn create_bootstrap_evaluator() -> Result<super::eval::Evaluator, EvalError> {
     create_bootstrap_evaluator_with_features(&[])
 }
@@ -3299,16 +3310,24 @@ pub fn create_bootstrap_evaluator_with_features(
         lisp_dir.display()
     );
     stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
+        maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: enter");
         let mut eval = super::eval::Evaluator::new();
+        maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: evaluator-new");
         let bootstrap_features = normalized_bootstrap_features(extra_features);
         for feature in &bootstrap_features {
             let _ = eval.provide_value(Value::symbol(&feature), None);
         }
+        maybe_trace_bootstrap_step(format!(
+            "create_bootstrap_evaluator_with_features: provided-features={bootstrap_features:?}"
+        ));
         if bootstrap_features
             .iter()
             .any(|feature| feature == "x" || feature == "neomacs")
         {
             install_bootstrap_x_window_system_vars(&mut eval)?;
+            maybe_trace_bootstrap_step(
+                "create_bootstrap_evaluator_with_features: installed-x-window-system-vars",
+            );
         }
 
         // Set up load-path with lisp/ and its subdirectories.
@@ -3316,6 +3335,13 @@ pub fn create_bootstrap_evaluator_with_features(
             "load-path",
             Value::list(bootstrap_load_path_entries(&lisp_dir)),
         );
+        let bootstrap_frame_id = super::window_cmds::seed_batch_startup_frame_in_state(
+            &mut eval.frames,
+            &mut eval.buffers,
+        );
+        maybe_trace_bootstrap_step(format!(
+            "create_bootstrap_evaluator_with_features: seeded-batch-bootstrap-frame={bootstrap_frame_id:?}"
+        ));
         eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
         eval.set_variable("purify-flag", Value::Nil);
         eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
@@ -3386,6 +3412,11 @@ pub fn create_bootstrap_evaluator_with_features(
         let total_files = BOOTSTRAP_LOAD_SEQUENCE.len();
 
         for (file_idx, name) in BOOTSTRAP_LOAD_SEQUENCE.iter().enumerate() {
+            maybe_trace_bootstrap_step(format!(
+                "create_bootstrap_evaluator_with_features: loading-step[{}/{}]={name}",
+                file_idx + 1,
+                total_files
+            ));
             // Handle sentinel that enables eager expansion.
             if *name == "!enable-eager-expansion" {
                 eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
@@ -3571,6 +3602,7 @@ pub fn create_bootstrap_evaluator_with_features(
         // Modern Emacs (27+) defaults to lexical-binding: t for *scratch*
         // and interactive evaluation. Match this for oracle test parity.
         eval.set_lexical_binding(true);
+        let _ = eval.frames.delete_frame(bootstrap_frame_id);
         clear_runtime_loader_state(&mut eval);
 
         Ok(eval)

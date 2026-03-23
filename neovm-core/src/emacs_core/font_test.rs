@@ -2,6 +2,10 @@ use super::*;
 use crate::emacs_core::eval::{
     DisplayHost, FontResolveRequest, GuiFrameHostRequest, ResolvedFontMatch,
 };
+use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::face::{Color, FaceAttrValue};
+use crate::window::FRAME_ID_BASE;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -55,6 +59,16 @@ impl DisplayHost for CapturingFontAtDisplayHost {
         *self.last_request.borrow_mut() = Some(request);
         Ok(None)
     }
+}
+
+fn bootstrap_eval_all(src: &str) -> Vec<String> {
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let forms = parse_forms(src).expect("parse");
+    eval.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
 }
 
 #[test]
@@ -1120,7 +1134,11 @@ fn merge_face_attribute_height_relative_over_relative() {
 }
 
 #[test]
-fn face_list_returns_known_faces() {
+fn face_list_orders_default_last_and_includes_dynamic_faces() {
+    clear_font_cache_state();
+    builtin_internal_make_lisp_face(vec![Value::symbol("__neovm_face_list_dynamic")])
+        .expect("create dynamic face");
+
     let result = builtin_face_list(vec![]).unwrap();
     let faces = list_to_vec(&result).unwrap();
     let names: Vec<&str> = faces.iter().filter_map(|v| v.as_symbol_name()).collect();
@@ -1131,6 +1149,8 @@ fn face_list_returns_known_faces() {
     assert!(names.contains(&"tool-bar"));
     assert!(names.contains(&"tab-bar"));
     assert!(names.contains(&"tab-line"));
+    assert!(names.contains(&"__neovm_face_list_dynamic"));
+    assert_eq!(names.last().copied(), Some("default"));
 }
 
 #[test]
@@ -1293,6 +1313,106 @@ fn face_font_ignores_optional_arguments_for_known_face() {
 fn face_font_rejects_invalid_face() {
     let result = builtin_face_font(vec![Value::Int(1)]);
     assert!(result.is_err());
+}
+
+#[test]
+fn internal_get_lisp_face_attribute_eval_reads_live_face_table() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    eval.set_face_attribute(
+        "mode-line",
+        ":background",
+        FaceAttrValue::Color(Color::rgb(191, 191, 191)),
+    );
+
+    let value = builtin_internal_get_lisp_face_attribute_eval(
+        &mut eval,
+        vec![
+            Value::symbol("mode-line"),
+            Value::keyword(":background"),
+            Value::Nil,
+        ],
+    )
+    .expect("live face attribute");
+
+    assert_eq!(value, Value::string("grey75"));
+}
+
+#[test]
+fn internal_merge_in_global_face_eval_updates_live_face_table() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let face = Value::symbol("__neovm_internal_merge_global_face_eval");
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+
+    builtin_internal_make_lisp_face_eval(&mut eval, vec![face])
+        .expect("create dynamic face in live face table");
+    builtin_internal_set_lisp_face_attribute_eval(
+        &mut eval,
+        vec![
+            face,
+            Value::keyword(":background"),
+            Value::string("grey85"),
+            Value::True,
+        ],
+    )
+    .expect("set defaults background");
+    builtin_internal_merge_in_global_face_eval(&mut eval, vec![face, Value::Int(frame_id)])
+        .expect("merge defaults into selected live face");
+
+    let value = builtin_internal_get_lisp_face_attribute_eval(
+        &mut eval,
+        vec![face, Value::keyword(":background"), Value::Nil],
+    )
+    .expect("read merged live background");
+
+    assert_eq!(value, Value::string("grey85"));
+}
+
+#[test]
+fn internal_get_lisp_face_attribute_eval_prefers_explicit_lisp_face_values() {
+    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let face = Value::symbol("__neovm_internal_get_lisp_face_attribute_eval_prefers_lisp");
+
+    builtin_internal_make_lisp_face_eval(&mut eval, vec![face])
+        .expect("create dynamic face in live face table");
+    builtin_internal_set_lisp_face_attribute_eval(
+        &mut eval,
+        vec![
+            face,
+            Value::keyword(":foreground"),
+            Value::string("red"),
+            Value::Nil,
+        ],
+    )
+    .expect("set selected foreground");
+
+    let value = builtin_internal_get_lisp_face_attribute_eval(
+        &mut eval,
+        vec![face, Value::keyword(":foreground"), Value::Nil],
+    )
+    .expect("read selected foreground");
+
+    assert_eq!(value, Value::string("red"));
+}
+
+#[test]
+fn bootstrap_set_face_attribute_updates_live_mode_line_face() {
+    let rendered = bootstrap_eval_all(
+        r#"(list
+             (assq :background face-x-resources)
+             (progn
+               (set-face-attribute 'mode-line (selected-frame)
+                                   :background "grey75"
+                                   :foreground "black")
+               (face-background 'mode-line nil t))
+             (let* ((table (frame--face-hash-table (selected-frame)))
+                    (face (gethash 'mode-line table)))
+               (list (aref face 9) (aref face 10))))"#,
+    );
+
+    assert_eq!(
+        rendered,
+        vec!["OK ((:background (\".attributeBackground\" . \"Face.AttributeBackground\")) \"grey75\" (\"black\" \"grey75\"))".to_string()]
+    );
 }
 
 #[test]

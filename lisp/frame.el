@@ -2685,7 +2685,7 @@ that use a window system such as X, and false for text-only terminals.
 DISPLAY can be a display name, a frame, or nil (meaning the selected
 frame's display)."
   (not (null (memq (framep-on-display display) '(x w32 ns pgtk haiku
-                                                   android neomacs)))))
+                                                   android neo)))))
 
 (defun display-images-p (&optional display)
   "Return non-nil if DISPLAY can display images.

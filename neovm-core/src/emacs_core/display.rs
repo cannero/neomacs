@@ -358,7 +358,7 @@ pub fn gui_window_system_symbol() -> &'static str {
     "neo"
 }
 
-fn gui_window_system_active_value(value: Value) -> bool {
+pub(crate) fn gui_window_system_active_value(value: Value) -> bool {
     value == Value::symbol(gui_window_system_symbol()) || value == Value::symbol("x")
 }
 
@@ -376,13 +376,15 @@ pub(crate) fn x_window_system_active_in_state(
     host_window_system.is_some_and(gui_window_system_active_value)
 }
 
-fn display_window_system_symbol_eval(
+pub(crate) fn display_window_system_symbol_eval(
     eval: &mut super::eval::Evaluator,
     display: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match display {
-        None | Some(Value::Nil) => Ok(frame_window_system_symbol(eval, display)?
-            .or_else(|| global_window_system_symbol(eval))),
+        None | Some(Value::Nil) => {
+            Ok(selected_frame_window_system_symbol(eval)
+                .or_else(|| global_window_system_symbol(eval)))
+        }
         Some(display) if terminal_designator_p(display) => Ok(None),
         Some(display) if live_frame_designator_p(eval, display) => {
             frame_window_system_symbol(eval, Some(display))
@@ -413,7 +415,7 @@ fn frame_window_system_symbol_read_only_in_state(
     }
 }
 
-fn display_window_system_symbol_in_state(
+pub(crate) fn display_window_system_symbol_in_state(
     frames: &crate::window::FrameManager,
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
@@ -842,7 +844,8 @@ pub(crate) fn builtin_display_graphic_p_eval(
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-graphic-p", &args)?;
     Ok(Value::bool(
-        frame_window_system_symbol(eval, args.first())?.is_some_and(|value| value.is_symbol()),
+        display_window_system_symbol_eval(eval, args.first())?
+            .is_some_and(|value| value.is_symbol()),
     ))
 }
 
@@ -1048,9 +1051,19 @@ pub(crate) fn builtin_window_system_in_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("window-system", &args, 1)?;
-    if let Some(window_system) = frame_window_system_symbol_in_state(frames, buffers, args.first())?
-    {
-        return Ok(window_system);
+    match args.first() {
+        None | Some(Value::Nil) => {
+            if let Some(window_system) = selected_frame_window_system_symbol_in_state(frames) {
+                return Ok(window_system);
+            }
+        }
+        Some(_) => {
+            if let Some(window_system) =
+                frame_window_system_symbol_in_state(frames, buffers, args.first())?
+            {
+                return Ok(window_system);
+            }
+        }
     }
     Ok(
         dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system")

@@ -30,11 +30,7 @@ use neomacs_layout_engine::fontconfig::face_height_to_pixels;
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::display::gui_window_system_symbol;
-#[cfg(test)]
-use neovm_core::emacs_core::error::EvalError;
 use neovm_core::emacs_core::eval::{FontResolveRequest, GuiFrameHostSize, ResolvedFontMatch};
-#[cfg(test)]
-use neovm_core::emacs_core::intern::resolve_sym;
 #[cfg(test)]
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
@@ -162,7 +158,7 @@ const EARLY_HELP_BODY: &str = concat!(
     "Report bugs to https://github.com/eval-exec/neomacs-windows/issues.\n",
 );
 
-const BOOTSTRAP_CORE_FEATURES: &[&str] = &["neomacs", "x"];
+const BOOTSTRAP_CORE_FEATURES: &[&str] = &["neomacs"];
 
 fn classify_early_cli_action(args: impl IntoIterator<Item = String>) -> Option<EarlyCliAction> {
     let mut args = args.into_iter();
@@ -637,14 +633,6 @@ fn main() {
         .id;
     configure_gnu_startup_state(&mut evaluator, frame_id, &startup);
 
-    if startup.frontend == FrontendKind::Gui {
-        // Recalculate all face specs on the new GUI frame.
-        // The pdump was built with a TTY-like frame (no color), so defface
-        // specs fell through to (t :inverse-video t). Now that the frame has
-        // display-type=color, re-evaluate to get the correct graphical attrs.
-        recalc_faces_for_gui_frame(&mut evaluator);
-    }
-
     maybe_install_startup_phase_trace(&mut evaluator);
 
     // 4. Create communication channels before entering GNU's outer
@@ -1098,11 +1086,16 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup:
     );
     let (terminal_frame, frame_initial_frame, default_minibuffer_frame) = match startup.frontend {
         FrontendKind::Gui => {
+            let terminal_frame_id = ensure_gnu_startup_terminal_frame(eval, frame_id);
             let window_system = Value::symbol(gui_window_system_symbol());
             eval.set_variable("window-system", window_system);
             eval.set_variable("initial-window-system", window_system);
+            eval.set_variable(
+                "frame-initial-frame-alist",
+                opening_frame_initial_alist(eval, window_system),
+            );
             (
-                Value::Nil,
+                Value::Frame(terminal_frame_id.0),
                 Value::Frame(frame_id.0),
                 Value::Frame(frame_id.0),
             )
@@ -1128,92 +1121,186 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup:
     eval.set_variable("inhibit-startup-screen", Value::True);
 }
 
-/// Re-run GNU face initialization for the initial GUI frame.
-///
-/// During pdump bootstrap, faces are evaluated on a TTY-like frame
-/// (no color support), so GNU's frame-local face setup has to run again
-/// once we have a real GUI frame and its frame parameters.
-fn recalc_faces_for_gui_frame(eval: &mut Evaluator) {
-    let elisp = r#"
-(when (fboundp 'face-set-after-frame-default)
-  (face-set-after-frame-default
-   (selected-frame)
-   (frame-parameters (selected-frame))))
-"#;
-    eval.setup_thread_locals();
-    match neovm_core::emacs_core::parse_forms(elisp) {
-        Ok(forms) => {
-            for form in &forms {
-                let _ = eval.eval_expr(form);
-            }
-            tracing::info!("Recalculated face specs for GUI frame");
-        }
-        Err(e) => {
-            tracing::warn!("recalc_faces parse error: {:?}", e);
+fn ensure_gnu_startup_terminal_frame(eval: &mut Evaluator, opening_frame_id: FrameId) -> FrameId {
+    if let Some(existing) = eval
+        .frame_manager()
+        .frame_list()
+        .into_iter()
+        .find(|candidate| {
+            *candidate != opening_frame_id
+                && eval.frame_manager().get(*candidate).is_some_and(|frame| {
+                    !frame.visible && frame.effective_window_system().is_none()
+                })
+        })
+    {
+        return existing;
+    }
+
+    let seed_buffer_id = if let Some(id) = eval.buffer_manager().current_buffer_id() {
+        id
+    } else if let Some(id) = eval.buffer_manager().find_buffer_by_name("*scratch*") {
+        id
+    } else {
+        eval.buffer_manager_mut().create_buffer("*scratch*")
+    };
+    let (width, height, environment) = eval
+        .frame_manager()
+        .get(opening_frame_id)
+        .map(|frame| {
+            (
+                frame.width.max(1),
+                frame.height.max(1),
+                frame.parameters.get("environment").copied(),
+            )
+        })
+        .unwrap_or((80, 25, None));
+    let terminal_frame_id =
+        eval.frame_manager_mut()
+            .create_frame("Fstartup-tty", width, height, seed_buffer_id);
+    if let Some(frame) = eval.frame_manager_mut().get_mut(terminal_frame_id) {
+        frame.visible = false;
+        frame.set_window_system(None);
+        frame.parameters.remove("display-type");
+        frame.parameters.remove("background-mode");
+        if let Some(environment) = environment {
+            frame
+                .parameters
+                .insert("environment".to_string(), environment);
         }
     }
+    terminal_frame_id
+}
+
+fn opening_frame_initial_alist(eval: &Evaluator, window_system: Value) -> Value {
+    let mut params = vec![Value::cons(Value::symbol("window-system"), window_system)];
+    for symbol_name in ["initial-frame-alist", "default-frame-alist"] {
+        if let Some(value) = eval.obarray().symbol_value(symbol_name)
+            && let Some(items) = neovm_core::emacs_core::value::list_to_vec(value)
+        {
+            params.extend(items);
+        }
+    }
+    Value::list(params)
 }
 
 #[cfg(test)]
 fn run_gnu_startup(eval: &mut Evaluator) {
     eval.setup_thread_locals();
+    let _ = std::fs::write("/tmp/neomacs-startup-phases.trace", "");
+    maybe_install_startup_phase_trace(eval);
+    let exit_helper = neovm_core::emacs_core::parse_forms(
+        r#"
+        (progn
+          (defun neomacs--test-exit-startup-recursive-edit ()
+            (remove-hook 'window-setup-hook
+                         #'neomacs--test-exit-startup-recursive-edit)
+            (exit-recursive-edit))
+          (add-hook 'window-setup-hook
+                    #'neomacs--test-exit-startup-recursive-edit))
+        "#,
+    )
+    .expect("startup exit helper should parse");
+    eval.eval_expr(&exit_helper[0])
+        .expect("startup exit helper should install");
     let top_level = eval.obarray().symbol_value("top-level").cloned();
     tracing::info!("top-level variable before startup: {:?}", top_level);
-    let forms =
-        neovm_core::emacs_core::parse_forms("(eval top-level)").expect("top-level form parses");
-    let result = match eval.eval_expr(&forms[0]) {
-        Ok(value) => value,
-        Err(EvalError::Signal { symbol, data }) => {
-            let decoded = data
-                .iter()
-                .map(|value| print_value_with_eval(eval, value))
-                .collect::<Vec<_>>();
-            let last_phase = eval
-                .obarray()
-                .symbol_value("neomacs--startup-last-phase")
-                .cloned()
-                .map(|value| print_value_with_eval(eval, &value));
-            tracing::warn!(
-                "GNU top-level startup signaled: {} {:?} last-phase={:?} (continuing anyway)",
-                resolve_sym(symbol),
-                decoded,
-                last_phase
-            );
-            Value::Nil
-        }
-        Err(other) => {
-            tracing::warn!("GNU top-level startup error: {other:?} (continuing anyway)");
-            Value::Nil
-        }
-    };
-    tracing::info!("top-level startup returned: {:?}", result);
+
+    let (_tx, rx) = crossbeam_channel::unbounded();
+
+    let mut wake_pipe = [0; 2];
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    assert_eq!(pipe_result, 0, "pipe should initialize");
+    eval.init_input_system(rx, wake_pipe[0]);
+
+    let result = eval.recursive_edit();
+    unsafe {
+        libc::close(wake_pipe[0]);
+        libc::close(wake_pipe[1]);
+    }
+
+    if let Err(other) = result {
+        let last_phase = eval
+            .obarray()
+            .symbol_value("neomacs--startup-last-phase")
+            .cloned()
+            .map(|value| print_value_with_eval(eval, &value));
+        let last_call = eval
+            .obarray()
+            .symbol_value("neomacs--startup-last-call")
+            .cloned()
+            .map(|value| print_value_with_eval(eval, &value));
+        panic!(
+            "GNU startup via recursive_edit failed: {other} last-phase={last_phase:?} last-call={last_call:?}"
+        );
+    }
 }
 
 fn maybe_install_startup_phase_trace(eval: &mut Evaluator) {
-    if std::env::var("NEOMACS_TRACE_STARTUP_PHASES").unwrap_or_default() != "1" {
+    if !cfg!(test) && std::env::var("NEOMACS_TRACE_STARTUP_PHASES").unwrap_or_default() != "1" {
         return;
     }
     let source = r#"
         (progn
           (defvar neomacs--startup-last-phase nil)
+          (defvar neomacs--startup-last-call nil)
+          (with-temp-buffer
+            (write-region (point-min) (point-max)
+                          "/tmp/neomacs-startup-phases.trace" nil 'silent))
           (defun neomacs--startup-trace-around (name orig &rest args)
             (setq neomacs--startup-last-phase name)
-            (apply orig args))
+            (setq neomacs--startup-last-call (cons name args))
+            (with-temp-buffer
+              (insert (format "enter %S %S\n" name args))
+              (append-to-file (point-min) (point-max)
+                              "/tmp/neomacs-startup-phases.trace"))
+            (prog1
+                (apply orig args)
+              (with-temp-buffer
+                (insert (format "leave %S\n" name))
+                (append-to-file (point-min) (point-max)
+                                "/tmp/neomacs-startup-phases.trace"))))
           (dolist (fn '(set-locale-environment
+                        handle-args-function
+                        window-system-initialization
                         command-line
                         frame-initialize
                         display-graphic-p
+                        face-spec-recalc
+                        face-spec-choose
+                        face-background
+                        face-attribute
+                        internal-get-lisp-face-attribute
+                        internal-merge-in-global-face
                         tab-bar-height
                         tool-bar-height
                         tab-bar-mode
                         tool-bar-mode
+                        minibuffer-frame-list
+                        delete-frame
                         frame-parameters
                         frame-parameter
                         modify-frame-parameters
                         make-frame
                         frame-set-background-mode
+                        coding-system-type
+                        coding-system-get
+                        coding-system-change-eol-conversion
+                        set-keyboard-coding-system
+                        set-keyboard-coding-system-internal
+                        set-terminal-coding-system
+                        set-terminal-coding-system-internal
                         startup--setup-quote-display
                         frame-notice-user-settings
+                        frame-focus-state
+                        blink-cursor--should-blink
+                        blink-cursor-check
+                        blink-cursor-suspend
+                        sit-for
+                        read-event
+                        frame-list
+                        frame-selected-window
+                        frame-visible-p
+                        window-minibuffer-p
                         tty-run-terminal-initialization
                         face-set-after-frame-default))
             (when (fboundp fn)

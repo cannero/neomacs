@@ -9,6 +9,7 @@
 
 use crate::buffer::BufferId;
 use crate::emacs_core::value::{Value, eq_value};
+use crate::face::Face as RuntimeFace;
 use crate::gc::GcTrace;
 use std::collections::{HashMap, HashSet};
 
@@ -634,6 +635,9 @@ pub struct Frame {
     pub char_height: f32,
     /// Authoritative last-redisplay geometry keyed by live leaf window.
     pub display_snapshots: HashMap<WindowId, WindowDisplaySnapshot>,
+    /// Per-frame realized Lisp faces, mirroring GNU's `frame->face_hash_table`
+    /// ownership instead of exposing the global runtime face registry.
+    pub realized_faces: HashMap<String, RuntimeFace>,
 }
 
 impl Frame {
@@ -679,6 +683,7 @@ impl Frame {
             char_width: 8.0,
             char_height: 16.0,
             display_snapshots: HashMap::new(),
+            realized_faces: HashMap::new(),
         }
     }
 
@@ -733,6 +738,18 @@ impl Frame {
 
     pub fn frame_parameter_int(&self, key: &str) -> Option<i64> {
         self.parameters.get(key).and_then(Value::as_int)
+    }
+
+    pub fn realized_face(&self, name: &str) -> Option<&RuntimeFace> {
+        self.realized_faces.get(name)
+    }
+
+    pub fn set_realized_face(&mut self, name: String, face: RuntimeFace) {
+        self.realized_faces.insert(name, face);
+    }
+
+    pub fn clear_realized_faces(&mut self) {
+        self.realized_faces.clear();
     }
 
     fn chrome_top_height(&self) -> f32 {
@@ -950,16 +967,7 @@ impl FrameManager {
         let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
         let root = Window::new_leaf(window_id, buffer_id, bounds);
 
-        let mut frame = Frame::new(frame_id, name.to_string(), width, height, root);
-        // Set default display capabilities for neomacs GUI frames.
-        // Needed by faces.el's face-spec-set-match-display to match
-        // (class color) and (background light) conditions in defface specs.
-        frame
-            .parameters
-            .insert("display-type".to_string(), Value::symbol("color"));
-        frame
-            .parameters
-            .insert("background-mode".to_string(), Value::symbol("light"));
+        let frame = Frame::new(frame_id, name.to_string(), width, height, root);
         let selected_wid = frame.selected_window;
         self.frames.insert(frame_id, frame);
         self.note_window_selected(selected_wid);

@@ -605,13 +605,30 @@ pub(crate) fn ensure_selected_frame_id_in_state(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
 ) -> FrameId {
+    ensure_selected_frame_id_in_state_with_policy(frames, buffers, true)
+}
+
+pub(crate) fn seed_batch_startup_frame_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+) -> FrameId {
+    ensure_selected_frame_id_in_state_with_policy(frames, buffers, false)
+}
+
+fn ensure_selected_frame_id_in_state_with_policy(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    warn_on_create: bool,
+) -> FrameId {
     if let Some(fid) = frames.selected_frame().map(|f| f.id) {
         return fid;
     }
 
-    tracing::warn!(
-        "ensure_selected_frame_id_in_state: no selected frame present; synthesizing fallback batch-style frame"
-    );
+    if warn_on_create {
+        tracing::warn!(
+            "ensure_selected_frame_id_in_state: no selected frame present; synthesizing fallback batch-style frame"
+        );
+    }
 
     let buf_id = buffers
         .current_buffer()

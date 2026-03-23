@@ -2423,10 +2423,7 @@ impl<'a> Vm<'a> {
                 ));
             }
         };
-        let resolved = resolve_variable_alias_id_in_obarray(
-            &*self.shared.obarray,
-            symbol,
-        )?;
+        let resolved = resolve_variable_alias_id_in_obarray(&*self.shared.obarray, symbol)?;
         let resolved_name = resolve_sym(resolved);
         if self.shared.obarray.is_constant_id(resolved) {
             return Err(signal("setting-constant", vec![args[0]]));
@@ -4705,9 +4702,15 @@ impl<'a> Vm<'a> {
             "current-cpu-time" => {
                 Some(crate::emacs_core::builtins::builtin_current_cpu_time(args.to_vec()))
             }
-            "current-idle-time" => {
-                Some(crate::emacs_core::builtins::builtin_current_idle_time(args.to_vec()))
-            }
+            "current-idle-time" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::builtins::builtin_current_idle_time_eval(eval, args.to_vec())
+            })),
+            "handler-bind-1" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::builtins::symbols::builtin_handler_bind_1_eval(
+                    eval,
+                    args.to_vec(),
+                )
+            })),
             "get-internal-run-time" => Some(
                 crate::emacs_core::builtins::builtin_get_internal_run_time(args.to_vec()),
             ),
@@ -6327,12 +6330,14 @@ impl<'a> Vm<'a> {
                     )
                 }))
             }
-            "internal-get-lisp-face-attribute" => Some(
-                crate::emacs_core::font::builtin_internal_get_lisp_face_attribute_in_state(
-                    &*self.shared.frames,
-                    args.to_vec(),
-                ),
-            ),
+            "internal-get-lisp-face-attribute" => {
+                Some(self.shared.with_parent_evaluator(|eval| {
+                    crate::emacs_core::font::builtin_internal_get_lisp_face_attribute_eval(
+                        eval,
+                        args.to_vec(),
+                    )
+                }))
+            }
             "internal-lisp-face-attribute-values" => Some(
                 crate::emacs_core::font::builtin_internal_lisp_face_attribute_values(
                     args.to_vec(),
@@ -6697,12 +6702,12 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
-            "internal-merge-in-global-face" => Some(
-                crate::emacs_core::font::builtin_internal_merge_in_global_face_in_state(
-                    &*self.shared.frames,
+            "internal-merge-in-global-face" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::font::builtin_internal_merge_in_global_face_eval(
+                    eval,
                     args.to_vec(),
-                ),
-            ),
+                )
+            })),
             "internal-set-alternative-font-registry-alist" => Some(
                 crate::emacs_core::font::builtin_internal_set_alternative_font_registry_alist(
                     args.to_vec(),
@@ -7826,9 +7831,12 @@ impl<'a> Vm<'a> {
             "frame-ancestor-p" => Some(
                 crate::emacs_core::builtins::builtin_frame_ancestor_p(args.to_vec()),
             ),
-            "frame--face-hash-table" => Some(
-                crate::emacs_core::builtins::builtin_frame_face_hash_table(args.to_vec()),
-            ),
+            "frame--face-hash-table" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::xfaces::builtin_frame_face_hash_table_eval(
+                    eval,
+                    args.to_vec(),
+                )
+            })),
             "frame--set-was-invisible" => Some(
                 crate::emacs_core::builtins::builtin_frame_set_was_invisible(args.to_vec()),
             ),
@@ -8495,18 +8503,6 @@ impl<'a> Vm<'a> {
                 &*self.shared.coding_systems,
                 args.to_vec(),
             )),
-            "coding-system-change-eol-conversion" => Some(
-                crate::emacs_core::coding::builtin_coding_system_change_eol_conversion(
-                    &*self.shared.coding_systems,
-                    args.to_vec(),
-                ),
-            ),
-            "coding-system-change-text-conversion" => Some(
-                crate::emacs_core::coding::builtin_coding_system_change_text_conversion(
-                    &*self.shared.coding_systems,
-                    args.to_vec(),
-                ),
-            ),
             "coding-system-p" => Some(crate::emacs_core::coding::builtin_coding_system_p(
                 &*self.shared.coding_systems,
                 args.to_vec(),
@@ -8519,6 +8515,18 @@ impl<'a> Vm<'a> {
             ),
             "check-coding-systems-region" => Some(
                 crate::emacs_core::coding::builtin_check_coding_systems_region(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "coding-system-change-eol-conversion" => Some(
+                crate::emacs_core::coding::builtin_coding_system_change_eol_conversion(
+                    &*self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
+            "coding-system-change-text-conversion" => Some(
+                crate::emacs_core::coding::builtin_coding_system_change_text_conversion(
                     &*self.shared.coding_systems,
                     args.to_vec(),
                 ),
@@ -8565,6 +8573,12 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "set-keyboard-coding-system-internal" => Some(
+                crate::emacs_core::coding::builtin_set_keyboard_coding_system_internal(
+                    self.shared.coding_systems,
+                    args.to_vec(),
+                ),
+            ),
             "set-keyboard-coding-system" => Some(
                 crate::emacs_core::coding::builtin_set_keyboard_coding_system(
                     self.shared.coding_systems,
@@ -8573,12 +8587,6 @@ impl<'a> Vm<'a> {
             ),
             "set-terminal-coding-system" => Some(
                 crate::emacs_core::coding::builtin_set_terminal_coding_system(
-                    self.shared.coding_systems,
-                    args.to_vec(),
-                ),
-            ),
-            "set-keyboard-coding-system-internal" => Some(
-                crate::emacs_core::coding::builtin_set_keyboard_coding_system_internal(
                     self.shared.coding_systems,
                     args.to_vec(),
                 ),

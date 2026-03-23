@@ -159,11 +159,19 @@ impl TimeMicros {
 fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
     match val {
         Value::Nil => Ok(TimeMicros::now()),
-        Value::Int(n) => Ok(TimeMicros { secs: *n, usecs: 0, psecs: 0 }),
+        Value::Int(n) => Ok(TimeMicros {
+            secs: *n,
+            usecs: 0,
+            psecs: 0,
+        }),
         Value::Float(f, _) => {
             let secs = f.floor() as i64;
             let usecs = ((f - f.floor()) * 1_000_000.0).round() as i64;
-            Ok(TimeMicros { secs, usecs, psecs: 0 })
+            Ok(TimeMicros {
+                secs,
+                usecs,
+                psecs: 0,
+            })
         }
         Value::Cons(_) => {
             let items = list_to_vec(val)
@@ -197,7 +205,11 @@ fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
                 0
             };
             let secs = high * 65536 + low;
-            Ok(TimeMicros { secs, usecs: usec, psecs: psec })
+            Ok(TimeMicros {
+                secs,
+                usecs: usec,
+                psecs: psec,
+            })
         }
         other => Err(signal(
             "wrong-type-argument",
