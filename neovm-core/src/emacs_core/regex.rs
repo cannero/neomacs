@@ -421,6 +421,7 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                     '{' => {
                         let interval_start = i + 1 + next_len;
                         let mut scan = interval_start;
+                        let mut closed_interval = false;
                         while scan < len {
                             if bytes[scan] == b'\\' && scan + 1 < len && bytes[scan + 1] == b'}' {
                                 let interval = &pattern[interval_start..scan];
@@ -434,9 +435,13 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                                 }
                                 out.push('}');
                                 i = scan + 2;
-                                continue;
+                                closed_interval = true;
+                                break;
                             }
                             scan += 1;
+                        }
+                        if closed_interval {
+                            continue;
                         }
                         out.push('{');
                         i += 1 + next_len;
@@ -625,24 +630,13 @@ pub fn translate_emacs_regex(pattern: &str) -> String {
                         i += 1 + next_len;
                     }
                     // Known escape sequences — pass through
-                    'w' | 'W' | 'b' | 'B' | 'd' | 'D' | 'n' | 't' | 'r' | '`' | '\'' => {
-                        match next {
-                            // \` (beginning of buffer) and \' (end of buffer) → \A and \z
-                            '`' => {
-                                out.push_str("\\A");
-                                i += 1 + next_len;
-                            }
-                            '\'' => {
-                                out.push_str("\\z");
-                                i += 1 + next_len;
-                            }
-                            _ => {
-                                out.push('\\');
-                                out.push(next);
-                                i += 1 + next_len;
-                            }
+                    'w' | 'W' | 'b' | 'B' | 'd' | 'D' | 'n' | 't' | 'r' => match next {
+                        _ => {
+                            out.push('\\');
+                            out.push(next);
+                            i += 1 + next_len;
                         }
-                    }
+                    },
                     // Literal backslash
                     '\\' => {
                         out.push_str("\\\\");
