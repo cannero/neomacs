@@ -373,8 +373,10 @@ impl FontMetricsService {
             FontSlant::Normal
         };
         if ch.is_ascii() {
+            let resolved_family =
+                self.resolve_family(crate::fontconfig::resolve_family(family), None);
             return ResolvedCharFont {
-                family: family.to_string(),
+                family: resolved_family,
                 weight,
                 slant: requested_slant,
             };
@@ -1439,6 +1441,16 @@ mod tests {
             .select_font_for_char('好', "Noto Sans Mono", 400, false, 24.0)
             .expect("selected font for fallback char");
         assert_eq!(selected.family, resolved.family);
+    }
+
+    #[test]
+    fn select_font_for_char_resolves_generic_ascii_family() {
+        let mut svc = make_svc();
+        let expected = crate::fontconfig::resolve_family("Monospace").to_string();
+        let selected = svc
+            .select_font_for_char('A', "Monospace", 400, false, 24.0)
+            .expect("selected font for ascii char");
+        assert_eq!(selected.family, expected);
     }
 
     #[test]
