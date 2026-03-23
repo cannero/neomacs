@@ -2833,7 +2833,7 @@ impl Evaluator {
         // sub-expression including primitive calls (get, fboundp, etc.), so
         // the same Elisp code uses ~5x more depth units. Use 10000 to match
         // effective GNU depth capacity.
-        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(10000));
+        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(1600));
         obarray.set_symbol_value("max-specpdl-size", Value::Int(1800));
         obarray.set_symbol_value("inhibit-load-charset-map", Value::Nil);
 
@@ -3309,7 +3309,7 @@ impl Evaluator {
             face_table: FaceTable::new(),
             face_change_count: 0,
             depth: 0,
-            max_depth: 10000, // Matches GNU Emacs default (max-lisp-eval-depth)
+            max_depth: 1600, // Matches GNU Emacs default (max-lisp-eval-depth)
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
@@ -3420,7 +3420,7 @@ impl Evaluator {
             face_table,
             face_change_count: 0,
             depth: 0,
-            max_depth: 10000,
+            max_depth: 1600,
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
@@ -5220,7 +5220,14 @@ impl Evaluator {
     // -----------------------------------------------------------------------
 
     pub(crate) fn eval(&mut self, expr: &Expr) -> EvalResult {
-        self.depth += 1;
+        // GNU Emacs only increments lisp_eval_depth for actual form evaluation
+        // (lists = function calls / special forms), not for atoms (int, string,
+        // symbol, etc.). This matches eval_sub in eval.c which increments before
+        // the switch on form type, but atoms return immediately without recursing.
+        let is_form = matches!(expr, Expr::List(_) | Expr::DottedList(_, _));
+        if is_form {
+            self.depth += 1;
+        }
         // Sync max_depth from max-lisp-eval-depth variable only when we're
         // near the limit (avoids obarray lookup on every eval call).
         if self.depth > self.max_depth {
@@ -5249,7 +5256,9 @@ impl Evaluator {
         let result = stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
             self.eval_inner(expr)
         });
-        self.depth -= 1;
+        if is_form {
+            self.depth -= 1;
+        }
         result
     }
 
