@@ -8,6 +8,7 @@
 use crate::emacs_core::error::{EvalResult, signal};
 use crate::emacs_core::symbol::Obarray;
 use crate::emacs_core::value::{HashKey, HashTableTest, Value, with_heap_mut};
+use crate::face::Face as RuntimeFace;
 
 /// Register bootstrap variables owned by the face subsystem.
 pub fn register_bootstrap_vars(obarray: &mut Obarray) {
@@ -37,42 +38,43 @@ pub(crate) fn builtin_frame_face_hash_table_eval(
         "frame-live-p",
     )?;
 
-    let table = Value::hash_table(HashTableTest::Eq);
-    let Value::HashTable(table_id) = table else {
-        unreachable!("hash table constructor must return a hash table");
-    };
-
-    let face_entries: Vec<(Value, Value)> = eval
+    Ok(eval
         .frames
         .get(frame_id)
-        .into_iter()
-        .flat_map(|frame| frame.realized_faces.iter())
-        .into_iter()
-        .map(|(name, face)| {
-            (
-                Value::symbol(name.as_str()),
-                crate::emacs_core::font::runtime_face_to_lisp_vector(face),
-            )
-        })
-        .collect();
+        .map(|frame| frame.face_hash_table())
+        .unwrap_or(Value::hash_table(HashTableTest::Eq)))
+}
 
+pub(crate) fn mirror_runtime_face_into_frame(
+    frame: &mut crate::window::Frame,
+    face_name: &str,
+    face: &RuntimeFace,
+) {
+    frame.set_realized_face(face_name.to_string(), face.clone());
+    upsert_frame_face_hash_entry(
+        frame.face_hash_table(),
+        Value::symbol(face_name),
+        crate::emacs_core::font::runtime_face_to_lisp_vector(face),
+    );
+}
+
+fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {
+    let Value::HashTable(table_id) = table else {
+        unreachable!("frame face hash table must be a hash table");
+    };
     with_heap_mut(|heap| {
         let hash_table = heap.get_hash_table_mut(table_id);
-        for (key, value) in face_entries {
-            let hash_key = match key {
-                Value::Symbol(id) => HashKey::Symbol(id),
-                Value::Keyword(id) => HashKey::Keyword(id),
-                _ => unreachable!("face hash keys are symbols"),
-            };
-            if !hash_table.data.contains_key(&hash_key) {
-                hash_table.insertion_order.push(hash_key.clone());
-            }
-            hash_table.key_snapshots.insert(hash_key.clone(), key);
-            hash_table.data.insert(hash_key, value);
+        let hash_key = match key {
+            Value::Symbol(id) => HashKey::Symbol(id),
+            Value::Keyword(id) => HashKey::Keyword(id),
+            _ => unreachable!("face hash keys are symbols"),
+        };
+        if !hash_table.data.contains_key(&hash_key) {
+            hash_table.insertion_order.push(hash_key.clone());
         }
+        hash_table.key_snapshots.insert(hash_key.clone(), key);
+        hash_table.data.insert(hash_key, value);
     });
-
-    Ok(table)
 }
 
 #[cfg(test)]
@@ -123,5 +125,15 @@ mod tests {
         };
         let len = with_heap(|heap| heap.get_hash_table(id).data.len());
         assert_eq!(len, 0);
+    }
+
+    #[test]
+    fn frame_face_hash_table_eval_returns_stable_frame_owned_table() {
+        let mut eval = crate::emacs_core::eval::Evaluator::new();
+        let first = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
+            .expect("first face hash table");
+        let second = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
+            .expect("second face hash table");
+        assert_eq!(first, second);
     }
 }

@@ -1416,6 +1416,17 @@ fn bootstrap_set_face_attribute_updates_live_mode_line_face() {
 }
 
 #[test]
+fn bootstrap_frame_face_hash_table_is_frame_owned_object() {
+    let rendered = bootstrap_eval_all(
+        r#"(let ((a (frame--face-hash-table (selected-frame)))
+                 (b (frame--face-hash-table (selected-frame))))
+             (eq a b))"#,
+    );
+
+    assert_eq!(rendered, vec!["OK t".to_string()]);
+}
+
+#[test]
 fn internal_face_x_get_resource_returns_nil_for_string_args() {
     let result = builtin_internal_face_x_get_resource(vec![
         Value::string("font"),

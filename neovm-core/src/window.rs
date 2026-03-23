@@ -8,7 +8,7 @@
 //! - The **minibuffer window** is a special single-line window at the bottom.
 
 use crate::buffer::BufferId;
-use crate::emacs_core::value::{Value, eq_value};
+use crate::emacs_core::value::{HashTableTest, Value, eq_value, with_heap_mut};
 use crate::face::Face as RuntimeFace;
 use crate::gc::GcTrace;
 use std::collections::{HashMap, HashSet};
@@ -635,8 +635,10 @@ pub struct Frame {
     pub char_height: f32,
     /// Authoritative last-redisplay geometry keyed by live leaf window.
     pub display_snapshots: HashMap<WindowId, WindowDisplaySnapshot>,
+    /// Real frame-local Lisp face hash table, mirroring GNU `frame->face_hash_table`.
+    pub face_hash_table: Value,
     /// Per-frame realized Lisp faces, mirroring GNU's `frame->face_hash_table`
-    /// ownership instead of exposing the global runtime face registry.
+    /// runtime surface for renderer-facing consumers.
     pub realized_faces: HashMap<String, RuntimeFace>,
 }
 
@@ -683,6 +685,7 @@ impl Frame {
             char_width: 8.0,
             char_height: 16.0,
             display_snapshots: HashMap::new(),
+            face_hash_table: Value::hash_table(HashTableTest::Eq),
             realized_faces: HashMap::new(),
         }
     }
@@ -744,12 +747,24 @@ impl Frame {
         self.realized_faces.get(name)
     }
 
+    pub fn face_hash_table(&self) -> Value {
+        self.face_hash_table
+    }
+
     pub fn set_realized_face(&mut self, name: String, face: RuntimeFace) {
         self.realized_faces.insert(name, face);
     }
 
     pub fn clear_realized_faces(&mut self) {
         self.realized_faces.clear();
+        if let Value::HashTable(table_id) = self.face_hash_table {
+            with_heap_mut(|heap| {
+                let table = heap.get_hash_table_mut(table_id);
+                table.data.clear();
+                table.key_snapshots.clear();
+                table.insertion_order.clear();
+            });
+        }
     }
 
     fn chrome_top_height(&self) -> f32 {
@@ -1811,6 +1826,7 @@ impl GcTrace for FrameManager {
             for v in frame.parameters.values() {
                 roots.push(*v);
             }
+            roots.push(frame.face_hash_table);
             trace_window(&frame.root_window, roots);
             if let Some(mb) = &frame.minibuffer_leaf {
                 trace_window(mb, roots);

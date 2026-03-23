@@ -164,7 +164,7 @@ fn mirror_runtime_face_into_frame(
         return;
     };
     if let Some(frame) = eval.frames.get_mut(frame_id) {
-        frame.set_realized_face(face_name.to_string(), face);
+        crate::emacs_core::xfaces::mirror_runtime_face_into_frame(frame, face_name, &face);
     }
 }
 
