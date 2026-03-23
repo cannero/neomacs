@@ -1409,7 +1409,7 @@ fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
 /// in emacs.c main() which adjusts RLIMIT_STACK.
 #[cfg(unix)]
 fn increase_stack_limit() {
-    const TARGET_STACK_MB: u64 = 64;
+    const TARGET_STACK_MB: u64 = 128;
     let target = TARGET_STACK_MB * 1024 * 1024;
     unsafe {
         let mut rlim = std::mem::MaybeUninit::<libc::rlimit>::uninit();
