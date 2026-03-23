@@ -927,6 +927,7 @@ pub(crate) fn dispatch_builtin(
         "handler-bind-1" => return Some(builtin_handler_bind_1_eval(eval, args)),
         "symbol-value" => return Some(builtin_symbol_value(eval, args)),
         "symbol-function" => return Some(builtin_symbol_function(eval, args)),
+        "function-get" => return Some(builtin_function_get(eval, args)),
         "set" => return Some(builtin_set(eval, args)),
         "fset" => return Some(builtin_fset(eval, args)),
         "makunbound" => return Some(builtin_makunbound(eval, args)),

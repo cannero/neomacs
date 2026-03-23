@@ -672,6 +672,76 @@ pub(crate) fn builtin_symbol_function_in_obarray(
     Ok(symbol_function_cell_in_obarray(obarray, symbol).unwrap_or(Value::Nil))
 }
 
+/// `(function-get F PROP &optional AUTOLOAD)` — Rust implementation
+/// matching subr.el. Avoids excessive eval depth by not going through
+/// the Elisp evaluator for get/fboundp/symbol-function calls.
+pub(crate) fn builtin_function_get(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_min_args("function-get", &args, 2)?;
+    expect_max_args("function-get", &args, 3)?;
+    let prop = args[1];
+    let autoload = args.get(2).copied().unwrap_or(Value::Nil);
+    let prop_id = match &prop {
+        Value::Symbol(id) | Value::Keyword(id) => *id,
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), prop],
+            ));
+        }
+    };
+    let mut f = args[0];
+    let mut val = Value::Nil;
+    let mut iterations = 0;
+    while let Value::Symbol(sym_id) = f {
+        // Check property
+        if let Some(v) = eval.obarray.get_property_id(sym_id, prop_id) {
+            val = *v;
+            break;
+        }
+        // Check fboundp
+        if eval.obarray.symbol_function_id(sym_id).is_none()
+            && !super::super::builtin_registry::is_dispatch_builtin_name(resolve_sym(sym_id))
+        {
+            break;
+        }
+        let fundef =
+            builtin_symbol_function_in_obarray(eval.obarray(), vec![f]).unwrap_or(Value::Nil);
+        if fundef.is_nil() {
+            break;
+        }
+        // Handle autoloads
+        if autoload.is_truthy() && super::super::autoload::is_autoload_value(&fundef) {
+            let loaded = super::super::autoload::builtin_autoload_do_load(
+                eval,
+                vec![
+                    fundef,
+                    f,
+                    if autoload.is_symbol_named("macro") {
+                        Value::symbol("macro")
+                    } else {
+                        Value::Nil
+                    },
+                ],
+            );
+            if let Ok(new_def) = loaded {
+                if new_def != fundef {
+                    continue; // Re-try get on same f
+                }
+            }
+        }
+        f = fundef;
+        iterations += 1;
+        if iterations > 100 {
+            // Prevent infinite loops from cyclic function aliases
+            break;
+        }
+    }
+    Ok(val)
+}
+
 pub(crate) fn builtin_func_arity_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,

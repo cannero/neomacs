@@ -5985,6 +5985,35 @@ impl<'a> Vm<'a> {
                     args.to_vec(),
                 ),
             ),
+            "function-get" => {
+                // Rust implementation matching subr.el function-get.
+                // Follows symbol-function chain without deep eval recursion.
+                use crate::emacs_core::intern::{intern, resolve_sym};
+                use crate::emacs_core::value::Value;
+                let f_arg = args.first().copied().unwrap_or(Value::Nil);
+                let prop = args.get(1).copied().unwrap_or(Value::Nil);
+                let prop_id = match &prop {
+                    Value::Symbol(id) | Value::Keyword(id) => *id,
+                    _ => return Some(Ok(Value::Nil)),
+                };
+                let mut f = f_arg;
+                let mut val = Value::Nil;
+                let mut iters = 0u32;
+                while let Value::Symbol(sym_id) = f {
+                    if let Some(v) = self.shared.obarray.get_property_id(sym_id, prop_id) {
+                        val = *v;
+                        break;
+                    }
+                    let fundef = self.shared.obarray.symbol_function_id(sym_id)
+                        .copied()
+                        .unwrap_or(Value::Nil);
+                    if fundef.is_nil() { break; }
+                    f = fundef;
+                    iters += 1;
+                    if iters > 100 { break; } // cycle guard
+                }
+                Some(Ok(val))
+            }
             "symbol-plist" => Some(
                 crate::emacs_core::builtins::symbols::builtin_symbol_plist_in_obarray(
                     &*self.shared.obarray,
