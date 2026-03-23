@@ -2833,7 +2833,7 @@ impl Evaluator {
         // sub-expression including primitive calls (get, fboundp, etc.), so
         // the same Elisp code uses ~5x more depth units. Use 10000 to match
         // effective GNU depth capacity.
-        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(8000));
+        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(2400));
         obarray.set_symbol_value("max-specpdl-size", Value::Int(1800));
         obarray.set_symbol_value("inhibit-load-charset-map", Value::Nil);
 
@@ -3309,7 +3309,7 @@ impl Evaluator {
             face_table: FaceTable::new(),
             face_change_count: 0,
             depth: 0,
-            max_depth: 8000, // Matches GNU Emacs default (max-lisp-eval-depth)
+            max_depth: 2400, // Matches GNU Emacs default (max-lisp-eval-depth)
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
@@ -3420,7 +3420,7 @@ impl Evaluator {
             face_table,
             face_change_count: 0,
             depth: 0,
-            max_depth: 8000,
+            max_depth: 2400,
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
@@ -5444,9 +5444,17 @@ impl Evaluator {
     fn eval_args(&mut self, exprs: &[Expr]) -> Result<(Vec<Value>, usize), Flow> {
         let saved_len = self.temp_roots.len();
         let mut args = Vec::with_capacity(exprs.len());
+        // Save depth before evaluating arguments. GNU Emacs does not increment
+        // lisp_eval_depth for argument evaluation — only for the function call
+        // itself and for top-level form evaluation. Without this, a call like
+        // (list e1 e2 ... e4000) consumes 4000 depth units in NeoVM but only 1
+        // in GNU. This caused excessive-lisp-nesting errors during Doom Emacs
+        // startup where large lists (load-path, auto-mode-alist) are constructed.
+        let saved_depth = self.depth;
         for expr in exprs.iter() {
             match self.eval(expr) {
                 Ok(val) => {
+                    self.depth = saved_depth;
                     self.temp_roots.push(val);
                     args.push(val);
                 }
@@ -5462,10 +5470,12 @@ impl Evaluator {
                                 )
                         ) =>
                 {
+                    self.depth = saved_depth;
                     self.temp_roots.truncate(saved_len);
                     return Err(signal("invalid-function", vec![quote_to_value(expr)]));
                 }
                 Err(e) => {
+                    self.depth = saved_depth;
                     self.temp_roots.truncate(saved_len);
                     return Err(e);
                 }

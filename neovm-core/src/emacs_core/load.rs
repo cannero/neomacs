@@ -3333,7 +3333,7 @@ pub fn create_bootstrap_evaluator_with_features(
         eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
         eval.set_variable("purify-flag", Value::Nil);
         // NeoVM counts depth more aggressively than GNU (see eval.rs comment).
-        eval.set_variable("max-lisp-eval-depth", Value::Int(8000));
+        eval.set_variable("max-lisp-eval-depth", Value::Int(2400));
         eval.set_variable("inhibit-load-charset-map", Value::True);
         // Override Elisp function-get with Rust builtin to avoid deep
         // eval depth consumption. The Elisp version from subr.el uses
