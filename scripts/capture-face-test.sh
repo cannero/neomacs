@@ -590,7 +590,11 @@ for idx in "${!ACTION_KINDS[@]}"; do
             sleep "$KEY_DELAY"
             ;;
         eval)
-            send_focused_key alt+shift+semicolon
+            send_focused_key alt+x
+            sleep "$KEY_DELAY"
+            send_focused_type "eval-expression"
+            sleep "$KEY_DELAY"
+            send_focused_key Return
             sleep "$KEY_DELAY"
             send_focused_type "$value"
             sleep "$KEY_DELAY"
