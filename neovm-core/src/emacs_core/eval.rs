@@ -2912,6 +2912,14 @@ impl Evaluator {
         // before its own Elisp defs overwrite them. Without these placeholders,
         // loaded GNU bytecode can capture `nil` for forward/runtime calls into
         // NeoVM's Rust primitives.
+        // Register ALL dispatch builtins with Subr function cells so that
+        // (symbol-function 'name), (funcall #'name ...), and (fboundp 'name)
+        // all work. GNU Emacs does this via defsubr() in C for every DEFUN.
+        for name in super::builtin_registry::dispatch_builtin_names() {
+            if obarray.symbol_function(name).is_none() {
+                obarray.set_symbol_function(name, Value::Subr(intern(name)));
+            }
+        }
         for name in ["mark-marker", "region-beginning", "region-end"] {
             obarray.set_symbol_function(name, Value::Subr(intern(name)));
         }
