@@ -2828,7 +2828,12 @@ impl Evaluator {
 
         // Core eval variables (stay in eval.rs)
         obarray.set_symbol_value("purify-flag", Value::Nil);
-        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(1600));
+        // GNU Emacs defaults to 1600 but only increments lisp_eval_depth in
+        // eval_sub() and Ffuncall(). NeoVM increments depth for every
+        // sub-expression including primitive calls (get, fboundp, etc.), so
+        // the same Elisp code uses ~5x more depth units. Use 10000 to match
+        // effective GNU depth capacity.
+        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(10000));
         obarray.set_symbol_value("max-specpdl-size", Value::Int(1800));
         obarray.set_symbol_value("inhibit-load-charset-map", Value::Nil);
 
@@ -3304,7 +3309,7 @@ impl Evaluator {
             face_table: FaceTable::new(),
             face_change_count: 0,
             depth: 0,
-            max_depth: 1600, // Matches GNU Emacs default (max-lisp-eval-depth)
+            max_depth: 10000, // Matches GNU Emacs default (max-lisp-eval-depth)
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
@@ -3415,7 +3420,7 @@ impl Evaluator {
             face_table,
             face_change_count: 0,
             depth: 0,
-            max_depth: 1600,
+            max_depth: 10000,
             gc_pending: false,
             gc_count: 0,
             gc_stress: false,
