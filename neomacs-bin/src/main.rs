@@ -347,7 +347,14 @@ fn detect_tty_background_mode() -> &'static str {
 
 fn startup_dimensions(frontend: FrontendKind, frame_metrics: BootstrapFrameMetrics) -> (u32, u32) {
     match frontend {
-        FrontendKind::Gui => (960, 640),
+        FrontendKind::Gui => {
+            // Compute pixel size from font metrics (100 cols x 30 lines).
+            let cols = 100u32;
+            let lines = 30u32;
+            let width = (cols as f32 * frame_metrics.char_width).round() as u32;
+            let height = (lines as f32 * frame_metrics.char_height).round() as u32;
+            (width.max(200), height.max(100))
+        }
         FrontendKind::Tty => {
             let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
             let width = (cols as f32 * frame_metrics.char_width)
