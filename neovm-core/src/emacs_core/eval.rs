@@ -8200,10 +8200,25 @@ impl Evaluator {
                 let mut mode = 0; // 0=required, 1=optional, 2=rest
 
                 for item in items {
-                    let Expr::Symbol(id) = item else {
-                        return Err(signal("wrong-type-argument", vec![]));
+                    // Accept both plain symbols and (SYMBOL DEFAULT) lists.
+                    // GNU's defmacro stores the arglist as-is; only
+                    // funcall_lambda validates at call time. cl-defmacro
+                    // handles (SYMBOL DEFAULT) via macro expansion.
+                    // We extract the symbol name and ignore defaults.
+                    let id = match item {
+                        Expr::Symbol(id) => *id,
+                        Expr::List(parts) if !parts.is_empty() => {
+                            if let Expr::Symbol(id) = &parts[0] {
+                                *id
+                            } else {
+                                return Err(signal("wrong-type-argument", vec![]));
+                            }
+                        }
+                        _ => {
+                            return Err(signal("wrong-type-argument", vec![]));
+                        }
                     };
-                    let name = resolve_sym(*id);
+                    let name = resolve_sym(id);
                     match name {
                         "&optional" => {
                             mode = 1;
@@ -8216,10 +8231,10 @@ impl Evaluator {
                         _ => {}
                     }
                     match mode {
-                        0 => required.push(*id),
-                        1 => optional.push(*id),
+                        0 => required.push(id),
+                        1 => optional.push(id),
                         2 => {
-                            rest = Some(*id);
+                            rest = Some(id);
                             break;
                         }
                         _ => unreachable!(),
