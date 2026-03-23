@@ -2140,10 +2140,10 @@ fn find_file_with_suffix_flags() {
 
     let load_path = vec![dir.to_string_lossy().to_string()];
 
-    // GNU `load` prefers compiled Elisp over source by default.
+    // NeoVM prefers .el over .elc by default (unless NEOVM_PREFER_ELC is set).
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, false),
-        Some(elc.clone())
+        Some(el.clone())
     );
     // no-suffix mode only tries exact name.
     assert_eq!(
@@ -2153,7 +2153,7 @@ fn find_file_with_suffix_flags() {
     // must-suffix mode rejects plain file and requires suffixed one.
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, true, false),
-        Some(elc)
+        Some(el)
     );
     // no-suffix takes precedence if both flags are set.
     assert_eq!(
@@ -2209,10 +2209,13 @@ fn find_file_prefers_newer_source_when_enabled() {
     fs::write(&el, "source").expect("write source fixture");
 
     let load_path = vec![dir.to_string_lossy().to_string()];
+    // Without NEOVM_PREFER_ELC, .el is always preferred over .elc.
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, false),
-        Some(elc.clone())
+        Some(el.clone())
     );
+    // With prefer_newer=true and no NEOVM_PREFER_ELC, .el is still found
+    // (only .el is searched).
     assert_eq!(
         find_file_in_load_path_with_flags("choice", &load_path, false, false, true),
         Some(el)
@@ -2769,8 +2772,10 @@ fn find_file_surfaces_elc_only_artifact_as_explicit_unsupported_load_target() {
     fs::write(&compiled, "compiled").expect("write compiled fixture");
 
     let load_path = vec![dir.to_string_lossy().to_string()];
+    // Without NEOVM_PREFER_ELC, .elc-only files are not found (neomacs
+    // prefers .el and doesn't try .elc by default).
     let found = find_file_in_load_path_with_flags("module", &load_path, false, false, false);
-    assert_eq!(found, Some(compiled));
+    assert_eq!(found, None);
 
     let _ = fs::remove_dir_all(&dir);
 }

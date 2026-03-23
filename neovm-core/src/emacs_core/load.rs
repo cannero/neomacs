@@ -562,11 +562,17 @@ fn candidate_mtime(path: &Path) -> Option<std::time::SystemTime> {
 }
 
 fn pick_suffixed(base: &Path, prefer_newer: bool) -> Option<PathBuf> {
-    let elc = compiled_suffixed_path(base);
     let el = source_suffixed_path(base);
-    let prefers_compiled = prefer_elc() || !prefer_newer;
 
-    if prefer_newer {
+    // Only try .elc when explicitly opted in via NEOVM_PREFER_ELC.
+    // NeoVM sets load-suffixes to (".el") by default, so .elc files
+    // from foreign load-path entries (e.g., GNU Emacs mirror) must
+    // not shadow the .el source files. This matches GNU Emacs behavior
+    // where load respects load-suffixes.
+    let try_elc = prefer_elc();
+
+    if prefer_newer && try_elc {
+        let elc = compiled_suffixed_path(base);
         let mut candidates = Vec::new();
         if elc.exists() {
             candidates.push(elc);
@@ -581,20 +587,14 @@ fn pick_suffixed(base: &Path, prefer_newer: bool) -> Option<PathBuf> {
             .map(|(_, path)| path);
     }
 
-    if prefers_compiled {
+    if try_elc {
+        let elc = compiled_suffixed_path(base);
         if elc.exists() {
             return Some(elc);
         }
-        if el.exists() {
-            return Some(el);
-        }
-    } else {
-        if el.exists() {
-            return Some(el);
-        }
-        if elc.exists() {
-            return Some(elc);
-        }
+    }
+    if el.exists() {
+        return Some(el);
     }
 
     None
