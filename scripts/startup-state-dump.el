@@ -59,8 +59,12 @@
      :window-pixel-size (neomacs-startup-state--maybe-call
                          #'window-pixel-size window)
      :frame-char-size (neomacs-startup-state--maybe-call #'frame-size frame)
-     :frame-pixel-size (neomacs-startup-state--maybe-call
-                        #'frame-pixel-size frame)
+     :frame-pixel-size
+     (let ((width (neomacs-startup-state--maybe-call
+                   #'frame-pixel-width frame))
+           (height (neomacs-startup-state--maybe-call
+                    #'frame-pixel-height frame)))
+       (and width height (list width height)))
      :window-system window-system
      :initial-window-system initial-window-system
      :buffer-sample
