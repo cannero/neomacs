@@ -536,7 +536,16 @@ pub(crate) fn builtin_font_get(args: Vec<Value>) -> EvalResult {
     match &args[0] {
         Value::Vector(v) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
-            Ok(font_vector_get(&elems, &args[1]))
+            let exact = font_vector_get(&elems, &args[1]);
+            if !exact.is_nil() {
+                return Ok(exact);
+            }
+
+            if let Value::Keyword(id) = args[1] {
+                return Ok(font_vector_get_flexible(&elems, resolve_sym(id)).unwrap_or(Value::Nil));
+            }
+
+            Ok(Value::Nil)
         }
         _ => unreachable!("font check above guarantees vector"),
     }

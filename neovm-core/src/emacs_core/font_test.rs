@@ -148,6 +148,21 @@ fn font_get_symbol_key() {
 }
 
 #[test]
+fn font_get_keyword_with_colon_matches_keyword_storage_without_colon() {
+    let font = Value::vector(vec![
+        Value::keyword(FONT_OBJECT_TAG),
+        Value::keyword("family"),
+        Value::string("Hack"),
+        Value::keyword("size"),
+        Value::Int(27),
+    ]);
+    let family = builtin_font_get(vec![font, Value::keyword(":family")]).unwrap();
+    let size = builtin_font_get(vec![font, Value::keyword(":size")]).unwrap();
+    assert_eq!(family.as_str(), Some("Hack"));
+    assert_eq!(size.as_int(), Some(27));
+}
+
+#[test]
 fn font_get_non_symbol_property_errors() {
     let spec = builtin_font_spec(vec![
         Value::Keyword(intern("weight")),
