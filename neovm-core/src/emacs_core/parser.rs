@@ -6,7 +6,7 @@
 //! line comments (;), block comments (#|..|#).
 
 use super::expr::{Expr, ParseError};
-use super::intern::{intern, intern_uninterned};
+use super::intern::{intern, intern_uninterned, resolve_sym};
 use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
 
 pub fn parse_forms(input: &str) -> Result<Vec<Expr>, ParseError> {
@@ -868,8 +868,91 @@ impl<'a> Parser<'a> {
 
     fn parse_hash_table_literal(&mut self) -> Result<Expr, ParseError> {
         // #s(hash-table size N test T data (k1 v1 k2 v2 ...))
-        // For now, parse the entire thing as a list and let eval handle it
+        // GNU Emacs reader creates an actual hash table value during reading.
+        // We parse the keyword arguments and construct a Value::HashTable
+        // wrapped in Expr::OpaqueValue so quoting works correctly.
         let list = self.parse_list_or_dotted()?;
+
+        // Check if this is a hash-table or a record/struct
+        let items = match &list {
+            Expr::List(items) => items,
+            _ => {
+                // Fallback: emit as code for eval-time construction
+                return Ok(Expr::List(vec![
+                    Expr::Symbol(intern("make-hash-table-from-literal")),
+                    Expr::List(vec![Expr::Symbol(intern("quote")), list]),
+                ]));
+            }
+        };
+
+        if items
+            .first()
+            .is_some_and(|e| matches!(e, Expr::Symbol(id) if resolve_sym(*id) == "hash-table"))
+        {
+            // Parse keyword args from the list
+            let mut test = super::value::HashTableTest::Eql;
+            let mut data_pairs: Vec<(Expr, Expr)> = Vec::new();
+            let mut i = 1;
+            while i < items.len() {
+                if let Expr::Keyword(kw) = &items[i] {
+                    let kw_name = resolve_sym(*kw);
+                    if i + 1 < items.len() {
+                        match kw_name {
+                            ":test" => {
+                                if let Expr::Symbol(id) = &items[i + 1] {
+                                    test = match resolve_sym(*id) {
+                                        "eq" => super::value::HashTableTest::Eq,
+                                        "eql" => super::value::HashTableTest::Eql,
+                                        "equal" => super::value::HashTableTest::Equal,
+                                        _ => super::value::HashTableTest::Eql,
+                                    };
+                                }
+                                i += 2;
+                            }
+                            ":data" => {
+                                if let Expr::List(pairs) = &items[i + 1] {
+                                    let mut j = 0;
+                                    while j + 1 < pairs.len() {
+                                        data_pairs.push((pairs[j].clone(), pairs[j + 1].clone()));
+                                        j += 2;
+                                    }
+                                }
+                                i += 2;
+                            }
+                            _ => {
+                                i += 2;
+                            } // skip unknown keywords
+                        }
+                    } else {
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+
+            // Construct the hash table value directly during reading,
+            // matching GNU Emacs reader behavior.
+            use super::value::{Value, with_heap_mut};
+            let ht_id = with_heap_mut(|h| h.alloc_hash_table(test));
+            // Insert key-value pairs
+            for (k_expr, v_expr) in &data_pairs {
+                let key = super::eval::quote_to_value(k_expr);
+                let val = super::eval::quote_to_value(v_expr);
+                with_heap_mut(|h| {
+                    let ht_test = h.get_hash_table(ht_id).test.clone();
+                    let hash_key = key.to_hash_key(&ht_test);
+                    let ht = h.get_hash_table_mut(ht_id);
+                    ht.data.insert(hash_key.clone(), val);
+                    ht.key_snapshots.insert(hash_key.clone(), key);
+                    ht.insertion_order.push(hash_key);
+                });
+            }
+            return Ok(Expr::OpaqueValue(Value::HashTable(ht_id)));
+        }
+
+        // Not a hash-table — it's a record #s(type ...)
+        // Emit as code for eval-time construction
         Ok(Expr::List(vec![
             Expr::Symbol(intern("make-hash-table-from-literal")),
             Expr::List(vec![Expr::Symbol(intern("quote")), list]),
