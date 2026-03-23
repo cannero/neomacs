@@ -2324,6 +2324,24 @@ impl Evaluator {
         obarray.set_symbol_value("print-integers-as-characters", Value::Nil);
         obarray.set_symbol_value("print-unreadable-function", Value::Nil);
         obarray.set_symbol_value("text-quoting-style", Value::Nil);
+        // GNU DEFVAR_LISP variables from lread.c that must be bound to nil
+        // before any Elisp runs (code may test `boundp` or read them directly).
+        obarray.set_symbol_value("eval-buffer-list", Value::Nil);
+        obarray.set_symbol_value("lread--unescaped-character-literals", Value::Nil);
+        obarray.set_symbol_value("load-read-function", Value::symbol("read"));
+        obarray.set_symbol_value("load-source-file-function", Value::Nil);
+        obarray.set_symbol_value("load-true-file-name", Value::Nil);
+        obarray.set_symbol_value("current-load-list", Value::Nil);
+        obarray.set_symbol_value("preloaded-file-list", Value::Nil);
+        obarray.set_symbol_value("byte-boolean-vars", Value::Nil);
+        obarray.set_symbol_value("load-path-filter-function", Value::Nil);
+        // GNU DEFVAR_LISP variables from eval.c
+        obarray.set_symbol_value("quit-flag", Value::Nil);
+        obarray.set_symbol_value("inhibit-debugger", Value::Nil);
+        obarray.set_symbol_value("debug-on-signal", Value::Nil);
+        obarray.set_symbol_value("debug-ignored-errors", Value::Nil);
+        obarray.set_symbol_value("signal-hook-function", Value::Nil);
+        obarray.set_symbol_value("internal-interpreter-environment", Value::Nil);
         // GNU seeds these from C before Lisp startup: `values` in lread.c and
         // `debugger` in eval.c. `eval-expression` relies on both.
         obarray.set_symbol_value("values", Value::Nil);

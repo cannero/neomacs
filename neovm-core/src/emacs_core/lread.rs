@@ -446,11 +446,16 @@ pub(crate) fn builtin_locate_file(args: Vec<Value>) -> EvalResult {
 ///
 /// Internal variant of `locate-file`; currently uses the same lookup behavior.
 pub(crate) fn builtin_locate_file_internal(args: Vec<Value>) -> EvalResult {
-    expect_min_args("locate-file-internal", &args, 3)?;
+    expect_min_args("locate-file-internal", &args, 2)?;
     expect_max_args("locate-file-internal", &args, 4)?;
     let filename = expect_string(&args[0])?;
     let path = parse_path_argument(&args[1])?;
-    let suffixes = parse_suffixes_argument(&args[2])?;
+    // GNU Emacs: SUFFIXES is optional (nil when omitted)
+    let suffixes = if args.len() > 2 {
+        parse_suffixes_argument(&args[2])?
+    } else {
+        Vec::new()
+    };
     Ok(
         match locate_file_with_path_and_suffixes(&filename, &path, &suffixes, args.get(3))? {
             Some(found) => Value::string(found),
