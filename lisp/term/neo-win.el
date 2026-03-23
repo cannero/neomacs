@@ -56,6 +56,7 @@
 (declare-function x-handle-args "common-win" (args))
 (declare-function x-open-connection "neomacsfns.c"
                   (display &optional xrm-string must-succeed))
+(defvar initial-window-system)
 
 ;; Define x-display-name if not set
 (defvar x-display-name nil
@@ -81,6 +82,15 @@ DISPLAY is the name of the display Emacs should connect to."
 	(while (setq i (string-match "[.*]" x-resource-name))
 	  (aset x-resource-name i ?-)))))
 
+  ;; Open the display connection
+  (x-open-connection (or display
+                         (setq x-display-name (or (getenv "DISPLAY" (selected-frame))
+                                                  (getenv "DISPLAY"))))
+		     x-command-line-resources
+		     ;; Exit Emacs with fatal error if this fails and we
+                     ;; are the initial display.
+		     (eq initial-window-system 'neo))
+
   ;; Setup the default fontset.
   (create-default-fontset)
   ;; Create the standard fontset.
@@ -91,12 +101,8 @@ DISPLAY is the name of the display Emacs should connect to."
             (format "Creation of the standard fontset failed: %s" err)
             :error)))
 
-  ;; Open the display connection
-  (x-open-connection (or display
-                         x-display-name)
-		     x-command-line-resources
-		     ;; Exit Emacs with fatal error if this fails.
-		     t)
+  ;; Create fontsets specified in X resources "Fontset-N" (N is 0, 1, ...).
+  (create-fontset-from-x-resource)
 
   ;; Set default frame colors only if not already configured by the user
   ;; (e.g., via set-face-attribute in early-init.el).
