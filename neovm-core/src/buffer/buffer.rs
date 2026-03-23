@@ -343,6 +343,21 @@ impl Buffer {
         self.text.char_to_byte(clamped_char)
     }
 
+    /// Convert a 1-based Lisp character position to a byte position, clamping
+    /// to the *full* buffer range (ignoring narrowing).
+    ///
+    /// GNU Emacs: `set-marker` clamps to the full buffer, not the narrowed
+    /// region, so markers can be placed outside the accessible range.
+    pub fn lisp_pos_to_full_buffer_byte(&self, lisp_pos: i64) -> usize {
+        let char_pos = if lisp_pos > 0 {
+            lisp_pos as usize - 1
+        } else {
+            0
+        };
+        let clamped_char = char_pos.min(self.total_chars());
+        self.text.char_to_byte(clamped_char)
+    }
+
     /// Legacy narrowing accessor retained while buffer internals are byte-only.
     pub fn point_max(&self) -> usize {
         self.point_max_byte()
@@ -1994,6 +2009,18 @@ impl BufferManager {
     pub fn remove_marker(&mut self, marker_id: u64) {
         for buf in self.buffers.values_mut() {
             buf.markers.retain(|marker| marker.id != marker_id);
+        }
+    }
+
+    /// Update the insertion type of a registered marker across all buffers.
+    pub fn update_marker_insertion_type(&mut self, marker_id: u64, ins_type: InsertionType) {
+        for buf in self.buffers.values_mut() {
+            for marker in &mut buf.markers {
+                if marker.id == marker_id {
+                    marker.insertion_type = ins_type;
+                    return;
+                }
+            }
         }
     }
 

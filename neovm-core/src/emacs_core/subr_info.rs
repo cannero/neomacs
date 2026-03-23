@@ -58,7 +58,8 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
     matches!(
         name,
-        "quote"
+        "`"
+            | "quote"
             | "function"
             | "let"
             | "let*"

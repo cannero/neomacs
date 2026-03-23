@@ -908,6 +908,7 @@ pub(crate) fn dispatch_builtin(
         "mapconcat" => return Some(builtin_mapconcat(eval, args)),
         "sort" => return Some(builtin_sort(eval, args)),
         "functionp" => return Some(builtin_functionp_eval(eval, args)),
+        "macrop" => return Some(super::builtins::symbols::builtin_macrop_eval(eval, args)),
         // Symbol/obarray
         "defvaralias" => return Some(builtin_defvaralias_eval(eval, args)),
         "boundp" => return Some(builtin_boundp(eval, args)),
@@ -2370,6 +2371,7 @@ pub(crate) fn dispatch_builtin(
         "marker-position" => return Some(super::marker::builtin_marker_position_eval(eval, args)),
         "marker-buffer" => return Some(super::marker::builtin_marker_buffer_eval(eval, args)),
         "copy-marker" => return Some(super::marker::builtin_copy_marker_eval(eval, args)),
+        "set-marker-insertion-type" => return Some(super::marker::builtin_set_marker_insertion_type_eval(eval, args)),
         "point-marker" => return Some(super::marker::builtin_point_marker(eval, args)),
         "point-min-marker" => return Some(super::marker::builtin_point_min_marker(eval, args)),
         "point-max-marker" => return Some(super::marker::builtin_point_max_marker(eval, args)),
@@ -3822,6 +3824,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "make-marker" => super::marker::builtin_make_marker(args),
         "bool-vector-p" => super::chartable::builtin_bool_vector_p(args),
         "make-category-set" => super::category::builtin_make_category_set(args),
+        "macrop" => super::subr_info::builtin_macrop(args),
         "function-equal" => builtin_function_equal(args),
         "module-function-p" => builtin_module_function_p(args),
         "user-ptrp" => builtin_user_ptrp(args),

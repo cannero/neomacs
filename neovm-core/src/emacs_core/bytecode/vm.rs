@@ -5212,6 +5212,10 @@ impl<'a> Vm<'a> {
                 self.shared.buffers,
                 args.to_vec(),
             )),
+            "set-marker-insertion-type" => Some(crate::emacs_core::marker::builtin_set_marker_insertion_type_in_buffers(
+                self.shared.buffers,
+                args.to_vec(),
+            )),
             "point-marker" => Some(crate::emacs_core::marker::builtin_point_marker_in_buffers(
                 self.shared.buffers,
                 args.to_vec(),
@@ -5997,6 +6001,7 @@ impl<'a> Vm<'a> {
                 &*self.shared.obarray,
                 args.to_vec(),
             )),
+            "macrop" => Some(crate::emacs_core::subr_info::builtin_macrop(args.to_vec())),
             "defalias" => Some(self.builtin_defalias_shared(args)),
             "fset" => Some(crate::emacs_core::builtins::symbols::builtin_fset_in_obarray(
                 self.shared.obarray,

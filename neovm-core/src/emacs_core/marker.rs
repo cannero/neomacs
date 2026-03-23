@@ -306,7 +306,8 @@ fn marker_insertion_type_value(v: &Value) -> Value {
 }
 
 fn lisp_pos_to_byte(buf: &crate::buffer::Buffer, lisp_pos: i64) -> usize {
-    buf.lisp_pos_to_accessible_byte(lisp_pos)
+    // GNU Emacs: set-marker clamps to the full buffer, not the narrowed region.
+    buf.lisp_pos_to_full_buffer_byte(lisp_pos)
 }
 
 fn marker_targets_current_mark(marker: &Value) -> bool {
@@ -427,6 +428,42 @@ pub(crate) fn builtin_set_marker_insertion_type(args: Vec<Value>) -> EvalResult 
         }
         _ => unreachable!(), // guarded by expect_marker
     }
+    Ok(args[1])
+}
+
+/// Eval-dependent set-marker-insertion-type that also updates the buffer's
+/// marker entry so insertion behavior changes immediately.
+pub(crate) fn builtin_set_marker_insertion_type_eval(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_set_marker_insertion_type_in_buffers(&mut eval.buffers, args)
+}
+
+pub(crate) fn builtin_set_marker_insertion_type_in_buffers(
+    buffers: &mut BufferManager,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("set-marker-insertion-type", &args, 2)?;
+    expect_marker("set-marker-insertion-type", &args[0])?;
+    let new_type = args[1].is_truthy();
+    match &args[0] {
+        Value::Vector(vec) => {
+            with_heap_mut(|h| h.vector_set(*vec, 3, Value::bool(new_type)));
+        }
+        _ => unreachable!(), // guarded by expect_marker
+    }
+
+    // Also update the buffer's marker entry so insertion behavior changes.
+    if let Some(mid) = marker_id_value(&args[0]) {
+        let ins_type = if new_type {
+            InsertionType::After
+        } else {
+            InsertionType::Before
+        };
+        buffers.update_marker_insertion_type(mid, ins_type);
+    }
+
     Ok(args[1])
 }
 
@@ -608,6 +645,31 @@ pub(crate) fn builtin_set_marker_in_buffers(
                 vec![Value::symbol("integer-or-marker-p"), *other],
             ));
         }
+    };
+
+    // GNU Emacs: when position is nil, the marker is detached from its buffer.
+    let buffer_name = if position.is_none() {
+        None
+    } else {
+        buffer_name
+    };
+
+    // Clamp position to the full buffer range (1 .. total_chars+1), matching
+    // GNU Emacs which clamps to the whole buffer, ignoring narrowing.
+    let position = match (&position, &buffer_name) {
+        (Some(pos), Some(bname)) => {
+            if let Some(buf_id) = buffers.find_buffer_by_name(bname) {
+                if let Some(buf) = buffers.get(buf_id) {
+                    let max_pos = buf.total_chars() as i64 + 1;
+                    Some((*pos).clamp(1, max_pos))
+                } else {
+                    Some(*pos)
+                }
+            } else {
+                Some(*pos)
+            }
+        }
+        _ => position,
     };
 
     // Register/update marker in buffer for automatic position tracking

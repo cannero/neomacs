@@ -84,6 +84,10 @@ fn builtin_copy_marker_from_integer() {
 #[test]
 fn builtin_move_marker_matches_set_marker_behavior() {
     let mut eval = super::super::eval::Evaluator::new();
+    // Insert content so the buffer is long enough for position 3.
+    if let Some(buf) = eval.buffers.current_buffer_mut() {
+        buf.insert("abcdef");
+    }
     let marker = builtin_make_marker(vec![]).expect("make marker");
     let moved = builtin_move_marker(
         &mut eval,
