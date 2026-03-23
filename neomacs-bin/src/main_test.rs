@@ -1,9 +1,10 @@
 use super::{
     BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
     PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, bootstrap_buffers,
-    bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
-    configure_gnu_startup_state, current_layout_frame_id, parse_startup_options, render_help_text,
-    render_version_text, run_gnu_startup,
+    bootstrap_default_font_name, bootstrap_display_config, bootstrap_frame_metrics,
+    classify_early_cli_action, configure_gnu_startup_state, current_layout_frame_id,
+    face_height_to_pixels, parse_startup_options, render_help_text, render_version_text,
+    run_gnu_startup,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Evaluator;
@@ -461,6 +462,21 @@ fn bootstrap_buffers_seed_frame_with_renderer_metrics() {
         .bounds()
         .height;
     assert_eq!(minibuffer_height, metrics.char_height);
+}
+
+#[test]
+fn bootstrap_frame_metrics_uses_default_face_height_pixels() {
+    let metrics = bootstrap_frame_metrics();
+    assert_eq!(metrics.font_pixel_size, face_height_to_pixels(100));
+}
+
+#[test]
+fn bootstrap_default_font_name_uses_pixel_size_field() {
+    let mut eval = Evaluator::new();
+    let font_pixel_size = face_height_to_pixels(100);
+    let font_name = bootstrap_default_font_name(font_pixel_size);
+    let rendered = print_value_with_eval(&mut eval, &font_name);
+    assert!(rendered.contains(&format!("-*-{}-", font_pixel_size.round() as i64)));
 }
 
 #[test]

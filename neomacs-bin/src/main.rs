@@ -818,6 +818,7 @@ fn font_width_symbol(width: FontWidth) -> &'static str {
 fn bootstrap_default_font_parameter(font_pixel_size: f32) -> Value {
     let mut metrics_svc = FontMetricsService::new();
     let selected = metrics_svc.select_font_for_char('M', "Monospace", 400, false, font_pixel_size);
+    let rounded_pixel_size = font_pixel_size.max(1.0).round() as i64;
 
     let family = selected
         .as_ref()
@@ -846,11 +847,11 @@ fn bootstrap_default_font_parameter(font_pixel_size: f32) -> Value {
         Value::symbol(slant),
         Value::keyword("width"),
         Value::symbol(width),
-        // GNU stores default-face absolute size in 1/10pt.  Use 100 as the
-        // neutral startup default so faces.el can realize the selected font
-        // without falling back to the bootstrap `height=1` placeholder.
+        // In GNU font objects, :size is pixel size.  Keep :height in
+        // face-attribute units (1/10pt) so face derivation still sees the
+        // default-face height rather than a raw pixel count.
         Value::keyword("size"),
-        Value::Int(100),
+        Value::Int(rounded_pixel_size),
         Value::keyword("height"),
         Value::Int(100),
     ])
@@ -859,6 +860,7 @@ fn bootstrap_default_font_parameter(font_pixel_size: f32) -> Value {
 fn bootstrap_default_font_name(font_pixel_size: f32) -> Value {
     let mut metrics_svc = FontMetricsService::new();
     let selected = metrics_svc.select_font_for_char('M', "Monospace", 400, false, font_pixel_size);
+    let rounded_pixel_size = font_pixel_size.max(1.0).round() as i64;
 
     let family = selected
         .as_ref()
@@ -874,12 +876,14 @@ fn bootstrap_default_font_name(font_pixel_size: f32) -> Value {
         .unwrap_or("normal");
 
     Value::string(format!(
-        "-*-{family}-{weight}-{slant}-*-*-100-*-*-*-*-*-*-*"
+        "-*-{family}-{weight}-{slant}-*-*-{rounded_pixel_size}-*-*-*-*-*-*-*"
     ))
 }
 
 fn bootstrap_frame_metrics() -> BootstrapFrameMetrics {
-    let font_pixel_size = 16.0;
+    // GNU X backends seed the first GUI frame from a 10pt default font and
+    // convert that through the active Xft DPI.
+    let font_pixel_size = face_height_to_pixels(100);
     let mut metrics_svc = FontMetricsService::new();
     let metrics = metrics_svc.font_metrics("Monospace", 400, false, font_pixel_size);
     BootstrapFrameMetrics {
