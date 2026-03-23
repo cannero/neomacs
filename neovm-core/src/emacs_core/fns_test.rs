@@ -350,6 +350,18 @@ fn md5_unknown_coding_system_ignored_with_noerror() {
 }
 
 #[test]
+fn md5_accepts_iso_8859_15_alias() {
+    let r = builtin_md5(vec![
+        Value::string("abc"),
+        Value::Nil,
+        Value::Nil,
+        Value::symbol("iso-8859-15"),
+    ])
+    .unwrap();
+    assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
+}
+
+#[test]
 fn md5_non_symbol_coding_system_errors() {
     match builtin_md5(vec![
         Value::string("abc"),

@@ -322,6 +322,30 @@ impl CodingSystemManager {
             EolType::Mac,
         ));
         mgr.register(CodingSystemInfo::new(
+            "iso-latin-9",
+            "charset",
+            '0',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "iso-latin-9-unix",
+            "charset",
+            '0',
+            EolType::Unix,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "iso-latin-9-dos",
+            "charset",
+            '0',
+            EolType::Dos,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "iso-latin-9-mac",
+            "charset",
+            '0',
+            EolType::Mac,
+        ));
+        mgr.register(CodingSystemInfo::new(
             "us-ascii",
             "charset",
             'A',
@@ -439,6 +463,12 @@ impl CodingSystemManager {
             .insert("iso-8859-1".to_string(), "iso-latin-1".to_string());
         mgr.aliases
             .insert("latin-1".to_string(), "iso-latin-1".to_string());
+        mgr.aliases
+            .insert("iso-8859-15".to_string(), "iso-latin-9".to_string());
+        mgr.aliases
+            .insert("latin-9".to_string(), "iso-latin-9".to_string());
+        mgr.aliases
+            .insert("latin-0".to_string(), "iso-latin-9".to_string());
         mgr.aliases
             .insert("ascii".to_string(), "us-ascii".to_string());
         mgr.aliases
