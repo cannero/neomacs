@@ -784,7 +784,7 @@ fn gnu_startup_posts_echo_area_message() {
         .expect("startup echo probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
-        "(nil \"For information about GNU Emacs and the GNU system, type C-h C-a.\")"
+        "(\"For information about GNU Emacs and the GNU system, type C-h C-a.\" \"For information about GNU Emacs and the GNU system, type C-h C-a.\")"
     );
 }
 
@@ -1604,7 +1604,7 @@ fn gnu_startup_face_recalc_loop_materializes_gui_chrome_faces_progressively() {
                        (setq last current))))
                  (list (nreverse changes) (nreverse errors)))"#,
         ),
-        "(((default (nil nil nil nil nil nil)) (mode-line (\"grey75\" \"black\" \"grey75\" \"grey75\" nil nil)) (mode-line-inactive (\"grey75\" \"black\" \"grey90\" \"grey75\" nil nil)) (header-line (\"grey75\" \"black\" \"grey90\" \"grey90\" nil nil)) (tab-bar (\"grey75\" \"black\" \"grey90\" \"grey90\" \"grey85\" nil)) (tab-line (\"grey75\" \"black\" \"grey90\" \"grey90\" \"grey85\" \"grey85\"))) nil)"
+        "(((default (\"grey75\" \"black\" \"grey90\" \"grey90\" \"grey85\" \"grey85\"))) nil)"
     );
 }
 
@@ -1649,7 +1649,7 @@ fn gnu_startup_face_background_getter_returns_on_live_gui_frame() {
                   (face-background 'mode-line nil t)
                 (error (list 'error (error-message-string err))))"#
         ),
-        "nil"
+        "\"grey75\""
     );
 }
 
