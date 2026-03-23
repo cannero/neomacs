@@ -732,7 +732,9 @@ pub(crate) fn builtin_emacs_version(args: Vec<Value>) -> EvalResult {
     if args.first().is_some_and(|arg| !arg.is_nil()) {
         return Ok(Value::Nil);
     }
-    Ok(Value::string("NeoVM 0.1.0 (Neomacs)"))
+    Ok(Value::string(
+        "GNU Emacs 31.0.50 (build 1, x86_64-pc-linux-gnu) [NeoVM 0.1.0 (Neomacs)]\n Copyright (C) 2026 Free Software Foundation, Inc.",
+    ))
 }
 
 /// `(emacs-pid)` -> integer.

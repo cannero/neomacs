@@ -2204,9 +2204,9 @@ impl Evaluator {
             Value::Float(std::f64::consts::PI, next_float_id()),
         );
         obarray.set_symbol_value("pi", Value::Float(std::f64::consts::PI, next_float_id()));
-        obarray.set_symbol_value("emacs-version", Value::string("29.1"));
-        obarray.set_symbol_value("emacs-major-version", Value::Int(29));
-        obarray.set_symbol_value("emacs-minor-version", Value::Int(1));
+        obarray.set_symbol_value("emacs-version", Value::string("31.0.50"));
+        obarray.set_symbol_value("emacs-major-version", Value::Int(31));
+        obarray.set_symbol_value("emacs-minor-version", Value::Int(0));
         obarray.set_symbol_value("emacs-build-number", Value::Int(1));
         obarray.set_symbol_value("system-type", Value::symbol("gnu/linux"));
         obarray.set_symbol_value(
