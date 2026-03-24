@@ -223,11 +223,12 @@ mod tests {
     #[test]
     fn test_compile_defun_side_effect() {
         let mut eval = Evaluator::new();
-        let forms = parse_forms("(defun test-fc-fn () 99)").unwrap();
+        // defun is no longer a special form; use defalias instead
+        let forms = parse_forms("(defalias 'test-fc-fn #'(lambda () 99))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         assert_eq!(compiled.len(), 1);
         assert!(matches!(&compiled[0], CompiledForm::Eval(_)));
-        // defun should have registered the function at compile time.
+        // defalias should have registered the function at compile time.
         assert!(eval.obarray().symbol_function("test-fc-fn").is_some());
     }
 

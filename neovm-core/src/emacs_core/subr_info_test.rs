@@ -2116,16 +2116,13 @@ fn fallback_macro_defvar_local_preserves_optional_arity() {
 // Fallback macro tests removed: these macros are now loaded from Elisp
 
 #[test]
-fn fallback_macro_with_demoted_errors_is_one_or_many() {
-    let macro_value = fallback_macro_value("with-demoted-errors").expect("fallback macro exists");
-    let result = builtin_func_arity(vec![macro_value]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
-        assert_eq!(pair.car.as_int(), Some(1));
-        assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
-    } else {
-        panic!("expected cons cell");
-    }
+fn fallback_macro_with_demoted_errors_no_longer_present() {
+    // with-demoted-errors was removed from fallback_macro_spec;
+    // it is now loaded from Elisp macros during bootstrap.
+    assert!(
+        fallback_macro_value("with-demoted-errors").is_none(),
+        "with-demoted-errors should no longer be a fallback macro"
+    );
 }
 
 #[test]

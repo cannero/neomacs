@@ -8,20 +8,20 @@ fn eval_with_process_shims() -> Evaluator {
     let mut ev = Evaluator::new();
     // Define minimal Elisp shims matching GNU Emacs subr.el/env.el
     let shims = r#"
-(defun getenv (variable &optional frame)
-  (getenv-internal variable))
-(defun setenv (variable &optional value substitute)
-  (setenv-internal variable value t))
-(defun start-process (name buffer program &rest args)
+(defalias 'getenv #'(lambda (variable &optional frame)
+  (getenv-internal variable)))
+(defalias 'setenv #'(lambda (variable &optional value substitute)
+  (setenv-internal variable value t)))
+(defalias 'start-process #'(lambda (name buffer program &rest args)
   (make-process :name name :buffer buffer
-                :command (if program (cons program args))))
-(defun start-process-shell-command (name buffer command)
+                :command (if program (cons program args)))))
+(defalias 'start-process-shell-command #'(lambda (name buffer command)
   (start-process name buffer shell-file-name
-                 shell-command-switch command))
-(defun shell-command-to-string (command)
+                 shell-command-switch command)))
+(defalias 'shell-command-to-string #'(lambda (command)
   (with-output-to-string
     (call-process shell-file-name nil standard-output nil
-                  shell-command-switch command)))
+                  shell-command-switch command))))
 "#;
     let forms = parse_forms(shims).expect("parse shims");
     for form in &forms {

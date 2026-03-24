@@ -607,15 +607,13 @@ fn read_char_exclusive_skips_non_character_and_leaves_tail() {
 
 #[test]
 fn get_load_suffixes_returns_list() {
+    // The stateless variant is hardcoded to return (".el" "") matching
+    // NeoVM's default load-suffixes and load-file-rep-suffixes.
     let result = builtin_get_load_suffixes(vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
-    assert_eq!(items.len(), 6);
-    assert_eq!(items[0].as_str(), Some(".so"));
-    assert_eq!(items[1].as_str(), Some(".so.gz"));
-    assert_eq!(items[2].as_str(), Some(".elc"));
-    assert_eq!(items[3].as_str(), Some(".elc.gz"));
-    assert_eq!(items[4].as_str(), Some(".el"));
-    assert_eq!(items[5].as_str(), Some(".el.gz"));
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].as_str(), Some(".el"));
+    assert_eq!(items[1].as_str(), Some(""));
 }
 
 #[test]

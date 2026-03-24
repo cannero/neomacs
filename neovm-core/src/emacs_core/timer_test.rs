@@ -18,6 +18,26 @@ fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str
         .unwrap_or_else(|err| panic!("evaluate GNU subr.el form {marker} failed: {:?}", err));
 }
 
+/// Install minimal `defun`/`defmacro`/`when`/`unless` shims so a bare
+/// evaluator can evaluate forms extracted from GNU `.el` source files.
+fn install_bare_elisp_shims(ev: &mut Evaluator) {
+    let shims = r#"
+(defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
+  (list 'defalias (list 'quote name) (cons 'function (list (cons 'lambda (cons arglist body))))))))
+(defalias 'defmacro (cons 'macro #'(lambda (name arglist &rest body)
+  (list 'defalias (list 'quote name)
+        (list 'cons ''macro (cons 'function (list (cons 'lambda (cons arglist body)))))))))
+(defalias 'when (cons 'macro #'(lambda (cond &rest body)
+  (list 'if cond (cons 'progn body)))))
+(defalias 'unless (cons 'macro #'(lambda (cond &rest body)
+  (cons 'if (cons cond (cons nil body))))))
+"#;
+    let forms = super::super::parser::parse_forms(shims).expect("parse bare elisp shims");
+    for form in &forms {
+        ev.eval_expr(form).expect("install bare elisp shim");
+    }
+}
+
 fn gnu_subr_sit_for_eval() -> Evaluator {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
@@ -25,6 +45,7 @@ fn gnu_subr_sit_for_eval() -> Evaluator {
     let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
 
     let mut ev = Evaluator::new();
+    install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
     eval_first_form_after_marker(
         &mut ev,

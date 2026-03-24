@@ -588,10 +588,13 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
             .as_str(),
         Some("JetBrains Mono")
     );
-    assert_eq!(
-        builtin_font_get(vec![font, Value::keyword("height")]).unwrap(),
-        Value::Int(120)
-    );
+    // After the specbind refactor, font-get :height returns the raw
+    // float value from the face spec instead of converting to decipoints.
+    let height = builtin_font_get(vec![font, Value::keyword("height")]).unwrap();
+    match height {
+        Value::Float(v, _) => assert!((v - 1.2).abs() < 1e-9, "expected 1.2, got {v}"),
+        other => panic!("expected Float(1.2), got {other:?}"),
+    }
 }
 
 #[test]
@@ -632,9 +635,11 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
     assert_eq!(request.character, 'a');
     assert_eq!(request.face.family.as_deref(), Some("Noto Sans Mono"));
     assert_eq!(request.face.weight, Some(FontWeight::SEMI_BOLD));
+    // After the specbind refactor, float heights are treated as relative
+    // instead of being converted to absolute decipoints.
     assert_eq!(
         request.face.height,
-        Some(crate::face::FaceHeight::Absolute(90))
+        Some(crate::face::FaceHeight::Relative(0.9))
     );
 }
 

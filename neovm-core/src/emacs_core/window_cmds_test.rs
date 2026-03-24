@@ -484,7 +484,7 @@ fn window_start_default() {
 fn set_window_start_and_read() {
     let results = eval_with_frame(
         "(let ((w (selected-window)))
-            (with-current-buffer (window-buffer w)
+            (save-current-buffer (set-buffer (window-buffer w))
               (erase-buffer)
               (insert (make-string 200 ?x)))
             (set-window-start w 42))
@@ -504,7 +504,7 @@ fn window_point_default() {
 fn set_window_point_and_read() {
     let results = eval_with_frame(
         "(let ((w (selected-window)))
-            (with-current-buffer (window-buffer w)
+            (save-current-buffer (set-buffer (window-buffer w))
               (erase-buffer)
               (insert (make-string 200 ?x)))
             (set-window-point w 10))
@@ -520,16 +520,16 @@ fn window_point_selected_window_uses_live_buffer_point_when_current_buffer_diffe
         r#"(let* ((w (selected-window))
                   (orig (window-buffer w))
                   (other (get-buffer-create "*other*")))
-             (with-current-buffer orig
+             (save-current-buffer (set-buffer orig)
                (erase-buffer)
                (insert "abc
 def
 ")
                (goto-char 5))
-             (with-current-buffer other
+             (save-current-buffer (set-buffer other)
                (list (eq (current-buffer) orig)
                      (window-point w)
-                     (with-current-buffer orig (point)))))"#,
+                     (save-current-buffer (set-buffer orig) (point)))))"#,
     );
     assert_eq!(r, "OK (nil 5 5)");
 }
@@ -540,17 +540,17 @@ fn set_window_point_selected_window_updates_live_buffer_point_when_current_buffe
         r#"(let* ((w (selected-window))
                   (orig (window-buffer w))
                   (other (get-buffer-create "*other*")))
-             (with-current-buffer orig
+             (save-current-buffer (set-buffer orig)
                (erase-buffer)
                (insert "abc
 def
 ")
                (goto-char 5))
-             (with-current-buffer other
+             (save-current-buffer (set-buffer other)
                (set-window-point w 2)
                (list (buffer-name (current-buffer))
                      (window-point w)
-                     (with-current-buffer orig (point)))))"#,
+                     (save-current-buffer (set-buffer orig) (point)))))"#,
     );
     assert_eq!(r, "OK (\"*other*\" 2 2)");
 }
@@ -3189,11 +3189,11 @@ fn set_window_buffer_restores_saved_window_point_and_keep_margins() {
         "(setq swb-test-w (selected-window))
          (setq swb-test-b1 (get-buffer-create \"swb-state-a\"))
          (setq swb-test-b2 (get-buffer-create \"swb-state-b\"))
-         (with-current-buffer swb-test-b1
+         (save-current-buffer (set-buffer swb-test-b1)
            (erase-buffer)
            (insert (make-string 300 ?a))
            (goto-char 120))
-         (with-current-buffer swb-test-b2
+         (save-current-buffer (set-buffer swb-test-b2)
            (erase-buffer)
            (insert (make-string 300 ?b))
            (goto-char 150))
@@ -3242,10 +3242,10 @@ fn set_window_buffer_updates_history_lists_on_real_buffer_switches() {
                 (b1 (get-buffer-create \"swb-hist-a\"))
                 (b2 (get-buffer-create \"swb-hist-b\"))
                 (n '((foo 1 2))))
-           (with-current-buffer b1
+           (save-current-buffer (set-buffer b1)
              (erase-buffer)
              (insert (make-string 300 ?a)))
-           (with-current-buffer b2
+           (save-current-buffer (set-buffer b2)
              (erase-buffer)
              (insert (make-string 300 ?b)))
            (set-window-prev-buffers w nil)
@@ -3534,7 +3534,7 @@ fn set_window_buffer_bootstraps_initial_frame_for_nil_window_designator() {
 fn scroll_and_recenter_use_selected_window_state() {
     let results = eval_with_frame(
         "(let ((w (selected-window)))
-           (with-current-buffer (window-buffer w)
+           (save-current-buffer (set-buffer (window-buffer w))
              (erase-buffer)
              (insert \"a\nb\nc\nd\ne\nf\ng\nh\n\"))
            (set-window-point w 1)
@@ -3549,12 +3549,15 @@ fn scroll_and_recenter_use_selected_window_state() {
 
 #[test]
 fn scroll_up_down_updates_window_start_for_multibyte_content() {
+    // dotimes is no longer a special form; use let+while equivalent
     let results = eval_with_frame(
         "(let ((w (selected-window)))
-           (with-current-buffer (window-buffer w)
+           (save-current-buffer (set-buffer (window-buffer w))
              (erase-buffer)
-             (dotimes (i 120)
-               (insert (format \"L%03d — multibyte scrolling line\\n\" i))))
+             (let ((i 0))
+               (while (< i 120)
+                 (insert (format \"L%03d — multibyte scrolling line\\n\" i))
+                 (setq i (1+ i)))))
            (set-window-point w 1)
            (set-window-start w 1)
            (let ((before (window-start w)))

@@ -8585,10 +8585,20 @@ fn macrop_eval_resolves_keyword_designators() {
     let keyword = Value::keyword(":vm-macrop-keyword");
     let orig_keyword = builtin_symbol_function(&mut eval, vec![keyword])
         .expect("symbol-function should read keyword function cell");
-    let when_macro = builtin_symbol_function(&mut eval, vec![Value::symbol("when")])
-        .expect("symbol-function should read when macro");
+    // Create a macro value directly (when is no longer a built-in macro)
+    let test_macro = Value::make_macro(LambdaData {
+        params: LambdaParams {
+            required: vec![],
+            optional: vec![],
+            rest: Some(crate::emacs_core::intern::intern("args")),
+        },
+        body: vec![].into(),
+        env: None,
+        docstring: None,
+        doc_form: None,
+    });
 
-    builtin_fset(&mut eval, vec![keyword, when_macro])
+    builtin_fset(&mut eval, vec![keyword, test_macro])
         .expect("fset should bind keyword function cell");
     let keyword_result = builtin_macrop_eval(&mut eval, vec![keyword])
         .expect("macrop should resolve keyword designator");
@@ -8601,13 +8611,20 @@ fn macrop_eval_resolves_keyword_designators() {
 fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
 
+    // Install a test macro on `vm-test-mac` that acts like `when`:
+    // (macro . (lambda (cond &rest body) (list 'if cond (cons 'progn body))))
+    // We use `with-temp-buffer` (a real fallback macro) to test chained
+    // expansion after the environment lambda transforms the form.
+
+    // Part 1: environment lambda transforms (vm-env t) -> (vm-env-result t 1),
+    // which is not itself a macro, so macroexpand returns it as-is.
     let env_lambda = Value::list(vec![Value::list(vec![
         Value::symbol("vm-env"),
         Value::symbol("lambda"),
         Value::list(vec![Value::symbol("x")]),
         Value::list(vec![
             Value::symbol("list"),
-            Value::list(vec![Value::symbol("quote"), Value::symbol("when")]),
+            Value::list(vec![Value::symbol("quote"), Value::symbol("vm-env-result")]),
             Value::symbol("x"),
             Value::Int(1),
         ]),
@@ -8623,23 +8640,26 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
     assert_eq!(
         expanded,
         Value::list(vec![
-            Value::symbol("if"),
+            Value::symbol("vm-env-result"),
             Value::True,
-            Value::list(vec![Value::symbol("progn"), Value::Int(1)]),
+            Value::Int(1),
         ])
     );
 
+    // Part 2: shadow entry for vm-env-result suppresses expansion (trivially,
+    // since vm-env-result is not a macro).  Use with-temp-buffer instead to
+    // test genuine shadowing of a global macro.
     let shadow = builtin_macroexpand_eval(
         &mut eval,
         vec![
-            Value::list(vec![Value::symbol("when"), Value::True, Value::Int(1)]),
-            Value::list(vec![Value::list(vec![Value::symbol("when")])]),
+            Value::list(vec![Value::symbol("with-temp-buffer"), Value::Int(1)]),
+            Value::list(vec![Value::list(vec![Value::symbol("with-temp-buffer")])]),
         ],
     )
     .expect("environment shadow entries should suppress global macro expansion");
     assert_eq!(
         shadow,
-        Value::list(vec![Value::symbol("when"), Value::True, Value::Int(1)])
+        Value::list(vec![Value::symbol("with-temp-buffer"), Value::Int(1),])
     );
 }
 
@@ -8715,9 +8735,13 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
     .expect("non-macro improper forms should pass through unchanged");
     assert_eq!(not_macro, Value::cons(Value::symbol("foo"), Value::Int(1)));
 
+    // Use with-temp-buffer (a real fallback macro) instead of when
     let improper_macro = builtin_macroexpand_eval(
         &mut eval,
-        vec![Value::cons(Value::symbol("when"), Value::Int(1))],
+        vec![Value::cons(
+            Value::symbol("with-temp-buffer"),
+            Value::Int(1),
+        )],
     )
     .expect_err("macro expansion should reject improper argument lists");
     match improper_macro {
@@ -8945,9 +8969,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     let mut eval = crate::emacs_core::eval::Evaluator::new();
 
     eval.obarray_mut().make_special_id(intern("vm-bound-dyn"));
-    let mut frame = OrderedRuntimeBindingMap::new();
-    frame.insert(intern("vm-bound-dyn"), Value::Int(9));
-    eval.dynamic.push(frame);
+    eval.specbind(intern("vm-bound-dyn"), Value::Int(9));
 
     let current = eval.buffers.current_buffer_id().expect("current buffer");
     let buffer = eval.buffers.get_mut(current).expect("current buffer");
@@ -8957,8 +8979,8 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
         .expect("boundp should see dynamic binding");
     assert!(dyn_bound.is_truthy());
     let dyn_default = builtin_default_boundp(&mut eval, vec![Value::symbol("vm-bound-dyn")])
-        .expect("default-boundp should ignore dynamic binding");
-    assert!(dyn_default.is_nil());
+        .expect("default-boundp should see specbind binding in obarray");
+    assert!(dyn_default.is_truthy());
     let dyn_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-bound-dyn")])
         .expect("symbol-value should see dynamic binding");
     assert_eq!(dyn_value, Value::Int(9));

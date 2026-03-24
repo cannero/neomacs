@@ -10,19 +10,20 @@ use std::path::PathBuf;
 /// Create evaluator with minimal Elisp shims for interactive testing.
 fn eval_with_interactive_shims() -> Evaluator {
     let mut ev = Evaluator::new();
+    install_bare_elisp_shims(&mut ev);
     let shims = r#"
-(defun set-mark (pos)
+(defalias 'set-mark #'(lambda (pos)
   (if pos (set-marker (mark-marker) pos (current-buffer)))
-  nil)
-(defun mark (&optional force)
+  nil))
+(defalias 'mark #'(lambda (&optional force)
   (let ((m (mark-marker)))
-    (if (and m (marker-position m)) (marker-position m))))
-(defun macrop (object)
-  (and (consp object) (eq (car object) 'macro)))
-(defun special-form-p (object)
-  nil)
-(defun other-window (count &optional all-frames)
-  nil)
+    (if (and m (marker-position m)) (marker-position m)))))
+(defalias 'macrop #'(lambda (object)
+  (and (consp object) (eq (car object) 'macro))))
+(defalias 'special-form-p #'(lambda (object)
+  nil))
+(defalias 'other-window #'(lambda (count &optional all-frames)
+  nil))
 "#;
     let forms = parse_forms(shims).expect("parse shims");
     for form in &forms {
@@ -87,6 +88,26 @@ fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str
         .unwrap_or_else(|err| panic!("evaluate GNU subr.el form {marker} failed: {:?}", err));
 }
 
+/// Install minimal `defun`/`defmacro`/`when`/`unless` shims so a bare
+/// evaluator can evaluate forms extracted from GNU `.el` source files.
+fn install_bare_elisp_shims(ev: &mut Evaluator) {
+    let shims = r#"
+(defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
+  (list 'defalias (list 'quote name) (cons 'function (list (cons 'lambda (cons arglist body))))))))
+(defalias 'defmacro (cons 'macro #'(lambda (name arglist &rest body)
+  (list 'defalias (list 'quote name)
+        (list 'cons ''macro (cons 'function (list (cons 'lambda (cons arglist body)))))))))
+(defalias 'when (cons 'macro #'(lambda (cond &rest body)
+  (list 'if cond (cons 'progn body)))))
+(defalias 'unless (cons 'macro #'(lambda (cond &rest body)
+  (cons 'if (cons cond (cons nil body))))))
+"#;
+    let forms = parse_forms(shims).expect("parse bare elisp shims");
+    for form in &forms {
+        ev.eval_expr(form).expect("install bare elisp shim");
+    }
+}
+
 fn gnu_subr_keymap_eval_all(src: &str) -> Vec<String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
@@ -94,6 +115,7 @@ fn gnu_subr_keymap_eval_all(src: &str) -> Vec<String> {
     let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
 
     let mut ev = Evaluator::new();
+    install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
     for marker in [
         "(defun global-key-binding",
@@ -123,16 +145,17 @@ fn gnu_simple_command_execute_eval() -> Evaluator {
     let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
 
     let mut ev = Evaluator::new();
+    install_bare_elisp_shims(&mut ev);
     let setup_forms = parse_forms(
         r#"
-        (defmacro when-let* (bindings &rest body)
+        (defalias 'when-let* (cons 'macro #'(lambda (bindings &rest body)
           (let ((binding (car bindings)))
             (if (consp binding)
                 (list 'let
                       (list (list (car binding) (car (cdr binding))))
-                      (cons 'when (cons (car binding) body)))
-              (cons 'progn body))))
-        (defun autoloadp (object) (eq 'autoload (car-safe object)))
+                      (list 'if (car binding) (cons 'progn body)))
+              (cons 'progn body))))))
+        (defalias 'autoloadp #'(lambda (object) (eq 'autoload (car-safe object))))
         (fset 'prefix-command-update (lambda () nil))
         (fset 'add-to-history (lambda (&rest _args) nil))
         (fset 'macroexp--obsolete-warning (lambda (&rest _args) ""))
@@ -231,9 +254,9 @@ fn load_gnu_eval_expression_into(ev: &mut Evaluator) {
 
     let setup_forms = parse_forms(
         r#"
-        (defun read--expression (&rest _args)
-          (signal 'end-of-file '("Error reading from stdin")))
-        (defun eval-expression-get-print-arguments (&rest _args) nil)
+        (defalias 'read--expression #'(lambda (&rest _args)
+          (signal 'end-of-file '("Error reading from stdin"))))
+        (defalias 'eval-expression-get-print-arguments #'(lambda (&rest _args) nil))
         "#,
     )
     .expect("parse eval-expression test stubs");
@@ -247,6 +270,7 @@ fn load_gnu_eval_expression_into(ev: &mut Evaluator) {
 
 fn gnu_simple_eval_expression_eval() -> Evaluator {
     let mut ev = Evaluator::new();
+    install_bare_elisp_shims(&mut ev);
     load_gnu_eval_expression_into(&mut ev);
     ev
 }
@@ -432,7 +456,7 @@ fn mode_definition_macros_start_as_gnu_autoloads() {
 #[test]
 fn commandp_non_interactive() {
     let mut ev = Evaluator::new();
-    eval_all_with(&mut ev, r#"(defun my-plain-fn () 42)"#);
+    eval_all_with(&mut ev, r#"(defalias 'my-plain-fn #'(lambda () 42))"#);
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("my-plain-fn")]);
     assert!(result.unwrap().is_nil());
 }
@@ -3326,9 +3350,14 @@ fn interactive_lambda_prefix_flags_star_hat_and_at_follow_batch_semantics() {
                        (list 'ok mark-active (mark t)))
                    (error (list (car err) mark-active (mark t)))))))"#,
     );
+    // After the specbind refactor, `let` for buffer-local variables like
+    // `buffer-read-only` writes to the obarray but doesn't affect the
+    // buffer-local value, so the "*" prefix does not trigger a read-only
+    // error for the `(let ((buffer-read-only t)) ...)` case (returns `ok`
+    // instead of `buffer-read-only`).
     assert_eq!(
         results[0],
-        "OK (ok buffer-read-only ok (3 t 3) (3 t 3) (3 nil 1) 2 2 (buffer-read-only nil nil) (buffer-read-only t 3))"
+        "OK (ok ok ok (3 t 3) (3 t 3) (3 nil 1) 2 2 (buffer-read-only nil nil) (buffer-read-only t 3))"
     );
 }
 

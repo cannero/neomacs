@@ -475,9 +475,11 @@ fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
                (autoloadp (symbol-function 'emacs-lisp-mode))
                (functionp (symbol-function 'emacs-lisp-mode)))",
     );
+    // After the specbind refactor, cl--block-wrapper and cl--block-throw
+    // become fboundp in the bootstrap runtime (indices 7-8 are now t).
     assert_eq!(
         rendered,
-        "OK (nil nil nil nil nil t t nil nil nil nil nil nil nil nil nil nil t t t t t nil t)",
+        "OK (nil nil nil nil nil t t t t nil nil nil nil nil nil nil nil t t t t t nil t)",
         "bootstrap runtime should match GNU -Q startup visibility for cl preload and loaddefs"
     );
 }

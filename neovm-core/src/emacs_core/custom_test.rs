@@ -520,7 +520,7 @@ fn make_local_variable_preserves_existing_buffer_local_binding() {
         r#"(progn
              (setq vm-mlv-preserve-global 1)
              (with-temp-buffer
-               (setq-local vm-mlv-preserve-global 9)
+               (set (make-local-variable 'vm-mlv-preserve-global) 9)
                (make-local-variable 'vm-mlv-preserve-global)
                (list vm-mlv-preserve-global
                      (default-value 'vm-mlv-preserve-global))))"#,
@@ -734,7 +734,7 @@ fn kill_local_variable_resolves_alias_bindings() {
     let results = eval_all(
         r#"(defvaralias 'vm-klv-alias 'vm-klv-base)
            (with-temp-buffer
-             (setq-local vm-klv-alias 3)
+             (set (make-local-variable 'vm-klv-alias) 3)
              (kill-local-variable 'vm-klv-alias)
              (list (local-variable-p 'vm-klv-alias)
                    (local-variable-p 'vm-klv-base)
@@ -773,7 +773,7 @@ fn kill_local_variable_triggers_makunbound_watcher_with_buffer_where() {
              (defvaralias 'vm-klv-a-alias 'vm-klv-a-base)
              (add-variable-watcher 'vm-klv-a-base 'vm-klv-a-rec)
              (with-temp-buffer
-               (setq-local vm-klv-a-alias 7)
+               (set (make-local-variable 'vm-klv-a-alias) 7)
                (kill-local-variable 'vm-klv-a-alias))
              vm-klv-a-events)"#,
     );
