@@ -2347,6 +2347,9 @@ impl Evaluator {
         obarray.set_symbol_value("values", Value::Nil);
         obarray.set_symbol_value("debugger", Value::symbol("debug-early"));
         obarray.set_symbol_value("standard-output", Value::True);
+        // GNU DEFVAR_INT from dispnew.c — used by bytecomp.el
+        obarray.set_symbol_value("baud-rate", Value::Int(38400));
+        obarray.set_symbol_value("search-slow-speed", Value::Int(1200));
         obarray.set_symbol_value("buffer-read-only", Value::Nil);
         obarray.set_symbol_value("left-margin-width", Value::Nil);
         obarray.set_symbol_value("right-margin-width", Value::Nil);
