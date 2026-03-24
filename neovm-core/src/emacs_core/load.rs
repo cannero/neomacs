@@ -653,7 +653,8 @@ pub fn find_file_in_load_path_with_flags(
     must_suffix: bool,
     prefer_newer: bool,
 ) -> Option<PathBuf> {
-    let path = Path::new(name);
+    let expanded = expand_tilde(name);
+    let path = Path::new(&expanded);
     if path.is_absolute() {
         return find_for_base(path, name, no_suffix, must_suffix, prefer_newer);
     }
@@ -1593,6 +1594,10 @@ fn eager_expand_eval_and_collect(
 /// Load and evaluate a file. Returns the last result.
 #[tracing::instrument(level = "info", skip(eval), err(Debug))]
 pub fn load_file(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Value, EvalError> {
+    // Expand tilde in case the path comes from Elisp with ~ prefix
+    let expanded = expand_tilde(&path.to_string_lossy());
+    let path = std::path::Path::new(&expanded);
+
     if is_unsupported_compiled_path(path) {
         return Err(EvalError::Signal {
             symbol: intern("error"),
