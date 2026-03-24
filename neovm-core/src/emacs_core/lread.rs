@@ -413,16 +413,46 @@ pub(crate) fn builtin_read_char_exclusive_in_runtime(
 /// `(get-load-suffixes)`
 ///
 /// Return a list of suffixes that `load` tries when searching for files.
+/// GNU lread.c: combines `load-suffixes` with `load-file-rep-suffixes`.
 pub(crate) fn builtin_get_load_suffixes(args: Vec<Value>) -> EvalResult {
     expect_max_args("get-load-suffixes", &args, 0)?;
-    Ok(Value::list(vec![
-        Value::string(".so"),
-        Value::string(".so.gz"),
-        Value::string(".elc"),
-        Value::string(".elc.gz"),
-        Value::string(".el"),
-        Value::string(".el.gz"),
-    ]))
+    // Hardcoded to match NeoVM's load-suffixes = (".el") and
+    // load-file-rep-suffixes = ("").
+    // TODO: dynamically read from variables like GNU does.
+    Ok(Value::list(vec![Value::string(".el"), Value::string("")]))
+}
+
+/// Evaluator-aware variant that reads from obarray.
+pub(crate) fn builtin_get_load_suffixes_in_state(obarray: &super::symbol::Obarray) -> EvalResult {
+    use super::value::{Value, list_to_vec};
+    let load_suffixes = obarray
+        .symbol_value("load-suffixes")
+        .cloned()
+        .unwrap_or(Value::list(vec![Value::string(".el")]));
+    let rep_suffixes = obarray
+        .symbol_value("load-file-rep-suffixes")
+        .cloned()
+        .unwrap_or(Value::list(vec![Value::string("")]));
+    let mut result = Vec::new();
+    if let Some(suffixes) = list_to_vec(&load_suffixes) {
+        if let Some(reps) = list_to_vec(&rep_suffixes) {
+            for suffix in &suffixes {
+                for rep in &reps {
+                    let s = format!(
+                        "{}{}",
+                        suffix.as_str().unwrap_or(""),
+                        rep.as_str().unwrap_or("")
+                    );
+                    result.push(Value::string(s));
+                }
+            }
+        }
+    }
+    if result.is_empty() {
+        result.push(Value::string(".el"));
+        result.push(Value::string(""));
+    }
+    Ok(Value::list(result))
 }
 
 /// `(locate-file FILENAME PATH SUFFIXES &optional PREDICATE)`
