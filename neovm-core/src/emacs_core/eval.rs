@@ -5340,27 +5340,32 @@ impl Evaluator {
             return Ok(Value::Keyword(sym_id));
         }
 
-        let resolved = super::builtins::resolve_variable_alias_id(self, sym_id)?;
-        let resolved_name = resolve_sym(resolved);
-        let locally_special = lexenv_declares_special(self.lexenv, sym_id)
-            || (resolved != sym_id && lexenv_declares_special(self.lexenv, resolved));
-
-        // Check the lexical environment first whenever lexical binding is
-        // active. This preserves GNU Emacs behavior for function parameters
-        // named `t`/`nil`: they remain lexical locals inside the current
-        // lambda body, even though the global symbols are self-evaluating.
+        // GNU Emacs eval.c checks the lexenv for the ORIGINAL symbol
+        // BEFORE resolving variable aliases.  This ensures that local
+        // lexical bindings (let/lambda parameters) shadow variable aliases
+        // even when the alias target is a special (dynamically scoped)
+        // variable.  E.g. `argv` aliases to `command-line-args-left` (special),
+        // but `(let ((argv (make-vector 10 nil))) argv)` must return the vector.
         if self.lexical_binding()
             && !is_runtime_dynamically_special(&self.obarray, sym_id)
-            && !is_runtime_dynamically_special(&self.obarray, resolved)
-            && !locally_special
+            && !lexenv_declares_special(self.lexenv, sym_id)
         {
             if let Some(value) = lexenv_lookup(self.lexenv, sym_id) {
                 return Ok(value);
             }
-            if resolved != sym_id {
-                if let Some(value) = lexenv_lookup(self.lexenv, resolved) {
-                    return Ok(value);
-                }
+        }
+
+        let resolved = super::builtins::resolve_variable_alias_id(self, sym_id)?;
+        let resolved_name = resolve_sym(resolved);
+
+        // Also check the lexenv for the resolved alias (rare but possible).
+        if resolved != sym_id
+            && self.lexical_binding()
+            && !is_runtime_dynamically_special(&self.obarray, resolved)
+            && !lexenv_declares_special(self.lexenv, resolved)
+        {
+            if let Some(value) = lexenv_lookup(self.lexenv, resolved) {
+                return Ok(value);
             }
         }
 
@@ -7039,10 +7044,22 @@ impl Evaluator {
             _ => (None, 2),
         };
         let body: Rc<Vec<Expr>> = tail[body_start..].to_vec().into();
+        // GNU Emacs captures the lexical environment for macros when
+        // lexical-binding is enabled, producing (macro . closure) forms.
+        // Match this behavior so macro bodies use lexical scoping.
+        let env = if self.lexical_binding() || self.lexenv != Value::Nil {
+            Some(if self.lexenv == Value::Nil {
+                Value::list(vec![Value::True])
+            } else {
+                self.lexenv
+            })
+        } else {
+            None
+        };
         let macro_val = Value::make_macro(LambdaData {
             params,
             body,
-            env: None,
+            env,
             docstring,
             doc_form: None,
         });
