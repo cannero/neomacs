@@ -712,21 +712,7 @@ pub(crate) fn plan_load_in_state(
             ));
         }
     };
-    // GNU Emacs lread.c:1155: Fload calls Fsubstitute_in_file_name to
-    // expand ~ and $ENV references. Without this, paths like
-    // "~/.config/emacs/modules/.../init" are never found.
-    let file = if file.starts_with("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            format!("{}{}", home.to_string_lossy(), &file[1..])
-        } else {
-            file
-        }
-    } else if file.starts_with('~') {
-        // ~user/... expansion - not commonly needed
-        file
-    } else {
-        file
-    };
+    let file = expand_tilde(&file);
     let noerror = noerror.is_some_and(|v| v.is_truthy());
     let nosuffix = nosuffix.is_some_and(|v| v.is_truthy());
     let must_suffix = must_suffix.is_some_and(|v| v.is_truthy());
@@ -3751,6 +3737,17 @@ fn create_bootstrap_evaluator_cached_at_path(
     }
 
     Ok(eval)
+}
+
+/// Expand `~/` prefix to the HOME directory, matching GNU Emacs's
+/// `Fsubstitute_in_file_name` (lread.c:1155).
+pub(crate) fn expand_tilde(path: &str) -> String {
+    if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return format!("{}{}", home.to_string_lossy(), &path[1..]);
+        }
+    }
+    path.to_string()
 }
 
 #[cfg(test)]

@@ -1428,6 +1428,7 @@ pub(crate) fn plan_require_in_state(
         }
         None => name.clone(),
     };
+    let filename = super::load::expand_tilde(&filename);
 
     let load_path = super::load::get_load_path(obarray);
     match super::load::find_file_in_load_path(&filename, &load_path) {
