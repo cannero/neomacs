@@ -1567,9 +1567,17 @@ fn eager_expand_eval_and_collect(
     let fully_expanded = match eval.apply(macroexpand_fn, vec![val, Value::True]) {
         Ok(v) => v,
         Err(_) => {
+            // Step 3 full expansion failed. Fall back to evaluating the
+            // ORIGINAL form (before any expansion) via the normal evaluator.
+            // The normal eval_list handles macros inline without
+            // macroexpand-all, which avoids expansion-time errors from
+            // runtime-dependent code.
             eval.restore_temp_roots(saved);
-            tracing::debug!("eager_expand_collect step3 failed, using partially expanded form");
-            val
+            tracing::debug!(
+                "eager_expand_collect step3 failed, falling back to plain eval of original form"
+            );
+            collector.push(value_to_expr(&form_value));
+            return eval.eval_value(&form_value).map_err(map_flow);
         }
     };
     eval.restore_temp_roots(saved);
