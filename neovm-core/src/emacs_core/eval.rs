@@ -5994,12 +5994,12 @@ impl Evaluator {
 
     fn try_special_form_inner(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
         Some(match name {
+            // ---- GNU Emacs C special forms (eval.c UNEVALLED) ----
             "quote" => self.sf_quote(tail),
             "function" => self.sf_function(tail),
             "let" => self.sf_let(tail),
             "let*" => self.sf_let_star(tail),
             "setq" => self.sf_setq(tail),
-            "setq-local" => self.sf_setq_local(tail),
             "if" => self.sf_if(tail),
             "and" => self.sf_and(tail),
             "or" => self.sf_or(tail),
@@ -6007,80 +6007,42 @@ impl Evaluator {
             "while" => self.sf_while(tail),
             "progn" => self.sf_progn(tail),
             "prog1" => self.sf_prog1(tail),
-            "`" => self.sf_backquote(tail),
-            "lambda" => self.eval_lambda(tail),
-            "defun" => self.sf_defun(tail),
             "defvar" => self.sf_defvar(tail),
             "defconst" => self.sf_defconst(tail),
-            "defmacro" => self.sf_defmacro(tail),
-            "funcall" => self.sf_funcall(tail),
             "catch" => self.sf_catch(tail),
-            "throw" => self.sf_throw(tail),
             "unwind-protect" => self.sf_unwind_protect(tail),
             "condition-case" => self.sf_condition_case(tail),
+            // ---- GNU Emacs C special forms (editfns.c) ----
+            "save-excursion" => self.sf_save_excursion(tail),
+            "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
+            "save-restriction" => self.sf_save_restriction(tail),
+            // ---- GNU Emacs C special form stub (callint.c) ----
+            "interactive" => Ok(Value::Nil),
+            // ---- Evaluator-internal (not a special form in GNU) ----
+            "lambda" => self.eval_lambda(tail),
+            "declare" => Ok(Value::Nil),
+            // ---- NeoVM-specific ----
             "byte-code-literal" => self.sf_byte_code_literal(tail),
             "byte-code" => self.sf_byte_code(tail),
-            "interactive" => Ok(Value::Nil), // Stub: ignored for now
-            // GNU implements inline as an Elisp macro (inline.el), but we
-            // keep it as a special form for early bootstrap compatibility.
-            "inline" => self.sf_inline(tail),
-            "declare" => Ok(Value::Nil), // Stub: ignored for now
-            // when/unless are Elisp macros in GNU (subr.el) but needed
-            // before subr.el loads (used in byte-run.el at position 2).
-            // Keep as built-in for early bootstrap, overridden by subr.el.
-            "when" => self.sf_when(tail),
-            "unless" => self.sf_unless(tail),
-            "bound-and-true-p" => self.sf_bound_and_true_p(tail),
-            "defalias" => self.sf_defalias(tail),
-            "provide" => self.sf_provide(tail),
-            "require" => self.sf_require(tail),
-            "save-excursion" => self.sf_save_excursion(tail),
-            // save-window-excursion is an Elisp macro in GNU (subr.el)
-            // but kept as special form for early bootstrap compatibility.
-            "save-window-excursion" => self.sf_save_window_excursion(tail),
-            // save-selected-window: Elisp macro in GNU (window.el pos 15)
-            // but used in subr.el (pos 4) before window.el loads.
-            "save-selected-window" => self.sf_save_selected_window(tail),
-            // save-mark-and-excursion: Elisp macro in GNU (simple.el pos 71).
-            // Not used before simple.el loads — can be loaded from .el.
-            "save-restriction" => self.sf_save_restriction(tail),
-            // These are Elisp macros in GNU (subr.el) but must remain as
-            // built-in special forms because they are used BEFORE their
-            // definition when loading subr.el as source (not .elc).
-            // with-demoted-errors: used at line 2742, defined at line 5465
-            // save-match-data: used at line 4131, defined at line 5695
-            // with-local-quit, with-temp-message: defined late in subr.el
-            // ignore-errors: defined at line 452 (early enough) but kept
-            // for consistency.
-            "save-match-data" => self.sf_save_match_data(tail),
-            "with-local-quit" => self.sf_with_local_quit(tail),
-            "with-temp-message" => self.sf_with_temp_message(tail),
-            "with-demoted-errors" => self.sf_with_demoted_errors(tail),
-            "with-current-buffer" => self.sf_with_current_buffer(tail),
-            "ignore-errors" => self.sf_ignore_errors(tail),
-            "dotimes" => self.sf_dotimes(tail),
-            "dolist" => self.sf_dolist(tail),
-            // Custom system special forms
+            // Custom system
             "defcustom" => super::custom::sf_defcustom(self, tail),
             "defgroup" => super::custom::sf_defgroup(self, tail),
             "setq-default" => super::custom::sf_setq_default(self, tail),
             "defvar-local" => super::custom::sf_defvar_local(self, tail),
-            // Autoload special forms
+            // Autoload
             "autoload" => super::autoload::sf_autoload(self, tail),
             "eval-when-compile" => super::autoload::sf_eval_when_compile(self, tail),
             "eval-and-compile" => super::autoload::sf_eval_and_compile(self, tail),
             // Error hierarchy
             "define-error" => super::errors::sf_define_error(self, tail),
-            // Reader/printer special forms
+            // Reader/printer
             "with-output-to-string" => super::reader::sf_with_output_to_string(self, tail),
             // Threading
             "with-mutex" => super::threads::sf_with_mutex(self, tail),
-            // Misc special forms
+            // Misc
             "with-temp-buffer" => super::misc::sf_with_temp_buffer(self, tail),
-            "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
             "track-mouse" => super::misc::sf_track_mouse(self, tail),
-            // with-syntax-table: Elisp macro in GNU (subr.el:6394).
-            // Loaded from subr.el, not a C special form.
+            "with-syntax-table" => super::misc::sf_with_syntax_table(self, tail),
             _ => return None,
         })
     }

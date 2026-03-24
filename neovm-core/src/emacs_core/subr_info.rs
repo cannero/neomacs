@@ -55,16 +55,17 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 /// dispatch path.
 ///
 /// This list mirrors `Evaluator::try_special_form()` in `eval.rs`.
+/// Only includes forms that are C special forms (UNEVALLED) in GNU Emacs,
+/// plus a few NeoVM-specific forms needed for bootstrap/compatibility.
 pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
     matches!(
         name,
-        "`"
-            | "quote"
+        // GNU Emacs C special forms (eval.c UNEVALLED)
+        "quote"
             | "function"
             | "let"
             | "let*"
             | "setq"
-            | "setq-local"
             | "if"
             | "and"
             | "or"
@@ -72,57 +73,43 @@ pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {
             | "while"
             | "progn"
             | "prog1"
-            | "lambda"
-            | "defun"
             | "defvar"
             | "defconst"
-            | "defmacro"
-            | "funcall"
             | "catch"
-            | "throw"
             | "unwind-protect"
             | "condition-case"
-            | "interactive"
-            | "declare"
-            | "when"
-            | "unless"
-            | "bound-and-true-p"
-            | "defalias"
-            | "provide"
-            | "require"
+            // GNU Emacs C special forms (editfns.c)
             | "save-excursion"
-            | "save-window-excursion"
-            | "save-selected-window"
-
+            | "save-current-buffer"
             | "save-restriction"
-
-            | "with-local-quit"
-            | "with-temp-message"
-            | "with-demoted-errors"
-            | "with-current-buffer"
-            | "ignore-errors"
-            | "dotimes"
-            | "dolist"
-            // Custom / defcustom
+            // GNU Emacs C special form (callint.c) — stub
+            | "interactive"
+            // lambda is not a C special form but is handled specially by the evaluator
+            | "lambda"
+            // NeoVM-specific: bytecode handling
+            | "byte-code-literal"
+            | "byte-code"
+            // NeoVM-specific: custom/defcustom system (should eventually be Elisp)
             | "defcustom"
             | "defgroup"
             | "setq-default"
             | "defvar-local"
-            // Autoload
+            // NeoVM-specific: autoload system
             | "autoload"
             | "eval-when-compile"
             | "eval-and-compile"
-            // Error hierarchy
+            // NeoVM-specific: error hierarchy
             | "define-error"
-            // Reader/printer
+            // NeoVM-specific: reader/printer
             | "with-output-to-string"
-            // Threading
+            // NeoVM-specific: threading
             | "with-mutex"
-            // Misc
+            // NeoVM-specific: misc
             | "with-temp-buffer"
-            | "save-current-buffer"
             | "track-mouse"
             | "with-syntax-table"
+            // declare is a stub (ignored)
+            | "declare"
     )
 }
 
@@ -163,22 +150,12 @@ pub(crate) fn is_special_form(name: &str) -> bool {
 }
 
 /// Returns true for evaluator special forms that should NOT be expanded
-/// by `macroexpand`.  These are forms where NeoVM has a Rust handler that
-/// conflicts with the Elisp macro definition (e.g. `pcase.el` defines
-/// `(defmacro pcase ...)` but NeoVM handles `pcase` directly in Rust).
+/// by `macroexpand`.
 ///
-/// This is distinct from fallback macros like `when`/`unless`/`pcase-let`
-/// which ARE intentionally expanded by macroexpand.
-pub(crate) fn is_evaluator_sf_skip_macroexpand(name: &str) -> bool {
-    // NOTE: pcase-let, pcase-let*, pcase-dolist are NOT here because
-    // they have fallback macro handlers in macroexpand_known_fallback_macro.
-    //
-    // `bound-and-true-p` and `with-demoted-errors` have Rust special-form
-    // handlers that correctly handle lexical bindings and arity checking.
-    // The Elisp macros from bindings.el expand into code that breaks under
-    // lexical-binding (e.g. `(boundp 'var)` returns nil for lexically-bound
-    // vars) or reports wrong arity format.  Prefer the Rust handler.
-    matches!(name, "bound-and-true-p" | "with-demoted-errors")
+/// After removing the Rust sf_ forms that duplicated Elisp macros,
+/// there are no longer any forms that need this skip.
+pub(crate) fn is_evaluator_sf_skip_macroexpand(_name: &str) -> bool {
+    false
 }
 
 pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
@@ -188,8 +165,8 @@ pub(crate) fn is_evaluator_macro_name(name: &str) -> bool {
 }
 
 pub(crate) fn is_evaluator_callable_name(name: &str) -> bool {
-    // These are evaluator-dispatched entries that still behave as normal
-    // callable symbols in introspection (`fboundp`/`functionp`/`symbol-function`).
+    // `throw` is an evaluator-dispatched entry that still behaves as a normal
+    // callable symbol in introspection (`fboundp`/`functionp`/`symbol-function`).
     matches!(name, "throw")
 }
 
@@ -201,29 +178,16 @@ struct FallbackMacroSpec {
 
 fn fallback_macro_spec(name: &str) -> Option<FallbackMacroSpec> {
     match name {
-        "when" | "unless" | "dotimes" | "dolist" | "with-mutex" => {
-            Some(FallbackMacroSpec { min: 1, max: None })
-        }
-        "with-current-buffer" | "with-syntax-table" => {
-            Some(FallbackMacroSpec { min: 1, max: None })
-        }
-        "ignore-errors"
-        | "setq-local"
-        | "with-temp-buffer"
+        // Forms that are NeoVM-specific special forms AND need fallback macro
+        // introspection values for `fboundp`/`macrop` compatibility.
+        "with-mutex" => Some(FallbackMacroSpec { min: 1, max: None }),
+        "with-syntax-table" => Some(FallbackMacroSpec { min: 1, max: None }),
+        "with-temp-buffer"
         | "with-output-to-string"
         | "track-mouse"
-        | "save-window-excursion"
-        | "save-selected-window"
-        | "with-local-quit"
         | "declare"
         | "eval-when-compile"
         | "eval-and-compile" => Some(FallbackMacroSpec { min: 0, max: None }),
-        "with-temp-message" => Some(FallbackMacroSpec { min: 1, max: None }),
-        "with-demoted-errors" => Some(FallbackMacroSpec { min: 1, max: None }),
-        "bound-and-true-p" => Some(FallbackMacroSpec {
-            min: 1,
-            max: Some(1),
-        }),
         "defvar-local" => Some(FallbackMacroSpec {
             min: 2,
             max: Some(3),
@@ -275,6 +239,9 @@ pub(crate) fn fallback_macro_value(name: &str) -> Option<Value> {
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Arity helpers
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Arity helpers
 // ---------------------------------------------------------------------------

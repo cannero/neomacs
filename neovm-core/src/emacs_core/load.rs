@@ -2457,6 +2457,43 @@ fn expr_runtime_value(expr: &Expr) -> Option<Value> {
     }
 }
 
+/// Pre-seed minimal macro definitions needed before their .el files load.
+///
+/// NeoVM loads .el source; these macros are used in early bootstrap files
+/// (byte-run.el, backquote.el, subr.el) before their full defmacro runs.
+/// The full Elisp definitions override these later.
+fn preseed_bootstrap_macros(eval: &mut super::eval::Evaluator) {
+    let defs = [
+        // when: subr.el uses at line 102, defined at line 316
+        "(defalias 'when (cons 'macro #'(lambda (cond &rest body) (list 'if cond (cons 'progn body)))))",
+        // unless: subr.el uses at line 105, defined at line 340
+        "(defalias 'unless (cons 'macro #'(lambda (cond &rest body) (cons 'if (cons cond (cons nil body))))))",
+        // dolist: subr.el uses before line 386
+        "(defalias 'dolist (cons 'macro #'(lambda (spec &rest body) (let ((var (nth 0 spec)) (list-form (nth 1 spec)) (result-form (nth 2 spec))) (list 'let (list (list var nil)) (list 'let (list (list '--dolist-tail-- list-form)) (list 'while '--dolist-tail-- (list 'setq var (list 'car '--dolist-tail--)) (cons 'progn body) (list 'setq '--dolist-tail-- (list 'cdr '--dolist-tail--))) result-form))))))",
+        // with-current-buffer: subr.el uses 6 times before definition at line 5102
+        "(defalias 'with-current-buffer (cons 'macro #'(lambda (buf &rest body) (cons 'save-current-buffer (cons (list 'set-buffer buf) body)))))",
+        // save-match-data: subr.el uses before definition at line 5695
+        "(defalias 'save-match-data (cons 'macro #'(lambda (&rest body) (list 'let (list (list 'save-match-data-internal (list 'match-data))) (list 'unwind-protect (cons 'progn body) (list 'set-match-data 'save-match-data-internal 'evaporate))))))",
+        // with-demoted-errors: subr.el uses before definition at line 5465
+        "(defalias 'with-demoted-errors (cons 'macro #'(lambda (format &rest body) (list 'condition-case 'err (cons 'progn body) (list 'error (list 'message format 'err) nil)))))",
+        // save-window-excursion: subr.el uses before definition at line 5187
+        "(defalias 'save-window-excursion (cons 'macro #'(lambda (&rest body) (list 'let (list (list 'save-window-excursion--state (list 'current-window-configuration))) (list 'unwind-protect (cons 'progn body) (list 'set-window-configuration 'save-window-excursion--state))))))",
+        // save-selected-window: used in subr.el, defined in window.el (loads later)
+        "(defalias 'save-selected-window (cons 'macro #'(lambda (&rest body) (list 'let (list (list 'save-selected-window--state (list 'selected-window))) (list 'save-current-buffer (list 'unwind-protect (cons 'progn body) (list 'let (list (list 'save-selected-window--undo 'save-selected-window--state)) (list 'if (list 'window-live-p 'save-selected-window--undo) (list 'select-window 'save-selected-window--undo 'norecord)))))))))",
+        // bound-and-true-p: used in subr.el, defined in bindings.el (loads later)
+        "(defalias 'bound-and-true-p (cons 'macro #'(lambda (var) (list 'and (list 'boundp (list 'quote var)) var))))",
+        // inline: byte-run.el defines as (defalias 'inline 'progn) at line 486
+        "(defalias 'inline 'progn)",
+    ];
+    for def in &defs {
+        if let Ok(forms) = crate::emacs_core::parser::parse_forms(def) {
+            for form in &forms {
+                let _ = eval.eval_expr(form);
+            }
+        }
+    }
+}
+
 fn hidden_cl_runtime_entry_points() -> std::collections::BTreeSet<String> {
     // GNU Emacs -Q does not expose these cl-loaddefs entry points until
     // cl-lib/eieio explicitly restore them via the real Lisp load path.
@@ -3412,6 +3449,18 @@ pub fn create_bootstrap_evaluator_with_features(
                 }
             }
         }
+
+        // Pre-seed bootstrap macros.
+        //
+        // NeoVM loads .el source (not .elc bytecode).  Several Elisp macros
+        // are used in early bootstrap files BEFORE their defining .el file
+        // is loaded (e.g., `when`/`unless` are used in subr.el before their
+        // defmacro at lines 316/340).  In GNU Emacs this is not a problem
+        // because .elc files have macros pre-expanded.
+        //
+        // We pre-seed minimal macro definitions here; the full versions
+        // from subr.el / window.el / bindings.el will override them later.
+        preseed_bootstrap_macros(&mut eval);
 
         // Suppress eager macro expansion during the bootstrap phase
         // (mirrors real Emacs loadup.el which wraps pcase loading with
