@@ -193,6 +193,32 @@ fn format_window_handle_in_state(
     format!("#<window {id}>")
 }
 
+/// Build print options from the evaluator, checking dynamic bindings first.
+/// This correctly handles (let ((print-escape-newlines t)) (format "%S" ...))
+/// where the let-binding is on the dynamic stack, not in the obarray.
+pub(crate) fn print_options_from_eval(eval: &super::eval::Evaluator) -> PrintOptions {
+    let print_gensym = eval
+        .visible_variable_value_or_nil("print-gensym")
+        .is_truthy();
+    let print_circle = eval
+        .visible_variable_value_or_nil("print-circle")
+        .is_truthy();
+    let print_escape_newlines = eval
+        .visible_variable_value_or_nil("print-escape-newlines")
+        .is_truthy();
+    let print_level = match eval.visible_variable_value_or_nil("print-level") {
+        Value::Int(n) if n >= 0 => Some(n),
+        _ => None,
+    };
+    let print_length = match eval.visible_variable_value_or_nil("print-length") {
+        Value::Int(n) if n >= 0 => Some(n),
+        _ => None,
+    };
+    let mut opts = PrintOptions::new(print_gensym, print_circle, print_level, print_length);
+    opts.print_escape_newlines = print_escape_newlines;
+    opts
+}
+
 fn print_options_from_state(obarray: &super::symbol::Obarray) -> PrintOptions {
     let print_gensym = obarray
         .symbol_value("print-gensym")

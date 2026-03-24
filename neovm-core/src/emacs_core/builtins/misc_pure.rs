@@ -335,8 +335,6 @@ pub(crate) fn builtin_error_eval(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("error", &args, 1)?;
-    // GNU Emacs's `error` uses `format-message` (not `format`) so that
-    // backtick/apostrophe quoting respects `text-quoting-style`.
     let msg = match builtin_format_message_eval(eval, args)? {
         Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
         _ => "error".to_string(),
