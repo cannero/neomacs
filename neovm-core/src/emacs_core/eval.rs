@@ -2351,6 +2351,8 @@ impl Evaluator {
         // GNU DEFVAR_INT from dispnew.c — used by bytecomp.el
         obarray.set_symbol_value("baud-rate", Value::Int(38400));
         obarray.set_symbol_value("search-slow-speed", Value::Int(1200));
+        // GNU startup.el sets these based on --debug-init
+        obarray.set_symbol_value("init-file-debug", Value::Nil);
         // GNU callproc.c: exec-path is built from PATH env var.
         // exec-directory is the directory containing helper programs.
         let exec_path: Vec<Value> = std::env::var("PATH")
