@@ -428,7 +428,7 @@ fn autoload_overwrites_previous() {
 #[test]
 fn autoload_does_not_override_real_definition() {
     let results = eval_all(
-        r#"(defun already-defined () 42)
+        r#"(defalias 'already-defined #'(lambda () 42))
            (autoload 'already-defined "some-file")
            ;; autoload should return nil (skipped)
            ;; and the real definition should still be in place
