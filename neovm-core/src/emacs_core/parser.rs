@@ -969,8 +969,17 @@ impl<'a> Parser<'a> {
             return Ok(Expr::OpaqueValue(Value::HashTable(ht_id)));
         }
 
-        // Not a hash-table — it's a record #s(type ...)
-        // Emit as code for eval-time construction
+        // Not a hash-table — it's a record #s(type field1 field2 ...)
+        // Create a Record value directly during reading, matching GNU reader.
+        if let Expr::List(items) = &list {
+            if !items.is_empty() {
+                use super::value::{Value, with_heap_mut};
+                let vals: Vec<Value> = items.iter().map(super::eval::quote_to_value).collect();
+                let record_id = with_heap_mut(|h| h.alloc_vector(vals));
+                return Ok(Expr::OpaqueValue(Value::Record(record_id)));
+            }
+        }
+        // Fallback for empty or non-list
         Ok(Expr::List(vec![
             Expr::Symbol(intern("make-hash-table-from-literal")),
             Expr::List(vec![Expr::Symbol(intern("quote")), list]),
