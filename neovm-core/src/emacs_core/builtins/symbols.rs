@@ -326,9 +326,7 @@ pub(crate) fn builtin_boundp_in_state(
 ) -> EvalResult {
     expect_args("boundp", &args, 1)?;
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
-    if let Some(binding) = lookup_runtime_binding(dynamic, resolved) {
-        return Ok(Value::bool(binding.as_value().is_some()));
-    }
+    // specbind writes directly to obarray, so no dynamic stack lookup needed.
     let resolved_name = resolve_sym(resolved);
     if let Some(buf) = buffers.current_buffer() {
         if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
@@ -597,12 +595,7 @@ pub(crate) fn builtin_symbol_value_in_state(
     let resolved = resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
     let resolved_is_canonical = is_canonical_symbol_id(resolved);
-    // Check dynamic bindings first
-    if let Some(binding) = lookup_runtime_binding(dynamic, resolved) {
-        return binding
-            .as_value()
-            .ok_or_else(|| signal("void-variable", vec![args[0]]));
-    }
+    // specbind writes directly to obarray, so no dynamic stack lookup needed.
     // Buffer-local bindings are keyed by canonical symbol names only.
     if resolved_is_canonical && let Some(buf) = buffers.current_buffer() {
         if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {

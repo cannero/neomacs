@@ -45,6 +45,17 @@ const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
 const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
 
+/// A single entry on the specpdl (special binding stack).
+/// Matches GNU Emacs's `union specbinding` (SPECPDL_LET case).
+#[derive(Clone, Debug)]
+pub(crate) enum SpecBinding {
+    /// Dynamic variable let-binding: saves old obarray value, restores on unbind.
+    Let {
+        sym_id: SymId,
+        old_value: Option<Value>,
+    },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct GnuTimerTimestamp {
     high_seconds: i64,
@@ -307,6 +318,7 @@ impl InterpretedClosureTrimCacheEntry {
 pub(crate) struct VmSharedState<'a> {
     pub(crate) obarray: &'a mut Obarray,
     pub(crate) dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
+    pub(crate) specpdl: &'a mut Vec<SpecBinding>,
     pub(crate) lexenv: &'a mut Value,
     pub(crate) features: &'a mut Vec<SymId>,
     pub(crate) require_stack: &'a mut Vec<SymId>,
@@ -375,6 +387,7 @@ impl<'a> VmSharedState<'a> {
     fn new(
         obarray: &'a mut Obarray,
         dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
+        specpdl: &'a mut Vec<SpecBinding>,
         lexenv: &'a mut Value,
         features: &'a mut Vec<SymId>,
         require_stack: &'a mut Vec<SymId>,
@@ -443,6 +456,7 @@ impl<'a> VmSharedState<'a> {
         Self {
             obarray,
             dynamic,
+            specpdl,
             lexenv,
             features,
             require_stack,
@@ -553,6 +567,16 @@ impl<'a> VmSharedState<'a> {
         roots.extend(self.read_command_keys.iter().copied());
         for scope in self.dynamic.iter() {
             roots.extend(scope.values().copied());
+        }
+        // Root old_value entries on the specpdl so GC doesn't collect them.
+        for entry in self.specpdl.iter() {
+            match entry {
+                SpecBinding::Let {
+                    old_value: Some(val),
+                    ..
+                } => roots.push(*val),
+                _ => {}
+            }
         }
         roots.push(*self.lexenv);
         for saved_env in self.saved_lexenvs.iter() {
@@ -685,6 +709,7 @@ impl<'a> VmSharedState<'a> {
         Self::new(
             &mut eval.obarray,
             &mut eval.dynamic,
+            &mut eval.specpdl,
             &mut eval.lexenv,
             &mut eval.features,
             &mut eval.require_stack,
@@ -774,6 +799,7 @@ impl<'a> VmSharedState<'a> {
         begin_lambda_call_in_state(
             self.obarray,
             self.dynamic,
+            self.specpdl,
             self.lexenv,
             self.saved_lexenvs,
             self.temp_roots,
@@ -787,6 +813,7 @@ impl<'a> VmSharedState<'a> {
         finish_lambda_call_in_state(
             self.obarray,
             self.dynamic,
+            self.specpdl,
             self.lexenv,
             self.saved_lexenvs,
             self.temp_roots,
@@ -798,6 +825,7 @@ impl<'a> VmSharedState<'a> {
         begin_macro_expansion_scope_in_state(
             self.obarray,
             self.dynamic,
+            self.specpdl,
             self.buffers,
             &*self.custom,
             *self.lexenv,
@@ -897,9 +925,10 @@ impl<'a> VmSharedState<'a> {
 
     pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {
         let name_id = intern("unread-command-events");
-        let current = lookup_runtime_binding(self.dynamic.as_slice(), name_id)
-            .and_then(RuntimeBindingValue::as_value)
-            .or_else(|| self.obarray.symbol_value("unread-command-events").copied())
+        let current = self
+            .obarray
+            .symbol_value("unread-command-events")
+            .copied()
             .unwrap_or(Value::Nil);
         match current {
             Value::Cons(cell) => {
@@ -923,10 +952,10 @@ impl<'a> VmSharedState<'a> {
     }
 
     pub(crate) fn peek_unread_command_event(&self) -> Option<Value> {
-        let name_id = intern("unread-command-events");
-        let current = lookup_runtime_binding(self.dynamic.as_slice(), name_id)
-            .and_then(RuntimeBindingValue::as_value)
-            .or_else(|| self.obarray.symbol_value("unread-command-events").copied())
+        let current = self
+            .obarray
+            .symbol_value("unread-command-events")
+            .copied()
             .unwrap_or(Value::Nil);
         match current {
             Value::Cons(cell) => Some(read_cons(cell).car),
@@ -936,9 +965,10 @@ impl<'a> VmSharedState<'a> {
 
     pub(crate) fn push_unread_command_event(&mut self, event: Value) {
         let name_id = intern("unread-command-events");
-        let current = lookup_runtime_binding(self.dynamic.as_slice(), name_id)
-            .and_then(RuntimeBindingValue::as_value)
-            .or_else(|| self.obarray.symbol_value("unread-command-events").copied())
+        let current = self
+            .obarray
+            .symbol_value("unread-command-events")
+            .copied()
             .unwrap_or(Value::Nil);
         set_runtime_binding_in_state(
             self.obarray,
@@ -1191,6 +1221,9 @@ pub struct Evaluator {
     pub(crate) obarray: Obarray,
     /// Dynamic binding stack (each frame is one `let`/function call scope).
     pub(crate) dynamic: Vec<OrderedRuntimeBindingMap>,
+    /// Specpdl — special binding stack that writes directly to the obarray.
+    /// Matches GNU Emacs's specpdl design.
+    pub(crate) specpdl: Vec<SpecBinding>,
     /// Lexical environment: flat cons alist mirroring GNU Emacs's
     /// `Vinternal_interpreter_environment`.
     pub(crate) lexenv: Value,
@@ -1618,6 +1651,7 @@ pub(crate) struct ActiveLambdaCallState {
     saved_temp_roots_len: usize,
     has_lexenv: bool,
     saved_lexical_mode: Option<bool>,
+    specpdl_count: usize,
 }
 
 pub(crate) struct ActiveMacroExpansionScopeState {
@@ -1653,6 +1687,7 @@ fn lambda_arity_cons(params: &LambdaParams) -> Value {
 fn begin_lambda_call_in_state(
     obarray: &mut Obarray,
     dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
     temp_roots: &mut Vec<Value>,
@@ -1687,6 +1722,7 @@ fn begin_lambda_call_in_state(
     }
 
     let saved_temp_roots_len = temp_roots.len();
+    let specpdl_count = specpdl.len();
     temp_roots.extend(args.iter().copied());
 
     let has_lexenv = lambda.env.is_some();
@@ -1714,24 +1750,28 @@ fn begin_lambda_call_in_state(
             bind_lexical_value_rooted_in_state(lexenv, temp_roots, rest_name, rest_value);
         }
     } else {
-        let mut frame = OrderedRuntimeBindingMap::new();
+        // Dynamic binding: use specbind to write directly to obarray.
         let mut arg_idx = 0;
         for param in &params.required {
-            frame.insert(*param, args[arg_idx]);
+            specbind_in_state(obarray, specpdl, *param, args[arg_idx]);
             arg_idx += 1;
         }
         for param in &params.optional {
             if arg_idx < args.len() {
-                frame.insert(*param, args[arg_idx]);
+                specbind_in_state(obarray, specpdl, *param, args[arg_idx]);
                 arg_idx += 1;
             } else {
-                frame.insert(*param, Value::Nil);
+                specbind_in_state(obarray, specpdl, *param, Value::Nil);
             }
         }
         if let Some(rest_name) = params.rest {
-            frame.insert(rest_name, Value::list(args[arg_idx..].to_vec()));
+            specbind_in_state(
+                obarray,
+                specpdl,
+                rest_name,
+                Value::list(args[arg_idx..].to_vec()),
+            );
         }
-        dynamic.push(frame);
     }
 
     let saved_lexical_mode = if has_lexenv {
@@ -1748,12 +1788,14 @@ fn begin_lambda_call_in_state(
         saved_temp_roots_len,
         has_lexenv,
         saved_lexical_mode,
+        specpdl_count,
     })
 }
 
 fn finish_lambda_call_in_state(
     obarray: &mut Obarray,
     dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
     temp_roots: &mut Vec<Value>,
@@ -1766,7 +1808,7 @@ fn finish_lambda_call_in_state(
         let old_lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
         *lexenv = old_lexenv;
     } else {
-        dynamic.pop();
+        unbind_to_in_state(obarray, specpdl, state.specpdl_count);
     }
     temp_roots.truncate(state.saved_temp_roots_len);
 }
@@ -1774,6 +1816,7 @@ fn finish_lambda_call_in_state(
 fn begin_macro_expansion_scope_in_state(
     obarray: &mut Obarray,
     dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    specpdl: &[SpecBinding],
     buffers: &mut BufferManager,
     custom: &CustomManager,
     lexenv: Value,
@@ -1797,13 +1840,16 @@ fn begin_macro_expansion_scope_in_state(
         }
         dynvars = Value::cons(Value::Symbol(sym), dynvars);
     }
-    for frame in dynamic.iter().rev() {
-        for (sym, _) in frame.iter() {
-            let name = resolve_sym(*sym);
-            if name == "t" || name == "nil" {
-                continue;
+    // Collect symbols from the specpdl (replaces dynamic frame iteration).
+    for entry in specpdl.iter().rev() {
+        match entry {
+            SpecBinding::Let { sym_id, .. } => {
+                let name = resolve_sym(*sym_id);
+                if name == "t" || name == "nil" {
+                    continue;
+                }
+                dynvars = Value::cons(Value::Symbol(*sym_id), dynvars);
             }
-            dynvars = Value::cons(Value::Symbol(*sym), dynvars);
         }
     }
 
@@ -2054,6 +2100,7 @@ impl Evaluator {
         ev.obarray
             .set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
         ev.dynamic.clear();
+        ev.specpdl.clear();
         ev.lexenv = Value::Nil;
         ev.features.clear();
         ev.require_stack.clear();
@@ -3298,6 +3345,7 @@ impl Evaluator {
             heap,
             obarray,
             dynamic: Vec::new(),
+            specpdl: Vec::new(),
             lexenv: Value::Nil,
             features: Vec::new(),
             require_stack: Vec::new(),
@@ -3409,6 +3457,7 @@ impl Evaluator {
             heap,
             obarray,
             dynamic,
+            specpdl: Vec::new(),
             lexenv,
             features,
             require_stack,
@@ -3497,6 +3546,16 @@ impl Evaluator {
         roots.extend(self.read_command_keys.iter().cloned());
         for scope in &self.dynamic {
             roots.extend(scope.values().cloned());
+        }
+        // Root old_value entries on the specpdl so GC doesn't collect them.
+        for entry in &self.specpdl {
+            match entry {
+                SpecBinding::Let {
+                    old_value: Some(val),
+                    ..
+                } => roots.push(*val),
+                _ => {}
+            }
         }
         roots.push(self.lexenv);
         // Scan saved lexenvs (from apply_lambda's lexenv replacement)
@@ -5043,6 +5102,7 @@ impl Evaluator {
         begin_lambda_call_in_state(
             &mut self.obarray,
             &mut self.dynamic,
+            &mut self.specpdl,
             &mut self.lexenv,
             &mut self.saved_lexenvs,
             &mut self.temp_roots,
@@ -5056,6 +5116,7 @@ impl Evaluator {
         finish_lambda_call_in_state(
             &mut self.obarray,
             &mut self.dynamic,
+            &mut self.specpdl,
             &mut self.lexenv,
             &mut self.saved_lexenvs,
             &mut self.temp_roots,
@@ -5379,19 +5440,8 @@ impl Evaluator {
             }
         }
 
-        // Dynamic scope lookup (inner to outer)
-        if let Some(binding) = lookup_runtime_binding(&self.dynamic, sym_id) {
-            return binding
-                .as_value()
-                .ok_or_else(|| signal("void-variable", vec![value_from_symbol_id(sym_id)]));
-        }
-        if resolved != sym_id
-            && let Some(binding) = lookup_runtime_binding(&self.dynamic, resolved)
-        {
-            return binding
-                .as_value()
-                .ok_or_else(|| signal("void-variable", vec![value_from_symbol_id(sym_id)]));
-        }
+        // Dynamic scope lookup: specbind writes directly to obarray,
+        // so for special variables just fall through to obarray lookup below.
 
         if symbol_is_canonical && symbol == "nil" {
             return Ok(Value::Nil);
@@ -5881,11 +5931,8 @@ impl Evaluator {
             );
             self.lexenv = lexenv_val;
         }
-        for frame in &mut self.dynamic {
-            for value in frame.values_mut() {
-                Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
-            }
-        }
+        // Dynamic bindings are now in the obarray (via specbind), so
+        // the obarray iteration below handles them.
         if let Some(current_id) = self.buffers.current_buffer_id()
             && let Some(buf) = self.buffers.get_mut(current_id)
         {
@@ -6097,8 +6144,7 @@ impl Evaluator {
         }
 
         let mut lexical_bindings: Vec<(SymId, Value)> = Vec::new();
-        let mut dynamic_bindings = OrderedRuntimeBindingMap::new();
-        let mut watcher_bindings: Vec<(String, Value, Value)> = Vec::new();
+        let mut dynamic_sym_ids: Vec<(SymId, Value)> = Vec::new();
         let use_lexical = self.lexical_binding();
         let mut constant_binding_error: Option<String> = None;
 
@@ -6117,16 +6163,14 @@ impl Evaluator {
                                 }
                                 continue;
                             }
-                            let old_value = self.visible_variable_value_or_nil(name);
                             if use_lexical
                                 && !self.obarray.is_special(name)
                                 && !lexenv_declares_special(self.lexenv, *id)
                             {
                                 lexical_bindings.push((*id, Value::Nil));
                             } else {
-                                dynamic_bindings.insert(*id, Value::Nil);
+                                dynamic_sym_ids.push((*id, Value::Nil));
                             }
-                            watcher_bindings.push((name.to_owned(), Value::Nil, old_value));
                         }
                         Expr::List(pair) if !pair.is_empty() => {
                             let Expr::Symbol(id) = &pair[0] else {
@@ -6155,16 +6199,14 @@ impl Evaluator {
                                 }
                                 continue;
                             }
-                            let old_value = self.visible_variable_value_or_nil(name);
                             if use_lexical
                                 && !self.obarray.is_special(name)
                                 && !lexenv_declares_special(self.lexenv, *id)
                             {
                                 lexical_bindings.push((*id, value));
                             } else {
-                                dynamic_bindings.insert(*id, value);
+                                dynamic_sym_ids.push((*id, value));
                             }
-                            watcher_bindings.push((name.to_owned(), value, old_value));
                         }
                         _ => {
                             self.temp_roots.truncate(saved_roots);
@@ -6195,8 +6237,10 @@ impl Evaluator {
             return Err(signal("setting-constant", vec![Value::symbol(name)]));
         }
 
+        // Save specpdl depth for unbind_to.
+        let specpdl_count = self.specpdl.len();
+
         let pushed_lex = !lexical_bindings.is_empty();
-        let pushed_dyn = !dynamic_bindings.is_empty();
         // Save lexenv before prepending bindings.
         let saved_lexenv = if pushed_lex {
             let saved = self.lexenv;
@@ -6211,36 +6255,18 @@ impl Evaluator {
         } else {
             false
         };
-        if pushed_dyn {
-            self.dynamic.push(dynamic_bindings);
-        }
-
-        for (name, value, _) in &watcher_bindings {
-            if let Err(error) = self.run_variable_watchers(name, value, &Value::Nil, "let") {
-                if pushed_dyn {
-                    self.dynamic.pop();
-                }
-                if saved_lexenv {
-                    self.lexenv = self.saved_lexenvs.pop().unwrap();
-                }
-                return Err(error);
-            }
+        // Use specbind for dynamic bindings (writes directly to obarray).
+        for (sym_id, value) in &dynamic_sym_ids {
+            self.specbind(*sym_id, *value);
         }
 
         let result = self.sf_progn(&tail[1..]);
-        if pushed_dyn {
-            self.dynamic.pop();
-        }
+        self.unbind_to(specpdl_count);
         if saved_lexenv {
             self.lexenv = self.saved_lexenvs.pop().unwrap();
         }
 
-        let unlet_result = self.run_unlet_watchers(&watcher_bindings);
-        match (result, unlet_result) {
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
-            (Ok(value), Ok(())) => Ok(value),
-        }
+        result
     }
 
     fn sf_let_star(&mut self, tail: &[Expr]) -> EvalResult {
@@ -6269,11 +6295,9 @@ impl Evaluator {
         };
 
         let use_lexical = self.lexical_binding();
-        let saved_lex = use_lexical; // Save lexenv when lexical mode active
-        let pushed_dyn = true; // Always push a dynamic frame too (for special vars or dynamic mode)
-        let mut watcher_bindings: Vec<(String, Value, Value)> = Vec::new();
 
-        self.dynamic.push(OrderedRuntimeBindingMap::new());
+        // Save specpdl depth for unbind_to.
+        let specpdl_count = self.specpdl.len();
         let saved_lexenv = if use_lexical {
             let saved = self.lexenv;
             self.saved_lexenvs.push(saved);
@@ -6290,17 +6314,14 @@ impl Evaluator {
                         if name == "nil" || name == "t" {
                             return Err(signal("setting-constant", vec![Value::symbol(name)]));
                         }
-                        let old_value = self.visible_variable_value_or_nil(name);
                         if use_lexical
                             && !self.obarray.is_special(name)
                             && !lexenv_declares_special(self.lexenv, *id)
                         {
                             self.bind_lexical_value_rooted(*id, Value::Nil);
-                        } else if let Some(frame) = self.dynamic.last_mut() {
-                            frame.insert(*id, Value::Nil);
+                        } else {
+                            self.specbind(*id, Value::Nil);
                         }
-                        watcher_bindings.push((name.to_owned(), Value::Nil, old_value));
-                        self.run_variable_watchers(name, &Value::Nil, &Value::Nil, "let")?;
                     }
                     Expr::List(pair) if !pair.is_empty() => {
                         let Expr::Symbol(id) = &pair[0] else {
@@ -6318,17 +6339,14 @@ impl Evaluator {
                         if name == "nil" || name == "t" {
                             return Err(signal("setting-constant", vec![Value::symbol(name)]));
                         }
-                        let old_value = self.visible_variable_value_or_nil(name);
                         if use_lexical
                             && !self.obarray.is_special(name)
                             && !lexenv_declares_special(self.lexenv, *id)
                         {
                             self.bind_lexical_value_rooted(*id, value);
-                        } else if let Some(frame) = self.dynamic.last_mut() {
-                            frame.insert(*id, value);
+                        } else {
+                            self.specbind(*id, value);
                         }
-                        watcher_bindings.push((name.to_owned(), value, old_value));
-                        self.run_variable_watchers(name, &value, &Value::Nil, "let")?;
                     }
                     _ => return Err(signal("wrong-type-argument", vec![])),
                 }
@@ -6339,26 +6357,17 @@ impl Evaluator {
             if saved_lexenv {
                 self.lexenv = self.saved_lexenvs.pop().unwrap();
             }
-            self.dynamic.pop();
-
-            let _ = self.run_unlet_watchers(&watcher_bindings);
+            self.unbind_to(specpdl_count);
             return Err(error);
         }
 
         let result = self.sf_progn(&tail[1..]);
-        if pushed_dyn {
-            self.dynamic.pop();
-        }
+        self.unbind_to(specpdl_count);
         if saved_lexenv {
             self.lexenv = self.saved_lexenvs.pop().unwrap();
         }
 
-        let unlet_result = self.run_unlet_watchers(&watcher_bindings);
-        match (result, unlet_result) {
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
-            (Ok(value), Ok(())) => Ok(value),
-        }
+        result
     }
 
     fn sf_setq(&mut self, tail: &[Expr]) -> EvalResult {
@@ -6719,18 +6728,15 @@ impl Evaluator {
                 if let Some(idx) = success_handler_idx {
                     if let Expr::List(items) = &handlers[idx] {
                         let bind_var = resolve_sym(var) != "nil";
+                        let specpdl_count = self.specpdl.len();
                         if bind_var {
-                            let mut frame = OrderedRuntimeBindingMap::new();
-                            frame.insert(var, value);
-                            self.dynamic.push(frame);
+                            self.specbind(var, value);
                         }
                         let mut result = Value::Nil;
                         for form in &items[1..] {
                             result = self.eval(form)?;
                         }
-                        if bind_var {
-                            self.dynamic.pop();
-                        }
+                        self.unbind_to(specpdl_count);
                         return Ok(result);
                     }
                 }
@@ -6764,7 +6770,7 @@ impl Evaluator {
                             && !is_runtime_dynamically_special(&self.obarray, var)
                             && !lexenv_declares_special(self.lexenv, var);
 
-                        let mut frame = OrderedRuntimeBindingMap::new();
+                        let specpdl_count = self.specpdl.len();
                         let pushed_lexenv = if use_lexical_binding {
                             let saved = self.lexenv;
                             self.saved_lexenvs.push(saved);
@@ -6772,17 +6778,12 @@ impl Evaluator {
                             true
                         } else {
                             if bind_var {
-                                frame.insert(var, binding_value);
+                                self.specbind(var, binding_value);
                             }
                             false
                         };
-                        if !frame.is_empty() {
-                            self.dynamic.push(frame);
-                        }
                         let result = self.sf_progn(&handler_items[1..]);
-                        if bind_var && !use_lexical_binding {
-                            self.dynamic.pop();
-                        }
+                        self.unbind_to(specpdl_count);
                         if pushed_lexenv {
                             self.lexenv = self.saved_lexenvs.pop().unwrap();
                         }
@@ -8090,6 +8091,7 @@ impl Evaluator {
         let state = begin_macro_expansion_scope_in_state(
             &mut self.obarray,
             &mut self.dynamic,
+            &self.specpdl,
             &mut self.buffers,
             &self.custom,
             self.lexenv,
@@ -8147,6 +8149,75 @@ impl Evaluator {
 
     // Shared runtime write path for symbol-cell mutation. This mirrors GNU
     // `set_internal` after lexical handling has already been decided.
+
+    // -----------------------------------------------------------------------
+    // specbind / unbind_to — GNU Emacs specpdl-style dynamic variable binding
+    // -----------------------------------------------------------------------
+
+    /// Save the current value of a special variable and set a new value.
+    /// Matches GNU Emacs's specbind() in eval.c.
+    pub(crate) fn specbind(&mut self, sym_id: SymId, value: Value) {
+        let old_value = self.obarray.symbol_value_id(sym_id).copied();
+        self.specpdl.push(SpecBinding::Let { sym_id, old_value });
+        let name = resolve_sym(sym_id);
+        if self.watchers.has_watchers(name) {
+            let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
+        }
+        self.obarray.set_symbol_value_id(sym_id, value);
+    }
+
+    /// Restore all specpdl bindings back to `count`.
+    /// Matches GNU Emacs's unbind_to() in eval.c.
+    pub(crate) fn unbind_to(&mut self, count: usize) {
+        while self.specpdl.len() > count {
+            let binding = self.specpdl.pop().unwrap();
+            match binding {
+                SpecBinding::Let { sym_id, old_value } => {
+                    let name = resolve_sym(sym_id);
+                    if self.watchers.has_watchers(name) {
+                        let restore_val = old_value.unwrap_or(Value::Nil);
+                        let _ =
+                            self.run_variable_watchers(name, &restore_val, &Value::Nil, "unlet");
+                    }
+                    match old_value {
+                        Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
+                        None => self.obarray.makunbound_id(sym_id),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Save the current value of a special variable and set a new value (standalone version).
+/// Used by bytecode VM and other split-state paths.
+pub(crate) fn specbind_in_state(
+    obarray: &mut Obarray,
+    specpdl: &mut Vec<SpecBinding>,
+    sym_id: SymId,
+    value: Value,
+) {
+    let old_value = obarray.symbol_value_id(sym_id).copied();
+    specpdl.push(SpecBinding::Let { sym_id, old_value });
+    obarray.set_symbol_value_id(sym_id, value);
+}
+
+/// Restore all specpdl bindings back to `count` (standalone version).
+/// Used by bytecode VM and other split-state paths.
+pub(crate) fn unbind_to_in_state(
+    obarray: &mut Obarray,
+    specpdl: &mut Vec<SpecBinding>,
+    count: usize,
+) {
+    while specpdl.len() > count {
+        let binding = specpdl.pop().unwrap();
+        match binding {
+            SpecBinding::Let { sym_id, old_value } => match old_value {
+                Some(val) => obarray.set_symbol_value_id(sym_id, val),
+                None => obarray.makunbound_id(sym_id),
+            },
+        }
+    }
 }
 
 pub(crate) fn set_runtime_binding_in_state(
@@ -8160,12 +8231,7 @@ pub(crate) fn set_runtime_binding_in_state(
     let name = resolve_sym(sym_id);
     let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
 
-    for frame in dynamic.iter_mut().rev() {
-        if frame.contains_key(&sym_id) {
-            frame.insert(sym_id, value);
-            return None;
-        }
-    }
+    // specbind writes directly to obarray, so no dynamic frame lookup needed.
 
     if symbol_is_canonical
         && let Some(current_id) = buffers.current_buffer_id()
@@ -8198,12 +8264,7 @@ pub(crate) fn makunbound_runtime_binding_in_state(
     let name = resolve_sym(sym_id);
     let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
 
-    for frame in dynamic.iter_mut().rev() {
-        if frame.contains_key(&sym_id) {
-            frame.set_void(sym_id);
-            return;
-        }
-    }
+    // specbind writes directly to obarray, so no dynamic frame lookup needed.
 
     if symbol_is_canonical
         && let Some(current_id) = buffers.current_buffer_id()
@@ -8291,10 +8352,10 @@ impl Evaluator {
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {
         lexenv_assq(self.lexenv, sym_id).is_some()
             || self
-                .dynamic
+                .specpdl
                 .iter()
                 .rev()
-                .any(|frame| frame.contains_key(&sym_id))
+                .any(|entry| matches!(entry, SpecBinding::Let { sym_id: s, .. } if *s == sym_id))
     }
 
     pub(crate) fn visible_variable_value_or_nil(&self, name: &str) -> Value {
@@ -8305,9 +8366,7 @@ impl Evaluator {
         {
             return value;
         }
-        if let Some(binding) = lookup_runtime_binding(&self.dynamic, name_id) {
-            return binding.as_value().unwrap_or(Value::Nil);
-        }
+        // specbind writes directly to obarray, so no dynamic stack lookup needed.
         if let Some(buffer) = self.buffers.current_buffer() {
             if let Some(binding) = buffer.get_buffer_local_binding(name) {
                 return binding.as_value().unwrap_or(Value::Nil);

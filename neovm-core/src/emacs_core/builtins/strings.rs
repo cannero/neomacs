@@ -696,10 +696,15 @@ pub(crate) fn builtin_format_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    // Use evaluator-aware print options to resolve print-* variables
-    // through the dynamic binding stack (not just the obarray).
-    // This makes (let ((print-escape-newlines t)) (format "%S" ...)) work.
-    builtin_format_wrapper_strict_in_state_with_eval(eval, args)
+    // With specbind, dynamic let-bindings are written directly to the obarray,
+    // so print_options_from_state correctly resolves print-* variables.
+    builtin_format_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
 }
 
 fn format_percent_s_in_state(
@@ -1099,36 +1104,15 @@ pub(super) fn builtin_format_wrapper_strict_eval(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    // Use the evaluator's visible_variable_value_or_nil to resolve print
-    // variables through the dynamic binding stack, not just the obarray.
-    // This ensures (let ((print-escape-newlines t)) (format "%S" ...))
-    // sees the let-bound value, matching GNU Emacs where specbind()
-    // temporarily changes the C global variable.
-    builtin_format_wrapper_strict_in_state_with_eval(eval, args)
-}
-
-fn builtin_format_wrapper_strict_in_state_with_eval(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
-    crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
-        expect_min_args("format", &args, 1)?;
-        let options = super::error::print_options_from_eval(eval);
-        let s = do_format(
-            &args,
-            &|v| {
-                format_percent_s_in_state(
-                    &eval.obarray,
-                    &eval.buffers,
-                    &eval.frames,
-                    &eval.threads,
-                    v,
-                )
-            },
-            &|v| super::print::print_value_with_options(v, options),
-        )?;
-        Ok(Value::string(s))
-    })
+    // With specbind, dynamic let-bindings are written directly to the obarray,
+    // so builtin_format_wrapper_strict_in_state correctly resolves print-* variables.
+    builtin_format_wrapper_strict_in_state(
+        &eval.obarray,
+        &eval.buffers,
+        &eval.frames,
+        &eval.threads,
+        args,
+    )
 }
 
 pub(crate) fn builtin_format_wrapper_strict_in_state(

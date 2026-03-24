@@ -326,14 +326,7 @@ fn runtime_binding_for_make_local_variable(
     symbol: SymId,
     resolved: SymId,
 ) -> RuntimeBindingValue {
-    if let Some(binding) = lookup_runtime_binding(dynamic, symbol) {
-        return binding;
-    }
-    if resolved != symbol
-        && let Some(binding) = lookup_runtime_binding(dynamic, resolved)
-    {
-        return binding;
-    }
+    // specbind writes directly to obarray, so no dynamic stack lookup needed.
     if let Some(value) = obarray.symbol_value_id(resolved) {
         return RuntimeBindingValue::Bound(*value);
     }
@@ -580,18 +573,7 @@ pub(crate) fn builtin_default_value_in_state(
     };
     let resolved = super::builtins::resolve_variable_alias_id_in_obarray(obarray, symbol)?;
     let resolved_name = resolve_sym(resolved);
-    if let Some(binding) = lookup_runtime_binding(dynamic, symbol) {
-        return binding
-            .as_value()
-            .ok_or_else(|| signal("void-variable", vec![args[0]]));
-    }
-    if resolved != symbol
-        && let Some(binding) = lookup_runtime_binding(dynamic, resolved)
-    {
-        return binding
-            .as_value()
-            .ok_or_else(|| signal("void-variable", vec![args[0]]));
-    }
+    // specbind writes directly to obarray, so no dynamic stack lookup needed.
     match obarray.symbol_value_id(resolved) {
         Some(v) => Ok(*v),
         None if super::builtins::is_canonical_symbol_id(resolved)

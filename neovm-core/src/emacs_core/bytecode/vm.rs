@@ -47,6 +47,7 @@ enum VmUnwindEntry {
     DynamicBinding {
         name: String,
         restored_value: Value,
+        specpdl_count: usize,
     },
     LexicalBinding {
         name: String,
@@ -328,9 +329,23 @@ impl<'a> Vm<'a> {
                 return merge_result_with_cleanup(result, cleanup);
             }
 
-            self.shared.dynamic.push(frame);
+            let specpdl_count = self.shared.specpdl.len();
+            for (sym_id, val) in frame.iter() {
+                if let Some(val) = val.as_value() {
+                    crate::emacs_core::eval::specbind_in_state(
+                        self.shared.obarray,
+                        self.shared.specpdl,
+                        *sym_id,
+                        val,
+                    );
+                }
+            }
             let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
-            self.shared.dynamic.pop();
+            crate::emacs_core::eval::unbind_to_in_state(
+                self.shared.obarray,
+                self.shared.specpdl,
+                specpdl_count,
+            );
             let cleanup = self.unwind_specpdl_all(&mut specpdl);
             return merge_result_with_cleanup(result, cleanup);
         }
@@ -472,12 +487,17 @@ impl<'a> Vm<'a> {
                             old_lexenv,
                         });
                     } else {
-                        let mut frame = OrderedRuntimeBindingMap::new();
-                        frame.insert(name_id, val);
-                        self.shared.dynamic.push(frame);
+                        let specpdl_count = self.shared.specpdl.len();
+                        crate::emacs_core::eval::specbind_in_state(
+                            self.shared.obarray,
+                            self.shared.specpdl,
+                            name_id,
+                            val,
+                        );
                         specpdl.push(VmUnwindEntry::DynamicBinding {
                             name: name.clone(),
                             restored_value: old_value,
+                            specpdl_count,
                         });
                     }
                     let extra = [val];
@@ -2028,19 +2048,8 @@ impl<'a> Vm<'a> {
             }
         }
 
-        // Check dynamic
-        if let Some(binding) = lookup_runtime_binding(&self.shared.dynamic, name_id) {
-            return binding
-                .as_value()
-                .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)]));
-        }
-        if resolved != name_id
-            && let Some(binding) = lookup_runtime_binding(&self.shared.dynamic, resolved)
-        {
-            return binding
-                .as_value()
-                .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)]));
-        }
+        // specbind writes directly to obarray, so dynamic stack lookup is
+        // no longer needed — fall through to buffer-local and obarray lookups.
 
         // Current buffer-local binding.
         if crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
@@ -2113,17 +2122,8 @@ impl<'a> Vm<'a> {
             }
         }
 
-        // Check dynamic
-        for frame in self.shared.dynamic.iter_mut().rev() {
-            if frame.contains_key(&name_id) {
-                frame.insert(name_id, value);
-                return Ok(());
-            }
-            if resolved != name_id && frame.contains_key(&resolved) {
-                frame.insert(resolved, value);
-                return Ok(());
-            }
-        }
+        // specbind writes directly to obarray, so dynamic stack mutation
+        // is no longer needed — fall through to obarray write.
 
         if self.shared.obarray.is_constant_id(resolved) {
             return Err(signal("setting-constant", vec![Value::symbol(name)]));
@@ -3830,9 +3830,7 @@ impl<'a> Vm<'a> {
         {
             return value;
         }
-        if let Some(binding) = lookup_runtime_binding(self.shared.dynamic.as_slice(), name_id) {
-            return binding.as_value().unwrap_or(Value::Nil);
-        }
+        // specbind writes directly to obarray, so no dynamic stack lookup needed.
         if let Some(buffer) = self.shared.buffers.current_buffer()
             && let Some(binding) = buffer.get_buffer_local_binding(name)
         {
@@ -4226,8 +4224,13 @@ impl<'a> Vm<'a> {
             VmUnwindEntry::DynamicBinding {
                 name,
                 restored_value,
+                specpdl_count,
             } => {
-                self.shared.dynamic.pop();
+                crate::emacs_core::eval::unbind_to_in_state(
+                    self.shared.obarray,
+                    self.shared.specpdl,
+                    specpdl_count,
+                );
                 self.run_variable_watchers(&name, &restored_value, &Value::Nil, "unlet")?;
             }
             VmUnwindEntry::LexicalBinding {
@@ -9053,11 +9056,19 @@ impl<'a> Vm<'a> {
         directory: &str,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        let mut frame = OrderedRuntimeBindingMap::new();
-        frame.insert(intern("default-directory"), Value::string(directory));
-        self.shared.dynamic.push(frame);
+        let specpdl_count = self.shared.specpdl.len();
+        crate::emacs_core::eval::specbind_in_state(
+            self.shared.obarray,
+            self.shared.specpdl,
+            intern("default-directory"),
+            Value::string(directory),
+        );
         let result = f(self);
-        self.shared.dynamic.pop();
+        crate::emacs_core::eval::unbind_to_in_state(
+            self.shared.obarray,
+            self.shared.specpdl,
+            specpdl_count,
+        );
         result
     }
 
