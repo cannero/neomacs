@@ -480,11 +480,22 @@ fn push_escaped_literal_byte(out: &mut Vec<u8>, byte: u8) {
 /// Format a Rust string as an Emacs Lisp string literal, preserving byte-level
 /// sentinels via lossy UTF-8 conversion when invalid byte sequences occur.
 pub(crate) fn format_lisp_string(s: &str) -> String {
-    String::from_utf8_lossy(&format_lisp_string_bytes(s)).into_owned()
+    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, false)).into_owned()
+}
+
+/// Format with `print-escape-newlines` support.
+/// When `escape_newlines` is true, `\n` → `\\n` and `\f` → `\\f` in output,
+/// matching GNU Emacs print.c behavior.
+pub(crate) fn format_lisp_string_with_escape(s: &str, escape_newlines: bool) -> String {
+    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, escape_newlines)).into_owned()
 }
 
 /// Format a Rust string as an Emacs Lisp string literal byte sequence.
 pub(crate) fn format_lisp_string_bytes(s: &str) -> Vec<u8> {
+    format_lisp_string_bytes_inner(s, false)
+}
+
+pub(crate) fn format_lisp_string_bytes_inner(s: &str, escape_newlines: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(s.len() + 2);
     out.push(b'"');
 
@@ -513,12 +524,12 @@ pub(crate) fn format_lisp_string_bytes(s: &str) -> Vec<u8> {
         }
 
         match ch {
-            // GNU Emacs: only `"` and `\` are always escaped in prin1.
-            // `\n` and `\f` are only escaped when print-escape-newlines is t
-            // (default nil). Control chars only escaped when
-            // print-escape-control-characters is t (default nil in batch mode).
+            // GNU Emacs print.c: `"` and `\` are always escaped.
+            // `\n` and `\f` are escaped when print-escape-newlines is t.
             '"' => out.extend_from_slice(br#"\""#),
             '\\' => out.extend_from_slice(br#"\\"#),
+            '\n' if escape_newlines => out.extend_from_slice(br#"\n"#),
+            '\x0c' if escape_newlines => out.extend_from_slice(br#"\f"#),
             _ => {
                 let mut tmp = [0u8; 4];
                 let bytes = ch.encode_utf8(&mut tmp).as_bytes();

@@ -7,7 +7,10 @@ use std::fmt::Write as _;
 use super::chartable::{bool_vector_length, char_table_external_slots};
 use super::expr::{self, Expr};
 use super::intern::{SymId, lookup_interned, resolve_sym};
-use super::string_escape::{format_lisp_string, format_lisp_string_bytes};
+use super::string_escape::{
+    format_lisp_string, format_lisp_string_bytes, format_lisp_string_bytes_inner,
+    format_lisp_string_with_escape,
+};
 use super::value::{
     HashTableTest, StringTextPropertyRun, Value, get_string_text_properties, list_to_vec,
     read_cons, with_heap,
@@ -18,6 +21,7 @@ use crate::gc::types::ObjId;
 pub struct PrintOptions {
     pub print_gensym: bool,
     pub print_circle: bool,
+    pub print_escape_newlines: bool,
     pub print_level: Option<i64>,
     pub print_length: Option<i64>,
     backquote_output_level: usize,
@@ -28,6 +32,7 @@ impl PrintOptions {
         Self {
             print_gensym,
             print_circle: false,
+            print_escape_newlines: false,
             print_level: None,
             print_length: None,
             backquote_output_level: 0,
@@ -44,6 +49,7 @@ impl PrintOptions {
         Self {
             print_gensym,
             print_circle,
+            print_escape_newlines: false,
             print_level,
             print_length,
             backquote_output_level: 0,
@@ -261,7 +267,10 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 Some(runs) => {
                     out.push_str(&format_lisp_propertized_string(&s, &runs, state.options))
                 }
-                None => out.push_str(&format_lisp_string(&s)),
+                None => out.push_str(&format_lisp_string_with_escape(
+                    &s,
+                    state.options.print_escape_newlines,
+                )),
             }
         }
         Value::Char(c) => write!(out, "{}", *c as u32).unwrap(),
@@ -874,7 +883,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             let s = with_heap(|h| h.get_string(*id).to_owned());
             match get_string_text_properties(*id) {
                 Some(runs) => format_lisp_propertized_string(&s, &runs, options),
-                None => format_lisp_string(&s),
+                None => format_lisp_string_with_escape(&s, options.print_escape_newlines),
             }
         }
         // Emacs chars are integer values, so print as codepoint.
@@ -988,9 +997,10 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         Value::Keyword(id) => out.extend_from_slice(resolve_sym(*id).as_bytes()),
         Value::Str(id) => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
+            let str_bytes = format_lisp_string_bytes_inner(&s, options.print_escape_newlines);
             if let Some(runs) = get_string_text_properties(*id) {
                 out.extend_from_slice(b"#(");
-                out.extend_from_slice(&format_lisp_string_bytes(&s));
+                out.extend_from_slice(&str_bytes);
                 for run in runs {
                     out.push(b' ');
                     out.extend_from_slice(run.start.to_string().as_bytes());
@@ -1001,7 +1011,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 }
                 out.push(b')');
             } else {
-                out.extend_from_slice(&format_lisp_string_bytes(&s));
+                out.extend_from_slice(&str_bytes);
             }
         }
         Value::Char(c) => out.extend_from_slice((*c as u32).to_string().as_bytes()),

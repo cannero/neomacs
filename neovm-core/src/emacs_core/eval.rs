@@ -2310,20 +2310,30 @@ impl Evaluator {
         obarray.set_symbol_value("load-file-name", Value::Nil);
         obarray.set_symbol_value("noninteractive", Value::True);
         obarray.set_symbol_value("inhibit-quit", Value::Nil);
-        obarray.set_symbol_value("print-length", Value::Nil);
-        obarray.set_symbol_value("print-level", Value::Nil);
-        obarray.set_symbol_value("print-circle", Value::Nil);
+        // GNU Emacs print.c: all print-* variables are DEFVAR_BOOL or
+        // DEFVAR_LISP, making them dynamically scoped (special).
+        // This is essential so `(let ((print-escape-newlines t)) ...)`
+        // affects the C print code via dynamic binding.
+        for name in [
+            "print-length",
+            "print-level",
+            "print-circle",
+            "print-quoted",
+            "print-escape-newlines",
+            "print-escape-control-characters",
+            "print-escape-nonascii",
+            "print-escape-multibyte",
+            "print-gensym",
+            "print-continuous-numbering",
+            "print-number-table",
+            "print-charset-text-property",
+            "print-integers-as-characters",
+            "print-unreadable-function",
+        ] {
+            obarray.set_symbol_value(name, Value::Nil);
+            obarray.make_special(name);
+        }
         obarray.set_symbol_value("print-quoted", Value::True);
-        obarray.set_symbol_value("print-escape-newlines", Value::Nil);
-        obarray.set_symbol_value("print-escape-control-characters", Value::Nil);
-        obarray.set_symbol_value("print-escape-nonascii", Value::Nil);
-        obarray.set_symbol_value("print-escape-multibyte", Value::Nil);
-        obarray.set_symbol_value("print-gensym", Value::Nil);
-        obarray.set_symbol_value("print-continuous-numbering", Value::Nil);
-        obarray.set_symbol_value("print-number-table", Value::Nil);
-        obarray.set_symbol_value("print-charset-text-property", Value::Nil);
-        obarray.set_symbol_value("print-integers-as-characters", Value::Nil);
-        obarray.set_symbol_value("print-unreadable-function", Value::Nil);
         obarray.set_symbol_value("text-quoting-style", Value::Nil);
         // GNU DEFVAR_LISP variables from lread.c that must be bound to nil
         // before any Elisp runs (code may test `boundp` or read them directly).

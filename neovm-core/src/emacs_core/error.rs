@@ -200,6 +200,9 @@ fn print_options_from_state(obarray: &super::symbol::Obarray) -> PrintOptions {
     let print_circle = obarray
         .symbol_value("print-circle")
         .is_some_and(Value::is_truthy);
+    let print_escape_newlines = obarray
+        .symbol_value("print-escape-newlines")
+        .is_some_and(Value::is_truthy);
     let print_level = match obarray.symbol_value("print-level") {
         Some(Value::Int(n)) if *n >= 0 => Some(*n),
         _ => None,
@@ -208,7 +211,9 @@ fn print_options_from_state(obarray: &super::symbol::Obarray) -> PrintOptions {
         Some(Value::Int(n)) if *n >= 0 => Some(*n),
         _ => None,
     };
-    PrintOptions::new(print_gensym, print_circle, print_level, print_length)
+    let mut opts = PrintOptions::new(print_gensym, print_circle, print_level, print_length);
+    opts.print_escape_newlines = print_escape_newlines;
+    opts
 }
 
 pub(crate) fn print_value_in_state(
