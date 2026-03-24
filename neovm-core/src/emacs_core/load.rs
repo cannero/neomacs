@@ -2463,9 +2463,13 @@ fn hidden_cl_runtime_entry_points() -> std::collections::BTreeSet<String> {
     // Source bootstrap currently leaks just this small surface via
     // eval-when-compile; hide only the proven leaked names here instead of
     // stripping whole cl-* files out of the runtime image.
+    //
+    // NOTE: cl--block-wrapper and cl--block-throw are intentionally kept
+    // available. NeoVM loads .el source (not .elc) and runs macroexpand-all
+    // during eager expansion, which triggers compiler-macros that require
+    // these functions (e.g. cl--block-wrapper is aliased to #'identity and
+    // its compiler-macro optimizes away unused cl-block wrappers).
     [
-        "cl--block-throw",
-        "cl--block-wrapper",
         "cl-every",
         "cl-defstruct",
         "cl-reduce",
