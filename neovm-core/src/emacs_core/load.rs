@@ -3027,6 +3027,11 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
     eval_startup_forms(
         eval,
         r#"
+          ;; Load icons.el early — many packages (tab-bar, modeline, doom)
+          ;; call icon-string during display. GNU loads it lazily via
+          ;; (require 'icons) inside function bodies, but NeoVM's display
+          ;; path may call icon-string before the lazy require triggers.
+          (require 'icons nil t)
           (if (get-buffer "*scratch*")
               (with-current-buffer "*scratch*"
                 (if (eq major-mode 'fundamental-mode)
