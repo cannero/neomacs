@@ -305,6 +305,9 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
     if !obarray.boundp(&resolved) {
         obarray.set_symbol_value(&resolved, Value::Nil);
     }
+    // Primary mechanism: mark in the obarray's SymbolValue enum.
+    obarray.make_buffer_local(&resolved, true);
+    // Keep CustomManager in sync during the transition period.
     custom.make_variable_buffer_local(&resolved);
     Ok(args[0])
 }
@@ -619,7 +622,8 @@ pub(crate) fn builtin_set_default(
 
     // GNU PLAINVAL path: for non-buffer-local variables, `set-default`
     // behaves like `set` -- writes to the dynamic frame if let-bound.
-    let is_buffer_local = eval.custom.is_auto_buffer_local(resolved_name);
+    let is_buffer_local = eval.obarray().is_buffer_local(resolved_name)
+        || eval.custom.is_auto_buffer_local(resolved_name);
     if !is_buffer_local {
         // PLAINVAL: delegate to set_runtime_binding which writes to the
         // dynamic frame if the variable is let-bound, else to the obarray.
@@ -970,7 +974,9 @@ pub(crate) fn sf_defvar_local(
     // 5. Mark as special (dynamically scoped).
     eval.obarray_mut().make_special(&name);
 
-    // 6. Mark as automatically buffer-local.
+    // 6. Mark as automatically buffer-local (primary: obarray enum).
+    eval.obarray_mut().make_buffer_local(&name, true);
+    // Keep CustomManager in sync during the transition period.
     eval.custom.make_variable_buffer_local(&name);
 
     Ok(Value::symbol(name))

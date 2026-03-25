@@ -126,6 +126,8 @@ pub(crate) fn resolve_variable_alias_id_in_obarray(
     obarray: &Obarray,
     symbol: SymId,
 ) -> Result<SymId, Flow> {
+    use crate::emacs_core::symbol::SymbolValue;
+
     let mut current = symbol;
     let mut seen = HashSet::new();
 
@@ -136,11 +138,23 @@ pub(crate) fn resolve_variable_alias_id_in_obarray(
                 vec![Value::Symbol(symbol)],
             ));
         }
-        let next = obarray
-            .get_property_id(current, intern(VARIABLE_ALIAS_PROPERTY))
-            .and_then(symbol_id);
-        match next {
-            Some(next_id) => current = next_id,
+        // Primary: check SymbolValue::Alias variant.
+        match obarray.get_by_id(current) {
+            Some(sym) => match &sym.value {
+                SymbolValue::Alias(target) => current = *target,
+                _ => {
+                    // Fallback: also check plist for backward compatibility
+                    // with symbols that were aliased before the enum refactor.
+                    let next = sym
+                        .plist
+                        .get(&intern(VARIABLE_ALIAS_PROPERTY))
+                        .and_then(symbol_id);
+                    match next {
+                        Some(next_id) => current = next_id,
+                        None => return Ok(current),
+                    }
+                }
+            },
             None => return Ok(current),
         }
     }
@@ -176,6 +190,8 @@ pub(crate) fn would_create_variable_alias_cycle_in_obarray(
     new_symbol: SymId,
     old_symbol: SymId,
 ) -> bool {
+    use crate::emacs_core::symbol::SymbolValue;
+
     let mut current = old_symbol;
     let mut seen = HashSet::new();
 
@@ -186,11 +202,22 @@ pub(crate) fn would_create_variable_alias_cycle_in_obarray(
         if !seen.insert(current) {
             return true;
         }
-        let next = obarray
-            .get_property_id(current, intern(VARIABLE_ALIAS_PROPERTY))
-            .and_then(symbol_id);
-        match next {
-            Some(next_id) => current = next_id,
+        // Primary: check SymbolValue::Alias variant.
+        match obarray.get_by_id(current) {
+            Some(sym) => match &sym.value {
+                SymbolValue::Alias(target) => current = *target,
+                _ => {
+                    // Fallback: plist for backward compatibility.
+                    let next = sym
+                        .plist
+                        .get(&intern(VARIABLE_ALIAS_PROPERTY))
+                        .and_then(symbol_id);
+                    match next {
+                        Some(next_id) => current = next_id,
+                        None => return false,
+                    }
+                }
+            },
             None => return false,
         }
     }
@@ -517,8 +544,11 @@ pub(crate) fn builtin_defvaralias_in_state(
     {
         let sym = obarray.ensure_symbol_id(new_symbol);
         sym.special = true;
+        // Keep the plist entry for backward compatibility during transition.
         sym.plist.insert(intern(VARIABLE_ALIAS_PROPERTY), args[1]);
     }
+    // Primary mechanism: set the SymbolValue::Alias variant.
+    obarray.make_alias(new_symbol, old_symbol);
     obarray.make_special_id(old_symbol);
     preflight_symbol_plist_put_in_obarray(obarray, new_symbol, "variable-documentation")?;
     let docstring = args.get(2).cloned().unwrap_or(Value::Nil);
@@ -4223,7 +4253,9 @@ pub(crate) fn builtin_local_variable_if_set_p_in_state(
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
         return Ok(Value::Nil);
     }
-    Ok(Value::bool(custom.is_auto_buffer_local(&resolved)))
+    Ok(Value::bool(
+        obarray.is_buffer_local(&resolved) || custom.is_auto_buffer_local(&resolved),
+    ))
 }
 
 pub(crate) fn builtin_lock_buffer(args: Vec<Value>) -> EvalResult {

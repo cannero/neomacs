@@ -13,13 +13,37 @@ use super::value::Value;
 use crate::gc::GcTrace;
 use std::collections::{HashMap, HashSet};
 
+/// Describes how a symbol's value cell is stored, matching GNU Emacs's
+/// `symbol_redirect` enum (`SYMBOL_PLAINVAL`, `SYMBOL_VARALIAS`,
+/// `SYMBOL_LOCALIZED`, `SYMBOL_FORWARDED`).
+#[derive(Clone, Debug)]
+pub enum SymbolValue {
+    /// Direct value (GNU: SYMBOL_PLAINVAL).
+    Plain(Option<Value>),
+    /// Alias to another symbol (GNU: SYMBOL_VARALIAS).
+    Alias(SymId),
+    /// Buffer-local variable (GNU: SYMBOL_LOCALIZED).
+    BufferLocal {
+        default: Option<Value>,
+        local_if_set: bool,
+    },
+    /// Forwarded to Rust variable (GNU: SYMBOL_FORWARDED) — placeholder.
+    Forwarded,
+}
+
+impl Default for SymbolValue {
+    fn default() -> Self {
+        SymbolValue::Plain(None)
+    }
+}
+
 /// Per-symbol metadata stored in the obarray.
 #[derive(Clone, Debug)]
 pub struct SymbolData {
     /// The symbol's name.
     pub name: SymId,
-    /// Value cell (None = void/unbound).
-    pub value: Option<Value>,
+    /// Value cell — see [`SymbolValue`] for the indirection variants.
+    pub value: SymbolValue,
     /// Function cell (None = void-function).
     pub function: Option<Value>,
     /// Property list (flat alternating key-value pairs stored as HashMap).
@@ -34,7 +58,7 @@ impl SymbolData {
     pub fn new(name: SymId) -> Self {
         Self {
             name,
-            value: None,
+            value: SymbolValue::Plain(None),
             function: None,
             plist: HashMap::new(),
             special: false,
@@ -99,7 +123,7 @@ impl Obarray {
         // Pre-intern fundamental symbols
         let t_id = intern("t");
         let mut t_sym = SymbolData::new(t_id);
-        t_sym.value = Some(Value::True);
+        t_sym.value = SymbolValue::Plain(Some(Value::True));
         t_sym.constant = true;
         t_sym.special = true;
         ob.symbols.insert(t_id, t_sym);
@@ -107,7 +131,7 @@ impl Obarray {
 
         let nil_id = intern("nil");
         let mut nil_sym = SymbolData::new(nil_id);
-        nil_sym.value = Some(Value::Nil);
+        nil_sym.value = SymbolValue::Plain(Some(Value::Nil));
         nil_sym.constant = true;
         nil_sym.special = true;
         ob.symbols.insert(nil_id, nil_sym);
@@ -182,23 +206,65 @@ impl Obarray {
     }
 
     /// Get the value cell of a symbol by identity.
+    /// Follows `Alias` chains (with cycle detection, max 50 hops).
     pub fn symbol_value_id(&self, id: SymId) -> Option<&Value> {
-        self.symbols.get(&id).and_then(|s| s.value.as_ref())
+        let mut current = id;
+        for _ in 0..50 {
+            match self.symbols.get(&current)?.value {
+                SymbolValue::Plain(ref v) => return v.as_ref(),
+                SymbolValue::Alias(target) => current = target,
+                SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
+                SymbolValue::Forwarded => return None,
+            }
+        }
+        None // alias cycle — give up
     }
 
     /// Set the value cell of a symbol. Interns if needed.
     pub fn set_symbol_value(&mut self, name: &str, value: Value) {
         let id = intern(name);
         self.global_members.insert(id);
-        let sym = self.ensure_symbol_id(id);
-        sym.value = Some(value);
+        self.set_symbol_value_id_inner(id, value);
     }
 
     /// Set the value cell of a symbol by identity.
     pub fn set_symbol_value_id(&mut self, id: SymId, value: Value) {
         self.ensure_global_member_if_canonical(id);
-        let sym = self.ensure_symbol_id(id);
-        sym.value = Some(value);
+        self.set_symbol_value_id_inner(id, value);
+    }
+
+    /// Inner helper: follow aliases and write the value at the resolved target.
+    fn set_symbol_value_id_inner(&mut self, id: SymId, value: Value) {
+        let target = self.resolve_alias_for_write(id);
+        let sym = self.ensure_symbol_id(target);
+        match sym.value {
+            SymbolValue::Plain(_) => sym.value = SymbolValue::Plain(Some(value)),
+            SymbolValue::BufferLocal {
+                ref mut default, ..
+            } => *default = Some(value),
+            SymbolValue::Forwarded => { /* no-op placeholder */ }
+            SymbolValue::Alias(_) => {
+                // resolve_alias_for_write should have resolved this, but
+                // as a safety fallback write as Plain.
+                sym.value = SymbolValue::Plain(Some(value));
+            }
+        }
+    }
+
+    /// Follow alias chain for a mutable write, returning the resolved SymId.
+    /// Max 50 hops to prevent infinite loops.
+    fn resolve_alias_for_write(&mut self, id: SymId) -> SymId {
+        let mut current = id;
+        for _ in 0..50 {
+            match self.symbols.get(&current) {
+                Some(s) => match s.value {
+                    SymbolValue::Alias(target) => current = target,
+                    _ => return current,
+                },
+                None => return current,
+            }
+        }
+        current // cycle — write to the last hop
     }
 
     /// Get the function cell of a symbol.
@@ -271,11 +337,20 @@ impl Obarray {
     }
 
     /// Remove the value cell by identity.
+    /// Follows alias chains (max 50 hops).
     pub fn makunbound_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
-        if let Some(sym) = self.symbols.get_mut(&id) {
+        let target = self.resolve_alias_for_write(id);
+        if let Some(sym) = self.symbols.get_mut(&target) {
             if !sym.constant {
-                sym.value = None;
+                match sym.value {
+                    SymbolValue::Plain(_) => sym.value = SymbolValue::Plain(None),
+                    SymbolValue::BufferLocal {
+                        ref mut default, ..
+                    } => *default = None,
+                    SymbolValue::Forwarded => { /* no-op */ }
+                    SymbolValue::Alias(_) => sym.value = SymbolValue::Plain(None),
+                }
             }
         }
     }
@@ -286,8 +361,21 @@ impl Obarray {
     }
 
     /// Check if a symbol is bound by identity.
+    /// Follows alias chains (max 50 hops).
     pub fn boundp_id(&self, id: SymId) -> bool {
-        self.symbols.get(&id).is_some_and(|s| s.value.is_some())
+        let mut current = id;
+        for _ in 0..50 {
+            match self.symbols.get(&current) {
+                Some(s) => match &s.value {
+                    SymbolValue::Plain(v) => return v.is_some(),
+                    SymbolValue::Alias(target) => current = *target,
+                    SymbolValue::BufferLocal { default, .. } => return default.is_some(),
+                    SymbolValue::Forwarded => return false,
+                },
+                None => return false,
+            }
+        }
+        false // cycle
     }
 
     /// Check if a symbol has a function cell.
@@ -407,6 +495,68 @@ impl Obarray {
         }
     }
 
+    // ------------------------------------------------------------------
+    // SymbolValue-aware helpers (buffer-local / alias introspection)
+    // ------------------------------------------------------------------
+
+    /// Mark a symbol as a buffer-local variable in the obarray.
+    /// Preserves any existing default value from `Plain` or `BufferLocal`.
+    pub fn make_buffer_local(&mut self, name: &str, local_if_set: bool) {
+        let id = intern(name);
+        self.global_members.insert(id);
+        let sym = self.ensure_symbol_id(id);
+        let old_default = match &sym.value {
+            SymbolValue::Plain(v) => v.clone(),
+            SymbolValue::BufferLocal { default, .. } => default.clone(),
+            _ => None,
+        };
+        sym.value = SymbolValue::BufferLocal {
+            default: old_default,
+            local_if_set,
+        };
+    }
+
+    /// Install a variable-alias edge: reading/writing `id` will redirect to `target`.
+    pub fn make_alias(&mut self, id: SymId, target: SymId) {
+        let sym = self.ensure_symbol_id(id);
+        sym.value = SymbolValue::Alias(target);
+    }
+
+    /// Check whether a symbol is a buffer-local variable in the obarray.
+    pub fn is_buffer_local(&self, name: &str) -> bool {
+        self.is_buffer_local_id(intern(name))
+    }
+
+    /// Check whether a symbol is a buffer-local variable by identity.
+    pub fn is_buffer_local_id(&self, id: SymId) -> bool {
+        self.symbols
+            .get(&id)
+            .is_some_and(|s| matches!(s.value, SymbolValue::BufferLocal { .. }))
+    }
+
+    /// Check whether a symbol is an alias by identity.
+    pub fn is_alias_id(&self, id: SymId) -> bool {
+        self.symbols
+            .get(&id)
+            .is_some_and(|s| matches!(s.value, SymbolValue::Alias(_)))
+    }
+
+    /// Get the default value of a symbol, following aliases.
+    /// For `Plain` and `BufferLocal` this is the direct/default value;
+    /// for `Alias` it follows the chain; for `Forwarded` it returns `None`.
+    pub fn default_value_id(&self, id: SymId) -> Option<&Value> {
+        let mut current = id;
+        for _ in 0..50 {
+            match self.symbols.get(&current)?.value {
+                SymbolValue::Plain(ref v) => return v.as_ref(),
+                SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
+                SymbolValue::Alias(target) => current = target,
+                SymbolValue::Forwarded => return None,
+            }
+        }
+        None
+    }
+
     /// Follow function indirection (defalias chains).
     /// Returns the final function value, following symbol aliases.
     pub fn indirect_function(&self, name: &str) -> Option<Value> {
@@ -507,8 +657,15 @@ impl Obarray {
 impl GcTrace for Obarray {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for sym in self.symbols.values() {
-            if let Some(ref v) = sym.value {
-                roots.push(*v);
+            match &sym.value {
+                SymbolValue::Plain(Some(v)) => roots.push(*v),
+                SymbolValue::BufferLocal {
+                    default: Some(v), ..
+                } => roots.push(*v),
+                SymbolValue::Plain(None)
+                | SymbolValue::BufferLocal { default: None, .. }
+                | SymbolValue::Alias(_)
+                | SymbolValue::Forwarded => {}
             }
             if let Some(ref f) = sym.function {
                 roots.push(*f);

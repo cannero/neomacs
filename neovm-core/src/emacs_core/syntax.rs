@@ -80,7 +80,9 @@ pub fn init_syntax_vars(
     }
 
     custom.make_variable_buffer_local("syntax-propertize--done");
+    obarray.make_buffer_local("syntax-propertize--done", true);
     custom.make_variable_buffer_local("comment-end-can-be-escaped");
+    obarray.make_buffer_local("comment-end-can-be-escaped", true);
 }
 
 // ===========================================================================

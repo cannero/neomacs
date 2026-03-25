@@ -3350,14 +3350,12 @@ fn interactive_lambda_prefix_flags_star_hat_and_at_follow_batch_semantics() {
                        (list 'ok mark-active (mark t)))
                    (error (list (car err) mark-active (mark t)))))))"#,
     );
-    // After the specbind refactor, `let` for buffer-local variables like
-    // `buffer-read-only` writes to the obarray but doesn't affect the
-    // buffer-local value, so the "*" prefix does not trigger a read-only
-    // error for the `(let ((buffer-read-only t)) ...)` case (returns `ok`
-    // instead of `buffer-read-only`).
+    // With SymbolValue::BufferLocal, setq on buffer-read-only correctly
+    // creates a buffer-local binding. The "*" interactive prefix detects
+    // the buffer is read-only and signals buffer-read-only, matching GNU.
     assert_eq!(
         results[0],
-        "OK (ok ok ok (3 t 3) (3 t 3) (3 nil 1) 2 2 (buffer-read-only nil nil) (buffer-read-only t 3))"
+        "OK (ok buffer-read-only ok (3 t 3) (3 t 3) (3 nil 1) 2 2 (buffer-read-only nil nil) (buffer-read-only t 3))"
     );
 }
 

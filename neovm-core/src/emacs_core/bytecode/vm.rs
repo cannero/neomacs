@@ -1929,8 +1929,27 @@ impl<'a> Vm<'a> {
             .collect();
         for name in symbols {
             if let Some(symbol) = self.shared.obarray.get_mut(&name) {
-                if let Some(value) = symbol.value.as_mut() {
-                    Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+                match &mut symbol.value {
+                    crate::emacs_core::symbol::SymbolValue::Plain(Some(value)) => {
+                        Self::replace_alias_refs_in_value(
+                            value,
+                            first_arg,
+                            &replacement,
+                            &mut visited,
+                        );
+                    }
+                    crate::emacs_core::symbol::SymbolValue::BufferLocal {
+                        default: Some(value),
+                        ..
+                    } => {
+                        Self::replace_alias_refs_in_value(
+                            value,
+                            first_arg,
+                            &replacement,
+                            &mut visited,
+                        );
+                    }
+                    _ => {}
                 }
             }
         }
@@ -2432,7 +2451,8 @@ impl<'a> Vm<'a> {
 
         // GNU PLAINVAL path: for non-buffer-local variables, `set-default`
         // behaves like `set` -- writes to dynamic frame if let-bound.
-        let is_buffer_local = self.shared.custom.is_auto_buffer_local(resolved_name);
+        let is_buffer_local = self.shared.obarray.is_buffer_local(resolved_name)
+            || self.shared.custom.is_auto_buffer_local(resolved_name);
         if !is_buffer_local {
             crate::emacs_core::eval::set_runtime_binding_in_state(
                 self.shared.obarray,

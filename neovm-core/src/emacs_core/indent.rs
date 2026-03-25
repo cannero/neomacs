@@ -505,24 +505,20 @@ pub(crate) fn builtin_indent_to_eval(
 /// but before any user code runs).
 pub fn init_indent_vars(obarray: &mut super::symbol::Obarray) {
     // tab-width: default 8 (buffer-local in real Emacs, global default here)
-    let sym = obarray.get_or_intern("tab-width");
-    sym.value = Some(Value::Int(8));
-    sym.special = true;
+    obarray.set_symbol_value("tab-width", Value::Int(8));
+    obarray.make_special("tab-width");
 
     // indent-tabs-mode: default t
-    let sym = obarray.get_or_intern("indent-tabs-mode");
-    sym.value = Some(Value::True);
-    sym.special = true;
+    obarray.set_symbol_value("indent-tabs-mode", Value::True);
+    obarray.make_special("indent-tabs-mode");
 
     // standard-indent: default 4
-    let sym = obarray.get_or_intern("standard-indent");
-    sym.value = Some(Value::Int(4));
-    sym.special = true;
+    obarray.set_symbol_value("standard-indent", Value::Int(4));
+    obarray.make_special("standard-indent");
 
     // tab-stop-list: default nil
-    let sym = obarray.get_or_intern("tab-stop-list");
-    sym.value = Some(Value::Nil);
-    sym.special = true;
+    obarray.set_symbol_value("tab-stop-list", Value::Nil);
+    obarray.make_special("tab-stop-list");
 }
 
 // ---------------------------------------------------------------------------

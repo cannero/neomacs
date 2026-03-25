@@ -3253,6 +3253,7 @@ impl Evaluator {
                 custom.make_variable_buffer_local($name);
                 obarray.make_special($name);
                 obarray.set_symbol_value($name, $val);
+                obarray.make_buffer_local($name, true);
             };
         }
         {
@@ -5960,8 +5961,27 @@ impl Evaluator {
             .collect();
         for name in symbols {
             if let Some(symbol) = self.obarray.get_mut(&name) {
-                if let Some(value) = symbol.value.as_mut() {
-                    Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+                match &mut symbol.value {
+                    super::symbol::SymbolValue::Plain(Some(value)) => {
+                        Self::replace_alias_refs_in_value(
+                            value,
+                            first_arg,
+                            &replacement,
+                            &mut visited,
+                        );
+                    }
+                    super::symbol::SymbolValue::BufferLocal {
+                        default: Some(value),
+                        ..
+                    } => {
+                        Self::replace_alias_refs_in_value(
+                            value,
+                            first_arg,
+                            &replacement,
+                            &mut visited,
+                        );
+                    }
+                    _ => {}
                 }
             }
         }
@@ -8175,7 +8195,7 @@ impl Evaluator {
 
         // Check if this is a buffer-local variable with a local binding
         // in the current buffer (GNU: SYMBOL_LOCALIZED path)
-        if self.custom.is_auto_buffer_local(name) {
+        if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local(name) {
             if let Some(buf_id) = self.buffers.current_buffer_id() {
                 if let Some(buf) = self.buffers.get(buf_id) {
                     if let Some(binding) = buf.get_buffer_local_binding(name) {
@@ -8321,7 +8341,7 @@ pub(crate) fn set_runtime_binding_in_state(
         }
     }
 
-    if symbol_is_canonical && custom.is_auto_buffer_local(name) {
+    if symbol_is_canonical && (obarray.is_buffer_local(name) || custom.is_auto_buffer_local(name)) {
         if let Some(current_id) = buffers.current_buffer_id() {
             let _ = buffers.set_buffer_local_property(current_id, name, value);
             return Some(current_id);
@@ -8353,7 +8373,7 @@ pub(crate) fn makunbound_runtime_binding_in_state(
         return;
     }
 
-    if symbol_is_canonical && custom.is_auto_buffer_local(name) {
+    if symbol_is_canonical && (obarray.is_buffer_local(name) || custom.is_auto_buffer_local(name)) {
         if let Some(current_id) = buffers.current_buffer_id() {
             let _ = buffers.set_buffer_local_void_property(current_id, name);
             return;

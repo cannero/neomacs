@@ -280,10 +280,33 @@ pub struct DumpLispHashTable {
 // Symbols / Obarray
 // ---------------------------------------------------------------------------
 
+/// Serializable representation of [`crate::emacs_core::symbol::SymbolValue`].
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum DumpSymbolValue {
+    /// Plain value (GNU: SYMBOL_PLAINVAL).
+    Plain(Option<DumpValue>),
+    /// Alias to another symbol (GNU: SYMBOL_VARALIAS).
+    Alias(DumpSymId),
+    /// Buffer-local variable (GNU: SYMBOL_LOCALIZED).
+    BufferLocal {
+        default: Option<DumpValue>,
+        local_if_set: bool,
+    },
+    /// Forwarded to Rust variable (GNU: SYMBOL_FORWARDED) — placeholder.
+    Forwarded,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpSymbolData {
     pub name: DumpSymId,
+    /// The symbol value cell.  Older dumps may still have the `value` field
+    /// (kept for backward compatibility via `#[serde(default)]`).
+    #[serde(default)]
     pub value: Option<DumpValue>,
+    /// New enum-based value cell.  Present in dumps produced after the
+    /// `SymbolValue` refactor.
+    #[serde(default)]
+    pub symbol_value: Option<DumpSymbolValue>,
     pub function: Option<DumpValue>,
     pub plist: Vec<(DumpSymId, DumpValue)>,
     pub special: bool,

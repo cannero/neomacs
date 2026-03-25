@@ -37,7 +37,7 @@ use crate::emacs_core::mode::{
 };
 use crate::emacs_core::rect::RectangleState;
 use crate::emacs_core::register::{RegisterContent, RegisterManager};
-use crate::emacs_core::symbol::{Obarray, SymbolData};
+use crate::emacs_core::symbol::{Obarray, SymbolData, SymbolValue};
 use crate::emacs_core::syntax::{SyntaxClass, SyntaxEntry, SyntaxFlags, SyntaxTable};
 use crate::emacs_core::value::{
     HashKey, HashTableTest, HashTableWeakness, LambdaData, LambdaParams, LispHashTable,
@@ -357,10 +357,26 @@ pub(crate) fn dump_interner(interner: &StringInterner) -> DumpStringInterner {
 
 // --- Symbol / Obarray ---
 
+fn dump_symbol_value(sv: &SymbolValue) -> DumpSymbolValue {
+    match sv {
+        SymbolValue::Plain(v) => DumpSymbolValue::Plain(dump_opt_value(v)),
+        SymbolValue::Alias(target) => DumpSymbolValue::Alias(dump_sym_id(*target)),
+        SymbolValue::BufferLocal {
+            default,
+            local_if_set,
+        } => DumpSymbolValue::BufferLocal {
+            default: dump_opt_value(default),
+            local_if_set: *local_if_set,
+        },
+        SymbolValue::Forwarded => DumpSymbolValue::Forwarded,
+    }
+}
+
 pub(crate) fn dump_symbol_data(sd: &SymbolData) -> DumpSymbolData {
     DumpSymbolData {
         name: dump_sym_id(sd.name),
-        value: dump_opt_value(&sd.value),
+        value: None,
+        symbol_value: Some(dump_symbol_value(&sd.value)),
         function: dump_opt_value(&sd.function),
         plist: sd
             .plist
@@ -1654,10 +1670,32 @@ pub(crate) fn load_interner(di: &DumpStringInterner) -> StringInterner {
 
 // --- Symbol / Obarray ---
 
+fn load_symbol_value_enum(dsv: &DumpSymbolValue) -> SymbolValue {
+    match dsv {
+        DumpSymbolValue::Plain(v) => SymbolValue::Plain(load_opt_value(v)),
+        DumpSymbolValue::Alias(target) => SymbolValue::Alias(load_sym_id(target)),
+        DumpSymbolValue::BufferLocal {
+            default,
+            local_if_set,
+        } => SymbolValue::BufferLocal {
+            default: load_opt_value(default),
+            local_if_set: *local_if_set,
+        },
+        DumpSymbolValue::Forwarded => SymbolValue::Forwarded,
+    }
+}
+
 pub(crate) fn load_symbol_data(sd: &DumpSymbolData) -> SymbolData {
+    // Prefer the new `symbol_value` field; fall back to legacy `value` field
+    // for backward compatibility with older pdump files.
+    let value = if let Some(ref sv) = sd.symbol_value {
+        load_symbol_value_enum(sv)
+    } else {
+        SymbolValue::Plain(load_opt_value(&sd.value))
+    };
     SymbolData {
         name: load_sym_id(&sd.name),
-        value: load_opt_value(&sd.value),
+        value,
         function: load_opt_value(&sd.function),
         plist: sd
             .plist
