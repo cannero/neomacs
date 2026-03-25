@@ -3091,13 +3091,9 @@ fn eval_after_load_defines_function_on_provide() {
 
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
-    // 1. Register eval-after-load with condition-case-unless-debug wrapper (like use-package)
+    // 1. Register eval-after-load (like use-package does)
     let setup = crate::emacs_core::parser::parse_forms(
-        "(eval-after-load 'test-pkg
-           (lambda ()
-             (condition-case-unless-debug err
-               (progn (defun test-pkg-fn () 42) t)
-               (error (message \"config error: %S\" err)))))",
+        "(eval-after-load 'test-pkg (lambda () (defun test-pkg-fn () 42)))",
     )
     .unwrap();
     eval.eval_expr(&setup[0])
@@ -3111,19 +3107,41 @@ fn eval_after_load_defines_function_on_provide() {
     eprintln!("test-pkg-fn before provide: {before}");
     assert!(!before, "should NOT be defined before provide");
 
-    // 3. Provide the feature
-    let provide = crate::emacs_core::parser::parse_forms("(provide 'test-pkg)").unwrap();
-    eval.eval_expr(&provide[0]).expect("provide should succeed");
+    // 3. Simulate provide DURING file loading (load-file-name is set)
+    // This triggers the delayed-func which defers to after-load-functions
+    let provide_during_load = crate::emacs_core::parser::parse_forms(
+        "(let ((load-file-name \"/tmp/test-pkg.el\"))
+           (provide 'test-pkg))",
+    )
+    .unwrap();
+    eval.eval_expr(&provide_during_load[0])
+        .expect("provide during load should succeed");
 
-    // 4. test-pkg-fn should NOW be defined
+    // 3b. test-pkg-fn might NOT be defined yet (deferred to after-load-functions)
+    let mid = eval
+        .obarray()
+        .symbol_function("test-pkg-fn")
+        .is_some_and(|f| !f.is_nil());
+    eprintln!("test-pkg-fn after provide (during load): {mid}");
+
+    // 4. Simulate do-after-load-evaluation (runs after-load-functions)
+    let dale = crate::emacs_core::parser::parse_forms(
+        "(when (fboundp 'do-after-load-evaluation)
+           (do-after-load-evaluation \"/tmp/test-pkg.el\"))",
+    )
+    .unwrap();
+    eval.eval_expr(&dale[0])
+        .expect("do-after-load-evaluation should succeed");
+
+    // 5. NOW test-pkg-fn should be defined
     let after = eval
         .obarray()
         .symbol_function("test-pkg-fn")
         .is_some_and(|f| !f.is_nil());
-    eprintln!("test-pkg-fn after provide: {after}");
+    eprintln!("test-pkg-fn after do-after-load-evaluation: {after}");
     assert!(
         after,
-        "should be defined after provide fires eval-after-load hook"
+        "should be defined after do-after-load-evaluation runs after-load-functions"
     );
 }
 
