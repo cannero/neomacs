@@ -2956,6 +2956,9 @@ fn finalize_cached_bootstrap_eval(
     eval: &mut super::eval::Context,
     project_root: &Path,
 ) -> Result<(), EvalError> {
+    // Register all builtins — pdump doesn't preserve the subr_registry
+    // or obarray function cells for builtins registered via defsubr.
+    super::builtins::init_builtins(eval);
     clear_runtime_loader_state(eval);
     ensure_startup_compat_variables(eval, project_root);
     restore_cached_runtime_window_system_surface(eval);

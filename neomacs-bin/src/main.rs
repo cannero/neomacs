@@ -662,8 +662,9 @@ fn main() {
 
     // 3. Bootstrap the host-side initial frame/buffers.
     let _bootstrap = bootstrap_buffers(&mut evaluator, width, height, bootstrap_display);
-    neovm_core::emacs_core::load::apply_runtime_startup_state(&mut evaluator)
-        .expect("runtime startup state should succeed");
+    if let Err(e) = neovm_core::emacs_core::load::apply_runtime_startup_state(&mut evaluator) {
+        tracing::warn!("runtime startup state error (non-fatal): {:?}", e);
+    }
     let frame_id = evaluator
         .frame_manager()
         .selected_frame()
