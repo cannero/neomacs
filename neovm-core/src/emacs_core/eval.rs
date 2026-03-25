@@ -2418,6 +2418,201 @@ impl Evaluator {
         obarray.set_symbol_value("char-code-property-alist", Value::Nil);
         obarray.set_symbol_value("redisplay--inhibit-bidi", Value::Nil);
         obarray.set_symbol_value("resize-mini-windows", Value::Nil);
+
+        // GNU C variables checked by cus-start.el during bootstrap.
+        // 178 DEFVAR_LISP/DEFVAR_INT/DEFVAR_BOOL variables extracted from
+        // GNU Emacs -Q. Default values match GNU's init_*() functions.
+        for name in [
+            "alter-fullscreen-frames",
+            "auto-save-no-message",
+            "auto-save-visited-file-name",
+            "blink-cursor-alist",
+            "composition-break-at-point",
+            "debug-on-quit",
+            "debugger-stack-frame-as-list",
+            "default-frame-alist",
+            "delete-by-moving-to-trash",
+            "display-fill-column-indicator",
+            "display-fill-column-indicator-character",
+            "display-line-numbers",
+            "display-line-numbers-widen",
+            "display-line-numbers-width",
+            "display-raw-bytes-as-hex",
+            "echo-keystrokes-help",
+            "enable-character-translation",
+            "enable-recursive-minibuffers",
+            "fast-but-imprecise-scrolling",
+            "focus-follows-mouse",
+            "font-use-system-font",
+            "frame-resize-pixelwise",
+            "garbage-collection-messages",
+            "highlight-nonselected-windows",
+            "history-delete-duplicates",
+            "inhibit-eol-conversion",
+            "inverse-video",
+            "kill-buffer-delete-auto-save-files",
+            "line-number-display-limit",
+            "make-pointer-invisible",
+            "menu-bar-mode",
+            "minibuffer-auto-raise",
+            "mode-line-compact",
+            "mouse-autoselect-window",
+            "mouse-prefer-closest-glyph",
+            "no-redraw-on-reenter",
+            "parse-sexp-ignore-comments",
+            "read-buffer-completion-ignore-case",
+            "record-all-keys",
+            "resize-mini-frames",
+            "ring-bell-function",
+            "scalable-fonts-allowed",
+            "scroll-preserve-screen-position",
+            "show-trailing-whitespace",
+            "tab-bar-mode",
+            "tab-bar-position",
+            "temp-buffer-show-function",
+            "tool-bar-mode",
+            "tool-bar-style",
+            "tooltip-reuse-hidden-frame",
+            "treesit-extra-load-path",
+            "undo-outer-limit",
+            "unibyte-display-via-language-environment",
+            "use-short-answers",
+            "visible-bell",
+            "window-combination-resize",
+            "window-resize-pixelwise",
+            "word-wrap-by-category",
+            "words-include-escapes",
+            "x-dnd-disable-motif-drag",
+            "x-gtk-show-hidden-files",
+            "x-gtk-use-native-input",
+            "x-gtk-use-old-file-dialog",
+            "x-stretch-cursor",
+            "x-underline-at-descent-line",
+            "x-use-underline-position-properties",
+        ] {
+            obarray.set_symbol_value(name, Value::Nil);
+        }
+        for name in [
+            "auto-hscroll-mode",
+            "create-lockfiles",
+            "delete-auto-save-files",
+            "delete-exited-processes",
+            "display-fill-column-indicator-column",
+            "display-hourglass",
+            "display-line-numbers-current-absolute",
+            "make-cursor-line-fully-visible",
+            "menu-prompting",
+            "mode-line-in-non-selected-windows",
+            "mouse-highlight",
+            "open-paren-in-column-0-is-defun-start",
+            "overflow-newline-into-fringe",
+            "read-minibuffer-restore-windows",
+            "scroll-bar-adjust-thumb-portion",
+            "select-active-regions",
+            "translate-upper-case-key-bindings",
+            "use-dialog-box",
+            "use-file-dialog",
+            "use-system-tooltips",
+            "visible-cursor",
+            "x-gtk-file-dialog-help-text",
+            "x-select-enable-clipboard-manager",
+        ] {
+            obarray.set_symbol_value(name, Value::True);
+        }
+        obarray.set_symbol_value("auto-save-interval", Value::Int(300));
+        obarray.set_symbol_value("auto-save-timeout", Value::Int(30));
+        obarray.set_symbol_value("display-line-numbers-major-tick", Value::Int(0));
+        obarray.set_symbol_value("display-line-numbers-minor-tick", Value::Int(0));
+        obarray.set_symbol_value("double-click-fuzz", Value::Int(3));
+        obarray.set_symbol_value("double-click-time", Value::Int(500));
+        obarray.set_symbol_value("echo-keystrokes", Value::Int(1));
+        obarray.set_symbol_value("gc-cons-threshold", Value::Int(800000));
+        obarray.set_symbol_value("help-char", Value::Int(8));
+        obarray.set_symbol_value("hourglass-delay", Value::Int(1));
+        obarray.set_symbol_value("hscroll-margin", Value::Int(5));
+        obarray.set_symbol_value("hscroll-step", Value::Int(0));
+        obarray.set_symbol_value("line-number-display-limit-width", Value::Int(200));
+        obarray.set_symbol_value("maximum-scroll-margin", Value::Int(25));
+        obarray.set_symbol_value("message-log-max", Value::Int(1000));
+        obarray.set_symbol_value("meta-prefix-char", Value::Int(27));
+        obarray.set_symbol_value("next-screen-context-lines", Value::Int(2));
+        obarray.set_symbol_value("overline-margin", Value::Int(2));
+        obarray.set_symbol_value("polling-period", Value::Int(2));
+        obarray.set_symbol_value("process-error-pause-time", Value::Int(1));
+        obarray.set_symbol_value("scroll-conservatively", Value::Int(0));
+        obarray.set_symbol_value("scroll-margin", Value::Int(0));
+        obarray.set_symbol_value("scroll-step", Value::Int(0));
+        obarray.set_symbol_value("tool-bar-max-label-size", Value::Int(10));
+        obarray.set_symbol_value("truncate-partial-width-windows", Value::Int(50));
+        obarray.set_symbol_value("underline-minimum-offset", Value::Int(1));
+        obarray.set_symbol_value("undo-limit", Value::Int(160000));
+        obarray.set_symbol_value("undo-strong-limit", Value::Int(240000));
+        obarray.set_symbol_value("eol-mnemonic-dos", Value::string("\\"));
+        obarray.set_symbol_value("eol-mnemonic-mac", Value::string("/"));
+        obarray.set_symbol_value("eol-mnemonic-undecided", Value::string(":"));
+        obarray.set_symbol_value("eol-mnemonic-unix", Value::string(":"));
+        obarray.set_symbol_value(
+            "report-emacs-bug-address",
+            Value::string("bug-gnu-emacs@gnu.org"),
+        );
+        obarray.set_symbol_value("yes-or-no-prompt", Value::string("(yes or no) "));
+        // Float-valued C variables
+        obarray.set_symbol_value("gc-cons-percentage", Value::Float(0.1, 0));
+        obarray.set_symbol_value("max-mini-window-height", Value::Float(0.25, 0));
+        obarray.set_symbol_value("image-scaling-factor", Value::Float(1.0, 0));
+        // Other missing C variables cus-start.el checks
+        obarray.set_symbol_value("history-length", Value::Int(100));
+        obarray.set_symbol_value("minibuffer-follows-selected-frame", Value::True);
+        obarray.set_symbol_value("recenter-redisplay", Value::symbol("tty"));
+        obarray.set_symbol_value("iconify-child-frame", Value::symbol("iconify-top-level"));
+        obarray.set_symbol_value("frame-inhibit-implied-resize", Value::Nil);
+        obarray.set_symbol_value("mark-even-if-inactive", Value::True);
+        obarray.set_symbol_value("read-buffer-function", Value::Nil);
+        obarray.set_symbol_value("minibuffer-prompt-properties", Value::Nil);
+        obarray.set_symbol_value("help-event-list", Value::Nil);
+        obarray.set_symbol_value("debug-ignored-errors", Value::Nil);
+        obarray.set_symbol_value("debug-on-event", Value::Nil);
+        obarray.set_symbol_value("debug-on-signal", Value::Nil);
+        // Remaining cus-start.el variables (general + platform stubs)
+        for name in [
+            "imagemagick-render-type",
+            "window-combination-limit",
+            "void-text-area-pointer",
+            "x-bitmap-file-path",
+            "x-gtk-use-system-tooltips",
+            "x-scroll-event-delta-factor",
+            "x-auto-preserve-selections",
+            "xwidget-internal",
+            "temporary-file-directory",
+            "vertical-centering-font-regexp",
+            "ns-control-modifier",
+            "ns-right-control-modifier",
+            "ns-command-modifier",
+            "ns-right-command-modifier",
+            "ns-alternate-modifier",
+            "ns-right-alternate-modifier",
+            "ns-function-modifier",
+            "ns-antialias-text",
+            "ns-auto-hide-menu-bar",
+            "ns-confirm-quit",
+            "ns-use-native-fullscreen",
+            "ns-use-fullscreen-animation",
+            "ns-use-srgb-colorspace",
+            "ns-scroll-event-delta-factor",
+            "ns-click-through",
+            "w32-follow-system-dark-mode",
+            "dos-display-scancodes",
+            "dos-hyper-key",
+            "dos-super-key",
+            "dos-keypad-mode",
+            "dos-unsupported-char-glyph",
+            "haiku-debug-on-fatal-error",
+            "haiku-use-system-tooltips",
+            "xwidget-webkit-disable-javascript",
+        ] {
+            obarray.set_symbol_value(name, Value::Nil);
+        }
+
         // GNU DEFVAR_LISP variables from lread.c that must be bound to nil
         // before any Elisp runs (code may test `boundp` or read them directly).
         obarray.set_symbol_value("eval-buffer-list", Value::Nil);
@@ -4826,23 +5021,16 @@ impl Evaluator {
                     let saved_match_data = self.match_data.clone();
                     let saved_current_buffer = self.buffers.current_buffer_id();
 
-                    if filter.is_nil()
-                        || filter.is_symbol_named("internal-default-process-filter")
+                    if filter.is_nil() || filter.is_symbol_named("internal-default-process-filter")
                     {
                         // Default filter: insert output into the process buffer.
                         let proc_val = Value::Int(pid as i64);
                         let output_val = Value::string(data);
-                        if let Err(e) =
-                            super::process::builtin_internal_default_process_filter(
-                                self,
-                                vec![proc_val, output_val],
-                            )
-                        {
-                            tracing::warn!(
-                                "Default process filter error for pid {}: {:?}",
-                                pid,
-                                e
-                            );
+                        if let Err(e) = super::process::builtin_internal_default_process_filter(
+                            self,
+                            vec![proc_val, output_val],
+                        ) {
+                            tracing::warn!("Default process filter error for pid {}: {:?}", pid, e);
                         }
                     } else if filter.is_truthy() {
                         // Custom filter: call user function.
@@ -4878,14 +5066,9 @@ impl Evaluator {
                         let saved_current_buffer = self.buffers.current_buffer_id();
 
                         let proc_val = Value::Int(pid as i64);
-                        let msg_val =
-                            Value::string("connection broken by remote peer\n");
+                        let msg_val = Value::string("connection broken by remote peer\n");
                         if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
-                            tracing::warn!(
-                                "Network sentinel error for pid {}: {:?}",
-                                pid,
-                                e
-                            );
+                            tracing::warn!("Network sentinel error for pid {}: {:?}", pid, e);
                         }
 
                         self.match_data = saved_match_data;

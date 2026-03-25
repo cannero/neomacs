@@ -31,8 +31,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// The underlying `TcpStream` is owned by `StreamOwned`, so when TLS is active
 /// the `Process.socket` field is `None`.
 #[cfg(unix)]
-pub type TlsStream =
-    rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>;
+pub type TlsStream = rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
@@ -615,7 +614,7 @@ impl ProcessManager {
                         return Some(s);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        return Some(String::new())
+                        return Some(String::new());
                     }
                     Err(_) => return None,
                 }
@@ -632,7 +631,7 @@ impl ProcessManager {
                         return Some(s);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        return Some(String::new())
+                        return Some(String::new());
                     }
                     Err(_) => return None,
                 }
@@ -2615,11 +2614,7 @@ pub(crate) fn builtin_internal_default_process_filter(
     let mark_pos = eval.processes.get(id).and_then(|p| p.mark_byte_pos);
     let insert_pos = match mark_pos {
         Some(pos) => pos,
-        None => eval
-            .buffers
-            .get(buf_id)
-            .map(|b| b.text.len())
-            .unwrap_or(0),
+        None => eval.buffers.get(buf_id).map(|b| b.text.len()).unwrap_or(0),
     };
 
     // Save current point, move point to insert position, insert, then restore.
@@ -2786,9 +2781,10 @@ pub(crate) fn builtin_gnutls_boot(
         }
     }
 
-    let proc = eval.processes.get_mut(id).ok_or_else(|| {
-        signal("error", vec![Value::string("Process not found")])
-    })?;
+    let proc = eval
+        .processes
+        .get_mut(id)
+        .ok_or_else(|| signal("error", vec![Value::string("Process not found")]))?;
 
     if proc.kind != ProcessKind::Network {
         return Err(signal(
@@ -2799,7 +2795,12 @@ pub(crate) fn builtin_gnutls_boot(
 
     // Take the plain TCP socket — it will be owned by the TLS stream.
     let tcp_stream = proc.socket.take().ok_or_else(|| {
-        signal("error", vec![Value::string("gnutls-boot: no socket (already TLS or closed)")])
+        signal(
+            "error",
+            vec![Value::string(
+                "gnutls-boot: no socket (already TLS or closed)",
+            )],
+        )
     })?;
 
     let host = hostname.unwrap_or_else(|| "localhost".to_string());
@@ -2811,13 +2812,19 @@ pub(crate) fn builtin_gnutls_boot(
         .with_root_certificates(root_store)
         .with_no_client_auth();
 
-    let server_name: rustls_pki_types::ServerName<'_> = host
-        .clone()
-        .try_into()
-        .map_err(|_| signal("error", vec![Value::string(format!("Invalid hostname for TLS: {}", host))]))?;
+    let server_name: rustls_pki_types::ServerName<'_> = host.clone().try_into().map_err(|_| {
+        signal(
+            "error",
+            vec![Value::string(format!("Invalid hostname for TLS: {}", host))],
+        )
+    })?;
 
-    let tls_conn = rustls::ClientConnection::new(Arc::new(config), server_name)
-        .map_err(|e| signal("error", vec![Value::string(format!("TLS handshake failed: {}", e))]))?;
+    let tls_conn = rustls::ClientConnection::new(Arc::new(config), server_name).map_err(|e| {
+        signal(
+            "error",
+            vec![Value::string(format!("TLS handshake failed: {}", e))],
+        )
+    })?;
 
     // Temporarily set the stream to blocking for the handshake.
     tcp_stream.set_nonblocking(false).ok();
@@ -2834,13 +2841,19 @@ pub(crate) fn builtin_gnutls_boot(
             Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 return Err(signal(
                     "gnutls-error",
-                    vec![Value::Int(-1), Value::string("TLS handshake: unexpected EOF")],
+                    vec![
+                        Value::Int(-1),
+                        Value::string("TLS handshake: unexpected EOF"),
+                    ],
                 ));
             }
             Err(e) => {
                 return Err(signal(
                     "gnutls-error",
-                    vec![Value::Int(-1), Value::string(format!("TLS handshake: {}", e))],
+                    vec![
+                        Value::Int(-1),
+                        Value::string(format!("TLS handshake: {}", e)),
+                    ],
                 ));
             }
         }
@@ -3434,10 +3447,7 @@ pub(crate) fn builtin_make_network_process(
         }
     };
     if port == 0 {
-        return Err(signal(
-            "error",
-            vec![Value::string("Invalid service/port")],
-        ));
+        return Err(signal("error", vec![Value::string("Invalid service/port")]));
     }
 
     let addr = format!("{}:{}", host_str, port);
@@ -4860,8 +4870,7 @@ pub(crate) fn builtin_accept_process_output_collect(
                         && !filter.is_symbol_named(DEFAULT_PROCESS_FILTER_SYMBOL)
                         && filter.is_truthy()
                     {
-                        callbacks
-                            .push((filter, vec![Value::Int(pid as i64), Value::string(data)]));
+                        callbacks.push((filter, vec![Value::Int(pid as i64), Value::string(data)]));
                     }
                 }
                 None if is_network => {
@@ -4869,8 +4878,7 @@ pub(crate) fn builtin_accept_process_output_collect(
                     if let Some(proc) = processes.get_mut(pid) {
                         proc.status = ProcessStatus::Exit(0);
                     }
-                    let sentinel =
-                        processes.get(pid).map(|p| p.sentinel).unwrap_or(Value::Nil);
+                    let sentinel = processes.get(pid).map(|p| p.sentinel).unwrap_or(Value::Nil);
                     if !sentinel.is_nil()
                         && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
                         && sentinel.is_truthy()

@@ -566,10 +566,7 @@ pub(crate) fn builtin_timer_activate(
 /// Sleep for the given duration, but poll process output every 50ms so that
 /// subprocess filters/sentinels run promptly (matching GNU Emacs behavior
 /// where `sleep-for` services process output while waiting).
-pub(crate) fn builtin_sleep_for(
-    eval: &mut super::eval::Evaluator,
-    args: Vec<Value>,
-) -> EvalResult {
+pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
     expect_min_args("sleep-for", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(

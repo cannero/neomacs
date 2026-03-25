@@ -336,7 +336,10 @@ fn test_builtin_sleep_for() {
                 && sig.data == vec![Value::symbol("numberp"), Value::string("1")]
     ));
 
-    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0), Value::Float(0.5, next_float_id())]);
+    let result = builtin_sleep_for(
+        &mut eval,
+        vec![Value::Int(0), Value::Float(0.5, next_float_id())],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
