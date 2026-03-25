@@ -4419,6 +4419,15 @@ impl<'a> Vm<'a> {
         if let Some(result) = builtins::dispatch_builtin_pure(name, args.clone()) {
             return result.map_err(|flow| normalize_vm_builtin_error(name, flow));
         }
+        // Fall back to the full evaluator dispatch for builtins that need
+        // eval context (e.g. error-message-string, format, etc.).
+        // This matches GNU where bytecoded calls to C functions always work.
+        if builtins::builtin_registry::is_dispatch_builtin_name(name) {
+            return self
+                .shared
+                .with_parent_evaluator(|eval| builtins::dispatch_builtin(eval, name, args))
+                .unwrap_or_else(|| Err(signal("void-function", vec![Value::symbol(name)])));
+        }
         Err(signal("void-function", vec![Value::symbol(name)]))
     }
 
