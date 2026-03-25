@@ -1,4 +1,4 @@
-use super::super::eval::Evaluator;
+use super::super::eval::Context;
 use super::super::value::Value;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
@@ -8,8 +8,8 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Helper: create an evaluator, insert text, and position point.
-fn eval_with_text(text: &str) -> Evaluator {
-    let mut ev = Evaluator::new();
+fn eval_with_text(text: &str) -> Context {
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().unwrap();
         buf.insert(text);
@@ -19,7 +19,7 @@ fn eval_with_text(text: &str) -> Evaluator {
     ev
 }
 
-fn bootstrap_eval_with_text(text: &str) -> Evaluator {
+fn bootstrap_eval_with_text(text: &str) -> Context {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     {
@@ -30,8 +30,8 @@ fn bootstrap_eval_with_text(text: &str) -> Evaluator {
     ev
 }
 
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
-    let mut ev = Evaluator::new();
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
+    let mut ev = Context::new();
     for name in names {
         ev.obarray_mut().fmakunbound(name);
     }
@@ -39,7 +39,7 @@ fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
     ev
 }
 
-fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU simple.el marker: {marker}"));
@@ -54,7 +54,7 @@ fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str
 
 /// Install minimal `defun`/`defmacro`/`when`/`unless` shims so a bare
 /// evaluator can evaluate forms extracted from GNU `.el` source files.
-fn install_bare_elisp_shims(ev: &mut Evaluator) {
+fn install_bare_elisp_shims(ev: &mut Context) {
     let shims = r#"
 (defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
   (list 'defalias (list 'quote name) (cons 'function (list (cons 'lambda (cons arglist body))))))))
@@ -72,7 +72,7 @@ fn install_bare_elisp_shims(ev: &mut Evaluator) {
     }
 }
 
-fn gnu_simple_line_eval() -> Evaluator {
+fn gnu_simple_line_eval() -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let simple_path = project_root.join("lisp/simple.el");
@@ -91,7 +91,7 @@ fn gnu_simple_line_eval() -> Evaluator {
             "(defun buffer-narrowed-p ()",
         );
 
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
     eval_first_form_after_marker(&mut ev, &subr_source, "(defun zerop (number)");
@@ -124,14 +124,14 @@ fn gnu_simple_line_eval() -> Evaluator {
 }
 
 /// Evaluate an Elisp string and return the result Value.
-fn eval_str(ev: &mut Evaluator, src: &str) -> Value {
+fn eval_str(ev: &mut Context, src: &str) -> Value {
     let forms = super::super::parser::parse_forms(src).unwrap();
     let results = ev.eval_forms(&forms);
     results.into_iter().last().unwrap().unwrap()
 }
 
 /// Evaluate and expect an integer result.
-fn eval_int(ev: &mut Evaluator, src: &str) -> i64 {
+fn eval_int(ev: &mut Context, src: &str) -> i64 {
     match eval_str(ev, src) {
         Value::Int(n) => n,
         other => panic!("expected Int, got {:?}", other),
@@ -775,7 +775,7 @@ fn test_use_region_p_honors_buffer_local_mark_active_when_global_is_nil() {
 
 #[test]
 fn test_empty_buffer_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let val = eval_str(&mut ev, "(bobp)");
     assert!(val.is_truthy());
     let val = eval_str(&mut ev, "(eobp)");

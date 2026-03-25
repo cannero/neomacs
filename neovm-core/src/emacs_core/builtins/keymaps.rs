@@ -33,7 +33,7 @@ pub(crate) fn expect_keymap_in_obarray(obarray: &Obarray, value: &Value) -> Resu
     ))
 }
 
-fn expect_keymap(eval: &super::eval::Evaluator, value: &Value) -> Result<Value, Flow> {
+fn expect_keymap(eval: &super::eval::Context, value: &Value) -> Result<Value, Flow> {
     expect_keymap_in_obarray(eval.obarray(), value)
 }
 
@@ -50,7 +50,7 @@ pub(crate) fn ensure_global_keymap_in_obarray(obarray: &mut Obarray) -> Value {
 }
 
 /// Get the global keymap from obarray, creating one if needed.
-fn ensure_global_keymap(eval: &mut super::eval::Evaluator) -> Value {
+fn ensure_global_keymap(eval: &mut super::eval::Context) -> Value {
     ensure_global_keymap_in_obarray(&mut eval.obarray)
 }
 
@@ -132,7 +132,7 @@ fn expect_key_description(value: &Value) -> Result<Vec<KeyEvent>, Flow> {
 
 /// `(accessible-keymaps KEYMAP &optional PREFIXES)` -> list of accessible keymaps.
 pub(super) fn builtin_accessible_keymaps(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_accessible_keymaps_in_obarray(eval.obarray(), &args)
@@ -212,7 +212,7 @@ pub(crate) fn builtin_accessible_keymaps_in_obarray(
 
 /// (make-keymap) -> keymap
 pub(super) fn builtin_make_keymap(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_keymap_pure(&args)
@@ -225,7 +225,7 @@ pub(crate) fn builtin_make_keymap_pure(args: &[Value]) -> EvalResult {
 
 /// (make-sparse-keymap &optional NAME) -> keymap
 pub(super) fn builtin_make_sparse_keymap(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("make-sparse-keymap", &args, 1)?;
@@ -243,7 +243,7 @@ pub(super) fn builtin_make_sparse_keymap(
 
 /// `(copy-keymap KEYMAP)` -> keymap copy.
 pub(super) fn builtin_copy_keymap(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_copy_keymap_in_obarray(eval.obarray(), &args)
@@ -257,7 +257,7 @@ pub(crate) fn builtin_copy_keymap_in_obarray(obarray: &Obarray, args: &[Value]) 
 
 /// (define-key KEYMAP KEY DEF &optional REMOVE) -> DEF
 pub(super) fn builtin_define_key(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("define-key", &args, 3)?;
@@ -278,7 +278,7 @@ pub(super) fn builtin_define_key(
 
 /// (lookup-key KEYMAP KEY) -> binding or nil
 pub(super) fn builtin_lookup_key(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_lookup_key_in_obarray(eval.obarray(), &args)
@@ -356,7 +356,7 @@ fn lookup_key_in_obarray(obarray: &Obarray, keymap: &Value, events: &[Value]) ->
 
 /// (global-set-key KEY COMMAND)
 pub(super) fn builtin_global_set_key(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("global-set-key", &args, 2)?;
@@ -371,7 +371,7 @@ pub(super) fn builtin_global_set_key(
 
 /// (local-set-key KEY COMMAND)
 pub(super) fn builtin_local_set_key(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("local-set-key", &args, 2)?;
@@ -392,7 +392,7 @@ pub(super) fn builtin_local_set_key(
 
 /// (use-local-map KEYMAP)
 pub(super) fn builtin_use_local_map(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("use-local-map", &args, 1)?;
@@ -422,7 +422,7 @@ pub(crate) fn builtin_use_local_map_in_state(
 
 /// (use-global-map KEYMAP)
 pub(super) fn builtin_use_global_map(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_use_global_map_in_obarray(&mut eval.obarray, &args)
@@ -440,7 +440,7 @@ pub(crate) fn builtin_use_global_map_in_obarray(
 
 /// (current-local-map) -> keymap or nil
 pub(super) fn builtin_current_local_map(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_local_map_in_state(eval.buffers.current_local_map(), &args)
@@ -456,7 +456,7 @@ pub(crate) fn builtin_current_local_map_in_state(
 
 /// (current-global-map) -> keymap
 pub(super) fn builtin_current_global_map(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-global-map", &args, 0)?;
@@ -468,7 +468,7 @@ pub(super) fn builtin_current_global_map(
 /// Returns list of currently active keymaps in priority order.
 /// GNU Emacs order: minor-mode maps > local-map > global-map.
 pub(super) fn builtin_current_active_maps(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_active_maps_in_state(
@@ -505,7 +505,7 @@ pub(crate) fn builtin_current_active_maps_in_state(
 
 /// `(current-minor-mode-maps)` -> list of active minor mode keymaps.
 pub(super) fn builtin_current_minor_mode_maps(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_minor_mode_maps_in_state(eval.obarray(), eval.dynamic.as_slice(), &args)
@@ -531,7 +531,7 @@ pub(crate) fn builtin_current_minor_mode_maps_in_state(
 /// 1. `emulation-mode-map-alists` (highest precedence)
 /// 2. `minor-mode-overriding-map-alist`
 /// 3. `minor-mode-map-alist` (entries already in overriding alist are skipped)
-fn collect_minor_mode_maps(eval: &super::eval::Evaluator) -> Vec<Value> {
+fn collect_minor_mode_maps(eval: &super::eval::Context) -> Vec<Value> {
     collect_minor_mode_maps_in_state(eval.obarray(), eval.dynamic.as_slice())
 }
 
@@ -596,7 +596,7 @@ fn collect_minor_mode_maps_in_state(
 /// If `skip_if_in` is provided, skip entries whose MODE-VAR appears in that alist
 /// (used to avoid duplicates between overriding and regular alists).
 fn collect_maps_from_alist(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     alist: &Value,
     skip_if_in: Option<&Value>,
     maps: &mut Vec<Value>,
@@ -731,7 +731,7 @@ pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
 }
 
 pub(crate) fn execute_keymap_iteration_callbacks(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     function: Value,
     bindings: &[(Value, Value)],
 ) -> Result<(), Flow> {
@@ -746,7 +746,7 @@ pub(crate) fn execute_keymap_iteration_callbacks(
 /// Call FUNCTION for each binding in KEYMAP and its parents.
 /// FUNCTION receives two arguments: the event and the binding definition.
 pub(super) fn builtin_map_keymap(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("map-keymap", &args, 2)?;
@@ -773,7 +773,7 @@ pub(super) fn builtin_map_keymap(
 /// Call FUNCTION for each binding in KEYMAP (not its parents).
 /// Returns the parent keymap if it has one.
 pub(super) fn builtin_map_keymap_internal(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("map-keymap-internal", &args, 2)?;
@@ -786,7 +786,7 @@ pub(super) fn builtin_map_keymap_internal(
 /// calling `function(event, binding)` for each. Returns the parent
 /// keymap (or nil if none).
 fn map_keymap_internal_impl(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     function: Value,
     keymap: Value,
 ) -> EvalResult {
@@ -797,7 +797,7 @@ fn map_keymap_internal_impl(
 
 /// (keymap-parent KEYMAP) -> keymap or nil
 pub(super) fn builtin_keymap_parent(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_keymap_parent_in_obarray(eval.obarray(), &args)
@@ -811,7 +811,7 @@ pub(crate) fn builtin_keymap_parent_in_obarray(obarray: &Obarray, args: &[Value]
 
 /// (set-keymap-parent KEYMAP PARENT) -> PARENT
 pub(super) fn builtin_set_keymap_parent(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_keymap_parent_in_obarray(eval.obarray(), &args)
@@ -837,7 +837,7 @@ pub(super) fn is_lisp_keymap_object(value: &Value) -> bool {
 }
 
 /// (keymapp OBJ) -> t or nil
-pub(super) fn builtin_keymapp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(super) fn builtin_keymapp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_keymapp_in_obarray(eval.obarray(), &args)
 }
 
@@ -1062,7 +1062,7 @@ pub(crate) fn builtin_key_description(args: Vec<Value>) -> EvalResult {
 
 /// `(recent-keys &optional INCLUDE-CMDS)` -> vector of recent input events.
 pub(crate) fn builtin_recent_keys(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_recent_keys_in_state(eval.recent_input_events(), args)

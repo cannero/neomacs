@@ -30,7 +30,7 @@ pub fn register_bootstrap_vars(obarray: &mut Obarray) {
 /// Backfill xfaces-owned bootstrap variables after loading a dump or partial
 /// source bootstrap. GNU owns these in xfaces.c, so load/bootstrap glue should
 /// delegate here instead of duplicating the values itself.
-pub(crate) fn ensure_startup_compat_variables(eval: &mut crate::emacs_core::eval::Evaluator) {
+pub(crate) fn ensure_startup_compat_variables(eval: &mut crate::emacs_core::eval::Context) {
     let defaults = [
         ("face-filters-always-match", Value::Nil),
         (
@@ -53,7 +53,7 @@ pub(crate) fn ensure_startup_compat_variables(eval: &mut crate::emacs_core::eval
 }
 
 pub(crate) fn builtin_frame_face_hash_table_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     crate::emacs_core::display::expect_range_args("frame--face-hash-table", &args, 0, 1)?;
@@ -112,7 +112,7 @@ fn bootstrap_face_new_frame_defaults_table() -> Value {
 }
 
 pub(crate) fn ensure_face_new_frame_defaults_entry(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     face_name: &str,
 ) -> Option<Value> {
     let table = eval
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn frame_face_hash_table_eval_is_empty_before_any_face_realization() {
-        let mut eval = crate::emacs_core::eval::Evaluator::new();
+        let mut eval = crate::emacs_core::eval::Context::new();
         let out = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
             .expect("live frame face hash table");
         let Value::HashTable(id) = out else {
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn frame_face_hash_table_eval_returns_stable_frame_owned_table() {
-        let mut eval = crate::emacs_core::eval::Evaluator::new();
+        let mut eval = crate::emacs_core::eval::Context::new();
         let first = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
             .expect("first face hash table");
         let second = builtin_frame_face_hash_table_eval(&mut eval, vec![Value::Nil])
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn ensure_startup_compat_variables_backfills_missing_xfaces_state() {
-        let mut eval = crate::emacs_core::eval::Evaluator::new();
+        let mut eval = crate::emacs_core::eval::Context::new();
         for name in [
             "face-filters-always-match",
             "face--new-frame-defaults",

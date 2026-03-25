@@ -20,7 +20,7 @@ fn normalize_symbol_reader_default_uses_list_head_and_symbol_name() {
 
 #[test]
 fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" minibuffer-default ");
 
     assert_eq!(
@@ -38,7 +38,7 @@ fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
 
 #[test]
 fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" target-buffer ");
     let args = read_buffer_completing_args(
         &eval.buffers,
@@ -598,7 +598,7 @@ fn builtin_minibufferp_returns_nil() {
 
 #[test]
 fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let minibuf_id = eval.buffers.create_buffer(" *Minibuf-1*");
     {
         let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
@@ -702,7 +702,7 @@ fn builtin_top_level_rejects_args() {
 
 #[test]
 fn builtin_exit_recursive_edit_signals_user_error() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_exit_recursive_edit(&mut eval, vec![]);
     // Not in a recursive edit → user-error
     assert!(matches!(
@@ -713,7 +713,7 @@ fn builtin_exit_recursive_edit_signals_user_error() {
 
 #[test]
 fn builtin_exit_recursive_edit_rejects_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_exit_recursive_edit(&mut eval, vec![Value::Nil]);
     assert!(matches!(
         result,
@@ -723,7 +723,7 @@ fn builtin_exit_recursive_edit_rejects_args() {
 
 #[test]
 fn builtin_minibuffer_contents_returns_current_buffer_text() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     eval.buffers
         .current_buffer_mut()
         .expect("scratch buffer")
@@ -734,7 +734,7 @@ fn builtin_minibuffer_contents_returns_current_buffer_text() {
 
 #[test]
 fn builtin_minibuffer_contents_no_properties_returns_current_buffer_text() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     eval.buffers
         .current_buffer_mut()
         .expect("scratch buffer")
@@ -745,7 +745,7 @@ fn builtin_minibuffer_contents_no_properties_returns_current_buffer_text() {
 
 #[test]
 fn builtin_minibuffer_contents_no_properties_rejects_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_minibuffer_contents_no_properties(&mut eval, vec![Value::Nil]);
     assert!(matches!(
         result,
@@ -785,7 +785,7 @@ fn builtin_abort_minibuffers_rejects_args() {
 
 #[test]
 fn builtin_abort_recursive_edit_signals_user_error() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_abort_recursive_edit(&mut eval, vec![]);
     // Not in a recursive edit → user-error
     assert!(matches!(
@@ -796,7 +796,7 @@ fn builtin_abort_recursive_edit_signals_user_error() {
 
 #[test]
 fn builtin_abort_recursive_edit_rejects_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_abort_recursive_edit(&mut eval, vec![Value::Nil]);
     assert!(matches!(
         result,
@@ -806,7 +806,7 @@ fn builtin_abort_recursive_edit_rejects_args() {
 
 #[test]
 fn builtin_read_file_name_signals_end_of_file() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_read_file_name(
         &mut eval,
         vec![
@@ -827,7 +827,7 @@ fn builtin_read_file_name_signals_end_of_file() {
 
 #[test]
 fn builtin_read_file_name_validates_dir_default_and_initial() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let bad_dir = builtin_read_file_name(&mut eval, vec![Value::string("File: "), Value::Int(1)]);
     assert!(matches!(
         bad_dir,
@@ -861,7 +861,7 @@ fn builtin_read_file_name_validates_dir_default_and_initial() {
 
 #[test]
 fn builtin_read_file_name_rejects_more_than_six_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_read_file_name(
         &mut eval,
         vec![
@@ -882,7 +882,7 @@ fn builtin_read_file_name_rejects_more_than_six_args() {
 
 #[test]
 fn builtin_read_buffer_signals_end_of_file() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_read_buffer(
         &mut eval,
         vec![Value::string("Buffer: "), Value::string("*scratch*")],
@@ -895,7 +895,7 @@ fn builtin_read_buffer_signals_end_of_file() {
 
 #[test]
 fn builtin_read_directory_name_rejects_more_than_five_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_read_directory_name(
         &mut eval,
         vec![
@@ -915,7 +915,7 @@ fn builtin_read_directory_name_rejects_more_than_five_args() {
 
 #[test]
 fn builtin_read_directory_name_validates_dir_default_and_initial() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let bad_dir =
         builtin_read_directory_name(&mut eval, vec![Value::string("Directory: "), Value::Int(1)]);
     assert!(matches!(
@@ -950,7 +950,7 @@ fn builtin_read_directory_name_validates_dir_default_and_initial() {
 
 #[test]
 fn builtin_read_buffer_rejects_more_than_four_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_read_buffer(
         &mut eval,
         vec![
@@ -969,7 +969,7 @@ fn builtin_read_buffer_rejects_more_than_four_args() {
 
 #[test]
 fn builtin_read_command_rejects_more_than_two_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_read_command(
         &mut eval,
         vec![Value::string("Command: "), Value::Nil, Value::Nil],
@@ -982,7 +982,7 @@ fn builtin_read_command_rejects_more_than_two_args() {
 
 #[test]
 fn builtin_read_variable_rejects_more_than_two_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_read_variable(
         &mut eval,
         vec![Value::string("Variable: "), Value::Nil, Value::Nil],

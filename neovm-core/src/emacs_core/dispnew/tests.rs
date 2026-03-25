@@ -101,7 +101,7 @@ fn force_window_update_nil_arg_returns_t() {
 #[test]
 fn eval_internal_show_cursor_per_window_state() {
     reset_dispnew_thread_locals();
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let selected =
         crate::emacs_core::window_cmds::builtin_selected_window(&mut eval, vec![]).unwrap();

@@ -26,7 +26,7 @@ pub fn reset_syntax_thread_locals() {
 /// GNU Emacs keeps the standard syntax table as a single canonical Lisp object.
 /// NeoVM exposes it through a thread-local cache because `standard-syntax-table`
 /// is currently a no-evaluator builtin; callers that reconstruct or move an
-/// `Evaluator` between threads must restore that identity explicitly.
+/// `Context` between threads must restore that identity explicitly.
 pub(crate) fn restore_standard_syntax_table_object(table: Value) {
     STANDARD_SYNTAX_TABLE_OBJECT.with(|slot| *slot.borrow_mut() = Some(table));
 }
@@ -1143,7 +1143,7 @@ fn current_buffer_syntax_table_object_in_buffers(
     Ok(fallback)
 }
 
-fn current_buffer_syntax_table_object(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
+fn current_buffer_syntax_table_object(eval: &mut super::eval::Context) -> Result<Value, Flow> {
     current_buffer_syntax_table_object_in_buffers(&mut eval.buffers)
 }
 
@@ -1165,7 +1165,7 @@ fn set_current_buffer_syntax_table_object_in_buffers(
 }
 
 fn set_current_buffer_syntax_table_object(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     table: Value,
 ) -> Result<(), Flow> {
     set_current_buffer_syntax_table_object_in_buffers(&mut eval.buffers, table)
@@ -1337,7 +1337,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
 /// syntax table. For backwards compatibility, also works as a pure function
 /// with standard bracket pairs.
 pub(crate) fn builtin_matching_paren_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_matching_paren_in_buffers(&eval.buffers, args)
@@ -1483,7 +1483,7 @@ pub(crate) fn builtin_syntax_table_p(args: Vec<Value>) -> EvalResult {
 /// Returns the buffer-local syntax-table object, defaulting to the standard
 /// syntax-table object.
 pub(crate) fn builtin_syntax_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_syntax_table_in_buffers(&mut eval.buffers, args)
@@ -1507,7 +1507,7 @@ pub(crate) fn builtin_syntax_table_in_buffers(
 /// NeoVM currently stores syntax behavior on `Buffer.syntax_table` internals;
 /// this installs the exposed syntax-table object for compatibility and returns it.
 pub(crate) fn builtin_set_syntax_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_syntax_table_in_buffers(&mut eval.buffers, args)
@@ -1551,7 +1551,7 @@ pub(crate) fn builtin_set_syntax_table_in_buffers(
 
 /// `(modify-syntax-entry CHAR NEWENTRY &optional SYNTAX-TABLE)`
 pub(crate) fn builtin_modify_syntax_entry(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     modify_syntax_entry_in_buffers(&mut eval.buffers, &args)
@@ -1619,7 +1619,7 @@ pub(crate) fn modify_syntax_entry_in_buffers(
 
 /// `(char-syntax CHAR)` — return the syntax class designator char.
 pub(crate) fn builtin_char_syntax(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_char_syntax_in_buffers(&eval.buffers, args)
@@ -1660,7 +1660,7 @@ pub(crate) fn builtin_char_syntax_in_buffers(
 
 /// `(syntax-after POS)` — return syntax descriptor for char at POS.
 pub(crate) fn builtin_syntax_after(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_syntax_after_in_buffers(&eval.buffers, args)
@@ -1713,7 +1713,7 @@ pub(crate) fn builtin_syntax_after_in_buffers(
 /// if scanning stopped early (hit non-comment/non-whitespace or buffer
 /// boundary).
 pub(crate) fn builtin_forward_comment(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_forward_comment_in_buffers(&mut eval.buffers, args)
@@ -2300,7 +2300,7 @@ fn scan_backward_comment_fence(buf: &mut Buffer) -> bool {
 
 /// `(backward-prefix-chars)` — move point backward over prefix-syntax chars.
 pub(crate) fn builtin_backward_prefix_chars(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_backward_prefix_chars_in_buffers(&mut eval.buffers, args)
@@ -2351,7 +2351,7 @@ pub(crate) fn builtin_backward_prefix_chars_in_buffers(
 
 /// `(forward-word &optional COUNT)` — move point forward COUNT words.
 pub(crate) fn builtin_forward_word(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_forward_word_in_buffers(&mut eval.buffers, args)
@@ -2392,7 +2392,7 @@ pub(crate) fn builtin_forward_word_in_buffers(
 
 /// `(backward-word &optional COUNT)` — move point backward COUNT words.
 pub(crate) fn builtin_backward_word(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let count = if args.is_empty() || args[0].is_nil() {
@@ -2427,7 +2427,7 @@ pub(crate) fn builtin_backward_word(
 /// `(forward-sexp &optional COUNT)` — move point forward over COUNT balanced
 /// expressions.
 pub(crate) fn builtin_forward_sexp(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let count = if args.is_empty() || args[0].is_nil() {
@@ -2464,7 +2464,7 @@ pub(crate) fn builtin_forward_sexp(
 /// `(backward-sexp &optional COUNT)` — move point backward over COUNT balanced
 /// expressions.
 pub(crate) fn builtin_backward_sexp(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let count = if args.is_empty() || args[0].is_nil() {
@@ -2503,7 +2503,7 @@ pub(crate) fn builtin_backward_sexp(
 ///
 /// This uses the same core scanner as `forward-sexp`/`backward-sexp`.
 pub(crate) fn builtin_scan_lists(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_scan_lists_in_manager(&eval.buffers, args)
@@ -2565,7 +2565,7 @@ pub(crate) fn builtin_scan_lists_in_manager(
 
 /// `(scan-sexps FROM COUNT)` — scan over COUNT sexps from FROM.
 pub(crate) fn builtin_scan_sexps(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_scan_sexps_in_manager(&eval.buffers, args)
@@ -3102,7 +3102,7 @@ fn parse_state_from_range(buf: &Buffer, table: &SyntaxTable, from: i64, to: i64)
 /// `(parse-partial-sexp FROM TO &optional TARGETDEPTH STOPBEFORE STATE COMMENTSTOP)`
 /// Baseline parser-state implementation for structural Lisp motion/state queries.
 pub(crate) fn builtin_parse_partial_sexp(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_parse_partial_sexp_in_manager(&mut eval.buffers, args)
@@ -3165,7 +3165,7 @@ pub(crate) fn builtin_parse_partial_sexp_in_manager(
 
 /// `(syntax-ppss &optional POS)` — parser state at POS.
 pub(crate) fn builtin_syntax_ppss(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_syntax_ppss_in_manager(&eval.buffers, args)
@@ -3209,7 +3209,7 @@ pub(crate) fn builtin_syntax_ppss_in_manager(
 /// NeoVM currently computes parser state directly, so this is a no-op that
 /// enforces Emacs-compatible arity/type behavior.
 pub(crate) fn builtin_syntax_ppss_flush_cache(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() {
@@ -3235,7 +3235,7 @@ fn lisp_pos_to_byte(buf: &Buffer, raw: i64) -> usize {
 /// `(skip-syntax-forward SYNTAX &optional LIMIT)` — skip forward over chars
 /// matching the given syntax classes.
 pub(crate) fn builtin_skip_syntax_forward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_skip_syntax_forward_in_buffers(&mut eval.buffers, args)
@@ -3306,7 +3306,7 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
 /// `(skip-syntax-backward SYNTAX &optional LIMIT)` — skip backward over chars
 /// matching the given syntax classes.
 pub(crate) fn builtin_skip_syntax_backward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_skip_syntax_backward_in_buffers(&mut eval.buffers, args)

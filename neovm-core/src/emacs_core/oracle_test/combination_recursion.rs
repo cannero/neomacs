@@ -151,7 +151,7 @@ fn oracle_prop_recursion_arithmetic_parser() {
                                 (funcall 'neovm--test-eat) ; rp
                                 node))
                           (funcall 'neovm--test-eat))))
-                    ;; Evaluator for AST
+                    ;; Context for AST
                     (fset 'neovm--test-eval-ast
                       (lambda (ast)
                         (if (numberp ast)

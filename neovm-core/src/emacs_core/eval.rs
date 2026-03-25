@@ -1,4 +1,4 @@
-//! Evaluator — special forms, function application, and dispatch.
+//! Context — special forms, function application, and dispatch.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -277,7 +277,7 @@ fn rebuild_trimmed_interpreted_closure_env(
 #[derive(Clone, Debug)]
 enum NamedCallTarget {
     Obarray(Value),
-    EvaluatorCallable,
+    ContextCallable,
     Probe,
     Builtin,
     SpecialForm,
@@ -321,700 +321,6 @@ impl InterpretedClosureTrimCacheEntry {
             && self.body_exprs == body_exprs
             && self.iform_expr == *iform_expr
             && self.env_shape == env_shape
-    }
-}
-
-/// The portion of `Evaluator` state that bytecode and interpreted evaluation
-/// must share to match GNU Emacs's single-runtime model.
-///
-/// This bundle is also the correct GC/root boundary for VM fallback into
-/// evaluator paths. Keep a raw pointer to the parent evaluator so VM-side
-/// semantic boundaries can enter the real evaluator on the same runtime.
-pub(crate) struct VmSharedState<'a> {
-    pub(crate) obarray: &'a mut Obarray,
-    pub(crate) dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
-    pub(crate) specpdl: &'a mut Vec<SpecBinding>,
-    pub(crate) lexenv: &'a mut Value,
-    pub(crate) features: &'a mut Vec<SymId>,
-    pub(crate) require_stack: &'a mut Vec<SymId>,
-    pub(crate) loads_in_progress: &'a mut Vec<std::path::PathBuf>,
-    pub(crate) buffers: &'a mut BufferManager,
-    pub(crate) match_data: &'a mut Option<MatchData>,
-    pub(crate) watchers: &'a mut VariableWatcherList,
-    pub(crate) current_local_map: &'a mut Value,
-    pub(crate) autoloads: &'a mut AutoloadManager,
-    pub(crate) custom: &'a mut CustomManager,
-    pub(crate) frames: &'a mut FrameManager,
-    pub(crate) category_manager: &'a mut CategoryManager,
-    pub(crate) coding_systems: &'a mut CodingSystemManager,
-    pub(crate) depth: &'a mut usize,
-    pub(crate) max_depth: &'a mut usize,
-    pub(crate) catch_tags: &'a mut Vec<Value>,
-    pub(crate) processes: &'a mut ProcessManager,
-    timers: &'a mut TimerManager,
-    standard_syntax_table: &'a mut Value,
-    registers: &'a mut RegisterManager,
-    bookmarks: &'a mut BookmarkManager,
-    abbrevs: &'a mut AbbrevManager,
-    rectangle: &'a mut RectangleState,
-    pub(crate) interactive: &'a mut InteractiveRegistry,
-    pub(crate) minibuffers: &'a mut MinibufferManager,
-    pub(crate) recent_input_events: &'a mut Vec<Value>,
-    read_command_keys: &'a mut Vec<Value>,
-    pub(crate) current_message: &'a mut Option<String>,
-    pub(crate) minibuffer_selected_window: &'a mut Option<crate::window::WindowId>,
-    pub(crate) active_minibuffer_window: &'a mut Option<crate::window::WindowId>,
-    shutdown_request: &'a mut Option<ShutdownRequest>,
-    pub(crate) input_mode_interrupt: &'a mut bool,
-    pub(crate) waiting_for_user_input: &'a mut bool,
-    modes: &'a mut ModeRegistry,
-    pub(crate) threads: &'a mut ThreadManager,
-    kmacro: &'a mut KmacroManager,
-    command_loop: &'a mut crate::keyboard::CommandLoop,
-    input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
-    pending_input_events: &'a mut VecDeque<crate::keyboard::InputEvent>,
-    #[cfg(unix)]
-    wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
-    redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
-    display_host: &'a mut Option<Box<dyn DisplayHost>>,
-    heap: &'a mut LispHeap,
-    face_table: &'a mut FaceTable,
-    gc_pending: &'a mut bool,
-    gc_count: &'a mut u64,
-    gc_stress: &'a mut bool,
-    temp_roots: &'a mut Vec<Value>,
-    pub(crate) vm_gc_roots: &'a mut Vec<Value>,
-    saved_lexenvs: &'a mut Vec<Value>,
-    named_call_cache: &'a mut Vec<NamedCallCache>,
-    pcase_macroexpand_temp_counter: &'a mut usize,
-    literal_cache: &'a mut HashMap<*const Expr, Value>,
-    macro_expansion_cache: &'a mut HashMap<(crate::gc::types::ObjId, usize, u64), (Rc<Expr>, u64)>,
-    macro_cache_hits: &'a mut u64,
-    macro_cache_misses: &'a mut u64,
-    macro_expand_total_us: &'a mut u64,
-    macro_cache_disabled: &'a mut bool,
-    interpreted_closure_filter_fn: &'a mut Option<Value>,
-    interpreted_closure_trim_cache: &'a mut HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
-    parent_eval: std::ptr::NonNull<Evaluator>,
-}
-
-impl<'a> VmSharedState<'a> {
-    fn new(
-        obarray: &'a mut Obarray,
-        dynamic: &'a mut Vec<OrderedRuntimeBindingMap>,
-        specpdl: &'a mut Vec<SpecBinding>,
-        lexenv: &'a mut Value,
-        features: &'a mut Vec<SymId>,
-        require_stack: &'a mut Vec<SymId>,
-        loads_in_progress: &'a mut Vec<std::path::PathBuf>,
-        buffers: &'a mut BufferManager,
-        match_data: &'a mut Option<MatchData>,
-        processes: &'a mut ProcessManager,
-        timers: &'a mut TimerManager,
-        watchers: &'a mut VariableWatcherList,
-        standard_syntax_table: &'a mut Value,
-        current_local_map: &'a mut Value,
-        registers: &'a mut RegisterManager,
-        bookmarks: &'a mut BookmarkManager,
-        abbrevs: &'a mut AbbrevManager,
-        autoloads: &'a mut AutoloadManager,
-        custom: &'a mut CustomManager,
-        rectangle: &'a mut RectangleState,
-        interactive: &'a mut InteractiveRegistry,
-        minibuffers: &'a mut MinibufferManager,
-        recent_input_events: &'a mut Vec<Value>,
-        read_command_keys: &'a mut Vec<Value>,
-        current_message: &'a mut Option<String>,
-        minibuffer_selected_window: &'a mut Option<crate::window::WindowId>,
-        active_minibuffer_window: &'a mut Option<crate::window::WindowId>,
-        shutdown_request: &'a mut Option<ShutdownRequest>,
-        input_mode_interrupt: &'a mut bool,
-        waiting_for_user_input: &'a mut bool,
-        frames: &'a mut FrameManager,
-        modes: &'a mut ModeRegistry,
-        threads: &'a mut ThreadManager,
-        category_manager: &'a mut CategoryManager,
-        kmacro: &'a mut KmacroManager,
-        command_loop: &'a mut crate::keyboard::CommandLoop,
-        input_rx: &'a mut Option<crossbeam_channel::Receiver<crate::keyboard::InputEvent>>,
-        pending_input_events: &'a mut VecDeque<crate::keyboard::InputEvent>,
-        #[cfg(unix)] wakeup_fd: &'a mut Option<std::os::unix::io::RawFd>,
-        redisplay_fn: &'a mut Option<Box<dyn FnMut(&mut Evaluator)>>,
-        display_host: &'a mut Option<Box<dyn DisplayHost>>,
-        heap: &'a mut LispHeap,
-        coding_systems: &'a mut CodingSystemManager,
-        face_table: &'a mut FaceTable,
-        depth: &'a mut usize,
-        max_depth: &'a mut usize,
-        gc_pending: &'a mut bool,
-        gc_count: &'a mut u64,
-        gc_stress: &'a mut bool,
-        temp_roots: &'a mut Vec<Value>,
-        vm_gc_roots: &'a mut Vec<Value>,
-        catch_tags: &'a mut Vec<Value>,
-        saved_lexenvs: &'a mut Vec<Value>,
-        named_call_cache: &'a mut Vec<NamedCallCache>,
-        pcase_macroexpand_temp_counter: &'a mut usize,
-        literal_cache: &'a mut HashMap<*const Expr, Value>,
-        macro_expansion_cache: &'a mut HashMap<
-            (crate::gc::types::ObjId, usize, u64),
-            (Rc<Expr>, u64),
-        >,
-        macro_cache_hits: &'a mut u64,
-        macro_cache_misses: &'a mut u64,
-        macro_expand_total_us: &'a mut u64,
-        macro_cache_disabled: &'a mut bool,
-        interpreted_closure_filter_fn: &'a mut Option<Value>,
-        interpreted_closure_trim_cache: &'a mut HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
-        parent_eval: std::ptr::NonNull<Evaluator>,
-    ) -> Self {
-        Self {
-            obarray,
-            dynamic,
-            specpdl,
-            lexenv,
-            features,
-            require_stack,
-            loads_in_progress,
-            buffers,
-            match_data,
-            processes,
-            timers,
-            watchers,
-            standard_syntax_table,
-            current_local_map,
-            registers,
-            bookmarks,
-            abbrevs,
-            autoloads,
-            custom,
-            rectangle,
-            interactive,
-            minibuffers,
-            recent_input_events,
-            read_command_keys,
-            current_message,
-            minibuffer_selected_window,
-            active_minibuffer_window,
-            shutdown_request,
-            input_mode_interrupt,
-            waiting_for_user_input,
-            frames,
-            modes,
-            threads,
-            category_manager,
-            kmacro,
-            command_loop,
-            input_rx,
-            pending_input_events,
-            #[cfg(unix)]
-            wakeup_fd,
-            redisplay_fn,
-            display_host,
-            heap,
-            coding_systems,
-            face_table,
-            depth,
-            max_depth,
-            gc_pending,
-            gc_count,
-            gc_stress,
-            temp_roots,
-            vm_gc_roots,
-            catch_tags,
-            saved_lexenvs,
-            named_call_cache,
-            pcase_macroexpand_temp_counter,
-            literal_cache,
-            macro_expansion_cache,
-            macro_cache_hits,
-            macro_cache_misses,
-            macro_expand_total_us,
-            macro_cache_disabled,
-            interpreted_closure_filter_fn,
-            interpreted_closure_trim_cache,
-            parent_eval,
-        }
-    }
-
-    pub(crate) fn read_command_keys(&self) -> &[Value] {
-        self.read_command_keys.as_slice()
-    }
-
-    pub(crate) fn recursive_command_loop_depth(&self) -> usize {
-        self.command_loop.recursive_depth
-    }
-
-    pub(crate) fn begin_eval_with_lexical_arg(
-        &mut self,
-        lexical_arg: Option<Value>,
-    ) -> Result<ActiveEvalLexicalArgState, Flow> {
-        begin_eval_with_lexical_arg_in_state(
-            self.obarray,
-            self.lexenv,
-            self.saved_lexenvs,
-            lexical_arg,
-        )
-    }
-
-    pub(crate) fn finish_eval_with_lexical_arg(&mut self, state: ActiveEvalLexicalArgState) {
-        finish_eval_with_lexical_arg_in_state(self.obarray, self.lexenv, self.saved_lexenvs, state);
-    }
-
-    pub(crate) fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
-        let n = *self.pcase_macroexpand_temp_counter;
-        *self.pcase_macroexpand_temp_counter =
-            self.pcase_macroexpand_temp_counter.saturating_add(1);
-        Value::symbol(format!("x{n}"))
-    }
-
-    pub(crate) fn request_shutdown(&mut self, exit_code: i32, restart: bool) {
-        *self.shutdown_request = Some(ShutdownRequest { exit_code, restart });
-    }
-
-    fn collect_roots(&self) -> Vec<Value> {
-        let mut roots = Vec::new();
-
-        roots.extend(self.temp_roots.iter().copied());
-        roots.extend(self.vm_gc_roots.iter().copied());
-        roots.extend(self.catch_tags.iter().copied());
-        roots.extend(self.recent_input_events.iter().copied());
-        roots.extend(self.read_command_keys.iter().copied());
-        for scope in self.dynamic.iter() {
-            roots.extend(scope.values().copied());
-        }
-        // Root old_value entries on the specpdl so GC doesn't collect them.
-        for entry in self.specpdl.iter() {
-            match entry {
-                SpecBinding::Let {
-                    old_value: Some(val),
-                    ..
-                } => roots.push(*val),
-                SpecBinding::LetLocal { old_value, .. } => roots.push(*old_value),
-                SpecBinding::LetDefault {
-                    old_value: Some(val),
-                    ..
-                } => roots.push(*val),
-                _ => {}
-            }
-        }
-        roots.push(*self.lexenv);
-        for saved_env in self.saved_lexenvs.iter() {
-            roots.push(*saved_env);
-        }
-
-        roots.extend(self.literal_cache.values().copied());
-        for (expr, _fingerprint) in self.macro_expansion_cache.values() {
-            expr.collect_opaque_values(&mut roots);
-        }
-        if let Some(filter_fn) = *self.interpreted_closure_filter_fn {
-            roots.push(filter_fn);
-        }
-        for entries in self.interpreted_closure_trim_cache.values() {
-            for entry in entries {
-                for expr in entry.trimmed_body.iter() {
-                    expr.collect_opaque_values(&mut roots);
-                }
-            }
-        }
-
-        for cache in self.named_call_cache.iter() {
-            if let NamedCallTarget::Obarray(val) = &cache.target {
-                roots.push(*val);
-            }
-        }
-        collect_thread_local_gc_roots(&mut roots);
-
-        if !self.current_local_map.is_nil() {
-            roots.push(*self.current_local_map);
-        }
-
-        self.obarray.trace_roots(&mut roots);
-        self.processes.trace_roots(&mut roots);
-        self.timers.trace_roots(&mut roots);
-        self.watchers.trace_roots(&mut roots);
-        self.registers.trace_roots(&mut roots);
-        self.custom.trace_roots(&mut roots);
-        self.autoloads.trace_roots(&mut roots);
-        self.buffers.trace_roots(&mut roots);
-        self.threads.trace_roots(&mut roots);
-        self.kmacro.trace_roots(&mut roots);
-        self.modes.trace_roots(&mut roots);
-        self.frames.trace_roots(&mut roots);
-        self.coding_systems.trace_roots(&mut roots);
-
-        roots
-    }
-
-    #[tracing::instrument(level = "debug", skip(self))]
-    pub(crate) fn gc_collect(&mut self) {
-        let roots = self.collect_roots();
-        self.heap.collect(roots.into_iter());
-        *self.gc_pending = false;
-        *self.gc_count += 1;
-    }
-
-    pub(crate) fn gc_safe_point(&mut self) {
-        if *self.gc_stress {
-            if *self.gc_pending || self.heap.should_collect() || *self.gc_stress {
-                self.gc_collect();
-            }
-            return;
-        }
-
-        if self.heap.is_marking() {
-            let done = self.heap.mark_some(Evaluator::MARK_WORK_LIMIT);
-            if done {
-                let roots = self.collect_roots();
-                self.heap.rescan_roots(roots.into_iter());
-                self.heap.finish_collection();
-                *self.gc_count += 1;
-            }
-        } else if *self.gc_pending || self.heap.should_collect() {
-            let roots = self.collect_roots();
-            self.heap.begin_marking(roots.into_iter());
-            *self.gc_pending = false;
-            let done = self.heap.mark_some(Evaluator::MARK_WORK_LIMIT);
-            if done {
-                self.heap.finish_collection();
-                *self.gc_count += 1;
-            }
-        }
-    }
-
-    pub(crate) fn display_host_mut(&mut self) -> &mut Option<Box<dyn DisplayHost>> {
-        self.display_host
-    }
-
-    pub(crate) fn gui_frame_creation_state(
-        &mut self,
-    ) -> (
-        &mut FrameManager,
-        &mut BufferManager,
-        &mut Option<Box<dyn DisplayHost>>,
-    ) {
-        let Self {
-            frames,
-            buffers,
-            display_host,
-            ..
-        } = self;
-        (frames, buffers, display_host)
-    }
-
-    pub(crate) fn printer_runtime_state(
-        &mut self,
-    ) -> (
-        &mut Obarray,
-        &mut Vec<OrderedRuntimeBindingMap>,
-        &mut BufferManager,
-        &mut FrameManager,
-        &mut ThreadManager,
-        &mut Option<String>,
-    ) {
-        let Self {
-            obarray,
-            dynamic,
-            buffers,
-            frames,
-            threads,
-            current_message,
-            ..
-        } = self;
-        (obarray, dynamic, buffers, frames, threads, current_message)
-    }
-
-    pub(crate) fn from_evaluator(eval: &'a mut Evaluator) -> Self {
-        let parent_eval = std::ptr::NonNull::from(&mut *eval);
-        Self::new(
-            &mut eval.obarray,
-            &mut eval.dynamic,
-            &mut eval.specpdl,
-            &mut eval.lexenv,
-            &mut eval.features,
-            &mut eval.require_stack,
-            &mut eval.loads_in_progress,
-            &mut eval.buffers,
-            &mut eval.match_data,
-            &mut eval.processes,
-            &mut eval.timers,
-            &mut eval.watchers,
-            &mut eval.standard_syntax_table,
-            &mut eval.current_local_map,
-            &mut eval.registers,
-            &mut eval.bookmarks,
-            &mut eval.abbrevs,
-            &mut eval.autoloads,
-            &mut eval.custom,
-            &mut eval.rectangle,
-            &mut eval.interactive,
-            &mut eval.minibuffers,
-            &mut eval.recent_input_events,
-            &mut eval.read_command_keys,
-            &mut eval.current_message,
-            &mut eval.minibuffer_selected_window,
-            &mut eval.active_minibuffer_window,
-            &mut eval.shutdown_request,
-            &mut eval.input_mode_interrupt,
-            &mut eval.waiting_for_user_input,
-            &mut eval.frames,
-            &mut eval.modes,
-            &mut eval.threads,
-            &mut eval.category_manager,
-            &mut eval.kmacro,
-            &mut eval.command_loop,
-            &mut eval.input_rx,
-            &mut eval.pending_input_events,
-            #[cfg(unix)]
-            &mut eval.wakeup_fd,
-            &mut eval.redisplay_fn,
-            &mut eval.display_host,
-            eval.heap.as_mut(),
-            &mut eval.coding_systems,
-            &mut eval.face_table,
-            &mut eval.depth,
-            &mut eval.max_depth,
-            &mut eval.gc_pending,
-            &mut eval.gc_count,
-            &mut eval.gc_stress,
-            &mut eval.temp_roots,
-            &mut eval.vm_gc_roots,
-            &mut eval.catch_tags,
-            &mut eval.saved_lexenvs,
-            &mut eval.named_call_cache,
-            &mut eval.pcase_macroexpand_temp_counter,
-            &mut eval.literal_cache,
-            &mut eval.macro_expansion_cache,
-            &mut eval.macro_cache_hits,
-            &mut eval.macro_cache_misses,
-            &mut eval.macro_expand_total_us,
-            &mut eval.macro_cache_disabled,
-            &mut eval.interpreted_closure_filter_fn,
-            &mut eval.interpreted_closure_trim_cache,
-            parent_eval,
-        )
-    }
-
-    pub(crate) fn kmacro_mut(&mut self) -> &mut KmacroManager {
-        self.kmacro
-    }
-
-    pub(crate) fn sync_pending_resize_events(&mut self) -> bool {
-        let applied_resize = sync_pending_resize_events_in_runtime(
-            self.frames,
-            self.pending_input_events,
-            self.input_rx,
-            self.command_loop,
-        );
-        sync_opening_gui_frame_size_from_host_in_runtime(self.frames, self.display_host.as_deref());
-        applied_resize
-    }
-
-    pub(crate) fn begin_lambda_call(
-        &mut self,
-        lambda: &LambdaData,
-        args: &[Value],
-        func_value: Value,
-    ) -> Result<ActiveLambdaCallState, Flow> {
-        begin_lambda_call_in_state(
-            self.obarray,
-            self.dynamic,
-            self.specpdl,
-            self.lexenv,
-            self.saved_lexenvs,
-            self.temp_roots,
-            lambda,
-            args,
-            func_value,
-        )
-    }
-
-    pub(crate) fn finish_lambda_call(&mut self, state: ActiveLambdaCallState) {
-        finish_lambda_call_in_state(
-            self.obarray,
-            self.dynamic,
-            self.specpdl,
-            self.lexenv,
-            self.saved_lexenvs,
-            self.temp_roots,
-            state,
-        );
-    }
-
-    pub(crate) fn begin_macro_expansion_scope(&mut self) -> ActiveMacroExpansionScopeState {
-        begin_macro_expansion_scope_in_state(
-            self.obarray,
-            self.dynamic,
-            self.specpdl,
-            self.buffers,
-            &*self.custom,
-            *self.lexenv,
-            self.temp_roots,
-        )
-    }
-
-    pub(crate) fn finish_macro_expansion_scope(&mut self, state: ActiveMacroExpansionScopeState) {
-        finish_macro_expansion_scope_in_state(
-            self.obarray,
-            self.dynamic,
-            &self.specpdl,
-            self.buffers,
-            &*self.custom,
-            self.temp_roots,
-            state,
-        );
-    }
-
-    pub(crate) fn with_parent_evaluator<T>(&mut self, f: impl FnOnce(&mut Evaluator) -> T) -> T {
-        // Safety: `parent_eval` points at the evaluator that created this
-        // shared state and stays alive for the entire VM lifetime. VM/evaluator
-        // crossings are serialized through `&mut self`, so no shared-state
-        // field is accessed while the parent evaluator callback is active.
-        unsafe { f(self.parent_eval.as_mut()) }
-    }
-
-    pub(crate) fn with_parent_evaluator_vm_roots<T>(
-        &mut self,
-        vm_gc_roots: &[Value],
-        extra_roots: &[Value],
-        f: impl FnOnce(&mut Evaluator) -> T,
-    ) -> T {
-        // Safety: `parent_eval` points at the evaluator that owns this shared
-        // VM runtime and outlives the callback. Callers are serialized through
-        // `&mut self`, so no shared-state field is accessed while the parent
-        // evaluator callback is active.
-        unsafe {
-            let eval = self.parent_eval.as_mut();
-            let saved_temp_roots = eval.save_temp_roots();
-            for root in vm_gc_roots {
-                eval.push_temp_root(*root);
-            }
-            for root in extra_roots {
-                eval.push_temp_root(*root);
-            }
-            let result = f(eval);
-            eval.restore_temp_roots(saved_temp_roots);
-            result
-        }
-    }
-
-    pub(crate) fn has_input_receiver(&self) -> bool {
-        self.input_rx.is_some()
-    }
-
-    pub(crate) fn record_input_event(&mut self, event: Value) {
-        set_runtime_binding_in_state(
-            self.obarray,
-            self.dynamic.as_mut_slice(),
-            self.buffers,
-            &*self.custom,
-            &self.specpdl,
-            intern("last-input-event"),
-            event,
-        );
-        self.recent_input_events.push(event);
-        if self.recent_input_events.len() > RECENT_INPUT_EVENT_LIMIT {
-            self.recent_input_events.remove(0);
-        }
-    }
-
-    pub(crate) fn record_nonmenu_input_event(&mut self, event: Value) {
-        set_runtime_binding_in_state(
-            self.obarray,
-            self.dynamic.as_mut_slice(),
-            self.buffers,
-            &*self.custom,
-            &self.specpdl,
-            intern("last-nonmenu-event"),
-            event,
-        );
-    }
-
-    pub(crate) fn set_read_command_keys(&mut self, keys: Vec<Value>) {
-        *self.read_command_keys = keys;
-    }
-
-    pub(crate) fn clear_read_command_keys(&mut self) {
-        self.read_command_keys.clear();
-    }
-
-    pub(crate) fn clear_command_key_state(&mut self, keep_record: bool) {
-        self.clear_read_command_keys();
-        self.interactive.set_this_command_keys(Vec::new());
-        if !keep_record {
-            self.recent_input_events.clear();
-        }
-    }
-
-    pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {
-        let name_id = intern("unread-command-events");
-        let current = self
-            .obarray
-            .symbol_value("unread-command-events")
-            .copied()
-            .unwrap_or(Value::Nil);
-        match current {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                let head = pair.car;
-                let tail = pair.cdr;
-                drop(pair);
-                set_runtime_binding_in_state(
-                    self.obarray,
-                    self.dynamic.as_mut_slice(),
-                    self.buffers,
-                    &*self.custom,
-                    &self.specpdl,
-                    name_id,
-                    tail,
-                );
-                self.record_input_event(head);
-                Some(head)
-            }
-            _ => None,
-        }
-    }
-
-    pub(crate) fn peek_unread_command_event(&self) -> Option<Value> {
-        let current = self
-            .obarray
-            .symbol_value("unread-command-events")
-            .copied()
-            .unwrap_or(Value::Nil);
-        match current {
-            Value::Cons(cell) => Some(read_cons(cell).car),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn push_unread_command_event(&mut self, event: Value) {
-        let name_id = intern("unread-command-events");
-        let current = self
-            .obarray
-            .symbol_value("unread-command-events")
-            .copied()
-            .unwrap_or(Value::Nil);
-        set_runtime_binding_in_state(
-            self.obarray,
-            self.dynamic.as_mut_slice(),
-            self.buffers,
-            &*self.custom,
-            &self.specpdl,
-            name_id,
-            Value::cons(event, current),
-        );
-    }
-
-    pub(crate) fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
-        set_runtime_binding_in_state(
-            self.obarray,
-            self.dynamic.as_mut_slice(),
-            self.buffers,
-            &*self.custom,
-            &self.specpdl,
-            intern("unread-command-events"),
-            Value::list(vec![event]),
-        );
     }
 }
 
@@ -1231,14 +537,16 @@ pub trait DisplayHost {
 ///
 /// # Safety: Send
 /// Evaluator is inherently single-threaded (uses thread-local heap + interner).
-/// `neovm-worker` moves the Evaluator to a worker thread inside
+/// # Safety: Send
+/// Context is inherently single-threaded (uses thread-local heap + interner).
+/// `neovm-worker` moves the Context to a worker thread inside
 /// `Arc<Mutex<..>>`, which ensures exclusive access.
 // SAFETY: Rc is !Send only because it uses non-atomic refcounting.
-// Since Evaluator is always used single-threaded (guarded by Mutex when
+// Since Context is always used single-threaded (guarded by Mutex when
 // transferred between threads), this is safe.
-unsafe impl Send for Evaluator {}
+unsafe impl Send for Context {}
 
-pub struct Evaluator {
+pub struct Context {
     /// String interner for symbol/keyword/subr names (SymId handles).
     pub(crate) interner: Box<StringInterner>,
     /// GC-managed heap for cycle-forming Lisp objects (cons, vector, hash-table).
@@ -1295,7 +603,7 @@ pub struct Evaluator {
     /// Minibuffer runtime state — active minibuffer stack, prompt metadata, and history.
     pub(crate) minibuffers: MinibufferManager,
     /// Input events consumed by read* APIs, used by `recent-keys`.
-    recent_input_events: Vec<Value>,
+    pub(crate) recent_input_events: Vec<Value>,
     /// Last key sequence captured by read-key/read-key-sequence/read-event paths.
     read_command_keys: Vec<Value>,
     /// Current echo-area message text, mirroring GNU `current-message`.
@@ -1308,9 +616,9 @@ pub struct Evaluator {
     /// `kill-emacs`.
     pub(crate) shutdown_request: Option<ShutdownRequest>,
     /// Batch-compatible input-mode interrupt flag for `current-input-mode`.
-    input_mode_interrupt: bool,
+    pub(crate) input_mode_interrupt: bool,
     /// True while the command loop is blocked waiting for external input.
-    waiting_for_user_input: bool,
+    pub(crate) waiting_for_user_input: bool,
     /// GNU-style idle timer epoch: when Emacs most recently became idle.
     idle_start_time: Option<std::time::Instant>,
     /// Last idle epoch preserved across non-user internal events.
@@ -1522,14 +830,14 @@ pub(crate) fn finish_require_in_state(features: &[SymId], sym_id: SymId, name: &
 }
 
 pub(crate) fn builtin_require_in_vm_runtime(
-    shared: &mut VmSharedState<'_>,
+    shared: &mut Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     match plan_require_in_state(
-        &*shared.obarray,
-        shared.features,
-        &*shared.require_stack,
+        &shared.obarray,
+        &mut shared.features,
+        &shared.require_stack,
         args.first().copied().unwrap_or(Value::Nil),
         args.get(1).copied(),
         args.get(2).copied(),
@@ -1544,8 +852,8 @@ pub(crate) fn builtin_require_in_vm_runtime(
                 });
             let _ = shared.require_stack.pop();
             result?;
-            refresh_features_from_variable_in_state(&*shared.obarray, shared.features);
-            finish_require_in_state(&*shared.features, sym_id, &name)
+            refresh_features_from_variable_in_state(&shared.obarray, &mut shared.features);
+            finish_require_in_state(&shared.features, sym_id, &name)
         }
     }
 }
@@ -1553,7 +861,7 @@ pub(crate) fn builtin_require_in_vm_runtime(
 /// VM-side `provide` that delegates to the parent evaluator so that
 /// `after-load-alist` callbacks are executed (matching GNU's Fprovide).
 pub(crate) fn builtin_provide_in_vm_runtime(
-    shared: &mut VmSharedState<'_>,
+    shared: &mut Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -1642,7 +950,7 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
 }
 
 pub(crate) fn builtin_eval_in_vm_runtime(
-    shared: &mut VmSharedState<'_>,
+    shared: &mut Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -1663,7 +971,7 @@ pub(crate) fn builtin_eval_in_vm_runtime(
 }
 
 pub(crate) fn eval_lambda_body_in_vm_runtime(
-    shared: &mut VmSharedState<'_>,
+    shared: &mut Context,
     vm_gc_roots: &[Value],
     extra_roots: &[Value],
     body: Rc<Vec<Expr>>,
@@ -2098,13 +1406,13 @@ fn sync_opening_gui_frame_size_from_host_in_runtime(
     frame.resize_pixelwise(size.width, size.height);
 }
 
-impl Default for Evaluator {
+impl Default for Context {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Drop for Evaluator {
+impl Drop for Context {
     fn drop(&mut self) {
         if std::ptr::eq(current_interner_ptr(), &mut *self.interner) {
             clear_current_interner();
@@ -2115,7 +1423,7 @@ impl Drop for Evaluator {
     }
 }
 
-impl Evaluator {
+impl Context {
     pub fn new() -> Self {
         Self::new_inner(true)
     }
@@ -2197,7 +1505,7 @@ impl Evaluator {
         set_current_heap(&mut heap);
 
         // Clear any caches that hold heap-allocated Values (ObjIds) from a
-        // previous heap. Critical for test isolation when multiple Evaluators
+        // previous heap. Critical for test isolation when multiple Contexts
         // are created sequentially on the same thread.
         if reset_thread_locals {
             super::syntax::reset_syntax_thread_locals();
@@ -2205,7 +1513,7 @@ impl Evaluator {
             super::category::reset_category_thread_locals();
             // Only reset the terminal handle (stale ObjId), not
             // the full terminal runtime/params which may be pre-
-            // configured by tests before Evaluator creation.
+            // configured by tests before Context creation.
             super::terminal::pure::reset_terminal_handle();
             super::value::reset_string_text_properties();
             super::ccl::reset_ccl_registry();
@@ -3658,7 +2966,7 @@ impl Evaluator {
     // pdump reconstruction
     // -----------------------------------------------------------------------
 
-    /// Reconstruct an Evaluator from pdump data.
+    /// Reconstruct an Context from pdump data.
     ///
     /// Thread-local pointers (CURRENT_INTERNER, CURRENT_HEAP) and caches
     /// must already be set by the caller before calling this.
@@ -3774,7 +3082,7 @@ impl Evaluator {
     fn collect_roots(&self) -> Vec<Value> {
         let mut roots = Vec::new();
 
-        // Direct Evaluator fields
+        // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
         roots.extend(self.catch_tags.iter().cloned());
@@ -3871,7 +3179,7 @@ impl Evaluator {
 
     /// Set the thread-local interner and heap pointers for the current thread.
     ///
-    /// Must be called when using an Evaluator from a thread other than the one
+    /// Must be called when using an Context from a thread other than the one
     /// that created it (e.g., in worker thread pools).
     pub fn setup_thread_locals(&mut self) {
         set_current_interner(&mut self.interner);
@@ -5405,7 +4713,7 @@ impl Evaluator {
         })
     }
 
-    fn begin_lambda_call(
+    pub(crate) fn begin_lambda_call(
         &mut self,
         lambda: &LambdaData,
         args: &[Value],
@@ -5424,7 +4732,7 @@ impl Evaluator {
         )
     }
 
-    fn finish_lambda_call(&mut self, state: ActiveLambdaCallState) {
+    pub(crate) fn finish_lambda_call(&mut self, state: ActiveLambdaCallState) {
         finish_lambda_call_in_state(
             &mut self.obarray,
             &mut self.dynamic,
@@ -6419,7 +5727,7 @@ impl Evaluator {
             "save-restriction" => self.sf_save_restriction(tail),
             // ---- GNU Emacs C special form stub (callint.c) ----
             "interactive" => Ok(Value::Nil),
-            // ---- Evaluator-internal (not a special form in GNU) ----
+            // ---- Context-internal (not a special form in GNU) ----
             "lambda" => self.eval_lambda(tail),
             "declare" => Ok(Value::Nil),
             // ---- NeoVM-specific ----
@@ -7374,7 +6682,7 @@ impl Evaluator {
 
         // Execute via VM
         self.refresh_features_from_variable();
-        let mut vm = super::bytecode::Vm::from_evaluator(self);
+        let mut vm = super::bytecode::Vm::from_context(self);
         let exec_start = trace_toplevel_bytecode.then(std::time::Instant::now);
         let result = vm.execute(&bc, vec![]);
         if let Some(start) = exec_start {
@@ -7878,7 +7186,7 @@ impl Evaluator {
                 self.refresh_features_from_variable();
                 let func_val = Value::ByteCode(bc);
                 let bc_data = self.heap.get_bytecode(bc).clone();
-                let mut vm = super::bytecode::Vm::from_evaluator(self);
+                let mut vm = super::bytecode::Vm::from_context(self);
                 let result = vm.execute_with_func_value(&bc_data, args, func_val);
                 self.sync_features_variable();
                 result
@@ -8032,7 +7340,7 @@ impl Evaluator {
                 // callable, not an obarray indirection cycle.
                 Value::Subr(bound_name) if resolve_sym(*bound_name) == name => {
                     if super::subr_info::is_evaluator_callable_name(name) {
-                        NamedCallTarget::EvaluatorCallable
+                        NamedCallTarget::ContextCallable
                     } else if super::subr_info::is_special_form(name) {
                         NamedCallTarget::SpecialForm
                     } else {
@@ -8044,7 +7352,7 @@ impl Evaluator {
         } else if self.obarray.is_function_unbound_id(sym_id) {
             NamedCallTarget::Void
         } else if super::subr_info::is_evaluator_callable_name(name) {
-            NamedCallTarget::EvaluatorCallable
+            NamedCallTarget::ContextCallable
         } else if super::subr_info::is_special_form(name) {
             NamedCallTarget::SpecialForm
         } else if super::builtin_registry::is_dispatch_builtin_name(name)
@@ -8169,7 +7477,7 @@ impl Evaluator {
                     result
                 }
             }
-            NamedCallTarget::EvaluatorCallable => self.apply_evaluator_callable(name, args),
+            NamedCallTarget::ContextCallable => self.apply_evaluator_callable(name, args),
             NamedCallTarget::Probe => {
                 if let Some(result) = builtins::dispatch_builtin(self, name, args) {
                     self.store_named_call_cache(sym_id, NamedCallTarget::Builtin);
@@ -8247,7 +7555,7 @@ impl Evaluator {
                     result
                 }
             }
-            NamedCallTarget::EvaluatorCallable => self.apply_evaluator_callable(name, args),
+            NamedCallTarget::ContextCallable => self.apply_evaluator_callable(name, args),
             NamedCallTarget::Probe => {
                 if let Some(result) = builtins::dispatch_builtin(self, name, args) {
                     self.store_named_call_cache(intern(name), NamedCallTarget::Builtin);
@@ -8751,7 +8059,122 @@ pub(crate) fn makunbound_runtime_binding_in_state(
     obarray.makunbound_id(sym_id);
 }
 
-impl Evaluator {
+impl Context {
+    // -----------------------------------------------------------------------
+    // Methods previously on VmSharedState, now on Context directly
+    // -----------------------------------------------------------------------
+
+    /// `with_parent_evaluator` is no longer needed — the caller already has
+    /// `&mut Context`. This shim exists to minimize churn during the refactor;
+    /// callers can simply use `self` directly and this wrapper can be removed.
+    pub(crate) fn with_parent_evaluator<T>(&mut self, f: impl FnOnce(&mut Context) -> T) -> T {
+        f(self)
+    }
+
+    /// Same as `with_parent_evaluator` but also roots VM GC values.
+    pub(crate) fn with_parent_evaluator_vm_roots<T>(
+        &mut self,
+        vm_gc_roots: &[Value],
+        extra_roots: &[Value],
+        f: impl FnOnce(&mut Context) -> T,
+    ) -> T {
+        let saved_temp_roots = self.save_temp_roots();
+        for root in vm_gc_roots {
+            self.push_temp_root(*root);
+        }
+        for root in extra_roots {
+            self.push_temp_root(*root);
+        }
+        let result = f(self);
+        self.restore_temp_roots(saved_temp_roots);
+        result
+    }
+
+    pub(crate) fn begin_eval_with_lexical_arg(
+        &mut self,
+        lexical_arg: Option<Value>,
+    ) -> Result<ActiveEvalLexicalArgState, Flow> {
+        begin_eval_with_lexical_arg_in_state(
+            &mut self.obarray,
+            &mut self.lexenv,
+            &mut self.saved_lexenvs,
+            lexical_arg,
+        )
+    }
+
+    pub(crate) fn finish_eval_with_lexical_arg(&mut self, state: ActiveEvalLexicalArgState) {
+        finish_eval_with_lexical_arg_in_state(
+            &mut self.obarray,
+            &mut self.lexenv,
+            &mut self.saved_lexenvs,
+            state,
+        );
+    }
+
+    pub(crate) fn begin_macro_expansion_scope(&mut self) -> ActiveMacroExpansionScopeState {
+        begin_macro_expansion_scope_in_state(
+            &mut self.obarray,
+            &mut self.dynamic,
+            &self.specpdl,
+            &mut self.buffers,
+            &self.custom,
+            self.lexenv,
+            &mut self.temp_roots,
+        )
+    }
+
+    pub(crate) fn finish_macro_expansion_scope(&mut self, state: ActiveMacroExpansionScopeState) {
+        finish_macro_expansion_scope_in_state(
+            &mut self.obarray,
+            &mut self.dynamic,
+            &self.specpdl,
+            &mut self.buffers,
+            &self.custom,
+            &mut self.temp_roots,
+            state,
+        );
+    }
+
+    pub(crate) fn kmacro_mut(&mut self) -> &mut KmacroManager {
+        &mut self.kmacro
+    }
+
+    pub(crate) fn printer_runtime_state(
+        &mut self,
+    ) -> (
+        &mut Obarray,
+        &mut Vec<OrderedRuntimeBindingMap>,
+        &mut BufferManager,
+        &mut FrameManager,
+        &mut ThreadManager,
+        &mut Option<String>,
+    ) {
+        (
+            &mut self.obarray,
+            &mut self.dynamic,
+            &mut self.buffers,
+            &mut self.frames,
+            &mut self.threads,
+            &mut self.current_message,
+        )
+    }
+
+    pub(crate) fn gui_frame_creation_state(
+        &mut self,
+    ) -> (
+        &mut FrameManager,
+        &mut BufferManager,
+        &mut Option<Box<dyn DisplayHost>>,
+    ) {
+        (&mut self.frames, &mut self.buffers, &mut self.display_host)
+    }
+
+    pub(crate) fn recursive_command_loop_depth(&self) -> usize {
+        self.command_loop.recursive_depth
+    }
+
+    // -----------------------------------------------------------------------
+
     /// Assign a value to a variable identified by SymId.
     /// Uses the SymId directly for lexenv/dynamic lookup, preserving
     /// uninterned symbol identity (like Emacs's EQ-based setq).

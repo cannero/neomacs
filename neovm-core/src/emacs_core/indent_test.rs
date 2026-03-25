@@ -1,4 +1,4 @@
-use super::super::eval::Evaluator;
+use super::super::eval::Context;
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use std::fs;
@@ -14,7 +14,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
-fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU simple.el marker: {marker}"));
@@ -29,7 +29,7 @@ fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str
 
 /// Install minimal `defun`/`defmacro`/`when`/`unless` shims so a bare
 /// evaluator can evaluate forms extracted from GNU `.el` source files.
-fn install_bare_elisp_shims(ev: &mut Evaluator) {
+fn install_bare_elisp_shims(ev: &mut Context) {
     let shims = r#"
 (defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
   (list 'defalias (list 'quote name) (cons 'function (list (cons 'lambda (cons arglist body))))))))
@@ -47,20 +47,20 @@ fn install_bare_elisp_shims(ev: &mut Evaluator) {
     }
 }
 
-fn gnu_simple_indent_eval() -> Evaluator {
+fn gnu_simple_indent_eval() -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let simple_path = project_root.join("lisp/simple.el");
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun back-to-indentation ()");
     ev
 }
 
-fn gnu_indent_el_eval() -> Evaluator {
+fn gnu_indent_el_eval() -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let indent_path = project_root.join("lisp/indent.el");
@@ -72,7 +72,7 @@ fn gnu_indent_el_eval() -> Evaluator {
     let syntax_path = project_root.join("lisp/emacs-lisp/syntax.el");
     let syntax_source = fs::read_to_string(&syntax_path).expect("read GNU syntax.el");
 
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
     let progress_stub_forms = super::super::parser::parse_forms(
@@ -160,7 +160,7 @@ fn gnu_indent_el_eval() -> Evaluator {
     ev
 }
 
-fn eval_all(ev: &mut Evaluator, src: &str) -> Vec<String> {
+fn eval_all(ev: &mut Context, src: &str) -> Vec<String> {
     let forms = super::super::parser::parse_forms(src).expect("parse forms");
     ev.eval_forms(&forms)
         .iter()
@@ -170,7 +170,7 @@ fn eval_all(ev: &mut Evaluator, src: &str) -> Vec<String> {
 
 #[test]
 fn eval_column_and_indentation_subset() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"
         (with-temp-buffer
@@ -203,7 +203,7 @@ fn eval_column_and_indentation_subset() {
 
 #[test]
 fn eval_move_to_column_wholenump_validation() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let err = builtin_move_to_column_eval(&mut ev, vec![Value::string("x")]).unwrap_err();
     match err {
         Flow::Signal(sig) => {
@@ -219,7 +219,7 @@ fn eval_move_to_column_wholenump_validation() {
 
 #[test]
 fn eval_move_to_column_force_subset() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"
         (with-temp-buffer
@@ -547,7 +547,7 @@ fn indent_according_to_mode_is_not_dispatch_builtin() {
 
 #[test]
 fn wrong_arg_count_errors() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     // current-indentation takes no args
     assert!(builtin_current_indentation_eval(&mut eval, vec![Value::Int(1)]).is_err());
     // indent-to requires at least 1 arg
@@ -563,7 +563,7 @@ fn wrong_arg_count_errors() {
 
 #[test]
 fn indent_to_rejects_non_integer() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     assert!(builtin_indent_to_eval(&mut eval, vec![Value::string("foo")]).is_err());
 }
 
@@ -609,7 +609,7 @@ fn indent_for_tab_command_inserts_tab() {
 
 #[test]
 fn eval_indent_to_inserts_padding_and_returns_column() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "abcdef")
@@ -633,7 +633,7 @@ fn eval_indent_to_inserts_padding_and_returns_column() {
 
 #[test]
 fn eval_indent_to_rejects_non_fixnump_minimum() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
            (with-temp-buffer (condition-case err (indent-to 4 "x") (error err)))
@@ -656,7 +656,7 @@ fn eval_indent_to_rejects_non_fixnump_minimum() {
 
 #[test]
 fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(let ((tab-width 4))
              (with-temp-buffer
@@ -708,7 +708,7 @@ fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
 
 #[test]
 fn save_restriction_restores_full_buffer_after_widen_insert() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "x")

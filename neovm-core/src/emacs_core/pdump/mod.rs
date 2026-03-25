@@ -1,6 +1,6 @@
 //! Portable dumper (pdump) for NeoVM.
 //!
-//! Serializes the post-bootstrap `Evaluator` state to a binary file using
+//! Serializes the post-bootstrap `Context` state to a binary file using
 //! serde + bincode, then deserializes on startup to skip the 3-5s bootstrap.
 //!
 //! File format:
@@ -9,7 +9,7 @@
 //! [4 bytes: format version u32 LE]
 //! [32 bytes: SHA-256 of bincode payload]
 //! [4 bytes: payload length u32 LE]
-//! [N bytes: bincode-serialized DumpEvaluatorState]
+//! [N bytes: bincode-serialized DumpContextState]
 //! ```
 
 pub mod convert;
@@ -21,8 +21,8 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 use self::convert::*;
-use self::types::DumpEvaluatorState;
-use crate::emacs_core::eval::Evaluator;
+use self::types::DumpContextState;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::intern::{self, set_current_interner};
 use crate::emacs_core::value::{self, set_current_heap};
 
@@ -62,7 +62,7 @@ impl From<std::io::Error> for DumpError {
 }
 
 /// Serialize the evaluator state to a pdump file.
-pub fn dump_to_file(eval: &Evaluator, path: &Path) -> Result<(), DumpError> {
+pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let state = dump_evaluator(eval);
 
     let payload =
@@ -96,9 +96,9 @@ pub fn dump_to_file(eval: &Evaluator, path: &Path) -> Result<(), DumpError> {
 
 /// Load evaluator state from a pdump file.
 ///
-/// This reconstructs a full `Evaluator` from the serialized state,
+/// This reconstructs a full `Context` from the serialized state,
 /// setting up thread-local pointers and resetting caches.
-pub fn load_from_dump(path: &Path) -> Result<Evaluator, DumpError> {
+pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let mut file = std::fs::File::open(path)?;
 
     // Read and validate header
@@ -134,7 +134,7 @@ pub fn load_from_dump(path: &Path) -> Result<Evaluator, DumpError> {
     }
 
     // Deserialize
-    let state: types::DumpEvaluatorState = bincode::deserialize(&payload)
+    let state: types::DumpContextState = bincode::deserialize(&payload)
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
     // Reconstruct evaluator
@@ -146,13 +146,13 @@ pub fn load_from_dump(path: &Path) -> Result<Evaluator, DumpError> {
 /// This gives bootstrap/load code an isolated working evaluator with the same
 /// logical runtime state, without sharing heap objects that can be mutated
 /// during eager macroexpansion.
-pub(crate) fn clone_evaluator(eval: &Evaluator) -> Result<Evaluator, DumpError> {
+pub(crate) fn clone_evaluator(eval: &Context) -> Result<Context, DumpError> {
     let state = dump_evaluator(eval);
     reconstruct_evaluator(state)
 }
 
-/// Reconstruct an `Evaluator` from deserialized dump state.
-fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpError> {
+/// Reconstruct an `Context` from deserialized dump state.
+fn reconstruct_evaluator(state: DumpContextState) -> Result<Context, DumpError> {
     // 1. Reconstruct interner and set thread-local
     let mut interner = Box::new(load_interner(&state.interner));
     set_current_interner(&mut interner);
@@ -164,7 +164,7 @@ fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpErr
     // 2b. Phase 2: populate hash table entries (requires CURRENT_HEAP for HashKey::Str hashing)
     load_heap_hash_tables(&mut heap, &state.heap);
 
-    // 3. Reset thread-local caches (same as Evaluator::new())
+    // 3. Reset thread-local caches (same as Context::new())
     super::syntax::reset_syntax_thread_locals();
     super::casetab::reset_casetab_thread_locals();
     super::category::reset_category_thread_locals();
@@ -224,7 +224,7 @@ fn reconstruct_evaluator(state: DumpEvaluatorState) -> Result<Evaluator, DumpErr
         .map(|id| intern::SymId(*id))
         .collect();
 
-    let eval = Evaluator::from_dump(
+    let eval = Context::from_dump(
         interner,
         heap,
         obarray,
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn test_pdump_round_trip_basic() {
         // Create a minimal evaluator
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
 
         // Set a symbol value to verify round-trip
         eval.obarray
@@ -493,7 +493,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dump_path = dir.path().join("test.pdump");
 
-        let eval = Evaluator::new();
+        let eval = Context::new();
         dump_to_file(&eval, &dump_path).expect("dump should succeed");
 
         // Corrupt a byte in the payload

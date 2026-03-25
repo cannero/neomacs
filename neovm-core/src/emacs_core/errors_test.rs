@@ -276,12 +276,12 @@ fn obarray_unknown_signal_no_conditions() {
 }
 
 // =======================================================================
-// sf_define_error tests (via Evaluator)
+// sf_define_error tests (via Context)
 // =======================================================================
 
 #[test]
 fn sf_define_error_basic() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     // (define-error 'my-error "My error")
@@ -313,7 +313,7 @@ fn sf_define_error_basic() {
 
 #[test]
 fn sf_define_error_with_parent() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     // (define-error 'my-file-error "My file error" 'file-error)
@@ -345,7 +345,7 @@ fn sf_define_error_with_parent() {
 
 #[test]
 fn sf_define_error_with_parent_list() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     // (define-error 'multi-error "Multi" '(file-error arith-error))
@@ -385,7 +385,7 @@ fn sf_define_error_with_parent_list() {
 
 #[test]
 fn sf_define_error_wrong_type_name() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     // (define-error 42 "Bad") — name is not a symbol.
@@ -396,7 +396,7 @@ fn sf_define_error_wrong_type_name() {
 
 #[test]
 fn sf_define_error_wrong_type_message() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     // (define-error 'foo 42) — message is not a string.
@@ -413,7 +413,7 @@ fn sf_define_error_wrong_type_message() {
 
 #[test]
 fn sf_define_error_too_many_args() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
 
     let tail = vec![
         Expr::List(vec![
@@ -477,7 +477,7 @@ fn builtin_signal_non_symbol() {
 
 #[test]
 fn builtin_error_message_string_basic() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     // (error-message-string '(void-variable x))
@@ -493,7 +493,7 @@ fn builtin_error_message_string_basic() {
 
 #[test]
 fn builtin_error_message_string_no_data() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     // (error-message-string '(arith-error))
@@ -506,7 +506,7 @@ fn builtin_error_message_string_no_data() {
 
 #[test]
 fn builtin_error_message_string_void_function_typography() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let err_data = Value::list(vec![Value::symbol("void-function"), Value::symbol("x")]);
@@ -521,7 +521,7 @@ fn builtin_error_message_string_void_function_typography() {
 
 #[test]
 fn builtin_error_message_string_unknown() {
-    let evaluator = super::super::eval::Evaluator::new();
+    let evaluator = super::super::eval::Context::new();
 
     // Unknown condition symbols are treated as peculiar errors.
     let err_data = Value::list(vec![Value::symbol("mystery-error")]);
@@ -546,7 +546,7 @@ fn builtin_error_message_string_unknown() {
 
 #[test]
 fn builtin_error_message_string_no_payload_specials() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let error_no_payload = Value::list(vec![Value::symbol("error")]);
@@ -562,7 +562,7 @@ fn builtin_error_message_string_no_payload_specials() {
 
 #[test]
 fn builtin_error_message_string_error_with_string_payload() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let err_data = Value::list(vec![Value::symbol("error"), Value::string("abc")]);
@@ -574,7 +574,7 @@ fn builtin_error_message_string_error_with_string_payload() {
 
 #[test]
 fn builtin_error_message_string_error_with_string_and_extra() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let err_data = Value::list(vec![
@@ -590,7 +590,7 @@ fn builtin_error_message_string_error_with_string_and_extra() {
 
 #[test]
 fn builtin_error_message_string_user_error_variants() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let with_string = Value::list(vec![
@@ -614,7 +614,7 @@ fn builtin_error_message_string_user_error_variants() {
 
 #[test]
 fn builtin_error_message_string_file_error_string_payload() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let err_data = Value::list(vec![
@@ -630,7 +630,7 @@ fn builtin_error_message_string_file_error_string_payload() {
 
 #[test]
 fn builtin_error_message_string_file_missing_string_payload() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let err_data = Value::list(vec![
@@ -650,7 +650,7 @@ fn builtin_error_message_string_file_missing_string_payload() {
 
 #[test]
 fn builtin_error_message_string_peculiar_error_paths() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let error_single = Value::list(vec![Value::symbol("error"), Value::Int(1)]);
@@ -743,7 +743,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
 
 #[test]
 fn builtin_error_message_string_end_of_file_does_not_quote_string_payload() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let err_data = Value::list(vec![
@@ -760,7 +760,7 @@ fn builtin_error_message_string_end_of_file_does_not_quote_string_payload() {
 
 #[test]
 fn builtin_error_message_string_args_out_of_range_uses_base_message() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let err_data = Value::list(vec![
@@ -778,7 +778,7 @@ fn builtin_error_message_string_args_out_of_range_uses_base_message() {
 
 #[test]
 fn builtin_error_message_string_formats_buffer_handles_with_names() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let live_id = evaluator.buffers.create_buffer("*ems-live*");
@@ -811,7 +811,7 @@ fn builtin_error_message_string_formats_buffer_handles_with_names() {
 
 #[test]
 fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let mutex =
@@ -857,7 +857,7 @@ fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
 
 #[test]
 fn builtin_error_message_string_formats_thread_handles() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let thread = super::super::threads::builtin_current_thread(&mut evaluator, vec![])
@@ -880,7 +880,7 @@ fn builtin_error_message_string_formats_thread_handles() {
 
 #[test]
 fn builtin_error_message_string_formats_terminal_handles() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let terminals = super::super::terminal::pure::builtin_terminal_list(vec![])
@@ -907,7 +907,7 @@ fn builtin_error_message_string_formats_terminal_handles() {
 
 #[test]
 fn builtin_error_message_string_formats_frame_and_window_handles() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
     let frame = super::super::window_cmds::builtin_selected_frame(&mut evaluator, vec![])
@@ -947,7 +947,7 @@ fn builtin_error_message_string_formats_frame_and_window_handles() {
 
 #[test]
 fn builtin_error_message_string_not_cons() {
-    let evaluator = super::super::eval::Evaluator::new();
+    let evaluator = super::super::eval::Context::new();
 
     // Non-list input signals wrong-type-argument (listp VALUE).
     let result = builtin_error_message_string(&evaluator, vec![Value::Int(42)]);
@@ -963,7 +963,7 @@ fn builtin_error_message_string_not_cons() {
 
 #[test]
 fn builtin_error_message_string_symbol_input_is_wrong_type() {
-    let evaluator = super::super::eval::Evaluator::new();
+    let evaluator = super::super::eval::Context::new();
 
     let result = builtin_error_message_string(&evaluator, vec![Value::symbol("foo")]);
     assert!(result.is_err());
@@ -988,7 +988,7 @@ fn builtin_error_message_string_symbol_input_is_wrong_type() {
 
 #[test]
 fn builtin_error_message_string_wrong_arity() {
-    let evaluator = super::super::eval::Evaluator::new();
+    let evaluator = super::super::eval::Context::new();
     let result = builtin_error_message_string(&evaluator, vec![]);
     assert!(result.is_err());
 }

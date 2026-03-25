@@ -7,14 +7,14 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn eval_one(src: &str) -> String {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     let result = ev.eval_expr(&forms[0]);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -23,7 +23,7 @@ fn eval_all(src: &str) -> Vec<String> {
 }
 
 fn eval_all_with_subr(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     load_minimal_backquote_runtime(&mut ev);
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
@@ -126,7 +126,7 @@ fn eval_with_explicit_lexenv_restores_outer_lexenv() {
     );
 }
 
-fn load_minimal_backquote_runtime(eval: &mut Evaluator) {
+fn load_minimal_backquote_runtime(eval: &mut Context) {
     use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
 
     eval.set_lexical_binding(true);
@@ -153,7 +153,7 @@ fn load_minimal_backquote_runtime(eval: &mut Evaluator) {
 #[test]
 fn evaluator_drop_clears_owned_thread_locals() {
     {
-        let mut ev = Evaluator::new_vm_harness();
+        let mut ev = Context::new_vm_harness();
         assert!(std::ptr::eq(
             crate::emacs_core::intern::current_interner_ptr(),
             &mut *ev.interner,
@@ -171,7 +171,7 @@ fn evaluator_drop_clears_owned_thread_locals() {
 
 #[test]
 fn read_char_applies_resize_event_before_returning_next_keypress() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -201,7 +201,7 @@ fn read_char_applies_resize_event_before_returning_next_keypress() {
 
 #[test]
 fn read_char_triggers_redisplay_after_resize_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -209,7 +209,7 @@ fn read_char_triggers_redisplay_after_resize_event() {
 
     let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
     let redisplay_calls_in_cb = redisplay_calls.clone();
-    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         let frame = ev
             .frames
             .selected_frame()
@@ -240,7 +240,7 @@ fn read_char_triggers_redisplay_after_resize_event() {
 
 #[test]
 fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -254,7 +254,7 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
     let injected = Rc::new(RefCell::new(false));
     let injected_in_cb = injected.clone();
 
-    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         let frame = ev
             .frames
             .selected_frame()
@@ -289,7 +289,7 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
 
 #[test]
 fn redisplay_applies_pending_resize_before_callback() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -297,7 +297,7 @@ fn redisplay_applies_pending_resize_before_callback() {
 
     let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
     let redisplay_calls_in_cb = redisplay_calls.clone();
-    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         let frame = ev
             .frames
             .selected_frame()
@@ -323,7 +323,7 @@ fn redisplay_applies_pending_resize_before_callback() {
 
 #[test]
 fn redisplay_syncs_opening_gui_frame_size_from_display_host() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -334,7 +334,7 @@ fn redisplay_syncs_opening_gui_frame_size_from_display_host() {
 
     let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
     let redisplay_calls_in_cb = redisplay_calls.clone();
-    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         let frame = ev
             .frames
             .selected_frame()
@@ -355,7 +355,7 @@ fn redisplay_syncs_opening_gui_frame_size_from_display_host() {
 
 #[test]
 fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let setup = parse_forms("(setq top-level '(setq neo-top-level-hit t))").expect("parse");
     let _ = ev.eval_forms(&setup);
 
@@ -381,7 +381,7 @@ fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
 
 #[test]
 fn frame_native_width_syncs_pending_resize_without_read_char() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -411,7 +411,7 @@ fn frame_native_width_syncs_pending_resize_without_read_char() {
 
 #[test]
 fn frame_native_width_syncs_pending_resize_behind_focus_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -442,7 +442,7 @@ fn frame_native_width_syncs_pending_resize_behind_focus_event() {
 
 #[test]
 fn redisplay_applies_resize_already_queued_behind_focus_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -450,7 +450,7 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
 
     let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
     let redisplay_calls_in_cb = redisplay_calls.clone();
-    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         let frame = ev
             .frames
             .selected_frame()
@@ -481,7 +481,7 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
 
 #[test]
 fn read_char_preserves_keypress_after_queued_focus_and_resize() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -510,7 +510,7 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
 
 #[test]
 fn redisplay_preserves_non_resize_input_for_read_char() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = ev
         .frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -533,7 +533,7 @@ fn redisplay_preserves_non_resize_input_for_read_char() {
 
 #[test]
 fn fire_pending_timers_executes_lisp_callbacks() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable("vm-timer-fired", Value::Nil);
     let forms = parse_forms(
         "(progn
@@ -572,12 +572,12 @@ fn fire_pending_timers_executes_lisp_callbacks() {
 
 #[test]
 fn fire_pending_timers_requests_redisplay_after_callbacks() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable("vm-timer-fired", Value::Nil);
 
     let redisplay_calls = Rc::new(RefCell::new(Vec::new()));
     let redisplay_calls_in_cb = redisplay_calls.clone();
-    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         redisplay_calls_in_cb.borrow_mut().push(
             ev.eval_symbol("vm-timer-fired")
                 .expect("timer flag during redisplay"),
@@ -617,7 +617,7 @@ fn fire_pending_timers_requests_redisplay_after_callbacks() {
 
 #[test]
 fn next_input_wait_timeout_accounts_for_gnu_timer_list() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable(
         "timer-list",
         Value::list(vec![gnu_timer_after(Duration::from_millis(200), "ignore")]),
@@ -633,7 +633,7 @@ fn next_input_wait_timeout_accounts_for_gnu_timer_list() {
 
 #[test]
 fn next_input_wait_timeout_chooses_earliest_timer_source() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable(
         "timer-list",
         Value::list(vec![gnu_timer_after(Duration::from_millis(250), "ignore")]),
@@ -650,7 +650,7 @@ fn next_input_wait_timeout_chooses_earliest_timer_source() {
 
 #[test]
 fn next_input_wait_timeout_accounts_for_gnu_idle_timer_list_when_idle() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable(
         "timer-idle-list",
         Value::list(vec![gnu_idle_timer_after(
@@ -961,7 +961,7 @@ fn eval_of_generated_lambda_preserves_uninterned_symbol_identity() {
 
 #[test]
 fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let buffer_id = eval.buffers.create_buffer("eval-labeled-restriction");
     eval.buffers.set_current(buffer_id);
     let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
@@ -987,7 +987,7 @@ fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
 
 #[test]
 fn redisplay_restores_current_innermost_labeled_restriction_after_callback_mutation() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let buffer_id = eval.buffers.create_buffer("redisplay-labeled");
     eval.buffers.set_current(buffer_id);
     let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
@@ -1000,7 +1000,7 @@ fn redisplay_restores_current_innermost_labeled_restriction_after_callback_mutat
 
     let observed = Rc::new(RefCell::new(Vec::new()));
     let observed_in_callback = observed.clone();
-    eval.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    eval.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         let buf = ev
             .buffers
             .get(buffer_id)
@@ -1029,7 +1029,7 @@ fn redisplay_restores_current_innermost_labeled_restriction_after_callback_mutat
 
 #[test]
 fn simple_defvar_declares_local_dynamic_scope_in_lexical_environment() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.lexenv = Value::list(vec![Value::True]);
 
@@ -1075,7 +1075,7 @@ fn put_get_preserves_closure_captured_uninterned_symbol_identity() {
 
 #[test]
 fn recent_input_events_are_bounded() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     for i in 0..(RECENT_INPUT_EVENT_LIMIT + 1) {
         ev.record_input_event(Value::Int(i as i64));
     }
@@ -1090,7 +1090,7 @@ fn recent_input_events_are_bounded() {
 
 #[test]
 fn eval_and_compile_defines_function() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"
         (defalias 'eval-and-compile (cons 'macro #'(lambda (&rest body)
@@ -1117,7 +1117,7 @@ fn eval_and_compile_defines_function() {
 
 #[test]
 fn eval_and_compile_with_backtick_name() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"
         (defalias 'eval-and-compile (cons 'macro #'(lambda (&rest body)
@@ -1557,7 +1557,7 @@ fn function_special_form_symbol_and_literal_payloads() {
 
 #[test]
 fn lambda_captures_docstring_metadata() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"lambda-doc\" nil)").expect("parse");
     let value = ev.eval_expr(&forms[0]).expect("eval");
     let docstring = value
@@ -1570,7 +1570,7 @@ fn lambda_captures_docstring_metadata() {
 
 #[test]
 fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"ok-1\")").expect("parse");
     let value = ev.eval_expr(&forms[0]).expect("eval");
     let lambda = value.get_lambda_data().expect("expected lambda value");
@@ -1583,7 +1583,7 @@ fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
 fn defmacro_captures_docstring_metadata() {
     // defmacro is no longer a bare-evaluator special form; install a
     // macro with a docstring via defalias + cons 'macro + lambda.
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms =
         parse_forms("(defalias 'vm-doc-macro (cons 'macro #'(lambda (x) \"macro-doc\" x)))")
             .expect("parse");
@@ -1770,7 +1770,7 @@ fn setq_constants_signal_setting_constant_after_rhs_evaluation() {
 
 #[test]
 fn set_ignores_lexical_bindings_and_updates_dynamic_cell() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         "(makunbound 'vm-lex-set)
@@ -1795,7 +1795,7 @@ fn setq_follows_variable_alias_resolution() {
 
 #[test]
 fn makunbound_ignores_lexical_bindings_and_unbinds_runtime_cell() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         "(setq vm-lex-makunbound 30)
@@ -2398,7 +2398,7 @@ fn backward_compat_core_forms() {
           (funcall f))))
     "#;
 
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(source).expect("parse");
     let rendered: Vec<String> = ev
         .eval_forms(&forms)
@@ -2445,7 +2445,7 @@ fn lambda_can_call_symbol_function_subr_as_first_class_value() {
 #[test]
 fn lexical_binding_closure() {
     // With lexical binding, closures capture the lexical environment
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"
         (let ((x 1))
@@ -2464,7 +2464,7 @@ fn lexical_binding_closure() {
 #[test]
 fn dynamic_binding_closure() {
     // Without lexical binding (default), closures see dynamic scope
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"
         (let ((x 1))
@@ -2482,7 +2482,7 @@ fn dynamic_binding_closure() {
 #[test]
 fn lexical_binding_special_var_stays_dynamic() {
     // defvar makes a variable special — it stays dynamically scoped
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"
         (defvar my-special 10)
@@ -2620,7 +2620,7 @@ fn compiled_literal_reader_form_is_not_callable() {
 
 #[test]
 fn provide_require() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms("(provide 'my-feature) (featurep 'my-feature)").expect("parse");
     let results: Vec<String> = ev
         .eval_forms(&forms)
@@ -3559,7 +3559,7 @@ fn insert_read_only_shape_and_noop_cases_match_gnu() {
 
 #[test]
 fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         "(with-temp-buffer
@@ -3986,7 +3986,7 @@ fn save_window_excursion_restores_window_layout_after_split() {
 
 #[test]
 fn save_window_excursion_restores_selected_window_point_and_requests_final_redisplay() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buffer_id = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buffer_id);
     ev.buffers
@@ -3997,7 +3997,7 @@ fn save_window_excursion_restores_selected_window_point_and_requests_final_redis
 
     let redisplayed_points = Rc::new(RefCell::new(Vec::new()));
     let redisplayed_points_in_cb = Rc::clone(&redisplayed_points);
-    ev.redisplay_fn = Some(Box::new(move |ev: &mut Evaluator| {
+    ev.redisplay_fn = Some(Box::new(move |ev: &mut Context| {
         let point = crate::emacs_core::window_cmds::builtin_window_point(ev, vec![])
             .expect("window-point during redisplay");
         let Value::Int(point) = point else {
@@ -4023,7 +4023,7 @@ fn save_window_excursion_restores_selected_window_point_and_requests_final_redis
 
 #[test]
 fn current_window_configuration_saves_selected_window_live_point() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buffer_id = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buffer_id);
     ev.buffers
@@ -4354,7 +4354,7 @@ fn aset_string_writeback_equal_hash_key_lookup_stays_nil() {
 
 #[test]
 fn gc_collect_retains_reachable() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = crate::emacs_core::parse_forms("(setq x (cons 1 2))").unwrap();
     ev.eval_forms(&forms);
     let before = ev.heap.allocated_count();
@@ -4371,7 +4371,7 @@ fn gc_collect_retains_reachable() {
 
 #[test]
 fn gc_collect_frees_unreachable() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     // Create orphaned conses that aren't bound to any variable.
     let forms =
         crate::emacs_core::parse_forms("(progn (cons 1 2) (cons 3 4) (cons 5 6) nil)").unwrap();
@@ -4388,7 +4388,7 @@ fn gc_collect_frees_unreachable() {
 
 #[test]
 fn gc_collect_handles_cycles() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     // Create a circular list: (setq x (cons 1 nil)) (setcdr x x)
     let forms =
         crate::emacs_core::parse_forms("(progn (setq x (cons 1 nil)) (setcdr x x) t)").unwrap();
@@ -4414,7 +4414,7 @@ fn gc_collect_handles_cycles() {
 
 #[test]
 fn gc_safe_point_collects_when_threshold_reached() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.heap.set_gc_threshold(5);
     // Allocate enough conses to exceed threshold.
     let forms = crate::emacs_core::parse_forms(
@@ -4434,7 +4434,7 @@ fn gc_safe_point_collects_when_threshold_reached() {
 
 #[test]
 fn gc_threshold_adapts_after_collection() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.heap.set_gc_threshold(3);
     // Create 3 conses that are reachable via variables.
     let forms = crate::emacs_core::parse_forms(
@@ -4458,7 +4458,7 @@ fn gc_threshold_adapts_after_collection() {
 // -----------------------------------------------------------------------
 
 fn eval_stress(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = crate::emacs_core::parse_forms(src).expect("parse");
     ev.gc_stress = true;
     // Force very low threshold so gc_safe_point triggers on every call
@@ -4532,7 +4532,7 @@ fn gc_stress_closures() {
 
 #[test]
 fn gc_stress_lambda_argument_closure_survives_binding_installation() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.heap.set_gc_threshold(1);
@@ -4549,7 +4549,7 @@ fn gc_stress_lambda_argument_closure_survives_binding_installation() {
 
 #[test]
 fn gc_stress_direct_lambda_head_roots_fresh_closure_during_arg_eval() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.heap.set_gc_threshold(1);
@@ -4568,7 +4568,7 @@ fn gc_stress_direct_lambda_head_roots_fresh_closure_during_arg_eval() {
 
 #[test]
 fn gc_stress_builtin_apply_roots_closure_function_argument() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.heap.set_gc_threshold(1);
@@ -4584,7 +4584,7 @@ fn gc_stress_builtin_apply_roots_closure_function_argument() {
 
 #[test]
 fn gc_stress_let_star_lexical_binding_roots_evaluated_values() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.heap.set_gc_threshold(1);
@@ -4607,7 +4607,7 @@ fn gc_stress_prog1_roots_first_value() {
 
 #[test]
 fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.lexenv = Value::list(vec![Value::True]);
     ev.gc_stress = true;
@@ -4638,7 +4638,7 @@ fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
 
 #[test]
 fn interpreted_closure_while_can_advance_lexical_loop_variable() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         r#"
@@ -4660,7 +4660,7 @@ fn interpreted_closure_while_can_advance_lexical_loop_variable() {
 
 #[test]
 fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.heap.set_gc_threshold(1);
@@ -4676,7 +4676,7 @@ fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
 
 #[test]
 fn gc_stress_cdr_on_lambda_survives_cons_list_conversion() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.heap.set_gc_threshold(1);
@@ -4799,7 +4799,7 @@ fn gc_stress_many_allocations() {
 fn lexical_closure_mutation_visible() {
     // Closures must share the same lexical frame — mutations through
     // one closure must be visible to the outer scope.
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         r#"(let ((x 0))
@@ -4816,7 +4816,7 @@ fn lexical_closure_mutation_visible() {
 #[test]
 fn lexical_closure_shared_state() {
     // Two closures sharing the same binding (inc + get).
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         r#"(let ((x 0))
@@ -4835,7 +4835,7 @@ fn lexical_closure_shared_state() {
 #[test]
 fn lexical_closure_make_counter() {
     // Classic make-counter pattern with independent counters.
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         r#"(progn
@@ -4860,7 +4860,7 @@ fn lexical_closure_make_counter() {
 #[test]
 fn lexical_closure_outer_mutation_visible() {
     // Outer setq visible to closure.
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         r#"(let ((x 10))
@@ -4881,7 +4881,7 @@ fn closure_inside_mapcar_lambda_captures_outer_param() {
     //                 (lambda (vars) case)))
     //         '(a b c))
     // Each inner lambda should capture `case` from the outer lambda.
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         r#"(let ((closures
@@ -4901,7 +4901,7 @@ fn closure_inside_mapcar_lambda_captures_outer_param() {
 fn closure_inside_backquote_mapcar_captures_outer_param() {
     // More closely matches pcase-compile-patterns:
     // The inner lambda is created inside a backquote, after a function call.
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
         r#"(let ((closures
@@ -4927,7 +4927,7 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
     //         cases)
     // The inner lambda is inside a REAL backquote (macro), after a function call.
     // This requires loading backquote.el.
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     load_minimal_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
@@ -4948,7 +4948,7 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
 
 #[test]
 fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     load_minimal_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
@@ -4972,7 +4972,7 @@ fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
 
 #[test]
 fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     load_minimal_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
@@ -4989,7 +4989,7 @@ fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
 
 #[test]
 fn condition_case_lexical_handler_binding_restores_outer_let() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.set_lexical_binding(true);
 
     let forms = parse_forms(
@@ -5023,7 +5023,7 @@ fn gc_stress_lexical_closure_mutation() {
 
 #[test]
 fn evaluator_face_table_has_standard_faces() {
-    let ev = Evaluator::new();
+    let ev = Context::new();
     let ft = ev.face_table();
 
     // Standard faces must exist

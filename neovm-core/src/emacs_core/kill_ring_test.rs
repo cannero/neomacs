@@ -1,15 +1,15 @@
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
-use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
 
 fn eval_one(src: &str) -> String {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     let result = ev.eval_expr(&forms[0]);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()

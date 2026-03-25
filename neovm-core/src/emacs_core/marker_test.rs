@@ -83,7 +83,7 @@ fn builtin_copy_marker_from_integer() {
 
 #[test]
 fn builtin_move_marker_matches_set_marker_behavior() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     // Insert content so the buffer is long enough for position 3.
     if let Some(buf) = eval.buffers.current_buffer_mut() {
         buf.insert("abcdef");
@@ -119,7 +119,7 @@ fn wrong_type_signals_error() {
 
 #[test]
 fn marker_accessors_require_zero_arguments() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     assert!(builtin_point_marker(&mut eval, vec![Value::Nil]).is_err());
     assert!(builtin_point_min_marker(&mut eval, vec![Value::Nil]).is_err());
@@ -129,7 +129,7 @@ fn marker_accessors_require_zero_arguments() {
 
 #[test]
 fn numeric_comparisons_use_live_marker_positions() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -156,7 +156,7 @@ fn numeric_comparisons_use_live_marker_positions() {
 
 #[test]
 fn point_min_and_max_markers_follow_narrowing() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer_id().expect("current buffer");
     let _ = eval.buffers.insert_into_buffer(buf_id, "ééz");
     let _ = eval
@@ -178,7 +178,7 @@ fn point_min_and_max_markers_follow_narrowing() {
 
 #[test]
 fn mark_marker_follows_cached_mark_char_position() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer_id().expect("current buffer");
     let _ = eval.buffers.insert_into_buffer(buf_id, "ééz");
     let _ = eval.buffers.set_buffer_mark(buf_id, 'é'.len_utf8());
@@ -192,7 +192,7 @@ fn mark_marker_follows_cached_mark_char_position() {
 
 #[test]
 fn copy_marker_from_integer_tracks_insertions_before_it() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "abc")
@@ -217,7 +217,7 @@ fn copy_marker_from_integer_tracks_insertions_before_it() {
 
 #[test]
 fn set_marker_uses_live_source_marker_position_after_insertions() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "abc")

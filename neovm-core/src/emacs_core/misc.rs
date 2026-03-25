@@ -131,7 +131,7 @@ fn convert_unibyte_storage_to_multibyte(s: &str) -> String {
 
 /// `(with-temp-buffer BODY...)` -- create a temp buffer, make it current,
 /// execute BODY, kill the buffer, restore previous buffer, return last result.
-pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Evaluator, tail: &[Expr]) -> EvalResult {
+pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
     // Save current buffer
     let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
 
@@ -155,7 +155,7 @@ pub(crate) fn sf_with_temp_buffer(eval: &mut super::eval::Evaluator, tail: &[Exp
 /// `(save-current-buffer BODY...)` -- save the current buffer, execute BODY,
 /// then restore the previous current buffer.
 pub(crate) fn sf_save_current_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[Expr],
 ) -> EvalResult {
     let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
@@ -168,13 +168,13 @@ pub(crate) fn sf_save_current_buffer(
 
 /// `(track-mouse BODY...)` -- evaluate BODY forms.
 /// In batch/terminal mode, this is an effective no-op wrapper around `progn`.
-pub(crate) fn sf_track_mouse(eval: &mut super::eval::Evaluator, tail: &[Expr]) -> EvalResult {
+pub(crate) fn sf_track_mouse(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
     eval.sf_progn(tail)
 }
 
 /// `(with-syntax-table TABLE BODY...)` -- evaluate BODY with TABLE installed
 /// as the current buffer syntax-table object, then restore the previous table.
-pub(crate) fn sf_with_syntax_table(eval: &mut super::eval::Evaluator, tail: &[Expr]) -> EvalResult {
+pub(crate) fn sf_with_syntax_table(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
     if tail.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -552,7 +552,7 @@ pub(crate) fn builtin_display_line_numbers_update_width(args: Vec<Value>) -> Eva
 /// `(backtrace-frame NFRAMES &optional BASE)` -- returns compatibility-formatted
 /// synthetic backtrace frames for supported NFRAMES values.
 pub(crate) fn builtin_backtrace_frame(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("backtrace-frame", &args, 1)?;
@@ -588,7 +588,7 @@ pub(crate) fn builtin_backtrace_frame(
     }
 }
 
-fn expect_threadp(eval: &super::eval::Evaluator, value: &Value) -> Result<(), Flow> {
+fn expect_threadp(eval: &super::eval::Context, value: &Value) -> Result<(), Flow> {
     expect_threadp_in_state(&eval.threads, value)
 }
 
@@ -607,7 +607,7 @@ fn expect_threadp_in_state(
 
 /// `(backtrace--frames-from-thread THREAD)` -- synthetic backtrace frame list.
 pub(crate) fn builtin_backtrace_frames_from_thread(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_backtrace_frames_from_thread_in_state(&eval.threads, args)
@@ -628,7 +628,7 @@ pub(crate) fn builtin_backtrace_frames_from_thread_in_state(
 
 /// `(backtrace--locals FRAME &optional BASE)` -- batch-compatible helper.
 pub(crate) fn builtin_backtrace_locals(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_backtrace_locals_in_state(args)
@@ -652,7 +652,7 @@ pub(crate) fn builtin_backtrace_locals_in_state(args: Vec<Value>) -> EvalResult 
 
 /// `(backtrace-debug FRAME INDEX &optional FLAG)` -- batch-compatible helper.
 pub(crate) fn builtin_backtrace_debug(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_backtrace_debug_in_state(args)
@@ -668,7 +668,7 @@ pub(crate) fn builtin_backtrace_debug_in_state(args: Vec<Value>) -> EvalResult {
 
 /// `(backtrace-eval FRAME INDEX &optional FLAG)` -- batch-compatible helper.
 pub(crate) fn builtin_backtrace_eval(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_backtrace_eval_in_state(args)
@@ -688,7 +688,7 @@ pub(crate) fn builtin_backtrace_eval_in_state(args: Vec<Value>) -> EvalResult {
 /// frame.  NeoVM doesn't maintain a specpdl-style stack, so we return nil
 /// (no frames available) rather than signalling an error.
 pub(crate) fn builtin_backtrace_frame_internal(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_backtrace_frame_internal_in_state(args)
@@ -701,9 +701,9 @@ pub(crate) fn builtin_backtrace_frame_internal_in_state(args: Vec<Value>) -> Eva
 
 /// `(recursion-depth)` -- return the current Lisp recursion depth.
 /// Uses the dynamic binding stack depth as a proxy (the true depth counter
-/// is private to the Evaluator).
+/// is private to the Context).
 pub(crate) fn builtin_recursion_depth(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_recursion_depth_in_state(eval.dynamic.len(), args)

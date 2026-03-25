@@ -149,9 +149,9 @@ fn test_expect_register() {
 
 #[test]
 fn test_builtin_copy_and_insert() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // copy-to-register
     let result = builtin_copy_to_register(
@@ -173,9 +173,9 @@ fn test_builtin_copy_and_insert() {
 
 #[test]
 fn test_builtin_number_and_increment() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // number-to-register
     let result = builtin_number_to_register(&mut eval, vec![Value::Int(10), Value::Char('n')]);
@@ -198,9 +198,9 @@ fn test_builtin_number_and_increment() {
 
 #[test]
 fn test_builtin_increment_empty_register() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Incrementing empty register starts from 0
     let result = builtin_increment_register(&mut eval, vec![Value::Int(7), Value::Char('e')]);
@@ -213,9 +213,9 @@ fn test_builtin_increment_empty_register() {
 
 #[test]
 fn test_builtin_set_and_get_register() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Set string
     let result = builtin_set_register(
@@ -239,9 +239,9 @@ fn test_builtin_set_and_get_register() {
 
 #[test]
 fn test_builtin_view_register() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Empty register
     let result = builtin_view_register(&mut eval, vec![Value::Char('v')]);
@@ -268,9 +268,9 @@ fn test_builtin_view_register() {
 
 #[test]
 fn test_builtin_register_to_string() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Empty register => nil
     let empty = builtin_register_to_string(&mut eval, vec![Value::Char('r')]).unwrap();
@@ -284,9 +284,9 @@ fn test_builtin_register_to_string() {
 
 #[test]
 fn test_wrong_arg_count() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // copy-to-register needs at least 2 args
     let result = builtin_copy_to_register(&mut eval, vec![Value::Char('a')]);

@@ -212,9 +212,9 @@ fn test_apply_case() {
 
 #[test]
 fn test_make_abbrev_table_and_predicate() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // make-abbrev-table creates an abbrev table
     let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
@@ -239,9 +239,9 @@ fn test_make_abbrev_table_and_predicate() {
 
 #[test]
 fn test_define_abbrev_and_lookup() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
 
@@ -269,9 +269,9 @@ fn test_define_abbrev_and_lookup() {
 
 #[test]
 fn test_clear_abbrev_table() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
 
@@ -305,9 +305,9 @@ fn test_clear_abbrev_table() {
 
 #[test]
 fn test_abbrev_get_put() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
 
@@ -322,9 +322,9 @@ fn test_abbrev_get_put() {
 
 #[test]
 fn test_define_abbrev_table_and_lookup() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // define-abbrev-table creates a named table
     builtin_define_abbrev_table(&mut eval, vec![Value::symbol("test-table"), Value::Nil]).unwrap();
@@ -337,9 +337,9 @@ fn test_define_abbrev_table_and_lookup() {
 
 #[test]
 fn test_insert_abbrev_table_description_writes_buffer_text() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     builtin_define_abbrev_table(&mut eval, vec![Value::symbol("test-table"), Value::Nil]).unwrap();
 
     let table = eval
@@ -374,9 +374,9 @@ fn test_insert_abbrev_table_description_writes_buffer_text() {
 
 #[test]
 fn test_abbrev_tables_do_not_share_symbol_cells() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let table_a = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
     let table_b = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
 
@@ -399,9 +399,9 @@ fn test_abbrev_tables_do_not_share_symbol_cells() {
 
 #[test]
 fn test_abbrev_table_properties_are_table_local() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let table_a = builtin_make_abbrev_table(
         &mut eval,
         vec![Value::list(vec![
@@ -422,9 +422,9 @@ fn test_abbrev_table_properties_are_table_local() {
 
 #[test]
 fn test_wrong_arg_count() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // expand-abbrev needs exactly 0 args
     let result = builtin_expand_abbrev(&mut eval, vec![Value::string("t")]);

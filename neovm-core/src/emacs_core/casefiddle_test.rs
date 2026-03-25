@@ -231,7 +231,7 @@ fn upcase_initials_unicode_edge_semantics() {
 
 #[test]
 fn eval_upcase_region_noncontiguous_uses_live_mark() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
     ev.buffers.insert_into_buffer(buffer_id, "abc");
     ev.buffers.set_buffer_mark(buffer_id, 1);
@@ -245,7 +245,7 @@ fn eval_upcase_region_noncontiguous_uses_live_mark() {
 
 #[test]
 fn eval_capitalize_word_updates_buffer_text() {
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
     ev.buffers.insert_into_buffer(buffer_id, "hELLO world");
     ev.buffers.goto_buffer_byte(buffer_id, 0);

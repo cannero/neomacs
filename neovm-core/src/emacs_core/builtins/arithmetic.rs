@@ -30,7 +30,7 @@ pub(crate) fn builtin_add(args: Vec<Value>) -> EvalResult {
 
 /// Eval-aware `+` that reads live marker positions from buffers.
 pub(crate) fn builtin_add_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if has_float(&args) {
@@ -81,7 +81,7 @@ pub(crate) fn builtin_sub(args: Vec<Value>) -> EvalResult {
 
 /// Eval-aware `-` that reads live marker positions from buffers.
 pub(crate) fn builtin_sub_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() {
@@ -278,7 +278,7 @@ pub(crate) fn builtin_max(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_max_eval(eval: &super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_max_eval(eval: &super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("max", &args, 1)?;
     let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
     let mut best_value = args[0];
@@ -320,7 +320,7 @@ pub(crate) fn builtin_min(args: Vec<Value>) -> EvalResult {
     }
 }
 
-pub(crate) fn builtin_min_eval(eval: &super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_min_eval(eval: &super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("min", &args, 1)?;
     let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
     let mut best_value = args[0];
@@ -418,7 +418,7 @@ pub(crate) fn builtin_num_eq(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_num_eq_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("=", &args, 2)?;
@@ -442,7 +442,7 @@ pub(crate) fn builtin_num_lt(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_num_lt_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("<", &args, 2)?;
@@ -467,7 +467,7 @@ pub(crate) fn builtin_num_le(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_num_le_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("<=", &args, 2)?;
@@ -492,7 +492,7 @@ pub(crate) fn builtin_num_gt(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_num_gt_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args(">", &args, 2)?;
@@ -517,7 +517,7 @@ pub(crate) fn builtin_num_ge(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_num_ge_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args(">=", &args, 2)?;
@@ -539,7 +539,7 @@ pub(crate) fn builtin_num_ne(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_num_ne_eval(
-    eval: &mut super::super::eval::Evaluator,
+    eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("/=", &args, 2)?;

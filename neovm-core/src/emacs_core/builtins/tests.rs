@@ -4,7 +4,7 @@ use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_eval
 use crate::emacs_core::value::{LambdaData, LambdaParams};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
-fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Evaluator, callback: &str) {
+fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Context, callback: &str) {
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams {
             required: vec![
@@ -43,7 +43,7 @@ fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Evaluator,
 }
 
 fn install_noarg_hook_probe(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     callback: &str,
     body: Vec<Expr>,
 ) {
@@ -57,7 +57,7 @@ fn install_noarg_hook_probe(
     eval.obarray_mut().set_symbol_function(callback, lambda);
 }
 
-fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Evaluator, name: &str) -> Value {
+fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Context, name: &str) -> Value {
     let unique_name = eval.buffers.generate_new_buffer_name(name);
     Value::Buffer(eval.buffers.create_buffer(&unique_name))
 }
@@ -200,7 +200,7 @@ fn pure_dispatch_typed_numeric_primitives_accept_markers() {
 
 #[test]
 fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
              (insert "abc")
@@ -221,7 +221,7 @@ fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
 
 #[test]
 fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
              (insert "abc")
@@ -502,7 +502,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
 
 #[test]
 fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let closure_vec = Value::vector(vec![
         Value::list(vec![Value::symbol("x")]),
         Value::list(vec![Value::list(vec![
@@ -722,7 +722,7 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
 
 #[test]
 fn keymapp_accepts_lisp_keymap_cons_cells() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     let proper = Value::list(vec![Value::symbol("keymap")]);
     assert_eq!(
@@ -757,7 +757,7 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
 
 #[test]
 fn keymapp_rejects_non_keymap_integer_designators() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let keymap = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
     assert_eq!(
         builtin_keymapp(&mut eval, vec![keymap]).unwrap(),
@@ -775,7 +775,7 @@ fn keymapp_rejects_non_keymap_integer_designators() {
 
 #[test]
 fn accessible_keymaps_reports_root_and_prefix_paths() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let root = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
     let child = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
     builtin_define_key(
@@ -817,7 +817,7 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
 
 #[test]
 fn accessible_keymaps_prefix_type_errors_match_oracle_shape() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let map = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
 
     let sequence_err = builtin_accessible_keymaps(&mut eval, vec![map, Value::True]).unwrap_err();
@@ -970,7 +970,7 @@ fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
 
 #[test]
 fn eval_get_file_buffer_matches_visited_paths() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let id = eval.buffers.create_buffer("gfb");
 
     let path = std::env::temp_dir().join(format!("neovm-gfb-{}-{}", std::process::id(), "eval"));
@@ -1000,7 +1000,7 @@ fn eval_get_file_buffer_matches_visited_paths() {
 
 #[test]
 fn eval_get_file_buffer_type_and_missing_paths() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let missing = builtin_get_file_buffer(
         &mut eval,
         vec![Value::string("/tmp/neovm-no-such-file-for-gfb")],
@@ -1012,7 +1012,7 @@ fn eval_get_file_buffer_type_and_missing_paths() {
 
 #[test]
 fn eval_builtin_rejects_too_many_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let err = builtin_eval(
         &mut eval,
         vec![Value::Int(1), Value::Nil, Value::symbol("ignored")],
@@ -1029,7 +1029,7 @@ fn eval_builtin_rejects_too_many_args() {
 
 #[test]
 fn eval_buffer_live_p_tracks_killed_buffers() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf = builtin_get_buffer_create(&mut eval, vec![Value::string("*blp*")]).unwrap();
     let live = builtin_buffer_live_p(&mut eval, vec![buf]).unwrap();
     assert_eq!(live, Value::True);
@@ -1041,7 +1041,7 @@ fn eval_buffer_live_p_tracks_killed_buffers() {
 
 #[test]
 fn kill_buffer_optional_arg_and_error_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let a = builtin_get_buffer_create(&mut eval, vec![Value::string("*kb-opt-a*")]).unwrap();
     let b = builtin_get_buffer_create(&mut eval, vec![Value::string("*kb-opt-b*")]).unwrap();
     let _ = builtin_set_buffer(&mut eval, vec![a]).unwrap();
@@ -1099,7 +1099,7 @@ fn kill_buffer_optional_arg_and_error_semantics() {
 
 #[test]
 fn set_buffer_rejects_deleted_buffer_object() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let dead = create_unique_test_buffer(&mut eval, "*sb-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
 
@@ -1116,7 +1116,7 @@ fn set_buffer_rejects_deleted_buffer_object() {
 
 #[test]
 fn eval_buffer_live_p_non_buffer_objects_return_nil() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let by_name = builtin_buffer_live_p(&mut eval, vec![Value::string("*scratch*")]).unwrap();
     assert_eq!(by_name, Value::Nil);
     let nil_arg = builtin_buffer_live_p(&mut eval, vec![Value::Nil]).unwrap();
@@ -1125,7 +1125,7 @@ fn eval_buffer_live_p_non_buffer_objects_return_nil() {
 
 #[test]
 fn get_buffer_create_accepts_optional_second_arg() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let first =
         builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-opt*"), Value::Int(7)])
             .unwrap();
@@ -1152,7 +1152,7 @@ fn get_buffer_create_accepts_optional_second_arg() {
 
 #[test]
 fn buffer_creation_helpers_reject_missing_required_name_arg() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     let err = builtin_get_buffer_create(&mut eval, vec![])
         .expect_err("get-buffer-create should reject missing required arg");
@@ -1183,7 +1183,7 @@ fn buffer_creation_helpers_reject_missing_required_name_arg() {
 
 #[test]
 fn get_buffer_rejects_non_string_non_buffer_designators() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     for bad in [Value::Int(1), Value::Nil, Value::symbol("foo")] {
         let err = builtin_get_buffer(&mut eval, vec![bad])
             .expect_err("get-buffer should reject non-string/non-buffer args");
@@ -1203,7 +1203,7 @@ fn get_buffer_rejects_non_string_non_buffer_designators() {
 
 #[test]
 fn generate_new_buffer_name_optional_arg_matches_expected_types() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*gnbn-opt*")]).unwrap();
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*gnbn-opt*<2>")]).unwrap();
 
@@ -1260,7 +1260,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
 
 #[test]
 fn buffer_size_and_modified_p_return_defaults_for_deleted_buffer_objects() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     let dead_for_size = create_unique_test_buffer(&mut eval, "*bs-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_size]).unwrap();
@@ -1275,7 +1275,7 @@ fn buffer_size_and_modified_p_return_defaults_for_deleted_buffer_objects() {
 
 #[test]
 fn buffer_base_buffer_and_last_name_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let base_id = eval.buffers.current_buffer().unwrap().id;
     let indirect_id = eval.buffers.create_buffer("*indirect*");
     eval.buffers.get_mut(indirect_id).unwrap().base_buffer = Some(base_id);
@@ -1363,7 +1363,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
 
 #[test]
 fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-base*");
     let Value::Buffer(base_id) = base else {
         panic!("expected buffer object");
@@ -1409,7 +1409,7 @@ fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
 
 #[test]
 fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-errors-base*");
 
     let duplicate = builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*scratch*")])
@@ -1429,7 +1429,7 @@ fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
 
 #[test]
 fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-base*");
     let Value::Buffer(base_id) = base else {
         panic!("expected buffer object");
@@ -1538,7 +1538,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
 
 #[test]
 fn make_indirect_buffer_clone_nil_resets_buffer_state() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-nil-base*");
     let Value::Buffer(base_id) = base else {
         panic!("expected buffer object");
@@ -1574,7 +1574,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
 
 #[test]
 fn buffer_modified_tick_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
@@ -1652,7 +1652,7 @@ fn buffer_modified_tick_semantics() {
 
 #[test]
 fn subst_char_in_region_replaces_chars_in_accessible_region() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("hello world hello")]).unwrap();
 
     builtin_subst_char_in_region(
@@ -1674,7 +1674,7 @@ fn subst_char_in_region_replaces_chars_in_accessible_region() {
 
 #[test]
 fn subst_char_in_region_preserves_modified_flag_with_noundo() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("a\nb\n")]).unwrap();
     builtin_set_buffer_modified_p(&mut eval, vec![Value::Nil]).unwrap();
 
@@ -1702,7 +1702,7 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
 
 #[test]
 fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
              (insert "a\nb\n")
@@ -1724,7 +1724,7 @@ fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
 
 #[test]
 fn subst_char_in_region_uses_live_marker_end_after_insertions() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
              (insert "a\n")
@@ -1748,7 +1748,7 @@ fn subst_char_in_region_uses_live_marker_end_after_insertions() {
 
 #[test]
 fn goto_char_uses_live_marker_position_after_insertions() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
              (insert "ab")
@@ -1772,7 +1772,7 @@ fn goto_char_uses_live_marker_position_after_insertions() {
 
 #[test]
 fn char_queries_use_live_marker_positions_after_insertions() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
              (insert "ab")
@@ -1797,7 +1797,7 @@ fn char_queries_use_live_marker_positions_after_insertions() {
 
 #[test]
 fn search_forward_uses_live_marker_bound_after_insertions() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(insert "ab")
            (let ((end (copy-marker (point-max) t)))
@@ -1822,7 +1822,7 @@ fn search_forward_uses_live_marker_bound_after_insertions() {
 
 #[test]
 fn subst_char_in_region_rejects_different_utf8_lengths() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("aa")]).unwrap();
 
     let err = builtin_subst_char_in_region(
@@ -1852,7 +1852,7 @@ fn subst_char_in_region_rejects_different_utf8_lengths() {
 
 #[test]
 fn insert_honors_inhibit_read_only_override() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     eval.obarray
         .set_symbol_value("buffer-read-only", Value::True);
     eval.obarray
@@ -1867,7 +1867,7 @@ fn insert_honors_inhibit_read_only_override() {
 
 #[test]
 fn insert_inherit_variants_reuse_insert_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     assert_eq!(
         builtin_insert_and_inherit(
             &mut eval,
@@ -1904,7 +1904,7 @@ fn insert_inherit_variants_reuse_insert_semantics() {
 
 #[test]
 fn insert_copies_string_text_properties_into_buffer() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let text = Value::string("xy");
     let str_id = match text {
         Value::Str(id) => id,
@@ -1931,7 +1931,7 @@ fn insert_copies_string_text_properties_into_buffer() {
 
 #[test]
 fn insert_and_inherit_copies_previous_text_properties() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("ab");
@@ -1954,7 +1954,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
 
 #[test]
 fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("ab");
@@ -1981,7 +1981,7 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
 
 #[test]
 fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("a")]).unwrap();
     crate::emacs_core::textprop::builtin_put_text_property(
         &mut eval,
@@ -2020,7 +2020,7 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
 
 #[test]
 fn delete_all_overlays_clears_current_buffer() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("hello");
@@ -2040,7 +2040,7 @@ fn delete_all_overlays_clears_current_buffer() {
 
 #[test]
 fn insert_buffer_substring_inserts_source_region() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*ibs-source*");
     eval.buffers.set_current(source_id);
     builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
@@ -2094,7 +2094,7 @@ fn insert_buffer_substring_inserts_source_region() {
 
 #[test]
 fn insert_buffer_substring_defaults_to_source_accessible_region() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*ibs-source-defaults*");
     eval.buffers.set_current(source_id);
     builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
@@ -2118,7 +2118,7 @@ fn insert_buffer_substring_defaults_to_source_accessible_region() {
 
 #[test]
 fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*ibs-source-range*");
     eval.buffers.set_current(source_id);
     builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
@@ -2138,7 +2138,7 @@ fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
 
 #[test]
 fn insert_buffer_substring_rejects_deleted_buffer_object() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let dead = create_unique_test_buffer(&mut eval, "*ibs-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
 
@@ -2155,7 +2155,7 @@ fn insert_buffer_substring_rejects_deleted_buffer_object() {
 
 #[test]
 fn kill_all_local_variables_clears_buffer_locals() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().unwrap();
         buf.set_buffer_local("tab-width", Value::Int(8));
@@ -2227,7 +2227,7 @@ fn ntake_destructively_truncates_lists() {
 
 #[test]
 fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*rbc-source*");
     eval.buffers.set_current(source_id);
     builtin_insert(&mut eval, vec![Value::string("source-text")]).unwrap();
@@ -2263,7 +2263,7 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
 
 #[test]
 fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let left_id = eval.buffers.create_buffer("*cbs-left*");
     eval.buffers.set_current(left_id);
     builtin_insert(&mut eval, vec![Value::string("xaBCy")]).unwrap();
@@ -2293,7 +2293,7 @@ fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
 
 #[test]
 fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let left_id = eval.buffers.create_buffer("*cbs-left-range*");
     eval.buffers.set_current(left_id);
     builtin_insert(&mut eval, vec![Value::string("xaBCy")]).unwrap();
@@ -2327,7 +2327,7 @@ fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
 
 #[test]
 fn compare_buffer_substrings_rejects_deleted_buffer_object() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let dead = create_unique_test_buffer(&mut eval, "*cbs-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
 
@@ -2352,7 +2352,7 @@ fn compare_buffer_substrings_rejects_deleted_buffer_object() {
 
 #[test]
 fn replace_region_contents_replaces_from_string_and_buffer_sources() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abXXef")]).unwrap();
 
     assert_eq!(
@@ -2397,7 +2397,7 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
 
 #[test]
 fn replace_region_contents_accepts_vector_buffer_slices() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*rrc-slice-source*");
     eval.buffers.set_current(source_id);
     builtin_insert(&mut eval, vec![Value::string("1234")]).unwrap();
@@ -2429,7 +2429,7 @@ fn replace_region_contents_accepts_vector_buffer_slices() {
 
 #[test]
 fn split_window_internal_validates_core_argument_types() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let split = builtin_split_window_internal(
         &mut eval,
         vec![Value::Nil, Value::Nil, Value::symbol("below"), Value::Nil],
@@ -2495,7 +2495,7 @@ fn split_window_internal_validates_core_argument_types() {
 
 #[test]
 fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     assert!(
         builtin_char_equal(&eval, vec![Value::Int(97), Value::Int(65)])
@@ -2688,7 +2688,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
 
 #[test]
 fn byte_position_and_clear_bitmap_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::Int(1)]).unwrap(),
@@ -2860,7 +2860,7 @@ fn byte_position_and_clear_bitmap_semantics() {
 
 #[test]
 fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     let disable_current =
         builtin_buffer_disable_undo(&mut eval, vec![]).expect("buffer-disable-undo should work");
@@ -2932,7 +2932,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
 
 #[test]
 fn other_buffer_prefers_live_alternative_and_enforces_arity() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*Messages*")]).unwrap();
     let avoid = builtin_get_buffer_create(&mut eval, vec![Value::string("*ob-avoid*")])
         .expect("create avoid buffer");
@@ -2994,7 +2994,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
 
 #[test]
 fn buffer_list_returns_live_buffers_in_creation_order() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let scratch = eval
         .buffers
         .find_buffer_by_name("*scratch*")
@@ -3010,7 +3010,7 @@ fn buffer_list_returns_live_buffers_in_creation_order() {
 
 #[test]
 fn featurep_accepts_optional_subfeature_arg() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     eval.set_variable(
         "features",
         Value::list(vec![Value::symbol("vm-featurep-present")]),
@@ -3054,7 +3054,7 @@ fn featurep_accepts_optional_subfeature_arg() {
 
 #[test]
 fn featurep_subfeatures_property_must_be_list() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     eval.set_variable(
         "features",
         Value::list(vec![Value::symbol("vm-featurep-present")]),
@@ -3081,7 +3081,7 @@ fn featurep_subfeatures_property_must_be_list() {
 
 #[test]
 fn featurep_rejects_more_than_two_args() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let err = builtin_featurep(
         &mut eval,
         vec![
@@ -3999,7 +3999,7 @@ fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
 fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
     // rename-buffer is now an eval builtin — test it through the evaluator
     {
-        let mut eval = crate::emacs_core::eval::Evaluator::new();
+        let mut eval = crate::emacs_core::eval::Context::new();
         let buf_id = eval.buffers.create_buffer("old-name");
         eval.buffers.set_current(buf_id);
         let renamed = dispatch_builtin(&mut eval, "rename-buffer", vec![Value::string("new-name")])
@@ -4770,7 +4770,7 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
 
 #[test]
 fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let lambda = Value::list(vec![
         Value::symbol("lambda"),
         Value::Nil,
@@ -4804,7 +4804,7 @@ fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
 
 #[test]
 fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let target = Value::list(vec![Value::symbol("lambda"), Value::Nil, Value::Int(1)]);
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-property-target", target);
@@ -4863,7 +4863,7 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
 
 #[test]
 fn interactive_form_eval_skips_docstring_before_interactive_spec() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let lambda_with_doc = Value::list(vec![
         Value::symbol("lambda"),
         Value::Nil,
@@ -4883,7 +4883,7 @@ fn interactive_form_eval_skips_docstring_before_interactive_spec() {
 
 #[test]
 fn interactive_form_eval_returns_nil_for_non_interactive_lambda() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let lambda = Value::list(vec![Value::symbol("lambda"), Value::Nil, Value::Int(1)]);
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-plain", lambda);
@@ -4907,7 +4907,7 @@ fn interactive_form_eval_returns_nil_for_non_interactive_lambda() {
 
 #[test]
 fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let noarg_lambda = Value::list(vec![
         Value::symbol("lambda"),
         Value::Nil,
@@ -4949,7 +4949,7 @@ fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
 
 #[test]
 fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let dotted_interactive = Value::list(vec![
         Value::symbol("lambda"),
@@ -5106,7 +5106,7 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn internal_make_var_non_special_clears_special_flag() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     eval.obarray_mut().make_special("x");
     assert!(eval.obarray().is_special("x"));
 
@@ -5312,7 +5312,7 @@ fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn defvar_1_binds_only_when_default_is_unbound() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let result = builtin_defvar_1_eval(
         &mut eval,
@@ -5345,7 +5345,7 @@ fn defvar_1_binds_only_when_default_is_unbound() {
 
 #[test]
 fn defconst_1_sets_constant_value_and_risky_local_property() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let result = builtin_defconst_1_eval(
         &mut eval,
@@ -5375,7 +5375,7 @@ fn defconst_1_sets_constant_value_and_risky_local_property() {
 #[test]
 fn pure_dispatch_define_coding_system_internal_not_in_pure_path() {
     // define-coding-system-internal is now dispatched via the eval-aware
-    // path (it needs &mut CodingSystemManager from the Evaluator).
+    // path (it needs &mut CodingSystemManager from the Context).
     // The pure dispatch returns None for it.
     let result = dispatch_builtin_pure("define-coding-system-internal", vec![Value::Nil; 13]);
     assert!(result.is_none(), "should not resolve in pure dispatch");
@@ -5405,7 +5405,7 @@ fn pure_dispatch_process_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn kill_emacs_eval_requests_shutdown_and_stops_command_loop() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     eval.command_loop.running = true;
 
     let result = super::symbols::builtin_kill_emacs_eval(&mut eval, vec![Value::Int(7)])
@@ -5697,7 +5697,7 @@ fn pure_dispatch_typed_ignore_accepts_any_arity() {
 
 #[test]
 fn match_data_round_trip_with_nil_groups() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_set_match_data_eval(
         &mut eval,
@@ -5749,7 +5749,7 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
 
 #[test]
 fn match_beginning_end_return_nil_without_match_data() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     builtin_set_match_data_eval(&mut eval, vec![Value::Nil]).expect("set-match-data nil");
 
     let beg = builtin_match_beginning(&mut eval, vec![Value::Int(0)])
@@ -5762,7 +5762,7 @@ fn match_beginning_end_return_nil_without_match_data() {
 
 #[test]
 fn negative_match_group_signals_args_out_of_range() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let match_string_err = builtin_match_string(&mut eval, vec![Value::Int(-1)])
         .expect_err("negative subgroup should signal");
@@ -5797,7 +5797,7 @@ fn negative_match_group_signals_args_out_of_range() {
 
 #[test]
 fn buffer_region_negative_bounds_signal_without_panicking() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
     let current = builtin_current_buffer(&mut eval, vec![]).expect("current-buffer should work");
 
@@ -5843,7 +5843,7 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
 
 #[test]
 fn delete_region_normalizes_reversed_bounds() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
 
     builtin_delete_region(&mut eval, vec![Value::Int(3), Value::Int(2)])
@@ -5855,7 +5855,7 @@ fn delete_region_normalizes_reversed_bounds() {
 
 #[test]
 fn string_match_start_handles_nil_and_negative_offsets() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let with_nil = builtin_string_match_eval(
         &mut eval,
         vec![Value::string("a"), Value::string("ba"), Value::Nil],
@@ -5879,7 +5879,7 @@ fn string_match_start_handles_nil_and_negative_offsets() {
 
 #[test]
 fn search_match_runtime_arity_edges_match_oracle_contracts() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let search_over_arity = builtin_search_forward(
         &mut eval,
@@ -5992,16 +5992,16 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
 
 #[test]
 fn set_match_data_rejects_non_list() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_set_match_data_eval(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn looking_at_inhibit_modify_preserves_match_data() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("abc");
@@ -6019,9 +6019,9 @@ fn looking_at_inhibit_modify_preserves_match_data() {
 
 #[test]
 fn looking_at_updates_match_data_when_allowed() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("abc");
@@ -6062,9 +6062,9 @@ fn looking_at_updates_match_data_when_allowed() {
 
 #[test]
 fn looking_at_p_preserves_match_data() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("abc");
@@ -6081,9 +6081,9 @@ fn looking_at_p_preserves_match_data() {
 
 #[test]
 fn string_match_inhibit_modify_preserves_match_data() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let baseline = Value::list(vec![Value::Int(10), Value::Int(11)]);
     builtin_set_match_data_eval(&mut eval, vec![baseline]).expect("seed baseline");
 
@@ -6105,9 +6105,9 @@ fn string_match_inhibit_modify_preserves_match_data() {
 
 #[test]
 fn replace_match_missing_subexp_signals_error() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     builtin_string_match_eval(
         &mut eval,
         vec![Value::string("\\(foo\\)"), Value::string("foo")],
@@ -6138,9 +6138,9 @@ fn replace_match_missing_subexp_signals_error() {
 
 #[test]
 fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     builtin_set_match_data_eval(&mut eval, vec![Value::Nil]).expect("clear match data");
 
     let result = builtin_replace_match(&mut eval, vec![Value::string("bar")]);
@@ -6158,9 +6158,9 @@ fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
 
 #[test]
 fn replace_match_buffer_updates_live_match_data_like_gnu() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("foo-42");
@@ -6203,9 +6203,9 @@ fn replace_match_buffer_updates_live_match_data_like_gnu() {
 
 #[test]
 fn match_data_translate_shifts_groups_in_shared_eval_state() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     builtin_set_match_data_eval(
         &mut eval,
         vec![Value::list(vec![
@@ -6233,9 +6233,9 @@ fn match_data_translate_shifts_groups_in_shared_eval_state() {
 
 #[test]
 fn looking_at_p_respects_case_fold_search() {
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("A");
@@ -6261,7 +6261,7 @@ fn looking_at_p_respects_case_fold_search() {
 
 #[test]
 fn dispatch_builtin_resolves_typed_only_pure_names() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let result = dispatch_builtin(
         &mut eval,
         "string-equal",
@@ -6418,7 +6418,7 @@ fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
         "find-coding-systems-region-internal should use the eval-aware path"
     );
 
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let coding = dispatch_builtin(
         &mut eval,
         "find-coding-systems-region-internal",
@@ -6511,7 +6511,7 @@ fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders
 
 #[test]
 fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let result = dispatch_builtin(
         &mut eval,
         "internal--define-uninitialized-variable",
@@ -6531,7 +6531,7 @@ fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
 
 #[test]
 fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" *vm-labeled-narrow*");
     eval.buffers.set_current(buf_id);
     let _ = eval.buffers.insert_into_buffer(buf_id, "abcdef");
@@ -7017,7 +7017,7 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
 
 #[test]
 fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
         .expect("current-thread should resolve")
@@ -7046,7 +7046,7 @@ fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
 
 #[test]
 fn prin1_to_string_keeps_forged_threading_handles_as_cons() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let forged_thread = Value::cons(Value::symbol("thread"), Value::Int(0));
     let thread_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![forged_thread])
@@ -7069,7 +7069,7 @@ fn prin1_to_string_keeps_forged_threading_handles_as_cons() {
 
 #[test]
 fn prin1_to_string_supports_noescape_for_strings() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let value = Value::string("a\nb");
 
     let escaped = dispatch_builtin(&mut eval, "prin1-to-string", vec![value])
@@ -7087,7 +7087,7 @@ fn prin1_to_string_supports_noescape_for_strings() {
 
 #[test]
 fn prin1_to_string_respects_print_gensym_binding() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let sym = Value::Symbol(intern_uninterned("vm-print-gensym"));
 
     let default_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![sym])
@@ -7104,7 +7104,7 @@ fn prin1_to_string_respects_print_gensym_binding() {
 
 #[test]
 fn prin1_to_string_ignores_extra_args_for_compat() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let result = dispatch_builtin(
         &mut eval,
         "prin1-to-string",
@@ -7117,7 +7117,7 @@ fn prin1_to_string_ignores_extra_args_for_compat() {
 
 #[test]
 fn format_prints_thread_handles_as_opaque_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
         .expect("current-thread should resolve")
         .expect("current-thread should evaluate");
@@ -7135,7 +7135,7 @@ fn format_prints_thread_handles_as_opaque_in_eval_dispatch() {
 
 #[test]
 fn message_prints_thread_handles_as_opaque_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
         .expect("current-thread should resolve")
         .expect("current-thread should evaluate");
@@ -7147,7 +7147,7 @@ fn message_prints_thread_handles_as_opaque_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_terminal_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let terminals = dispatch_builtin(&mut eval, "terminal-list", vec![])
         .expect("terminal-list should resolve")
         .expect("terminal-list should evaluate");
@@ -7175,7 +7175,7 @@ fn format_and_message_render_terminal_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_mutex_condvar_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let mutex = dispatch_builtin(&mut eval, "make-mutex", vec![])
         .expect("make-mutex should resolve")
         .expect("make-mutex should evaluate");
@@ -7206,7 +7206,7 @@ fn format_and_message_render_mutex_condvar_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_killed_buffer_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buffer = create_unique_test_buffer(&mut eval, "*format-killed-buffer*");
     let _ = dispatch_builtin(&mut eval, "kill-buffer", vec![buffer])
         .expect("kill-buffer should resolve")
@@ -7225,7 +7225,7 @@ fn format_and_message_render_killed_buffer_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_live_buffer_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buffer = create_unique_test_buffer(&mut eval, "*format-live-buffer*");
 
     let formatted = dispatch_builtin(&mut eval, "format", vec![Value::string("%S"), buffer])
@@ -7251,7 +7251,7 @@ fn format_and_message_render_live_buffer_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_percent_s_render_live_buffer_names_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let expected = "*format-live-s-buffer*";
     let buffer = create_unique_test_buffer(&mut eval, expected);
 
@@ -7268,7 +7268,7 @@ fn format_and_message_percent_s_render_live_buffer_names_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_percent_s_render_killed_buffer_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buffer = create_unique_test_buffer(&mut eval, "*format-killed-s-buffer*");
     let _ = dispatch_builtin(&mut eval, "kill-buffer", vec![buffer])
         .expect("kill-buffer should resolve")
@@ -7287,7 +7287,7 @@ fn format_and_message_percent_s_render_killed_buffer_handles_in_eval_dispatch() 
 
 #[test]
 fn format_and_message_render_frame_window_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
         .expect("selected-frame should evaluate");
@@ -7332,7 +7332,7 @@ fn format_and_message_render_frame_window_handles_in_eval_dispatch() {
 
 #[test]
 fn format_message_renders_opaque_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
         .expect("current-thread should resolve")
@@ -7433,9 +7433,9 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
 
 #[test]
 fn error_message_string_preserves_percent_s_handle_semantics() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
-    let render_error_message = |eval: &mut crate::emacs_core::eval::Evaluator,
+    let render_error_message = |eval: &mut crate::emacs_core::eval::Context,
                                 spec: &str,
                                 value: Value|
      -> String {
@@ -7492,7 +7492,7 @@ fn error_message_string_preserves_percent_s_handle_semantics() {
 
 #[test]
 fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     for (builtin, symbol) in [
         ("message-box", "message-box"),
         ("message-or-box", "message-or-box"),
@@ -7756,7 +7756,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
 
 #[test]
 fn message_nil_returns_nil() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let raw = builtin_message(vec![Value::Nil]).expect("message should accept nil");
     assert!(raw.is_nil());
@@ -7782,7 +7782,7 @@ fn message_nil_returns_nil() {
 
 #[test]
 fn message_eval_triggers_redisplay_with_current_echo_state() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let redisplays = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
     let redisplays_capture = std::sync::Arc::clone(&redisplays);
 
@@ -7908,7 +7908,7 @@ fn assoc_delete_all_supports_default_equal_and_optional_test() {
 
 #[test]
 fn insert_char_nonunicode_char_code_bounds_match_oracle() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert_char(&mut eval, vec![Value::Int(0x11_0000), Value::Int(1)])
@@ -7949,7 +7949,7 @@ fn insert_char_nonunicode_char_code_bounds_match_oracle() {
 
 #[test]
 fn insert_nonunicode_integer_arguments_match_oracle() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert(&mut eval, vec![Value::Int(0x11_0000)])
@@ -7993,7 +7993,7 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
 
 #[test]
 fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_insert_byte(&mut eval, vec![Value::Int(65), Value::Int(2)])
         .expect("insert-byte should insert ASCII bytes");
@@ -8031,7 +8031,7 @@ fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
 
 #[test]
 fn format_message_and_message_signal_strict_format_errors() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     for builtin in ["format", "format-message"] {
         for bad in [Value::Int(1), Value::Nil, Value::symbol("foo")] {
@@ -8208,7 +8208,7 @@ fn internal_save_selected_window_helpers_restore_selected_window() {
 
 #[test]
 fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let builtin_symbol = builtin_functionp_eval(&mut eval, vec![Value::symbol("message")])
         .expect("functionp should accept builtin symbol");
@@ -8352,7 +8352,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
 
 #[test]
 fn functionp_eval_resolves_t_and_keyword_symbol_designators() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-functionp-keyword");
     let orig_t = builtin_symbol_function(&mut eval, vec![Value::True])
@@ -8378,7 +8378,7 @@ fn functionp_eval_resolves_t_and_keyword_symbol_designators() {
 
 #[test]
 fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_fmakunbound(&mut eval, vec![Value::symbol("car")])
         .expect("fmakunbound should accept builtin name");
@@ -8438,7 +8438,7 @@ fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
 
 #[test]
 fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let regular = builtin_fset(&mut eval, vec![Value::symbol("vm-fsetnil"), Value::Nil])
         .expect("fset should accept nil definition payload");
@@ -8460,7 +8460,7 @@ fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
 
 #[test]
 fn fset_nil_nil_is_allowed_and_fmakunbound_rejects_constants() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let fset_nil = builtin_fset(&mut eval, vec![Value::Nil, Value::Nil])
         .expect("fset nil nil should match GNU");
@@ -8484,7 +8484,7 @@ fn fset_nil_nil_is_allowed_and_fmakunbound_rejects_constants() {
 
 #[test]
 fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-func-arity-keyword");
     let vm_nil = Value::symbol("vm-func-arity-nil-cell");
@@ -8541,7 +8541,7 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
 
 #[test]
 fn indirect_function_follows_t_and_keyword_alias_values() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-indirect-keyword-alias");
     let t_alias = Value::symbol("vm-indirect-through-t");
@@ -8580,7 +8580,7 @@ fn indirect_function_follows_t_and_keyword_alias_values() {
 
 #[test]
 fn macrop_eval_resolves_keyword_designators() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-macrop-keyword");
     let orig_keyword = builtin_symbol_function(&mut eval, vec![keyword])
@@ -8609,7 +8609,7 @@ fn macrop_eval_resolves_keyword_designators() {
 
 #[test]
 fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     // Install a test macro on `vm-test-mac` that acts like `when`:
     // (macro . (lambda (cond &rest body) (list 'if cond (cons 'progn body))))
@@ -8665,7 +8665,7 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
 
 #[test]
 fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let atom_ignores_bad_env =
         builtin_macroexpand_eval(&mut eval, vec![Value::symbol("x"), Value::Int(1)])
@@ -8726,7 +8726,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
 
 #[test]
 fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let not_macro = builtin_macroexpand_eval(
         &mut eval,
@@ -8755,7 +8755,7 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
 
 #[test]
 fn indirect_function_nil_and_non_symbol_behavior() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let noerror = builtin_indirect_function(
         &mut eval,
@@ -8791,7 +8791,7 @@ fn indirect_function_nil_and_non_symbol_behavior() {
 
 #[test]
 fn indirect_function_rejects_overflow_arity() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let err = builtin_indirect_function(
         &mut eval,
         vec![Value::symbol("ignore"), Value::Nil, Value::Nil],
@@ -8805,7 +8805,7 @@ fn indirect_function_rejects_overflow_arity() {
 
 #[test]
 fn indirect_function_resolves_deep_alias_chain_without_depth_cutoff() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let depth = 120;
 
     for idx in 0..depth {
@@ -8826,7 +8826,7 @@ fn indirect_function_resolves_deep_alias_chain_without_depth_cutoff() {
 
 #[test]
 fn fset_rejects_self_alias_cycle() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let err = builtin_fset(
         &mut eval,
@@ -8852,7 +8852,7 @@ fn fset_rejects_self_alias_cycle() {
 
 #[test]
 fn fset_rejects_two_node_alias_cycle() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let first = builtin_fset(
         &mut eval,
@@ -8883,7 +8883,7 @@ fn fset_rejects_two_node_alias_cycle() {
 
 #[test]
 fn fset_rejects_keyword_and_t_alias_cycles() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let first = builtin_fset(
         &mut eval,
@@ -8921,7 +8921,7 @@ fn fset_rejects_keyword_and_t_alias_cycles() {
 
 #[test]
 fn fset_nil_signals_setting_constant() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let err = builtin_fset(&mut eval, vec![Value::Nil, Value::symbol("car")])
         .expect_err("fset should reject writing nil's function cell");
@@ -8936,7 +8936,7 @@ fn fset_nil_signals_setting_constant() {
 
 #[test]
 fn fset_t_accepts_symbol_cell_updates() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let result = builtin_fset(&mut eval, vec![Value::True, Value::symbol("car")])
         .expect("fset should allow writing t's function cell");
@@ -8949,7 +8949,7 @@ fn fset_t_accepts_symbol_cell_updates() {
 
 #[test]
 fn keyword_symbols_are_bound_and_special_constants() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let keyword = Value::keyword(":vm-bound-keyword");
 
     let bound = builtin_boundp(&mut eval, vec![keyword]).expect("boundp should accept keyword");
@@ -8966,7 +8966,7 @@ fn keyword_symbols_are_bound_and_special_constants() {
 
 #[test]
 fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     eval.obarray_mut().make_special_id(intern("vm-bound-dyn"));
     eval.specbind(intern("vm-bound-dyn"), Value::Int(9));
@@ -8998,7 +8998,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
 
 #[test]
 fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let aliased = builtin_defvaralias_eval(
         &mut eval,
@@ -9073,7 +9073,7 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
 
 #[test]
 fn variable_watchers_observe_set_setq_and_makunbound() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-watcher-probe");
 
     super::super::advice::builtin_add_variable_watcher(
@@ -9122,7 +9122,7 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
 
 #[test]
 fn variable_watchers_observe_set_default_toplevel_value() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-watcher-probe");
 
     super::super::advice::builtin_add_variable_watcher(
@@ -9149,7 +9149,7 @@ fn variable_watchers_observe_set_default_toplevel_value() {
 
 #[test]
 fn defvaralias_triggers_variable_watchers_and_clears_alias_entry() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-defvaralias-watch-probe");
 
     super::super::advice::builtin_add_variable_watcher(
@@ -9190,7 +9190,7 @@ fn defvaralias_triggers_variable_watchers_and_clears_alias_entry() {
 
 #[test]
 fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-defvaralias-watch-probe");
 
     super::super::advice::builtin_add_variable_watcher(
@@ -9231,7 +9231,7 @@ fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
 
 #[test]
 fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-defvaralias-repoint-watch");
 
     builtin_defvaralias_eval(
@@ -9274,7 +9274,7 @@ fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
 
 #[test]
 fn defvaralias_rejects_invalid_inputs_and_cycles() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let constant_err = builtin_defvaralias_eval(
         &mut eval,
@@ -9332,7 +9332,7 @@ fn defvaralias_rejects_invalid_inputs_and_cycles() {
 
 #[test]
 fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let initial_plist = Value::list(vec![
         Value::symbol("a"),
@@ -9419,7 +9419,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
 
 #[test]
 fn put_promotes_symbol_properties_to_live_raw_plists() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let sym = Value::symbol("vm-live-plist");
 
     builtin_put(
@@ -9454,7 +9454,7 @@ fn put_promotes_symbol_properties_to_live_raw_plists() {
 
 #[test]
 fn register_code_conversion_map_publishes_symbol_properties() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let map = Value::vector(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
 
     let map_id = dispatch_builtin(
@@ -9505,7 +9505,7 @@ fn register_code_conversion_map_publishes_symbol_properties() {
 
 #[test]
 fn register_ccl_program_publishes_symbol_properties() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let program = Value::vector(vec![Value::Int(10), Value::Int(0), Value::Int(0)]);
 
     let program_id = dispatch_builtin(
@@ -9556,7 +9556,7 @@ fn register_ccl_program_publishes_symbol_properties() {
 
 #[test]
 fn ccl_symbol_designators_follow_plist_idx_gates() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let _ = builtin_put(
         &mut eval,
@@ -9709,7 +9709,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
 
 #[test]
 fn register_code_conversion_map_existing_symbol_plist_edges() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let first_id = dispatch_builtin(
         &mut eval,
@@ -9811,7 +9811,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
 
 #[test]
 fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     let baseline_program_id = dispatch_builtin(
         &mut eval,
@@ -9924,7 +9924,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
 
 #[test]
 fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     builtin_defvaralias_eval(
         &mut eval,
         vec![
@@ -9974,7 +9974,7 @@ fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
 
 #[test]
 fn set_allows_keyword_self_assignment_like_gnu_emacs() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let keyword = Value::keyword(":vm-set-keyword");
 
     let direct = builtin_set(&mut eval, vec![keyword, keyword])
@@ -9997,7 +9997,7 @@ fn set_allows_keyword_self_assignment_like_gnu_emacs() {
 
 #[test]
 fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     builtin_setplist_eval(
         &mut eval,
         vec![Value::symbol("vm-defvaralias-bad-plist"), Value::Int(1)],
@@ -10032,7 +10032,7 @@ fn neovm_precompile_file_builtin_writes_cache_and_returns_path() {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -10070,7 +10070,7 @@ fn neovm_precompile_file_builtin_rejects_compiled_inputs() {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -10093,7 +10093,7 @@ fn neovm_precompile_file_builtin_rejects_compiled_inputs() {
 
 #[test]
 fn get_byte_string_semantics_match_oracle_edges() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::Int(0), Value::string("abc")]).unwrap(),
@@ -10144,7 +10144,7 @@ fn get_byte_string_semantics_match_oracle_edges() {
 
 #[test]
 fn get_byte_buffer_semantics_match_oracle_edges() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     builtin_erase_buffer(&mut eval, vec![]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("abc")]).unwrap();
 
@@ -10217,7 +10217,7 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
 
 #[test]
 fn get_byte_unibyte_string_returns_raw_byte_values() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let s = builtin_unibyte_string(vec![Value::Int(255), Value::Int(65)]).unwrap();
 
     assert_eq!(

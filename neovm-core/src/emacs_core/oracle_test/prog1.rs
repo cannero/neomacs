@@ -1,7 +1,7 @@
 //! Oracle parity tests for `prog1`.
 //!
 //! Note: `prog2` is a Lisp macro defined in `subr.el` (not a C primitive),
-//! so it is not available in the bare `Evaluator::new()` used by oracle tests.
+//! so it is not available in the bare `Context::new()` used by oracle tests.
 //! It is tested via full neomacs which loads `subr.el`.
 
 use super::common::return_if_neovm_enable_oracle_proptest_not_set;

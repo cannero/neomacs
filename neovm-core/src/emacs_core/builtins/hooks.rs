@@ -7,7 +7,7 @@ use crate::emacs_core::symbol::Obarray;
 // ===========================================================================
 
 fn symbol_dynamic_buffer_or_global_value(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     name: &str,
 ) -> Option<Value> {
     symbol_dynamic_buffer_or_global_value_in_state(
@@ -92,7 +92,7 @@ pub(crate) fn collect_hook_functions_in_state(
 }
 
 fn run_hook_value(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     hook_name: &str,
     hook_value: Value,
     hook_args: &[Value],
@@ -118,7 +118,7 @@ fn run_hook_value(
     result
 }
 
-pub(crate) fn builtin_run_hooks(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_run_hooks(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     for hook_sym in &args {
         let hook_name = hook_sym.as_symbol_name().ok_or_else(|| {
             signal(
@@ -134,7 +134,7 @@ pub(crate) fn builtin_run_hooks(eval: &mut super::eval::Evaluator, args: Vec<Val
 }
 
 pub(crate) fn builtin_run_hook_with_args(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-with-args", &args, 1)?;
@@ -151,7 +151,7 @@ pub(crate) fn builtin_run_hook_with_args(
 }
 
 pub(crate) fn builtin_run_hook_with_args_until_success(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-with-args-until-success", &args, 1)?;
@@ -186,7 +186,7 @@ pub(crate) fn builtin_run_hook_with_args_until_success(
 }
 
 pub(crate) fn builtin_run_hook_with_args_until_failure(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-with-args-until-failure", &args, 1)?;
@@ -221,7 +221,7 @@ pub(crate) fn builtin_run_hook_with_args_until_failure(
 }
 
 pub(crate) fn builtin_run_hook_wrapped(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-hook-wrapped", &args, 2)?;
@@ -244,7 +244,7 @@ pub(crate) fn builtin_run_hook_wrapped(
 }
 
 pub(crate) fn builtin_run_hook_query_error_with_timeout(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("run-hook-query-error-with-timeout", &args, 1)?;
@@ -267,7 +267,7 @@ pub(crate) fn builtin_run_hook_query_error_with_timeout(
 
 fn expect_optional_live_frame_designator(
     value: &Value,
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
 ) -> Result<(), Flow> {
     expect_optional_live_frame_designator_in_state(value, &eval.frames)
 }
@@ -292,7 +292,7 @@ fn expect_optional_live_frame_designator_in_state(
 
 pub(super) fn expect_optional_live_window_designator(
     value: &Value,
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
 ) -> Result<(), Flow> {
     if value.is_nil() {
         return Ok(());
@@ -441,7 +441,7 @@ pub(crate) fn builtin_window_configuration_equal_p(args: Vec<Value>) -> EvalResu
 }
 
 pub(crate) fn builtin_current_window_configuration(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_window_configuration_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -501,7 +501,7 @@ pub(crate) fn builtin_current_window_configuration_in_state(
 }
 
 pub(crate) fn builtin_set_window_configuration(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let result =
@@ -574,7 +574,7 @@ fn save_selected_window_state_from_value(
 }
 
 pub(super) fn builtin_internal_before_save_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal--before-save-selected-window", &args, 0)?;
@@ -594,7 +594,7 @@ pub(super) fn builtin_internal_before_save_selected_window(
 }
 
 pub(super) fn builtin_internal_after_save_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal--after-save-selected-window", &args, 1)?;
@@ -621,7 +621,7 @@ pub(super) fn builtin_internal_after_save_selected_window(
 }
 
 pub(crate) fn builtin_run_window_configuration_change_hook(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("run-window-configuration-change-hook", &args, 1)?;
@@ -635,7 +635,7 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
 }
 
 pub(crate) fn builtin_run_window_scroll_functions(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("run-window-scroll-functions", &args, 1)?;
@@ -662,7 +662,7 @@ pub(crate) fn builtin_run_window_scroll_functions(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_featurep(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_featurep_in_state(&eval.obarray, &mut eval.features, args)
 }
 

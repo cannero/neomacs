@@ -1261,7 +1261,7 @@ mod tests {
     use super::*;
     use neomacs_display_protocol::frame_glyphs::FrameGlyph;
     use neomacs_display_protocol::types::Color;
-    use neovm_core::emacs_core::eval::Evaluator;
+    use neovm_core::emacs_core::eval::Context;
     use neovm_core::emacs_core::value::{StringTextPropertyRun, set_string_text_properties};
 
     // ---------------------------------------------------------------
@@ -2058,7 +2058,7 @@ mod tests {
 
     #[test]
     fn render_rust_status_line_value_preserves_string_face_properties() {
-        let eval = Evaluator::new();
+        let eval = Context::new();
         let mut engine = LayoutEngine::new();
         let mut fgb = FrameGlyphBuffer::with_size(320.0, 200.0);
         let resolver = FaceResolver::new(eval.face_table(), 0x000000, 0x00ffffff, 14.0);

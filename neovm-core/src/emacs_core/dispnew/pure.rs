@@ -81,7 +81,7 @@ fn expect_window_designator(value: &Value) -> Result<(), Flow> {
     }
 }
 
-fn live_window_designator_p(eval: &mut crate::emacs_core::eval::Evaluator, value: &Value) -> bool {
+fn live_window_designator_p(eval: &mut crate::emacs_core::eval::Context, value: &Value) -> bool {
     match value {
         Value::Window(id) => eval.frames.find_window_frame_id(WindowId(*id)).is_some(),
         Value::Int(id) if *id >= 0 => eval
@@ -93,7 +93,7 @@ fn live_window_designator_p(eval: &mut crate::emacs_core::eval::Evaluator, value
 }
 
 fn expect_window_designator_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     value: &Value,
 ) -> Result<(), Flow> {
     if value.is_nil() || live_window_designator_p(eval, value) {
@@ -136,7 +136,7 @@ fn window_id_from_window_designator(value: &Value) -> Option<WindowId> {
     }
 }
 
-fn selected_window_id(eval: &mut crate::emacs_core::eval::Evaluator) -> Option<WindowId> {
+fn selected_window_id(eval: &mut crate::emacs_core::eval::Context) -> Option<WindowId> {
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(eval);
     eval.frames.get(frame_id).map(|frame| frame.selected_window)
 }
@@ -151,7 +151,7 @@ fn selected_window_id_in_state(
 }
 
 fn resolve_internal_show_cursor_window_id(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     value: &Value,
 ) -> Option<WindowId> {
     if value.is_nil() {
@@ -215,11 +215,11 @@ pub(crate) fn builtin_redraw_frame(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `redraw-frame`.
+/// Context-aware variant of `redraw-frame`.
 ///
 /// Accepts live frame designators in addition to nil.
 pub(crate) fn builtin_redraw_frame_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("redraw-frame", &args, 0, 1)?;
@@ -274,11 +274,11 @@ pub(crate) fn builtin_send_string_to_terminal(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Evaluator-aware variant of `send-string-to-terminal`.
+/// Context-aware variant of `send-string-to-terminal`.
 ///
 /// Accepts live frame designators for the optional TERMINAL argument.
 pub(crate) fn builtin_send_string_to_terminal_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("send-string-to-terminal", &args, 1, 2)?;
@@ -323,11 +323,11 @@ pub(crate) fn builtin_internal_show_cursor(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `internal-show-cursor`.
+/// Context-aware variant of `internal-show-cursor`.
 ///
 /// Accepts live window designators in addition to nil.
 pub(crate) fn builtin_internal_show_cursor_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal-show-cursor", &args, 2)?;
@@ -368,11 +368,11 @@ pub(crate) fn builtin_internal_show_cursor_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))
 }
 
-/// Evaluator-aware variant of `internal-show-cursor-p`.
+/// Context-aware variant of `internal-show-cursor-p`.
 ///
 /// Accepts live window designators in addition to nil.
 pub(crate) fn builtin_internal_show_cursor_p_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("internal-show-cursor-p", &args, 0, 1)?;

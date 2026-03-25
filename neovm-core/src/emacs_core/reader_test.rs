@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
     create_bootstrap_evaluator_cached,
@@ -18,8 +18,8 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
-    let mut eval = Evaluator::new();
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
+    let mut eval = Context::new();
     for name in names {
         eval.obarray_mut().fmakunbound(name);
     }
@@ -33,7 +33,7 @@ fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
 
 #[test]
 fn read_from_string_integer() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("42")]).unwrap();
     // Should be (42 . 2)
     match &result {
@@ -48,7 +48,7 @@ fn read_from_string_integer() {
 
 #[test]
 fn read_from_string_symbol() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("hello")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -62,7 +62,7 @@ fn read_from_string_symbol() {
 
 #[test]
 fn read_from_string_string_value() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result =
         builtin_read_from_string(&mut ev, vec![Value::string(r#""hello world""#)]).unwrap();
     match &result {
@@ -77,7 +77,7 @@ fn read_from_string_string_value() {
 
 #[test]
 fn read_from_string_list() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(+ 1 2)")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -92,7 +92,7 @@ fn read_from_string_list() {
 
 #[test]
 fn read_from_string_with_start() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     // "  42 rest" — start at 2
     let result =
         builtin_read_from_string(&mut ev, vec![Value::string("  42 rest"), Value::Int(2)]).unwrap();
@@ -108,7 +108,7 @@ fn read_from_string_with_start() {
 
 #[test]
 fn read_from_string_float() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("3.14")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -121,7 +121,7 @@ fn read_from_string_float() {
 
 #[test]
 fn read_from_string_char() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("?a")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -134,7 +134,7 @@ fn read_from_string_char() {
 
 #[test]
 fn read_from_string_nil() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("nil")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -147,7 +147,7 @@ fn read_from_string_nil() {
 
 #[test]
 fn read_from_string_t() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("t")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -160,7 +160,7 @@ fn read_from_string_t() {
 
 #[test]
 fn read_from_string_vector() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("[1 2 3]")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -173,7 +173,7 @@ fn read_from_string_vector() {
 
 #[test]
 fn read_from_string_quoted() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("'foo")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -188,7 +188,7 @@ fn read_from_string_quoted() {
 
 #[test]
 fn read_from_string_dotted_pair() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(a . b)")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -202,7 +202,7 @@ fn read_from_string_dotted_pair() {
 
 #[test]
 fn read_from_string_keyword() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string(":test")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -215,7 +215,7 @@ fn read_from_string_keyword() {
 
 #[test]
 fn read_from_string_uninterned_symbol() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#:test")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -234,21 +234,21 @@ fn read_from_string_uninterned_symbol() {
 
 #[test]
 fn read_from_string_empty_error() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_from_string_whitespace_only_error() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("   ")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_from_string_multiple_forms_reads_first() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("42 99")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -266,7 +266,7 @@ fn read_from_string_multiple_forms_reads_first() {
 
 #[test]
 fn read_from_string_with_start_and_end() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     // "xxx42yyy" with start=3, end=5 -> substring "42"
     let result = builtin_read_from_string(
         &mut ev,
@@ -289,35 +289,35 @@ fn read_from_string_with_start_and_end() {
 
 #[test]
 fn read_from_string_stream() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::string("42")]).unwrap();
     assert!(matches!(result, Value::Int(42)));
 }
 
 #[test]
 fn read_nil_stream() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::Nil]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_no_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_rejects_extra_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::string("a"), Value::Nil]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_non_stream_type_is_invalid_function() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::Int(1)]);
     match result {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "invalid-function"),
@@ -331,14 +331,14 @@ fn read_non_stream_type_is_invalid_function() {
 
 #[test]
 fn read_from_minibuffer_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_minibuffer(&mut ev, vec![Value::string("Prompt: ")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_from_minibuffer_non_character_event_stays_queued_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo")]),
@@ -353,7 +353,7 @@ fn read_from_minibuffer_non_character_event_stays_queued_and_signals_end_of_file
 
 #[test]
 fn read_from_minibuffer_ignores_initial_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_minibuffer(
         &mut ev,
         vec![Value::string("Prompt: "), Value::string("initial")],
@@ -363,7 +363,7 @@ fn read_from_minibuffer_ignores_initial_and_signals_end_of_file() {
 
 #[test]
 fn read_from_minibuffer_rejects_non_stringish_initial_input() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result =
         builtin_read_from_minibuffer(&mut ev, vec![Value::string("Prompt: "), Value::Int(1)]);
     assert!(matches!(
@@ -374,7 +374,7 @@ fn read_from_minibuffer_rejects_non_stringish_initial_input() {
 
 #[test]
 fn read_from_minibuffer_rejects_cons_initial_with_non_string_car() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let cons_initial = Value::cons(Value::Int(1), Value::Int(1));
     let result =
         builtin_read_from_minibuffer(&mut ev, vec![Value::string("Prompt: "), cons_initial]);
@@ -386,7 +386,7 @@ fn read_from_minibuffer_rejects_cons_initial_with_non_string_car() {
 
 #[test]
 fn read_from_minibuffer_rejects_more_than_seven_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_minibuffer(
         &mut ev,
         vec![
@@ -408,7 +408,7 @@ fn read_from_minibuffer_rejects_more_than_seven_args() {
 
 #[test]
 fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut ev);
     let minibuffer_window = ev
         .frame_manager()
@@ -467,14 +467,14 @@ fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
 
 #[test]
 fn read_string_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_string(&mut ev, vec![Value::string("Prompt: ")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_string_non_character_event_stays_queued_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo")]),
@@ -489,7 +489,7 @@ fn read_string_non_character_event_stays_queued_and_signals_end_of_file() {
 
 #[test]
 fn read_string_ignores_initial_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_string(
         &mut ev,
         vec![Value::string("Prompt: "), Value::string("initial")],
@@ -499,7 +499,7 @@ fn read_string_ignores_initial_and_signals_end_of_file() {
 
 #[test]
 fn read_string_rejects_non_stringish_initial_input() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_string(&mut ev, vec![Value::string("Prompt: "), Value::Int(1)]);
     assert!(matches!(
         result,
@@ -509,7 +509,7 @@ fn read_string_rejects_non_stringish_initial_input() {
 
 #[test]
 fn read_string_rejects_cons_initial_with_non_string_car() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let cons_initial = Value::cons(Value::Int(1), Value::Int(1));
     let result = builtin_read_string(&mut ev, vec![Value::string("Prompt: "), cons_initial]);
     assert!(matches!(
@@ -520,7 +520,7 @@ fn read_string_rejects_cons_initial_with_non_string_car() {
 
 #[test]
 fn read_string_rejects_more_than_five_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_string(
         &mut ev,
         vec![
@@ -570,7 +570,7 @@ fn finish_read_string_with_minibuffer_builds_expected_args() {
 
 #[test]
 fn completing_read_minibuffer_args_choose_completion_keymap_by_require_match() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "minibuffer-local-completion-map",
         Value::symbol("completion-map"),
@@ -620,14 +620,14 @@ fn completing_read_minibuffer_args_choose_completion_keymap_by_require_match() {
 
 #[test]
 fn read_number_signals_end_of_file_even_with_default() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: "), Value::Int(42)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_number_non_character_event_stays_queued_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo")]),
@@ -642,14 +642,14 @@ fn read_number_non_character_event_stays_queued_and_signals_end_of_file() {
 
 #[test]
 fn read_number_signals_end_of_file_without_default() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: ")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_number_rejects_non_numeric_default() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: "), Value::string("x")]);
     assert!(matches!(
         result,
@@ -659,7 +659,7 @@ fn read_number_rejects_non_numeric_default() {
 
 #[test]
 fn read_number_accepts_numeric_default_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_number(
         &mut ev,
         vec![
@@ -675,7 +675,7 @@ fn read_number_accepts_numeric_default_and_signals_end_of_file() {
 
 #[test]
 fn read_number_rejects_more_than_three_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_number(
         &mut ev,
         vec![
@@ -693,7 +693,7 @@ fn read_number_rejects_more_than_three_args() {
 
 #[test]
 fn read_number_rejects_non_string_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::Int(123)]);
     assert!(matches!(
         result,
@@ -767,14 +767,14 @@ fn read_passwd_loaded_rejects_wrong_arity() {
 
 #[test]
 fn completing_read_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_completing_read(&mut ev, vec![Value::string("Choose: "), Value::Nil]);
     assert!(result.is_err());
 }
 
 #[test]
 fn completing_read_non_character_event_stays_queued_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo")]),
@@ -789,7 +789,7 @@ fn completing_read_non_character_event_stays_queued_and_signals_end_of_file() {
 
 #[test]
 fn completing_read_ignores_default_and_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_completing_read(
         &mut ev,
         vec![
@@ -805,7 +805,7 @@ fn completing_read_ignores_default_and_signals_end_of_file() {
 
 #[test]
 fn completing_read_rejects_non_stringish_initial_input() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_completing_read(
         &mut ev,
         vec![
@@ -824,7 +824,7 @@ fn completing_read_rejects_non_stringish_initial_input() {
 
 #[test]
 fn completing_read_accepts_cons_initial_with_string_and_position() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let cons_initial = Value::cons(Value::string("x"), Value::Int(1));
     let result = builtin_completing_read(
         &mut ev,
@@ -844,7 +844,7 @@ fn completing_read_accepts_cons_initial_with_string_and_position() {
 
 #[test]
 fn completing_read_rejects_cons_initial_with_non_string_car() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let cons_initial = Value::cons(Value::Int(1), Value::Int(1));
     let result = builtin_completing_read(
         &mut ev,
@@ -864,7 +864,7 @@ fn completing_read_rejects_cons_initial_with_non_string_car() {
 
 #[test]
 fn completing_read_rejects_cons_initial_with_non_numeric_position() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let cons_initial = Value::cons(Value::string("x"), Value::Nil);
     let result = builtin_completing_read(
         &mut ev,
@@ -884,7 +884,7 @@ fn completing_read_rejects_cons_initial_with_non_numeric_position() {
 
 #[test]
 fn completing_read_rejects_more_than_eight_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_completing_read(
         &mut ev,
         vec![
@@ -907,21 +907,21 @@ fn completing_read_rejects_more_than_eight_args() {
 
 #[test]
 fn y_or_n_p_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn y_or_n_p_rejects_non_sequence_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_y_or_n_p(&mut ev, vec![Value::Int(123)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn y_or_n_p_rejects_extra_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? "), Value::Nil]);
     assert!(matches!(
         result,
@@ -931,11 +931,11 @@ fn y_or_n_p_rejects_extra_arg() {
 
 #[test]
 fn y_or_n_p_accepts_nil_and_vector_prompts() {
-    let mut ev_nil = Evaluator::new();
+    let mut ev_nil = Context::new();
     let nil_prompt = builtin_y_or_n_p(&mut ev_nil, vec![Value::Nil]);
     assert!(nil_prompt.is_err());
 
-    let mut ev_vec = Evaluator::new();
+    let mut ev_vec = Context::new();
     let vector_prompt = builtin_y_or_n_p(
         &mut ev_vec,
         vec![Value::vector(vec![
@@ -949,7 +949,7 @@ fn y_or_n_p_accepts_nil_and_vector_prompts() {
 
 #[test]
 fn y_or_n_p_rejects_list_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_y_or_n_p(
         &mut ev,
         vec![Value::list(vec![
@@ -966,7 +966,7 @@ fn y_or_n_p_rejects_list_prompt() {
 
 #[test]
 fn y_or_n_p_ignores_unread_events_and_eofs() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(121)]));
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
@@ -982,7 +982,7 @@ fn y_or_n_p_ignores_unread_events_and_eofs() {
 
 #[test]
 fn y_or_n_p_unread_events_do_not_change() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(110)]));
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
@@ -998,7 +998,7 @@ fn y_or_n_p_unread_events_do_not_change() {
 
 #[test]
 fn y_or_n_p_rejects_invalid_character_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(48)]));
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
@@ -1011,21 +1011,21 @@ fn y_or_n_p_rejects_invalid_character_event() {
 
 #[test]
 fn yes_or_no_p_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn yes_or_no_p_rejects_non_string_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::Int(123)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn yes_or_no_p_rejects_extra_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? "), Value::Nil]);
     assert!(matches!(
         result,
@@ -1035,7 +1035,7 @@ fn yes_or_no_p_rejects_extra_arg() {
 
 #[test]
 fn yes_or_no_p_ignores_unread_events_and_eofs() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(89)]));
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
@@ -1051,7 +1051,7 @@ fn yes_or_no_p_ignores_unread_events_and_eofs() {
 
 #[test]
 fn yes_or_no_p_unread_events_do_not_change() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(110)]));
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
@@ -1067,7 +1067,7 @@ fn yes_or_no_p_unread_events_do_not_change() {
 
 #[test]
 fn yes_or_no_p_rejects_invalid_character_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(48)]));
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
@@ -1080,7 +1080,7 @@ fn yes_or_no_p_rejects_invalid_character_event() {
 
 #[test]
 fn yes_or_no_p_rejects_nil_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::Nil]);
     assert!(matches!(
         result,
@@ -1109,14 +1109,14 @@ fn finish_yes_or_no_p_with_minibuffer_retries_until_valid_answer() {
 
 #[test]
 fn input_pending_p_returns_nil_without_events() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn input_pending_p_returns_t_with_unread_events() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
@@ -1125,7 +1125,7 @@ fn input_pending_p_returns_t_with_unread_events() {
 
 #[test]
 fn input_pending_p_uses_dynamic_unread_command_events_binding() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let forms = parse_forms("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
@@ -1139,7 +1139,7 @@ fn input_pending_p_uses_dynamic_unread_command_events_binding() {
 
 #[test]
 fn input_pending_p_returns_nil_for_non_list_unread_command_events() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::Int(7));
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
@@ -1148,7 +1148,7 @@ fn input_pending_p_returns_nil_for_non_list_unread_command_events() {
 
 #[test]
 fn input_pending_p_accepts_optional_check_timers_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo")]),
@@ -1159,7 +1159,7 @@ fn input_pending_p_accepts_optional_check_timers_arg() {
 
 #[test]
 fn input_pending_p_rejects_more_than_one_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_input_pending_p(&mut ev, vec![Value::Nil, Value::Nil]);
     assert!(matches!(
         result,
@@ -1169,14 +1169,14 @@ fn input_pending_p_rejects_more_than_one_arg() {
 
 #[test]
 fn discard_input_returns_nil() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_discard_input(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn discard_input_clears_unread_command_events() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_discard_input(&mut ev, vec![]).unwrap();
@@ -1189,7 +1189,7 @@ fn discard_input_clears_unread_command_events() {
 
 #[test]
 fn discard_input_uses_dynamic_unread_command_events_binding() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let forms = parse_forms(
@@ -1206,7 +1206,7 @@ fn discard_input_uses_dynamic_unread_command_events_binding() {
 
 #[test]
 fn discard_input_rejects_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_discard_input(&mut ev, vec![Value::Nil]);
     assert!(matches!(
         result,
@@ -1216,7 +1216,7 @@ fn discard_input_rejects_args() {
 
 #[test]
 fn current_input_mode_returns_batch_tuple() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_current_input_mode(&mut ev, vec![]).unwrap();
     assert_eq!(
         result,
@@ -1226,7 +1226,7 @@ fn current_input_mode_returns_batch_tuple() {
 
 #[test]
 fn current_input_mode_rejects_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_current_input_mode(&mut ev, vec![Value::Nil]);
     assert!(matches!(
         result,
@@ -1236,7 +1236,7 @@ fn current_input_mode_rejects_args() {
 
 #[test]
 fn set_input_mode_toggles_interrupt_only() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let _ = builtin_set_input_mode(
         &mut ev,
         vec![Value::Nil, Value::True, Value::Nil, Value::Int(65)],
@@ -1260,7 +1260,7 @@ fn set_input_mode_toggles_interrupt_only() {
 
 #[test]
 fn set_input_mode_rejects_wrong_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let too_few = builtin_set_input_mode(&mut ev, vec![Value::Nil, Value::Nil]);
     assert!(matches!(
         too_few,
@@ -1279,7 +1279,7 @@ fn set_input_mode_rejects_wrong_arity() {
 
 #[test]
 fn set_input_mode_accepts_three_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_set_input_mode(&mut ev, vec![Value::Nil, Value::True, Value::True])
         .expect("set-input-mode should accept 3 args");
     assert!(result.is_nil());
@@ -1291,7 +1291,7 @@ fn set_input_mode_accepts_three_args() {
 
 #[test]
 fn set_input_interrupt_mode_toggles_interrupt_state() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let _ = builtin_set_input_interrupt_mode(&mut ev, vec![Value::Nil]).unwrap();
     assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
@@ -1306,7 +1306,7 @@ fn set_input_interrupt_mode_toggles_interrupt_state() {
 
 #[test]
 fn set_input_interrupt_mode_rejects_wrong_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_set_input_interrupt_mode(&mut ev, vec![Value::Nil, Value::Nil]);
     assert!(matches!(
         result,
@@ -1384,7 +1384,7 @@ fn waiting_for_user_input_p_returns_nil() {
 
 #[test]
 fn waiting_for_user_input_p_eval_tracks_runtime_flag() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.set_waiting_for_user_input(true);
     let result = builtin_waiting_for_user_input_p_eval(&mut eval, vec![]).unwrap();
     assert!(matches!(result, Value::True));
@@ -1401,14 +1401,14 @@ fn waiting_for_user_input_p_rejects_args() {
 
 #[test]
 fn read_char_returns_nil() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_char(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn read_char_rejects_non_string_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_char(&mut ev, vec![Value::Int(123)]);
     assert!(matches!(
         result,
@@ -1418,7 +1418,7 @@ fn read_char_rejects_non_string_prompt() {
 
 #[test]
 fn read_char_consumes_unread_command_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_char(&mut ev, vec![]).unwrap();
@@ -1429,7 +1429,7 @@ fn read_char_consumes_unread_command_event() {
 
 #[test]
 fn read_char_with_seconds_does_not_set_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_char(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
@@ -1439,7 +1439,7 @@ fn read_char_with_seconds_does_not_set_command_keys_when_empty() {
 
 #[test]
 fn read_char_with_nil_seconds_sets_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_char(&mut ev, vec![Value::Nil, Value::Nil, Value::Nil]).unwrap();
@@ -1449,7 +1449,7 @@ fn read_char_with_nil_seconds_sets_command_keys_when_empty() {
 
 #[test]
 fn read_char_preserves_existing_command_keys_context() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(98)]));
@@ -1460,7 +1460,7 @@ fn read_char_preserves_existing_command_keys_context() {
 
 #[test]
 fn read_char_signals_error_on_non_character_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo")]),
@@ -1481,7 +1481,7 @@ fn read_char_signals_error_on_non_character_event() {
 
 #[test]
 fn read_char_non_character_truncates_unread_tail_to_offending_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo"), Value::Int(97)]),
@@ -1502,7 +1502,7 @@ fn read_char_non_character_truncates_unread_tail_to_offending_event() {
 
 #[test]
 fn read_char_consumes_character_event_and_preserves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::Int(97), Value::symbol("foo")]),
@@ -1517,7 +1517,7 @@ fn read_char_consumes_character_event_and_preserves_tail() {
 
 #[test]
 fn read_char_rejects_more_than_three_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_char(
         &mut ev,
         vec![
@@ -1535,7 +1535,7 @@ fn read_char_rejects_more_than_three_args() {
 
 #[test]
 fn read_key_consumes_unread_command_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key(&mut ev, vec![]).unwrap();
@@ -1545,7 +1545,7 @@ fn read_key_consumes_unread_command_event() {
 
 #[test]
 fn read_key_rejects_non_string_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_key(&mut ev, vec![Value::Int(123)]);
     assert!(matches!(
         result,
@@ -1555,7 +1555,7 @@ fn read_key_rejects_non_string_prompt() {
 
 #[test]
 fn read_key_accepts_second_optional_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key(&mut ev, vec![Value::string("key: "), Value::Int(1)]).unwrap();
@@ -1564,7 +1564,7 @@ fn read_key_accepts_second_optional_arg() {
 
 #[test]
 fn read_key_rejects_more_than_two_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_key(
         &mut ev,
         vec![Value::string("key: "), Value::Nil, Value::Int(123)],
@@ -1577,7 +1577,7 @@ fn read_key_rejects_more_than_two_args() {
 
 #[test]
 fn read_key_returns_non_integer_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("f");
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![event]));
@@ -1588,7 +1588,7 @@ fn read_key_returns_non_integer_event() {
 
 #[test]
 fn read_key_consumes_unread_character_and_keeps_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1605,7 +1605,7 @@ fn read_key_consumes_unread_character_and_keeps_tail() {
 
 #[test]
 fn read_key_consumes_character_event_and_preserves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1622,14 +1622,14 @@ fn read_key_consumes_character_event_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_returns_empty_string() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
     assert!(matches!(result, Value::Str(_)) && result.as_str() == Some(""));
 }
 
 #[test]
 fn read_key_sequence_consumes_unread_command_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
@@ -1639,7 +1639,7 @@ fn read_key_sequence_consumes_unread_command_event() {
 
 #[test]
 fn read_key_sequence_consumes_non_character_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("f");
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![event]));
@@ -1657,7 +1657,7 @@ fn read_key_sequence_consumes_non_character_event() {
 
 #[test]
 fn read_key_sequence_consumes_non_character_event_and_preserves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1681,7 +1681,7 @@ fn read_key_sequence_consumes_non_character_event_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_consumes_character_and_preserves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1698,7 +1698,7 @@ fn read_key_sequence_consumes_character_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_accepts_nil_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key_sequence(&mut ev, vec![Value::Nil]).unwrap();
@@ -1707,7 +1707,7 @@ fn read_key_sequence_accepts_nil_prompt() {
 
 #[test]
 fn read_key_sequence_rejects_more_than_six_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key_sequence(
@@ -1730,7 +1730,7 @@ fn read_key_sequence_rejects_more_than_six_args() {
 
 #[test]
 fn read_key_sequence_vector_returns_empty_vector() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result {
         Value::Vector(v) => assert!(with_heap(|h| h.get_vector(v).is_empty())),
@@ -1804,7 +1804,7 @@ fn read_key_sequence_vector_interactive_runtime_returns_blocking_sequence() {
 
 #[test]
 fn read_key_sequence_vector_consumes_unread_command_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
@@ -1821,7 +1821,7 @@ fn read_key_sequence_vector_consumes_unread_command_event() {
 
 #[test]
 fn read_key_sequence_vector_consumes_non_character_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("x");
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![event]));
@@ -1839,7 +1839,7 @@ fn read_key_sequence_vector_consumes_non_character_event() {
 
 #[test]
 fn read_key_sequence_vector_consumes_non_character_event_and_preserves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("bar");
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1863,7 +1863,7 @@ fn read_key_sequence_vector_consumes_non_character_event_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_vector_consumes_character_and_preserves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let event = Value::symbol("bar");
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1887,7 +1887,7 @@ fn read_key_sequence_vector_consumes_character_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_vector_accepts_nil_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::Nil]).unwrap();
@@ -1903,7 +1903,7 @@ fn read_key_sequence_vector_accepts_nil_prompt() {
 
 #[test]
 fn read_key_sequence_vector_rejects_more_than_six_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_key_sequence_vector(
@@ -1930,7 +1930,7 @@ fn read_key_sequence_vector_rejects_more_than_six_args() {
 
 #[test]
 fn with_output_to_string_captures_print_output() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms =
         parse_forms(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
     let result = ev.eval_expr(&forms[0]).unwrap();
@@ -1939,7 +1939,7 @@ fn with_output_to_string_captures_print_output() {
 
 #[test]
 fn with_output_to_string_keeps_explicit_destination_working() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
              (let ((buf (current-buffer)))
@@ -1959,7 +1959,7 @@ fn with_output_to_string_keeps_explicit_destination_working() {
 
 #[test]
 fn read_from_string_nested_list() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("((a b) (c d))")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -1973,7 +1973,7 @@ fn read_from_string_nested_list() {
 
 #[test]
 fn read_from_string_with_leading_whitespace() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("   42")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -1988,7 +1988,7 @@ fn read_from_string_with_leading_whitespace() {
 
 #[test]
 fn read_from_string_negative_number() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("-7")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -2001,21 +2001,21 @@ fn read_from_string_negative_number() {
 
 #[test]
 fn read_from_string_wrong_type() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::Int(42)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_from_string_no_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![]);
     assert!(result.is_err());
 }
 
 #[test]
 fn read_from_string_hash_syntax() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#xff")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -2028,7 +2028,7 @@ fn read_from_string_hash_syntax() {
 
 #[test]
 fn read_from_string_hash_space_payload_matches_oracle() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("# ")]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -2041,7 +2041,7 @@ fn read_from_string_hash_space_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_hash_unknown_dispatch_payload_matches_oracle() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
 
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#a")]);
     match result {
@@ -2064,7 +2064,7 @@ fn read_from_string_hash_unknown_dispatch_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_hash_radix_missing_digits_payload_matches_oracle() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#x")]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -2077,7 +2077,7 @@ fn read_from_string_hash_radix_missing_digits_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_hash_s_without_list_payload_matches_oracle() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#s")]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -2090,7 +2090,7 @@ fn read_from_string_hash_s_without_list_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_unmatched_close_paren_payload_matches_oracle() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string(")")]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -2103,7 +2103,7 @@ fn read_from_string_unmatched_close_paren_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_char_literal_requires_gnu_emacs_delimiter() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("?child")]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -2116,7 +2116,7 @@ fn read_from_string_char_literal_requires_gnu_emacs_delimiter() {
 
 #[test]
 fn read_from_string_hash_skip_without_length_signals_eof() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
 
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@")]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
@@ -2127,7 +2127,7 @@ fn read_from_string_hash_skip_without_length_signals_eof() {
 
 #[test]
 fn read_from_string_hash_skip_with_payload_signals_eof() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
 
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@0x")]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
@@ -2138,7 +2138,7 @@ fn read_from_string_hash_skip_with_payload_signals_eof() {
 
 #[test]
 fn read_from_string_hash_dollar_uses_load_file_name() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable("load-file-name", Value::string("/tmp/reader-probe.elc"));
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#$")]).unwrap();
     match &result {
@@ -2152,7 +2152,7 @@ fn read_from_string_hash_dollar_uses_load_file_name() {
 
 #[test]
 fn read_from_string_hash_dollar_defaults_to_nil() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#$")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -2165,7 +2165,7 @@ fn read_from_string_hash_dollar_defaults_to_nil() {
 
 #[test]
 fn read_from_string_hash_skip_then_hash_dollar_signals_eof() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable("load-file-name", Value::string("/tmp/reader-skip.elc"));
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@4data#$")]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
@@ -2173,7 +2173,7 @@ fn read_from_string_hash_skip_then_hash_dollar_signals_eof() {
 
 #[test]
 fn read_from_string_hash_hash_reads_empty_symbol() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("##")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -2187,7 +2187,7 @@ fn read_from_string_hash_hash_reads_empty_symbol() {
 
 #[test]
 fn read_from_string_escaped_hash_hash_reads_literal_symbol() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("\\#\\#")]).unwrap();
     match &result {
         Value::Cons(cell) => {
@@ -2201,14 +2201,14 @@ fn read_from_string_escaped_hash_hash_reads_literal_symbol() {
 
 #[test]
 fn read_from_string_hash_skip_bytes_signals_eof() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@4data42 rest")]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
 }
 
 #[test]
 fn read_from_string_hash_bracket_end_position() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let input = "#[(x) \"\\bT\\207\" [x] 1 (#$ . 83)] tail";
     let expected_end = input.find(" tail").unwrap() as i64;
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
@@ -2223,7 +2223,7 @@ fn read_from_string_hash_bracket_end_position() {
 
 #[test]
 fn read_from_string_hash_table_literal_returns_hash_table() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let input = "#s(hash-table size 3 test equal data (\"a\" 1 \"b\" 2))";
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
     let Value::Cons(cell) = result else {
@@ -2250,7 +2250,7 @@ fn read_from_string_hash_table_literal_returns_hash_table() {
 
 #[test]
 fn read_buffer_hash_table_literal_returns_hash_table() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-hash-table*");
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
@@ -2277,7 +2277,7 @@ fn read_buffer_hash_table_literal_returns_hash_table() {
 
 #[test]
 fn read_from_buffer_advances_point_across_multiple_forms() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-multi*");
     let source = "(setq reader-first 1)\n(setq reader-second 2)\n";
     {
@@ -2314,7 +2314,7 @@ fn read_from_buffer_advances_point_across_multiple_forms() {
 
 #[test]
 fn read_from_buffer_preserves_string_literals_during_eval() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-string-eval*");
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
@@ -2329,7 +2329,7 @@ fn read_from_buffer_preserves_string_literals_during_eval() {
 
 #[test]
 fn read_from_buffer_incomplete_list_signals_end_of_file_like_gnu_emacs() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-incomplete-list*");
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
@@ -2343,7 +2343,7 @@ fn read_from_buffer_incomplete_list_signals_end_of_file_like_gnu_emacs() {
 
 #[test]
 fn read_from_buffer_invalid_read_syntax_reports_line_and_column_like_gnu_emacs() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-invalid-syntax*");
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
@@ -2366,7 +2366,7 @@ fn read_from_buffer_invalid_read_syntax_reports_line_and_column_like_gnu_emacs()
 
 #[test]
 fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_gnu_emacs() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-invalid-close-paren*");
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
@@ -2389,7 +2389,7 @@ fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_g
 
 #[test]
 fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_gnu_emacs() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-invalid-hash-dispatch*");
     {
         let buf = ev.buffers.get_mut(buf_id).expect("buffer");
@@ -2412,7 +2412,7 @@ fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_g
 
 #[test]
 fn read_from_string_hash_bracket_preserves_vector() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let input = "#[nil \"\\300\\207\" [0] 1]";
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
     match result {
@@ -2426,7 +2426,7 @@ fn read_from_string_hash_bracket_preserves_vector() {
 
 #[test]
 fn read_from_string_hash_dollar_inside_dotted_pair_uses_load_file_name() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_variable("load-file-name", Value::string("/tmp/reader-dotted.elc"));
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(#$ . 83)")]).unwrap();
 

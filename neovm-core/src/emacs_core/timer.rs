@@ -415,7 +415,7 @@ fn expect_timer_id(value: &Value) -> Result<TimerId, Flow> {
 ///
 /// TIME is seconds from now (float or int). REPEAT is nil or seconds.
 pub(crate) fn builtin_run_at_time(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-at-time", &args, 3)?;
@@ -440,7 +440,7 @@ pub(crate) fn builtin_run_at_time(
 /// accepts any non-nil REPEAT marker and signals an "Invalid or uninitialized
 /// timer" error when REPEAT is nil.
 pub(crate) fn builtin_add_timeout(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("add-timeout", &args, 3)?;
@@ -473,7 +473,7 @@ pub(crate) fn builtin_add_timeout(
 ///
 /// Alias for run-at-time.
 pub(crate) fn builtin_run_with_timer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_run_at_time(eval, args)
@@ -483,7 +483,7 @@ pub(crate) fn builtin_run_with_timer(
 ///
 /// Like run-at-time, but marks the timer as idle.
 pub(crate) fn builtin_run_with_idle_timer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("run-with-idle-timer", &args, 3)?;
@@ -504,7 +504,7 @@ pub(crate) fn builtin_run_with_idle_timer(
 
 /// (cancel-timer TIMER) -> nil
 pub(crate) fn builtin_cancel_timer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("cancel-timer", &args, 1)?;
@@ -521,7 +521,7 @@ pub(crate) fn builtin_timerp(args: Vec<Value>) -> EvalResult {
 
 /// (timer-activate TIMER) -> nil
 pub(crate) fn builtin_timer_activate(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("timer-activate", &args, 1)?;
@@ -566,7 +566,10 @@ pub(crate) fn builtin_timer_activate(
 /// Sleep for the given duration, but poll process output every 50ms so that
 /// subprocess filters/sentinels run promptly (matching GNU Emacs behavior
 /// where `sleep-for` services process output while waiting).
-pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_sleep_for(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("sleep-for", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(

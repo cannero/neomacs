@@ -514,7 +514,7 @@ fn oracle_prop_pratt_parser_evaluate() {
              (state (list tokens)))
         (funcall 'neovm--pp-parse-expr state 0))))
 
-  ;; Evaluator: walk AST and compute result
+  ;; Context: walk AST and compute result
   (fset 'neovm--pp-eval-ast
     (lambda (ast)
       (cond

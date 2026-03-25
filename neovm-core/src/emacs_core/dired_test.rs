@@ -179,7 +179,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
     fs::write(fixture.join("alpha.txt"), "").unwrap();
     fs::write(fixture.join("beta.el"), "").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let base_str = format!("{}/", base.to_string_lossy());
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
@@ -295,7 +295,7 @@ fn test_file_name_completion_predicate_with_eval() {
     create_file(&dir, "alpha.txt", "");
     fs::create_dir(dir.join("subdir")).unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/"));
 
@@ -338,7 +338,7 @@ fn test_file_name_completion_eval_relative_directory() {
     create_file(&fixture_dir, "alpha.txt", "");
     fs::create_dir(fixture_dir.join("subdir")).unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(ensure_trailing_slash(&base_str)),
@@ -427,7 +427,7 @@ fn test_file_name_all_completions_eval_relative_directory() {
     create_file(&fixture_dir, "alpha.txt", "");
     fs::create_dir(fixture_dir.join("subdir")).unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(ensure_trailing_slash(&base_str)),
@@ -538,7 +538,7 @@ fn test_file_attributes_eval_respects_default_directory() {
     let (dir, dir_str) = make_test_dir("fa_eval");
     create_file(&dir, "alpha.txt", "x");
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(ensure_trailing_slash(&dir_str)),

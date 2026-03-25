@@ -47,7 +47,7 @@ fn compose_region_internal_rejects_non_integer_positions() {
 
 #[test]
 fn compose_region_internal_eval_range_checks() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
         buffer.insert("abc");

@@ -683,7 +683,7 @@ pub(crate) fn builtin_seq_max(args: Vec<Value>) -> EvalResult {
 
 /// `(seq-position SEQ ELT &optional TESTFN)` — return first matching index.
 pub(crate) fn builtin_seq_position(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("seq-position", &args, 2)?;
@@ -732,7 +732,7 @@ pub(crate) fn builtin_seq_position(
 /// `(cl-position ITEM SEQ &optional TESTFN)` -- CL argument order wrapper.
 #[cfg(test)]
 pub(crate) fn builtin_cl_position(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("cl-position", &args, 2)?;
@@ -750,7 +750,7 @@ pub(crate) fn builtin_cl_position(
 
 /// `(cl-notany PREDICATE SEQ)` -- true when no element satisfies PREDICATE.
 #[cfg(test)]
-pub(crate) fn builtin_cl_notany(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_cl_notany(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let found = builtin_seq_some(eval, args)?;
     Ok(Value::bool(found.is_nil()))
 }
@@ -758,7 +758,7 @@ pub(crate) fn builtin_cl_notany(eval: &mut super::eval::Evaluator, args: Vec<Val
 /// `(cl-notevery PREDICATE SEQ)` -- true when not all elements satisfy PREDICATE.
 #[cfg(test)]
 pub(crate) fn builtin_cl_notevery(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let every = builtin_seq_every_p(eval, args)?;
@@ -801,7 +801,7 @@ pub(crate) fn builtin_cl_find(args: Vec<Value>) -> EvalResult {
 /// `(cl-find-if PREDICATE SEQ)` -- return first element satisfying PREDICATE.
 #[cfg(test)]
 pub(crate) fn builtin_cl_find_if(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("cl-find-if", &args, 2)?;
@@ -928,14 +928,14 @@ pub(crate) fn builtin_cl_substitute(args: Vec<Value>) -> EvalResult {
 
 /// `(cl-sort SEQ PREDICATE)` -- CL alias for `sort`.
 #[cfg(test)]
-pub(crate) fn builtin_cl_sort(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_cl_sort(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     super::builtins::builtin_sort(eval, args)
 }
 
 /// `(cl-stable-sort SEQ PREDICATE)` -- CL alias for stable `sort`.
 #[cfg(test)]
 pub(crate) fn builtin_cl_stable_sort(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     super::builtins::builtin_sort(eval, args)
@@ -944,7 +944,7 @@ pub(crate) fn builtin_cl_stable_sort(
 /// `(cl-remove-if PREDICATE SEQ)` -- remove elements satisfying PREDICATE.
 #[cfg(test)]
 pub(crate) fn builtin_cl_remove_if(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("cl-remove-if", &args, 2)?;
@@ -977,7 +977,7 @@ pub(crate) fn builtin_cl_remove_if(
 /// `(cl-remove-if-not PREDICATE SEQ)` -- keep elements satisfying PREDICATE.
 #[cfg(test)]
 pub(crate) fn builtin_cl_remove_if_not(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("cl-remove-if-not", &args, 2)?;
@@ -1009,7 +1009,7 @@ pub(crate) fn builtin_cl_remove_if_not(
 
 /// `(cl-map RESULT-TYPE FUNCTION SEQ...)` -- CL map with explicit result type.
 #[cfg(test)]
-pub(crate) fn builtin_cl_map(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("cl-map", &args, 3)?;
     let result_type = args[0];
     let func = args[1];
@@ -1069,7 +1069,7 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Evaluator, args: Vec<Value>
 
 /// `(seq-contains-p SEQ ELT &optional TESTFN)` — membership test for sequence.
 pub(crate) fn builtin_seq_contains_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if !(2..=3).contains(&args.len()) {
@@ -1121,7 +1121,7 @@ pub(crate) fn builtin_seq_contains_p(
 }
 
 /// `(seq-mapn FN &rest SEQS)` — map over multiple sequences.
-pub(crate) fn builtin_seq_mapn(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_seq_mapn(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("seq-mapn", &args, 2)?;
     let func = args[0];
     let seqs: Vec<Vec<Value>> = args[1..].iter().map(collect_sequence).collect();
@@ -1155,7 +1155,7 @@ pub(crate) fn builtin_seq_mapn(eval: &mut super::eval::Evaluator, args: Vec<Valu
 }
 
 /// `(seq-do FN SEQ)` — apply fn for side effects, return nil.
-pub(crate) fn builtin_seq_do(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_seq_do(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("seq-do", &args, 2)?;
     let func = args[0];
     let elems = collect_sequence(&args[1]);
@@ -1175,7 +1175,7 @@ pub(crate) fn builtin_seq_do(eval: &mut super::eval::Evaluator, args: Vec<Value>
 }
 
 /// `(seq-count PRED SEQ)` — count elements matching predicate.
-pub(crate) fn builtin_seq_count(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_seq_count(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("seq-count", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
@@ -1204,7 +1204,7 @@ pub(crate) fn builtin_seq_count(eval: &mut super::eval::Evaluator, args: Vec<Val
 
 /// `(seq-reduce FN SEQ INITIAL)` — reduce with initial value.
 pub(crate) fn builtin_seq_reduce(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("seq-reduce", &args, 3)?;
@@ -1234,7 +1234,7 @@ pub(crate) fn builtin_seq_reduce(
 }
 
 /// `(seq-some PRED SEQ)` — some element matches predicate.
-pub(crate) fn builtin_seq_some(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_seq_some(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("seq-some", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
@@ -1263,7 +1263,7 @@ pub(crate) fn builtin_seq_some(eval: &mut super::eval::Evaluator, args: Vec<Valu
 
 /// `(seq-every-p PRED SEQ)` — all elements match predicate.
 pub(crate) fn builtin_seq_every_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("seq-every-p", &args, 2)?;
@@ -1293,7 +1293,7 @@ pub(crate) fn builtin_seq_every_p(
 }
 
 /// `(seq-sort PRED SEQ)` — sort with predicate.
-pub(crate) fn builtin_seq_sort(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_seq_sort(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("seq-sort", &args, 2)?;
     let pred = args[0];
     let mut items = collect_sequence(&args[1]);

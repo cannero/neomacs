@@ -125,7 +125,7 @@ fn buffer_read_only_active_in_state(
         .is_some_and(|value| value.is_truthy())
 }
 
-fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &Buffer) -> bool {
+fn buffer_read_only_active(eval: &super::eval::Context, buf: &Buffer) -> bool {
     buffer_read_only_active_in_state(&eval.obarray, &eval.dynamic, buf)
 }
 
@@ -185,7 +185,7 @@ fn is_horizontal_space(ch: char) -> bool {
 }
 
 fn delete_horizontal_space_at_point(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     backward_only: bool,
 ) -> Result<(), Flow> {
     let buf = eval
@@ -459,7 +459,7 @@ pub(crate) fn builtin_indent_to_in_state(
 ///
 /// Return indentation columns for the current line.
 pub(crate) fn builtin_current_indentation_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_indentation_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
@@ -469,7 +469,7 @@ pub(crate) fn builtin_current_indentation_eval(
 ///
 /// Return the display column at point on the current line.
 pub(crate) fn builtin_current_column_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_column_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
@@ -479,7 +479,7 @@ pub(crate) fn builtin_current_column_eval(
 ///
 /// Move point on the current line according to display columns.
 pub(crate) fn builtin_move_to_column_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_move_to_column_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -489,7 +489,7 @@ pub(crate) fn builtin_move_to_column_eval(
 ///
 /// GNU Emacs `Findent_to` primitive from `src/indent.c`.
 pub(crate) fn builtin_indent_to_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_indent_to_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)

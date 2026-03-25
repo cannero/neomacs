@@ -490,7 +490,7 @@ fn find_charset_region_wrong_arg_count() {
 
 #[test]
 fn find_charset_region_eval_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
             .buffers
@@ -521,7 +521,7 @@ fn find_charset_region_eval_semantics() {
 
 #[test]
 fn find_charset_region_eval_out_of_range_errors() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
             .buffers
@@ -924,7 +924,7 @@ fn charset_after_wrong_arg_count() {
 
 #[test]
 fn charset_after_eval_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
             .buffers

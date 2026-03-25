@@ -93,14 +93,14 @@ pub(crate) fn builtin_compose_region_internal(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-backed `(compose-region-internal START END &optional COMPONENTS MODIFICATION-FUNC)`.
+/// Context-backed `(compose-region-internal START END &optional COMPONENTS MODIFICATION-FUNC)`.
 ///
 /// Batch-compatible subset:
 /// - validates START/END type (`integer-or-marker-p`)
 /// - validates range against the current buffer's accessible positions
 /// - returns nil on success
 pub(crate) fn builtin_compose_region_internal_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_compose_region_internal_in_manager(&eval.buffers, args)

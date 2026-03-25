@@ -82,10 +82,10 @@ pub(crate) fn builtin_undo_boundary(args: Vec<Value>) -> EvalResult {
 
 /// (undo-boundary) -> nil
 ///
-/// Evaluator-dependent variant used during normal execution: inserts an
+/// Context-dependent variant used during normal execution: inserts an
 /// undo boundary into the current buffer's undo list.
 pub(crate) fn builtin_undo_boundary_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_undo_boundary_in_state(&mut eval.buffers, args)
@@ -137,7 +137,7 @@ pub(crate) fn builtin_primitive_undo(args: Vec<Value>) -> EvalResult {
 /// 2. Apply primitive-undo to reverse the specified number of actions
 /// 3. Update buffer state accordingly
 ///
-pub(crate) fn builtin_undo(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_undo(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("undo", &args, 0)?;
     expect_max_args("undo", &args, 1)?;
 

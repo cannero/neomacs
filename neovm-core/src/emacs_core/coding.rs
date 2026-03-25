@@ -17,7 +17,7 @@
 //!   set-terminal-coding-system, coding-system-priority-list
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::Evaluator;
+use super::eval::Context;
 use super::intern::resolve_sym;
 use super::value::*;
 use std::collections::{HashMap, HashSet};
@@ -2066,7 +2066,7 @@ fn marker_or_integer_position(value: &Value) -> Result<i64, Flow> {
 }
 
 pub(crate) fn builtin_find_coding_systems_region_internal_eval(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_find_coding_systems_region_internal_in_state(&eval.coding_systems, &eval.buffers, args)

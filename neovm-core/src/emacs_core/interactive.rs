@@ -14,7 +14,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::{Evaluator, quote_to_value, value_to_expr};
+use super::eval::{Context, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{
@@ -268,7 +268,7 @@ fn expect_optional_command_keys_vector(keys: Option<&Value>) -> Result<(), Flow>
 /// `(call-interactively FUNCTION &optional RECORD-FLAG KEYS)`
 /// Call FUNCTION interactively, reading arguments according to its
 /// interactive spec.
-pub(crate) fn builtin_call_interactively(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     let plan = {
         let obarray = &eval.obarray;
         let interactive = &eval.interactive;
@@ -279,7 +279,7 @@ pub(crate) fn builtin_call_interactively(eval: &mut Evaluator, args: Vec<Value>)
 }
 
 /// `(interactive-p)` -> t if the calling function was called interactively.
-pub(crate) fn builtin_interactive_p(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_interactive_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_args("interactive-p", &args, 0)?;
     let _ = eval;
     // Emacs 30 keeps `interactive-p` obsolete; it effectively returns nil.
@@ -289,7 +289,7 @@ pub(crate) fn builtin_interactive_p(eval: &mut Evaluator, args: Vec<Value>) -> E
 /// `(called-interactively-p &optional KIND)`
 /// Return t if the calling function was called interactively.
 /// KIND can be 'interactive or 'any.
-pub(crate) fn builtin_called_interactively_p(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_called_interactively_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     // Accept 0 or 1 args
     if args.len() > 1 {
         return Err(signal(
@@ -319,7 +319,7 @@ pub(crate) fn builtin_called_interactively_p(eval: &mut Evaluator, args: Vec<Val
 
 /// `(commandp FUNCTION &optional FOR-CALL-INTERACTIVELY)`
 /// Return non-nil if FUNCTION is a command (i.e., can be called interactively).
-pub(crate) fn builtin_commandp_interactive(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_commandp_interactive(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_commandp_in_state(&eval.obarray, &eval.interactive, &args)
 }
 
@@ -501,7 +501,7 @@ pub(crate) fn builtin_command_modes_in_state(obarray: &Obarray, args: &[Value]) 
     }
 }
 
-pub(crate) fn builtin_command_modes_eval(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_command_modes_eval(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_command_modes_in_state(&eval.obarray, &args)
 }
 
@@ -509,7 +509,7 @@ pub(crate) fn builtin_command_modes_eval(eval: &mut Evaluator, args: Vec<Value>)
 /// command for COMMAND.
 ///
 /// Respects local/global keymaps when KEYMAP is omitted or nil.
-pub(crate) fn builtin_command_remapping(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_command_remapping(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_command_remapping_in_state(
         &eval.obarray,
         eval.dynamic.as_slice(),
@@ -842,7 +842,7 @@ fn value_is_declare_form(value: &Value) -> bool {
     }
 }
 
-fn resolve_function_designator_symbol(eval: &Evaluator, name: &str) -> Option<(String, Value)> {
+fn resolve_function_designator_symbol(eval: &Context, name: &str) -> Option<(String, Value)> {
     resolve_function_designator_symbol_in_state(&eval.obarray, name)
 }
 
@@ -918,11 +918,11 @@ fn command_designator_p_in_state(
     command_object_p_in_state(interactive, None, designator, for_call_interactively)
 }
 
-fn command_object_p(eval: &Evaluator, resolved_name: Option<&str>, value: &Value) -> bool {
+fn command_object_p(eval: &Context, resolved_name: Option<&str>, value: &Value) -> bool {
     command_object_p_in_state(&eval.interactive, resolved_name, value, false)
 }
 
-fn command_designator_p(eval: &Evaluator, designator: &Value) -> bool {
+fn command_designator_p(eval: &Context, designator: &Value) -> bool {
     command_designator_p_in_state(&eval.obarray, &eval.interactive, designator, false)
 }
 
@@ -954,7 +954,7 @@ struct InteractiveInvocationContext {
 }
 
 impl InteractiveInvocationContext {
-    fn from_keys_arg(eval: &Evaluator, keys: Option<&Value>) -> Self {
+    fn from_keys_arg(eval: &Context, keys: Option<&Value>) -> Self {
         Self::from_keys_arg_in_state(eval.read_command_keys(), keys)
     }
 
@@ -1033,7 +1033,7 @@ fn interactive_last_key_sequence_event(sequence: &Value) -> Option<Value> {
 }
 
 fn interactive_capture_up_event_in_eval(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     sequence: &Value,
     context: &mut InteractiveInvocationContext,
 ) -> Result<(), Flow> {
@@ -1050,7 +1050,7 @@ fn interactive_capture_up_event_in_eval(
 }
 
 fn interactive_capture_up_event_in_vm_batch_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     sequence: &Value,
     context: &mut InteractiveInvocationContext,
 ) -> Result<(), Flow> {
@@ -1075,7 +1075,7 @@ fn interactive_u_arg(context: &mut InteractiveInvocationContext) -> Value {
         .unwrap_or(Value::Nil)
 }
 
-fn dynamic_or_global_symbol_value(eval: &Evaluator, name: &str) -> Option<Value> {
+fn dynamic_or_global_symbol_value(eval: &Context, name: &str) -> Option<Value> {
     dynamic_or_global_symbol_value_in_state(&eval.obarray, eval.dynamic.as_slice(), name)
 }
 
@@ -1094,7 +1094,7 @@ fn dynamic_or_global_symbol_value_in_state(
 }
 
 fn dynamic_buffer_or_global_symbol_value(
-    eval: &Evaluator,
+    eval: &Context,
     buf: &crate::buffer::Buffer,
     name: &str,
 ) -> Option<Value> {
@@ -1147,7 +1147,7 @@ fn prefix_numeric_value(value: &Value) -> i64 {
     }
 }
 
-fn interactive_prefix_raw_arg(eval: &Evaluator, kind: CommandInvocationKind) -> Value {
+fn interactive_prefix_raw_arg(eval: &Context, kind: CommandInvocationKind) -> Value {
     interactive_prefix_raw_arg_in_state(&eval.obarray, eval.dynamic.as_slice(), kind)
 }
 
@@ -1163,7 +1163,7 @@ fn interactive_prefix_raw_arg_in_state(
     dynamic_or_global_symbol_value_in_state(obarray, dynamic, symbol).unwrap_or(Value::Nil)
 }
 
-fn interactive_prefix_numeric_arg(eval: &Evaluator, kind: CommandInvocationKind) -> Value {
+fn interactive_prefix_numeric_arg(eval: &Context, kind: CommandInvocationKind) -> Value {
     let raw = interactive_prefix_raw_arg(eval, kind);
     Value::Int(prefix_numeric_value(&raw))
 }
@@ -1178,7 +1178,7 @@ fn interactive_prefix_numeric_arg_in_state(
 }
 
 fn interactive_region_args(
-    eval: &Evaluator,
+    eval: &Context,
     missing_mark_signal: &str,
 ) -> Result<Vec<Value>, Flow> {
     interactive_region_args_in_buffers(&eval.buffers, missing_mark_signal)
@@ -1208,7 +1208,7 @@ fn interactive_region_args_in_buffers(
     Ok(vec![Value::Int(beg_char), Value::Int(end_char)])
 }
 
-fn interactive_point_arg(eval: &Evaluator) -> Result<Value, Flow> {
+fn interactive_point_arg(eval: &Context) -> Result<Value, Flow> {
     interactive_point_arg_in_buffers(&eval.buffers)
 }
 
@@ -1220,7 +1220,7 @@ fn interactive_point_arg_in_buffers(buffers: &crate::buffer::BufferManager) -> R
     Ok(Value::Int(point_char))
 }
 
-fn interactive_mark_arg(eval: &Evaluator) -> Result<Value, Flow> {
+fn interactive_mark_arg(eval: &Context) -> Result<Value, Flow> {
     interactive_mark_arg_in_buffers(&eval.buffers)
 }
 
@@ -1336,7 +1336,7 @@ fn interactive_args_from_string_code_in_state(
 }
 
 fn interactive_args_from_string_code_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     code: &str,
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
@@ -1344,10 +1344,10 @@ fn interactive_args_from_string_code_in_vm_runtime(
 ) -> Result<Option<Vec<Value>>, Flow> {
     let parsed = parse_interactive_code_entries(code);
     interactive_apply_prefix_flags_in_state(
-        &mut *shared.obarray,
+        &mut shared.obarray,
         shared.dynamic.as_mut_slice(),
-        shared.buffers,
-        &*shared.custom,
+        &mut shared.buffers,
+        &shared.custom,
         shared.specpdl.as_slice(),
         &parsed.prefix_flags,
     )?;
@@ -1376,7 +1376,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 let letter_args = [Value::string(prompt), Value::Nil, Value::True];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
-                    super::minibuffer::read_buffer_completing_args(&*shared.buffers, &letter_args)
+                    super::minibuffer::read_buffer_completing_args(&shared.buffers, &letter_args)
                 };
                 args.push(super::reader::finish_completing_read_in_vm_runtime(
                     shared,
@@ -1388,7 +1388,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 let letter_args = [Value::string(prompt), Value::Nil, Value::Nil];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
-                    super::minibuffer::read_buffer_completing_args(&*shared.buffers, &letter_args)
+                    super::minibuffer::read_buffer_completing_args(&shared.buffers, &letter_args)
                 };
                 args.push(super::reader::finish_completing_read_in_vm_runtime(
                     shared,
@@ -1407,7 +1407,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 };
                 args.push(arg);
             }
-            'd' => args.push(interactive_point_arg_in_buffers(shared.buffers)?),
+            'd' => args.push(interactive_point_arg_in_buffers(&shared.buffers)?),
             'D' => {
                 let letter_args = [Value::string(prompt)];
                 args.push(super::minibuffer::finish_read_directory_name_in_vm_runtime(
@@ -1418,8 +1418,8 @@ fn interactive_args_from_string_code_in_vm_runtime(
             }
             'e' => {
                 if let Some(event) = interactive_next_event_with_parameters_in_state(
-                    &mut *shared.obarray,
-                    shared.dynamic,
+                    &mut shared.obarray,
+                    &shared.dynamic,
                     context,
                 ) {
                     args.push(event);
@@ -1495,10 +1495,10 @@ fn interactive_args_from_string_code_in_vm_runtime(
                     },
                 )?);
             }
-            'm' => args.push(interactive_mark_arg_in_buffers(shared.buffers)?),
+            'm' => args.push(interactive_mark_arg_in_buffers(&shared.buffers)?),
             'N' => {
                 let raw = interactive_prefix_raw_arg_in_state(
-                    &*shared.obarray,
+                    &shared.obarray,
                     shared.dynamic.as_slice(),
                     kind,
                 );
@@ -1514,19 +1514,19 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 }
             }
             'p' => args.push(interactive_prefix_numeric_arg_in_state(
-                &*shared.obarray,
+                &shared.obarray,
                 shared.dynamic.as_slice(),
                 kind,
             )),
             'P' => args.push(interactive_prefix_raw_arg_in_state(
-                &*shared.obarray,
+                &shared.obarray,
                 shared.dynamic.as_slice(),
                 kind,
             )),
-            'r' => args.extend(interactive_region_args_in_buffers(shared.buffers, "error")?),
+            'r' => args.extend(interactive_region_args_in_buffers(&shared.buffers, "error")?),
             'R' => {
                 if interactive_use_region_p_in_vm_runtime(shared, vm_gc_roots)? {
-                    args.extend(interactive_region_args_in_buffers(shared.buffers, "error")?);
+                    args.extend(interactive_region_args_in_buffers(&shared.buffers, "error")?);
                 } else {
                     args.push(Value::Nil);
                     args.push(Value::Nil);
@@ -1603,7 +1603,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
             ])?),
             'Z' => {
                 let raw = interactive_prefix_raw_arg_in_state(
-                    &*shared.obarray,
+                    &shared.obarray,
                     shared.dynamic.as_slice(),
                     kind,
                 );
@@ -1717,13 +1717,13 @@ fn default_call_interactively_args_in_state(
     }
 }
 
-fn interactive_read_expression_arg(eval: &mut Evaluator, prompt: String) -> Result<Value, Flow> {
+fn interactive_read_expression_arg(eval: &mut Context, prompt: String) -> Result<Value, Flow> {
     let input = super::reader::builtin_read_from_minibuffer(eval, vec![Value::string(prompt)])?;
     super::reader::builtin_read(eval, vec![input])
 }
 
 fn interactive_read_expression_arg_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     prompt: String,
 ) -> Result<Value, Flow> {
@@ -1732,11 +1732,11 @@ fn interactive_read_expression_arg_in_vm_runtime(
         vm_gc_roots,
         &[Value::string(prompt)],
     )?;
-    super::reader::builtin_read_in_state(&*shared.obarray, &mut *shared.buffers, vec![input])
+    super::reader::builtin_read_in_state(&shared.obarray, &mut shared.buffers, vec![input])
 }
 
 fn interactive_eval_expression_arg_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     prompt: String,
 ) -> Result<Value, Flow> {
@@ -1755,7 +1755,7 @@ fn interactive_read_coding_system_optional_arg(prompt: String) -> Result<Value, 
 }
 
 fn interactive_use_region_p_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
 ) -> Result<bool, Flow> {
     shared
@@ -1765,7 +1765,7 @@ fn interactive_use_region_p_in_vm_runtime(
         .map(|value| value.is_truthy())
 }
 
-fn interactive_buffer_read_only_active(eval: &Evaluator, buf: &crate::buffer::Buffer) -> bool {
+fn interactive_buffer_read_only_active(eval: &Context, buf: &crate::buffer::Buffer) -> bool {
     interactive_buffer_read_only_active_in_state(&eval.obarray, eval.dynamic.as_slice(), buf)
 }
 
@@ -1781,7 +1781,7 @@ fn interactive_buffer_read_only_active_in_state(
         .is_some_and(|v| v.is_truthy())
 }
 
-fn interactive_require_writable_current_buffer(eval: &Evaluator) -> Result<(), Flow> {
+fn interactive_require_writable_current_buffer(eval: &Context) -> Result<(), Flow> {
     interactive_require_writable_current_buffer_in_state(
         &eval.obarray,
         eval.dynamic.as_slice(),
@@ -1808,7 +1808,7 @@ fn interactive_require_writable_current_buffer_in_state(
     Ok(())
 }
 
-fn interactive_apply_shift_selection_prefix(eval: &mut Evaluator) {
+fn interactive_apply_shift_selection_prefix(eval: &mut Context) {
     interactive_apply_shift_selection_prefix_in_state(
         &mut eval.obarray,
         eval.dynamic.as_mut_slice(),
@@ -1858,7 +1858,7 @@ fn interactive_apply_shift_selection_prefix_in_state(
     }
 }
 
-fn interactive_apply_prefix_flags(eval: &mut Evaluator, prefix_flags: &[char]) -> Result<(), Flow> {
+fn interactive_apply_prefix_flags(eval: &mut Context, prefix_flags: &[char]) -> Result<(), Flow> {
     interactive_apply_prefix_flags_in_state(
         &mut eval.obarray,
         eval.dynamic.as_mut_slice(),
@@ -1910,13 +1910,13 @@ fn interactive_next_event_with_parameters_from_keys(
     None
 }
 
-fn interactive_last_input_event_with_parameters(eval: &Evaluator) -> Option<Value> {
+fn interactive_last_input_event_with_parameters(eval: &Context) -> Option<Value> {
     let event = dynamic_or_global_symbol_value(eval, "last-input-event")?;
     interactive_event_with_parameters_p(&event).then_some(event)
 }
 
 fn interactive_next_event_with_parameters(
-    eval: &Evaluator,
+    eval: &Context,
     context: &mut InteractiveInvocationContext,
 ) -> Option<Value> {
     if context.has_command_keys_context {
@@ -2012,7 +2012,7 @@ fn invalid_interactive_control_letter_error(letter: char) -> Flow {
 }
 
 fn interactive_args_from_string_code(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     code: &str,
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
@@ -2166,7 +2166,7 @@ fn interactive_args_from_string_code(
 }
 
 fn resolve_interactive_invocation_args(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     resolved_name: &str,
     func: &Value,
     kind: CommandInvocationKind,
@@ -2241,7 +2241,7 @@ fn resolve_interactive_invocation_args(
 }
 
 fn eval_interactive_form_expr_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     form: &Expr,
 ) -> Result<Vec<Value>, Flow> {
@@ -2251,7 +2251,7 @@ fn eval_interactive_form_expr_in_vm_runtime(
 }
 
 fn eval_interactive_form_value_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
@@ -2270,18 +2270,18 @@ pub(crate) fn callable_form_needs_instantiation(value: &Value) -> bool {
     )
 }
 
-fn normalize_command_callable(eval: &mut Evaluator, value: Value) -> Result<Value, Flow> {
+fn normalize_command_callable(eval: &mut Context, value: Value) -> Result<Value, Flow> {
     if callable_form_needs_instantiation(&value) {
         return eval.eval_value(&value);
     }
     Ok(value)
 }
 
-fn default_command_execute_args(eval: &Evaluator, name: &str) -> Result<Vec<Value>, Flow> {
+fn default_command_execute_args(eval: &Context, name: &str) -> Result<Vec<Value>, Flow> {
     default_command_execute_args_in_state(&eval.buffers, &eval.frames, name)
 }
 
-fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<Value>, Flow> {
+fn default_call_interactively_args(eval: &Context, name: &str) -> Result<Vec<Value>, Flow> {
     default_call_interactively_args_in_state(
         &eval.obarray,
         eval.dynamic.as_slice(),
@@ -2291,7 +2291,7 @@ fn default_call_interactively_args(eval: &Evaluator, name: &str) -> Result<Vec<V
     )
 }
 
-fn resolve_command_target(eval: &Evaluator, designator: &Value) -> Option<(String, Value)> {
+fn resolve_command_target(eval: &Context, designator: &Value) -> Option<(String, Value)> {
     resolve_command_target_in_state(&eval.obarray, designator)
 }
 
@@ -2354,7 +2354,7 @@ pub(crate) fn plan_call_interactively_in_state(
 }
 
 pub(crate) fn finish_call_interactively_in_eval(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     mut plan: CallInteractivelyPlan,
 ) -> EvalResult {
     let (func, call_args) = resolve_call_interactively_target_and_args_in_eval(eval, &mut plan)?;
@@ -2366,7 +2366,7 @@ pub(crate) fn finish_call_interactively_in_eval(
 }
 
 pub(crate) fn resolve_call_interactively_target_and_args_in_eval(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     plan: &mut CallInteractivelyPlan,
 ) -> Result<(Value, Vec<Value>), Flow> {
     let func = normalize_command_callable(eval, plan.func)?;
@@ -2478,7 +2478,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
 }
 
 pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     plan: &mut CallInteractivelyPlan,
     vm_gc_roots: &[Value],
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
@@ -2558,17 +2558,17 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     Ok(Some((
         func,
         default_call_interactively_args_in_state(
-            &*shared.obarray,
+            &shared.obarray,
             shared.dynamic.as_slice(),
-            shared.buffers,
-            &*shared.frames,
+            &shared.buffers,
+            &shared.frames,
             &plan.resolved_name,
         )?,
     )))
 }
 
 pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     plan: &mut CallInteractivelyPlan,
     vm_gc_roots: &[Value],
     extra_roots: &[Value],
@@ -2584,7 +2584,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
     })
 }
 
-fn last_command_event_char(eval: &Evaluator) -> Option<char> {
+fn last_command_event_char(eval: &Context) -> Option<char> {
     let event = dynamic_or_global_symbol_value(eval, "last-command-event")?;
     match event {
         Value::Char(c) => Some(c),
@@ -2595,7 +2595,7 @@ fn last_command_event_char(eval: &Evaluator) -> Option<char> {
 
 /// `(self-insert-command N &optional NOAUTOFILL)` -- insert the last typed
 /// character N times.
-pub(crate) fn builtin_self_insert_command(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if args.is_empty() || args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2647,14 +2647,14 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Evaluator, args: Vec<Value>
 }
 
 /// `(keyboard-quit)` -- cancel the current command sequence.
-pub(crate) fn builtin_keyboard_quit(_eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_keyboard_quit(_eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_args("keyboard-quit", &args, 0)?;
     Err(signal("quit", vec![]))
 }
 
 /// `(key-binding KEY &optional ACCEPT-DEFAULTS NO-REMAP POSITION)`
 /// Return the binding for KEY in the current keymaps.
-pub(crate) fn builtin_key_binding(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_key_binding_in_state(
         &mut eval.obarray,
         eval.dynamic.as_slice(),
@@ -2771,7 +2771,7 @@ pub(crate) fn builtin_key_binding_in_state(
 }
 
 fn interactive_validate_integer_position_arg(
-    eval: &Evaluator,
+    eval: &Context,
     position: &Value,
 ) -> Result<(), Flow> {
     interactive_validate_integer_position_arg_in_buffers(&eval.buffers, position)
@@ -2799,7 +2799,7 @@ fn interactive_validate_integer_position_arg_in_buffers(
 }
 
 /// `(local-key-binding KEY &optional ACCEPT-DEFAULTS)`
-pub(crate) fn builtin_local_key_binding(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_local_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_local_key_binding_in_state(eval.buffers.current_local_map(), args)
 }
 
@@ -2854,7 +2854,7 @@ fn minor_mode_map_entry(entry: &Value) -> Option<(String, Value)> {
 
 /// Look up a key sequence in a keymap Value, returning the binding if found.
 fn key_binding_lookup_in_keymap(
-    eval: &Evaluator,
+    eval: &Context,
     keymap: &Value,
     events: &[Value],
 ) -> Option<Value> {
@@ -2905,7 +2905,7 @@ fn key_binding_lookup_in_keymap_in_obarray(
 }
 
 /// Get the global keymap Value from obarray (without creating one).
-fn get_global_keymap(eval: &Evaluator) -> Value {
+fn get_global_keymap(eval: &Context) -> Value {
     get_global_keymap_in_obarray(&eval.obarray)
 }
 
@@ -2917,7 +2917,7 @@ fn get_global_keymap_in_obarray(obarray: &Obarray) -> Value {
 }
 
 /// Get the global keymap, creating one if it doesn't exist.
-fn ensure_global_keymap(eval: &mut Evaluator) -> Value {
+fn ensure_global_keymap(eval: &mut Context) -> Value {
     if let Some(val) = eval.obarray.symbol_value("global-map").copied() {
         if is_list_keymap(&val) {
             return val;
@@ -2928,7 +2928,7 @@ fn ensure_global_keymap(eval: &mut Evaluator) -> Value {
     km
 }
 
-fn key_binding_apply_remap(eval: &Evaluator, binding: Value, no_remap: bool) -> Value {
+fn key_binding_apply_remap(eval: &Context, binding: Value, no_remap: bool) -> Value {
     key_binding_apply_remap_in_state(
         &eval.obarray,
         eval.dynamic.as_slice(),
@@ -2963,7 +2963,7 @@ fn key_binding_apply_remap_in_state(
 }
 
 fn key_binding_lookup_in_minor_mode_alist(
-    eval: &Evaluator,
+    eval: &Context,
     events: &[Value],
     alist_value: &Value,
 ) -> Option<Value> {
@@ -3004,7 +3004,7 @@ fn key_binding_lookup_in_minor_mode_alist_in_state(
     None
 }
 
-fn key_binding_lookup_in_minor_mode_maps(eval: &Evaluator, events: &[Value]) -> Option<Value> {
+fn key_binding_lookup_in_minor_mode_maps(eval: &Context, events: &[Value]) -> Option<Value> {
     key_binding_lookup_in_minor_mode_maps_in_state(&eval.obarray, eval.dynamic.as_slice(), events)
 }
 
@@ -3051,7 +3051,7 @@ fn key_binding_lookup_in_minor_mode_maps_in_state(
 }
 
 fn lookup_minor_mode_binding_in_alist(
-    eval: &Evaluator,
+    eval: &Context,
     events: &[KeyEvent],
     alist_value: &Value,
 ) -> Result<Option<(String, Value)>, Flow> {
@@ -3119,7 +3119,7 @@ fn lookup_minor_mode_binding_in_alist_in_state(
 
 /// `(minor-mode-key-binding KEY &optional ACCEPT-DEFAULTS)`
 /// Look up KEY in active minor mode keymaps.
-pub(crate) fn builtin_minor_mode_key_binding(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_minor_mode_key_binding(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_minor_mode_key_binding_in_state(&eval.obarray, eval.dynamic.as_slice(), args)
 }
 
@@ -3183,7 +3183,7 @@ pub(crate) fn builtin_minor_mode_key_binding_in_state(
 
 /// `(where-is-internal DEFINITION &optional KEYMAP FIRSTONLY NOINDIRECT NO-REMAP)`
 /// Return list of key sequences that invoke DEFINITION.
-pub(crate) fn builtin_where_is_internal(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("where-is-internal", &args, 1)?;
     expect_max_args("where-is-internal", &args, 5)?;
 
@@ -3237,7 +3237,7 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Evaluator, args: Vec<Value>) 
 }
 
 /// `(this-command-keys)` -> string of keys that invoked current command.
-pub(crate) fn builtin_this_command_keys(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_this_command_keys(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_this_command_keys_in_state(eval.read_command_keys(), &eval.interactive, args)
 }
 
@@ -3260,7 +3260,7 @@ pub(crate) fn builtin_this_command_keys_in_state(
 
 /// `(this-command-keys-vector)` -> vector of keys that invoked current command.
 pub(crate) fn builtin_this_command_keys_vector(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_this_command_keys_vector_in_state(eval.read_command_keys(), &eval.interactive, args)
@@ -3309,7 +3309,7 @@ fn single_command_key_vector_in_state(
     }
 }
 
-fn single_command_key_vector(eval: &Evaluator) -> Value {
+fn single_command_key_vector(eval: &Context) -> Value {
     single_command_key_vector_in_state(eval.read_command_keys(), &eval.interactive)
 }
 
@@ -3339,7 +3339,7 @@ pub(crate) fn builtin_this_single_command_raw_keys_in_state(
 
 /// `(this-single-command-keys)` -> vector of keys that invoked current command.
 pub(crate) fn builtin_this_single_command_keys(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_this_single_command_keys_in_state(&eval.interactive, eval.read_command_keys(), args)
@@ -3347,7 +3347,7 @@ pub(crate) fn builtin_this_single_command_keys(
 
 /// `(this-single-command-raw-keys)` -> vector of raw keys for current command.
 pub(crate) fn builtin_this_single_command_raw_keys(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_this_single_command_raw_keys_in_state(&eval.interactive, eval.read_command_keys(), args)
@@ -3359,7 +3359,7 @@ pub(crate) fn builtin_this_single_command_raw_keys(
 /// When KEEP-RECORD is nil or omitted, also clears recent input history used
 /// by `recent-keys`.
 pub(crate) fn builtin_clear_this_command_keys(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_clear_this_command_keys_in_runtime(eval, args)
@@ -3383,23 +3383,13 @@ pub(crate) trait CommandKeyRuntime {
     fn clear_command_key_state(&mut self, keep_record: bool);
 }
 
-impl CommandKeyRuntime for Evaluator {
+impl CommandKeyRuntime for Context {
     fn read_command_keys(&self) -> &[Value] {
-        Evaluator::read_command_keys(self)
+        Context::read_command_keys(self)
     }
 
     fn clear_command_key_state(&mut self, keep_record: bool) {
-        Evaluator::clear_command_key_state(self, keep_record);
-    }
-}
-
-impl CommandKeyRuntime for super::eval::VmSharedState<'_> {
-    fn read_command_keys(&self) -> &[Value] {
-        super::eval::VmSharedState::read_command_keys(self)
-    }
-
-    fn clear_command_key_state(&mut self, keep_record: bool) {
-        super::eval::VmSharedState::clear_command_key_state(self, keep_record);
+        Context::clear_command_key_state(self, keep_record);
     }
 }
 
@@ -3443,7 +3433,7 @@ fn command_remapping_lookup_in_keymap_value(keymap: &Value, command_name: &str) 
 }
 
 fn command_remapping_lookup_in_minor_mode_alist(
-    eval: &Evaluator,
+    eval: &Context,
     command_name: &str,
     alist_value: &Value,
 ) -> Option<Value> {
@@ -3484,7 +3474,7 @@ fn command_remapping_lookup_in_minor_mode_alist_in_state(
 }
 
 fn command_remapping_lookup_in_minor_mode_maps(
-    eval: &Evaluator,
+    eval: &Context,
     command_name: &str,
 ) -> Option<Value> {
     command_remapping_lookup_in_minor_mode_maps_in_state(
@@ -3541,7 +3531,7 @@ fn command_remapping_lookup_in_minor_mode_maps_in_state(
 }
 
 fn command_remapping_lookup_in_active_keymaps(
-    eval: &Evaluator,
+    eval: &Context,
     command_name: &str,
 ) -> Option<Value> {
     command_remapping_lookup_in_active_keymaps_in_state(
@@ -3706,7 +3696,7 @@ fn command_remapping_normalize_target(raw: Value) -> Value {
     }
 }
 
-fn expect_keymap_value(eval: &Evaluator, value: &Value) -> Result<Value, Flow> {
+fn expect_keymap_value(eval: &Context, value: &Value) -> Result<Value, Flow> {
     if is_list_keymap(value) {
         return Ok(*value);
     }
@@ -3724,7 +3714,7 @@ fn expect_keymap_value(eval: &Evaluator, value: &Value) -> Result<Value, Flow> {
     ))
 }
 
-fn where_is_internal_keymaps(eval: &Evaluator, value: &Value) -> Result<Vec<Value>, Flow> {
+fn where_is_internal_keymaps(eval: &Context, value: &Value) -> Result<Vec<Value>, Flow> {
     if is_list_keymap(value) {
         return Ok(vec![*value]);
     }
@@ -3740,7 +3730,7 @@ fn where_is_internal_keymaps(eval: &Evaluator, value: &Value) -> Result<Vec<Valu
     Ok(vec![expect_keymap_value(eval, value)?])
 }
 
-fn where_is_internal_explicit_keymaps(eval: &Evaluator, value: &Value) -> Result<Vec<Value>, Flow> {
+fn where_is_internal_explicit_keymaps(eval: &Context, value: &Value) -> Result<Vec<Value>, Flow> {
     if is_list_keymap(value) {
         let keymap = expect_keymap_value(eval, value)?;
         let mut keymaps = vec![keymap];
@@ -3768,7 +3758,7 @@ fn where_is_internal_explicit_keymaps(eval: &Evaluator, value: &Value) -> Result
     Ok(keymaps)
 }
 
-fn where_is_internal_active_keymaps(eval: &mut Evaluator) -> Vec<Value> {
+fn where_is_internal_active_keymaps(eval: &mut Context) -> Vec<Value> {
     match super::builtins::keymaps::builtin_current_active_maps_in_state(
         &mut eval.obarray,
         eval.dynamic.as_slice(),

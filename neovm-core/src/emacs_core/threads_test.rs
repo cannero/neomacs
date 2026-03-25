@@ -1,4 +1,4 @@
-use super::super::eval::Evaluator;
+use super::super::eval::Context;
 use super::super::intern::intern;
 use super::*;
 
@@ -152,7 +152,7 @@ fn condition_variable_requires_valid_mutex() {
 
 #[test]
 fn test_builtin_make_thread_runs_function() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     // Define a simple function that returns 42
     eval.set_variable("thread-test-result", Value::Nil);
     eval.set_function(
@@ -177,7 +177,7 @@ fn test_builtin_make_thread_runs_function() {
 
 #[test]
 fn test_builtin_make_thread_accepts_buffer_disposition_arg() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_make_thread(
         &mut eval,
         vec![
@@ -198,7 +198,7 @@ fn test_builtin_make_thread_accepts_buffer_disposition_arg() {
 
 #[test]
 fn test_builtin_make_thread_rejects_more_than_three_args() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_make_thread(
         &mut eval,
         vec![
@@ -222,7 +222,7 @@ fn test_builtin_make_thread_rejects_more_than_three_args() {
 
 #[test]
 fn test_builtin_threadp() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();
 
     let r = builtin_threadp(&mut eval, vec![current]);
@@ -250,7 +250,7 @@ fn test_builtin_threadp() {
 
 #[test]
 fn test_builtin_current_thread() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_current_thread(&mut eval, vec![]);
     assert!(result.is_ok());
     assert_eq!(tagged_object_id(&result.unwrap(), "thread"), Some(0));
@@ -258,7 +258,7 @@ fn test_builtin_current_thread() {
 
 #[test]
 fn test_builtin_current_thread_returns_stable_handle_identity() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let first = builtin_current_thread(&mut eval, vec![]).unwrap();
     let second = builtin_current_thread(&mut eval, vec![]).unwrap();
     assert!(eq_value(&first, &second));
@@ -266,7 +266,7 @@ fn test_builtin_current_thread_returns_stable_handle_identity() {
 
 #[test]
 fn test_builtin_thread_yield() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_thread_yield(&mut eval, vec![]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
@@ -274,7 +274,7 @@ fn test_builtin_thread_yield() {
 
 #[test]
 fn test_builtin_thread_name_main() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();
     let result = builtin_thread_name(&mut eval, vec![current]);
     assert!(result.is_ok());
@@ -283,7 +283,7 @@ fn test_builtin_thread_name_main() {
 
 #[test]
 fn test_builtin_thread_live_p_main() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();
     let result = builtin_thread_live_p(&mut eval, vec![current]);
     assert!(result.is_ok());
@@ -292,7 +292,7 @@ fn test_builtin_thread_live_p_main() {
 
 #[test]
 fn test_builtin_all_threads_includes_main() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_all_threads(&mut eval, vec![]);
     assert!(result.is_ok());
     let list = super::super::value::list_to_vec(&result.unwrap()).unwrap();
@@ -305,7 +305,7 @@ fn test_builtin_all_threads_includes_main() {
 
 #[test]
 fn test_builtin_thread_join_finished() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     // Create and run a thread
     let tid_val = builtin_make_thread(
         &mut eval,
@@ -326,7 +326,7 @@ fn test_builtin_thread_join_finished() {
 
 #[test]
 fn test_builtin_thread_join_current_thread_errors() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();
     let result = builtin_thread_join(&mut eval, vec![current]);
     match result {
@@ -341,7 +341,7 @@ fn test_builtin_thread_join_current_thread_errors() {
 
 #[test]
 fn test_builtin_thread_signal_non_current_is_noop() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let tid_val = builtin_make_thread(
         &mut eval,
         vec![Value::make_lambda(super::super::value::LambdaData {
@@ -368,7 +368,7 @@ fn test_builtin_thread_signal_non_current_is_noop() {
 
 #[test]
 fn test_builtin_thread_signal_current_thread_raises() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();
     let result = builtin_thread_signal(
         &mut eval,
@@ -385,7 +385,7 @@ fn test_builtin_thread_signal_current_thread_raises() {
 
 #[test]
 fn test_builtin_thread_last_error_cleanup() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.threads
         .record_last_error(Value::list(vec![Value::symbol("err"), Value::Int(1)]));
 
@@ -405,7 +405,7 @@ fn test_builtin_thread_last_error_cleanup() {
 
 #[test]
 fn test_builtin_make_mutex() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_make_mutex(&mut eval, vec![Value::string("my-mutex")]);
     assert!(result.is_ok());
     let mx = result.unwrap();
@@ -414,7 +414,7 @@ fn test_builtin_make_mutex() {
 
 #[test]
 fn test_builtin_mutexp() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
 
     let r = builtin_mutexp(&mut eval, vec![mx]);
@@ -437,7 +437,7 @@ fn test_builtin_mutexp() {
 
 #[test]
 fn test_builtin_mutex_name() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![Value::string("named-mx")]).unwrap();
     let result = builtin_mutex_name(&mut eval, vec![mx]);
     assert!(result.is_ok());
@@ -446,7 +446,7 @@ fn test_builtin_mutex_name() {
 
 #[test]
 fn test_builtin_mutex_lock_unlock() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let lock_result = builtin_mutex_lock(&mut eval, vec![mx]);
     assert!(lock_result.is_ok());
@@ -458,7 +458,7 @@ fn test_builtin_mutex_lock_unlock() {
 
 #[test]
 fn test_builtin_make_condition_variable() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let result = builtin_make_condition_variable(&mut eval, vec![mx, Value::string("my-cv")]);
     assert!(result.is_ok());
@@ -467,7 +467,7 @@ fn test_builtin_make_condition_variable() {
 
 #[test]
 fn test_builtin_condition_variable_p() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let cv = builtin_make_condition_variable(&mut eval, vec![mx]).unwrap();
 
@@ -491,7 +491,7 @@ fn test_builtin_condition_variable_p() {
 
 #[test]
 fn test_builtin_condition_name() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let unnamed = builtin_make_condition_variable(&mut eval, vec![mx]).unwrap();
     let named =
@@ -507,7 +507,7 @@ fn test_builtin_condition_name() {
 
 #[test]
 fn test_builtin_condition_mutex() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let cv = builtin_make_condition_variable(&mut eval, vec![mx]).unwrap();
     let result = builtin_condition_mutex(&mut eval, vec![cv]).unwrap();
@@ -516,7 +516,7 @@ fn test_builtin_condition_mutex() {
 
 #[test]
 fn test_builtin_condition_name_wrong_type_argument() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_condition_name(&mut eval, vec![Value::Nil]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -532,7 +532,7 @@ fn test_builtin_condition_name_wrong_type_argument() {
 
 #[test]
 fn test_builtin_condition_mutex_wrong_type_argument() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_condition_mutex(&mut eval, vec![Value::Int(1)]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -548,7 +548,7 @@ fn test_builtin_condition_mutex_wrong_type_argument() {
 
 #[test]
 fn test_builtin_condition_wait_noop() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let cv = builtin_make_condition_variable(&mut eval, vec![mx]).unwrap();
     let owner_error = builtin_condition_wait(&mut eval, vec![cv]);
@@ -564,7 +564,7 @@ fn test_builtin_condition_wait_noop() {
 
 #[test]
 fn test_builtin_condition_notify_noop() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let cv = builtin_make_condition_variable(&mut eval, vec![mx]).unwrap();
     let owner_error = builtin_condition_notify(&mut eval, vec![cv]);
@@ -583,7 +583,7 @@ fn test_builtin_condition_notify_noop() {
 fn test_sf_with_mutex_executes_body() {
     use super::super::expr::Expr;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let mx_id = tagged_object_id(&mx, "mutex").unwrap();
 
@@ -605,7 +605,7 @@ fn test_sf_with_mutex_executes_body() {
 fn test_sf_with_mutex_unlocks_on_error() {
     use super::super::expr::Expr;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
     let mx_id = tagged_object_id(&mx, "mutex").unwrap();
     eval.set_variable("test-mx2", mx);
@@ -626,7 +626,7 @@ fn test_sf_with_mutex_unlocks_on_error() {
 
 #[test]
 fn test_sf_with_mutex_wrong_args() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     // No arguments at all
     let result = sf_with_mutex(&mut eval, &[]);
     match result {
@@ -645,21 +645,21 @@ fn test_sf_with_mutex_wrong_args() {
 
 #[test]
 fn test_thread_yield_wrong_args() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_thread_yield(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_current_thread_wrong_args() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_current_thread(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_make_thread_non_callable_returns_thread_object() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_make_thread(&mut eval, vec![Value::Int(42)]).unwrap();
     let is_thread = builtin_threadp(&mut eval, vec![result]).unwrap();
     assert!(is_thread.is_truthy());
@@ -667,7 +667,7 @@ fn test_make_thread_non_callable_returns_thread_object() {
 
 #[test]
 fn test_make_thread_non_callable_last_error_shape() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let thread = builtin_make_thread(&mut eval, vec![Value::Int(1)]).unwrap();
     let _ = builtin_thread_join(&mut eval, vec![thread]).unwrap();
     let err = builtin_thread_last_error(&mut eval, vec![]).unwrap();
@@ -679,7 +679,7 @@ fn test_make_thread_non_callable_last_error_shape() {
 
 #[test]
 fn test_thread_last_error_is_published_when_joining_signaled_thread() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let _ = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
 
     let thread = builtin_make_thread(&mut eval, vec![Value::symbol("car")]).unwrap();
@@ -701,7 +701,7 @@ fn test_thread_last_error_is_published_when_joining_signaled_thread() {
 
 #[test]
 fn test_thread_name_nonexistent() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let fake = Value::cons(Value::symbol("thread"), Value::Int(999));
     let result = builtin_thread_name(&mut eval, vec![fake]);
     assert!(result.is_err());
@@ -709,7 +709,7 @@ fn test_thread_name_nonexistent() {
 
 #[test]
 fn test_mutex_lock_nonexistent() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let fake = Value::cons(Value::symbol("mutex"), Value::Int(999));
     let result = builtin_mutex_lock(&mut eval, vec![fake]);
     assert!(result.is_err());
@@ -717,7 +717,7 @@ fn test_mutex_lock_nonexistent() {
 
 #[test]
 fn test_condition_wait_nonexistent() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let fake = Value::cons(Value::symbol("condition-variable"), Value::Int(999));
     let result = builtin_condition_wait(&mut eval, vec![fake]);
     assert!(result.is_err());

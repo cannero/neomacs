@@ -144,7 +144,7 @@ fn optional_selected_frame_designator_p(value: &Value) -> bool {
 }
 
 fn live_frame_id_for_face_update(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     frame: Option<&Value>,
 ) -> Result<Option<FrameId>, Flow> {
     match frame {
@@ -164,7 +164,7 @@ fn live_frame_id_for_face_update(
 }
 
 fn mirror_runtime_face_into_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     frame_id: FrameId,
     face_name: &str,
 ) {
@@ -185,7 +185,7 @@ fn mirror_runtime_face_into_frame(
 /// that depends on the realized default face does not fall back to a static
 /// global seed.
 pub fn seed_live_frame_default_face_from_font_parameter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     frame_id: FrameId,
 ) {
     let Some(font_value) = eval
@@ -642,11 +642,11 @@ pub(crate) fn builtin_list_fonts_in_state(frames: &FrameManager, args: Vec<Value
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `list-fonts`.
+/// Context-aware variant of `list-fonts`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
 pub(crate) fn builtin_list_fonts_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_list_fonts_in_state(&eval.frames, args)
@@ -670,7 +670,7 @@ fn font_slant_from_value(value: Value) -> Option<FontSlant> {
 }
 
 fn find_font_frame_id(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     frame: Option<&Value>,
 ) -> Result<FrameId, Flow> {
     match frame {
@@ -691,7 +691,7 @@ fn find_font_frame_id(
 }
 
 fn font_spec_resolve_request(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     font_spec: &Value,
     frame: Option<&Value>,
 ) -> Result<super::eval::FontSpecResolveRequest, Flow> {
@@ -748,11 +748,11 @@ pub(crate) fn builtin_find_font_in_state(frames: &FrameManager, args: Vec<Value>
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `find-font`.
+/// Context-aware variant of `find-font`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
 pub(crate) fn builtin_find_font_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("find-font", &args, 1)?;
@@ -807,11 +807,11 @@ pub(crate) fn builtin_font_family_list_in_state(
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `font-family-list`.
+/// Context-aware variant of `font-family-list`.
 ///
 /// Accepts live frame designators in the optional FRAME slot.
 pub(crate) fn builtin_font_family_list_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_font_family_list_in_state(&eval.frames, args)
@@ -955,7 +955,7 @@ fn window_id_from_designator(value: &Value) -> Option<WindowId> {
 }
 
 fn resolve_live_window_for_font_at(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     value: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
     match value {
@@ -1043,7 +1043,7 @@ fn apply_face_layers(face_table: &crate::face::FaceTable, layers: &[FaceLayer]) 
 }
 
 fn resolved_face_at_buffer_byte(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     buffer: &Buffer,
     bytepos: usize,
 ) -> RuntimeFace {
@@ -1079,7 +1079,7 @@ fn resolved_face_at_buffer_byte(
 }
 
 fn resolved_face_at_string_byte(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     str_id: crate::gc::types::ObjId,
     bytepos: usize,
 ) -> RuntimeFace {
@@ -1264,7 +1264,7 @@ fn font_value_matches_frame_font_parameter(
 }
 
 fn resolved_live_frame_font_value(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     frame_id: FrameId,
     requested: &Value,
 ) -> Value {
@@ -1324,7 +1324,7 @@ fn public_live_frame_font_value(font_value: Value) -> Value {
 }
 
 fn live_frame_font_attribute_fallback(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     frame_id: FrameId,
     attr_name: &str,
 ) -> Option<Value> {
@@ -1376,7 +1376,7 @@ fn font_info_vector_for_runtime_font(font_like: &Value, frame: &crate::window::F
 }
 
 fn resolve_font_match(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     frame_id: FrameId,
     character: char,
     face: &RuntimeFace,
@@ -1397,7 +1397,7 @@ fn resolve_font_match(
 /// `(font-at POSITION &optional WINDOW STRING)` -- resolve the effective font
 /// object for the target buffer or string position.
 pub(crate) fn builtin_font_at_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("font-at", &args, 1)?;
@@ -2479,7 +2479,7 @@ pub(crate) fn builtin_internal_make_lisp_face(args: Vec<Value>) -> EvalResult {
 /// Eval-backed version of `internal-make-lisp-face` that also ensures the face
 /// exists in the evaluator's `FaceTable`.
 pub(crate) fn builtin_internal_make_lisp_face_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let result = builtin_internal_make_lisp_face(args.clone())?;
@@ -2561,7 +2561,7 @@ pub(crate) fn builtin_internal_copy_lisp_face_in_state(
 /// Eval-backed version of `internal-copy-lisp-face` that also mirrors the
 /// copied face into the evaluator's `FaceTable`.
 pub(crate) fn builtin_internal_copy_lisp_face_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let result = builtin_internal_copy_lisp_face(args.clone())?;
@@ -2685,7 +2685,7 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_in_state(
 /// updates the evaluator's `FaceTable`, making the face attributes
 /// available to the Rust layout engine for rendering.
 pub(crate) fn builtin_internal_set_lisp_face_attribute_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     // First, do the existing pure logic (FACE_ATTR_STATE storage + validation)
@@ -3207,7 +3207,7 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute_in_state(
 }
 
 pub(crate) fn builtin_internal_get_lisp_face_attribute_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("internal-get-lisp-face-attribute", &args, 2)?;
@@ -3365,7 +3365,7 @@ pub(crate) fn builtin_internal_merge_in_global_face_in_state(
 }
 
 pub(crate) fn builtin_internal_merge_in_global_face_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let result = builtin_internal_merge_in_global_face(args.clone())?;
@@ -3818,7 +3818,7 @@ pub(crate) fn builtin_face_font(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_face_font_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("face-font", &args, 1)?;
@@ -3896,7 +3896,7 @@ pub(crate) fn builtin_face_font_eval(
 }
 
 pub(crate) fn builtin_font_info_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("font-info", &args, 1)?;

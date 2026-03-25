@@ -693,7 +693,7 @@ pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_format_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
@@ -1101,7 +1101,7 @@ pub(super) fn builtin_format_wrapper_strict(args: Vec<Value>) -> EvalResult {
 }
 
 pub(super) fn builtin_format_wrapper_strict_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
@@ -1175,7 +1175,7 @@ pub(crate) fn builtin_format_message(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_format_message_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_format_message_in_state(

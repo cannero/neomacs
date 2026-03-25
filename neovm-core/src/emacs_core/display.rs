@@ -71,7 +71,7 @@ pub(crate) fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
     }
 }
 
-fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
     dynamic_or_global_symbol_value_in_state(&eval.obarray, &eval.dynamic, name)
 }
 
@@ -89,7 +89,7 @@ fn dynamic_or_global_symbol_value_in_state(
     obarray.symbol_value(name).cloned()
 }
 
-fn global_window_system_symbol(eval: &super::eval::Evaluator) -> Option<Value> {
+fn global_window_system_symbol(eval: &super::eval::Context) -> Option<Value> {
     dynamic_or_global_symbol_value(eval, "initial-window-system")
         .filter(|value| !value.is_nil())
         .or_else(|| dynamic_or_global_symbol_value(eval, "window-system"))
@@ -104,7 +104,7 @@ fn global_window_system_symbol_in_state(
         .or_else(|| dynamic_or_global_symbol_value_in_state(obarray, dynamic, "window-system"))
 }
 
-fn selected_frame_window_system_symbol(eval: &super::eval::Evaluator) -> Option<Value> {
+fn selected_frame_window_system_symbol(eval: &super::eval::Context) -> Option<Value> {
     eval.frames
         .selected_frame()
         .and_then(|frame| frame.effective_window_system())
@@ -130,7 +130,7 @@ pub(crate) fn live_frame_designator_p_in_state(
 }
 
 fn frame_window_system_symbol(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     frame: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     frame_window_system_symbol_in_state(&mut eval.frames, &mut eval.buffers, frame)
@@ -164,7 +164,7 @@ fn display_does_not_exist_error(display: &str) -> Flow {
     )
 }
 
-fn format_get_device_terminal_arg_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+fn format_get_device_terminal_arg_eval(eval: &super::eval::Context, value: &Value) -> String {
     let window_id = match value {
         Value::Window(id) => Some(WindowId(*id)),
         _ => None,
@@ -188,7 +188,7 @@ fn format_get_device_terminal_arg_eval(eval: &super::eval::Evaluator, value: &Va
     super::print::print_value(value)
 }
 
-fn invalid_get_device_terminal_error_eval(eval: &super::eval::Evaluator, value: &Value) -> Flow {
+fn invalid_get_device_terminal_error_eval(eval: &super::eval::Context, value: &Value) -> Flow {
     signal(
         "error",
         vec![Value::string(format!(
@@ -247,12 +247,12 @@ pub(crate) fn expect_display_designator_in_state(
     }
 }
 
-pub(crate) fn live_frame_designator_p(eval: &mut super::eval::Evaluator, value: &Value) -> bool {
+pub(crate) fn live_frame_designator_p(eval: &mut super::eval::Context, value: &Value) -> bool {
     live_frame_designator_p_in_state(&eval.frames, value)
 }
 
 fn expect_display_designator_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     value: &Value,
 ) -> Result<(), Flow> {
     if value.is_nil() || terminal_designator_p(value) || live_frame_designator_p(eval, value) {
@@ -266,7 +266,7 @@ fn expect_display_designator_eval(
 }
 
 fn expect_optional_display_designator_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     name: &str,
     args: &[Value],
 ) -> Result<(), Flow> {
@@ -288,7 +288,7 @@ fn frame_not_live_error(value: &Value) -> Flow {
     )
 }
 
-fn frame_not_live_error_eval(_eval: &super::eval::Evaluator, value: &Value) -> Flow {
+fn frame_not_live_error_eval(_eval: &super::eval::Context, value: &Value) -> Flow {
     let printable = match value {
         Value::Str(_) => value.as_str().unwrap().to_string(),
         _ => format_get_device_terminal_arg_eval(_eval, value),
@@ -362,7 +362,7 @@ pub(crate) fn gui_window_system_active_value(value: Value) -> bool {
     value == Value::symbol(gui_window_system_symbol()) || value == Value::symbol("x")
 }
 
-pub(crate) fn x_window_system_active(eval: &super::eval::Evaluator) -> bool {
+pub(crate) fn x_window_system_active(eval: &super::eval::Context) -> bool {
     let host_window_system =
         selected_frame_window_system_symbol(eval).or_else(|| global_window_system_symbol(eval));
     host_window_system.is_some_and(gui_window_system_active_value)
@@ -377,7 +377,7 @@ pub(crate) fn x_window_system_active_in_state(
 }
 
 pub(crate) fn display_window_system_symbol_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     display: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match display {
@@ -442,7 +442,7 @@ const GUI_X_DISPLAY_COLOR_CELLS: i64 = 16_777_216;
 const GUI_X_VISUAL_CLASS: &str = "true-color";
 
 fn gui_x_query_target_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     name: &str,
     args: &[Value],
 ) -> Result<bool, Flow> {
@@ -616,7 +616,7 @@ fn display_optional_capability_p(name: &str, args: &[Value]) -> EvalResult {
 }
 
 fn display_optional_capability_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     name: &str,
     args: &[Value],
 ) -> EvalResult {
@@ -662,7 +662,7 @@ fn x_optional_display_query_error(name: &str, args: &[Value]) -> EvalResult {
 }
 
 fn x_optional_display_query_error_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     name: &str,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -837,9 +837,9 @@ pub(crate) fn builtin_display_supports_face_attributes_p(args: Vec<Value>) -> Ev
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `display-graphic-p`.
+/// Context-aware variant of `display-graphic-p`.
 pub(crate) fn builtin_display_graphic_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-graphic-p", &args)?;
@@ -849,86 +849,86 @@ pub(crate) fn builtin_display_graphic_p_eval(
     ))
 }
 
-/// Evaluator-aware variant of `display-grayscale-p`.
+/// Context-aware variant of `display-grayscale-p`.
 pub(crate) fn builtin_display_grayscale_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     display_optional_capability_p_eval(eval, "display-grayscale-p", &args)
 }
 
-/// Evaluator-aware variant of `display-mouse-p`.
+/// Context-aware variant of `display-mouse-p`.
 pub(crate) fn builtin_display_mouse_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     display_optional_capability_p_eval(eval, "display-mouse-p", &args)
 }
 
-/// Evaluator-aware variant of `display-popup-menus-p`.
+/// Context-aware variant of `display-popup-menus-p`.
 pub(crate) fn builtin_display_popup_menus_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     display_optional_capability_p_eval(eval, "display-popup-menus-p", &args)
 }
 
-/// Evaluator-aware variant of `display-symbol-keys-p`.
+/// Context-aware variant of `display-symbol-keys-p`.
 pub(crate) fn builtin_display_symbol_keys_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     display_optional_capability_p_eval(eval, "display-symbol-keys-p", &args)
 }
 
-/// Evaluator-aware variant of `display-pixel-width`.
+/// Context-aware variant of `display-pixel-width`.
 pub(crate) fn builtin_display_pixel_width_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-pixel-width", &args)?;
     Ok(Value::Int(80))
 }
 
-/// Evaluator-aware variant of `display-pixel-height`.
+/// Context-aware variant of `display-pixel-height`.
 pub(crate) fn builtin_display_pixel_height_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-pixel-height", &args)?;
     Ok(Value::Int(25))
 }
 
-/// Evaluator-aware variant of `display-mm-width`.
+/// Context-aware variant of `display-mm-width`.
 pub(crate) fn builtin_display_mm_width_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-mm-width", &args)?;
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `display-mm-height`.
+/// Context-aware variant of `display-mm-height`.
 pub(crate) fn builtin_display_mm_height_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-mm-height", &args)?;
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `display-screens`.
+/// Context-aware variant of `display-screens`.
 pub(crate) fn builtin_display_screens_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-screens", &args)?;
     Ok(Value::Int(1))
 }
 
-/// Evaluator-aware variant of `display-color-cells`.
+/// Context-aware variant of `display-color-cells`.
 pub(crate) fn builtin_display_color_cells_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-color-cells", &args)?;
@@ -964,9 +964,9 @@ pub(crate) fn builtin_display_color_cells_in_state(
     }
 }
 
-/// Evaluator-aware variant of `display-planes`.
+/// Context-aware variant of `display-planes`.
 pub(crate) fn builtin_display_planes_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-planes", &args)?;
@@ -985,9 +985,9 @@ pub(crate) fn builtin_display_planes_eval(
     }
 }
 
-/// Evaluator-aware variant of `display-visual-class`.
+/// Context-aware variant of `display-visual-class`.
 pub(crate) fn builtin_display_visual_class_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-visual-class", &args)?;
@@ -1002,36 +1002,36 @@ pub(crate) fn builtin_display_visual_class_eval(
     }
 }
 
-/// Evaluator-aware variant of `display-backing-store`.
+/// Context-aware variant of `display-backing-store`.
 pub(crate) fn builtin_display_backing_store_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-backing-store", &args)?;
     Ok(Value::symbol("not-useful"))
 }
 
-/// Evaluator-aware variant of `display-save-under`.
+/// Context-aware variant of `display-save-under`.
 pub(crate) fn builtin_display_save_under_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-save-under", &args)?;
     Ok(Value::symbol("not-useful"))
 }
 
-/// Evaluator-aware variant of `display-selections-p`.
+/// Context-aware variant of `display-selections-p`.
 pub(crate) fn builtin_display_selections_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-selections-p", &args)?;
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `window-system`.
+/// Context-aware variant of `window-system`.
 pub(crate) fn builtin_window_system_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_system_in_state(
@@ -1087,9 +1087,9 @@ pub(crate) fn builtin_frame_edges(args: Vec<Value>) -> EvalResult {
     ]))
 }
 
-/// Evaluator-aware variant of `frame-edges`.
+/// Context-aware variant of `frame-edges`.
 pub(crate) fn builtin_frame_edges_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("frame-edges", &args, 0, 2)?;
@@ -1106,21 +1106,21 @@ pub(crate) fn builtin_frame_edges_eval(
     ]))
 }
 
-/// Evaluator-aware variant of `display-images-p`.
+/// Context-aware variant of `display-images-p`.
 pub(crate) fn builtin_display_images_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-images-p", &args)?;
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `display-supports-face-attributes-p`.
+/// Context-aware variant of `display-supports-face-attributes-p`.
 ///
 /// Emacs accepts broad argument shapes here in batch mode and still returns
 /// nil as long as arity is valid.
 pub(crate) fn builtin_display_supports_face_attributes_p_eval(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("display-supports-face-attributes-p", &args, 1, 2)?;
@@ -1704,7 +1704,7 @@ pub(crate) fn builtin_x_get_resource(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_x_get_resource_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-get-resource", &args, 2, 4)?;
@@ -1733,7 +1733,7 @@ pub(crate) fn builtin_x_apply_session_resources(args: Vec<Value>) -> EvalResult 
 }
 
 pub(crate) fn builtin_x_apply_session_resources_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("x-apply-session-resources", &args, 0)?;
@@ -1750,7 +1750,7 @@ pub(crate) fn builtin_x_list_fonts(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_x_list_fonts_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-list-fonts", &args, 1, 5)?;
@@ -1949,9 +1949,9 @@ pub(crate) fn builtin_x_server_version(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-server-version", &args)
 }
 
-/// Evaluator-aware variant of `x-server-version`.
+/// Context-aware variant of `x-server-version`.
 pub(crate) fn builtin_x_server_version_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-version", args)
@@ -1969,9 +1969,9 @@ pub(crate) fn builtin_x_server_max_request_size(args: Vec<Value>) -> EvalResult 
     x_optional_display_query_error("x-server-max-request-size", &args)
 }
 
-/// Evaluator-aware variant of `x-server-max-request-size`.
+/// Context-aware variant of `x-server-max-request-size`.
 pub(crate) fn builtin_x_server_max_request_size_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-max-request-size", args)
@@ -1989,9 +1989,9 @@ pub(crate) fn builtin_x_display_grayscale_p(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-grayscale-p", &args)
 }
 
-/// Evaluator-aware variant of `x-display-grayscale-p`.
+/// Context-aware variant of `x-display-grayscale-p`.
 pub(crate) fn builtin_x_display_grayscale_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if gui_x_query_target_eval(eval, "x-display-grayscale-p", &args)? {
@@ -2017,9 +2017,9 @@ pub(crate) fn builtin_x_display_backing_store(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-backing-store", &args)
 }
 
-/// Evaluator-aware variant of `x-display-backing-store`.
+/// Context-aware variant of `x-display-backing-store`.
 pub(crate) fn builtin_x_display_backing_store_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-backing-store", args)
@@ -2037,9 +2037,9 @@ pub(crate) fn builtin_x_display_color_cells(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-color-cells", &args)
 }
 
-/// Evaluator-aware variant of `x-display-color-cells`.
+/// Context-aware variant of `x-display-color-cells`.
 pub(crate) fn builtin_x_display_color_cells_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if gui_x_query_target_eval(eval, "x-display-color-cells", &args)? {
@@ -2065,9 +2065,9 @@ pub(crate) fn builtin_x_display_mm_height(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-mm-height", &args)
 }
 
-/// Evaluator-aware variant of `x-display-mm-height`.
+/// Context-aware variant of `x-display-mm-height`.
 pub(crate) fn builtin_x_display_mm_height_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-mm-height", args)
@@ -2085,9 +2085,9 @@ pub(crate) fn builtin_x_display_mm_width(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-mm-width", &args)
 }
 
-/// Evaluator-aware variant of `x-display-mm-width`.
+/// Context-aware variant of `x-display-mm-width`.
 pub(crate) fn builtin_x_display_mm_width_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-mm-width", args)
@@ -2105,9 +2105,9 @@ pub(crate) fn builtin_x_display_monitor_attributes_list(args: Vec<Value>) -> Eva
     x_optional_display_query_error("x-display-monitor-attributes-list", &args)
 }
 
-/// Evaluator-aware variant of `x-display-monitor-attributes-list`.
+/// Context-aware variant of `x-display-monitor-attributes-list`.
 pub(crate) fn builtin_x_display_monitor_attributes_list_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-monitor-attributes-list", args)
@@ -2125,9 +2125,9 @@ pub(crate) fn builtin_x_display_planes(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-planes", &args)
 }
 
-/// Evaluator-aware variant of `x-display-planes`.
+/// Context-aware variant of `x-display-planes`.
 pub(crate) fn builtin_x_display_planes_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if gui_x_query_target_eval(eval, "x-display-planes", &args)? {
@@ -2153,9 +2153,9 @@ pub(crate) fn builtin_x_display_save_under(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-save-under", &args)
 }
 
-/// Evaluator-aware variant of `x-display-save-under`.
+/// Context-aware variant of `x-display-save-under`.
 pub(crate) fn builtin_x_display_save_under_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-save-under", args)
@@ -2173,9 +2173,9 @@ pub(crate) fn builtin_x_display_screens(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-screens", &args)
 }
 
-/// Evaluator-aware variant of `x-display-screens`.
+/// Context-aware variant of `x-display-screens`.
 pub(crate) fn builtin_x_display_screens_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-display-screens", args)
@@ -2193,9 +2193,9 @@ pub(crate) fn builtin_x_display_visual_class(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-display-visual-class", &args)
 }
 
-/// Evaluator-aware variant of `x-display-visual-class`.
+/// Context-aware variant of `x-display-visual-class`.
 pub(crate) fn builtin_x_display_visual_class_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if gui_x_query_target_eval(eval, "x-display-visual-class", &args)? {
@@ -2221,9 +2221,9 @@ pub(crate) fn builtin_x_server_input_extension_version(args: Vec<Value>) -> Eval
     x_optional_display_query_error("x-server-input-extension-version", &args)
 }
 
-/// Evaluator-aware variant of `x-server-input-extension-version`.
+/// Context-aware variant of `x-server-input-extension-version`.
 pub(crate) fn builtin_x_server_input_extension_version_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-input-extension-version", args)
@@ -2241,9 +2241,9 @@ pub(crate) fn builtin_x_server_vendor(args: Vec<Value>) -> EvalResult {
     x_optional_display_query_error("x-server-vendor", &args)
 }
 
-/// Evaluator-aware variant of `x-server-vendor`.
+/// Context-aware variant of `x-server-vendor`.
 pub(crate) fn builtin_x_server_vendor_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     x_optional_display_query_error_eval(eval, "x-server-vendor", args)
@@ -2266,12 +2266,12 @@ pub(crate) fn builtin_x_display_set_last_user_time(args: Vec<Value>) -> EvalResu
     x_optional_display_query_error("x-display-set-last-user-time", &query_args)
 }
 
-/// Evaluator-aware variant of `x-display-set-last-user-time`.
+/// Context-aware variant of `x-display-set-last-user-time`.
 ///
 /// In batch/no-X context, payload class follows USER-TIME argument designator
 /// semantics, including live-frame and terminal handle message mapping.
 pub(crate) fn builtin_x_display_set_last_user_time_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-display-set-last-user-time", &args, 1, 2)?;
@@ -2315,7 +2315,7 @@ pub(crate) fn builtin_x_open_connection(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_x_open_connection_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("x-open-connection", &args, 1, 3)?;
@@ -2366,11 +2366,11 @@ pub(crate) fn builtin_x_close_connection(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Evaluator-aware variant of `x-close-connection`.
+/// Context-aware variant of `x-close-connection`.
 ///
 /// Live frame designators map to batch-compatible frame-class errors.
 pub(crate) fn builtin_x_close_connection_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("x-close-connection", &args, 1)?;
@@ -2433,12 +2433,12 @@ pub(crate) fn builtin_x_display_pixel_width(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Evaluator-aware variant of `x-display-pixel-width`.
+/// Context-aware variant of `x-display-pixel-width`.
 ///
 /// Accepts live frame designators and maps them to the same batch/no-X error
 /// class as nil/current-display queries.
 pub(crate) fn builtin_x_display_pixel_width_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("x-display-pixel-width", &args, 1)?;
@@ -2501,12 +2501,12 @@ pub(crate) fn builtin_x_display_pixel_height(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Evaluator-aware variant of `x-display-pixel-height`.
+/// Context-aware variant of `x-display-pixel-height`.
 ///
 /// Accepts live frame designators and maps them to the same batch/no-X error
 /// class as nil/current-display queries.
 pub(crate) fn builtin_x_display_pixel_height_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("x-display-pixel-height", &args, 1)?;
@@ -2556,11 +2556,11 @@ pub(crate) fn builtin_display_monitor_attributes_list(args: Vec<Value>) -> EvalR
     Ok(Value::list(vec![monitor]))
 }
 
-/// Evaluator-aware variant of `display-monitor-attributes-list`.
+/// Context-aware variant of `display-monitor-attributes-list`.
 ///
 /// This populates the `frames` slot from the live frame list.
 pub(crate) fn builtin_display_monitor_attributes_list_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-monitor-attributes-list", &args)?;
@@ -2586,11 +2586,11 @@ pub(crate) fn builtin_frame_monitor_attributes(args: Vec<Value>) -> EvalResult {
     Ok(make_monitor_alist(Value::Nil))
 }
 
-/// Evaluator-aware variant of `frame-monitor-attributes`.
+/// Context-aware variant of `frame-monitor-attributes`.
 ///
 /// This populates the `frames` slot from the live frame list.
 pub(crate) fn builtin_frame_monitor_attributes_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "frame-monitor-attributes", &args)?;

@@ -77,7 +77,7 @@ pub(crate) fn builtin_message_or_box(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_message_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let result = {
@@ -137,7 +137,7 @@ pub(crate) fn builtin_message_in_state(
 }
 
 pub(crate) fn builtin_message_box_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_message_box_in_state(
@@ -176,7 +176,7 @@ pub(crate) fn builtin_message_box_in_state(
 }
 
 pub(crate) fn builtin_message_or_box_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_message_or_box_in_state(
@@ -221,7 +221,7 @@ pub(crate) fn builtin_current_message(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_current_message_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let current_message = eval.current_message_text().map(str::to_owned);
@@ -331,7 +331,7 @@ pub(crate) fn builtin_error(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_error_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("error", &args, 1)?;
@@ -352,7 +352,7 @@ pub(crate) fn builtin_user_error(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_user_error_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("user-error", &args, 1)?;

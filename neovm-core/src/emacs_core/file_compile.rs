@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use super::error::Flow;
-use super::eval::{Evaluator, quote_to_value};
+use super::eval::{Context, quote_to_value};
 use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::value::Value;
@@ -35,7 +35,7 @@ pub enum CompiledForm {
 /// - Everything else — evaluated at compile time (for side effects such as
 ///   `defun`, `defvar`, `require`), then emitted as `Eval(quoted_form)` to
 ///   replay at load time.
-pub fn compile_file_forms(eval: &mut Evaluator, forms: &[Expr]) -> Result<Vec<CompiledForm>, Flow> {
+pub fn compile_file_forms(eval: &mut Context, forms: &[Expr]) -> Result<Vec<CompiledForm>, Flow> {
     let mut compiled = Vec::new();
     for form in forms {
         compile_toplevel_file_form(eval, form, &mut compiled)?;
@@ -45,7 +45,7 @@ pub fn compile_file_forms(eval: &mut Evaluator, forms: &[Expr]) -> Result<Vec<Co
 
 /// Process a single top-level form, appending results to `out`.
 fn compile_toplevel_file_form(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     form: &Expr,
     out: &mut Vec<CompiledForm>,
 ) -> Result<(), Flow> {
@@ -119,7 +119,7 @@ impl std::fmt::Display for CompileFileError {
 /// Reads the `.el` source, parses forms, evaluates `eval-when-compile`
 /// bodies at compile time (folding results to constants), and writes
 /// the compiled output to a `.neobc` file alongside the source.
-pub fn compile_el_to_neobc(eval: &mut Evaluator, el_path: &Path) -> Result<(), CompileFileError> {
+pub fn compile_el_to_neobc(eval: &mut Context, el_path: &Path) -> Result<(), CompileFileError> {
     // 1. Read the .el source.
     let raw_bytes = std::fs::read(el_path).map_err(CompileFileError::Io)?;
     let content = super::load::decode_emacs_utf8(&raw_bytes);
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_compile_simple_form() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         assert_eq!(compiled.len(), 1);
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_compile_eval_when_compile() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(eval-when-compile (+ 10 20))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         assert_eq!(compiled.len(), 1);
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_compile_eval_and_compile() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(eval-and-compile (defvar test-fc-var 42))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         assert_eq!(compiled.len(), 1);
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_compile_progn_flattens() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(progn (+ 1 2) (+ 3 4))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         // progn with 2 sub-forms should produce 2 CompiledForm entries.
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_compile_progn_with_eval_when_compile() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(progn (eval-when-compile (+ 1 2)) (+ 3 4))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         assert_eq!(compiled.len(), 2);
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_compile_defun_side_effect() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         // defun is no longer a special form; use defalias instead
         let forms = parse_forms("(defalias 'test-fc-fn #'(lambda () 99))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_compile_multiple_forms() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms(
             "(defvar test-fc-a 1)\n\
              (eval-when-compile (+ 2 3))\n\
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_compile_empty_forms() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let compiled = compile_file_forms(&mut eval, &[]).unwrap();
         assert!(compiled.is_empty());
     }
@@ -269,7 +269,7 @@ mod tests {
                       (defvar my-var 1)\n";
         std::fs::write(&el_path, source).unwrap();
 
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         compile_el_to_neobc(&mut eval, &el_path).unwrap();
 
         // Verify .neobc was created alongside the .el file.
@@ -291,7 +291,7 @@ mod tests {
         let source = ";; -*- lexical-binding: t -*-\n(+ 1 2)\n";
         std::fs::write(&el_path, source).unwrap();
 
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         compile_el_to_neobc(&mut eval, &el_path).unwrap();
 
         let neobc_path = el_path.with_extension("neobc");
@@ -306,7 +306,7 @@ mod tests {
         let source = ";; -*- lexical-binding: t -*-\n(+ 1 2)\n";
         std::fs::write(&el_path, source).unwrap();
 
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         assert!(!eval.lexical_binding(), "starts as dynamic");
         compile_el_to_neobc(&mut eval, &el_path).unwrap();
         assert!(!eval.lexical_binding(), "should be restored to dynamic");
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_compile_el_to_neobc_nonexistent_file() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let result = compile_el_to_neobc(&mut eval, Path::new("/nonexistent/foo.el"));
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), CompileFileError::Io(_)));

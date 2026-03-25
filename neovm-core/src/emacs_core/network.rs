@@ -499,7 +499,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 }
 
 // ---------------------------------------------------------------------------
-// Builtins (eval-dependent — need access to NetworkManager on the Evaluator)
+// Builtins (eval-dependent — need access to NetworkManager on the Context)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

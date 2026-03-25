@@ -608,7 +608,7 @@ fn replace_regexp_in_string_core(
     Ok(Value::string(out))
 }
 
-fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
     let name_id = intern(name);
     for frame in eval.dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
@@ -619,7 +619,7 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> 
 }
 
 pub(crate) fn builtin_replace_regexp_in_string_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("replace-regexp-in-string", &args, 3, 7)?;

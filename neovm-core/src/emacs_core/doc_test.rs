@@ -2,7 +2,7 @@ use super::*;
 use crate::emacs_core::Expr;
 use crate::emacs_core::builtins::builtin_documentation_stringp;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
-use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -93,7 +93,7 @@ fn substitute_wrong_arity() {
 
 #[test]
 fn substitute_command_keys_startup_is_autoloaded() {
-    let eval = Evaluator::new();
+    let eval = Context::new();
     let function = eval
         .obarray
         .symbol_function("substitute-command-keys")
@@ -291,7 +291,7 @@ fn help_function_arglist_loaded_wrong_arity_matches_gnu() {
 
 #[test]
 fn documentation_lambda_with_docstring() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
 
     // Set up a lambda with a docstring in the function cell.
     let lambda = Value::make_lambda(LambdaData {
@@ -310,7 +310,7 @@ fn documentation_lambda_with_docstring() {
 
 #[test]
 fn documentation_lambda_no_docstring() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
 
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),
@@ -328,7 +328,7 @@ fn documentation_lambda_no_docstring() {
 
 #[test]
 fn documentation_substitutes_command_keys_unless_raw() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),
         body: vec![Expr::Symbol(crate::emacs_core::intern::intern("t"))].into(),
@@ -354,14 +354,14 @@ fn documentation_substitutes_command_keys_unless_raw() {
 
 #[test]
 fn documentation_unbound_function() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("nonexistent")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn documentation_subr() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("plus", Value::Subr(intern("+")));
@@ -373,7 +373,7 @@ fn documentation_subr() {
 
 #[test]
 fn documentation_car_subr_uses_oracle_text_shape() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("car", Value::Subr(intern("car")));
@@ -388,7 +388,7 @@ fn documentation_car_subr_uses_oracle_text_shape() {
 
 #[test]
 fn documentation_if_special_form_uses_oracle_text_shape() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("if", Value::Subr(intern("if")));
@@ -403,7 +403,7 @@ fn documentation_if_special_form_uses_oracle_text_shape() {
 
 #[test]
 fn documentation_core_subr_stubs_use_oracle_first_line_shapes() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let probes = [
         (
             "cons",
@@ -459,7 +459,7 @@ fn documentation_core_subr_stubs_use_oracle_first_line_shapes() {
 
 #[test]
 fn documentation_symbol_alias_to_builtin_returns_docstring() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("alias-builtin", Value::symbol("car"));
@@ -475,7 +475,7 @@ fn documentation_symbol_alias_to_builtin_returns_docstring() {
 
 #[test]
 fn documentation_prefers_function_documentation_property() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("doc-prop", Value::Int(7));
@@ -491,7 +491,7 @@ fn documentation_prefers_function_documentation_property() {
 
 #[test]
 fn documentation_integer_function_documentation_property_returns_nil() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("doc-prop", Value::Int(7));
@@ -505,7 +505,7 @@ fn documentation_integer_function_documentation_property_returns_nil() {
 
 #[test]
 fn documentation_list_function_documentation_property_is_evaluated() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("doc-prop", Value::Int(7));
@@ -521,7 +521,7 @@ fn documentation_list_function_documentation_property_is_evaluated() {
 
 #[test]
 fn documentation_symbol_function_documentation_property_is_evaluated() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("doc-prop", Value::Int(7));
@@ -535,7 +535,7 @@ fn documentation_symbol_function_documentation_property_is_evaluated() {
 
 #[test]
 fn documentation_vector_function_documentation_property_is_evaluated() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("doc-prop", Value::Int(7));
@@ -551,7 +551,7 @@ fn documentation_vector_function_documentation_property_is_evaluated() {
 
 #[test]
 fn documentation_unbound_symbol_function_documentation_property_errors() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("doc-prop", Value::Int(7));
@@ -570,7 +570,7 @@ fn documentation_unbound_symbol_function_documentation_property_errors() {
 
 #[test]
 fn documentation_invalid_form_function_documentation_property_errors() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .set_symbol_function("doc-prop", Value::Int(7));
@@ -589,7 +589,7 @@ fn documentation_invalid_form_function_documentation_property_errors() {
 
 #[test]
 fn documentation_quoted_lambda_docstring() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let quoted = Value::list(vec![
         Value::symbol("lambda"),
         Value::list(vec![Value::symbol("x")]),
@@ -603,7 +603,7 @@ fn documentation_quoted_lambda_docstring() {
 
 #[test]
 fn documentation_quoted_lambda_without_docstring_returns_nil() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let quoted = Value::list(vec![
         Value::symbol("lambda"),
         Value::list(vec![Value::symbol("x")]),
@@ -616,7 +616,7 @@ fn documentation_quoted_lambda_without_docstring_returns_nil() {
 
 #[test]
 fn documentation_vector_designator_returns_keyboard_macro_doc() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result =
         builtin_documentation(&mut evaluator, vec![Value::vector(vec![Value::Int(1)])]).unwrap();
     assert_eq!(result.as_str(), Some("Keyboard macro."));
@@ -624,14 +624,14 @@ fn documentation_vector_designator_returns_keyboard_macro_doc() {
 
 #[test]
 fn documentation_string_designator_returns_keyboard_macro_doc() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation(&mut evaluator, vec![Value::string("abc")]).unwrap();
     assert_eq!(result.as_str(), Some("Keyboard macro."));
 }
 
 #[test]
 fn documentation_quoted_macro_payload_matches_oracle_shape() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let quoted = Value::list(vec![
         Value::symbol("macro"),
         Value::list(vec![Value::symbol("x")]),
@@ -658,7 +658,7 @@ fn documentation_quoted_macro_payload_matches_oracle_shape() {
 
 #[test]
 fn documentation_empty_quoted_macro_errors_void_function_nil() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let quoted = Value::list(vec![Value::symbol("macro")]);
 
     let result = builtin_documentation(&mut evaluator, vec![quoted]);
@@ -673,7 +673,7 @@ fn documentation_empty_quoted_macro_errors_void_function_nil() {
 
 #[test]
 fn documentation_non_symbol_non_function_errors_invalid_function() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation(
         &mut evaluator,
         vec![Value::list(vec![Value::Int(1), Value::Int(2)])],
@@ -683,7 +683,7 @@ fn documentation_non_symbol_non_function_errors_invalid_function() {
 
 #[test]
 fn documentation_wrong_arity() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation(&mut evaluator, vec![]);
     assert!(result.is_err());
 }
@@ -706,7 +706,7 @@ fn startup_doc_quote_style_display_handles_backtick_pairs() {
 
 #[test]
 fn documentation_property_eval_returns_string_property() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .put_property("doc-sym", "variable-documentation", Value::string("doc"));
@@ -724,7 +724,7 @@ fn documentation_property_eval_returns_string_property() {
 
 #[test]
 fn documentation_property_eval_substitutes_command_keys_unless_raw() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
@@ -760,7 +760,7 @@ fn documentation_property_eval_substitutes_command_keys_unless_raw() {
 
 #[test]
 fn documentation_property_eval_integer_property_returns_nil() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .put_property("doc-sym", "variable-documentation", Value::Int(7));
@@ -796,7 +796,7 @@ fn documentation_property_eval_reads_compiled_doc_ref() {
     let path = std::env::temp_dir().join(format!("{unique}.elc"));
     std::fs::write(&path, b"#@11 compiled doc\x1f").expect("write doc fixture");
 
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
@@ -822,7 +822,7 @@ fn documentation_property_eval_reads_compiled_doc_ref() {
 
 #[test]
 fn documentation_property_eval_load_path_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -840,7 +840,7 @@ fn documentation_property_eval_load_path_integer_property_returns_string() {
 
 #[test]
 fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let display = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -873,7 +873,7 @@ fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
 
 #[test]
 fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let display = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -906,7 +906,7 @@ fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() 
 
 #[test]
 fn documentation_property_eval_case_fold_search_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -924,7 +924,7 @@ fn documentation_property_eval_case_fold_search_integer_property_returns_string(
 
 #[test]
 fn documentation_property_eval_unread_command_events_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -942,7 +942,7 @@ fn documentation_property_eval_unread_command_events_integer_property_returns_st
 
 #[test]
 fn documentation_property_eval_auto_hscroll_mode_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -960,7 +960,7 @@ fn documentation_property_eval_auto_hscroll_mode_integer_property_returns_string
 
 #[test]
 fn documentation_property_eval_auto_composition_mode_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -978,7 +978,7 @@ fn documentation_property_eval_auto_composition_mode_integer_property_returns_st
 
 #[test]
 fn documentation_property_eval_coding_system_alist_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -996,7 +996,7 @@ fn documentation_property_eval_coding_system_alist_integer_property_returns_stri
 
 #[test]
 fn documentation_property_eval_debug_on_message_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1014,7 +1014,7 @@ fn documentation_property_eval_debug_on_message_integer_property_returns_string(
 
 #[test]
 fn documentation_property_eval_display_hourglass_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1032,7 +1032,7 @@ fn documentation_property_eval_display_hourglass_integer_property_returns_string
 
 #[test]
 fn documentation_property_eval_exec_directory_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1050,7 +1050,7 @@ fn documentation_property_eval_exec_directory_integer_property_returns_string() 
 
 #[test]
 fn documentation_property_eval_frame_title_format_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1068,7 +1068,7 @@ fn documentation_property_eval_frame_title_format_integer_property_returns_strin
 
 #[test]
 fn documentation_property_eval_header_line_format_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1086,7 +1086,7 @@ fn documentation_property_eval_header_line_format_integer_property_returns_strin
 
 #[test]
 fn documentation_property_eval_input_method_function_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1104,7 +1104,7 @@ fn documentation_property_eval_input_method_function_integer_property_returns_st
 
 #[test]
 fn documentation_property_eval_load_suffixes_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1122,7 +1122,7 @@ fn documentation_property_eval_load_suffixes_integer_property_returns_string() {
 
 #[test]
 fn documentation_property_eval_native_comp_eln_load_path_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1140,7 +1140,7 @@ fn documentation_property_eval_native_comp_eln_load_path_integer_property_return
 
 #[test]
 fn documentation_property_eval_process_environment_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1158,7 +1158,7 @@ fn documentation_property_eval_process_environment_integer_property_returns_stri
 
 #[test]
 fn documentation_property_eval_scroll_margin_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1176,7 +1176,7 @@ fn documentation_property_eval_scroll_margin_integer_property_returns_string() {
 
 #[test]
 fn documentation_property_eval_truncate_partial_width_windows_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1194,7 +1194,7 @@ fn documentation_property_eval_truncate_partial_width_windows_integer_property_r
 
 #[test]
 fn documentation_property_eval_yes_or_no_prompt_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1208,7 +1208,7 @@ fn documentation_property_eval_yes_or_no_prompt_integer_property_returns_string(
 
 #[test]
 fn documentation_property_eval_debug_on_error_integer_property_returns_string() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![
@@ -1226,7 +1226,7 @@ fn documentation_property_eval_debug_on_error_integer_property_returns_string() 
 
 #[test]
 fn documentation_property_eval_list_property_is_evaluated() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
@@ -1246,7 +1246,7 @@ fn documentation_property_eval_list_property_is_evaluated() {
 
 #[test]
 fn documentation_property_eval_symbol_property_is_evaluated() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .put_property("doc-sym", "variable-documentation", Value::symbol("t"));
@@ -1264,7 +1264,7 @@ fn documentation_property_eval_symbol_property_is_evaluated() {
 
 #[test]
 fn documentation_property_eval_vector_property_is_evaluated() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
@@ -1284,7 +1284,7 @@ fn documentation_property_eval_vector_property_is_evaluated() {
 
 #[test]
 fn documentation_property_eval_unbound_symbol_property_errors() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
@@ -1306,7 +1306,7 @@ fn documentation_property_eval_unbound_symbol_property_errors() {
 
 #[test]
 fn documentation_property_eval_invalid_form_property_errors() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
@@ -1328,7 +1328,7 @@ fn documentation_property_eval_invalid_form_property_errors() {
 
 #[test]
 fn documentation_property_eval_non_symbol_prop_returns_nil() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
         .put_property("doc-sym", "x", Value::string("v"));
@@ -1343,7 +1343,7 @@ fn documentation_property_eval_non_symbol_prop_returns_nil() {
 
 #[test]
 fn documentation_property_eval_non_symbol_target_errors() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property_eval(
         &mut evaluator,
         vec![Value::Int(1), Value::symbol("variable-documentation")],

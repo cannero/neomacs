@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
-use crate::emacs_core::{EvalError, Evaluator, Value, print_value_with_buffers};
+use crate::emacs_core::{EvalError, Context, Value, print_value_with_buffers};
 
 /// Maximum virtual address space (in bytes) for each spawned oracle Emacs
 /// process.  This prevents runaway evaluations from consuming unbounded
@@ -431,7 +431,7 @@ pub(crate) fn run_neovm_eval(form: &str) -> Result<String, String> {
 }
 
 fn run_neovm_eval_in_temp_buffer(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     form: &str,
 ) -> Result<Result<Value, EvalError>, String> {
     let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
@@ -488,7 +488,7 @@ fn run_neovm_eval_in_temp_buffer(
 /// `"emacs-lisp/nadvice.el"`).
 pub(crate) fn run_neovm_eval_with_load(form: &str, load_files: &[&str]) -> Result<String, String> {
     ensure_neovm_mem_limit()?;
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     // Match oracle's (eval form t): evaluate with lexical binding enabled.
     eval.set_lexical_binding(true);
 
@@ -778,7 +778,7 @@ fn normalize_interpreted_function_for_oracle(value: Value) -> Option<Value> {
     Some(out)
 }
 
-fn render_neovm_oracle_result(eval: &Evaluator, result: Result<Value, EvalError>) -> String {
+fn render_neovm_oracle_result(eval: &Context, result: Result<Value, EvalError>) -> String {
     let saved_roots = crate::emacs_core::eval::save_scratch_gc_roots();
     let rendered = match result {
         Ok(value) => {
@@ -806,7 +806,7 @@ fn render_neovm_oracle_result(eval: &Evaluator, result: Result<Value, EvalError>
     rendered
 }
 
-fn render_neovm_raw_oracle_result(eval: &Evaluator, result: Result<Value, EvalError>) -> String {
+fn render_neovm_raw_oracle_result(eval: &Context, result: Result<Value, EvalError>) -> String {
     match result {
         Ok(value) => format!("OK {}", print_value_with_buffers(&value, &eval.buffers)),
         Err(EvalError::Signal { symbol, data }) => {

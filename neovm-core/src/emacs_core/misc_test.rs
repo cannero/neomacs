@@ -448,11 +448,11 @@ fn display_line_numbers_update_width_arity() {
     assert!(builtin_display_line_numbers_update_width(vec![Value::Nil]).is_err());
 }
 
-// ----- eval-dependent builtins (need Evaluator) -----
+// ----- eval-dependent builtins (need Context) -----
 
 #[test]
 fn recursion_depth_zero() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_recursion_depth(&mut eval, vec![]).unwrap();
     // At top level, depth is 0
     assert!(eq_value(&result, &Value::Int(0)));
@@ -460,7 +460,7 @@ fn recursion_depth_zero() {
 
 #[test]
 fn backtrace_frame_basic_shape() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let frame0 = builtin_backtrace_frame(&mut eval, vec![Value::Int(0)]).unwrap();
     let items0 = list_to_vec(&frame0).expect("frame0 should be a list");
     assert_eq!(items0.first(), Some(&Value::True));
@@ -477,7 +477,7 @@ fn backtrace_frame_basic_shape() {
 
 #[test]
 fn backtrace_frame_handles_base_and_depth() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     let with_nil_base =
         builtin_backtrace_frame(&mut eval, vec![Value::Int(0), Value::Nil]).unwrap();
@@ -495,7 +495,7 @@ fn backtrace_frame_handles_base_and_depth() {
 
 #[test]
 fn backtrace_frame_validation() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     let missing = builtin_backtrace_frame(&mut eval, vec![]);
     assert!(matches!(
@@ -532,7 +532,7 @@ fn backtrace_frame_validation() {
 
 #[test]
 fn backtrace_helper_stubs_shape_and_errors() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let thread = super::super::threads::builtin_current_thread(&mut eval, vec![]).unwrap();
     let frames = builtin_backtrace_frames_from_thread(&mut eval, vec![thread]).unwrap();
     assert!(frames.is_list());
@@ -570,7 +570,7 @@ fn backtrace_helper_stubs_shape_and_errors() {
 
 #[test]
 fn backtrace_helper_stubs_arity_checks() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     assert!(matches!(
         builtin_backtrace_debug(&mut eval, vec![]),
         Err(Flow::Signal(sig))
@@ -596,7 +596,7 @@ fn backtrace_helper_stubs_arity_checks() {
 #[test]
 fn sf_save_current_buffer_restores() {
     use super::super::expr::Expr;
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     // Create a buffer and make it current
     let buf_id = ev.buffers.create_buffer("*test*");
     ev.buffers.set_current(buf_id);
@@ -614,7 +614,7 @@ fn sf_save_current_buffer_restores() {
 #[test]
 fn sf_track_mouse_evaluates_body() {
     use super::super::expr::Expr;
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let tail = [Expr::Int(99)];
     let result = sf_track_mouse(&mut ev, &tail).unwrap();
     assert!(eq_value(&result, &Value::Int(99)));
@@ -635,7 +635,7 @@ fn sf_with_syntax_table_evaluates_body() {
 #[test]
 fn sf_with_syntax_table_needs_args() {
     use super::super::expr::Expr;
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let tail: [Expr; 0] = [];
     let result = sf_with_syntax_table(&mut ev, &tail);
     assert!(result.is_err());
@@ -656,7 +656,7 @@ fn sf_with_syntax_table_restores_original_table_on_success() {
 #[test]
 fn sf_with_syntax_table_restores_original_table_on_error() {
     use super::super::expr::Expr;
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     let tail = [
         Expr::List(vec![Expr::Symbol(intern("make-syntax-table"))]),
@@ -672,7 +672,7 @@ fn sf_with_syntax_table_restores_original_table_on_error() {
 #[test]
 fn sf_with_temp_buffer_returns_body_result() {
     use super::super::expr::Expr;
-    let mut ev = super::super::eval::Evaluator::new();
+    let mut ev = super::super::eval::Context::new();
     let tail = [Expr::Int(77)];
     let result = sf_with_temp_buffer(&mut ev, &tail).unwrap();
     assert!(eq_value(&result, &Value::Int(77)));

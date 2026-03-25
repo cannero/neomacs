@@ -314,7 +314,7 @@ pub(crate) fn normalize_current_buffer_region_bounds_in_manager(
 }
 
 fn normalize_current_buffer_region_bounds(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     start_arg: &Value,
     end_arg: &Value,
 ) -> Result<(crate::buffer::BufferId, usize, usize), Flow> {
@@ -334,7 +334,7 @@ pub(crate) fn read_buffer_region_in_manager(
 }
 
 fn read_buffer_region(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     buffer_id: crate::buffer::BufferId,
     start_byte: usize,
     end_byte: usize,
@@ -365,7 +365,7 @@ pub(crate) fn replace_buffer_region_in_manager(
 }
 
 fn replace_buffer_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     buffer_id: crate::buffer::BufferId,
     start_byte: usize,
     end_byte: usize,
@@ -396,7 +396,7 @@ pub(crate) fn builtin_base64_encode_region_in_manager(
 
 /// (base64-encode-region START END &optional NO-LINE-BREAK)
 pub(crate) fn builtin_base64_encode_region_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_base64_encode_region_in_manager(&mut eval.buffers, args)
@@ -418,7 +418,7 @@ pub(crate) fn builtin_base64url_encode_region_in_manager(
 
 /// (base64url-encode-region START END &optional NO-PAD)
 pub(crate) fn builtin_base64url_encode_region_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_base64url_encode_region_in_manager(&mut eval.buffers, args)
@@ -456,7 +456,7 @@ pub(crate) fn builtin_base64_decode_region_in_manager(
 
 /// (base64-decode-region START END &optional BASE64URL NOERROR)
 pub(crate) fn builtin_base64_decode_region_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_base64_decode_region_in_manager(&mut eval.buffers, args)
@@ -492,8 +492,8 @@ pub(crate) fn builtin_md5(args: Vec<Value>) -> EvalResult {
 
 /// (md5 OBJECT &optional START END CODING-SYSTEM NOERROR)
 ///
-/// Evaluator-aware implementation that also supports buffer objects.
-pub(crate) fn builtin_md5_eval(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+/// Context-aware implementation that also supports buffer objects.
+pub(crate) fn builtin_md5_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_md5_in_state(&eval.buffers, args)
 }
 
@@ -862,9 +862,9 @@ pub(crate) fn builtin_secure_hash(args: Vec<Value>) -> EvalResult {
 
 /// (secure-hash ALGORITHM OBJECT &optional START END BINARY)
 ///
-/// Evaluator-aware implementation that also supports buffer objects.
+/// Context-aware implementation that also supports buffer objects.
 pub(crate) fn builtin_secure_hash_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_secure_hash_in_state(&eval.buffers, args)
@@ -904,9 +904,9 @@ pub(crate) fn builtin_secure_hash_in_state(
 }
 
 /// (buffer-hash &optional BUFFER-OR-NAME)
-/// Evaluator-aware implementation used at runtime.
+/// Context-aware implementation used at runtime.
 pub(crate) fn builtin_buffer_hash_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_buffer_hash_in_state(&eval.buffers, args)

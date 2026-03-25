@@ -138,7 +138,7 @@ fn is_generated_loaddefs_source(source: &str) -> bool {
 }
 
 fn eval_generated_form_args(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Vec<Value>, EvalError> {
     args.iter()
@@ -147,7 +147,7 @@ fn eval_generated_form_args(
 }
 
 fn definition_prefixes_table(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
 ) -> Result<crate::gc::types::ObjId, EvalError> {
     let value = eval
         .obarray()
@@ -167,7 +167,7 @@ fn definition_prefixes_table(
 }
 
 fn generated_register_definition_prefixes(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if args.len() != 2 {
@@ -221,7 +221,7 @@ fn generated_register_definition_prefixes(
 }
 
 fn generated_custom_autoload(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if !(2..=3).contains(&args.len()) {
@@ -272,7 +272,7 @@ fn generated_custom_autoload(
 }
 
 fn generated_function_put(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if args.len() != 3 {
@@ -299,7 +299,7 @@ fn constant_obsolete_error(name: Value) -> EvalError {
 }
 
 fn generated_make_obsolete(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if args.len() != 3 {
@@ -326,7 +326,7 @@ fn generated_make_obsolete(
 }
 
 fn generated_make_obsolete_variable(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if !(3..=4).contains(&args.len()) {
@@ -354,7 +354,7 @@ fn generated_make_obsolete_variable(
 }
 
 fn generated_defalias(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if !(2..=3).contains(&args.len()) {
@@ -378,7 +378,7 @@ fn generated_defalias(
 }
 
 fn copy_symbol_property_if_absent(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     from_symbol: Value,
     to_symbol: Value,
     property: &str,
@@ -399,7 +399,7 @@ fn copy_symbol_property_if_absent(
 }
 
 fn generated_define_obsolete_function_alias(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if !(3..=4).contains(&args.len()) {
@@ -432,7 +432,7 @@ fn generated_define_obsolete_function_alias(
 }
 
 fn generated_define_obsolete_variable_alias(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Expr],
 ) -> Result<Value, EvalError> {
     if !(3..=4).contains(&args.len()) {
@@ -466,7 +466,7 @@ fn generated_define_obsolete_variable_alias(
 }
 
 fn try_eval_generated_loaddefs_form(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     form: &Expr,
 ) -> Result<Option<Value>, EvalError> {
     let Expr::List(items) = form else {
@@ -524,7 +524,7 @@ fn try_eval_generated_loaddefs_form(
 }
 
 fn eval_generated_loaddefs_form(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     form: &Expr,
 ) -> Result<Value, EvalError> {
     if let Some(value) = try_eval_generated_loaddefs_form(eval, form)? {
@@ -733,7 +733,7 @@ pub(crate) fn plan_load_in_state(
 }
 
 pub(crate) fn builtin_load_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> Result<Value, Flow> {
@@ -745,7 +745,7 @@ pub(crate) fn builtin_load_in_vm_runtime(
     }
 
     match plan_load_in_state(
-        &*shared.obarray,
+        &shared.obarray,
         args[0],
         args.get(1).copied(),
         args.get(3).copied(),
@@ -920,8 +920,8 @@ impl CacheExprDecoder {
 }
 
 fn sync_interner_growth(
-    live_eval: &mut super::eval::Evaluator,
-    working_eval: &super::eval::Evaluator,
+    live_eval: &mut super::eval::Context,
+    working_eval: &super::eval::Context,
 ) {
     let live_len = live_eval.interner.strings().len();
     let working_strings = working_eval.interner.strings();
@@ -1352,7 +1352,7 @@ pub fn precompile_source_file(source_path: &Path) -> Result<PathBuf, EvalError> 
 /// macroexpander (`--pcase-macroexpander`) to be defined, since
 /// `macroexpand-all` uses pcase backquote patterns internally.
 #[tracing::instrument(level = "debug", skip(eval))]
-fn get_eager_macroexpand_fn(eval: &super::eval::Evaluator) -> Option<Value> {
+fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Value> {
     // Respect the Elisp `macroexp--pending-eager-loads` variable.
     // When it starts with `skip`, eager expansion is suppressed (mirrors
     // the check in `internal-macroexpand-for-load` in macroexp.el).
@@ -1395,7 +1395,7 @@ fn get_eager_macroexpand_fn(eval: &super::eval::Evaluator) -> Option<Value> {
 /// without eager expansion — matching the behavior of loading .elc files.
 #[tracing::instrument(level = "debug", skip(eval, form_value, macroexpand_fn))]
 fn eager_expand_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     form_value: Value,
     macroexpand_fn: Value,
 ) -> Result<Value, EvalError> {
@@ -1505,7 +1505,7 @@ fn should_preserve_original_replay_form(
 /// - `define-inline` installs compiler-macro side effects during expansion that
 ///   are not recoverable from the expanded form.
 fn eager_expand_eval_and_collect(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     form_value: Value,
     macroexpand_fn: Value,
     collector: &mut Vec<Expr>,
@@ -1595,7 +1595,7 @@ fn eager_expand_eval_and_collect(
 
 /// Load and evaluate a file. Returns the last result.
 #[tracing::instrument(level = "info", skip(eval), err(Debug))]
-pub fn load_file(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Value, EvalError> {
+pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
     // Expand tilde in case the path comes from Elisp with ~ prefix
     let expanded = expand_tilde(&path.to_string_lossy());
     let path = std::path::Path::new(&expanded);
@@ -1643,7 +1643,7 @@ pub fn load_file(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Value
     result
 }
 
-fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Value, EvalError> {
+fn load_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
     // Check for .elc file and use the compiled loading path.
     if path.extension().and_then(|e| e.to_str()) == Some("elc") {
         return load_elc_file_body(eval, path);
@@ -1809,7 +1809,7 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
         } else {
             Vec::new()
         };
-        let run_forms = |working_eval: &mut super::eval::Evaluator,
+        let run_forms = |working_eval: &mut super::eval::Context,
                          eager_macroexpand_fn: Option<Value>,
                          expanded_forms: &mut Vec<Expr>|
          -> Result<(), EvalError> {
@@ -1976,7 +1976,7 @@ fn load_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Valu
 /// - `#[...]` → `(byte-code-literal VECTOR)` for compiled function objects
 /// - `#@N<bytes>` → reader skip for inline docstring data blocks
 /// - `#$` → reader object resolved against the current `load-file-name`
-fn load_elc_file_body(eval: &mut super::eval::Evaluator, path: &Path) -> Result<Value, EvalError> {
+fn load_elc_file_body(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
     let raw_bytes = std::fs::read(path).map_err(|e| EvalError::Signal {
         symbol: intern("file-error"),
         data: vec![Value::string(format!(
@@ -2129,7 +2129,7 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
     preview.contains("lexical-binding: t")
 }
 
-fn record_load_history(eval: &mut super::eval::Evaluator, path: &Path) {
+fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
     let entry = Value::cons(Value::string(path_str), Value::Nil);
     let history = eval
@@ -2146,7 +2146,7 @@ pub fn register_bootstrap_vars(obarray: &mut super::symbol::Obarray) {
     obarray.set_symbol_value("macroexp--dynvars", Value::Nil);
 }
 
-/// Create an Evaluator with the full Emacs bootstrap loaded (like GNU
+/// Create an Context with the full Emacs bootstrap loaded (like GNU
 /// Emacs's dumped state).  Mirrors the loadup.el boot sequence.
 fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
     let mut features = extra_features
@@ -2325,7 +2325,7 @@ impl Drop for BootstrapCacheWriteLock {
     }
 }
 
-fn ensure_startup_compat_variables(eval: &mut super::eval::Evaluator, project_root: &Path) {
+fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root: &Path) {
     let etc_dir = format!("{}/", project_root.join("etc").to_string_lossy());
     let source_dir = format!("{}/", project_root.to_string_lossy());
     let temporary_file_directory = std::env::temp_dir().to_string_lossy().to_string();
@@ -2583,7 +2583,7 @@ fn runtime_loaddefs_restore_state(
 }
 
 pub(crate) fn apply_ldefs_boot_autoloads_for_names(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     names: &[&str],
 ) -> Result<(), EvalError> {
     let project_root = runtime_project_root();
@@ -2652,7 +2652,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
 }
 
 fn normalize_bootstrap_runtime_surface(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     project_root: &Path,
 ) -> Result<(), EvalError> {
     // GNU -Q does not leave these features present in the default runtime
@@ -2714,7 +2714,7 @@ fn normalize_bootstrap_runtime_surface(
     Ok(())
 }
 
-fn strip_runtime_icons_surface(eval: &mut super::eval::Evaluator) {
+fn strip_runtime_icons_surface(eval: &mut super::eval::Context) {
     const ICON_RUNTIME_FUNCTIONS: &[&str] = &[
         "define-icon",
         "icons--register",
@@ -2759,7 +2759,7 @@ fn strip_runtime_icons_surface(eval: &mut super::eval::Evaluator) {
     }
 }
 
-fn bootstrap_runtime_window_system_symbol(eval: &mut super::eval::Evaluator) -> Option<Value> {
+fn bootstrap_runtime_window_system_symbol(eval: &mut super::eval::Context) -> Option<Value> {
     if eval.feature_present("neomacs")
         || eval.feature_present(super::display::gui_window_system_symbol())
     {
@@ -2771,7 +2771,7 @@ fn bootstrap_runtime_window_system_symbol(eval: &mut super::eval::Evaluator) -> 
     }
 }
 
-fn restore_cached_runtime_window_system_surface(eval: &mut super::eval::Evaluator) {
+fn restore_cached_runtime_window_system_surface(eval: &mut super::eval::Context) {
     let Some(window_system) = bootstrap_runtime_window_system_symbol(eval) else {
         return;
     };
@@ -2803,7 +2803,7 @@ fn restore_cached_runtime_window_system_surface(eval: &mut super::eval::Evaluato
     eval.set_variable("initial-window-system", window_system);
 }
 
-fn clear_runtime_loader_state(eval: &mut super::eval::Evaluator) {
+fn clear_runtime_loader_state(eval: &mut super::eval::Context) {
     // These stacks only describe in-flight bootstrap loads/requires.
     // Letting them leak into the runtime surface makes later `require`
     // calls falsely look recursive/already-active.
@@ -2812,7 +2812,7 @@ fn clear_runtime_loader_state(eval: &mut super::eval::Evaluator) {
 }
 
 fn eval_first_form_after_marker(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     path: &Path,
     source: &str,
     marker: &str,
@@ -2843,7 +2843,7 @@ fn eval_first_form_after_marker(
 }
 
 fn restore_runtime_prefix_keymaps_from_subr(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     project_root: &Path,
 ) -> Result<(), EvalError> {
     let required_pairs = [
@@ -2895,7 +2895,7 @@ fn restore_runtime_prefix_keymaps_from_subr(
     Ok(())
 }
 
-fn runtime_global_prefix_links_need_repair(eval: &super::eval::Evaluator) -> bool {
+fn runtime_global_prefix_links_need_repair(eval: &super::eval::Context) -> bool {
     let global = eval
         .obarray()
         .symbol_value("global-map")
@@ -2911,7 +2911,7 @@ fn runtime_global_prefix_links_need_repair(eval: &super::eval::Evaluator) -> boo
 }
 
 fn repair_runtime_global_prefix_links(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     project_root: &Path,
 ) -> Result<(), EvalError> {
     if !runtime_global_prefix_links_need_repair(eval) {
@@ -2959,7 +2959,7 @@ fn repair_runtime_global_prefix_links(
 }
 
 fn finalize_cached_bootstrap_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     project_root: &Path,
 ) -> Result<(), EvalError> {
     clear_runtime_loader_state(eval);
@@ -3007,7 +3007,7 @@ pub(crate) fn bootstrap_load_path_entries(lisp_dir: &Path) -> Vec<Value> {
     load_path_entries
 }
 
-fn eval_startup_forms(eval: &mut super::eval::Evaluator, forms_src: &str) -> Result<(), EvalError> {
+fn eval_startup_forms(eval: &mut super::eval::Context, forms_src: &str) -> Result<(), EvalError> {
     let forms =
         crate::emacs_core::parser::parse_forms(forms_src).map_err(|e| EvalError::Signal {
             symbol: intern("error"),
@@ -3026,7 +3026,7 @@ fn eval_startup_forms(eval: &mut super::eval::Evaluator, forms_src: &str) -> Res
 /// startup.  Runtime callers that compare against `emacs --batch -Q` still
 /// need the early startup buffer initialization that `startup.el` performs for
 /// the `*scratch*` buffer.
-pub fn apply_runtime_startup_state(eval: &mut super::eval::Evaluator) -> Result<(), EvalError> {
+pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<(), EvalError> {
     eval_startup_forms(
         eval,
         r#"
@@ -3062,7 +3062,7 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Evaluator) -> Result<
 }
 
 fn install_bootstrap_x_window_system_vars(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
 ) -> Result<(), EvalError> {
     let keysym_table = builtin_make_hash_table(vec![
         Value::keyword(":test"),
@@ -3093,13 +3093,13 @@ fn maybe_trace_bootstrap_step(message: impl AsRef<str>) {
     }
 }
 
-pub fn create_bootstrap_evaluator() -> Result<super::eval::Evaluator, EvalError> {
+pub fn create_bootstrap_evaluator() -> Result<super::eval::Context, EvalError> {
     create_bootstrap_evaluator_with_features(&[])
 }
 
 pub fn create_bootstrap_evaluator_with_features(
     extra_features: &[&str],
-) -> Result<super::eval::Evaluator, EvalError> {
+) -> Result<super::eval::Context, EvalError> {
     // Discover the runtime root (contains lisp/ and etc/).
     let project_root = runtime_project_root();
     let lisp_dir = project_root.join("lisp");
@@ -3110,7 +3110,7 @@ pub fn create_bootstrap_evaluator_with_features(
     );
     stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
         maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: enter");
-        let mut eval = super::eval::Evaluator::new();
+        let mut eval = super::eval::Context::new();
         maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: evaluator-new");
         let bootstrap_features = normalized_bootstrap_features(extra_features);
         for feature in &bootstrap_features {
@@ -3277,13 +3277,13 @@ pub fn create_bootstrap_evaluator_with_features(
 ///
 /// The dump file is automatically invalidated when the pdump format
 /// version changes. Set `NEOVM_DISABLE_PDUMP=1` to force fresh bootstrap.
-pub fn create_bootstrap_evaluator_cached() -> Result<super::eval::Evaluator, EvalError> {
+pub fn create_bootstrap_evaluator_cached() -> Result<super::eval::Context, EvalError> {
     create_bootstrap_evaluator_cached_with_features(&[])
 }
 
 pub fn create_bootstrap_evaluator_cached_with_features(
     extra_features: &[&str],
-) -> Result<super::eval::Evaluator, EvalError> {
+) -> Result<super::eval::Context, EvalError> {
     let project_root = runtime_project_root();
     let dump_path = bootstrap_dump_path(&project_root, extra_features);
     create_bootstrap_evaluator_cached_at_path(extra_features, &dump_path)
@@ -3292,7 +3292,7 @@ pub fn create_bootstrap_evaluator_cached_with_features(
 fn create_bootstrap_evaluator_cached_at_path(
     extra_features: &[&str],
     dump_path: &Path,
-) -> Result<super::eval::Evaluator, EvalError> {
+) -> Result<super::eval::Context, EvalError> {
     use super::pdump;
 
     let project_root = runtime_project_root();

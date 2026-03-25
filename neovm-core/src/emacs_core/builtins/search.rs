@@ -6,7 +6,7 @@ use crate::emacs_core::regex::char_pos_to_byte;
 // ===========================================================================
 
 pub(crate) fn builtin_search_forward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -257,7 +257,7 @@ fn handle_search_failure_in_manager(
 }
 
 pub(crate) fn builtin_search_backward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -318,7 +318,7 @@ pub(crate) fn builtin_search_backward_with_state(
 }
 
 pub(crate) fn builtin_re_search_forward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -384,7 +384,7 @@ pub(crate) fn builtin_re_search_forward_with_state(
 }
 
 pub(crate) fn builtin_re_search_backward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -450,7 +450,7 @@ pub(crate) fn builtin_re_search_backward_with_state(
 }
 
 pub(crate) fn builtin_search_forward_regexp(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -475,7 +475,7 @@ pub(crate) fn builtin_search_forward_regexp_with_state(
 }
 
 pub(crate) fn builtin_search_backward_regexp(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -500,7 +500,7 @@ pub(crate) fn builtin_search_backward_regexp_with_state(
 }
 
 pub(crate) fn builtin_looking_at(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -536,7 +536,7 @@ pub(crate) fn builtin_looking_at_with_state(
 }
 
 pub(crate) fn builtin_looking_at_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -565,7 +565,7 @@ pub(crate) fn builtin_looking_at_p_with_state(
 }
 
 pub(crate) fn builtin_posix_looking_at(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -645,9 +645,9 @@ pub(crate) fn builtin_string_match_with_state(
     )
 }
 
-/// Evaluator-dependent `string-match`: updates match data on the evaluator.
+/// Context-dependent `string-match`: updates match data on the evaluator.
 pub(crate) fn builtin_string_match_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -709,7 +709,7 @@ pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Val
 }
 
 pub(crate) fn builtin_string_match_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -719,7 +719,7 @@ pub(crate) fn builtin_string_match_p_eval(
 }
 
 pub(crate) fn builtin_posix_string_match(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
@@ -729,7 +729,7 @@ pub(crate) fn builtin_posix_string_match(
 }
 
 pub(crate) fn builtin_match_string(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("match-string", &args, 1, 2)?;
@@ -873,7 +873,7 @@ pub(crate) fn builtin_match_beginning_with_state(
 }
 
 pub(crate) fn builtin_match_beginning(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_match_beginning_with_state(Some(&eval.buffers), &eval.match_data, &args)
@@ -927,7 +927,7 @@ pub(crate) fn builtin_match_end_with_state(
     )
 }
 
-pub(crate) fn builtin_match_end(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_match_end(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_match_end_with_state(Some(&eval.buffers), &eval.match_data, &args)
 }
 
@@ -1057,7 +1057,7 @@ fn expect_match_data_item_in_manager(
 }
 
 pub(crate) fn builtin_match_data_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_match_data_with_state(Some(&mut eval.buffers), &eval.match_data, &args)
@@ -1150,7 +1150,7 @@ pub(crate) fn builtin_set_match_data_with_state(
 }
 
 pub(crate) fn builtin_set_match_data_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_match_data_with_state(&eval.buffers, &mut eval.match_data, &args)
@@ -1178,7 +1178,7 @@ pub(crate) fn builtin_match_data_translate_with_state(
 }
 
 pub(crate) fn builtin_match_data_translate_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_match_data_translate_with_state(&mut eval.match_data, &args)
@@ -1350,7 +1350,7 @@ pub(crate) fn builtin_replace_match_with_state(
 }
 
 pub(crate) fn builtin_replace_match(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_replace_match_with_state(&mut eval.buffers, &mut eval.match_data, &args)

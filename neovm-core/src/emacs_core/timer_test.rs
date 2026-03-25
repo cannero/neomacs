@@ -1,11 +1,11 @@
 use super::super::value::next_float_id;
 use super::*;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU subr.el marker: {marker}"));
@@ -20,7 +20,7 @@ fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str
 
 /// Install minimal `defun`/`defmacro`/`when`/`unless` shims so a bare
 /// evaluator can evaluate forms extracted from GNU `.el` source files.
-fn install_bare_elisp_shims(ev: &mut Evaluator) {
+fn install_bare_elisp_shims(ev: &mut Context) {
     let shims = r#"
 (defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
   (list 'defalias (list 'quote name) (cons 'function (list (cons 'lambda (cons arglist body))))))))
@@ -38,13 +38,13 @@ fn install_bare_elisp_shims(ev: &mut Evaluator) {
     }
 }
 
-fn gnu_subr_sit_for_eval() -> Evaluator {
+fn gnu_subr_sit_for_eval() -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let subr_path = project_root.join("lisp/subr.el");
     let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
 
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
     eval_first_form_after_marker(
@@ -254,7 +254,7 @@ fn list_active_timers() {
 }
 
 // -----------------------------------------------------------------------
-// Builtin-level tests (via Evaluator)
+// Builtin-level tests (via Context)
 // -----------------------------------------------------------------------
 
 #[test]
@@ -304,9 +304,9 @@ fn sit_for_is_not_dispatch_builtin() {
 
 #[test]
 fn test_builtin_sleep_for() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let result = builtin_sleep_for(&mut eval, vec![Value::Int(0)]);
     assert!(result.is_ok());
@@ -350,9 +350,9 @@ fn test_builtin_sleep_for() {
 
 #[test]
 fn test_eval_run_at_time_and_cancel() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // run-at-time with 0 delay
     let result = builtin_run_at_time(
@@ -382,9 +382,9 @@ fn test_eval_run_at_time_and_cancel() {
 
 #[test]
 fn test_eval_run_with_idle_timer() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let result = builtin_run_with_idle_timer(
         &mut eval,
@@ -405,9 +405,9 @@ fn test_eval_run_with_idle_timer() {
 
 #[test]
 fn test_eval_run_at_time_accepts_nil_and_string_specs() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let from_nil = builtin_run_at_time(
         &mut eval,
@@ -603,9 +603,9 @@ fn test_parse_run_at_time_delay_units() {
 
 #[test]
 fn test_eval_run_at_time_invalid_spec_signals_error() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let invalid_string = builtin_run_at_time(
         &mut eval,
@@ -628,9 +628,9 @@ fn test_eval_run_at_time_invalid_spec_signals_error() {
 
 #[test]
 fn test_eval_run_with_idle_timer_nil_ok_string_error() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let from_nil =
         builtin_run_with_idle_timer(&mut eval, vec![Value::Nil, Value::Nil, Value::symbol("cb")])
@@ -649,9 +649,9 @@ fn test_eval_run_with_idle_timer_nil_ok_string_error() {
 
 #[test]
 fn test_eval_timer_activate() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Create and cancel a timer
     let result = builtin_run_at_time(
@@ -700,18 +700,18 @@ fn test_eval_timer_activate() {
 
 #[test]
 fn test_eval_timer_activate_rejects_non_timer_with_error() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_timer_activate(&mut eval, vec![Value::Nil]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "error"));
 }
 
 #[test]
 fn test_eval_timer_activate_optional_delta_must_be_cons_or_nil() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let timer_val = builtin_run_at_time(
         &mut eval,
         vec![

@@ -130,7 +130,7 @@ fn line_start_at_or_before(source: &str, at: usize) -> usize {
     }
 }
 
-fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
     let name_id = intern(name);
     for frame in eval.dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
@@ -140,7 +140,7 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> 
     eval.obarray.symbol_value(name).cloned()
 }
 
-fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &Buffer) -> bool {
+fn buffer_read_only_active(eval: &super::eval::Context, buf: &Buffer) -> bool {
     if buf.read_only {
         return true;
     }
@@ -161,7 +161,7 @@ fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &Buffer) -> bool 
         .is_some_and(|value| value.is_truthy())
 }
 
-fn case_fold_for_pattern(eval: &super::eval::Evaluator, pattern: &str) -> bool {
+fn case_fold_for_pattern(eval: &super::eval::Context, pattern: &str) -> bool {
     let case_fold_search_enabled = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|value| !value.is_nil())
         .unwrap_or(true);
@@ -179,19 +179,19 @@ fn case_fold_for_pattern(eval: &super::eval::Evaluator, pattern: &str) -> bool {
     resolve_case_fold(None, pattern)
 }
 
-fn case_replace_enabled(eval: &super::eval::Evaluator) -> bool {
+fn case_replace_enabled(eval: &super::eval::Context) -> bool {
     dynamic_or_global_symbol_value(eval, "case-replace")
         .map(|value| !value.is_nil())
         .unwrap_or(true)
 }
 
-fn replace_lax_whitespace_enabled(eval: &super::eval::Evaluator) -> bool {
+fn replace_lax_whitespace_enabled(eval: &super::eval::Context) -> bool {
     dynamic_or_global_symbol_value(eval, "replace-lax-whitespace")
         .map(|value| !value.is_nil())
         .unwrap_or(false)
 }
 
-fn resolve_search_whitespace_regexp(eval: &super::eval::Evaluator) -> Option<String> {
+fn resolve_search_whitespace_regexp(eval: &super::eval::Context) -> Option<String> {
     let raw = match dynamic_or_global_symbol_value(eval, "search-whitespace-regexp") {
         Some(Value::Str(id)) => with_heap(|h| h.get_string(id).to_owned()),
         Some(Value::Nil) | None => "[ \t\n\r]+".to_string(),
@@ -1394,7 +1394,7 @@ fn expand_emacs_replacement(rep: &str, groups: &[Option<(usize, usize)>], source
 // ---------------------------------------------------------------------------
 
 fn replace_string_eval_impl(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
     query_style_point: bool,
 ) -> EvalResult {
@@ -1608,14 +1608,14 @@ fn replace_string_eval_impl(
 /// `(replace-string FROM-STRING TO-STRING &optional DELIMITED START END BACKWARD REGION-NONCONTIGUOUS-P)` —
 /// evaluator-backed non-interactive replace subset.
 pub(crate) fn builtin_replace_string_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     replace_string_eval_impl(eval, args, false)
 }
 
 fn replace_regexp_eval_impl(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
     query_style_point: bool,
 ) -> EvalResult {
@@ -1774,7 +1774,7 @@ fn replace_regexp_eval_impl(
 /// `(replace-regexp REGEXP TO-STRING &optional DELIMITED START END BACKWARD REGION-NONCONTIGUOUS-P)` —
 /// evaluator-backed non-interactive regexp replacement subset.
 pub(crate) fn builtin_replace_regexp_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     replace_regexp_eval_impl(eval, args, false)
@@ -1786,7 +1786,7 @@ pub(crate) fn builtin_replace_regexp_eval(
 /// Current subset behavior performs unconditional replacement across the target
 /// region, matching batch automation use-cases.
 pub(crate) fn builtin_query_replace_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_max_args("query-replace", &args, 2, 7)?;
@@ -1799,7 +1799,7 @@ pub(crate) fn builtin_query_replace_eval(
 /// Current subset behavior performs unconditional regexp replacement across the
 /// target region, matching batch automation use-cases.
 pub(crate) fn builtin_query_replace_regexp_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_max_args("query-replace-regexp", &args, 2, 7)?;
@@ -1814,7 +1814,7 @@ pub(crate) fn builtin_query_replace_regexp_eval(
 /// `(keep-lines REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed non-interactive line filtering subset.
 pub(crate) fn builtin_keep_lines_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_max_args("keep-lines", &args, 1, 4)?;
@@ -1891,7 +1891,7 @@ pub(crate) fn builtin_keep_lines_eval(
 /// `(flush-lines REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed non-interactive line filtering subset.
 pub(crate) fn builtin_flush_lines_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_max_args("flush-lines", &args, 1, 4)?;
@@ -1962,7 +1962,7 @@ pub(crate) fn builtin_flush_lines_eval(
 /// `(how-many REGEXP &optional RSTART REND INTERACTIVE)` —
 /// evaluator-backed regexp match counting subset.
 pub(crate) fn builtin_how_many_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_max_args("how-many", &args, 1, 4)?;
@@ -1990,7 +1990,7 @@ pub(crate) fn builtin_how_many_eval(
 /// `(count-matches REGEXP &optional START END INTERACTIVE)` —
 /// evaluator-backed regexp match counting subset.
 pub(crate) fn builtin_count_matches_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_max_args("count-matches", &args, 1, 4)?;

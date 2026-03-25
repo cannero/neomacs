@@ -1239,7 +1239,7 @@ fn signal_process_does_not_exist(name: &str) -> Flow {
     )
 }
 
-fn signal_process_not_active(eval: &super::eval::Evaluator, id: ProcessId) -> Flow {
+fn signal_process_not_active(eval: &super::eval::Context, id: ProcessId) -> Flow {
     signal_process_not_active_in_manager(&eval.processes, id)
 }
 
@@ -1265,7 +1265,7 @@ fn stale_process_not_running_reason(status: &ProcessStatus) -> &'static str {
     }
 }
 
-fn signal_process_not_running(eval: &super::eval::Evaluator, id: ProcessId) -> Flow {
+fn signal_process_not_running(eval: &super::eval::Context, id: ProcessId) -> Flow {
     signal_process_not_running_in_manager(&eval.processes, id)
 }
 
@@ -1288,7 +1288,7 @@ fn signal_process_not_running_in_manager(processes: &ProcessManager, id: Process
 }
 
 fn resolve_process_or_wrong_type(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
     match value {
@@ -1311,7 +1311,7 @@ fn resolve_process_or_wrong_type(
 }
 
 fn resolve_process_or_wrong_type_any(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
     match value {
@@ -1357,7 +1357,7 @@ fn resolve_process_or_wrong_type_any_in_manager(
 }
 
 fn resolve_process_or_missing_error(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
     resolve_process_or_missing_error_in_manager(&eval.processes, value)
@@ -1379,7 +1379,7 @@ fn resolve_process_or_missing_error_in_manager(
 }
 
 fn resolve_process_or_missing_error_any(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
     resolve_process_or_missing_error_any_in_manager(&eval.processes, value)
@@ -1401,7 +1401,7 @@ fn resolve_process_or_missing_error_any_in_manager(
 }
 
 fn resolve_process_for_status(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<Option<ProcessId>, Flow> {
     match value {
@@ -1450,7 +1450,7 @@ fn resolve_buffer_name_for_process_lookup_in_state(
 /// NeoVM currently models process handles as integer ids.  These helpers treat
 /// a live process id as a process designator for runtime parity surfaces.
 fn resolve_live_process_designator(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Option<ProcessId> {
     resolve_live_process_designator_in_manager(&eval.processes, value)
@@ -1470,7 +1470,7 @@ fn resolve_live_process_designator_in_manager(
 }
 
 fn resolve_live_process_or_wrong_type(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<ProcessId, Flow> {
     resolve_live_process_or_wrong_type_in_manager(&eval.processes, value)
@@ -1494,7 +1494,7 @@ fn current_thread_handle(threads: &ThreadManager) -> Value {
         .unwrap_or(Value::Nil)
 }
 
-fn is_stale_process_id_designator(eval: &super::eval::Evaluator, value: &Value) -> bool {
+fn is_stale_process_id_designator(eval: &super::eval::Context, value: &Value) -> bool {
     is_stale_process_id_designator_in_manager(&eval.processes, value)
 }
 
@@ -1510,7 +1510,7 @@ fn is_stale_process_id_designator_in_manager(processes: &ProcessManager, value: 
 }
 
 fn resolve_optional_process_or_current_buffer(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: Option<&Value>,
 ) -> Result<ProcessId, Flow> {
     resolve_optional_process_or_current_buffer_in_state(&eval.processes, &eval.buffers, value)
@@ -1606,7 +1606,7 @@ fn signal_undefined_signal_name(name: &str) -> Flow {
 }
 
 fn resolve_optional_process_with_explicit_return(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: Option<&Value>,
 ) -> Result<(ProcessId, Value), Flow> {
     resolve_optional_process_with_explicit_return_in_state(&eval.processes, &eval.buffers, value)
@@ -1644,7 +1644,7 @@ enum SignalProcessTarget {
 }
 
 fn resolve_signal_process_target(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: Option<&Value>,
 ) -> Result<SignalProcessTarget, Flow> {
     resolve_signal_process_target_in_state(&eval.processes, &eval.buffers, value)
@@ -2039,7 +2039,7 @@ fn parse_make_process_command(value: &Value) -> Result<Vec<String>, Flow> {
 }
 
 fn parse_make_process_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     value: &Value,
 ) -> Result<Option<String>, Flow> {
     parse_make_process_buffer_in_state(&mut eval.buffers, value)
@@ -2467,7 +2467,7 @@ fn format_ipv6_network_address(items: &[i64], omit_port: bool) -> Option<String>
 
 /// (backquote-delay-process ENV FORM) -> delayed-form
 pub(crate) fn builtin_backquote_delay_process(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("backquote-delay-process", &args, 2)?;
@@ -2480,7 +2480,7 @@ pub(crate) fn builtin_backquote_delay_process(
 
 /// (backquote-process FORM &optional LEVEL) -> processed
 pub(crate) fn builtin_backquote_process(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("backquote-process", &args, 1)?;
@@ -2498,7 +2498,7 @@ pub(crate) fn builtin_backquote_process(
 
 /// (clone-process PROCESS &optional NAME) -> process
 pub(crate) fn builtin_clone_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("clone-process", &args, 1)?;
@@ -2517,7 +2517,7 @@ pub(crate) fn builtin_clone_process(
 
 /// (internal-default-interrupt-process &optional PROCESS CURRENT-GROUP) -> process-or-nil
 pub(crate) fn builtin_internal_default_interrupt_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_internal_default_interrupt_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -2547,7 +2547,7 @@ pub(crate) fn builtin_internal_default_interrupt_process_in_state(
 
 /// (internal-default-signal-process PROCESS SIGNAL &optional CURRENT-GROUP) -> int-or-nil
 pub(crate) fn builtin_internal_default_signal_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_internal_default_signal_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -2588,7 +2588,7 @@ pub(crate) fn builtin_internal_default_signal_process_in_state(
 /// buffer at the process mark position (or end of buffer when mark is None).
 /// This matches GNU Emacs's `internal-default-process-filter` behavior.
 pub(crate) fn builtin_internal_default_process_filter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal-default-process-filter", &args, 2)?;
@@ -2737,7 +2737,7 @@ pub(crate) fn builtin_internal_default_process_filter_in_state(
 
 /// (internal-default-process-sentinel PROCESS STRING) -> nil
 pub(crate) fn builtin_internal_default_process_sentinel(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_internal_default_process_sentinel_in_state(&eval.processes, args)
@@ -2760,7 +2760,7 @@ pub(crate) fn builtin_internal_default_process_sentinel_in_state(
 /// PROPLIST is a keyword plist; we extract `:hostname` for SNI.
 #[cfg(unix)]
 pub(crate) fn builtin_gnutls_boot(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("gnutls-boot", &args, 3)?;
@@ -2872,7 +2872,7 @@ pub(crate) fn builtin_gnutls_boot(
 /// Stub for non-unix platforms.
 #[cfg(not(unix))]
 pub(crate) fn builtin_gnutls_boot(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("gnutls-boot", &args, 3)?;
@@ -2881,7 +2881,7 @@ pub(crate) fn builtin_gnutls_boot(
 
 /// (isearch-process-search-char CHAR &optional COUNT) -> nil
 pub(crate) fn builtin_isearch_process_search_char(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("isearch-process-search-char", &args, 1)?;
@@ -2899,7 +2899,7 @@ pub(crate) fn builtin_isearch_process_search_char(
 
 /// (isearch-process-search-string STRING MESSAGE) -> nil
 pub(crate) fn builtin_isearch_process_search_string(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("isearch-process-search-string", &args, 2)?;
@@ -2908,7 +2908,7 @@ pub(crate) fn builtin_isearch_process_search_string(
 
 /// (minibuffer--sort-preprocess-history HISTORY) -> nil
 pub(crate) fn builtin_minibuffer_sort_preprocess_history(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer--sort-preprocess-history", &args, 1)?;
@@ -2918,7 +2918,7 @@ pub(crate) fn builtin_minibuffer_sort_preprocess_history(
 
 /// (print--preprocess OBJECT) -> nil
 pub(crate) fn builtin_print_preprocess(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_print_preprocess_in_state(args)
@@ -2931,7 +2931,7 @@ pub(crate) fn builtin_print_preprocess_in_state(args: Vec<Value>) -> EvalResult 
 
 /// (syntax-propertize--in-process-p) -> nil
 pub(crate) fn builtin_syntax_propertize_in_process_p(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("syntax-propertize--in-process-p", &args, 0)?;
@@ -2940,7 +2940,7 @@ pub(crate) fn builtin_syntax_propertize_in_process_p(
 
 /// (window--adjust-process-windows) -> nil
 pub(crate) fn builtin_window_adjust_process_windows(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("window--adjust-process-windows", &args, 0)?;
@@ -2949,7 +2949,7 @@ pub(crate) fn builtin_window_adjust_process_windows(
 
 /// (window--process-window-list) -> nil
 pub(crate) fn builtin_window_process_window_list(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("window--process-window-list", &args, 0)?;
@@ -2958,7 +2958,7 @@ pub(crate) fn builtin_window_process_window_list(
 
 /// (window-adjust-process-window-size PROCESS WINDOW) -> nil
 pub(crate) fn builtin_window_adjust_process_window_size(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("window-adjust-process-window-size", &args, 2)?;
@@ -2968,7 +2968,7 @@ pub(crate) fn builtin_window_adjust_process_window_size(
 
 /// (window-adjust-process-window-size-largest PROCESS WINDOW) -> nil
 pub(crate) fn builtin_window_adjust_process_window_size_largest(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("window-adjust-process-window-size-largest", &args, 2)?;
@@ -2978,7 +2978,7 @@ pub(crate) fn builtin_window_adjust_process_window_size_largest(
 
 /// (window-adjust-process-window-size-smallest PROCESS WINDOW) -> nil
 pub(crate) fn builtin_window_adjust_process_window_size_smallest(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("window-adjust-process-window-size-smallest", &args, 2)?;
@@ -2988,7 +2988,7 @@ pub(crate) fn builtin_window_adjust_process_window_size_smallest(
 
 /// (format-network-address ADDRESS &optional OMIT-PORT) -> string-or-nil
 pub(crate) fn builtin_format_network_address(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_format_network_address_in_state(args)
@@ -3038,7 +3038,7 @@ pub(crate) fn builtin_format_network_address_in_state(args: Vec<Value>) -> EvalR
 
 /// (network-interface-list &optional FULL FAMILY) -> interface-list
 pub(crate) fn builtin_network_interface_list(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_network_interface_list_in_state(args)
@@ -3111,7 +3111,7 @@ pub(crate) fn builtin_network_interface_list_in_state(args: Vec<Value>) -> EvalR
 
 /// (network-interface-info IFNAME) -> interface-info-or-nil
 pub(crate) fn builtin_network_interface_info(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_network_interface_info_in_state(args)
@@ -3173,7 +3173,7 @@ pub(crate) fn builtin_network_interface_info_in_state(args: Vec<Value>) -> EvalR
 
 /// (network-lookup-address-info NAME &optional FAMILY HINTS) -> address-list
 pub(crate) fn builtin_network_lookup_address_info(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_network_lookup_address_info_in_state(args)
@@ -3216,7 +3216,7 @@ pub(crate) fn builtin_network_lookup_address_info_in_state(args: Vec<Value>) -> 
 
 /// (signal-names) -> list-of-signal-name-strings
 pub(crate) fn builtin_signal_names(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_signal_names_in_state(args)
@@ -3240,7 +3240,7 @@ pub(crate) fn builtin_signal_names_in_state(args: Vec<Value>) -> EvalResult {
 
 /// (list-system-processes) -> process-id-list
 pub(crate) fn builtin_list_system_processes(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_list_system_processes_in_state(args)
@@ -3261,7 +3261,7 @@ pub(crate) fn builtin_list_system_processes_in_state(args: Vec<Value>) -> EvalRe
 
 /// (num-processors &optional QUERY) -> integer
 pub(crate) fn builtin_num_processors(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_num_processors_in_state(args)
@@ -3285,7 +3285,7 @@ pub(crate) fn builtin_num_processors_in_state(args: Vec<Value>) -> EvalResult {
 
 /// (list-processes &optional QUERY-ONLY BUFFER) -> nil
 pub(crate) fn builtin_list_processes(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 2 {
@@ -3302,7 +3302,7 @@ pub(crate) fn builtin_list_processes(
 
 /// (list-processes--refresh) -> row-spec
 pub(crate) fn builtin_list_processes_refresh(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("list-processes--refresh", &args, 0)?;
@@ -3334,7 +3334,7 @@ pub(crate) fn builtin_list_processes_refresh(
 
 /// (make-network-process &rest ARGS) -> process-or-nil
 pub(crate) fn builtin_make_network_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() {
@@ -3525,7 +3525,7 @@ pub(crate) fn builtin_make_network_process(
 }
 
 /// Inner helper for `builtin_make_network_process` — server-only path that
-/// does not require the full Evaluator (used by tests).
+/// does not require the full Context (used by tests).
 pub(crate) fn builtin_make_network_process_in_state(
     processes: &mut ProcessManager,
     threads: &ThreadManager,
@@ -3575,7 +3575,7 @@ pub(crate) fn builtin_make_network_process_in_state(
     }
 
     if !server {
-        // Client mode requires the full Evaluator; fall through to a
+        // Client mode requires the full Context; fall through to a
         // minimal "not yet connected" error so existing tests still pass.
         return Err(signal(
             "file-error",
@@ -3606,7 +3606,7 @@ pub(crate) fn builtin_make_network_process_in_state(
 
 /// (make-pipe-process &rest ARGS) -> process-or-nil
 pub(crate) fn builtin_make_pipe_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_pipe_process_in_state(&mut eval.processes, &mut eval.buffers, &eval.threads, args)
@@ -3677,7 +3677,7 @@ pub(crate) fn builtin_make_pipe_process_in_state(
 
 /// (make-serial-process &rest ARGS) -> process-or-nil
 pub(crate) fn builtin_make_serial_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_serial_process_in_state(&mut eval.processes, args)
@@ -3741,7 +3741,7 @@ pub(crate) fn builtin_make_serial_process_in_state(
 
 /// (serial-process-configure &rest ARGS) -> nil
 pub(crate) fn builtin_serial_process_configure(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_serial_process_configure_in_state(&eval.processes, &eval.buffers, args)
@@ -3802,7 +3802,7 @@ pub(crate) fn builtin_serial_process_configure_in_state(
 
 /// (set-network-process-option PROCESS OPTION VALUE &optional NO-ERROR) -> nil
 pub(crate) fn builtin_set_network_process_option(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_network_process_option_in_state(&eval.processes, args)
@@ -3852,7 +3852,7 @@ pub(crate) fn builtin_set_network_process_option_in_state(
 
 /// (start-process NAME BUFFER PROGRAM &rest ARGS) -> process-id
 pub(crate) fn builtin_start_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("start-process", &args, 3)?;
@@ -3891,7 +3891,7 @@ pub(crate) fn builtin_start_process(
 
 /// (start-process-shell-command NAME BUFFER COMMAND) -> process-id
 pub(crate) fn builtin_start_process_shell_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("start-process-shell-command", &args, 3)?;
@@ -3918,7 +3918,7 @@ pub(crate) fn builtin_start_process_shell_command(
 
 /// (start-file-process NAME BUFFER PROGRAM &rest PROGRAM-ARGS) -> process-id
 pub(crate) fn builtin_start_file_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("start-file-process", &args, 3)?;
@@ -3938,7 +3938,7 @@ pub(crate) fn builtin_start_file_process(
 
 /// (start-file-process-shell-command NAME BUFFER COMMAND) -> process-id
 pub(crate) fn builtin_start_file_process_shell_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("start-file-process-shell-command", &args, 3)?;
@@ -3959,7 +3959,7 @@ pub(crate) fn builtin_start_file_process_shell_command(
 /// Runs the command synchronously using `std::process::Command`, captures
 /// output.  Returns the exit code as an integer.
 pub(crate) fn builtin_call_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_call_process_in_state(&mut eval.buffers, args)
@@ -3985,7 +3985,7 @@ pub(crate) fn builtin_call_process_in_state(
 
 /// (call-process-shell-command COMMAND &optional INFILE DESTINATION DISPLAY &rest ARGS)
 pub(crate) fn builtin_call_process_shell_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("call-process-shell-command", &args, 1)?;
@@ -4006,7 +4006,7 @@ pub(crate) fn builtin_call_process_shell_command(
 
 /// (process-file PROGRAM &optional INFILE DESTINATION DISPLAY &rest ARGS)
 pub(crate) fn builtin_process_file(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-file", &args, 1)?;
@@ -4023,7 +4023,7 @@ pub(crate) fn builtin_process_file(
 
 /// (process-file-shell-command COMMAND &optional INFILE DESTINATION DISPLAY &rest ARGS)
 pub(crate) fn builtin_process_file_shell_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-file-shell-command", &args, 1)?;
@@ -4044,7 +4044,7 @@ pub(crate) fn builtin_process_file_shell_command(
 
 /// (process-lines PROGRAM &rest ARGS) -> list of lines
 pub(crate) fn builtin_process_lines(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines", &args, 1)?;
@@ -4059,7 +4059,7 @@ pub(crate) fn builtin_process_lines(
 
 /// (process-lines-ignore-status PROGRAM &rest ARGS) -> list of lines
 pub(crate) fn builtin_process_lines_ignore_status(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines-ignore-status", &args, 1)?;
@@ -4071,7 +4071,7 @@ pub(crate) fn builtin_process_lines_ignore_status(
 
 /// (process-lines-handling-status PROGRAM STATUS-HANDLER &rest ARGS) -> list of lines
 pub(crate) fn builtin_process_lines_handling_status(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines-handling-status", &args, 2)?;
@@ -4094,7 +4094,7 @@ pub(crate) fn builtin_process_lines_handling_status(
 ///
 /// Pipes buffer region from START to END through PROGRAM.
 pub(crate) fn builtin_call_process_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_call_process_region_in_state(&mut eval.buffers, args)
@@ -4245,7 +4245,7 @@ pub(crate) fn builtin_call_process_region_in_state(
 
 /// (delete-process PROCESS) -> nil
 pub(crate) fn builtin_delete_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -4280,7 +4280,7 @@ pub(crate) fn builtin_delete_process_in_state(
 
 /// (continue-process &optional PROCESS CURRENT-GROUP) -> process-or-nil
 pub(crate) fn builtin_continue_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_continue_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -4317,7 +4317,7 @@ pub(crate) fn builtin_continue_process_in_state(
 
 /// (interrupt-process &optional PROCESS CURRENT-GROUP) -> process-or-nil
 pub(crate) fn builtin_interrupt_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_interrupt_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -4354,7 +4354,7 @@ pub(crate) fn builtin_interrupt_process_in_state(
 
 /// (kill-process &optional PROCESS CURRENT-GROUP) -> process-or-nil
 pub(crate) fn builtin_kill_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_kill_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -4385,7 +4385,7 @@ pub(crate) fn builtin_kill_process_in_state(
 
 /// (signal-process PROCESS SIGNAL &optional CURRENT-GROUP) -> int-or-nil
 pub(crate) fn builtin_signal_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_signal_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -4446,7 +4446,7 @@ pub(crate) fn builtin_signal_process_in_state(
 
 /// (stop-process &optional PROCESS CURRENT-GROUP) -> process-or-nil
 pub(crate) fn builtin_stop_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_stop_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -4480,7 +4480,7 @@ pub(crate) fn builtin_stop_process_in_state(
 
 /// (quit-process &optional PROCESS CURRENT-GROUP) -> process-or-nil
 pub(crate) fn builtin_quit_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_quit_process_in_state(&mut eval.processes, &eval.buffers, args)
@@ -4513,7 +4513,7 @@ pub(crate) fn builtin_quit_process_in_state(
 
 /// (process-attributes PID) -> alist-or-nil
 pub(crate) fn builtin_process_attributes(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_attributes_in_state(args)
@@ -4665,7 +4665,7 @@ pub(crate) fn builtin_process_attributes_in_state(args: Vec<Value>) -> EvalResul
 
 /// (make-process &rest ARGS) -> process-or-nil
 pub(crate) fn builtin_make_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_process_in_state(&mut eval.processes, &mut eval.buffers, args)
@@ -4947,7 +4947,7 @@ pub(crate) fn builtin_accept_process_output_collect(
 
 /// (process-send-string PROCESS STRING) -> nil
 pub(crate) fn builtin_process_send_string(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_send_string_in_state(&mut eval.processes, args)
@@ -4976,7 +4976,7 @@ pub(crate) fn builtin_process_send_string_in_state(
 
 /// (process-status PROCESS) -> symbol
 pub(crate) fn builtin_process_status(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_status_in_state(&mut eval.processes, args)
@@ -5034,7 +5034,7 @@ pub(crate) fn builtin_process_status_in_state(
 
 /// (process-exit-status PROCESS) -> integer
 pub(crate) fn builtin_process_exit_status(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_exit_status_in_state(&eval.processes, args)
@@ -5064,7 +5064,7 @@ pub(crate) fn builtin_process_exit_status_in_state(
 
 /// (process-list) -> list of process ids
 pub(crate) fn builtin_process_list(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_list_in_state(&eval.processes, args)
@@ -5082,7 +5082,7 @@ pub(crate) fn builtin_process_list_in_state(
 
 /// (process-name PROCESS) -> string
 pub(crate) fn builtin_process_name(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_name_in_state(&eval.processes, args)
@@ -5102,7 +5102,7 @@ pub(crate) fn builtin_process_name_in_state(
 
 /// (process-buffer PROCESS) -> string or nil
 pub(crate) fn builtin_process_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_buffer_in_state(&eval.processes, &eval.buffers, args)
@@ -5130,7 +5130,7 @@ pub(crate) fn builtin_process_buffer_in_state(
 
 /// (process-coding-system PROCESS) -> (decode . encode)
 pub(crate) fn builtin_process_coding_system(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_coding_system_in_state(&eval.processes, args)
@@ -5153,7 +5153,7 @@ pub(crate) fn builtin_process_coding_system_in_state(
 
 /// (process-datagram-address PROCESS) -> address-or-nil
 pub(crate) fn builtin_process_datagram_address(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_datagram_address_in_state(&eval.processes, args)
@@ -5170,7 +5170,7 @@ pub(crate) fn builtin_process_datagram_address_in_state(
 
 /// (process-inherit-coding-system-flag PROCESS) -> bool
 pub(crate) fn builtin_process_inherit_coding_system_flag(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_inherit_coding_system_flag_in_state(&eval.processes, args)
@@ -5193,7 +5193,7 @@ pub(crate) fn builtin_process_inherit_coding_system_flag_in_state(
 
 /// (set-process-buffer PROCESS BUFFER) -> BUFFER
 pub(crate) fn builtin_set_process_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_buffer_in_state(&mut eval.processes, &eval.buffers, args)
@@ -5229,7 +5229,7 @@ pub(crate) fn builtin_set_process_buffer_in_state(
 
 /// (set-process-coding-system PROCESS &optional DECODING ENCODING) -> nil
 pub(crate) fn builtin_set_process_coding_system(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_coding_system_in_state(&mut eval.processes, args)
@@ -5265,7 +5265,7 @@ pub(crate) fn builtin_set_process_coding_system_in_state(
 
 /// (set-buffer-process-coding-system DECODING ENCODING) -> nil
 pub(crate) fn builtin_set_buffer_process_coding_system(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-buffer-process-coding-system", &args, 2)?;
@@ -5283,7 +5283,7 @@ pub(crate) fn builtin_set_buffer_process_coding_system(
 
 /// (set-process-datagram-address PROCESS ADDRESS) -> nil
 pub(crate) fn builtin_set_process_datagram_address(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_datagram_address_in_state(&eval.processes, args)
@@ -5300,7 +5300,7 @@ pub(crate) fn builtin_set_process_datagram_address_in_state(
 
 /// (set-process-inherit-coding-system-flag PROCESS FLAG) -> FLAG
 pub(crate) fn builtin_set_process_inherit_coding_system_flag(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_inherit_coding_system_flag_in_state(&mut eval.processes, args)
@@ -5324,7 +5324,7 @@ pub(crate) fn builtin_set_process_inherit_coding_system_flag_in_state(
 
 /// (set-process-thread PROCESS THREAD) -> thread-or-nil
 pub(crate) fn builtin_set_process_thread(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_thread_in_state(&mut eval.processes, &eval.threads, args)
@@ -5356,7 +5356,7 @@ pub(crate) fn builtin_set_process_thread_in_state(
 
 /// (set-process-window-size PROCESS COLS ROWS) -> t
 pub(crate) fn builtin_set_process_window_size(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_window_size_in_state(&mut eval.processes, args)
@@ -5390,7 +5390,7 @@ pub(crate) fn builtin_process_kill_buffer_query_function(args: Vec<Value>) -> Ev
 
 /// (process-menu-delete-process) -> nil
 pub(crate) fn builtin_process_menu_delete_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-menu-delete-process", &args, 0)?;
@@ -5417,7 +5417,7 @@ pub(crate) fn builtin_process_menu_delete_process(
 
 /// (process-menu-visit-buffer LINE) -> nil
 pub(crate) fn builtin_process_menu_visit_buffer(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-menu-visit-buffer", &args, 1)?;
@@ -5430,7 +5430,7 @@ pub(crate) fn builtin_process_menu_visit_buffer(
 
 /// (process-tty-name PROCESS &optional STREAM) -> string-or-nil
 pub(crate) fn builtin_process_tty_name(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_tty_name_in_state(&eval.processes, args)
@@ -5492,7 +5492,7 @@ pub(crate) fn builtin_process_tty_name_in_state(
 
 /// (process-mark PROCESS) -> marker
 pub(crate) fn builtin_process_mark(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_mark_in_state(&eval.processes, args)
@@ -5519,7 +5519,7 @@ pub(crate) fn builtin_process_mark_in_state(
 
 /// (process-type PROCESS) -> symbol
 pub(crate) fn builtin_process_type(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_type_in_state(&eval.processes, args)
@@ -5547,7 +5547,7 @@ pub(crate) fn builtin_process_type_in_state(
 
 /// (process-thread PROCESS) -> object-or-nil
 pub(crate) fn builtin_process_thread(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_thread_in_state(&eval.processes, args)
@@ -5570,7 +5570,7 @@ pub(crate) fn builtin_process_thread_in_state(
 
 /// (process-send-region PROCESS START END) -> nil
 pub(crate) fn builtin_process_send_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_send_region_in_state(&mut eval.processes, &mut eval.buffers, args)
@@ -5615,7 +5615,7 @@ pub(crate) fn builtin_process_send_region_in_state(
 
 /// (process-send-eof &optional PROCESS) -> process-or-nil
 pub(crate) fn builtin_process_send_eof(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_send_eof_in_state(&mut eval.processes, &eval.buffers, args)
@@ -5668,7 +5668,7 @@ pub(crate) fn builtin_process_send_eof_in_state(
 
 /// (process-running-child-p &optional PROCESS) -> bool
 pub(crate) fn builtin_process_running_child_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_running_child_p_in_state(&eval.processes, &eval.buffers, args)
@@ -5707,7 +5707,7 @@ pub(crate) fn builtin_process_running_child_p_in_state(
 ///
 /// Batch/runtime compatibility path: validates arguments, then returns nil.
 pub(crate) fn builtin_accept_process_output(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let (result, callbacks) = builtin_accept_process_output_collect(&mut eval.processes, args)?;
@@ -5719,7 +5719,7 @@ pub(crate) fn builtin_accept_process_output(
 
 /// (get-process NAME) -> process-or-nil
 pub(crate) fn builtin_get_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_process_in_state(&eval.processes, args)
@@ -5739,7 +5739,7 @@ pub(crate) fn builtin_get_process_in_state(
 
 /// (get-buffer-process BUFFER-OR-NAME) -> process-or-nil
 pub(crate) fn builtin_get_buffer_process(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_buffer_process_in_state(&eval.frames, &eval.buffers, &eval.processes, args)
@@ -5764,7 +5764,7 @@ pub(crate) fn builtin_get_buffer_process_in_state(
 }
 
 /// (processp OBJECT) -> bool
-pub(crate) fn builtin_processp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_processp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_processp_in_state(&eval.processes, args)
 }
 
@@ -5781,7 +5781,7 @@ pub(crate) fn builtin_processp_in_state(
 
 /// (process-live-p PROCESS) -> list-or-nil
 pub(crate) fn builtin_process_live_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_live_p_in_state(&eval.processes, args)
@@ -5812,7 +5812,7 @@ pub(crate) fn builtin_process_live_p_in_state(
 
 /// (process-id PROCESS) -> integer
 pub(crate) fn builtin_process_id(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_id_in_state(&eval.processes, args)
@@ -5846,7 +5846,7 @@ pub(crate) fn builtin_process_id_in_state(
 
 /// (process-query-on-exit-flag PROCESS) -> bool
 pub(crate) fn builtin_process_query_on_exit_flag(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_query_on_exit_flag_in_state(&eval.processes, args)
@@ -5869,7 +5869,7 @@ pub(crate) fn builtin_process_query_on_exit_flag_in_state(
 
 /// (set-process-query-on-exit-flag PROCESS FLAG) -> FLAG
 pub(crate) fn builtin_set_process_query_on_exit_flag(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_query_on_exit_flag_in_state(&mut eval.processes, args)
@@ -5894,7 +5894,7 @@ pub(crate) fn builtin_set_process_query_on_exit_flag_in_state(
 
 /// (process-command PROCESS) -> list
 pub(crate) fn builtin_process_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_command_in_state(&eval.processes, args)
@@ -5923,7 +5923,7 @@ pub(crate) fn builtin_process_command_in_state(
 
 /// (process-contact PROCESS &optional KEY NO-BLOCK) -> value
 pub(crate) fn builtin_process_contact(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_contact_in_state(&eval.processes, args)
@@ -6009,7 +6009,7 @@ pub(crate) fn builtin_process_contact_in_state(
 
 /// (process-filter PROCESS) -> function
 pub(crate) fn builtin_process_filter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_filter_in_state(&eval.processes, args)
@@ -6032,7 +6032,7 @@ pub(crate) fn builtin_process_filter_in_state(
 
 /// (set-process-filter PROCESS FILTER) -> FILTER
 pub(crate) fn builtin_set_process_filter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_filter_in_state(&mut eval.processes, args)
@@ -6061,7 +6061,7 @@ pub(crate) fn builtin_set_process_filter_in_state(
 
 /// (process-sentinel PROCESS) -> function
 pub(crate) fn builtin_process_sentinel(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_sentinel_in_state(&eval.processes, args)
@@ -6084,7 +6084,7 @@ pub(crate) fn builtin_process_sentinel_in_state(
 
 /// (set-process-sentinel PROCESS SENTINEL) -> SENTINEL
 pub(crate) fn builtin_set_process_sentinel(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_sentinel_in_state(&mut eval.processes, args)
@@ -6113,7 +6113,7 @@ pub(crate) fn builtin_set_process_sentinel_in_state(
 
 /// (process-plist PROCESS) -> plist
 pub(crate) fn builtin_process_plist(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_process_plist_in_state(&eval.processes, args)
@@ -6136,7 +6136,7 @@ pub(crate) fn builtin_process_plist_in_state(
 
 /// (set-process-plist PROCESS PLIST) -> plist
 pub(crate) fn builtin_set_process_plist(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_process_plist_in_state(&mut eval.processes, args)
@@ -6166,7 +6166,7 @@ pub(crate) fn builtin_set_process_plist_in_state(
 
 /// (process-put PROCESS PROP VALUE) -> plist
 pub(crate) fn builtin_process_put(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-put", &args, 3)?;
@@ -6194,7 +6194,7 @@ pub(crate) fn builtin_process_put(
 
 /// (process-get PROCESS PROP) -> value
 pub(crate) fn builtin_process_get(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("process-get", &args, 2)?;
@@ -6269,7 +6269,7 @@ pub(crate) fn builtin_getenv(args: Vec<Value>) -> EvalResult {
 /// to the real OS environment (matching callproc.c:getenv_internal).
 /// When ENV is a list, searches that list instead.
 pub(crate) fn builtin_getenv_internal_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("getenv-internal", &args, 1)?;

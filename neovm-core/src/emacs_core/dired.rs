@@ -7,7 +7,7 @@
 //! - `system-users`, `system-groups`
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::Evaluator;
+use super::eval::Context;
 use super::intern::{intern, resolve_sym};
 use super::value::*;
 use std::collections::{HashMap, VecDeque};
@@ -474,10 +474,10 @@ pub(crate) fn builtin_directory_files_and_attributes_in_state(
     directory_files_and_attributes_with_dir(&args, dir)
 }
 
-/// Evaluator-backed variant of `directory-files-and-attributes`.
+/// Context-backed variant of `directory-files-and-attributes`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
 pub(crate) fn builtin_directory_files_and_attributes_eval(
-    eval: &Evaluator,
+    eval: &Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_directory_files_and_attributes_in_state(
@@ -593,11 +593,11 @@ pub(crate) fn builtin_file_name_completion_in_state(
     Ok(resolve_file_name_completion(&plan.file, completions))
 }
 
-/// Evaluator-backed variant of `file-name-completion`.
+/// Context-backed variant of `file-name-completion`.
 /// This supports arbitrary callable predicates and matches Emacs behavior of
 /// binding `default-directory` to DIRECTORY while predicate is invoked.
 pub(crate) fn builtin_file_name_completion_eval(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let plan = prepare_file_name_completion_in_state(
@@ -658,10 +658,10 @@ pub(crate) fn builtin_file_name_all_completions_in_state(
     ))
 }
 
-/// Evaluator-backed variant of `file-name-all-completions`.
+/// Context-backed variant of `file-name-all-completions`.
 /// Resolves relative DIRECTORY against dynamic/default `default-directory`.
 pub(crate) fn builtin_file_name_all_completions_eval(
-    eval: &Evaluator,
+    eval: &Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_file_name_all_completions_in_state(
@@ -727,7 +727,7 @@ pub(crate) fn prepare_file_name_completion_in_state(
 }
 
 pub(crate) fn finish_file_name_completion_with_eval_predicate(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     predicate: Option<&Value>,
     directory: String,
     file: String,
@@ -913,9 +913,9 @@ fn filter_completions_by_callable_predicate(
 }
 
 fn with_default_directory_binding<T>(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     directory: &str,
-    f: impl FnOnce(&mut Evaluator) -> Result<T, Flow>,
+    f: impl FnOnce(&mut Context) -> Result<T, Flow>,
 ) -> Result<T, Flow> {
     let mut frame = OrderedRuntimeBindingMap::new();
     frame.insert(intern("default-directory"), Value::string(directory));
@@ -1008,9 +1008,9 @@ pub(crate) fn builtin_file_attributes_in_state(
     }
 }
 
-/// Evaluator-backed variant of `file-attributes`.
+/// Context-backed variant of `file-attributes`.
 /// Resolves relative FILENAME against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_attributes_eval(eval: &Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_file_attributes_eval(eval: &Context, args: Vec<Value>) -> EvalResult {
     builtin_file_attributes_in_state(&eval.obarray, eval.dynamic.as_slice(), &eval.buffers, args)
 }
 

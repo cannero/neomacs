@@ -277,7 +277,7 @@ pub(crate) fn marker_position_as_int_with_buffers(
 }
 
 pub(crate) fn marker_position_as_int_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     v: &Value,
 ) -> Result<i64, Flow> {
     marker_position_as_int_with_buffers(&eval.buffers, v)
@@ -337,7 +337,7 @@ pub(crate) fn builtin_marker_position(args: Vec<Value>) -> EvalResult {
 
 /// Eval-dependent marker-position that reads adjusted positions from the buffer.
 pub(crate) fn builtin_marker_position_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_marker_position_in_buffers(&eval.buffers, args)
@@ -376,10 +376,10 @@ pub(crate) fn builtin_marker_buffer(args: Vec<Value>) -> EvalResult {
     Ok(marker_buffer_value(&args[0]))
 }
 
-/// Evaluator-aware marker-buffer that returns nil for killed buffers.
+/// Context-aware marker-buffer that returns nil for killed buffers.
 /// GNU returns nil when the marker's buffer has been killed.
 pub(crate) fn builtin_marker_buffer_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("marker-buffer", &args, 1)?;
@@ -434,7 +434,7 @@ pub(crate) fn builtin_set_marker_insertion_type(args: Vec<Value>) -> EvalResult 
 /// Eval-dependent set-marker-insertion-type that also updates the buffer's
 /// marker entry so insertion behavior changes immediately.
 pub(crate) fn builtin_set_marker_insertion_type_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_marker_insertion_type_in_buffers(&mut eval.buffers, args)
@@ -511,7 +511,7 @@ pub(crate) fn builtin_make_marker(args: Vec<Value>) -> EvalResult {
 
 /// Eval-dependent copy-marker that registers the new marker in the buffer.
 pub(crate) fn builtin_copy_marker_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_copy_marker_in_buffers(&mut eval.buffers, args)
@@ -602,7 +602,7 @@ pub(crate) fn builtin_copy_marker_in_buffers(
 /// nil, the marker is unset (points nowhere).  BUFFER defaults to the current
 /// buffer.
 pub(crate) fn builtin_set_marker(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_marker_in_buffers(&mut eval.buffers, args)
@@ -724,7 +724,7 @@ pub(crate) fn builtin_set_marker_in_buffers(
 /// Lisp code such as `indent.el`. Its observable behavior matches
 /// `set-marker`, so reuse that implementation.
 pub(crate) fn builtin_move_marker(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_move_marker_in_buffers(&mut eval.buffers, args)
@@ -740,7 +740,7 @@ pub(crate) fn builtin_move_marker_in_buffers(
 /// Register a Lisp marker in the target buffer's marker list so that
 /// insert/delete operations automatically adjust its position.
 fn register_marker_in_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     marker: &Value,
     buffer_name: &Option<String>,
     position: Option<i64>,
@@ -789,7 +789,7 @@ fn register_marker_in_buffers(
 
 /// (point-marker) -> marker at current point
 pub(crate) fn builtin_point_marker(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_point_marker_in_buffers(&mut eval.buffers, args)
@@ -812,7 +812,7 @@ pub(crate) fn builtin_point_marker_in_buffers(
 
 /// (point-min-marker) -> marker at point-min
 pub(crate) fn builtin_point_min_marker(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_point_min_marker_in_buffers(&mut eval.buffers, args)
@@ -835,7 +835,7 @@ pub(crate) fn builtin_point_min_marker_in_buffers(
 
 /// (point-max-marker) -> marker at point-max
 pub(crate) fn builtin_point_max_marker(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_point_max_marker_in_buffers(&mut eval.buffers, args)
@@ -858,7 +858,7 @@ pub(crate) fn builtin_point_max_marker_in_buffers(
 
 /// (mark-marker) -> marker at mark, or error if no mark set
 pub(crate) fn builtin_mark_marker(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_mark_marker_in_buffers(&eval.buffers, args)

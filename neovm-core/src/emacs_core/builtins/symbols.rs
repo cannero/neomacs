@@ -52,7 +52,7 @@ pub(crate) trait MacroexpandRuntime {
     ) -> Result<Value, Flow>;
 }
 
-impl MacroexpandRuntime for super::eval::Evaluator {
+impl MacroexpandRuntime for super::eval::Context {
     fn next_pcase_macroexpand_temp_symbol(&mut self) -> Value {
         self.next_pcase_macroexpand_temp_symbol()
     }
@@ -161,14 +161,14 @@ pub(crate) fn resolve_variable_alias_id_in_obarray(
 }
 
 pub(crate) fn resolve_variable_alias_id(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     symbol: SymId,
 ) -> Result<SymId, Flow> {
     resolve_variable_alias_id_in_obarray(eval.obarray(), symbol)
 }
 
 pub(crate) fn resolve_variable_alias_name(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     name: &str,
 ) -> Result<String, Flow> {
     resolve_variable_alias_name_in_obarray(eval.obarray(), name)
@@ -181,7 +181,7 @@ pub(crate) fn resolve_variable_alias_name_in_obarray(
     Ok(resolve_sym(resolve_variable_alias_id_in_obarray(obarray, intern(name))?).to_string())
 }
 
-fn would_create_variable_alias_cycle(eval: &super::eval::Evaluator, new: &str, old: &str) -> bool {
+fn would_create_variable_alias_cycle(eval: &super::eval::Context, new: &str, old: &str) -> bool {
     would_create_variable_alias_cycle_in_obarray(eval.obarray(), intern(new), intern(old))
 }
 
@@ -229,7 +229,7 @@ pub(crate) fn symbol_raw_plist_value_in_obarray(obarray: &Obarray, symbol: SymId
         .cloned()
 }
 
-fn symbol_raw_plist_value(eval: &super::eval::Evaluator, symbol: SymId) -> Option<Value> {
+fn symbol_raw_plist_value(eval: &super::eval::Context, symbol: SymId) -> Option<Value> {
     symbol_raw_plist_value_in_obarray(eval.obarray(), symbol)
 }
 
@@ -311,7 +311,7 @@ pub(crate) fn set_symbol_raw_plist_in_obarray(obarray: &mut Obarray, symbol: Sym
     sync_visible_symbol_plist_entries(sym, plist);
 }
 
-fn set_symbol_raw_plist(eval: &mut super::eval::Evaluator, symbol: SymId, plist: Value) {
+fn set_symbol_raw_plist(eval: &mut super::eval::Context, symbol: SymId, plist: Value) {
     set_symbol_raw_plist_in_obarray(eval.obarray_mut(), symbol, plist);
 }
 
@@ -341,7 +341,7 @@ pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
     }
 }
 
-pub(crate) fn builtin_boundp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_boundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_boundp_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
 }
 
@@ -371,7 +371,7 @@ pub(crate) fn builtin_obarrayp(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_special_variable_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_special_variable_p_in_obarray(eval.obarray(), args)
@@ -389,7 +389,7 @@ pub(crate) fn builtin_special_variable_p_in_obarray(
 }
 
 pub(crate) fn builtin_default_boundp(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_default_boundp_in_obarray(eval.obarray(), args)
@@ -404,7 +404,7 @@ pub(crate) fn builtin_default_boundp_in_obarray(obarray: &Obarray, args: Vec<Val
 }
 
 pub(crate) fn builtin_default_toplevel_value(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_default_toplevel_value_in_obarray(eval.obarray(), args)
@@ -428,7 +428,7 @@ pub(crate) fn builtin_default_toplevel_value_in_obarray(
 }
 
 pub(crate) fn builtin_internal_define_uninitialized_variable_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_internal_define_uninitialized_variable_in_obarray(eval.obarray_mut(), args.clone())?;
@@ -457,7 +457,7 @@ pub(crate) fn builtin_internal_define_uninitialized_variable_in_obarray(
 }
 
 pub(crate) fn builtin_set_default_toplevel_value(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_default_toplevel_value_in_obarray(eval.obarray_mut(), args.clone())?;
@@ -488,7 +488,7 @@ pub(crate) fn builtin_set_default_toplevel_value_in_obarray(
 }
 
 pub(crate) fn builtin_defvaralias_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let state_change = builtin_defvaralias_in_state(eval.obarray_mut(), args.clone())?;
@@ -562,7 +562,7 @@ pub(crate) fn builtin_defvaralias_in_state(
 }
 
 pub(crate) fn builtin_indirect_variable_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_indirect_variable_in_obarray(eval.obarray(), args)
@@ -603,12 +603,12 @@ pub(crate) fn builtin_fboundp_in_obarray(obarray: &Obarray, args: &[Value]) -> E
     Ok(Value::bool(result))
 }
 
-pub(crate) fn builtin_fboundp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_fboundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_fboundp_in_obarray(eval.obarray(), &args)
 }
 
 pub(crate) fn builtin_symbol_value(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_symbol_value_in_state(eval.obarray(), eval.dynamic.as_slice(), &eval.buffers, args)
@@ -644,14 +644,14 @@ pub(crate) fn builtin_symbol_value_in_state(
 }
 
 pub(super) fn startup_virtual_autoload_function_cell(
-    _eval: &super::eval::Evaluator,
+    _eval: &super::eval::Context,
     _name: &str,
 ) -> Option<Value> {
     None
 }
 
 pub(crate) fn builtin_symbol_function(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_symbol_function_in_obarray(eval.obarray(), args)
@@ -699,7 +699,7 @@ pub(crate) fn builtin_symbol_function_in_obarray(
 /// matching subr.el. Avoids excessive eval depth by not going through
 /// the Elisp evaluator for get/fboundp/symbol-function calls.
 pub(crate) fn builtin_function_get(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("function-get", &args, 2)?;
@@ -766,7 +766,7 @@ pub(crate) fn builtin_function_get(
 }
 
 pub(crate) fn builtin_func_arity_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_func_arity_in_obarray(eval.obarray(), args)
@@ -825,7 +825,7 @@ fn dispatch_symbol_func_arity_override_in_obarray(
     None
 }
 
-pub(crate) fn builtin_set(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("set", &args, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
@@ -848,7 +848,7 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Evaluator, args: Vec<Value>) -
     Ok(value)
 }
 
-pub(crate) fn builtin_fset(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_fset(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_fset_in_obarray(eval.obarray_mut(), args)
 }
 
@@ -867,7 +867,7 @@ pub(crate) fn builtin_fset_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -
 }
 
 pub(crate) fn would_create_function_alias_cycle(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     target_symbol: SymId,
     def: &Value,
 ) -> bool {
@@ -906,7 +906,7 @@ pub(crate) fn would_create_function_alias_cycle_in_obarray(
 }
 
 pub(crate) fn builtin_makunbound(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("makunbound", &args, 1)?;
@@ -926,7 +926,7 @@ pub(crate) fn builtin_makunbound(
 }
 
 pub(crate) fn builtin_defvar_1_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("defvar-1", &args, 2, 3)?;
@@ -948,7 +948,7 @@ pub(crate) fn builtin_defvar_1_eval(
 }
 
 pub(crate) fn builtin_defconst_1_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("defconst-1", &args, 2, 3)?;
@@ -972,7 +972,7 @@ pub(crate) fn builtin_defconst_1_eval(
 }
 
 pub(crate) fn builtin_fmakunbound(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_fmakunbound_in_obarray(eval.obarray_mut(), args)
@@ -991,7 +991,7 @@ pub(crate) fn builtin_fmakunbound_in_obarray(
     Ok(args[0])
 }
 
-pub(crate) fn builtin_get(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("get", &args, 2)?;
     let sym = expect_symbol_id(&args[0])?;
     if let Some(raw) = symbol_raw_plist_value(eval, sym) {
@@ -1008,7 +1008,7 @@ pub(crate) fn builtin_get(eval: &mut super::eval::Evaluator, args: Vec<Value>) -
         .unwrap_or(Value::Nil))
 }
 
-pub(crate) fn builtin_put(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_put(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_put_in_obarray(eval.obarray_mut(), args)
 }
 
@@ -1027,7 +1027,7 @@ pub(crate) fn builtin_put_in_obarray(obarray: &mut Obarray, args: Vec<Value>) ->
 }
 
 pub(crate) fn builtin_symbol_plist_fn(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_symbol_plist_in_obarray(eval.obarray(), args)
@@ -1043,7 +1043,7 @@ pub(crate) fn builtin_symbol_plist_in_obarray(obarray: &Obarray, args: Vec<Value
 }
 
 pub(super) fn builtin_register_code_conversion_map_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_register_code_conversion_map_in_obarray(eval.obarray_mut(), args)
@@ -1090,14 +1090,14 @@ fn symbol_has_valid_ccl_program_idx_in_obarray(
 }
 
 fn symbol_has_valid_ccl_program_idx(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     symbol: &Value,
 ) -> Result<bool, Flow> {
     symbol_has_valid_ccl_program_idx_in_obarray(eval.obarray(), symbol)
 }
 
 pub(super) fn builtin_ccl_program_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_ccl_program_p_in_obarray(eval.obarray(), args)
@@ -1113,7 +1113,7 @@ pub(crate) fn builtin_ccl_program_p_in_obarray(obarray: &Obarray, args: Vec<Valu
 }
 
 pub(super) fn builtin_ccl_execute_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_ccl_execute_in_obarray(eval.obarray(), args)
@@ -1131,7 +1131,7 @@ pub(crate) fn builtin_ccl_execute_in_obarray(obarray: &Obarray, args: Vec<Value>
 }
 
 pub(super) fn builtin_ccl_execute_on_string_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_ccl_execute_on_string_in_obarray(eval.obarray(), args)
@@ -1152,7 +1152,7 @@ pub(crate) fn builtin_ccl_execute_on_string_in_obarray(
 }
 
 pub(super) fn builtin_register_ccl_program_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_register_ccl_program_in_obarray(eval.obarray_mut(), args)
@@ -1187,7 +1187,7 @@ pub(crate) fn builtin_register_ccl_program_in_obarray(
 }
 
 fn preflight_symbol_plist_put(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     symbol: &Value,
     property: &str,
 ) -> Result<(), Flow> {
@@ -1210,7 +1210,7 @@ fn preflight_symbol_plist_put_in_obarray(
 }
 
 pub(crate) fn builtin_setplist_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_setplist_in_obarray(eval.obarray_mut(), args)
@@ -2227,14 +2227,14 @@ pub(crate) fn builtin_macroexpand_with_runtime<R: MacroexpandRuntime>(
 }
 
 pub(crate) fn builtin_macroexpand_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_macroexpand_with_runtime(eval, args)
 }
 
 pub(crate) fn builtin_indirect_function(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_indirect_function_in_obarray(eval.obarray(), args)
@@ -2327,26 +2327,26 @@ pub(crate) fn resolve_indirect_symbol_by_id_in_obarray(
 }
 
 pub(crate) fn resolve_indirect_symbol_by_id(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     symbol: SymId,
 ) -> Option<(SymId, Value)> {
     resolve_indirect_symbol_by_id_in_obarray(eval.obarray(), symbol)
 }
 
 fn resolve_indirect_symbol_with_name(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     name: &str,
 ) -> Option<(String, Value)> {
     resolve_indirect_symbol_by_id(eval, intern(name))
         .map(|(resolved, value)| (resolve_sym(resolved).to_string(), value))
 }
 
-pub(super) fn resolve_indirect_symbol(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+pub(super) fn resolve_indirect_symbol(eval: &super::eval::Context, name: &str) -> Option<Value> {
     resolve_indirect_symbol_with_name(eval, name).map(|(_, value)| value)
 }
 
 pub(crate) fn builtin_macrop_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("macrop", &args, 1)?;
@@ -2397,13 +2397,13 @@ pub(crate) fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
     }
 }
 
-pub(crate) fn is_global_obarray_proxy(eval: &super::eval::Evaluator, value: &Value) -> bool {
+pub(crate) fn is_global_obarray_proxy(eval: &super::eval::Context, value: &Value) -> bool {
     eval.obarray()
         .symbol_value("obarray")
         .is_some_and(|proxy| *proxy == *value)
 }
 
-pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("intern", &args, 1)?;
     expect_max_args("intern", &args, 2)?;
     if let Some(obarray) = args.get(1) {
@@ -2449,7 +2449,7 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Evaluator, args: Vec<Val
 }
 
 pub(crate) fn builtin_intern_soft(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if let Some(obarray) = args.get(1).filter(|v| !v.is_nil()) {
@@ -2586,7 +2586,7 @@ pub(crate) fn builtin_next_frame(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_next_frame_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_next_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2617,7 +2617,7 @@ pub(crate) fn builtin_previous_frame(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_previous_frame_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_previous_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2661,7 +2661,7 @@ pub(crate) fn builtin_redisplay(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_redisplay_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("redisplay", &args, 0, 1)?;
@@ -2689,7 +2689,7 @@ pub(crate) fn builtin_suspend_emacs(args: Vec<Value>) -> EvalResult {
 /// display properties, etc.  Here we approximate with newline counting,
 /// which is correct for non-wrapped lines.
 pub(crate) fn builtin_vertical_motion(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_vertical_motion_in_buffers(&mut eval.buffers, args)
@@ -2822,7 +2822,7 @@ pub(crate) fn builtin_vertical_motion_in_buffers(
 }
 
 pub(crate) fn builtin_rename_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_rename_buffer_in_manager(&mut eval.buffers, args)
@@ -2975,7 +2975,7 @@ pub(crate) fn builtin_old_selected_frame(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_old_selected_frame_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_old_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3028,7 +3028,7 @@ pub(crate) fn builtin_mouse_pixel_position(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_mouse_pixel_position_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_mouse_pixel_position_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3050,7 +3050,7 @@ pub(crate) fn builtin_mouse_position(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_mouse_position_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_mouse_position_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3175,7 +3175,7 @@ pub(crate) fn builtin_new_fontset_in_state(
 }
 
 pub(crate) fn builtin_new_fontset_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_new_fontset_in_state(eval.obarray(), eval.dynamic.as_slice(), args)
@@ -3484,7 +3484,7 @@ pub(crate) fn builtin_set_fontset_font_in_state(
 }
 
 pub(crate) fn builtin_set_fontset_font_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_fontset_font_in_state(eval.obarray(), eval.dynamic.as_slice(), args)
@@ -3876,7 +3876,7 @@ fn symbol_name_for_value_lt(value: &Value) -> Option<&str> {
 }
 
 pub(crate) fn builtin_variable_binding_locus_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_variable_binding_locus_in_state(eval.obarray(), &eval.buffers, args)
@@ -3937,7 +3937,7 @@ pub(crate) fn builtin_xw_display_color_p(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_xw_display_color_p_eval(
-    eval: &super::super::eval::Evaluator,
+    eval: &super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("xw-display-color-p", &args, 0, 1)?;
@@ -4199,7 +4199,7 @@ pub(crate) fn plan_interactive_form_in_state(
 }
 
 pub(crate) fn builtin_interactive_form_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("interactive-form", &args, 1)?;
@@ -4231,7 +4231,7 @@ pub(crate) fn builtin_local_variable_if_set_p(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_local_variable_if_set_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_local_variable_if_set_p_in_state(eval.obarray(), &eval.custom, args)
@@ -4468,7 +4468,7 @@ pub(crate) fn builtin_internal_make_var_non_special_in_obarray(
 }
 
 pub(crate) fn builtin_internal_make_var_non_special_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_internal_make_var_non_special_in_obarray(eval.obarray_mut(), args)
@@ -4739,7 +4739,7 @@ pub(crate) fn builtin_find_operation_coding_system(args: Vec<Value>) -> EvalResu
     Ok(Value::Nil)
 }
 
-fn push_signal_temp_roots(eval: &mut super::eval::Evaluator, sig: &super::error::SignalData) {
+fn push_signal_temp_roots(eval: &mut super::eval::Context, sig: &super::error::SignalData) {
     for value in &sig.data {
         eval.push_temp_root(*value);
     }
@@ -4749,7 +4749,7 @@ fn push_signal_temp_roots(eval: &mut super::eval::Evaluator, sig: &super::error:
 }
 
 fn resume_handler_bind_signal(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     handlers: &[(Value, Value)],
     start: usize,
     sig: super::error::SignalData,
@@ -4785,7 +4785,7 @@ fn resume_handler_bind_signal(
 }
 
 pub(crate) fn builtin_handler_bind_1_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() {
@@ -4886,7 +4886,7 @@ pub(crate) fn plan_kill_emacs_request(
 }
 
 pub(crate) fn builtin_kill_emacs_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let request = plan_kill_emacs_request(&args)?;

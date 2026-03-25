@@ -566,7 +566,7 @@ fn oracle_prop_rd_parser_ast_evaluator() {
       (setq neovm--rdp4-tokens (funcall 'neovm--rdp4-tokenize input))
       (funcall 'neovm--rdp4-parse-expr)))
 
-  ;; Evaluator
+  ;; Context
   (fset 'neovm--rdp4-eval-ast
     (lambda (ast env)
       (cond

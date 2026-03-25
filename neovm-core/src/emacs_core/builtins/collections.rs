@@ -732,7 +732,7 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_plist_member(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let predicate = args

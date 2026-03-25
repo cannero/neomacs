@@ -1,14 +1,14 @@
 use crate::emacs_core::eval::GuiFrameHostSize;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{
-    DisplayHost, Evaluator, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
+    DisplayHost, Context, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Evaluate all forms with a fresh evaluator that has a frame+window set up.
 fn eval_with_frame(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     // Create a buffer for the initial window.
     let buf = ev.buffers.create_buffer("*scratch*");
@@ -26,7 +26,7 @@ fn eval_one_with_frame(src: &str) -> String {
 }
 
 fn eval_with_gui_frame(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
@@ -60,7 +60,7 @@ fn bootstrap_eval_one_with_frame(src: &str) -> String {
 
 #[test]
 fn active_minibuffer_window_tracks_live_minibuffer_state() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.frames.create_frame("F1", 800, 600, buf);
 
@@ -158,7 +158,7 @@ fn selected_window_returns_window_handle() {
 
 #[test]
 fn selected_window_bootstraps_initial_frame() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms("(window-live-p (selected-window))").expect("parse");
     let out = ev
         .eval_forms(&forms)
@@ -170,7 +170,7 @@ fn selected_window_bootstraps_initial_frame() {
 
 #[test]
 fn frame_selected_window_arity_and_designators() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(windowp (frame-selected-window))
          (windowp (frame-selected-window nil))
@@ -195,7 +195,7 @@ fn frame_selected_window_arity_and_designators() {
 
 #[test]
 fn minibuffer_window_frame_first_window_and_window_minibuffer_p_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(window-minibuffer-p)
          (windowp (minibuffer-window))
@@ -325,7 +325,7 @@ fn frame_root_window_p_semantics_and_errors() {
 
 #[test]
 fn window_at_matches_batch_coordinate_and_error_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(windowp (window-at 0 0))
          (windowp (window-at 79 0))
@@ -370,7 +370,7 @@ fn window_at_matches_batch_coordinate_and_error_semantics() {
 
 #[test]
 fn window_frame_arity_and_designators() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(framep (window-frame))
          (framep (window-frame nil))
@@ -395,7 +395,7 @@ fn window_frame_arity_and_designators() {
 
 #[test]
 fn window_designators_bootstrap_nil_and_validate_invalid_window_handles() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(window-start nil)
          (window-point nil)
@@ -724,7 +724,7 @@ fn window_body_width_pixelwise() {
 
 #[test]
 fn gui_window_body_geometry_excludes_fringes_and_margins() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
@@ -923,7 +923,7 @@ fn window_list_has_one_entry() {
 
 #[test]
 fn window_list_matches_frame_minibuffer_and_all_frames_batch_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (length (window-list)) (error err))
          (condition-case err (length (window-list (selected-frame))) (error err))
@@ -960,7 +960,7 @@ fn window_list_matches_frame_minibuffer_and_all_frames_batch_semantics() {
 
 #[test]
 fn minibuffer_window_from_window_list_supports_basic_accessors() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let ((m (car (nthcdr (1- (length (window-list nil t))) (window-list nil t)))))
            (list (window-live-p m)
@@ -996,7 +996,7 @@ fn window_dedicated_p_default() {
 
 #[test]
 fn window_accessors_enforce_max_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (window-buffer nil nil) (error (car err)))
          (condition-case err (window-start nil nil) (error (car err)))
@@ -1031,7 +1031,7 @@ fn set_window_dedicated_p() {
 
 #[test]
 fn set_window_dedicated_p_bootstraps_nil_and_validates_designators() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (set-window-dedicated-p nil t) (error err))
          (window-dedicated-p nil)
@@ -1068,7 +1068,7 @@ fn split_window_internal_creates_new() {
 
 #[test]
 fn split_window_internal_enforces_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err
              (split-window-internal (selected-window) nil nil nil nil nil)
@@ -1209,7 +1209,7 @@ fn select_window_accepts_minibuffer_window_and_switches_current_buffer() {
 
 #[test]
 fn select_window_validates_designators_and_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (select-window nil) (error err))
          (condition-case err (select-window 'foo) (error err))
@@ -1343,7 +1343,7 @@ fn other_window_without_selected_frame_returns_nil() {
 
 #[test]
 fn selected_frame_bootstraps_initial_frame() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms =
         parse_forms("(list (framep (selected-frame)) (length (frame-list)))").expect("parse");
     let results = ev.eval_forms(&forms);
@@ -1352,7 +1352,7 @@ fn selected_frame_bootstraps_initial_frame() {
 
 #[test]
 fn window_size_queries_bootstrap_initial_frame() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(list (integerp (window-height))
                (integerp (window-width))
@@ -1366,7 +1366,7 @@ fn window_size_queries_bootstrap_initial_frame() {
 
 #[test]
 fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(window-height nil)
          (window-width nil)
@@ -1403,7 +1403,7 @@ fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
 
 #[test]
 fn window_geometry_helper_queries_match_batch_defaults_and_error_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1450,7 +1450,7 @@ fn window_geometry_helper_queries_match_batch_defaults_and_error_predicates() {
 
 #[test]
 fn window_use_time_and_old_state_queries_match_batch_defaults_and_error_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1506,7 +1506,7 @@ fn window_use_time_and_old_state_queries_match_batch_defaults_and_error_predicat
 
 #[test]
 fn window_bump_use_time_tracks_second_most_recent_window() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w1 (selected-window))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
@@ -1537,7 +1537,7 @@ fn window_bump_use_time_tracks_second_most_recent_window() {
 
 #[test]
 fn window_bump_use_time_shared_state_smoke() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w1 (selected-window))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
@@ -1565,7 +1565,7 @@ fn window_bump_use_time_shared_state_smoke() {
 
 #[test]
 fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1607,7 +1607,7 @@ fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
 
 #[test]
 fn window_scroll_state_shared_state_smoke() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1663,7 +1663,7 @@ fn window_scroll_state_shared_state_smoke() {
 
 #[test]
 fn window_hscroll_and_margin_setters_match_batch_defaults_and_error_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1728,7 +1728,7 @@ fn window_hscroll_and_margin_setters_match_batch_defaults_and_error_predicates()
 
 #[test]
 fn window_fringes_and_scroll_bar_setters_match_batch_defaults_and_error_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1781,7 +1781,7 @@ fn window_fringes_and_scroll_bar_setters_match_batch_defaults_and_error_predicat
 
 #[test]
 fn window_parameter_helpers_match_batch_defaults_and_key_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1830,7 +1830,7 @@ fn window_parameter_helpers_match_batch_defaults_and_key_semantics() {
 
 #[test]
 fn window_display_table_helpers_match_batch_defaults_and_set_get_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window))
@@ -1874,7 +1874,7 @@ fn window_display_table_helpers_match_batch_defaults_and_set_get_semantics() {
 
 #[test]
 fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window)))
@@ -1918,7 +1918,7 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
 
 #[test]
 fn window_metadata_shared_state_smoke() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (minibuffer-window))
@@ -2158,7 +2158,7 @@ fn one_window_p_enforces_max_arity() {
 
 #[test]
 fn next_previous_window_enforce_max_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (next-window nil nil nil nil) (error (car err)))
          (condition-case err (previous-window nil nil nil nil) (error (car err)))
@@ -2195,7 +2195,7 @@ fn previous_window_wraps() {
 
 #[test]
 fn frame_ops_enforce_max_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (make-frame nil nil) (error (car err)))
          (condition-case err (delete-frame nil nil nil) (error (car err)))
@@ -2220,7 +2220,7 @@ fn frame_ops_enforce_max_arity() {
 
 #[test]
 fn frame_visible_p_enforces_arity_and_designators() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (frame-visible-p) (error (car err)))
          (condition-case err (frame-visible-p nil) (error err))
@@ -2241,7 +2241,7 @@ fn frame_visible_p_enforces_arity_and_designators() {
 
 #[test]
 fn frame_designator_errors_use_emacs_predicates() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (frame-parameter \"x\" 'name) (error err))
          (condition-case err (frame-parameter 999999 'name) (error err))
@@ -2274,7 +2274,7 @@ fn frame_designator_errors_use_emacs_predicates() {
 
 #[test]
 fn frame_query_builtins_match_gnu_batch_startup_geometry() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"(list (frame-char-height)
                  (frame-char-width)
@@ -2299,7 +2299,7 @@ fn frame_query_builtins_match_gnu_batch_startup_geometry() {
 
 #[test]
 fn frame_identity_builtins_match_gnu_batch_startup_defaults() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"(let ((mouse (mouse-position))
                  (pixel (mouse-pixel-position)))
@@ -2324,7 +2324,7 @@ fn frame_identity_builtins_match_gnu_batch_startup_defaults() {
 
 #[test]
 fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("gui", 800, 600, buf);
     {
@@ -2352,7 +2352,7 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
 
 #[test]
 fn frame_query_builtins_use_internal_window_system_state() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("gui", 800, 600, buf);
     {
@@ -2373,7 +2373,7 @@ fn frame_query_builtins_use_internal_window_system_state() {
 
 #[test]
 fn select_frame_arity_designators_and_selection() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (select-frame) (error (car err)))
          (condition-case err (select-frame nil) (error err))
@@ -2402,7 +2402,7 @@ fn select_frame_arity_designators_and_selection() {
 
 #[test]
 fn select_frame_set_input_focus_arity_designators_and_result() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (select-frame-set-input-focus) (error (car err)))
          (condition-case err (select-frame-set-input-focus nil) (error err))
@@ -2427,7 +2427,7 @@ fn select_frame_set_input_focus_arity_designators_and_result() {
 
 #[test]
 fn set_frame_selected_window_matches_selection_and_error_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (set-frame-selected-window) (error (car err)))
          (condition-case err (set-frame-selected-window nil nil) (error err))
@@ -2598,7 +2598,7 @@ fn frame_old_selected_window_matches_batch_and_arity_semantics() {
 
 #[test]
 fn frame_old_selected_window_direct_wrapper_matches_batch_nil_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = super::ensure_selected_frame_id(&mut ev);
 
     assert_eq!(
@@ -2658,7 +2658,7 @@ fn make_frame_creates_new() {
 
 #[test]
 fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 800, 600, scratch);
     ev.frames
@@ -2692,7 +2692,7 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
 
 #[test]
 fn x_create_frame_creates_opening_frame_and_notifies_host() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
@@ -2740,7 +2740,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
 
 #[test]
 fn x_create_frame_reserves_tab_bar_space_above_root_window() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     ev.frames
@@ -2776,7 +2776,7 @@ fn x_create_frame_reserves_tab_bar_space_above_root_window() {
 
 #[test]
 fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
@@ -2823,7 +2823,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
 
 #[test]
 fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
@@ -2877,7 +2877,7 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
 
 #[test]
 fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geometry() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
     {
@@ -2939,7 +2939,7 @@ fn framep_true() {
 
 #[test]
 fn framep_returns_window_system_symbol_for_gui_frames() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let frame_id = super::ensure_selected_frame_id(&mut ev);
     ev.frames
         .get_mut(frame_id)
@@ -2971,7 +2971,7 @@ fn frame_live_p_false() {
 
 #[test]
 fn frame_builtins_accept_frame_handle_values() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let fid = super::ensure_selected_frame_id(&mut ev);
     let frame = Value::Frame(fid.0);
 
@@ -3039,7 +3039,7 @@ fn modify_frame_parameters_name() {
 
 #[test]
 fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     let forms =
@@ -3061,7 +3061,7 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
 
 #[test]
 fn modify_frame_parameters_tab_bar_lines_reflows_root_window_tree() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     {
@@ -3093,7 +3093,7 @@ fn modify_frame_parameters_tab_bar_lines_reflows_root_window_tree() {
 
 #[test]
 fn set_frame_size_builtins_preserve_pixel_dimensions() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     let forms = parse_forms(
@@ -3123,7 +3123,7 @@ fn set_frame_size_builtins_preserve_pixel_dimensions() {
 
 #[test]
 fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
     {
@@ -3304,7 +3304,7 @@ fn window_end_greater_than_start() {
 
 #[test]
 fn window_end_prefers_last_redisplay_snapshot_when_available() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
     ev.buffers
@@ -3354,7 +3354,7 @@ fn window_end_prefers_last_redisplay_snapshot_when_available() {
 
 #[test]
 fn window_chrome_height_queries_prefer_last_redisplay_snapshot_when_available() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
@@ -3475,7 +3475,7 @@ fn display_buffer_missing_or_dead_signals_invalid_buffer() {
 
 #[test]
 fn set_window_buffer_matches_window_and_buffer_designator_errors() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.frames.create_frame("F1", 800, 600, buf);
     let dead = Value::Buffer(ev.buffers.create_buffer("swb-dead"));
@@ -3507,7 +3507,7 @@ fn set_window_buffer_matches_window_and_buffer_designator_errors() {
 
 #[test]
 fn set_window_buffer_bootstraps_initial_frame_for_nil_window_designator() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err
              (let ((b (get-buffer-create \"swb-bootstrap\")))

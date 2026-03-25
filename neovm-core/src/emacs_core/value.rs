@@ -249,7 +249,7 @@ fn as_neovm_int(value: u64) -> i64 {
 }
 
 /// Clear all string text properties (must be called when heap changes,
-/// e.g. when creating a new Evaluator for test isolation).
+/// e.g. when creating a new Context for test isolation).
 pub fn reset_string_text_properties() {
     STRING_TEXT_PROPS.with(|slot| slot.borrow_mut().clear());
 }
@@ -269,7 +269,7 @@ pub fn collect_string_text_prop_gc_roots(roots: &mut Vec<Value>) {
 
 thread_local! {
     static CURRENT_HEAP: Cell<*mut LispHeap> = const { Cell::new(std::ptr::null_mut()) };
-    /// Auto-allocated heap for tests that construct Values without an Evaluator.
+    /// Auto-allocated heap for tests that construct Values without an Context.
     #[cfg(test)]
     static TEST_FALLBACK_HEAP: std::cell::RefCell<Option<Box<LispHeap>>> = const { std::cell::RefCell::new(None) };
 }
@@ -291,7 +291,7 @@ pub fn has_current_heap() -> bool {
 }
 
 /// Save and restore the current heap pointer around a closure.
-/// Used when a temporary Evaluator is created that would overwrite the thread-local.
+/// Used when a temporary Context is created that would overwrite the thread-local.
 pub(crate) fn with_saved_heap<R>(f: impl FnOnce() -> R) -> R {
     let saved = CURRENT_HEAP.with(|h| h.get());
     let result = f();
@@ -310,7 +310,7 @@ pub(crate) fn current_heap_ptr() -> *mut LispHeap {
         }
         #[cfg(test)]
         {
-            // Auto-create a heap for tests that don't use Evaluator.
+            // Auto-create a heap for tests that don't use Context.
             TEST_FALLBACK_HEAP.with(|fb| {
                 let mut borrow = fb.borrow_mut();
                 if borrow.is_none() {

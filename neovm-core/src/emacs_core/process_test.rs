@@ -1,11 +1,11 @@
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
-use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
 
 /// Create an evaluator with minimal Elisp shims for process testing.
 /// These shims mirror GNU Emacs Elisp functions that wrap C-level builtins.
-fn eval_with_process_shims() -> Evaluator {
-    let mut ev = Evaluator::new();
+fn eval_with_process_shims() -> Context {
+    let mut ev = Context::new();
     // Define minimal Elisp shims matching GNU Emacs subr.el/env.el
     let shims = r#"
 (defalias 'getenv #'(lambda (variable &optional frame)

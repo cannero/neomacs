@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::bytecode::opcode::Op;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
     create_bootstrap_evaluator_cached,
@@ -18,8 +18,8 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
-    let mut eval = Evaluator::new();
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
+    let mut eval = Context::new();
     for name in names {
         eval.obarray_mut().fmakunbound(name);
     }
@@ -446,7 +446,7 @@ fn delete_extract_rectangle_line_loaded_state_matches_gnu() {
 
 #[test]
 fn replace_rectangle_startup_aliases_string_rectangle() {
-    let eval = super::super::eval::Evaluator::new();
+    let eval = super::super::eval::Context::new();
     assert_eq!(
         eval.obarray
             .symbol_function("replace-rectangle")

@@ -158,7 +158,7 @@ fn serialize_wrong_no_args() {
 
 #[test]
 fn json_parse_buffer_advances_point_after_value() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -179,7 +179,7 @@ fn json_parse_buffer_advances_point_after_value() {
 
 #[test]
 fn json_insert_writes_at_point_and_advances() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());

@@ -2,10 +2,10 @@ use super::*;
 use crate::emacs_core::builtins::symbols::{builtin_set, builtin_symbol_value};
 use crate::emacs_core::intern::{intern, intern_uninterned};
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
-use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
 
 fn eval_all(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -107,7 +107,7 @@ fn defcustom_does_not_override_existing() {
 
 #[test]
 fn defcustom_marks_special() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(r#"(defcustom my-var 42 "Docs.")"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
     assert!(ev.obarray().is_special("my-var"));
@@ -138,7 +138,7 @@ fn defgroup_basic() {
 
 #[test]
 fn defgroup_registers_group() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(r#"(defgroup my-group nil "Docs.")"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
     assert!(ev.custom.is_custom_group("my-group"));
@@ -160,7 +160,7 @@ fn custom_group_p_unavailable_without_custom_library() {
 
 #[test]
 fn defgroup_with_parent_records_parent_group() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"(defgroup parent-group nil "Parent.")
            (defgroup child-group nil "Child." :group 'parent-group)"#,
@@ -185,7 +185,7 @@ fn defvar_local_basic() {
 
 #[test]
 fn defvar_local_marks_special() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
     assert!(ev.obarray().is_special("my-local"));
@@ -193,7 +193,7 @@ fn defvar_local_marks_special() {
 
 #[test]
 fn defvar_local_marks_buffer_local() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
     assert!(ev.custom.is_auto_buffer_local("my-local"));
@@ -307,7 +307,7 @@ fn uninterned_keyword_defaults_do_not_self_evaluate() {
 
 #[test]
 fn uninterned_value_cells_ignore_buffer_local_namesakes() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let canonical = intern("depth-alist");
     let uninterned = intern_uninterned("depth-alist");
     eval.buffers
@@ -853,7 +853,7 @@ fn defcustom_then_setq_default() {
 
 #[test]
 fn defvar_local_then_buffer_local_check() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"(defvar-local my-local-var 99)
            (make-variable-buffer-local 'other-var)"#,
@@ -875,7 +875,7 @@ fn defcustom_keyword_args_ignored_gracefully() {
 
 #[test]
 fn defgroup_multiple_groups() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(
         r#"(defgroup g1 nil "Group 1.")
            (defgroup g2 nil "Group 2.")"#,

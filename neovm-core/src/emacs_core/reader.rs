@@ -173,7 +173,7 @@ fn activate_minibuffer_window_in_state(
 }
 
 fn activate_minibuffer_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     minibuf_id: crate::buffer::BufferId,
 ) -> Option<ActiveMinibufferWindowState> {
     activate_minibuffer_window_in_state(
@@ -213,7 +213,7 @@ fn restore_minibuffer_window_in_state(
 }
 
 fn restore_minibuffer_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     saved: ActiveMinibufferWindowState,
 ) {
     restore_minibuffer_window_in_state(
@@ -256,7 +256,7 @@ fn stdin_end_of_file_error() -> Flow {
 /// Returns `(OBJECT . END-POSITION)` where END-POSITION is the character index
 /// after the parsed object.
 pub(crate) fn builtin_read_from_string(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_from_string_in_state(&eval.obarray, args)
@@ -355,7 +355,7 @@ pub(crate) fn builtin_read_from_string_in_state(
     } else if let Some(hash_table) = first_form_hash_table_literal_value(obarray, &expr) {
         hash_table
     } else {
-        super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, &expr)
+        super::eval::Context::quote_to_runtime_value_in_state(obarray, &expr)
     };
     let absolute_end = start + end_pos;
 
@@ -383,7 +383,7 @@ fn first_form_byte_code_literal_value(
     };
     let values = values
         .iter()
-        .map(|value| super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, value))
+        .map(|value| super::eval::Context::quote_to_runtime_value_in_state(obarray, value))
         .collect();
     Some(Value::vector(values))
 }
@@ -434,7 +434,7 @@ fn first_form_hash_table_literal_value(
             i += 1;
             continue;
         };
-        let value = super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, &spec[i + 1]);
+        let value = super::eval::Context::quote_to_runtime_value_in_state(obarray, &spec[i + 1]);
         match resolve_sym(*key_id) {
             "size" => {
                 size = value.as_int()?;
@@ -482,11 +482,11 @@ fn first_form_hash_table_literal_value(
             if let Some(Expr::List(data_items)) = data_expr {
                 let mut idx = 0_usize;
                 while idx + 1 < data_items.len() {
-                    let key_value = super::eval::Evaluator::quote_to_runtime_value_in_state(
+                    let key_value = super::eval::Context::quote_to_runtime_value_in_state(
                         obarray,
                         &data_items[idx],
                     );
-                    let val_value = super::eval::Evaluator::quote_to_runtime_value_in_state(
+                    let val_value = super::eval::Context::quote_to_runtime_value_in_state(
                         obarray,
                         &data_items[idx + 1],
                     );
@@ -563,7 +563,7 @@ fn skip_ws_comments(input: &str, mut pos: usize) -> usize {
 /// - If STREAM is a string, read from that string (equivalent to car of read-from-string).
 /// - If STREAM is nil, would read from stdin (returns nil in non-interactive mode).
 /// - If STREAM is a buffer, read from buffer at point.
-pub(crate) fn builtin_read(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_read(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_read_in_state(&eval.obarray, &mut eval.buffers, args)
 }
 
@@ -635,7 +635,7 @@ pub(crate) fn builtin_read_in_state(
             } else if let Some(hash_table) = first_form_hash_table_literal_value(obarray, &expr) {
                 hash_table
             } else {
-                super::eval::Evaluator::quote_to_runtime_value_in_state(obarray, &expr)
+                super::eval::Context::quote_to_runtime_value_in_state(obarray, &expr)
             };
             // Advance point past the read form
             let new_pt = pt + end_offset;
@@ -672,7 +672,7 @@ pub(crate) fn builtin_read_in_state(
 /// and returns the user's input when they press RET (exit-minibuffer).
 /// In batch mode, signals `end-of-file`.
 pub(crate) fn builtin_read_from_minibuffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_from_minibuffer_in_runtime(eval, &args)?;
@@ -680,7 +680,7 @@ pub(crate) fn builtin_read_from_minibuffer(
 }
 
 pub(crate) fn finish_read_from_minibuffer_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     let eval_ptr = std::ptr::NonNull::from(&mut *eval);
@@ -925,7 +925,7 @@ fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
 ///
 /// Read a string from the minibuffer.  Delegates to `read-from-minibuffer`.
 pub(crate) fn builtin_read_string(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_string_in_runtime(eval, &args)?;
@@ -933,7 +933,7 @@ pub(crate) fn builtin_read_string(
 }
 
 pub(crate) fn finish_read_string_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_string_with_minibuffer(args, |minibuffer_args| {
@@ -993,7 +993,7 @@ pub(crate) fn finish_read_string_with_minibuffer(
 }
 
 pub(crate) fn finish_read_string_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -1013,7 +1013,7 @@ pub(crate) fn finish_read_string_in_vm_runtime(
 /// Delegates to read-from-minibuffer with READ=t, then validates the result
 /// is a number.
 pub(crate) fn builtin_read_number(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_number_in_runtime(eval, &args)?;
@@ -1069,7 +1069,7 @@ pub(crate) fn finish_read_number_with_minibuffer(
 }
 
 pub(crate) fn finish_read_number_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_number_with_minibuffer(args, |minibuffer_args| {
@@ -1078,7 +1078,7 @@ pub(crate) fn finish_read_number_in_eval(
 }
 
 pub(crate) fn finish_read_number_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -1100,7 +1100,7 @@ pub(crate) fn finish_read_number_in_vm_runtime(
 /// minibuffer-local-completion-map (or minibuffer-local-must-match-map
 /// if REQUIRE-MATCH is non-nil).
 pub(crate) fn builtin_completing_read(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_completing_read_in_runtime(eval, &args)?;
@@ -1108,7 +1108,7 @@ pub(crate) fn builtin_completing_read(
 }
 
 pub(crate) fn finish_completing_read_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     let minibuffer_args = completing_read_minibuffer_args(eval.obarray(), args);
@@ -1198,7 +1198,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
 }
 
 pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -1241,10 +1241,10 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     }
 
     let active_window_state = activate_minibuffer_window_in_state(
-        &mut *shared.frames,
-        &mut *shared.buffers,
-        &mut *shared.minibuffer_selected_window,
-        &mut *shared.active_minibuffer_window,
+        &mut shared.frames,
+        &mut shared.buffers,
+        &mut shared.minibuffer_selected_window,
+        &mut shared.active_minibuffer_window,
         minibuf_id,
     );
     if active_window_state.is_none() {
@@ -1255,7 +1255,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         prompt,
         minibuf_id,
         shared.buffers.current_buffer_id(),
-        *shared.active_minibuffer_window,
+        shared.active_minibuffer_window,
         shared
             .frames
             .selected_frame()
@@ -1330,9 +1330,9 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 
     if let Some(saved) = active_window_state {
         restore_minibuffer_window_in_state(
-            &mut *shared.frames,
-            &mut *shared.minibuffer_selected_window,
-            &mut *shared.active_minibuffer_window,
+            &mut shared.frames,
+            &mut shared.minibuffer_selected_window,
+            &mut shared.active_minibuffer_window,
             saved,
         );
     }
@@ -1342,7 +1342,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     tracing::debug!(
         "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",
         shared.buffers.current_buffer_id(),
-        *shared.active_minibuffer_window,
+        shared.active_minibuffer_window,
         shared
             .frames
             .selected_frame()
@@ -1357,7 +1357,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         Ok(_) | Err(Flow::Throw { .. }) => {
             if !read_arg.is_nil() && !result_string.is_empty() {
                 let read_result = builtin_read_from_string_in_state(
-                    shared.obarray,
+                    &shared.obarray,
                     vec![Value::string(&result_string)],
                 )?;
                 if let Value::Cons(id) = read_result {
@@ -1378,45 +1378,45 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 }
 
 pub(crate) fn finish_completing_read_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     builtin_completing_read_in_runtime(shared, args)?;
-    let minibuffer_args = completing_read_minibuffer_args(&*shared.obarray, args);
+    let minibuffer_args = completing_read_minibuffer_args(&shared.obarray, args);
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
-        shared.obarray,
+        &mut shared.obarray,
         shared.dynamic.as_mut_slice(),
-        shared.buffers,
-        &*shared.custom,
+        &mut shared.buffers,
+        &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-table"),
         args[1],
     );
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
-        shared.obarray,
+        &mut shared.obarray,
         shared.dynamic.as_mut_slice(),
-        shared.buffers,
-        &*shared.custom,
+        &mut shared.buffers,
+        &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-predicate"),
         args.get(2).copied().unwrap_or(Value::Nil),
     );
     let result = finish_read_from_minibuffer_in_vm_runtime(shared, vm_gc_roots, &minibuffer_args);
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
-        shared.obarray,
+        &mut shared.obarray,
         shared.dynamic.as_mut_slice(),
-        shared.buffers,
-        &*shared.custom,
+        &mut shared.buffers,
+        &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-table"),
         Value::Nil,
     );
     let _ = crate::emacs_core::eval::set_runtime_binding_in_state(
-        shared.obarray,
+        &mut shared.obarray,
         shared.dynamic.as_mut_slice(),
-        shared.buffers,
-        &*shared.custom,
+        &mut shared.buffers,
+        &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-predicate"),
         Value::Nil,
@@ -1499,95 +1499,49 @@ pub(crate) trait KeyboardInputRuntime {
     fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow>;
 }
 
-impl KeyboardInputRuntime for super::eval::Evaluator {
+impl KeyboardInputRuntime for super::eval::Context {
     fn pop_unread_command_event(&mut self) -> Option<Value> {
-        super::eval::Evaluator::pop_unread_command_event(self)
+        super::eval::Context::pop_unread_command_event(self)
     }
 
     fn peek_unread_command_event(&self) -> Option<Value> {
-        super::eval::Evaluator::peek_unread_command_event(self)
+        super::eval::Context::peek_unread_command_event(self)
     }
 
     fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
-        super::eval::Evaluator::replace_unread_command_event_with_singleton(self, event);
+        super::eval::Context::replace_unread_command_event_with_singleton(self, event);
     }
 
     fn record_input_event(&mut self, event: Value) {
-        super::eval::Evaluator::record_input_event(self, event);
+        super::eval::Context::record_input_event(self, event);
     }
 
     fn record_nonmenu_input_event(&mut self, event: Value) {
-        super::eval::Evaluator::record_nonmenu_input_event(self, event);
+        super::eval::Context::record_nonmenu_input_event(self, event);
     }
 
     fn set_read_command_keys(&mut self, keys: Vec<Value>) {
-        super::eval::Evaluator::set_read_command_keys(self, keys);
+        super::eval::Context::set_read_command_keys(self, keys);
     }
 
     fn clear_read_command_keys(&mut self) {
-        super::eval::Evaluator::clear_read_command_keys(self);
+        super::eval::Context::clear_read_command_keys(self);
     }
 
     fn read_command_keys(&self) -> &[Value] {
-        super::eval::Evaluator::read_command_keys(self)
+        super::eval::Context::read_command_keys(self)
     }
 
     fn has_input_receiver(&self) -> bool {
-        super::eval::Evaluator::has_input_receiver(self)
+        super::eval::Context::has_input_receiver(self)
     }
 
     fn read_char_blocking(&mut self) -> Result<Value, Flow> {
-        super::eval::Evaluator::read_char(self)
+        super::eval::Context::read_char(self)
     }
 
     fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow> {
-        super::eval::Evaluator::read_key_sequence(self)
-    }
-}
-
-impl KeyboardInputRuntime for super::eval::VmSharedState<'_> {
-    fn pop_unread_command_event(&mut self) -> Option<Value> {
-        super::eval::VmSharedState::pop_unread_command_event(self)
-    }
-
-    fn peek_unread_command_event(&self) -> Option<Value> {
-        super::eval::VmSharedState::peek_unread_command_event(self)
-    }
-
-    fn replace_unread_command_event_with_singleton(&mut self, event: Value) {
-        super::eval::VmSharedState::replace_unread_command_event_with_singleton(self, event);
-    }
-
-    fn record_input_event(&mut self, event: Value) {
-        super::eval::VmSharedState::record_input_event(self, event);
-    }
-
-    fn record_nonmenu_input_event(&mut self, event: Value) {
-        super::eval::VmSharedState::record_nonmenu_input_event(self, event);
-    }
-
-    fn set_read_command_keys(&mut self, keys: Vec<Value>) {
-        super::eval::VmSharedState::set_read_command_keys(self, keys);
-    }
-
-    fn clear_read_command_keys(&mut self) {
-        super::eval::VmSharedState::clear_read_command_keys(self);
-    }
-
-    fn read_command_keys(&self) -> &[Value] {
-        super::eval::VmSharedState::read_command_keys(self)
-    }
-
-    fn has_input_receiver(&self) -> bool {
-        super::eval::VmSharedState::has_input_receiver(self)
-    }
-
-    fn read_char_blocking(&mut self) -> Result<Value, Flow> {
-        super::eval::VmSharedState::with_parent_evaluator(self, |eval| eval.read_char())
-    }
-
-    fn read_key_sequence_blocking(&mut self) -> Result<(Vec<Value>, Value), Flow> {
-        super::eval::VmSharedState::with_parent_evaluator(self, |eval| eval.read_key_sequence())
+        super::eval::Context::read_key_sequence(self)
     }
 }
 
@@ -1600,7 +1554,7 @@ impl KeyboardInputRuntime for super::eval::VmSharedState<'_> {
 /// Return non-nil when `unread-command-events` has at least one pending event.
 /// `CHECK-TIMERS` is currently accepted for arity compatibility and ignored.
 pub(crate) fn builtin_input_pending_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_input_pending_p_in_state(&eval.obarray, eval.dynamic.as_slice(), args)
@@ -1625,7 +1579,7 @@ pub(crate) fn builtin_input_pending_p_in_state(
 ///
 /// Discard pending unread command events for the current scope.
 pub(crate) fn builtin_discard_input(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_discard_input_in_state(
@@ -1665,7 +1619,7 @@ pub(crate) fn builtin_discard_input_in_state(
 
 /// `(current-input-mode)` -> `(INTERRUPT FLOW META QUIT)`
 pub(crate) fn builtin_current_input_mode(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let (interrupt, _flow, _meta, _quit) = eval.current_input_mode_tuple();
@@ -1690,7 +1644,7 @@ pub(crate) fn builtin_current_input_mode_in_state(
 /// Batch-compatible behavior currently tracks only INTERRUPT and ignores
 /// FLOW/META/QUIT while preserving arity/return-value semantics.
 pub(crate) fn builtin_set_input_mode(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("set-input-mode", &args, 3)?;
@@ -1715,7 +1669,7 @@ pub(crate) fn builtin_set_input_mode_in_state(
 
 /// `(set-input-interrupt-mode INTERRUPT)`
 pub(crate) fn builtin_set_input_interrupt_mode(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-input-interrupt-mode", &args, 1)?;
@@ -1868,7 +1822,7 @@ pub(crate) fn builtin_waiting_for_user_input_p(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_waiting_for_user_input_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_waiting_for_user_input_p_in_state(eval.waiting_for_user_input(), args)
@@ -1891,7 +1845,7 @@ pub(crate) fn builtin_waiting_for_user_input_p_in_state(
 /// Ask user a yes-or-no question. Returns t for 'y', nil for 'n'.
 /// In interactive mode, reads a single character.
 /// In batch mode, signals end-of-file.
-pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("y-or-n-p", &args, 1)?;
     match &args[0] {
         Value::Str(_) | Value::Vector(_) | Value::Nil => {}
@@ -1941,7 +1895,7 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Evaluator, args: Vec<Valu
 /// In interactive mode, uses read-from-minibuffer.
 /// In batch mode, signals end-of-file.
 pub(crate) fn builtin_yes_or_no_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_yes_or_no_p_in_runtime(eval, &args)?;
@@ -1949,7 +1903,7 @@ pub(crate) fn builtin_yes_or_no_p(
 }
 
 pub(crate) fn finish_yes_or_no_p_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_yes_or_no_p_with_minibuffer(args, |minibuffer_args| {
@@ -1981,7 +1935,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
 }
 
 pub(crate) fn finish_yes_or_no_p_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -2019,7 +1973,7 @@ pub(crate) fn builtin_yes_or_no_p_in_runtime(
 /// Read a character from the command input (keyboard or macro).
 /// In batch mode, checks `unread-command-events` and returns nil if empty.
 /// In interactive mode, blocks on the input channel via `read_char()`.
-pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_read_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if let Some(value) = builtin_read_char_in_runtime(eval, &args)? {
         return Ok(value);
     }
@@ -2028,7 +1982,7 @@ pub(crate) fn builtin_read_char(eval: &mut super::eval::Evaluator, args: Vec<Val
 }
 
 pub(crate) fn finish_read_char_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_char_interactive_in_runtime(eval, args)
@@ -2060,7 +2014,7 @@ pub(crate) fn finish_read_char_interactive_in_runtime(
 /// Read a key from the command input.
 /// In batch mode, returns next `unread-command-events` event, else nil.
 /// In interactive mode, blocks on the input channel via `read_char()`.
-pub(crate) fn builtin_read_key(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_read_key(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -2105,7 +2059,7 @@ pub(crate) fn builtin_read_key(eval: &mut super::eval::Evaluator, args: Vec<Valu
 /// In batch mode, consumes one queued event. In interactive mode, uses the
 /// evaluator's `read_key_sequence()` to accumulate keys through prefix keymaps.
 pub(crate) fn builtin_read_key_sequence(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if let Some(value) = builtin_read_key_sequence_in_runtime(eval, &args)? {
@@ -2115,7 +2069,7 @@ pub(crate) fn builtin_read_key_sequence(
     finish_read_key_sequence_in_eval(eval)
 }
 
-pub(crate) fn finish_read_key_sequence_in_eval(eval: &mut super::eval::Evaluator) -> EvalResult {
+pub(crate) fn finish_read_key_sequence_in_eval(eval: &mut super::eval::Context) -> EvalResult {
     finish_read_key_sequence_interactive_in_runtime(eval)
 }
 
@@ -2149,7 +2103,7 @@ pub(crate) fn finish_read_key_sequence_interactive_in_runtime(
 /// Batch mode: returns next `unread-command-events` event as a single-element
 /// vector when present, otherwise an empty vector.
 pub(crate) fn builtin_read_key_sequence_vector(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if let Some(value) = builtin_read_key_sequence_vector_in_runtime(eval, &args)? {
@@ -2179,7 +2133,7 @@ pub(crate) fn finish_read_key_sequence_vector_interactive_in_runtime(
 /// Evaluate BODY, capturing output from print functions into a temporary
 /// buffer bound through `standard-output`.
 pub(crate) fn sf_with_output_to_string(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[Expr],
 ) -> EvalResult {
     let temp_name = eval

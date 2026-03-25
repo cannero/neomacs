@@ -531,7 +531,7 @@ thread_local! {
     static CHARSET_REGISTRY: RefCell<CharsetRegistry> = RefCell::new(CharsetRegistry::new());
 }
 
-/// Reset charset registry to default state (called from Evaluator::new).
+/// Reset charset registry to default state (called from Context::new).
 pub(crate) fn reset_charset_registry() {
     CHARSET_REGISTRY.with(|slot| *slot.borrow_mut() = CharsetRegistry::new());
     if let Ok(mut cache) = charset_map_cache().write() {
@@ -1173,12 +1173,12 @@ pub(crate) fn builtin_find_charset_region(args: Vec<Value>) -> EvalResult {
     Ok(Value::list(vec![Value::symbol("ascii")]))
 }
 
-/// Evaluator-aware variant of `(find-charset-region BEG END &optional TABLE)`.
+/// Context-aware variant of `(find-charset-region BEG END &optional TABLE)`.
 ///
 /// Returns charset symbols present in the region `[BEG, END)` where BEG/END are
 /// Emacs 1-based character positions inside the accessible region.
 pub(crate) fn builtin_find_charset_region_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_find_charset_region_in_manager(&eval.buffers, args)
@@ -1392,13 +1392,13 @@ pub(crate) fn builtin_charset_after(args: Vec<Value>) -> EvalResult {
     Ok(Value::symbol("unicode"))
 }
 
-/// Evaluator-aware variant of `(charset-after &optional POS)`.
+/// Context-aware variant of `(charset-after &optional POS)`.
 ///
 /// Returns the charset of the character at POS (1-based), or the character
 /// after point when POS is omitted. Returns nil at end-of-buffer or for
 /// out-of-range numeric positions.
 pub(crate) fn builtin_charset_after_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_charset_after_in_manager(&eval.buffers, args)

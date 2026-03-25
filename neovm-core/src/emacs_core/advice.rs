@@ -201,7 +201,7 @@ fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
 ///
 /// Arrange to call WATCH-FUNCTION when SYMBOL is set.
 pub(crate) fn builtin_add_variable_watcher(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("add-variable-watcher", &args, 2)?;
@@ -234,7 +234,7 @@ pub(crate) fn builtin_add_variable_watcher_in_state(
 ///
 /// Remove WATCH-FUNCTION from the watchers of SYMBOL.
 pub(crate) fn builtin_remove_variable_watcher(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("remove-variable-watcher", &args, 2)?;
@@ -267,7 +267,7 @@ pub(crate) fn builtin_remove_variable_watcher_in_state(
 ///
 /// Return a list of watcher callbacks registered for SYMBOL.
 pub(crate) fn builtin_get_variable_watchers(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_variable_watchers_in_state(eval.obarray(), &eval.watchers, args)

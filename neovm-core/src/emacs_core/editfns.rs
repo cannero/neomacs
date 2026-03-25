@@ -127,7 +127,7 @@ pub(crate) fn buffer_read_only_active_in_state(
         .is_some_and(|value| value.is_truthy())
 }
 
-fn buffer_read_only_active(eval: &super::eval::Evaluator, buf: &crate::buffer::Buffer) -> bool {
+fn buffer_read_only_active(eval: &super::eval::Context, buf: &crate::buffer::Buffer) -> bool {
     buffer_read_only_active_in_state(&eval.obarray, &eval.dynamic, buf)
 }
 
@@ -144,7 +144,7 @@ pub(crate) fn ensure_current_buffer_writable_in_state(
     Ok(())
 }
 
-pub(crate) fn ensure_current_buffer_writable(eval: &super::eval::Evaluator) -> Result<(), Flow> {
+pub(crate) fn ensure_current_buffer_writable(eval: &super::eval::Context) -> Result<(), Flow> {
     ensure_current_buffer_writable_in_state(&eval.obarray, &eval.dynamic, &eval.buffers)
 }
 
@@ -197,7 +197,7 @@ fn current_buffer_accessible_char_region_in_buffers(
 }
 
 // ---------------------------------------------------------------------------
-// Eval-dependent builtins (need &mut Evaluator for buffer access)
+// Eval-dependent builtins (need &mut Context for buffer access)
 // ---------------------------------------------------------------------------
 
 /// Collect the insertable text from a mixed list of strings and characters.
@@ -233,7 +233,7 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
 }
 
 /// `(insert &rest ARGS)` — insert strings or characters at point.
-pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_insert(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let text = collect_insert_text("insert", &args)?;
     ensure_current_buffer_writable(eval)?;
     if let Some(id) = eval.buffers.current_buffer_id() {
@@ -246,7 +246,7 @@ pub(crate) fn builtin_insert(eval: &mut super::eval::Evaluator, args: Vec<Value>
 /// markers at that position past the inserted text (regardless of their
 /// InsertionType).
 pub(crate) fn builtin_insert_before_markers(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_insert_before_markers_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -268,7 +268,7 @@ pub(crate) fn builtin_insert_before_markers_in_state(
 
 /// `(delete-char N &optional KILLFLAG)` — delete N characters forward.
 pub(crate) fn builtin_delete_char(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_char_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -434,7 +434,7 @@ pub(crate) fn builtin_erase_buffer_in_state(
 
 /// `(buffer-substring START END)` — return text between START and END.
 pub(crate) fn builtin_buffer_substring(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("buffer-substring", &args, 2)?;
@@ -458,7 +458,7 @@ pub(crate) fn builtin_buffer_substring(
 /// `(buffer-substring-no-properties START END)` — same as buffer-substring
 /// (text properties not yet implemented at the Lisp value level).
 pub(crate) fn builtin_buffer_substring_no_properties(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_buffer_substring_no_properties_in_state(&eval.buffers, args)
@@ -482,7 +482,7 @@ pub(crate) fn builtin_buffer_substring_no_properties_in_state(
 
 /// `(following-char)` — return character after point (0 if at end).
 pub(crate) fn builtin_following_char(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_following_char_in_state(&eval.buffers, args)
@@ -504,7 +504,7 @@ pub(crate) fn builtin_following_char_in_state(
 
 /// `(preceding-char)` — return character before point (0 if at beginning).
 pub(crate) fn builtin_preceding_char(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_preceding_char_in_state(&eval.buffers, args)

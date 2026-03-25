@@ -2,7 +2,7 @@ use super::*;
 use crate::emacs_core::symbol::Obarray;
 
 pub(crate) fn builtin_get_pos_property(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_pos_property_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
@@ -63,7 +63,7 @@ pub(crate) fn builtin_get_pos_property_in_state(
 }
 
 pub(crate) fn builtin_next_char_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_next_char_property_change_in_buffers(&eval.buffers, args)
@@ -93,11 +93,11 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
     Ok(Value::Int(buf.point_max_char() as i64 + 1))
 }
 
-pub(crate) fn builtin_pos_bol(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_pos_bol(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_pos_bol_in_buffers(&eval.buffers, args)
 }
 
-pub(crate) fn builtin_pos_eol(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_pos_eol(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_pos_eol_in_buffers(&eval.buffers, args)
 }
 
@@ -118,7 +118,7 @@ pub(crate) fn builtin_pos_eol_in_buffers(
 }
 
 pub(crate) fn builtin_previous_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_previous_property_change_in_buffers(&eval.buffers, args)
@@ -248,7 +248,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
 }
 
 pub(crate) fn builtin_previous_char_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_previous_char_property_change_in_buffers(&eval.buffers, args)
@@ -277,7 +277,7 @@ pub(crate) fn builtin_previous_char_property_change_in_buffers(
 }
 
 pub(crate) fn builtin_next_single_char_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_next_single_char_property_change_in_buffers(&eval.buffers, args)
@@ -325,7 +325,7 @@ pub(crate) fn builtin_next_single_char_property_change_in_buffers(
 }
 
 pub(crate) fn builtin_previous_single_char_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_previous_single_char_property_change_in_buffers(&eval.buffers, args)
@@ -370,7 +370,7 @@ pub(crate) fn builtin_previous_single_char_property_change_in_buffers(
     Ok(Value::Int(lower))
 }
 
-pub(crate) fn builtin_defalias(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_defalias(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let plan = plan_defalias_in_obarray(eval.obarray(), &args)?;
     let DefaliasPlan {
         action,
@@ -467,7 +467,7 @@ pub(crate) fn plan_defalias_in_obarray(
     })
 }
 
-pub(crate) fn builtin_provide(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_provide(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("provide", &args, 1, 2)?;
     eval.provide_value(args[0], args.get(1).cloned())
 }
@@ -486,7 +486,7 @@ pub(crate) fn builtin_provide_in_state(
     )
 }
 
-pub(crate) fn builtin_require(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_require(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("require", &args, 1, 3)?;
     eval.require_value(args[0], args.get(1).cloned(), args.get(2).cloned())
 }
@@ -514,7 +514,7 @@ fn eval_error_to_flow(e: super::error::EvalError) -> Flow {
 
 /// `(garbage-collect)` — run a full GC cycle and return memory statistics.
 pub(super) fn builtin_garbage_collect_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("garbage-collect", &args, 0)?;
@@ -523,7 +523,7 @@ pub(super) fn builtin_garbage_collect_eval(
     super::builtins_extra::builtin_garbage_collect(vec![])
 }
 
-pub(crate) fn builtin_load(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_load(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("load", &args, 1)?;
     match super::load::plan_load_in_state(
         &eval.obarray,
@@ -539,7 +539,7 @@ pub(crate) fn builtin_load(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
     }
 }
 
-pub(crate) fn builtin_load_file(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_load_file(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("load-file", &args, 1)?;
     let file = expect_string(&args[0])?;
     let path = std::path::Path::new(&file);
@@ -550,7 +550,7 @@ pub(crate) fn builtin_load_file(eval: &mut super::eval::Evaluator, args: Vec<Val
 ///
 /// NeoVM extension: parse source `.el` and emit internal `.neoc` cache sidecar.
 pub(crate) fn builtin_neovm_precompile_file(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_neovm_precompile_file_in_state(args)
@@ -564,7 +564,7 @@ pub(crate) fn builtin_neovm_precompile_file_in_state(args: Vec<Value>) -> EvalRe
     Ok(Value::string(cache.to_string_lossy()))
 }
 
-pub(crate) fn builtin_eval(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_eval(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("eval", &args, 1)?;
     expect_max_args("eval", &args, 2)?;
     eval.eval_value_with_lexical_arg(args[0], args.get(1).copied())
@@ -574,7 +574,7 @@ pub(crate) fn builtin_eval(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
 // ===========================================================================
 
 pub(super) fn dynamic_or_global_symbol_value(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     name: &str,
 ) -> Option<Value> {
     dynamic_or_global_symbol_value_in_state(&eval.obarray, &eval.dynamic, name)
@@ -692,7 +692,7 @@ fn value_list_contains_symbol(list: &Value, prop: &str) -> bool {
 }
 
 pub(super) fn buffer_read_only_active(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     buf: &crate::buffer::Buffer,
 ) -> bool {
     let inhibit_name_id = intern("inhibit-read-only");
@@ -739,7 +739,7 @@ pub(super) fn buffer_read_only_active(
 }
 
 pub(crate) fn builtin_barf_if_buffer_read_only(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_barf_if_buffer_read_only_in_state(&eval.obarray, &eval.dynamic, &eval.buffers, args)
@@ -785,7 +785,7 @@ pub(crate) fn builtin_barf_if_buffer_read_only_in_state(
 }
 
 pub(crate) fn builtin_bury_buffer_internal(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_bury_buffer_internal_in_state(&eval.buffers, args)
@@ -811,7 +811,7 @@ pub(crate) fn builtin_combine_after_change_execute(args: Vec<Value>) -> EvalResu
     Ok(Value::Nil)
 }
 
-fn resolve_print_target(eval: &super::eval::Evaluator, printcharfun: Option<&Value>) -> Value {
+fn resolve_print_target(eval: &super::eval::Context, printcharfun: Option<&Value>) -> Value {
     match printcharfun {
         Some(dest) if !dest.is_nil() => *dest,
         _ => dynamic_or_global_symbol_value(eval, "standard-output").unwrap_or(Value::True),
@@ -952,7 +952,7 @@ pub(crate) fn dispatch_print_callback_chars(
 }
 
 fn write_print_output(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     printcharfun: Option<&Value>,
     text: &str,
 ) -> Result<(), Flow> {
@@ -971,7 +971,7 @@ pub(crate) fn write_print_output_in_state(
     write_print_output_to_target(buffers, target, text)
 }
 
-fn write_terpri_output(eval: &mut super::eval::Evaluator, target: Value) -> Result<(), Flow> {
+fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result<(), Flow> {
     match target {
         Value::True | Value::Nil => Ok(()),
         Value::Buffer(id) => {
@@ -1013,7 +1013,7 @@ fn write_terpri_output(eval: &mut super::eval::Evaluator, target: Value) -> Resu
     }
 }
 
-pub(super) fn print_value_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+pub(super) fn print_value_eval(eval: &super::eval::Context, value: &Value) -> String {
     super::error::print_value_with_eval(eval, value)
 }
 
@@ -1175,7 +1175,7 @@ pub(crate) fn print_value_princ_in_state(
     }
 }
 
-pub(super) fn print_value_princ_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+pub(super) fn print_value_princ_eval(eval: &super::eval::Context, value: &Value) -> String {
     print_value_princ_in_state(
         &eval.obarray,
         &eval.buffers,
@@ -1197,7 +1197,7 @@ fn prin1_to_string_value(value: &Value, noescape: bool) -> String {
 }
 
 fn prin1_to_string_value_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
     noescape: bool,
 ) -> String {
@@ -1243,7 +1243,7 @@ pub(crate) fn builtin_prin1(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_princ_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("princ", &args, 1)?;
@@ -1290,7 +1290,7 @@ pub(crate) fn builtin_princ_in_state(
 }
 
 pub(crate) fn builtin_prin1_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
@@ -1343,7 +1343,7 @@ pub(crate) fn builtin_prin1_to_string(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_prin1_to_string_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_prin1_to_string_in_state(
@@ -1380,7 +1380,7 @@ pub(crate) fn builtin_terpri(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_print_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("print", &args, 1)?;
@@ -1435,7 +1435,7 @@ pub(crate) fn builtin_print_in_state(
 }
 
 pub(crate) fn builtin_terpri_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if let Some(result) = builtin_terpri_in_state(
@@ -1465,7 +1465,7 @@ pub(crate) fn builtin_terpri_in_state(
 }
 
 pub(crate) fn finish_terpri_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     expect_max_args("terpri", args, 2)?;
@@ -1491,7 +1491,7 @@ pub(crate) fn builtin_write_char(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_write_char_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if let Some(result) = builtin_write_char_in_state(
@@ -1506,7 +1506,7 @@ pub(crate) fn builtin_write_char_eval(
 }
 
 pub(crate) fn finish_write_char_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     expect_range_args("write-char", args, 1, 2)?;
@@ -1663,7 +1663,7 @@ pub(crate) fn builtin_current_idle_time(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_current_idle_time_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("current-idle-time", &args, 0)?;

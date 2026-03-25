@@ -113,7 +113,7 @@ fn canonical_id_mutators_keep_symbol_globally_interned() {
 
 #[test]
 fn uninterned_keyword_and_nil_names_are_not_canonical_constants() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let nil_id = crate::emacs_core::intern::intern_uninterned("nil");
     let kw_id = crate::emacs_core::intern::intern_uninterned(":vm-k");
 

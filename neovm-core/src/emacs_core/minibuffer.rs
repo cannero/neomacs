@@ -589,7 +589,7 @@ fn compute_common_prefix(strings: &[String]) -> Option<String> {
 /// Read a file name from the minibuffer.
 /// In interactive mode, uses read-from-minibuffer with initial directory context.
 pub(crate) fn builtin_read_file_name(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_file_name_in_runtime(eval, &args)?;
@@ -601,7 +601,7 @@ pub(crate) fn builtin_read_file_name(
 /// Read a directory name from the minibuffer.
 /// In interactive mode, uses read-from-minibuffer with initial directory context.
 pub(crate) fn builtin_read_directory_name(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_directory_name_in_runtime(eval, &args)?;
@@ -670,7 +670,7 @@ pub(crate) fn finish_read_file_name_with_minibuffer(
 }
 
 pub(crate) fn finish_read_file_name_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
@@ -679,7 +679,7 @@ pub(crate) fn finish_read_file_name_in_eval(
 }
 
 pub(crate) fn finish_read_file_name_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -706,7 +706,7 @@ pub(crate) fn builtin_read_directory_name_in_runtime(
 }
 
 pub(crate) fn finish_read_directory_name_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_file_name_with_minibuffer(args, |minibuffer_args| {
@@ -715,7 +715,7 @@ pub(crate) fn finish_read_directory_name_in_eval(
 }
 
 pub(crate) fn finish_read_directory_name_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -734,7 +734,7 @@ pub(crate) fn finish_read_directory_name_in_vm_runtime(
 /// Read a buffer name from the minibuffer with completion.
 /// In interactive mode, delegates to completing-read with buffer name candidates.
 pub(crate) fn builtin_read_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_buffer_in_runtime(eval, &args)?;
@@ -742,7 +742,7 @@ pub(crate) fn builtin_read_buffer(
 }
 
 pub(crate) fn finish_read_buffer_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     let completing_args = read_buffer_completing_args(eval.buffer_manager(), args);
@@ -794,7 +794,7 @@ pub(crate) fn read_buffer_completing_args(buffers: &BufferManager, args: &[Value
 /// Read a command name from the minibuffer.
 /// In interactive mode, uses read-from-minibuffer and interns the result.
 pub(crate) fn builtin_read_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_command_in_runtime(eval, &args)?;
@@ -802,7 +802,7 @@ pub(crate) fn builtin_read_command(
 }
 
 pub(crate) fn finish_read_command_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_command_with_minibuffer(args, |minibuffer_args| {
@@ -862,7 +862,7 @@ pub(crate) fn finish_read_command_with_minibuffer(
 }
 
 pub(crate) fn finish_read_command_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -881,7 +881,7 @@ pub(crate) fn finish_read_command_in_vm_runtime(
 /// Read a variable name from the minibuffer.
 /// In interactive mode, uses read-from-minibuffer and interns the result.
 pub(crate) fn builtin_read_variable(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_read_variable_in_runtime(eval, &args)?;
@@ -889,7 +889,7 @@ pub(crate) fn builtin_read_variable(
 }
 
 pub(crate) fn finish_read_variable_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_variable_with_minibuffer(args, |minibuffer_args| {
@@ -919,7 +919,7 @@ pub(crate) fn finish_read_variable_with_minibuffer(
 }
 
 pub(crate) fn finish_read_variable_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
@@ -1005,7 +1005,7 @@ pub(crate) fn builtin_minibuffer_prompt(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_minibuffer_prompt_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibuffer_prompt_in_state(&eval.minibuffers, args)
@@ -1023,7 +1023,7 @@ pub(crate) fn builtin_minibuffer_prompt_in_state(
 }
 
 pub(crate) fn builtin_minibuffer_prompt_end_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibuffer_prompt_end_in_state(&eval.minibuffers, &eval.buffers, args)
@@ -1057,7 +1057,7 @@ pub(crate) fn builtin_minibuffer_prompt_end_in_state(
 ///
 /// In non-interactive batch mode, Emacs exposes current buffer contents.
 pub(crate) fn builtin_minibuffer_contents(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibuffer_contents_in_state(&eval.minibuffers, &eval.buffers, args)
@@ -1079,7 +1079,7 @@ pub(crate) fn builtin_minibuffer_contents_in_state(
 /// NeoVM stores plain strings for this path, so this is equivalent to
 /// `minibuffer-contents` in batch mode.
 pub(crate) fn builtin_minibuffer_contents_no_properties(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibuffer_contents_no_properties_in_state(&eval.minibuffers, &eval.buffers, args)
@@ -1104,7 +1104,7 @@ pub(crate) fn builtin_minibuffer_depth(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_minibuffer_depth_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibuffer_depth_in_state(&eval.minibuffers, args)
@@ -1128,7 +1128,7 @@ pub(crate) fn builtin_minibufferp(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_minibufferp_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibufferp_in_state(&eval.minibuffers, &eval.buffers, args)
@@ -1153,7 +1153,7 @@ pub(crate) fn builtin_minibufferp_in_state(
 }
 
 pub(crate) fn builtin_minibuffer_innermost_command_loop_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibuffer_innermost_command_loop_p_in_state(
@@ -1185,7 +1185,7 @@ pub(crate) fn builtin_minibuffer_innermost_command_loop_p_in_state(
 }
 
 pub(crate) fn builtin_innermost_minibuffer_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_innermost_minibuffer_p_in_state(&eval.minibuffers, &eval.buffers, args)
@@ -1235,7 +1235,7 @@ fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
 /// In batch mode, returns nil.
 pub(crate) fn builtin_recursive_edit(args: Vec<Value>) -> EvalResult {
     expect_args("recursive-edit", &args, 0)?;
-    // The actual implementation is in Evaluator::recursive_edit() which needs
+    // The actual implementation is in Context::recursive_edit() which needs
     // &mut self access.  The builtin dispatch calls this stub for the
     // non-evaluator path; the eval-aware path is registered separately.
     Ok(Value::Nil)
@@ -1245,7 +1245,7 @@ pub(crate) fn builtin_recursive_edit(args: Vec<Value>) -> EvalResult {
 ///
 /// Mirrors GNU Emacs keyboard.c:772 `Frecursive_edit`.
 pub(crate) fn builtin_recursive_edit_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("recursive-edit", &args, 0)?;
@@ -1269,7 +1269,7 @@ pub(crate) fn builtin_top_level(args: Vec<Value>) -> EvalResult {
 /// Mirrors GNU Emacs keyboard.c:1211 `Fexit_recursive_edit`.
 /// Throws to the `exit` tag with nil value.
 pub(crate) fn builtin_exit_recursive_edit(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("exit-recursive-edit", &args, 0)?;
@@ -1308,7 +1308,7 @@ pub(crate) fn builtin_abort_minibuffers(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_abort_minibuffers_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_abort_minibuffers_in_state(&eval.minibuffers, &eval.buffers, args)
@@ -1370,7 +1370,7 @@ fn is_minibuffer_buffer_name(name: &str) -> bool {
 /// Mirrors GNU Emacs keyboard.c:1222 `Fabort_recursive_edit`.
 /// Throws to the `exit` tag with `t` value (signals quit on catch).
 pub(crate) fn builtin_abort_recursive_edit(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abort-recursive-edit", &args, 0)?;
@@ -1538,7 +1538,7 @@ pub(crate) fn completion_candidates_from_collection_in_state(
 }
 
 fn completion_candidates_from_collection(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     collection: &Value,
 ) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
     completion_candidates_from_collection_in_state(eval.obarray(), collection)
@@ -1702,7 +1702,7 @@ fn completion_matches_prefix(prefix: &str, completion: &str) -> bool {
 }
 
 pub(crate) fn builtin_try_completion_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
@@ -1712,7 +1712,7 @@ pub(crate) fn builtin_try_completion_eval(
 }
 
 pub(crate) fn builtin_all_completions_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;
@@ -1722,7 +1722,7 @@ pub(crate) fn builtin_all_completions_eval(
 }
 
 pub(crate) fn builtin_test_completion_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let candidates = completion_candidates_from_collection(eval, &args[1])?;

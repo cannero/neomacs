@@ -155,14 +155,14 @@ pub(crate) fn builtin_format_mode_line_in_state(
 }
 
 pub(crate) fn builtin_format_mode_line_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     finish_format_mode_line_in_eval(eval, &args)
 }
 
 pub(crate) fn finish_format_mode_line_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     expect_args_range("format-mode-line", args, 1, 4)?;
@@ -245,16 +245,16 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
 }
 
 pub(crate) fn builtin_format_mode_line_in_vm_runtime(
-    shared: &mut crate::emacs_core::eval::VmSharedState<'_>,
+    shared: &mut crate::emacs_core::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
     expect_args_range("format-mode-line", args, 1, 4)?;
-    validate_optional_window_designator_in_state(&*shared.frames, args.get(2), "windowp")?;
-    validate_optional_buffer_designator_in_state(&*shared.buffers, args.get(3))?;
+    validate_optional_window_designator_in_state(&shared.frames, args.get(2), "windowp")?;
+    validate_optional_buffer_designator_in_state(&shared.buffers, args.get(3))?;
 
     let target_buffer =
-        resolve_mode_line_buffer_in_state(&*shared.frames, args.get(2), args.get(3));
+        resolve_mode_line_buffer_in_state(&shared.frames, args.get(2), args.get(3));
     let saved_buffer = shared.buffers.current_buffer_id();
     if let Some(buffer_id) = target_buffer {
         shared.buffers.set_current(buffer_id);
@@ -266,9 +266,9 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
         let format_val = args[0];
         let face_spec = resolve_mode_line_face_spec(&args);
         let pctx = build_mode_line_percent_context(
-            &*shared.frames,
-            &*shared.buffers,
-            &*shared.obarray,
+            &shared.frames,
+            &shared.buffers,
+            &shared.obarray,
             args.get(2),
         );
         let mut result = ModeLineRendered::default();
@@ -864,7 +864,7 @@ fn append_mode_line_string_in_state(
 /// - `(:propertize ELT PROPS...)`: process ELT and apply text properties
 /// - A cons `(SYMBOL . REST)`: if SYMBOL's value is non-nil, process REST
 fn format_mode_line_recursive(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     pctx: &ModeLinePercentContext,
     format: &Value,
     result: &mut ModeLineRendered,
@@ -1355,7 +1355,7 @@ fn format_mode_line_recursive_in_state_with_eval(
 }
 
 fn format_mode_line_recursive_in_vm_runtime(
-    shared: &mut crate::emacs_core::eval::VmSharedState<'_>,
+    shared: &mut crate::emacs_core::eval::Context,
     vm_gc_roots: &[Value],
     args_roots: &[Value],
     pctx: &ModeLinePercentContext,
@@ -1372,10 +1372,10 @@ fn format_mode_line_recursive_in_vm_runtime(
         Value::Nil => {}
 
         Value::Str(_) => append_mode_line_string_in_state(
-            &*shared.obarray,
+            &shared.obarray,
             shared.dynamic.as_slice(),
-            &*shared.buffers,
-            &*shared.processes,
+            &shared.buffers,
+            &shared.processes,
             shared.recursive_command_loop_depth(),
             pctx,
             result,
@@ -1392,9 +1392,9 @@ fn format_mode_line_recursive_in_vm_runtime(
                     return Ok(());
                 }
                 let value = {
-                    let obarray = &*shared.obarray;
+                    let obarray = &shared.obarray;
                     let dynamic = shared.dynamic.as_slice();
-                    let buffers = &*shared.buffers;
+                    let buffers = &shared.buffers;
                     mode_line_symbol_value_in_state(obarray, dynamic, buffers, name)
                 };
                 if let Some(val) = value
@@ -1402,10 +1402,10 @@ fn format_mode_line_recursive_in_vm_runtime(
                 {
                     if val.as_str().is_some() {
                         append_mode_line_string_in_state(
-                            &*shared.obarray,
+                            &shared.obarray,
                             shared.dynamic.as_slice(),
-                            &*shared.buffers,
-                            &*shared.processes,
+                            &shared.buffers,
+                            &shared.processes,
                             shared.recursive_command_loop_depth(),
                             pctx,
                             result,
@@ -1506,9 +1506,9 @@ fn format_mode_line_recursive_in_vm_runtime(
             if car.is_symbol() && !car.is_symbol_named("t") {
                 if let Some(sym_name) = car.as_symbol_name() {
                     let value = {
-                        let obarray = &*shared.obarray;
+                        let obarray = &shared.obarray;
                         let dynamic = shared.dynamic.as_slice();
-                        let buffers = &*shared.buffers;
+                        let buffers = &shared.buffers;
                         mode_line_symbol_value_in_state(obarray, dynamic, buffers, sym_name)
                     };
                     let branch = if value.is_some_and(|value| value.is_truthy()) {
@@ -1955,7 +1955,7 @@ pub(crate) fn builtin_window_text_pixel_size(args: Vec<Value>) -> EvalResult {
 /// Batch mode returns `(0 . 0)` and validates optional WINDOW / FROM / TO
 /// designators against evaluator state.
 pub(crate) fn builtin_window_text_pixel_size_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_text_pixel_size_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2009,7 +2009,7 @@ pub(crate) fn builtin_pos_visible_in_window_p(args: Vec<Value>) -> EvalResult {
 /// Mirror GNU Emacs: return t if POS is visible in WINDOW, nil otherwise.
 /// Checks if position is between window-start and an estimated window-end.
 pub(crate) fn builtin_pos_visible_in_window_p_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_pos_visible_in_window_p_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2067,7 +2067,7 @@ pub(crate) fn builtin_pos_visible_in_window_p_in_state(
 /// approximate this from the current frame/window geometry so commands in
 /// `simple.el` can reason about visual line movement without batch fallbacks.
 pub(crate) fn builtin_window_line_height_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2294,7 +2294,7 @@ pub(crate) fn builtin_tool_bar_height(args: Vec<Value>) -> EvalResult {
 ///
 /// Accepts nil or a live frame designator for FRAME.
 pub(crate) fn builtin_tool_bar_height_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_tool_bar_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2326,7 +2326,7 @@ pub(crate) fn builtin_tab_bar_height(args: Vec<Value>) -> EvalResult {
 ///
 /// Accepts nil or a live frame designator for FRAME.
 pub(crate) fn builtin_tab_bar_height_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_tab_bar_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2377,7 +2377,7 @@ pub(crate) fn builtin_long_line_optimizations_p(args: Vec<Value>) -> EvalResult 
 }
 
 fn validate_optional_frame_designator(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: Option<&Value>,
 ) -> Result<(), Flow> {
     validate_optional_frame_designator_in_state(&eval.frames, value)
@@ -2413,7 +2413,7 @@ fn validate_optional_frame_designator_in_state(
 }
 
 fn validate_optional_window_designator(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: Option<&Value>,
     predicate: &str,
 ) -> Result<(), Flow> {
@@ -2452,7 +2452,7 @@ fn validate_optional_window_designator_in_state(
 }
 
 fn validate_optional_buffer_designator(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: Option<&Value>,
 ) -> Result<(), Flow> {
     validate_optional_buffer_designator_in_state(&eval.buffers, value)
@@ -2480,7 +2480,7 @@ fn validate_optional_buffer_designator_in_state(
 }
 
 fn resolve_optional_window_buffer(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: Option<&Value>,
 ) -> Option<BufferId> {
     let windowish = value?;
@@ -2534,7 +2534,7 @@ fn resolve_optional_window_buffer_in_state(
 }
 
 fn resolve_mode_line_buffer(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     window: Option<&Value>,
     buffer: Option<&Value>,
 ) -> Option<BufferId> {
@@ -2897,7 +2897,7 @@ fn resolve_posn_at_xy_window(
 
 /// `(posn-at-point &optional POS WINDOW)` evaluator-backed variant.
 pub(crate) fn builtin_posn_at_point_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_posn_at_point_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2920,7 +2920,7 @@ pub(crate) fn builtin_posn_at_point_in_state(
 
 /// `(posn-at-x-y X Y &optional FRAME-OR-WINDOW WHOLE)` evaluator-backed variant.
 pub(crate) fn builtin_posn_at_x_y_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_posn_at_x_y_in_state(&mut eval.frames, &mut eval.buffers, args)

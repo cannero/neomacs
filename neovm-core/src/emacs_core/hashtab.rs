@@ -705,7 +705,7 @@ pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalRes
 // ---------------------------------------------------------------------------
 
 /// (maphash FUNCTION TABLE) — call FUNCTION with each (KEY VALUE) pair.
-pub(crate) fn builtin_maphash(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_maphash(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (func, entries) = collect_maphash_entries(args)?;
     for (key, val) in entries {
         eval.apply(func, vec![key, val])?;
@@ -714,7 +714,7 @@ pub(crate) fn builtin_maphash(eval: &mut super::eval::Evaluator, args: Vec<Value
 }
 
 /// (mapatoms FUNCTION &optional OBARRAY) — call FUNCTION with each interned symbol.
-pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let (func, symbols) = collect_mapatoms_symbols(eval.obarray(), args)?;
     for sym in symbols {
         eval.apply(func, vec![sym])?;
@@ -792,7 +792,7 @@ pub(crate) fn collect_mapatoms_symbols(
 }
 
 /// (unintern NAME &optional OBARRAY) — remove symbol from obarray.
-pub(crate) fn builtin_unintern(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_unintern_in_obarray(&mut eval.obarray, args)
 }
 

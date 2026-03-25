@@ -83,9 +83,9 @@ fn main() {
         }
     };
 
-    // Create the worker runtime first, which creates the Evaluator and sets
+    // Create the worker runtime first, which creates the Context and sets
     // the main thread's interner. This must happen BEFORE parse_forms so that
-    // SymIds are interned into the Evaluator's interner and remain valid.
+    // SymIds are interned into the Context's interner and remain valid.
     let threads = 1usize;
     let rt = WorkerRuntime::with_elisp_executor(WorkerConfig {
         threads,

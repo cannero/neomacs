@@ -196,7 +196,7 @@ impl KmacroManager {
 /// - when already recording, signal `(error "Already defining kbd macro")`
 /// - NO-EXEC is accepted for arity compatibility and currently ignored
 pub(crate) fn builtin_defining_kbd_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("defining-kbd-macro", &args, 1)?;
@@ -323,7 +323,7 @@ pub(crate) fn builtin_store_kbd_macro_event_in_state(
 /// already recording.  NO-EXEC is accepted for arity compatibility and
 /// currently ignored.
 pub(crate) fn builtin_start_kbd_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_start_kbd_macro_in_state(&mut eval.kmacro, args)
@@ -335,7 +335,7 @@ pub(crate) fn builtin_start_kbd_macro(
 /// recording.  The optional REPEAT argument is accepted for compatibility
 /// but ignored in this implementation.
 pub(crate) fn builtin_end_kbd_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_end_kbd_macro_in_state(&mut eval.kmacro, args)
@@ -347,7 +347,7 @@ pub(crate) fn builtin_end_kbd_macro(
 /// the evaluator via `funcall` on `execute-kbd-macro-event` if defined,
 /// otherwise events are evaluated directly.
 pub(crate) fn builtin_call_last_kbd_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let (macro_keys, repeat) = plan_call_last_kbd_macro(&eval.kmacro, &args)?;
@@ -365,7 +365,7 @@ pub(crate) fn builtin_call_last_kbd_macro(
 /// Execute MACRO (a vector, string, or symbol) COUNT times.
 /// If MACRO is a symbol, its function definition is used.
 pub(crate) fn builtin_execute_kbd_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let (macro_events, count) = plan_execute_kbd_macro(&args)?;
@@ -383,7 +383,7 @@ pub(crate) fn builtin_execute_kbd_macro(
 /// Bind the last keyboard macro to SYMBOL as its function definition.
 /// Signals an error if no macro has been recorded.
 fn name_last_kbd_macro_impl(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
     call_name: &str,
 ) -> EvalResult {
@@ -419,7 +419,7 @@ fn name_last_kbd_macro_impl(
 /// Bind the last keyboard macro to SYMBOL as its function definition.
 /// Signals an error if no macro has been recorded.
 pub(crate) fn builtin_name_last_kbd_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     name_last_kbd_macro_impl(eval, args, "name-last-kbd-macro")
@@ -429,7 +429,7 @@ pub(crate) fn builtin_name_last_kbd_macro(
 ///
 /// Alias entry point used in startup wrappers for arity payload parity.
 pub(crate) fn builtin_kmacro_name_last_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     name_last_kbd_macro_impl(eval, args, "kmacro-name-last-macro")
@@ -438,7 +438,7 @@ pub(crate) fn builtin_kmacro_name_last_macro(
 /// (defining-kbd-macro-p) -> non-nil when keyboard macro recording is active.
 #[cfg(test)]
 pub(crate) fn builtin_defining_kbd_macro_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("defining-kbd-macro-p", &args, 0)?;
@@ -448,7 +448,7 @@ pub(crate) fn builtin_defining_kbd_macro_p(
 /// (executing-kbd-macro-p) -> non-nil when keyboard macro execution is active.
 #[cfg(test)]
 pub(crate) fn builtin_executing_kbd_macro_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("executing-kbd-macro-p", &args, 0)?;
@@ -458,7 +458,7 @@ pub(crate) fn builtin_executing_kbd_macro_p(
 /// (last-kbd-macro) -> last recorded macro vector or nil.
 #[cfg(test)]
 pub(crate) fn builtin_last_kbd_macro(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("last-kbd-macro", &args, 0)?;
@@ -483,7 +483,7 @@ pub(crate) fn builtin_kmacro_p(args: Vec<Value>) -> EvalResult {
 /// (kmacro-set-counter COUNTER &optional FORMAT-START) -> nil
 #[cfg(test)]
 pub(crate) fn builtin_kmacro_set_counter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("kmacro-set-counter", &args, 1)?;
@@ -495,7 +495,7 @@ pub(crate) fn builtin_kmacro_set_counter(
 /// (kmacro-add-counter DELTA) -> nil
 #[cfg(test)]
 pub(crate) fn builtin_kmacro_add_counter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("kmacro-add-counter", &args, 1)?;
@@ -506,7 +506,7 @@ pub(crate) fn builtin_kmacro_add_counter(
 /// (kmacro-set-format FORMAT) -> nil
 #[cfg(test)]
 pub(crate) fn builtin_kmacro_set_format(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("kmacro-set-format", &args, 1)?;
@@ -531,7 +531,7 @@ pub(crate) fn builtin_kmacro_set_format(
 /// Add EVENT to the keyboard macro currently being recorded.
 /// If not currently recording, this is a no-op.
 pub(crate) fn builtin_store_kbd_macro_event(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_store_kbd_macro_event_in_state(&mut eval.kmacro, args)

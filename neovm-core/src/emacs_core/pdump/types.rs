@@ -1010,7 +1010,7 @@ pub struct DumpVariableWatcherList {
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpEvaluatorState {
+pub struct DumpContextState {
     pub interner: DumpStringInterner,
     pub heap: DumpLispHeap,
     pub obarray: DumpObarray,

@@ -350,7 +350,7 @@ fn skip_syntax_forward_with_limit() {
 
 #[test]
 fn builtin_skip_syntax_forward_limit_uses_char_positions_for_multibyte_text() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -373,7 +373,7 @@ fn builtin_skip_syntax_forward_limit_uses_char_positions_for_multibyte_text() {
 
 #[test]
 fn builtin_skip_syntax_forward_limit_stays_absolute_under_narrowing() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -661,7 +661,7 @@ fn matching_paren_basics_and_errors() {
 
 #[test]
 fn syntax_table_eval_returns_char_table() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let table = builtin_syntax_table(&mut eval, vec![]).unwrap();
     let is_ct = crate::emacs_core::chartable::builtin_char_table_p(vec![table]).unwrap();
     assert_eq!(is_ct, Value::True);
@@ -686,7 +686,7 @@ fn syntax_table_p_recognizes_syntax_tables() {
 
 #[test]
 fn set_syntax_table_validates_and_returns_table() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let table = builtin_make_syntax_table(vec![]).unwrap();
     let out = builtin_set_syntax_table(&mut eval, vec![table]).unwrap();
     assert_eq!(out, table);
@@ -702,7 +702,7 @@ fn set_syntax_table_validates_and_returns_table() {
 
 #[test]
 fn syntax_table_and_standard_default_to_same_object() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let current = builtin_syntax_table(&mut eval, vec![]).unwrap();
     let standard = builtin_standard_syntax_table(vec![]).unwrap();
     match (current, standard) {
@@ -713,7 +713,7 @@ fn syntax_table_and_standard_default_to_same_object() {
 
 #[test]
 fn set_syntax_table_updates_current_buffer_only() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let custom = builtin_make_syntax_table(vec![]).unwrap();
     builtin_modify_syntax_entry(
         &mut eval,
@@ -755,7 +755,7 @@ fn set_syntax_table_updates_current_buffer_only() {
 
 #[test]
 fn forward_comment_skips_whitespace_and_returns_nil() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -776,7 +776,7 @@ fn forward_comment_skips_whitespace_and_returns_nil() {
 
 #[test]
 fn forward_comment_validates_arity_and_type() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     match builtin_forward_comment(&mut eval, vec![]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
@@ -813,7 +813,7 @@ fn forward_comment_validates_arity_and_type() {
 ///   (forward-comment -3) => t, point=6   (before ";; c1")
 #[test]
 fn forward_comment_backward_single_line_comments() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -897,7 +897,7 @@ fn forward_comment_backward_single_line_comments() {
 /// But GNU does `inc_both` at the leave label, so point = 5.
 #[test]
 fn forward_comment_backward_stops_at_non_comment() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -943,7 +943,7 @@ fn forward_comment_backward_stops_at_non_comment() {
 
 #[test]
 fn backward_prefix_chars_default_is_noop() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -964,7 +964,7 @@ fn backward_prefix_chars_default_is_noop() {
 
 #[test]
 fn backward_prefix_chars_moves_over_prefix_flag_chars() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -987,7 +987,7 @@ fn backward_prefix_chars_moves_over_prefix_flag_chars() {
 
 #[test]
 fn backward_prefix_chars_validates_arity() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     match builtin_backward_prefix_chars(&mut eval, vec![Value::Int(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
@@ -1002,7 +1002,7 @@ fn backward_prefix_chars_validates_arity() {
 
 #[test]
 fn modify_syntax_entry_at_descriptor_inherits_parent_or_default() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     builtin_modify_syntax_entry(&mut eval, vec![Value::Int('x' as i64), Value::string("@")])
         .unwrap();
 
@@ -1012,7 +1012,7 @@ fn modify_syntax_entry_at_descriptor_inherits_parent_or_default() {
 
 #[test]
 fn syntax_ppss_flush_cache_contract() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     assert_eq!(
         builtin_syntax_ppss_flush_cache(&mut eval, vec![Value::Int(1)]).unwrap(),
@@ -1049,7 +1049,7 @@ fn syntax_ppss_flush_cache_contract() {
 
 #[test]
 fn scan_lists_basic_and_backward_nil() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -1070,7 +1070,7 @@ fn scan_lists_basic_and_backward_nil() {
 
 #[test]
 fn syntax_after_returns_descriptor_and_nil_out_of_range() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -1095,7 +1095,7 @@ fn syntax_after_returns_descriptor_and_nil_out_of_range() {
 
 #[test]
 fn scan_sexps_basic_and_backward_nil() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -1111,7 +1111,7 @@ fn scan_sexps_basic_and_backward_nil() {
 
 #[test]
 fn parse_partial_sexp_baseline_shapes() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -1161,7 +1161,7 @@ fn parse_partial_sexp_baseline_shapes() {
 
 #[test]
 fn syntax_ppss_baseline_shape() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -1189,7 +1189,7 @@ fn syntax_ppss_baseline_shape() {
 
 #[test]
 fn parse_partial_sexp_enters_single_char_line_comment_state() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.syntax_table
@@ -1221,7 +1221,7 @@ fn parse_partial_sexp_enters_single_char_line_comment_state() {
 
 #[test]
 fn syntax_ppss_reports_string_state_and_start_position() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -1249,7 +1249,7 @@ fn syntax_ppss_reports_string_state_and_start_position() {
 
 #[test]
 fn parse_partial_sexp_commentstop_syntax_table_moves_point_across_comment() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.syntax_table

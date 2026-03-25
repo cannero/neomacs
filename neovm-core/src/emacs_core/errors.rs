@@ -386,7 +386,7 @@ fn register_simple(obarray: &mut Obarray, name: &str, message: &str, parents: &[
 /// or a list of symbols.
 ///
 /// Sets `error-conditions` and `error-message` on NAME's plist in the obarray.
-pub(crate) fn sf_define_error(eval: &mut super::eval::Evaluator, tail: &[Expr]) -> EvalResult {
+pub(crate) fn sf_define_error(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
     if tail.is_empty() || tail.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -515,7 +515,7 @@ pub(crate) fn builtin_signal(args: Vec<Value>) -> EvalResult {
 /// unregistered error symbols to `(error "Invalid error symbol" SYM)`,
 /// matching GNU eval.c:1949-1951.
 pub(crate) fn builtin_signal_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 2 {
@@ -565,7 +565,7 @@ pub(crate) fn builtin_signal_eval(
 /// ERROR-DATA is `(ERROR-SYMBOL . DATA)` as bound by `condition-case`.
 /// Looks up `error-message` on the symbol's plist and appends the data.
 pub(crate) fn builtin_error_message_string(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() != 1 {
@@ -723,7 +723,7 @@ pub(crate) fn builtin_error_message_string(
     )))
 }
 
-fn format_error_arg(eval: &super::eval::Evaluator, value: &Value, quote_strings: bool) -> String {
+fn format_error_arg(eval: &super::eval::Context, value: &Value, quote_strings: bool) -> String {
     if !quote_strings {
         if let Some(s) = value.as_str() {
             return s.to_string();

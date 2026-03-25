@@ -9,9 +9,9 @@ fn test_undo_boundary_no_args() {
 
 #[test]
 fn test_undo_boundary_eval_inserts_boundary_marker() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
@@ -82,45 +82,45 @@ fn test_primitive_undo_wrong_arg_count() {
 
 #[test]
 fn test_undo_no_args() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_undo(&mut eval, vec![]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_undo_with_arg() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_undo(&mut eval, vec![Value::Int(5)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_undo_with_invalid_arg() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_undo(&mut eval, vec![Value::Float(1.5, next_float_id())]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_undo_with_multiple_args() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_undo(&mut eval, vec![Value::Int(2), Value::Int(3)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_undo_reverts_inserted_text() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("abc");
@@ -140,9 +140,9 @@ fn test_undo_reverts_inserted_text() {
 
 #[test]
 fn test_undo_without_boundary_signals_user_error_after_apply() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
@@ -159,9 +159,9 @@ fn test_undo_without_boundary_signals_user_error_after_apply() {
 
 #[test]
 fn test_undo_with_non_positive_arg_and_boundary_returns_undo() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");

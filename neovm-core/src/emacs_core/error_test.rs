@@ -1,12 +1,12 @@
 use super::EvalError;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::{
-    Evaluator, Value, parse_forms, print_value_bytes_with_eval, print_value_with_eval,
+    Context, Value, parse_forms, print_value_bytes_with_eval, print_value_with_eval,
 };
 
 #[test]
 fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let stale = Value::Buffer(eval.buffers.create_buffer("stale-win-buf"));
     eval.set_variable("vm-stale-win-buf", stale);
     let forms = parse_forms(
@@ -39,7 +39,7 @@ fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
 
 #[test]
 fn eval_context_printer_renders_killed_buffer_handles() -> Result<(), EvalError> {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let forms = parse_forms(
         "(with-temp-buffer
            (condition-case err
@@ -66,7 +66,7 @@ fn eval_context_printer_renders_killed_buffer_handles() -> Result<(), EvalError>
 
 #[test]
 fn eval_context_printer_renders_mutex_handles_consistently() -> Result<(), EvalError> {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let forms =
         parse_forms("(make-mutex \"error-printer-mutex\")").map_err(|err| EvalError::Signal {
             symbol: intern("parse-error"),
@@ -86,7 +86,7 @@ fn eval_context_printer_renders_mutex_handles_consistently() -> Result<(), EvalE
 
 #[test]
 fn eval_context_printer_renders_condvar_handles_consistently() -> Result<(), EvalError> {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let forms = parse_forms(
         "(let ((m (make-mutex \"error-printer-mutex\")))
            (make-condition-variable m \"error-printer-condvar\"))",
@@ -109,7 +109,7 @@ fn eval_context_printer_renders_condvar_handles_consistently() -> Result<(), Eva
 
 #[test]
 fn eval_context_printer_renders_frame_window_handles_consistently() -> Result<(), EvalError> {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let forms = parse_forms("(list (selected-frame) (selected-window))").map_err(|err| {
         EvalError::Signal {
             symbol: intern("parse-error"),
@@ -131,7 +131,7 @@ fn eval_context_printer_renders_frame_window_handles_consistently() -> Result<()
 
 #[test]
 fn eval_context_printer_renders_window_handles_with_buffer_names() -> Result<(), EvalError> {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let forms = parse_forms(
         "(list (selected-window)
                (condition-case err (frame-terminal (selected-window)) (error err))
@@ -156,7 +156,7 @@ fn eval_context_printer_renders_window_handles_with_buffer_names() -> Result<(),
 
 #[test]
 fn eval_context_printer_renders_terminal_thread_handles_consistently() -> Result<(), EvalError> {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let forms = parse_forms("(list (car (terminal-list)) (current-thread))").map_err(|err| {
         EvalError::Signal {
             symbol: intern("parse-error"),
@@ -178,7 +178,7 @@ fn eval_context_printer_renders_terminal_thread_handles_consistently() -> Result
 
 #[test]
 fn eval_context_printer_matches_gnu_backquote_shorthand_rules() {
-    let eval = Evaluator::new();
+    let eval = Context::new();
     let raw_unquote = Value::list(vec![Value::symbol(","), Value::symbol("x")]);
     let nested = Value::list(vec![
         Value::symbol("`"),
@@ -272,7 +272,7 @@ fn make_signal_binding_value_structure() {
 
 #[test]
 fn eval_context_printer_renders_hash_s_literal_shorthand() {
-    let eval = Evaluator::new();
+    let eval = Context::new();
     let literal = Value::list(vec![
         Value::symbol("make-hash-table-from-literal"),
         Value::list(vec![

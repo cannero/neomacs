@@ -1,6 +1,6 @@
 use super::pure::*;
 use crate::emacs_core::error::Flow;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::value::Value;
 
 #[test]
@@ -110,7 +110,7 @@ fn tty_top_frame_eval_tracks_selected_frame_when_tty_runtime_is_active() {
         256,
     ));
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let scratch = eval.buffer_manager_mut().create_buffer("*scratch*");
     let frame_id = eval.frame_manager_mut().create_frame("F1", 80, 25, scratch);
 

@@ -74,7 +74,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
     }
 }
 
-fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
     let name_id = intern(name);
     for frame in eval.dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
@@ -245,7 +245,7 @@ fn delete_extract_rectangle_from_text(
 }
 
 fn clamped_rect_inputs(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     start: i64,
     end: i64,
 ) -> Option<(
@@ -339,7 +339,7 @@ pub(crate) fn builtin_extract_rectangle_line(args: Vec<Value>) -> EvalResult {
 /// - when rectangle starts past EOL, returns width spaces and leaves line
 ///   unchanged
 fn delete_extract_rectangle_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     start: i64,
     end: i64,
 ) -> EvalResult {

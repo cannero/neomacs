@@ -577,11 +577,11 @@ fn seq_min_max_test() {
     assert_eq!(builtin_seq_max(vec![list]).unwrap().as_int(), Some(3));
 }
 
-// --- Eval-dependent tests (using Evaluator) ---
+// --- Eval-dependent tests (using Context) ---
 
 #[test]
 fn seq_reduce_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let func = Value::Subr(intern("+"));
     let seq = Value::list(vec![Value::Int(10), Value::Int(20)]);
     let result = builtin_seq_reduce(&mut evaluator, vec![func, seq, Value::Int(0)]).unwrap();
@@ -590,7 +590,7 @@ fn seq_reduce_with_eval() {
 
 #[test]
 fn seq_count_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let func = Value::Subr(intern("numberp"));
     let seq = Value::list(vec![Value::Int(1), Value::string("a"), Value::Int(2)]);
     let result = builtin_seq_count(&mut evaluator, vec![func, seq]).unwrap();
@@ -599,7 +599,7 @@ fn seq_count_with_eval() {
 
 #[test]
 fn cl_position_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let seq = Value::list(vec![
         Value::symbol("a"),
         Value::symbol("b"),
@@ -611,7 +611,7 @@ fn cl_position_with_eval() {
 
 #[test]
 fn cl_position_wrong_arity() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     assert!(builtin_cl_position(&mut evaluator, vec![Value::symbol("a")]).is_err());
 }
 
@@ -663,7 +663,7 @@ fn cl_count_some_every_bootstrap() {
 
 #[test]
 fn cl_notany_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let func = Value::Subr(intern("numberp"));
     let seq = Value::list(vec![Value::string("x"), Value::string("y")]);
     let result = builtin_cl_notany(&mut evaluator, vec![func, seq]).unwrap();
@@ -672,7 +672,7 @@ fn cl_notany_with_eval() {
 
 #[test]
 fn cl_notevery_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let func = Value::Subr(intern("numberp"));
     let seq = Value::list(vec![Value::Int(1), Value::string("x")]);
     let result = builtin_cl_notevery(&mut evaluator, vec![func, seq]).unwrap();
@@ -737,7 +737,7 @@ fn cl_find_wrong_arity() {
 
 #[test]
 fn cl_find_if_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_cl_find_if(
         &mut evaluator,
         vec![
@@ -751,7 +751,7 @@ fn cl_find_if_with_eval() {
 
 #[test]
 fn cl_find_if_wrong_arity() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     assert!(builtin_cl_find_if(&mut evaluator, vec![Value::Subr(intern("numberp"))]).is_err());
 }
 
@@ -912,7 +912,7 @@ fn cl_substitute_wrong_arity() {
 
 #[test]
 fn cl_sort_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let seq = Value::list(vec![Value::Int(3), Value::Int(1), Value::Int(2)]);
     let result = builtin_cl_sort(&mut evaluator, vec![seq, Value::Subr(intern("<"))]).unwrap();
     assert_eq!(
@@ -923,7 +923,7 @@ fn cl_sort_with_eval() {
 
 #[test]
 fn cl_stable_sort_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let seq = Value::list(vec![Value::Int(3), Value::Int(1), Value::Int(2)]);
     let result =
         builtin_cl_stable_sort(&mut evaluator, vec![seq, Value::Subr(intern("<"))]).unwrap();
@@ -935,7 +935,7 @@ fn cl_stable_sort_with_eval() {
 
 #[test]
 fn cl_remove_if_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_cl_remove_if(
         &mut evaluator,
         vec![
@@ -949,7 +949,7 @@ fn cl_remove_if_with_eval() {
 
 #[test]
 fn cl_remove_if_not_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_cl_remove_if_not(
         &mut evaluator,
         vec![
@@ -963,7 +963,7 @@ fn cl_remove_if_not_with_eval() {
 
 #[test]
 fn cl_map_list_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_cl_map(
         &mut evaluator,
         vec![
@@ -981,7 +981,7 @@ fn cl_map_list_with_eval() {
 
 #[test]
 fn cl_map_string_with_eval() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     let result = builtin_cl_map(
         &mut evaluator,
         vec![
@@ -996,7 +996,7 @@ fn cl_map_string_with_eval() {
 
 #[test]
 fn cl_map_unsupported_type() {
-    let mut evaluator = super::super::eval::Evaluator::new();
+    let mut evaluator = super::super::eval::Context::new();
     assert!(
         builtin_cl_map(
             &mut evaluator,

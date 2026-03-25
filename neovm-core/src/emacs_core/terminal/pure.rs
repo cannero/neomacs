@@ -176,7 +176,7 @@ pub(crate) fn terminal_designator_p(value: &Value) -> bool {
 }
 
 pub(crate) fn terminal_designator_eval_p(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     value: &Value,
 ) -> bool {
     terminal_designator_p(value) || crate::emacs_core::display::live_frame_designator_p(eval, value)
@@ -202,7 +202,7 @@ pub(crate) fn expect_terminal_designator(value: &Value) -> Result<(), Flow> {
 }
 
 pub(crate) fn expect_terminal_designator_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     value: &Value,
 ) -> Result<(), Flow> {
     if terminal_designator_eval_p(eval, value) {
@@ -351,11 +351,11 @@ pub(crate) fn builtin_terminal_name(args: Vec<Value>) -> EvalResult {
     Ok(Value::string(TERMINAL_NAME))
 }
 
-/// Evaluator-aware variant of `terminal-name`.
+/// Context-aware variant of `terminal-name`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
 pub(crate) fn builtin_terminal_name_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("terminal-name", &args, 1)?;
@@ -402,11 +402,11 @@ pub(crate) fn builtin_frame_terminal(args: Vec<Value>) -> EvalResult {
     Ok(terminal_handle_value())
 }
 
-/// Evaluator-aware variant of `frame-terminal`.
+/// Context-aware variant of `frame-terminal`.
 ///
 /// Accepts live frame designators in addition to nil.
 pub(crate) fn builtin_frame_terminal_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("frame-terminal", &args, 1)?;
@@ -445,13 +445,13 @@ pub(crate) fn builtin_terminal_live_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(terminal_designator_p(&args[0])))
 }
 
-/// Evaluator-aware variant of `terminal-live-p`.
+/// Context-aware variant of `terminal-live-p`.
 ///
 /// In GNU Emacs, terminal-live-p returns the terminal type symbol
 /// (e.g. 'x, 'w32) for GUI terminals, or t for TTY.  This is used
 /// by framep-on-display to determine the window system type.
 pub(crate) fn builtin_terminal_live_p_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("terminal-live-p", &args, 1, 1)?;
@@ -495,11 +495,11 @@ pub(crate) fn builtin_terminal_parameter(args: Vec<Value>) -> EvalResult {
     TERMINAL_PARAMS.with(|slot| Ok(lookup_terminal_parameter_value(&slot.borrow(), &key)))
 }
 
-/// Evaluator-aware variant of `terminal-parameter`.
+/// Context-aware variant of `terminal-parameter`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
 pub(crate) fn builtin_terminal_parameter_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("terminal-parameter", &args, 2)?;
@@ -532,11 +532,11 @@ pub(crate) fn builtin_terminal_parameters(args: Vec<Value>) -> EvalResult {
     })
 }
 
-/// Evaluator-aware variant of `terminal-parameters`.
+/// Context-aware variant of `terminal-parameters`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
 pub(crate) fn builtin_terminal_parameters_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("terminal-parameters", &args, 1)?;
@@ -592,11 +592,11 @@ pub(crate) fn builtin_set_terminal_parameter(args: Vec<Value>) -> EvalResult {
     })
 }
 
-/// Evaluator-aware variant of `set-terminal-parameter`.
+/// Context-aware variant of `set-terminal-parameter`.
 ///
 /// Accepts live frame designators in addition to terminal designators.
 pub(crate) fn builtin_set_terminal_parameter_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-terminal-parameter", &args, 3)?;
@@ -665,9 +665,9 @@ pub(crate) fn builtin_tty_type(args: Vec<Value>) -> EvalResult {
         .unwrap_or(Value::Nil))
 }
 
-/// Evaluator-aware variant of `tty-type`.
+/// Context-aware variant of `tty-type`.
 pub(crate) fn builtin_tty_type_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-type", &args, 1)?;
@@ -703,9 +703,9 @@ pub(crate) fn builtin_tty_top_frame(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `tty-top-frame`.
+/// Context-aware variant of `tty-top-frame`.
 pub(crate) fn builtin_tty_top_frame_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-top-frame", &args, 1)?;
@@ -749,9 +749,9 @@ pub(crate) fn builtin_tty_display_color_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(terminal_runtime().supports_color()))
 }
 
-/// Evaluator-aware variant of `tty-display-color-p`.
+/// Context-aware variant of `tty-display-color-p`.
 pub(crate) fn builtin_tty_display_color_p_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-display-color-p", &args, 1)?;
@@ -781,9 +781,9 @@ pub(crate) fn builtin_tty_display_color_cells(args: Vec<Value>) -> EvalResult {
     Ok(Value::Int(terminal_runtime().color_cells))
 }
 
-/// Evaluator-aware variant of `tty-display-color-cells`.
+/// Context-aware variant of `tty-display-color-cells`.
 pub(crate) fn builtin_tty_display_color_cells_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-display-color-cells", &args, 1)?;
@@ -813,9 +813,9 @@ pub(crate) fn builtin_tty_no_underline(args: Vec<Value>) -> EvalResult {
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware variant of `tty-no-underline`.
+/// Context-aware variant of `tty-no-underline`.
 pub(crate) fn builtin_tty_no_underline_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-no-underline", &args, 1)?;
@@ -845,9 +845,9 @@ pub(crate) fn builtin_controlling_tty_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool(terminal_runtime().controlling_tty))
 }
 
-/// Evaluator-aware variant of `controlling-tty-p`.
+/// Context-aware variant of `controlling-tty-p`.
 pub(crate) fn builtin_controlling_tty_p_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("controlling-tty-p", &args, 1)?;
@@ -882,9 +882,9 @@ pub(crate) fn builtin_suspend_tty(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-/// Evaluator-aware variant of `suspend-tty`.
+/// Context-aware variant of `suspend-tty`.
 pub(crate) fn builtin_suspend_tty_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("suspend-tty", &args, 1)?;
@@ -929,9 +929,9 @@ pub(crate) fn builtin_resume_tty(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-/// Evaluator-aware variant of `resume-tty`.
+/// Context-aware variant of `resume-tty`.
 pub(crate) fn builtin_resume_tty_eval(
-    eval: &mut crate::emacs_core::eval::Evaluator,
+    eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("resume-tty", &args, 1)?;

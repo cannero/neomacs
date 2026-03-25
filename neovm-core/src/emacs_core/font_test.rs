@@ -121,7 +121,7 @@ fn font_spec_basic() {
 #[test]
 fn find_font_eval_requests_exact_registry_match_from_display_host() {
     let last_request = Rc::new(RefCell::new(None));
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     eval.set_display_host(Box::new(CapturingFindFontDisplayHost {
         last_request: Rc::clone(&last_request),
@@ -175,7 +175,7 @@ fn find_font_eval_requests_exact_registry_match_from_display_host() {
 #[test]
 fn find_font_eval_returns_gnu_canonical_ultra_light_weight_symbol() {
     let last_request = Rc::new(RefCell::new(None));
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     eval.set_display_host(Box::new(CapturingFindFontDisplayHost {
         last_request: Rc::clone(&last_request),
@@ -306,7 +306,7 @@ fn list_fonts_rejects_non_font_spec() {
 
 #[test]
 fn eval_list_fonts_accepts_live_frame_designator() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     let result = builtin_list_fonts_eval(
         &mut eval,
@@ -336,7 +336,7 @@ fn find_font_rejects_non_font_spec() {
 
 #[test]
 fn eval_find_font_accepts_live_frame_designator() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     let result = builtin_find_font_eval(
         &mut eval,
@@ -407,7 +407,7 @@ fn font_family_list_rejects_non_nil_frame_designator() {
 
 #[test]
 fn eval_font_family_list_accepts_live_frame_designator() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     let result = builtin_font_family_list_eval(&mut eval, vec![Value::Int(frame_id)]).unwrap();
     assert!(result.is_nil());
@@ -473,7 +473,7 @@ fn close_font_accepts_tagged_font_object_and_checks_arity() {
 
 #[test]
 fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
     let face = Value::symbol("font-at-buffer-face");
@@ -513,7 +513,7 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
 
 #[test]
 fn font_at_eval_returns_font_object_for_multibyte_string_face() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
     let face = Value::symbol("font-at-string-face");
@@ -554,7 +554,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
 
 #[test]
 fn font_at_eval_reads_source_style_inline_face_keywords() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
     let buffer = eval
@@ -599,7 +599,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
 
 #[test]
 fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
     let captured = Rc::new(RefCell::new(None));
@@ -645,7 +645,7 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
 
 #[test]
 fn font_at_eval_prefers_backend_selected_font_match_when_available() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     eval.set_display_host(Box::new(FontAtDisplayHost {
         matched: Some(ResolvedFontMatch {
@@ -773,7 +773,7 @@ fn internal_copy_lisp_face_returns_to_when_frame_t() {
 
 #[test]
 fn internal_copy_lisp_face_eval_updates_face_table() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     builtin_internal_set_lisp_face_attribute_eval(
         &mut eval,
         vec![
@@ -971,7 +971,7 @@ fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
 
 #[test]
 fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_default_face() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let font_name = Value::string("-*-Hack-regular-normal-*-*-102-*-*-*-m-0-iso10646-1");
     let font_object = Value::vector(vec![
@@ -1108,7 +1108,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
 
 #[test]
 fn face_font_eval_returns_font_name_on_live_gui_frame() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let frame = eval
         .frame_manager_mut()
@@ -1126,7 +1126,7 @@ fn face_font_eval_returns_font_name_on_live_gui_frame() {
 
 #[test]
 fn font_info_eval_accepts_font_object_on_live_gui_frame() {
-    let mut eval = crate::emacs_core::Evaluator::new();
+    let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     {
         let frame = eval
@@ -1583,7 +1583,7 @@ fn face_font_rejects_invalid_face() {
 
 #[test]
 fn internal_get_lisp_face_attribute_eval_reads_live_face_table() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     eval.set_face_attribute(
         "mode-line",
         ":background",
@@ -1605,7 +1605,7 @@ fn internal_get_lisp_face_attribute_eval_reads_live_face_table() {
 
 #[test]
 fn internal_merge_in_global_face_eval_updates_live_face_table() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let face = Value::symbol("__neovm_internal_merge_global_face_eval");
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
@@ -1635,7 +1635,7 @@ fn internal_merge_in_global_face_eval_updates_live_face_table() {
 
 #[test]
 fn internal_get_lisp_face_attribute_eval_prefers_explicit_lisp_face_values() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let face = Value::symbol("__neovm_internal_get_lisp_face_attribute_eval_prefers_lisp");
 
     builtin_internal_make_lisp_face_eval(&mut eval, vec![face])

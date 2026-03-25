@@ -557,7 +557,7 @@ fn expect_cv_id(manager: &ThreadManager, value: &Value) -> Result<u64, Flow> {
 /// In our single-threaded simulation the function is executed immediately.
 /// Returns a `(thread . ID)` object.
 pub(crate) fn builtin_make_thread(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let (thread_id, function) = prepare_make_thread_in_state(&mut eval.threads, &args)?;
@@ -595,7 +595,7 @@ pub(crate) fn prepare_make_thread_in_state(
 }
 
 pub(crate) fn finish_make_thread_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     thread_id: u64,
     function: Value,
 ) -> EvalResult {
@@ -663,7 +663,7 @@ pub(crate) fn builtin_thread_join_in_state(
 }
 
 pub(crate) fn builtin_thread_join(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_thread_join_in_state(&mut eval.threads, args)
@@ -678,7 +678,7 @@ pub(crate) fn builtin_thread_yield_in_state(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_thread_yield(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_thread_yield_in_state(args)
@@ -704,7 +704,7 @@ pub(crate) fn builtin_thread_name_in_state(
 }
 
 pub(crate) fn builtin_thread_name(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_thread_name_in_state(&eval.threads, args)
@@ -727,7 +727,7 @@ pub(crate) fn builtin_thread_live_p_in_state(
 }
 
 pub(crate) fn builtin_thread_live_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_thread_live_p_in_state(&eval.threads, args)
@@ -743,7 +743,7 @@ pub(crate) fn builtin_threadp_in_state(threads: &ThreadManager, args: Vec<Value>
     ))
 }
 
-pub(crate) fn builtin_threadp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_threadp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_threadp_in_state(&eval.threads, args)
 }
 
@@ -777,7 +777,7 @@ pub(crate) fn builtin_thread_signal_in_state(
 }
 
 pub(crate) fn builtin_thread_signal(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_thread_signal_in_state(&eval.threads, args)
@@ -796,7 +796,7 @@ pub(crate) fn builtin_current_thread_in_state(
 }
 
 pub(crate) fn builtin_current_thread(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_thread_in_state(&eval.threads, args)
@@ -822,7 +822,7 @@ pub(crate) fn builtin_all_threads_in_state(
 }
 
 pub(crate) fn builtin_all_threads(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_all_threads_in_state(&eval.threads, args)
@@ -849,7 +849,7 @@ pub(crate) fn builtin_thread_last_error_in_state(
 }
 
 pub(crate) fn builtin_thread_last_error(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_thread_last_error_in_state(&mut eval.threads, args)
@@ -891,7 +891,7 @@ pub(crate) fn builtin_make_mutex_in_state(
 }
 
 pub(crate) fn builtin_make_mutex(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_mutex_in_state(&mut eval.threads, args)
@@ -905,7 +905,7 @@ pub(crate) fn builtin_mutexp_in_state(threads: &ThreadManager, args: Vec<Value>)
     ))
 }
 
-pub(crate) fn builtin_mutexp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mutexp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_mutexp_in_state(&eval.threads, args)
 }
 
@@ -926,7 +926,7 @@ pub(crate) fn builtin_mutex_name_in_state(threads: &ThreadManager, args: Vec<Val
 }
 
 pub(crate) fn builtin_mutex_name(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_mutex_name_in_state(&eval.threads, args)
@@ -952,7 +952,7 @@ pub(crate) fn builtin_mutex_lock_in_state(
 }
 
 pub(crate) fn builtin_mutex_lock(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_mutex_lock_in_state(&mut eval.threads, args)
@@ -976,7 +976,7 @@ pub(crate) fn builtin_mutex_unlock_in_state(
 }
 
 pub(crate) fn builtin_mutex_unlock(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_mutex_unlock_in_state(&mut eval.threads, args)
@@ -1034,7 +1034,7 @@ pub(crate) fn builtin_make_condition_variable_in_state(
 }
 
 pub(crate) fn builtin_make_condition_variable(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_condition_variable_in_state(&mut eval.threads, args)
@@ -1054,7 +1054,7 @@ pub(crate) fn builtin_condition_variable_p_in_state(
 }
 
 pub(crate) fn builtin_condition_variable_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_condition_variable_p_in_state(&eval.threads, args)
@@ -1080,7 +1080,7 @@ pub(crate) fn builtin_condition_name_in_state(
 }
 
 pub(crate) fn builtin_condition_name(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_condition_name_in_state(&eval.threads, args)
@@ -1114,7 +1114,7 @@ pub(crate) fn builtin_condition_mutex_in_state(
 }
 
 pub(crate) fn builtin_condition_mutex(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_condition_mutex_in_state(&eval.threads, args)
@@ -1153,7 +1153,7 @@ pub(crate) fn builtin_condition_wait_in_state(
 }
 
 pub(crate) fn builtin_condition_wait(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_condition_wait_in_state(&eval.threads, args)
@@ -1201,7 +1201,7 @@ pub(crate) fn builtin_condition_notify_in_state(
 }
 
 pub(crate) fn builtin_condition_notify(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_condition_notify_in_state(&eval.threads, args)
@@ -1217,7 +1217,7 @@ pub(crate) fn builtin_condition_notify(
 /// executed as an implicit progn, and the lock is released on exit
 /// (even if BODY signals an error).
 pub(crate) fn sf_with_mutex(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> EvalResult {
     if tail.is_empty() {

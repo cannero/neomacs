@@ -48,7 +48,7 @@ struct LigatureRunBuffer {
 }
 
 fn eval_status_line_format(
-    evaluator: &mut neovm_core::emacs_core::Evaluator,
+    evaluator: &mut neovm_core::emacs_core::Context,
     format_symbol: &str,
     window_id: i64,
     buffer_id: u64,
@@ -59,7 +59,7 @@ fn eval_status_line_format(
 }
 
 fn eval_status_line_format_value(
-    evaluator: &mut neovm_core::emacs_core::Evaluator,
+    evaluator: &mut neovm_core::emacs_core::Context,
     format_symbol: &str,
     window_id: i64,
     buffer_id: u64,
@@ -97,7 +97,7 @@ fn tab_bar_menu_item_caption(entry: Value) -> Option<String> {
 }
 
 fn build_tab_bar_plain_text(
-    evaluator: &mut neovm_core::emacs_core::Evaluator,
+    evaluator: &mut neovm_core::emacs_core::Context,
     frame_id: u64,
 ) -> Option<String> {
     evaluator.setup_thread_locals();
@@ -1591,10 +1591,10 @@ impl LayoutEngine {
     ///
     /// This is the Rust-native alternative to `layout_frame()` which reads from
     /// C struct pointers. It reads buffer text, window geometry, and buffer-local
-    /// variables directly from the Evaluator's state.
+    /// variables directly from the Context's state.
     pub fn layout_frame_rust(
         &mut self,
-        evaluator: &mut neovm_core::emacs_core::Evaluator,
+        evaluator: &mut neovm_core::emacs_core::Context,
         frame_id: neovm_core::window::FrameId,
         frame_glyphs: &mut FrameGlyphBuffer,
     ) {
@@ -1861,7 +1861,7 @@ impl LayoutEngine {
     /// properties are already up-to-date when we read them here.
     fn layout_window_rust(
         &mut self,
-        evaluator: &mut neovm_core::emacs_core::Evaluator,
+        evaluator: &mut neovm_core::emacs_core::Context,
         frame_id: neovm_core::window::FrameId,
         params: &WindowParams,
         _frame_params: &FrameParams,
@@ -4858,7 +4858,7 @@ impl LayoutEngine {
         });
     }
 
-    /// Trigger fontification for a buffer region via the Rust Evaluator.
+    /// Trigger fontification for a buffer region via the Rust Context.
     ///
     /// Calls `(run-hook-with-args 'fontification-functions START)` if
     /// `fontification-functions` is bound and non-nil.  This is the same
@@ -4868,13 +4868,13 @@ impl LayoutEngine {
     /// Errors are non-fatal: layout continues without fontification if
     /// the hook signals or is not configured.
     fn ensure_fontified_rust(
-        evaluator: &mut neovm_core::emacs_core::Evaluator,
+        evaluator: &mut neovm_core::emacs_core::Context,
         _buf_id: neovm_core::buffer::BufferId,
         from: i64,
         _to: i64,
     ) {
         // Check if fontification-functions is bound and non-nil by evaluating
-        // the symbol.  The Evaluator does not expose a get_variable() API, so
+        // the symbol.  The Context does not expose a get_variable() API, so
         // we parse and eval the symbol name.
         let has_fontification = match neovm_core::emacs_core::parse_forms("fontification-functions")
         {
@@ -5249,7 +5249,7 @@ impl LayoutEngine {
     /// Render the frame-level tab-bar from GNU Lisp keymap output on the Rust path.
     fn render_frame_tab_bar_rust(
         &mut self,
-        evaluator: &mut neovm_core::emacs_core::Evaluator,
+        evaluator: &mut neovm_core::emacs_core::Context,
         frame_window_id: i64,
         face_resolver: &super::neovm_bridge::FaceResolver,
         frame_params: &FrameParams,
@@ -9687,7 +9687,7 @@ mod tests {
     use super::*;
     use crate::neovm_bridge::RustBufferAccess;
     use neomacs_display_protocol::frame_glyphs::FrameGlyph;
-    use neovm_core::emacs_core::Evaluator;
+    use neovm_core::emacs_core::Context;
     use neovm_core::emacs_core::load::{
         apply_runtime_startup_state, create_bootstrap_evaluator_cached_with_features,
     };
@@ -9769,7 +9769,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_publishes_increasing_display_positions() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -9827,7 +9827,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_tracks_multibyte_sample_positions() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -9907,7 +9907,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_publishes_face_scaled_advances_for_inline_plist_faces() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -10082,7 +10082,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_keeps_mixed_width_advances_correct_after_mid_line_face_change() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -10211,7 +10211,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_keeps_face_positions_after_truncated_multibyte_line() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -10352,7 +10352,7 @@ mod tests {
             buffer.buffer_string().chars().nth(pos - 1)
         }
 
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -10570,7 +10570,7 @@ mod tests {
             buffer.buffer_string().chars().nth(pos - 1)
         }
 
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -10824,7 +10824,7 @@ mod tests {
             buffer.buffer_string().chars().nth(pos - 1)
         }
 
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -10891,7 +10891,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_reads_far_enough_for_last_visible_truncated_line() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -10956,7 +10956,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_retries_window_when_point_starts_below_visible_span() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -11117,7 +11117,7 @@ mod tests {
 
     #[test]
     fn next_window_start_for_point_line_continuation_advances_last_visible_row() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -11195,7 +11195,7 @@ mod tests {
     #[test]
     fn next_window_start_for_point_line_continuation_ignores_tail_clipping_when_point_row_is_not_last_visible_row()
      {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -11350,7 +11350,7 @@ mod tests {
             buffer.buffer_string().chars().nth(pos - 1)
         }
 
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -11432,7 +11432,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_converges_visibility_for_point_line_tail_clipping() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -11494,7 +11494,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_keeps_visible_eob_cursor_on_short_trailing_newline_buffer() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -11560,7 +11560,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_formats_mode_line_from_current_redisplay_geometry() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()
@@ -11647,7 +11647,7 @@ mod tests {
 
     #[test]
     fn layout_frame_rust_renders_header_line_text_for_non_nil_header_line_format() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let buf_id = eval
             .buffer_manager()
             .current_buffer()

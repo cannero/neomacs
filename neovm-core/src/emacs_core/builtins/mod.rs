@@ -33,7 +33,7 @@ pub(super) use std::cell::RefCell;
 pub(super) use std::collections::{HashMap, HashSet};
 use strum::EnumString;
 
-/// Reset all thread-local state in builtins (called from Evaluator::new).
+/// Reset all thread-local state in builtins (called from Context::new).
 pub(crate) fn reset_builtins_thread_locals() {
     collections::reset_collections_thread_locals();
     stubs::reset_stubs_thread_locals();
@@ -190,7 +190,7 @@ pub(super) fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
 }
 
 pub(super) fn expect_integer_or_marker_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<i64, Flow> {
     match value {
@@ -248,7 +248,7 @@ pub(super) fn expect_number_or_marker(value: &Value) -> Result<NumberOrMarker, F
 }
 
 pub(super) fn expect_number_or_marker_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<NumberOrMarker, Flow> {
     match value {
@@ -286,7 +286,7 @@ pub(super) fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
 }
 
 pub(super) fn expect_number_or_marker_f64_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<f64, Flow> {
     match expect_number_or_marker_eval(eval, value)? {
@@ -306,7 +306,7 @@ pub(super) fn expect_integer_or_marker_after_number_check(value: &Value) -> Resu
 }
 
 pub(super) fn expect_integer_or_marker_after_number_check_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<i64, Flow> {
     match expect_number_or_marker_eval(eval, value)? {
@@ -865,7 +865,7 @@ fn dispatch_builtin_id_pure(id: PureBuiltinId, args: Vec<Value>) -> EvalResult {
 }
 
 fn dispatch_builtin_id_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     id: PureBuiltinId,
     args: Vec<Value>,
 ) -> EvalResult {
@@ -887,7 +887,7 @@ fn dispatch_builtin_id_eval(
 
 /// Try to dispatch a builtin function by name. Returns None if not a known builtin.
 pub(crate) fn dispatch_builtin(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     name: &str,
     args: Vec<Value>,
 ) -> Option<EvalResult> {

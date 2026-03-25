@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::Evaluator;
+use crate::emacs_core::Context;
 use crate::emacs_core::value::{
     StringTextPropertyRun, get_string_text_properties_table, set_string_text_properties,
 };
@@ -70,7 +70,7 @@ fn test_format_mode_line() {
 
 #[test]
 fn test_format_mode_line_eval_optional_designators() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-format", 80, 24, buffer_id);
     let window_id = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
@@ -121,7 +121,7 @@ fn test_format_mode_line_eval_optional_designators() {
 
 #[test]
 fn test_resolve_live_window_display_context_uses_selected_window_buffer_point() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let selected_buffer_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
         .frames
@@ -152,7 +152,7 @@ fn test_resolve_live_window_display_context_uses_selected_window_buffer_point() 
 
 #[test]
 fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*other*");
 
@@ -173,7 +173,7 @@ fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
 
 #[test]
 fn test_format_mode_line_eval_uses_window_buffer_instead_of_current_buffer() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let frame_id = eval
         .frames
@@ -209,7 +209,7 @@ fn test_format_mode_line_eval_uses_window_buffer_instead_of_current_buffer() {
 
 #[test]
 fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*mode-line*");
     eval.buffers
@@ -243,7 +243,7 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
 
 #[test]
 fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*mode-line-eval*");
     eval.buffers
@@ -270,7 +270,7 @@ fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
 
 #[test]
 fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_eval_forms() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*mode-line-shared-eval*");
     eval.buffers
@@ -308,7 +308,7 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
 
 #[test]
 fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     eval.obarray.set_symbol_value("mode-line-flag", Value::True);
 
     let then_rendered = builtin_format_mode_line_eval(
@@ -344,7 +344,7 @@ fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
 
 #[test]
 fn test_format_mode_line_string_valued_symbols_render_literally() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("*mode-line-literal*");
     eval.buffers
         .set_buffer_local_property(other_id, "mode-name", Value::string("%b"))
@@ -371,7 +371,7 @@ fn test_format_mode_line_string_valued_symbols_render_literally() {
 
 #[test]
 fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("xy");
 
     let rendered = builtin_format_mode_line_in_state(
@@ -399,7 +399,7 @@ fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
 
 #[test]
 fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("xy");
 
     let rendered = builtin_format_mode_line_in_state(
@@ -423,7 +423,7 @@ fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics()
 
 #[test]
 fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     eval.obarray.set_symbol_value(
         "unsafe-mode-line",
         Value::list(vec![
@@ -451,7 +451,7 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
 
 #[test]
 fn test_format_mode_line_propertize_preserves_text_properties() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_eval(
         &mut eval,
         vec![Value::list(vec![
@@ -482,7 +482,7 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
 
 #[test]
 fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("fmt-prop-buffer");
     eval.buffers.set_current(buffer_id);
 
@@ -533,7 +533,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
 
 #[test]
 fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("status-buffer");
     eval.buffers.set_current(buffer_id);
     {
@@ -561,7 +561,7 @@ fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
 
 #[test]
 fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_face() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_eval(
         &mut eval,
         vec![
@@ -599,7 +599,7 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
 
 #[test]
 fn test_format_mode_line_integer_face_argument_discards_text_properties() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_eval(
         &mut eval,
         vec![
@@ -628,7 +628,7 @@ fn test_format_mode_line_integer_face_argument_discards_text_properties() {
 
 #[test]
 fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_eval(
         &mut eval,
         vec![Value::list(vec![
@@ -657,7 +657,7 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
 
 #[test]
 fn test_format_mode_line_recursive_depth_specs_match_gnu() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
 
     eval.command_loop.recursive_depth = 3;
     let shallow =
@@ -672,7 +672,7 @@ fn test_format_mode_line_recursive_depth_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_size_and_process_specs_match_gnu() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("mode-line-metadata");
     eval.buffers.set_current(buffer_id);
     {
@@ -697,7 +697,7 @@ fn test_format_mode_line_size_and_process_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_column_c_and_big_c_specs_match_gnu() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("col-test");
     eval.buffers.set_current(buffer_id);
     {
@@ -714,7 +714,7 @@ fn test_format_mode_line_column_c_and_big_c_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_major_mode_name_spec_matches_gnu() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("mode-test");
     eval.buffers.set_current(buffer_id);
     eval.buffers
@@ -735,7 +735,7 @@ fn test_format_mode_line_major_mode_name_spec_matches_gnu() {
 
 #[test]
 fn test_format_mode_line_remote_at_spec_matches_gnu() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("remote-test");
     eval.buffers.set_current(buffer_id);
 
@@ -756,7 +756,7 @@ fn test_format_mode_line_remote_at_spec_matches_gnu() {
 
 #[test]
 fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("coding-test");
     eval.buffers.set_current(buffer_id);
 
@@ -787,7 +787,7 @@ fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_position_o_and_q_specs() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("pos-test");
     eval.buffers.set_current(buffer_id);
 
@@ -864,7 +864,7 @@ fn test_format_mode_line_position_o_and_q_specs() {
 
 #[test]
 fn test_format_mode_line_percent_specs_use_window_buffer_and_completed_window_end() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let target_id = eval.buffers.create_buffer("window-target");
     {
         let buffer = eval.buffers.get_mut(target_id).expect("target buffer");
@@ -994,7 +994,7 @@ fn test_window_text_pixel_size_arg_validation() {
 
 #[test]
 fn test_window_text_pixel_size_eval_window_validation() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
     let selected_window = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
@@ -1055,7 +1055,7 @@ fn test_pos_visible_in_window_p() {
 
 #[test]
 fn test_pos_visible_in_window_p_eval_window_validation() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let err = builtin_pos_visible_in_window_p_eval(&mut eval, vec![Value::Nil, Value::string("x")])
         .unwrap_err();
     match err {
@@ -1080,7 +1080,7 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
 
 #[test]
 fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-pos", 160, 64, buf_id);
     let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
@@ -1117,7 +1117,7 @@ fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() 
 
 #[test]
 fn test_window_line_height_eval_returns_live_gui_row_metrics() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
         .frames
@@ -1162,7 +1162,7 @@ fn test_window_line_height_eval_returns_live_gui_row_metrics() {
 
 #[test]
 fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-posn", 160, 64, buf_id);
     let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
@@ -1224,7 +1224,7 @@ fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
 
 #[test]
 fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-posn-xy", 160, 64, buf_id);
     let selected_window = eval.frames.get(frame_id).expect("frame").selected_window;
@@ -1293,7 +1293,7 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
 
 #[test]
 fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
         .frame_manager_mut()
@@ -1379,7 +1379,7 @@ fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
 
 #[test]
 fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
         .frame_manager_mut()
@@ -1642,7 +1642,7 @@ fn test_tool_bar_height() {
 
 #[test]
 fn test_tool_bar_height_eval_frame_validation() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
 
@@ -1668,7 +1668,7 @@ fn test_tab_bar_height() {
 
 #[test]
 fn test_tab_bar_height_eval_frame_validation() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
 
@@ -1685,7 +1685,7 @@ fn test_tab_bar_height_eval_frame_validation() {
 
 #[test]
 fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let frame_id = super::super::window_cmds::ensure_selected_frame_id(&mut eval);
     {
         let frame = eval.frames.get_mut(frame_id).expect("selected frame");

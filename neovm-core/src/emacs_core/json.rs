@@ -1088,7 +1088,7 @@ pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
 /// current point (after leading whitespace), leaves trailing buffer content
 /// untouched, and advances point to just after the parsed value.
 pub(crate) fn builtin_json_parse_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_json_parse_buffer_in_manager(&mut eval.buffers, args)
@@ -1131,7 +1131,7 @@ pub(crate) fn builtin_json_parse_buffer_in_manager(
 ///
 /// Keyword arguments mirror `json-serialize` (`:null-object`, `:false-object`).
 pub(crate) fn builtin_json_insert(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_json_insert_in_manager(&mut eval.buffers, args)

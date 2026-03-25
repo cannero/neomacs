@@ -97,7 +97,7 @@ pub(crate) fn eval_forms_from_source_in_runtime(
 }
 
 pub(crate) fn eval_forms_from_source(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     source: &str,
 ) -> EvalResult {
     eval_forms_from_source_in_runtime(source, |form| {
@@ -189,7 +189,7 @@ pub(crate) fn eval_region_source_text_in_state(
 ///
 /// Evaluate all forms from BUFFER (or current buffer) and return nil.
 pub(crate) fn builtin_eval_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("eval-buffer", &args, 5)?;
@@ -201,7 +201,7 @@ pub(crate) fn builtin_eval_buffer(
 ///
 /// Evaluate forms in the [START, END) region of the current buffer.
 pub(crate) fn builtin_eval_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let source = eval_region_source_text_in_state(&eval.buffers, &args)?;
@@ -212,11 +212,11 @@ pub(crate) fn builtin_eval_region(
 }
 
 pub(crate) fn builtin_eval_buffer_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
-    let source = eval_buffer_source_text_in_state(shared.buffers, args.first())?;
+    let source = eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
     eval_forms_from_source_in_runtime(&source, |form| {
         shared.with_parent_evaluator_vm_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
         shared.gc_safe_point();
@@ -225,11 +225,11 @@ pub(crate) fn builtin_eval_buffer_in_vm_runtime(
 }
 
 pub(crate) fn builtin_eval_region_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
 ) -> EvalResult {
-    let source = eval_region_source_text_in_state(shared.buffers, args)?;
+    let source = eval_region_source_text_in_state(&shared.buffers, args)?;
     if source.is_empty() {
         return Ok(Value::Nil);
     }
@@ -265,7 +265,7 @@ fn expect_optional_prompt_string(args: &[Value]) -> Result<(), Flow> {
 /// In batch mode, reads from `unread-command-events`, returns nil if empty.
 /// In interactive mode, blocks on the input channel via `read_char()`.
 pub(crate) fn builtin_read_event(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if let Some(value) = builtin_read_event_in_runtime(eval, &args)? {
@@ -276,7 +276,7 @@ pub(crate) fn builtin_read_event(
 }
 
 pub(crate) fn finish_read_event_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_event_interactive_in_runtime(eval, args)
@@ -307,7 +307,7 @@ pub(crate) fn finish_read_event_interactive_in_runtime(
 /// In batch mode, consumes `unread-command-events` until a character is found.
 /// In interactive mode, blocks on the input channel, skipping non-character events.
 pub(crate) fn builtin_read_char_exclusive(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if let Some(value) = builtin_read_char_exclusive_in_runtime(eval, &args)? {
@@ -318,7 +318,7 @@ pub(crate) fn builtin_read_char_exclusive(
 }
 
 pub(crate) fn finish_read_char_exclusive_in_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
     finish_read_char_exclusive_interactive_in_runtime(eval, args)
@@ -425,7 +425,7 @@ pub(crate) fn builtin_get_load_suffixes(args: Vec<Value>) -> EvalResult {
     ]))
 }
 
-/// Evaluator-aware variant that reads from obarray.
+/// Context-aware variant that reads from obarray.
 pub(crate) fn builtin_get_load_suffixes_in_state(obarray: &super::symbol::Obarray) -> EvalResult {
     use super::value::{Value, list_to_vec};
     let load_suffixes = obarray

@@ -324,7 +324,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 ///   (error "Buffer not visiting a file or directory")
 /// This implementation mirrors that behavior.
 pub(crate) fn builtin_bookmark_set(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("bookmark-set", &args, 1)?;
@@ -370,7 +370,7 @@ pub(crate) fn builtin_bookmark_set(
 /// Returns an alist: ((filename . F) (position . P) (annotation . A))
 /// or signals an error if the bookmark does not exist.
 pub(crate) fn builtin_bookmark_jump(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() || args.len() > 2 {
@@ -421,7 +421,7 @@ pub(crate) fn builtin_bookmark_jump(
 
 /// (bookmark-delete NAME &optional BATCH) -> nil
 pub(crate) fn builtin_bookmark_delete(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() || args.len() > 2 {
@@ -445,7 +445,7 @@ pub(crate) fn builtin_bookmark_delete(
 
 /// (bookmark-rename OLD NEW) -> nil
 pub(crate) fn builtin_bookmark_rename(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() || args.len() > 2 {
@@ -517,7 +517,7 @@ pub(crate) fn builtin_bookmark_rename(
 /// (bookmark-all-names) -> list of bookmark names (sorted)
 #[cfg(test)]
 pub(crate) fn builtin_bookmark_all_names(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("bookmark-all-names", &args, 0)?;
@@ -535,7 +535,7 @@ pub(crate) fn builtin_bookmark_all_names(
 /// BOOKMARK may be a bookmark name or a bookmark record alist.
 #[cfg(test)]
 pub(crate) fn builtin_bookmark_get_filename(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("bookmark-get-filename", &args, 1)?;
@@ -569,7 +569,7 @@ pub(crate) fn builtin_bookmark_get_filename(
 /// BOOKMARK may be a bookmark name or a bookmark record alist.
 #[cfg(test)]
 pub(crate) fn builtin_bookmark_get_position(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("bookmark-get-position", &args, 1)?;
@@ -602,7 +602,7 @@ pub(crate) fn builtin_bookmark_get_position(
 /// BOOKMARK may be a bookmark name or a bookmark record alist.
 #[cfg(test)]
 pub(crate) fn builtin_bookmark_get_annotation(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("bookmark-get-annotation", &args, 1)?;
@@ -636,7 +636,7 @@ pub(crate) fn builtin_bookmark_get_annotation(
 /// BOOKMARK is a bookmark name.  If missing, returns nil.
 #[cfg(test)]
 pub(crate) fn builtin_bookmark_set_annotation(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("bookmark-set-annotation", &args, 2)?;
@@ -667,14 +667,14 @@ fn default_bookmark_file() -> String {
     ".config/emacs/bookmarks".to_string()
 }
 
-fn active_bookmark_default_file(eval: &super::eval::Evaluator) -> String {
+fn active_bookmark_default_file(eval: &super::eval::Context) -> String {
     if let Some(Value::Str(id)) = eval.obarray.symbol_value("bookmark-default-file") {
         return with_heap(|h| h.get_string(*id).to_owned());
     }
     default_bookmark_file()
 }
 
-fn bookmark_timestamp_file(eval: &super::eval::Evaluator) -> Option<String> {
+fn bookmark_timestamp_file(eval: &super::eval::Context) -> Option<String> {
     let value = eval.obarray.symbol_value("bookmark-bookmarks-timestamp")?;
     let Value::Cons(cell) = value else {
         return None;
@@ -696,14 +696,14 @@ fn bookmark_save_stamp(path: &str) -> Value {
     ])
 }
 
-fn set_bookmark_timestamp(eval: &mut super::eval::Evaluator, file: &str) {
+fn set_bookmark_timestamp(eval: &mut super::eval::Context, file: &str) {
     eval.obarray
         .set_symbol_value("bookmark-bookmarks-timestamp", bookmark_save_stamp(file));
 }
 
 /// (bookmark-save &optional PARG FILE BATCH) -> nil or save-stamp list
 pub(crate) fn builtin_bookmark_save(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 3 {
@@ -784,7 +784,7 @@ pub(crate) fn builtin_bookmark_save(
 
 /// (bookmark-load FILE &optional OVERWRITE NO-MSG BATCH) -> message string or nil
 pub(crate) fn builtin_bookmark_load(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.is_empty() || args.len() > 4 {

@@ -329,7 +329,7 @@ pub fn read_neobc(path: &Path, expected_hash: &str) -> std::io::Result<LoadedNeo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
     use crate::emacs_core::file_compile::compile_file_forms;
     use crate::emacs_core::parser::parse_forms;
 
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_simple_eval_form() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
 
@@ -363,7 +363,7 @@ mod tests {
 
         // Re-evaluate the loaded form and check result.
         if let LoadedForm::Eval(expr) = &loaded.forms[0] {
-            let mut eval2 = Evaluator::new();
+            let mut eval2 = Context::new();
             let result = eval2.eval(expr).unwrap();
             assert_eq!(result, Value::Int(3));
         }
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_eval_when_compile() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let src = "(eval-when-compile (+ 10 20))";
         let forms = parse_forms(src).unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_mixed_forms() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let src = "(defvar fc-fmt-a 1)\n(eval-when-compile (+ 2 3))\n(defvar fc-fmt-b 10)";
         let forms = parse_forms(src).unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_hash_mismatch_rejected() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
 
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_hash_skip_with_empty_string() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
 
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_write_neobc_convenience() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
 
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_string_constant() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let src = r#"(eval-when-compile "hello")"#;
         let forms = parse_forms(src).unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_nil_constant() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let src = "(eval-when-compile nil)";
         let forms = parse_forms(src).unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_lexical_binding_flag() {
-        let mut eval = Evaluator::new();
+        let mut eval = Context::new();
         let forms = parse_forms("t").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
 

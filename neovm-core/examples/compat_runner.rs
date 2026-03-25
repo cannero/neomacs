@@ -1,5 +1,5 @@
 use neovm_core::emacs_core::{
-    Evaluator, format_eval_result_bytes_with_eval, parse_forms, print_expr,
+    Context, format_eval_result_bytes_with_eval, parse_forms, print_expr,
 };
 use std::fs;
 use std::io::{self, Write};
@@ -26,7 +26,7 @@ fn main() {
         }
     };
 
-    let mut evaluator = Evaluator::new();
+    let mut evaluator = Context::new();
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
     for (index, form) in forms.iter().enumerate() {

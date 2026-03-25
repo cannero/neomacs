@@ -275,7 +275,7 @@ fn expect_register(value: &Value) -> Result<char, Flow> {
 /// extracted region text as a string in arg index 1).
 /// Simplified: (copy-to-register REGISTER TEXT) -> nil
 pub(crate) fn builtin_copy_to_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("copy-to-register", &args, 2)?;
@@ -292,7 +292,7 @@ pub(crate) fn builtin_copy_to_register(
 /// to insert into the buffer).  Signals an error if the register is empty
 /// or does not hold text.
 pub(crate) fn builtin_insert_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("insert-register", &args, 1)?;
@@ -320,7 +320,7 @@ pub(crate) fn builtin_insert_register(
 ///
 /// Store the current buffer name and point in the register.
 pub(crate) fn builtin_point_to_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("point-to-register", &args, 1)?;
@@ -347,7 +347,7 @@ pub(crate) fn builtin_point_to_register(
 
 /// (number-to-register NUMBER REGISTER) -> nil
 pub(crate) fn builtin_number_to_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("number-to-register", &args, 2)?;
@@ -363,7 +363,7 @@ pub(crate) fn builtin_number_to_register(
 /// If it holds text, append the printed number.
 /// Otherwise signal an error.
 pub(crate) fn builtin_increment_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("increment-register", &args, 2)?;
@@ -398,7 +398,7 @@ pub(crate) fn builtin_increment_register(
 ///
 /// Return a human-readable description of the register's contents.
 pub(crate) fn builtin_view_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("view-register", &args, 1)?;
@@ -447,7 +447,7 @@ pub(crate) fn builtin_view_register(
 /// Return the content of a register as a Lisp value.
 /// Text -> string, Number -> integer, Position -> list, otherwise nil.
 pub(crate) fn builtin_get_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("get-register", &args, 1)?;
@@ -475,7 +475,7 @@ pub(crate) fn builtin_get_register(
 /// Return textual content from REGISTER when available.
 #[cfg(test)]
 pub(crate) fn builtin_register_to_string(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("register-to-string", &args, 1)?;
@@ -492,7 +492,7 @@ pub(crate) fn builtin_register_to_string(
 /// Low-level: store an arbitrary Lisp value.  Strings become Text,
 /// integers become Number, otherwise stored as FrameConfig (opaque).
 pub(crate) fn builtin_set_register(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-register", &args, 2)?;

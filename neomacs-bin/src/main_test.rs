@@ -7,7 +7,7 @@ use super::{
     run_gnu_startup,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
-use neovm_core::emacs_core::Evaluator;
+use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::GuiFrameHostRequest;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::load::{
@@ -46,7 +46,7 @@ fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
     }
 }
 
-fn bootstrap_runtime_gui_startup(eval: &mut Evaluator) -> FrameId {
+fn bootstrap_runtime_gui_startup(eval: &mut Context) -> FrameId {
     let _bootstrap = bootstrap_buffers(eval, 960, 640, gui_display());
     apply_runtime_startup_state(eval).expect("runtime startup state should succeed");
     let frame_id = eval
@@ -117,7 +117,7 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
 
 #[test]
 fn current_layout_frame_follows_selected_frame() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let b1 = eval.buffer_manager_mut().create_buffer("*one*");
     let b2 = eval.buffer_manager_mut().create_buffer("*two*");
     let f1 = eval.frame_manager_mut().create_frame("F1", 80, 24, b1);
@@ -130,7 +130,7 @@ fn current_layout_frame_follows_selected_frame() {
 
 #[test]
 fn current_layout_frame_tracks_surrogate_after_bootstrap_frame_deletion() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let b1 = eval.buffer_manager_mut().create_buffer("*one*");
     let b2 = eval.buffer_manager_mut().create_buffer("*two*");
     let f1 = eval.frame_manager_mut().create_frame("F1", 80, 24, b1);
@@ -235,7 +235,7 @@ fn startup_option_parser_promotes_batch_to_noninteractive_and_strips_batch_flag(
 
 #[test]
 fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
     let frame_id = eval
         .frame_manager()
@@ -292,7 +292,7 @@ fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
 
 #[test]
 fn configure_gnu_startup_state_reports_neo_window_system_for_gui_boots() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     configure_gnu_startup_state(&mut eval, FrameId(42), &gui_startup());
 
     assert_eq!(
@@ -373,7 +373,7 @@ fn pdump_preserves_neo_term_generic_methods() {
 
 #[test]
 fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let startup = StartupOptions {
         frontend: FrontendKind::Tty,
         forwarded_args: vec!["neomacs".to_string(), "-q".to_string()],
@@ -405,7 +405,7 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
 
 #[test]
 fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let startup = StartupOptions {
         frontend: FrontendKind::Tty,
         forwarded_args: vec![
@@ -436,7 +436,7 @@ fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
 
 #[test]
 fn configure_gnu_startup_state_seeds_command_line_args_left_for_gnu_startup() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let startup = gui_startup_with_args(&["-Q", "-l", "/tmp/demo.el"]);
     configure_gnu_startup_state(&mut eval, FrameId(42), &startup);
 
@@ -453,7 +453,7 @@ fn configure_gnu_startup_state_seeds_command_line_args_left_for_gnu_startup() {
 #[test]
 fn bootstrap_buffers_seed_frame_with_renderer_metrics() {
     let metrics = bootstrap_frame_metrics();
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
     let frame = eval
         .frame_manager()
@@ -484,7 +484,7 @@ fn bootstrap_frame_metrics_uses_default_face_height_pixels() {
 
 #[test]
 fn bootstrap_default_font_name_uses_pixel_size_field() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let font_pixel_size = face_height_to_pixels(100);
     let font_name = bootstrap_default_font_name(font_pixel_size);
     let rendered = print_value_with_eval(&mut eval, &font_name);
@@ -495,7 +495,7 @@ fn bootstrap_default_font_name_uses_pixel_size_field() {
 #[test]
 fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
     let metrics = bootstrap_frame_metrics();
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let old_buffer = eval.buffer_manager_mut().create_buffer("*old*");
     let old_frame = eval
         .frame_manager_mut()
@@ -537,7 +537,7 @@ fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
 #[test]
 fn bootstrap_buffers_reuses_cached_surrogate_frame_when_it_is_the_only_selected_frame() {
     let metrics = bootstrap_frame_metrics();
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let old_buffer = eval.buffer_manager_mut().create_buffer("*old*");
     let surrogate = eval
         .frame_manager_mut()
@@ -913,7 +913,7 @@ fn gnu_startup_requests_redisplay_for_echo_area_message() {
 
     let redisplay_rows = Arc::new(Mutex::new(Vec::<String>::new()));
     let redisplay_rows_capture = Arc::clone(&redisplay_rows);
-    eval.redisplay_fn = Some(Box::new(move |eval: &mut Evaluator| {
+    eval.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
         redisplay_rows_capture
             .lock()
             .expect("redisplay row buffer")

@@ -343,7 +343,7 @@ fn table_header_symbol(vec_id: ObjId) -> Option<Value> {
 
 /// Check if a Value is an abbrev table (obarray with a header symbol carrying
 /// a numeric `:abbrev-table-modiff` property).
-fn is_abbrev_table(eval: &super::eval::Evaluator, value: &Value) -> bool {
+fn is_abbrev_table(eval: &super::eval::Context, value: &Value) -> bool {
     let vec_id = match value {
         Value::Vector(id) => *id,
         _ => return false,
@@ -421,7 +421,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
     }
 }
 
-fn expect_abbrev_table(eval: &super::eval::Evaluator, value: &Value) -> Result<ObjId, Flow> {
+fn expect_abbrev_table(eval: &super::eval::Context, value: &Value) -> Result<ObjId, Flow> {
     match value {
         Value::Vector(id) if is_abbrev_table(eval, value) => Ok(*id),
         _ => Err(signal(
@@ -439,7 +439,7 @@ fn expect_abbrev_table(eval: &super::eval::Evaluator, value: &Value) -> Result<O
 ///
 /// Create a new empty abbrev table (obarray with a "0" symbol).
 pub(crate) fn builtin_make_abbrev_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     // Create vector of ABBREV_TABLE_DEFAULT_SIZE nil slots
@@ -482,7 +482,7 @@ pub(crate) fn builtin_make_abbrev_table(
 /// Return t if OBJ is an abbrev table (obarray with "0" symbol having
 /// `abbrev-table` property).
 pub(crate) fn builtin_abbrev_table_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abbrev-table-p", &args, 1)?;
@@ -494,7 +494,7 @@ pub(crate) fn builtin_abbrev_table_p(
 /// TABLE is an abbrev table (obarray).
 /// NAME is a string. EXPANSION is a string or nil.
 pub(crate) fn builtin_define_abbrev(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("define-abbrev", &args, 3)?;
@@ -589,7 +589,7 @@ pub(crate) fn builtin_define_abbrev(
 ///
 /// Look up ABBREV in TABLE (or the local/global abbrev tables).
 pub(crate) fn builtin_abbrev_symbol(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("abbrev-symbol", &args, 1)?;
@@ -624,7 +624,7 @@ pub(crate) fn builtin_abbrev_symbol(
 ///
 /// Look up the expansion of ABBREV without expanding it.
 pub(crate) fn builtin_abbrev_expansion(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("abbrev-expansion", &args, 1)?;
@@ -672,7 +672,7 @@ pub(crate) fn builtin_abbrev_expansion(
 /// Reset all symbols in TABLE except the "0" property symbol.
 /// In GNU Emacs, system abbrevs are kept but with empty expansion.
 pub(crate) fn builtin_clear_abbrev_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("clear-abbrev-table", &args, 1)?;
@@ -700,7 +700,7 @@ pub(crate) fn builtin_clear_abbrev_table(
 ///
 /// Get property PROP from the header symbol of TABLE.
 pub(crate) fn builtin_abbrev_table_get(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abbrev-table-get", &args, 2)?;
@@ -718,7 +718,7 @@ pub(crate) fn builtin_abbrev_table_get(
 ///
 /// Set property PROP to VAL on the header symbol of TABLE.
 pub(crate) fn builtin_abbrev_table_put(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("abbrev-table-put", &args, 3)?;
@@ -737,13 +737,13 @@ pub(crate) fn builtin_abbrev_table_put(
     Ok(args[2])
 }
 
-fn get_table_property(eval: &super::eval::Evaluator, vec_id: ObjId, prop: &str) -> Option<Value> {
+fn get_table_property(eval: &super::eval::Context, vec_id: ObjId, prop: &str) -> Option<Value> {
     table_header_symbol(vec_id)
         .and_then(symbol_id)
         .and_then(|id| eval.obarray().get_property_id(id, intern(prop)).cloned())
 }
 
-fn increment_table_modiff(eval: &mut super::eval::Evaluator, vec_id: ObjId) {
+fn increment_table_modiff(eval: &mut super::eval::Context, vec_id: ObjId) {
     let next = match get_table_property(eval, vec_id, ":abbrev-table-modiff") {
         Some(Value::Int(n)) => n + 1,
         _ => 1,
@@ -758,7 +758,7 @@ fn increment_table_modiff(eval: &mut super::eval::Evaluator, vec_id: ObjId) {
 }
 
 fn find_abbrev_symbol_in_table(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     abbrev: &str,
     vec_id: ObjId,
 ) -> Option<Value> {
@@ -807,7 +807,7 @@ fn find_abbrev_symbol_in_table(
 /// NAME is a symbol. Creates the table as an obarray, sets it as NAME's value,
 /// and adds NAME to `abbrev-table-name-list`.
 pub(crate) fn builtin_define_abbrev_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("define-abbrev-table", &args, 2)?;
@@ -930,7 +930,7 @@ pub(crate) fn builtin_define_abbrev_table(
 ///
 /// NeoVM stub: returns nil in batch/non-interactive use.
 pub(crate) fn builtin_expand_abbrev(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("expand-abbrev", &args, 0)?;
@@ -942,7 +942,7 @@ pub(crate) fn builtin_expand_abbrev(
 /// Insert a description of the abbrev table named NAME into the current buffer.
 /// This is a simplified version that inserts into the current buffer.
 pub(crate) fn builtin_insert_abbrev_table_description(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("insert-abbrev-table-description", &args, 1)?;

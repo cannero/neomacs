@@ -141,7 +141,7 @@ fn get_watchers_returns_callbacks_in_registration_order() {
 
 #[test]
 fn builtin_get_variable_watchers_tracks_runtime_registry() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     builtin_add_variable_watcher(
         &mut eval,
         vec![Value::symbol("vm-watched-var"), Value::symbol("watch-a")],
@@ -182,7 +182,7 @@ fn builtin_get_variable_watchers_tracks_runtime_registry() {
 
 #[test]
 fn variable_watcher_builtins_follow_runtime_alias_resolution() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     super::super::builtins::builtin_defvaralias_eval(
         &mut eval,
         vec![
@@ -224,7 +224,7 @@ fn variable_watcher_builtins_follow_runtime_alias_resolution() {
 
 #[test]
 fn remove_variable_watcher_accepts_non_symbol_callbacks() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let callback = Value::make_lambda(LambdaData {
         params: LambdaParams {
             required: vec![

@@ -1,16 +1,16 @@
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
-use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
 
 fn eval_one(src: &str) -> String {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     let result = ev.eval_expr(&forms[0]);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -18,7 +18,7 @@ fn eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
-fn eval_all_with(ev: &mut Evaluator, src: &str) -> Vec<String> {
+fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -442,7 +442,7 @@ fn autoload_does_not_override_real_definition() {
 
 #[test]
 fn autoload_registers_in_autoload_manager() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(autoload 'test-auto-fn "test-auto-file" "Test doc" t 'macro)"#,

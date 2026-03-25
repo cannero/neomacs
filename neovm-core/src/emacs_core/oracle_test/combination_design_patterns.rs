@@ -204,7 +204,7 @@ fn oracle_prop_dp_visitor_pattern() {
                 (if handler
                     (funcall handler node)
                   (list 'unknown-node type)))))
-      ;; Evaluator visitor
+      ;; Context visitor
       (setq eval-visitor
             (list
              (cons 'num (lambda (node) (cadr node)))

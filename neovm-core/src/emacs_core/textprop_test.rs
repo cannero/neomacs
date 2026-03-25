@@ -1,12 +1,12 @@
-use super::super::eval::Evaluator;
+use super::super::eval::Context;
 use super::*;
 use crate::emacs_core::builtins::{
     builtin_current_buffer, builtin_get_pos_property, builtin_make_indirect_buffer,
 };
 
 /// Helper: create an evaluator with a buffer containing the given text.
-fn eval_with_text(text: &str) -> Evaluator {
-    let mut eval = Evaluator::new();
+fn eval_with_text(text: &str) -> Context {
+    let mut eval = Context::new();
     eval.buffers.current_buffer_mut().unwrap().insert(text);
     // Reset point to beginning.
     eval.buffers.current_buffer_mut().unwrap().goto_char(0);
@@ -357,7 +357,7 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
 
 #[test]
 fn get_pos_property_on_string_delegates_to_text_property() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let string = Value::string("abcd");
     builtin_put_text_property(
         &mut eval,
@@ -885,7 +885,7 @@ fn text_property_any_not_found() {
 
 #[test]
 fn text_property_any_uses_live_marker_end_after_insertions() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let forms = crate::emacs_core::parser::parse_forms(
         r#"(with-temp-buffer
              (insert "abc")
@@ -1003,7 +1003,7 @@ fn overlayp_true() {
 
 #[test]
 fn overlayp_false() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_overlayp(&mut eval, vec![Value::Int(42)]).unwrap();
     assert!(matches!(result, Value::Nil));
 }
@@ -1540,7 +1540,7 @@ fn overlay_rear_advance() {
 
 #[test]
 fn text_property_on_empty_buffer() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     // Scratch buffer is empty.
     let result = builtin_get_text_property(&mut eval, vec![Value::Int(1), Value::symbol("face")]);
     assert!(matches!(result, Ok(Value::Nil)));
@@ -1548,7 +1548,7 @@ fn text_property_on_empty_buffer() {
 
 #[test]
 fn overlays_at_empty_buffer() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_overlays_at(&mut eval, vec![Value::Int(1)]).unwrap();
     assert!(result.is_nil());
 }

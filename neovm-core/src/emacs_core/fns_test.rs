@@ -119,7 +119,7 @@ fn base64url_uses_dash_underscore() {
 
 #[test]
 fn base64_region_eval_encode_decode_roundtrip() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -149,7 +149,7 @@ fn base64_region_eval_encode_decode_roundtrip() {
 
 #[test]
 fn base64_region_eval_swapped_bounds_and_url_encoding() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -172,7 +172,7 @@ fn base64_region_eval_swapped_bounds_and_url_encoding() {
 
 #[test]
 fn base64_decode_region_noerror_semantics() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -214,7 +214,7 @@ fn base64_decode_region_noerror_semantics() {
 
 #[test]
 fn base64_region_eval_error_shapes() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -391,7 +391,7 @@ fn md5_non_symbol_coding_system_errors() {
 
 #[test]
 fn md5_eval_buffer_core_semantics() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -412,7 +412,7 @@ fn md5_eval_buffer_core_semantics() {
 
 #[test]
 fn md5_eval_buffer_range_errors() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -431,7 +431,7 @@ fn md5_eval_buffer_range_errors() {
 
 #[test]
 fn md5_eval_buffer_index_type_error() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
     match builtin_md5_eval(
@@ -451,7 +451,7 @@ fn md5_eval_buffer_index_type_error() {
 
 #[test]
 fn md5_eval_deleted_buffer_errors() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.create_buffer("*md5-doomed*");
     assert!(eval.buffers.kill_buffer(id));
 
@@ -572,7 +572,7 @@ fn secure_hash_invalid_object_errors() {
 
 #[test]
 fn secure_hash_eval_buffer_sha1() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -586,7 +586,7 @@ fn secure_hash_eval_buffer_sha1() {
 
 #[test]
 fn secure_hash_eval_buffer_range_errors() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -608,7 +608,7 @@ fn secure_hash_eval_buffer_range_errors() {
 
 #[test]
 fn secure_hash_eval_buffer_index_type_error() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
     match builtin_secure_hash_eval(
@@ -633,7 +633,7 @@ fn secure_hash_eval_buffer_index_type_error() {
 
 #[test]
 fn secure_hash_eval_buffer_marker_range() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
@@ -656,7 +656,7 @@ fn secure_hash_eval_buffer_marker_range() {
 
 #[test]
 fn secure_hash_eval_deleted_buffer_errors() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.create_buffer("*secure-doomed*");
     assert!(eval.buffers.kill_buffer(id));
 
@@ -674,7 +674,7 @@ fn secure_hash_eval_deleted_buffer_errors() {
 
 #[test]
 fn buffer_hash_eval_current_buffer_sha1() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buf = eval.buffers.current_buffer_mut().expect("current buffer");
     buf.delete_region(buf.point_min(), buf.point_max());
     buf.insert("abc");
@@ -684,7 +684,7 @@ fn buffer_hash_eval_current_buffer_sha1() {
 
 #[test]
 fn buffer_hash_eval_by_name_sha1() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let buf = eval.buffers.current_buffer_mut().expect("current buffer");
     buf.delete_region(buf.point_min(), buf.point_max());
     buf.insert("abc");
@@ -700,7 +700,7 @@ fn buffer_hash_eval_by_name_sha1() {
 
 #[test]
 fn buffer_hash_eval_missing_name_errors() {
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     match builtin_buffer_hash_eval(&mut eval, vec![Value::string("*missing*")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");

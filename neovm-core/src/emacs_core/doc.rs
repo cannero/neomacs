@@ -50,7 +50,7 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
 /// Otherwise returns nil.  Unless RAW is non-nil, string results are passed
 /// through `substitute-command-keys`, matching GNU Emacs.
 pub(crate) fn builtin_documentation(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(1).is_some_and(Value::is_truthy);
@@ -130,13 +130,13 @@ fn builtin_documentation_plan_in_obarray(
 }
 
 pub(crate) fn builtin_documentation_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(1).is_some_and(Value::is_truthy);
     let args_roots = args.clone();
-    let plan = builtin_documentation_plan_in_obarray(&*shared.obarray, args)?;
+    let plan = builtin_documentation_plan_in_obarray(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
             let mut extra_roots = args_roots.clone();
@@ -10513,7 +10513,7 @@ fn startup_doc_quote_style_raw(doc: &str) -> String {
 /// `(documentation-property SYMBOL PROP &optional RAW)` -- return the
 /// documentation property PROP of SYMBOL.
 ///
-/// Evaluator-aware implementation:
+/// Context-aware implementation:
 /// - validates SYMBOL as a symbol designator (`symbolp`)
 /// - returns nil when PROP is not a symbol (matching Emacs `get`-like behavior)
 /// - unresolved integer doc offsets return nil
@@ -10521,7 +10521,7 @@ fn startup_doc_quote_style_raw(doc: &str) -> String {
 /// - unless RAW is non-nil, string results are passed through
 ///   `substitute-command-keys`
 pub(crate) fn builtin_documentation_property_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(2).is_some_and(Value::is_truthy);
@@ -10584,13 +10584,13 @@ fn builtin_documentation_property_plan_in_obarray(
 }
 
 pub(crate) fn builtin_documentation_property_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: Vec<Value>,
 ) -> EvalResult {
     let raw = args.get(2).is_some_and(Value::is_truthy);
     let args_roots = args.clone();
-    let plan = builtin_documentation_property_plan_in_obarray(&*shared.obarray, args)?;
+    let plan = builtin_documentation_property_plan_in_obarray(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
             let mut extra_roots = args_roots.clone();

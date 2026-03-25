@@ -797,7 +797,7 @@ pub(crate) fn builtin_internal_labeled_widen(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_internal_labeled_narrow_to_region_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_internal_labeled_narrow_to_region_in_buffers(&mut eval.buffers, args)
@@ -821,7 +821,7 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_in_buffers(
 }
 
 pub(crate) fn builtin_internal_labeled_widen_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_internal_labeled_widen_in_buffers(&mut eval.buffers, args)
@@ -1119,7 +1119,7 @@ pub(crate) fn builtin_frame_id(args: Vec<Value>) -> EvalResult {
 
 /// Eval-dependent variant: defaults to selected frame.
 pub(crate) fn builtin_frame_id_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_id_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1167,7 +1167,7 @@ pub(crate) fn builtin_frame_root_frame(args: Vec<Value>) -> EvalResult {
 
 /// Eval-dependent variant: defaults to selected frame.
 pub(crate) fn builtin_frame_root_frame_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_root_frame_in_state(&mut eval.frames, &mut eval.buffers, args)

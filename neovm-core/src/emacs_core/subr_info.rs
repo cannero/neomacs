@@ -48,13 +48,13 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 // ---------------------------------------------------------------------------
-// Evaluator/public callable classification
+// Context/public callable classification
 // ---------------------------------------------------------------------------
 
 /// Returns true if `name` is recognized by the evaluator's special-form
 /// dispatch path.
 ///
-/// This list mirrors `Evaluator::try_special_form()` in `eval.rs`.
+/// This list mirrors `Context::try_special_form()` in `eval.rs`.
 /// Only includes forms that are C special forms (UNEVALLED) in GNU Emacs,
 /// plus a few NeoVM-specific forms needed for bootstrap/compatibility.
 pub(crate) fn is_evaluator_special_form_name(name: &str) -> bool {

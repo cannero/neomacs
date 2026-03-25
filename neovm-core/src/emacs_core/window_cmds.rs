@@ -141,7 +141,7 @@ fn expect_number_or_marker_count(value: &Value) -> Result<i64, Flow> {
 }
 
 fn clamped_window_position(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     fid: FrameId,
     wid: WindowId,
     pos: i64,
@@ -256,7 +256,7 @@ fn window_id_from_designator(value: &Value) -> Option<WindowId> {
 /// - nil/omitted => selected window of selected frame
 /// - non-nil invalid designator => `(wrong-type-argument PRED VALUE)`
 fn resolve_window_id_with_pred(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     arg: Option<&Value>,
     pred: &str,
 ) -> Result<(FrameId, WindowId), Flow> {
@@ -297,7 +297,7 @@ fn resolve_window_id_with_pred_in_state(
 }
 
 fn resolve_window_id(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     arg: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
     resolve_window_id_with_pred(eval, arg, "window-live-p")
@@ -316,7 +316,7 @@ fn resolve_window_id_in_state(
 /// - nil/omitted => selected live window
 /// - non-nil invalid designator => `(wrong-type-argument PRED VALUE)`
 fn resolve_window_object_id_with_pred(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     arg: Option<&Value>,
     pred: &str,
 ) -> Result<WindowId, Flow> {
@@ -358,7 +358,7 @@ fn resolve_window_object_id_with_pred_in_state(
 /// GNU Emacs uses generic `error` signaling for invalid designators in some
 /// split/delete window builtins, rather than `wrong-type-argument`.
 fn resolve_window_id_or_error(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     arg: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
     resolve_window_id_or_error_in_state(&mut eval.frames, &mut eval.buffers, arg)
@@ -392,7 +392,7 @@ fn resolve_window_id_or_error_in_state(
     }
 }
 
-fn format_window_designator_for_error(eval: &super::eval::Evaluator, value: &Value) -> String {
+fn format_window_designator_for_error(eval: &super::eval::Context, value: &Value) -> String {
     if let Some(wid) = window_id_from_designator(value) {
         if eval.frames.is_window_object_id(wid) || matches!(value, Value::Window(_)) {
             return format!("#<window {}>", wid.0);
@@ -402,7 +402,7 @@ fn format_window_designator_for_error(eval: &super::eval::Evaluator, value: &Val
 }
 
 fn resolve_window_id_or_window_error(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     arg: Option<&Value>,
     live_only: bool,
 ) -> Result<(FrameId, WindowId), Flow> {
@@ -467,7 +467,7 @@ fn resolve_window_id_or_window_error_in_state(
 /// When ARG is nil/omitted, GNU Emacs resolves against the selected frame.
 /// In batch compatibility mode we bootstrap that frame on demand.
 fn resolve_frame_id(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     arg: Option<&Value>,
     predicate: &str,
 ) -> Result<FrameId, Flow> {
@@ -515,7 +515,7 @@ pub(crate) fn resolve_frame_id_in_state(
 ///
 /// `frame-first-window` accepts either a frame or window object in GNU Emacs.
 fn resolve_frame_or_window_frame_id(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     arg: Option<&Value>,
     predicate: &str,
 ) -> Result<FrameId, Flow> {
@@ -597,7 +597,7 @@ fn get_window(frames: &FrameManager, fid: FrameId, wid: WindowId) -> Result<&Win
 ///
 /// In batch compatibility mode, GNU Emacs still has an initial frame (`F1`).
 /// When the evaluator has no frame yet, synthesize one on demand.
-pub(crate) fn ensure_selected_frame_id(eval: &mut super::eval::Evaluator) -> FrameId {
+pub(crate) fn ensure_selected_frame_id(eval: &mut super::eval::Context) -> FrameId {
     ensure_selected_frame_id_in_state(&mut eval.frames, &mut eval.buffers)
 }
 
@@ -849,7 +849,7 @@ fn window_body_edges_pixels(
 
 /// `(selected-window)` -> window object.
 pub(crate) fn builtin_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -870,7 +870,7 @@ pub(crate) fn builtin_selected_window_in_state(
 
 /// `(old-selected-window)` -> previous selected window.
 pub(crate) fn builtin_old_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("old-selected-window", &args, 0)?;
@@ -886,7 +886,7 @@ pub(crate) fn builtin_old_selected_window(
 
 /// `(frame-selected-window &optional FRAME)` -> selected window of FRAME.
 pub(crate) fn builtin_frame_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -911,7 +911,7 @@ pub(crate) fn builtin_frame_selected_window_in_state(
 /// selection operations; keep frame designator validation aligned with
 /// `frame-live-p` semantics.
 pub(crate) fn builtin_frame_old_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_old_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -929,7 +929,7 @@ pub(crate) fn builtin_frame_old_selected_window_in_state(
 
 /// `(set-frame-selected-window FRAME WINDOW &optional NORECORD)` -> WINDOW.
 pub(crate) fn builtin_set_frame_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_frame_selected_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -989,7 +989,7 @@ pub(crate) fn builtin_set_frame_selected_window_in_state(
 
 /// `(frame-first-window &optional FRAME-OR-WINDOW)` -> first window on frame.
 pub(crate) fn builtin_frame_first_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_first_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1016,7 +1016,7 @@ pub(crate) fn builtin_frame_first_window_in_state(
 
 /// `(frame-root-window &optional FRAME-OR-WINDOW)` -> root window on frame.
 pub(crate) fn builtin_frame_root_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_root_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1038,7 +1038,7 @@ pub(crate) fn builtin_frame_root_window_in_state(
 
 /// `(minibuffer-window &optional FRAME)` -> minibuffer window of FRAME.
 pub(crate) fn builtin_minibuffer_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_minibuffer_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1062,7 +1062,7 @@ pub(crate) fn builtin_minibuffer_window_in_state(
 
 /// `(window-minibuffer-p &optional WINDOW)` -> t when WINDOW is minibuffer.
 pub(crate) fn builtin_window_minibuffer_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_minibuffer_p_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1084,7 +1084,7 @@ pub(crate) fn builtin_window_minibuffer_p_in_state(
 
 /// `(minibuffer-selected-window)` -> selected window active at minibuffer entry.
 pub(crate) fn builtin_minibuffer_selected_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-selected-window", &args, 0)?;
@@ -1096,7 +1096,7 @@ pub(crate) fn builtin_minibuffer_selected_window(
 
 /// `(active-minibuffer-window)` -> nil in batch.
 pub(crate) fn builtin_active_minibuffer_window_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("active-minibuffer-window", &args, 0)?;
@@ -1133,7 +1133,7 @@ pub(crate) fn builtin_active_minibuffer_window_in_state(
 
 /// `(window-frame &optional WINDOW)` -> frame of WINDOW.
 pub(crate) fn builtin_window_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1152,7 +1152,7 @@ pub(crate) fn builtin_window_frame_in_state(
 
 /// `(window-buffer &optional WINDOW)` -> buffer object.
 pub(crate) fn builtin_window_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1201,7 +1201,7 @@ pub(crate) fn builtin_window_buffer_in_state(
 
 /// `(window-display-table &optional WINDOW)` -> display table or nil.
 pub(crate) fn builtin_window_display_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_display_table_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1221,7 +1221,7 @@ pub(crate) fn builtin_window_display_table_in_state(
 
 /// `(set-window-display-table WINDOW TABLE)` -> TABLE.
 pub(crate) fn builtin_set_window_display_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_display_table_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1243,7 +1243,7 @@ pub(crate) fn builtin_set_window_display_table_in_state(
 
 /// `(window-cursor-type &optional WINDOW)` -> cursor type object.
 pub(crate) fn builtin_window_cursor_type(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_cursor_type_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1263,7 +1263,7 @@ pub(crate) fn builtin_window_cursor_type_in_state(
 
 /// `(set-window-cursor-type WINDOW TYPE)` -> TYPE.
 pub(crate) fn builtin_set_window_cursor_type(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_cursor_type_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1285,7 +1285,7 @@ pub(crate) fn builtin_set_window_cursor_type_in_state(
 
 /// `(window-parameter WINDOW PARAMETER)` -> window parameter or nil.
 pub(crate) fn builtin_window_parameter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_parameter_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1305,7 +1305,7 @@ pub(crate) fn builtin_window_parameter_in_state(
 
 /// `(set-window-parameter WINDOW PARAMETER VALUE)` -> VALUE.
 pub(crate) fn builtin_set_window_parameter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_parameter_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1327,7 +1327,7 @@ pub(crate) fn builtin_set_window_parameter_in_state(
 
 /// `(window-parameters &optional WINDOW)` -> alist of parameters.
 pub(crate) fn builtin_window_parameters(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_parameters_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1347,7 +1347,7 @@ pub(crate) fn builtin_window_parameters_in_state(
 
 /// `(window-parent &optional WINDOW)` -> parent window or nil.
 pub(crate) fn builtin_window_parent(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_parent_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1370,7 +1370,7 @@ pub(crate) fn builtin_window_parent_in_state(
 
 /// `(window-top-child &optional WINDOW)` -> top child for vertical combinations.
 pub(crate) fn builtin_window_top_child(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_top_child_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1396,7 +1396,7 @@ pub(crate) fn builtin_window_top_child_in_state(
 
 /// `(window-left-child &optional WINDOW)` -> left child for horizontal combinations.
 pub(crate) fn builtin_window_left_child(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_left_child_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1422,7 +1422,7 @@ pub(crate) fn builtin_window_left_child_in_state(
 
 /// `(window-next-sibling &optional WINDOW)` -> next sibling or nil.
 pub(crate) fn builtin_window_next_sibling(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_next_sibling_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1445,7 +1445,7 @@ pub(crate) fn builtin_window_next_sibling_in_state(
 
 /// `(window-prev-sibling &optional WINDOW)` -> previous sibling or nil.
 pub(crate) fn builtin_window_prev_sibling(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_prev_sibling_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1468,7 +1468,7 @@ pub(crate) fn builtin_window_prev_sibling_in_state(
 
 /// `(window-normal-size &optional WINDOW HORIZONTAL)` -> proportional size.
 pub(crate) fn builtin_window_normal_size(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_normal_size_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1519,7 +1519,7 @@ pub(crate) fn builtin_window_normal_size_in_state(
 
 /// `(window-start &optional WINDOW)` -> integer position.
 pub(crate) fn builtin_window_start(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_start_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1544,7 +1544,7 @@ pub(crate) fn builtin_window_start_in_state(
 ///
 /// Batch GNU Emacs exposes group-start as point-min (`1`) in startup flows.
 pub(crate) fn builtin_window_group_start(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_group_start_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1573,7 +1573,7 @@ pub(crate) fn builtin_window_group_start_in_state(
 
 /// `(window-end &optional WINDOW UPDATE)` -> integer position.
 pub(crate) fn builtin_window_end(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_end_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1670,7 +1670,7 @@ pub(crate) fn builtin_window_end_in_state(
 
 /// `(window-point &optional WINDOW)` -> integer position.
 pub(crate) fn builtin_window_point(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_point_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1705,7 +1705,7 @@ pub(crate) fn builtin_window_point_in_state(
 
 /// `(set-window-start WINDOW POS &optional NOFORCE)` -> POS.
 pub(crate) fn builtin_set_window_start(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_start_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1762,7 +1762,7 @@ pub(crate) fn builtin_set_window_start_in_state(
 
 /// `(set-window-group-start WINDOW POS &optional NOFORCE)` -> POS.
 pub(crate) fn builtin_set_window_group_start(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_group_start_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1824,7 +1824,7 @@ pub(crate) fn builtin_set_window_group_start_in_state(
 
 /// `(set-window-point WINDOW POS)` -> POS.
 pub(crate) fn builtin_set_window_point(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_point_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1916,7 +1916,7 @@ pub(crate) fn builtin_set_window_point_in_state(
 
 /// `(window-height &optional WINDOW)` -> integer (lines).
 pub(crate) fn builtin_window_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1938,7 +1938,7 @@ pub(crate) fn builtin_window_height_in_state(
 
 /// `(window-width &optional WINDOW)` -> integer (columns).
 pub(crate) fn builtin_window_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_width_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1960,7 +1960,7 @@ pub(crate) fn builtin_window_width_in_state(
 
 /// `(window-use-time &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_use_time(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_use_time_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -1980,7 +1980,7 @@ pub(crate) fn builtin_window_use_time_in_state(
 
 /// `(window-bump-use-time &optional WINDOW)` -> integer or nil.
 pub(crate) fn builtin_window_bump_use_time(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_bump_use_time_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2026,7 +2026,7 @@ pub(crate) fn builtin_window_bump_use_time_in_state(
 
 /// `(window-old-point &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_old_point(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_old_point_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2050,7 +2050,7 @@ pub(crate) fn builtin_window_old_point_in_state(
 
 /// `(window-old-buffer &optional WINDOW)` -> nil in batch.
 pub(crate) fn builtin_window_old_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_old_buffer_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2070,7 +2070,7 @@ pub(crate) fn builtin_window_old_buffer_in_state(
 
 /// `(window-prev-buffers &optional WINDOW)` -> previous buffer list or nil.
 pub(crate) fn builtin_window_prev_buffers(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_prev_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2090,7 +2090,7 @@ pub(crate) fn builtin_window_prev_buffers_in_state(
 
 /// `(window-next-buffers &optional WINDOW)` -> next buffer list or nil.
 pub(crate) fn builtin_window_next_buffers(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_next_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2110,7 +2110,7 @@ pub(crate) fn builtin_window_next_buffers_in_state(
 
 /// `(set-window-prev-buffers WINDOW PREV-BUFFERS)` -> PREV-BUFFERS.
 pub(crate) fn builtin_set_window_prev_buffers(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_prev_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2132,7 +2132,7 @@ pub(crate) fn builtin_set_window_prev_buffers_in_state(
 
 /// `(set-window-next-buffers WINDOW NEXT-BUFFERS)` -> NEXT-BUFFERS.
 pub(crate) fn builtin_set_window_next_buffers(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_next_buffers_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2154,7 +2154,7 @@ pub(crate) fn builtin_set_window_next_buffers_in_state(
 
 /// `(window-left-column &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_left_column(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_left_column_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2181,7 +2181,7 @@ pub(crate) fn builtin_window_left_column_in_state(
 
 /// `(window-top-line &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_top_line(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_top_line_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2210,7 +2210,7 @@ pub(crate) fn builtin_window_top_line_in_state(
 ///
 /// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_left(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -2240,7 +2240,7 @@ pub(crate) fn builtin_window_pixel_left_in_state(
 ///
 /// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_top(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -2268,7 +2268,7 @@ pub(crate) fn builtin_window_pixel_top_in_state(
 
 /// `(window-hscroll &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_hscroll(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_hscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2292,7 +2292,7 @@ pub(crate) fn builtin_window_hscroll_in_state(
 
 /// `(set-window-hscroll WINDOW NCOLS)` -> integer.
 pub(crate) fn builtin_set_window_hscroll(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_hscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2338,7 +2338,7 @@ fn scroll_prefix_value(value: &Value) -> i64 {
     }
 }
 
-fn default_scroll_columns(eval: &super::eval::Evaluator, fid: FrameId, wid: WindowId) -> i64 {
+fn default_scroll_columns(eval: &super::eval::Context, fid: FrameId, wid: WindowId) -> i64 {
     default_scroll_columns_in_state(&eval.frames, fid, wid)
 }
 
@@ -2359,7 +2359,7 @@ fn default_scroll_columns_in_state(frames: &FrameManager, fid: FrameId, wid: Win
 
 /// `(scroll-left &optional SET-MINIMUM ARG)` -> new horizontal scroll amount.
 pub(crate) fn builtin_scroll_left(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_scroll_left_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2401,7 +2401,7 @@ pub(crate) fn builtin_scroll_left_in_state(
 
 /// `(scroll-right &optional SET-MINIMUM ARG)` -> new horizontal scroll amount.
 pub(crate) fn builtin_scroll_right(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_scroll_right_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2446,7 +2446,7 @@ pub(crate) fn builtin_scroll_right_in_state(
 /// Batch-mode GNU Emacs reports zero vertical scroll, including for minibuffer
 /// windows; `PIXELWISE` is accepted but ignored.
 pub(crate) fn builtin_window_vscroll(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_vscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2470,7 +2470,7 @@ pub(crate) fn builtin_window_vscroll_in_state(
 /// zero; argument validation follows GNU Emacs (`WINDOW` live predicate and
 /// `VSCROLL` as `numberp`).
 pub(crate) fn builtin_set_window_vscroll(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_vscroll_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2496,7 +2496,7 @@ pub(crate) fn builtin_set_window_vscroll_in_state(
 
 /// `(set-window-margins WINDOW LEFT-WIDTH &optional RIGHT-WIDTH)` -> changed-p.
 pub(crate) fn builtin_set_window_margins(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_margins_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2533,7 +2533,7 @@ pub(crate) fn builtin_set_window_margins_in_state(
 
 /// `(window-margins &optional WINDOW)` -> margins pair or nil.
 pub(crate) fn builtin_window_margins(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_margins_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2568,7 +2568,7 @@ pub(crate) fn builtin_window_margins_in_state(
 
 /// `(window-fringes &optional WINDOW)` -> fringe tuple.
 pub(crate) fn builtin_window_fringes(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_fringes_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2605,7 +2605,7 @@ pub(crate) fn builtin_window_fringes_in_state(
 
 /// `(set-window-fringes WINDOW LEFT &optional RIGHT OUTSIDE-MARGINS PERSISTENT)` -> nil.
 pub(crate) fn builtin_set_window_fringes(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_fringes_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2683,7 +2683,7 @@ pub(crate) fn builtin_set_window_fringes_in_state(
 
 /// `(window-scroll-bars &optional WINDOW)` -> scroll-bar tuple.
 pub(crate) fn builtin_window_scroll_bars(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_scroll_bars_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2712,7 +2712,7 @@ pub(crate) fn builtin_window_scroll_bars_in_state(
 
 /// `(set-window-scroll-bars WINDOW &optional WIDTH VERTICAL-TYPE HEIGHT HORIZONTAL-TYPE)` -> nil.
 pub(crate) fn builtin_set_window_scroll_bars(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_scroll_bars_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2732,7 +2732,7 @@ pub(crate) fn builtin_set_window_scroll_bars_in_state(
 
 /// `(window-mode-line-height &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_mode_line_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_mode_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2763,7 +2763,7 @@ pub(crate) fn builtin_window_mode_line_height_in_state(
 
 /// `(window-header-line-height &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_header_line_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_header_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2789,7 +2789,7 @@ pub(crate) fn builtin_window_header_line_height_in_state(
 
 /// `(window-tab-line-height &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_tab_line_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_tab_line_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -2843,7 +2843,7 @@ fn window_chrome_height_in_state(
 ///
 /// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -2867,7 +2867,7 @@ pub(crate) fn builtin_window_pixel_height_in_state(
 ///
 /// In batch-mode GNU Emacs, these "pixel" helpers report character-cell units.
 pub(crate) fn builtin_window_pixel_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -2893,7 +2893,7 @@ pub(crate) fn builtin_window_pixel_width_in_state(
 /// return pixels; otherwise return character lines.
 /// Body excludes mode-line (one row) for non-minibuffer windows.
 pub(crate) fn builtin_window_body_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -2934,7 +2934,7 @@ pub(crate) fn builtin_window_body_height_in_state(
 /// Returns the body width of WINDOW. When PIXELWISE is non-nil,
 /// return pixels; otherwise return character columns.
 pub(crate) fn builtin_window_body_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -2967,7 +2967,7 @@ pub(crate) fn builtin_window_body_width_in_state(
 
 /// `(window-text-height &optional WINDOW PIXELWISE)` -> integer.
 pub(crate) fn builtin_window_text_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -3004,7 +3004,7 @@ pub(crate) fn builtin_window_text_height_in_state(
 
 /// `(window-text-width &optional WINDOW PIXELWISE)` -> integer.
 pub(crate) fn builtin_window_text_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -3042,7 +3042,7 @@ pub(crate) fn builtin_window_text_width_in_state(
 /// character-cell units.  When BODY is non-nil, return body edges
 /// (excluding mode-line).
 pub(crate) fn builtin_window_edges(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_edges_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3097,7 +3097,7 @@ pub(crate) fn builtin_window_edges_in_state(
 ///
 /// Works for both leaf and internal windows, matching GNU Emacs.
 pub(crate) fn builtin_window_total_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_total_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3121,7 +3121,7 @@ pub(crate) fn builtin_window_total_height_in_state(
 ///
 /// Works for both leaf and internal windows, matching GNU Emacs.
 pub(crate) fn builtin_window_total_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_total_width_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3143,7 +3143,7 @@ pub(crate) fn builtin_window_total_width_in_state(
 
 /// `(window-list &optional FRAME MINIBUF ALL-FRAMES)` -> list of window objects.
 pub(crate) fn builtin_window_list(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_list_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3230,7 +3230,7 @@ pub(crate) fn builtin_window_list_in_state(
 
 /// `(window-list-1 &optional WINDOW MINIBUF ALL-FRAMES)` -> list of live windows.
 pub(crate) fn builtin_window_list_1(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_list_1_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3350,7 +3350,7 @@ pub(crate) fn builtin_window_list_1_in_state(
 /// Batch-compatible behavior: search the selected frame for a window showing
 /// the requested buffer.
 pub(crate) fn builtin_get_buffer_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("get-buffer-window", &args, 2)?;
@@ -3397,7 +3397,7 @@ pub(crate) fn builtin_get_buffer_window(
 
 /// `(window-dedicated-p &optional WINDOW)` -> t or nil.
 pub(crate) fn builtin_window_dedicated_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_dedicated_p_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3420,7 +3420,7 @@ pub(crate) fn builtin_window_dedicated_p_in_state(
 
 /// `(set-window-dedicated-p WINDOW FLAG)` -> FLAG.
 pub(crate) fn builtin_set_window_dedicated_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_dedicated_p_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3444,7 +3444,7 @@ pub(crate) fn builtin_set_window_dedicated_p_in_state(
 }
 
 /// `(windowp OBJ)` -> t if OBJ is a window object/designator that exists.
-pub(crate) fn builtin_windowp(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_windowp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_windowp_in_state(&eval.frames, args)
 }
 
@@ -3459,7 +3459,7 @@ pub(crate) fn builtin_windowp_in_state(frames: &FrameManager, args: Vec<Value>) 
 
 /// `(window-valid-p OBJ)` -> t if OBJ is a live window.
 pub(crate) fn builtin_window_valid_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_valid_p_in_state(&eval.frames, args)
@@ -3479,7 +3479,7 @@ pub(crate) fn builtin_window_valid_p_in_state(
 
 /// `(window-live-p OBJ)` -> t if OBJ is a live leaf window.
 pub(crate) fn builtin_window_live_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_live_p_in_state(&eval.frames, args)
@@ -3498,7 +3498,7 @@ pub(crate) fn builtin_window_live_p_in_state(
 }
 
 /// `(window-at X Y &optional FRAME)` -> window object or nil.
-pub(crate) fn builtin_window_at(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_window_at(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_window_at_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -3543,7 +3543,7 @@ pub(crate) fn builtin_window_at_in_state(
 // ===========================================================================
 
 pub(crate) fn split_window_internal_impl(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     window: Value,
     side: Value,
 ) -> EvalResult {
@@ -3580,7 +3580,7 @@ pub(crate) fn split_window_internal_impl_in_state(
 
 /// `(delete-window &optional WINDOW)` -> nil.
 pub(crate) fn builtin_delete_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3613,7 +3613,7 @@ pub(crate) fn builtin_delete_window_in_state(
 ///
 /// Deletes all windows in the frame except WINDOW (or selected window).
 pub(crate) fn builtin_delete_other_windows(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_other_windows_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3655,7 +3655,7 @@ pub(crate) fn builtin_delete_other_windows_in_state(
 /// compatibility surface we mirror the observable error behavior used by the
 /// vm-compat coverage corpus.
 pub(crate) fn builtin_delete_window_internal(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_window_internal_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3706,7 +3706,7 @@ pub(crate) fn builtin_delete_window_internal_in_state(
 /// Deletes all ordinary windows in FRAME except WINDOW. ALL-FRAMES is accepted
 /// for arity compatibility and currently ignored.
 pub(crate) fn builtin_delete_other_windows_internal(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_other_windows_internal_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3744,7 +3744,7 @@ pub(crate) fn builtin_delete_other_windows_internal_in_state(
 
 /// `(select-window WINDOW &optional NORECORD)` -> WINDOW.
 pub(crate) fn builtin_select_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_select_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3850,7 +3850,7 @@ pub(crate) fn builtin_select_window_in_state(
 ///
 /// Select another window in cyclic order.
 pub(crate) fn builtin_other_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_other_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3896,7 +3896,7 @@ pub(crate) fn builtin_other_window_in_state(
 
 /// `(other-window-for-scrolling)` -> window object used for scrolling.
 pub(crate) fn builtin_other_window_for_scrolling(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_other_window_for_scrolling_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3929,7 +3929,7 @@ pub(crate) fn builtin_other_window_for_scrolling_in_state(
 
 /// `(next-window &optional WINDOW MINIBUF ALL-FRAMES)` -> window object.
 pub(crate) fn builtin_next_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_next_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3956,7 +3956,7 @@ pub(crate) fn builtin_next_window_in_state(
 
 /// `(previous-window &optional WINDOW MINIBUF ALL-FRAMES)` -> window object.
 pub(crate) fn builtin_previous_window(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_previous_window_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -3983,7 +3983,7 @@ pub(crate) fn builtin_previous_window_in_state(
 
 /// `(set-window-buffer WINDOW BUFFER-OR-NAME &optional KEEP-MARGINS)` -> nil.
 pub(crate) fn builtin_set_window_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4111,7 +4111,7 @@ pub(crate) fn builtin_set_window_buffer_in_state(
 
 /// `(switch-to-buffer BUFFER-OR-NAME &optional NORECORD FORCE-SAME-WINDOW)` -> buffer.
 pub(crate) fn builtin_switch_to_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("switch-to-buffer", &args, 1)?;
@@ -4164,7 +4164,7 @@ pub(crate) fn builtin_switch_to_buffer(
 ///
 /// Simplified: displays the buffer in the selected window.
 pub(crate) fn builtin_display_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("display-buffer", &args, 1)?;
@@ -4212,7 +4212,7 @@ pub(crate) fn builtin_display_buffer(
 /// Batch compatibility follows Emacs' noninteractive behavior: switch current
 /// buffer and return the buffer object.
 pub(crate) fn builtin_pop_to_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("pop-to-buffer", &args, 1)?;
@@ -4461,7 +4461,7 @@ fn scroll_down_batch_error() -> Flow {
 
 /// `(scroll-up-command &optional ARG)` — delegates to scroll-up.
 pub(crate) fn builtin_scroll_up_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("scroll-up-command", &args, 1)?;
@@ -4470,7 +4470,7 @@ pub(crate) fn builtin_scroll_up_command(
 
 /// `(scroll-down-command &optional ARG)` — delegates to scroll-down.
 pub(crate) fn builtin_scroll_down_command(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("scroll-down-command", &args, 1)?;
@@ -4479,7 +4479,7 @@ pub(crate) fn builtin_scroll_down_command(
 
 /// Compute scroll distance: if ARG is nil, use window height minus
 /// next-screen-context-lines; otherwise use ARG as line count.
-fn scroll_lines(eval: &mut super::eval::Evaluator, arg: Option<&Value>, direction: i64) -> i64 {
+fn scroll_lines(eval: &mut super::eval::Context, arg: Option<&Value>, direction: i64) -> i64 {
     scroll_lines_in_state(
         &eval.obarray,
         &mut eval.frames,
@@ -4528,7 +4528,7 @@ fn scroll_lines_in_state(
 ///
 /// Mirror GNU Emacs Fscroll_up (window.c): move point forward by ARG lines
 /// (or a windowful if nil).  Signals end-of-buffer if already at end.
-pub(crate) fn builtin_scroll_up(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_scroll_up(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_scroll_up_in_state(&eval.obarray, &mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -4549,7 +4549,7 @@ pub(crate) fn builtin_scroll_up_in_state(
 /// Mirror GNU Emacs Fscroll_down (window.c): move point backward by ARG lines
 /// (or a windowful if nil).  Signals beginning-of-buffer if already at start.
 pub(crate) fn builtin_scroll_down(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_scroll_down_in_state(&eval.obarray, &mut eval.frames, &mut eval.buffers, args)
@@ -4569,7 +4569,7 @@ pub(crate) fn builtin_scroll_down_in_state(
 
 /// Move point by `lines` newlines (positive=forward, negative=backward).
 /// Signals end-of-buffer or beginning-of-buffer on boundary.
-fn scroll_by_lines(eval: &mut super::eval::Evaluator, lines: i64) -> EvalResult {
+fn scroll_by_lines(eval: &mut super::eval::Context, lines: i64) -> EvalResult {
     scroll_by_lines_in_state(&mut eval.frames, &mut eval.buffers, lines)
 }
 
@@ -4647,7 +4647,7 @@ fn scroll_by_lines_in_state(
 
 /// `(recenter-top-bottom &optional ARG)` — delegates to recenter.
 pub(crate) fn builtin_recenter_top_bottom(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("recenter-top-bottom", &args, 1)?;
@@ -4659,7 +4659,7 @@ pub(crate) fn builtin_recenter_top_bottom(
 /// Mirror GNU Emacs Frecenter (window.c): adjust window-start so that
 /// point appears at the center of the window, or at line ARG from the
 /// top (or bottom if ARG is negative).
-pub(crate) fn builtin_recenter(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_recenter_in_state(&mut eval.frames, &mut eval.buffers, args)
 }
 
@@ -4741,7 +4741,7 @@ pub(crate) fn builtin_recenter_in_state(
 
 /// `(iconify-frame &optional FRAME)` -> nil.
 pub(crate) fn builtin_iconify_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_iconify_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4763,7 +4763,7 @@ pub(crate) fn builtin_iconify_frame_in_state(
 
 /// `(make-frame-visible &optional FRAME)` -> frame.
 pub(crate) fn builtin_make_frame_visible(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_frame_visible_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4789,7 +4789,7 @@ pub(crate) fn builtin_make_frame_visible_in_state(
 
 /// `(selected-frame)` -> frame object.
 pub(crate) fn builtin_selected_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_selected_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4807,7 +4807,7 @@ pub(crate) fn builtin_selected_frame_in_state(
 
 /// `(select-frame FRAME &optional NORECORD)` -> frame.
 pub(crate) fn builtin_select_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_select_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4868,7 +4868,7 @@ pub(crate) fn builtin_select_frame_in_state(
 
 /// `(select-frame-set-input-focus FRAME &optional NORECORD)` -> nil.
 pub(crate) fn builtin_select_frame_set_input_focus(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_select_frame_set_input_focus_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4929,7 +4929,7 @@ pub(crate) fn builtin_select_frame_set_input_focus_in_state(
 
 /// `(frame-list)` -> list of frame objects.
 pub(crate) fn builtin_frame_list(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_list_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4952,7 +4952,7 @@ pub(crate) fn builtin_frame_list_in_state(
 
 /// `(visible-frame-list)` -> list of visible frame objects.
 pub(crate) fn builtin_visible_frame_list(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_visible_frame_list_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -4979,7 +4979,7 @@ pub(crate) fn builtin_visible_frame_list_in_state(
 ///
 /// GNU Emacs returns the default character height in pixels for FRAME.
 pub(crate) fn builtin_frame_char_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_char_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5000,7 +5000,7 @@ pub(crate) fn builtin_frame_char_height_in_state(
 ///
 /// GNU Emacs returns the default character width in pixels for FRAME.
 pub(crate) fn builtin_frame_char_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_char_width_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5019,7 +5019,7 @@ pub(crate) fn builtin_frame_char_width_in_state(
 
 /// `(frame-native-height &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_native_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -5045,7 +5045,7 @@ pub(crate) fn builtin_frame_native_height_in_state(
 
 /// `(frame-native-width &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_native_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     eval.sync_pending_resize_events();
@@ -5087,7 +5087,7 @@ pub(crate) fn builtin_frame_native_width_in_state(
 
 /// `(frame-text-cols &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_text_cols(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_text_cols_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5108,7 +5108,7 @@ pub(crate) fn builtin_frame_text_cols_in_state(
 
 /// `(frame-text-lines &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_text_lines(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_text_lines_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5138,7 +5138,7 @@ pub(crate) fn builtin_frame_text_lines_in_state(
 ///
 /// GNU Emacs returns the text area width in pixels.
 pub(crate) fn builtin_frame_text_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_text_width_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5165,7 +5165,7 @@ pub(crate) fn builtin_frame_text_width_in_state(
 ///
 /// GNU Emacs returns the text area height in pixels.
 pub(crate) fn builtin_frame_text_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_text_height_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5190,7 +5190,7 @@ pub(crate) fn builtin_frame_text_height_in_state(
 
 /// `(frame-total-cols &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_total_cols(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_total_cols_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5211,7 +5211,7 @@ pub(crate) fn builtin_frame_total_cols_in_state(
 
 /// `(frame-total-lines &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_total_lines(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_total_lines_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5232,7 +5232,7 @@ pub(crate) fn builtin_frame_total_lines_in_state(
 
 /// `(frame-position &optional FRAME)` -> (X . Y).
 pub(crate) fn builtin_frame_position(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_position_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5250,7 +5250,7 @@ pub(crate) fn builtin_frame_position_in_state(
 
 /// `(set-frame-height FRAME HEIGHT &optional PRETEND PIXELWISE)` -> nil.
 pub(crate) fn builtin_set_frame_height(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_frame_height_in_state(
@@ -5312,7 +5312,7 @@ pub(crate) fn builtin_set_frame_height_in_state(
 
 /// `(set-frame-width FRAME WIDTH &optional PRETEND PIXELWISE)` -> nil.
 pub(crate) fn builtin_set_frame_width(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_frame_width_in_state(
@@ -5374,7 +5374,7 @@ pub(crate) fn builtin_set_frame_width_in_state(
 
 /// `(set-frame-size FRAME WIDTH HEIGHT &optional PIXELWISE)` -> nil.
 pub(crate) fn builtin_set_frame_size(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_frame_size_in_state(
@@ -5449,7 +5449,7 @@ pub(crate) fn builtin_set_frame_size_in_state(
 
 /// `(set-frame-position FRAME X Y)` -> t.
 pub(crate) fn builtin_set_frame_position(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_frame_position_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5475,7 +5475,7 @@ pub(crate) fn builtin_set_frame_position_in_state(
 /// explicitly requests a GUI window-system), delegate to the GUI boundary;
 /// otherwise create a plain frame directly.
 pub(crate) fn builtin_make_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let backend = resolve_make_frame_backend_request(args.first(), eval.display_host.is_some());
@@ -5706,7 +5706,7 @@ fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
     parsed
 }
 
-fn current_gui_frame_metrics(eval: &super::eval::Evaluator) -> GuiFrameMetrics {
+fn current_gui_frame_metrics(eval: &super::eval::Context) -> GuiFrameMetrics {
     current_gui_frame_metrics_in_state(&eval.frames)
 }
 
@@ -5753,7 +5753,7 @@ fn current_primary_window_size(
 /// binary decide whether to adopt the existing primary window or create a
 /// new top-level OS window for it.
 pub(crate) fn builtin_x_create_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     tracing::debug!(
@@ -5893,7 +5893,7 @@ pub(crate) fn builtin_x_create_frame_in_state(
 
 /// `(delete-frame &optional FRAME FORCE)` -> nil.
 pub(crate) fn builtin_delete_frame(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_frame_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -5914,7 +5914,7 @@ pub(crate) fn builtin_delete_frame_in_state(
 
 /// `(frame-parameter FRAME PARAMETER)` -> value or nil.
 pub(crate) fn builtin_frame_parameter(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("frame-parameter", &args, 2)?;
@@ -5969,7 +5969,7 @@ pub(crate) fn builtin_frame_parameter(
 
 /// `(frame-parameters &optional FRAME)` -> alist.
 pub(crate) fn builtin_frame_parameters(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_parameters_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -6020,7 +6020,7 @@ pub(crate) fn builtin_frame_parameters_in_state(
 
 /// `(modify-frame-parameters FRAME ALIST)` -> nil.
 pub(crate) fn builtin_modify_frame_parameters(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_modify_frame_parameters_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -6083,7 +6083,7 @@ pub(crate) fn builtin_modify_frame_parameters_in_state(
 
 /// `(frame-visible-p FRAME)` -> t or nil.
 pub(crate) fn builtin_frame_visible_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_visible_p_in_state(&eval.frames, args)
@@ -6115,7 +6115,7 @@ pub(crate) fn builtin_frame_visible_p_in_state(
 }
 
 /// `(framep OBJ)` -> t if OBJ is a frame object or frame id that exists.
-pub(crate) fn builtin_framep(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_framep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("framep", &args, 1)?;
     let id = match &args[0] {
         Value::Frame(id) => *id,
@@ -6134,7 +6134,7 @@ pub(crate) fn builtin_framep(eval: &mut super::eval::Evaluator, args: Vec<Value>
 
 /// `(frame-live-p OBJ)` -> t if OBJ is a live frame object or frame id.
 pub(crate) fn builtin_frame_live_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_frame_live_p_in_state(&eval.frames, args)
@@ -6203,7 +6203,7 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
 /// Mirrors GNU Emacs: returns the combination limit of an internal window.
 /// Signals an error if WINDOW is a leaf window.
 pub(crate) fn builtin_window_combination_limit(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_combination_limit_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -6236,7 +6236,7 @@ pub(crate) fn builtin_window_combination_limit_in_state(
 /// Set the combination limit of an internal window.
 /// Signals an error if WINDOW is a leaf window.
 pub(crate) fn builtin_set_window_combination_limit(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_window_combination_limit_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -6275,7 +6275,7 @@ pub(crate) fn builtin_set_window_combination_limit_in_state(
 /// Apply requested pixel size values for the window-tree of FRAME.
 /// Mirrors GNU Emacs `Fwindow_resize_apply` in window.c.
 pub(crate) fn builtin_window_resize_apply(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_resize_apply_in_state(&mut eval.frames, &mut eval.buffers, args)
@@ -6345,7 +6345,7 @@ pub(crate) fn builtin_window_resize_apply_in_state(
 /// Apply requested total (character-cell) size values for the window-tree of FRAME.
 /// Mirrors GNU Emacs `Fwindow_resize_apply_total` in window.c.
 pub(crate) fn builtin_window_resize_apply_total(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_window_resize_apply_total_in_state(&mut eval.frames, &mut eval.buffers, args)

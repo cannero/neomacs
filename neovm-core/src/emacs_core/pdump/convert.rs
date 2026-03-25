@@ -21,7 +21,7 @@ use crate::emacs_core::charset::{
 };
 use crate::emacs_core::coding::{CodingSystemInfo, CodingSystemManager, EolType};
 use crate::emacs_core::custom::{CustomGroup, CustomManager, CustomVariable};
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::fontset::{
     FontRepertory, FontSpecEntry, FontsetDataSnapshot, FontsetRangeEntrySnapshot,
@@ -1284,9 +1284,9 @@ fn dump_string_text_property_table(table: &TextPropertyTable) -> Vec<DumpPropert
 
 // --- Top-level dump ---
 
-pub(crate) fn dump_evaluator(eval: &Evaluator) -> DumpEvaluatorState {
+pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
     let string_text_props = crate::emacs_core::value::snapshot_string_text_props();
-    DumpEvaluatorState {
+    DumpContextState {
         interner: dump_interner(&eval.interner),
         heap: dump_heap(&eval.heap),
         obarray: dump_obarray(&eval.obarray),

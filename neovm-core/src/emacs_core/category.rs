@@ -339,7 +339,7 @@ fn current_buffer_category_table_in_buffers(
     Ok(fallback)
 }
 
-fn current_buffer_category_table(eval: &mut super::eval::Evaluator) -> Result<Value, Flow> {
+fn current_buffer_category_table(eval: &mut super::eval::Context) -> Result<Value, Flow> {
     current_buffer_category_table_in_buffers(&mut eval.buffers)
 }
 
@@ -355,7 +355,7 @@ fn set_current_buffer_category_table_in_buffers(
 }
 
 fn set_current_buffer_category_table(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     table: Value,
 ) -> Result<(), Flow> {
     set_current_buffer_category_table_in_buffers(&mut eval.buffers, table)
@@ -605,7 +605,7 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
 /// Add (or remove when RESET is non-nil) CATEGORY from the category set
 /// of CHAR in the current category table.
 pub(crate) fn builtin_modify_category_entry(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     modify_category_entry_in_manager(&mut eval.category_manager, &args)
@@ -680,7 +680,7 @@ pub(crate) fn modify_category_entry_in_manager(
 /// Stores the category docstring in the active category manager table and
 /// returns nil.
 pub(crate) fn builtin_define_category_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_define_category_in_manager(&mut eval.category_manager, args)
@@ -728,7 +728,7 @@ pub(crate) fn builtin_define_category_in_manager(
 ///
 /// Returns the category docstring from the active table, or nil when absent.
 pub(crate) fn builtin_category_docstring_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_category_docstring_in_manager(&eval.category_manager, args)
@@ -755,7 +755,7 @@ pub(crate) fn builtin_category_docstring_in_manager(
 ///
 /// Returns the first unused category letter in the active table, or nil.
 pub(crate) fn builtin_get_unused_category_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_unused_category_in_manager(&eval.category_manager, args)
@@ -780,7 +780,7 @@ pub(crate) fn builtin_get_unused_category_in_manager(
 /// Return a bool-vector of 128 elements indicating which categories CHAR
 /// belongs to in the current category table.
 pub(crate) fn builtin_char_category_set(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_char_category_set_in_manager(&eval.category_manager, args)
@@ -816,7 +816,7 @@ pub(crate) fn builtin_char_category_set_in_manager(
 ///
 /// Return the current buffer's category table object.
 pub(crate) fn builtin_category_table_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_category_table_in_buffers(&mut eval.buffers, args)
@@ -834,7 +834,7 @@ pub(crate) fn builtin_category_table_in_buffers(
 ///
 /// Return the process-wide standard category table object.
 pub(crate) fn builtin_standard_category_table_eval(
-    _eval: &mut super::eval::Evaluator,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("standard-category-table", &args, 0)?;
@@ -845,7 +845,7 @@ pub(crate) fn builtin_standard_category_table_eval(
 ///
 /// Install TABLE in the current buffer and return the installed table.
 pub(crate) fn builtin_set_category_table_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_category_table_in_buffers(&mut eval.buffers, args)

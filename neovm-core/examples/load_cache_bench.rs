@@ -1,11 +1,11 @@
-use neovm_core::emacs_core::Evaluator;
+use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::load::{ELISP_CACHE_EXTENSION, load_file};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 fn timed_load(path: &Path) -> Result<Duration, String> {
-    let mut evaluator = Evaluator::new();
+    let mut evaluator = Context::new();
     let start = Instant::now();
     load_file(&mut evaluator, path).map_err(|e| format!("{e:?}"))?;
     Ok(start.elapsed())

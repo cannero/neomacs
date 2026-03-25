@@ -1,9 +1,9 @@
 use super::*;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 
 #[test]
 fn eval_buffer_evaluates_current_buffer_forms() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("(setq lread-eb-a 11)\n(setq lread-eb-b (+ lread-eb-a 1))");
@@ -22,7 +22,7 @@ fn eval_buffer_evaluates_current_buffer_forms() {
 
 #[test]
 fn eval_buffer_accepts_shebang_reader_prefix() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("#!/usr/bin/env emacs --script\n(setq lread-eb-shebang 'ok)\n");
@@ -37,7 +37,7 @@ fn eval_buffer_accepts_shebang_reader_prefix() {
 
 #[test]
 fn eval_buffer_single_line_shebang_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("#!/usr/bin/env emacs --script");
@@ -51,7 +51,7 @@ fn eval_buffer_single_line_shebang_signals_end_of_file() {
 
 #[test]
 fn eval_buffer_preserves_utf8_bom_reader_error_shape() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("\u{feff}(setq lread-eb-bom 'ok)\n");
@@ -65,7 +65,7 @@ fn eval_buffer_preserves_utf8_bom_reader_error_shape() {
 
 #[test]
 fn eval_buffer_uses_source_text_without_switching_current() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let target = ev.buffers.create_buffer("*lread-eval-buffer-target*");
     {
         let target_buf = ev.buffers.get_mut(target).expect("target buffer");
@@ -84,7 +84,7 @@ fn eval_buffer_uses_source_text_without_switching_current() {
 
 #[test]
 fn eval_buffer_reports_designator_and_arity_errors() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
 
     let missing = builtin_eval_buffer(&mut ev, vec![Value::string("*no-such-buffer*")]);
     assert!(matches!(
@@ -122,7 +122,7 @@ fn eval_buffer_reports_designator_and_arity_errors() {
 
 #[test]
 fn eval_region_evaluates_forms_in_range() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("(setq lread-er-a 1)\n(setq lread-er-b (+ lread-er-a 2))");
@@ -146,7 +146,7 @@ fn eval_region_evaluates_forms_in_range() {
 
 #[test]
 fn eval_region_nil_or_reversed_bounds_are_noop() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("(setq lread-er-noop 9)");
@@ -175,7 +175,7 @@ fn eval_region_nil_or_reversed_bounds_are_noop() {
 
 #[test]
 fn eval_region_reports_type_range_and_arity_errors() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("(+ 1 2)");
@@ -239,7 +239,7 @@ fn eval_region_reports_type_range_and_arity_errors() {
 
 #[test]
 fn eval_region_keeps_point_stable_without_side_effects() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("(setq lread-er-point 1)");
@@ -262,7 +262,7 @@ fn eval_region_keeps_point_stable_without_side_effects() {
 
 #[test]
 fn eval_region_accepts_shebang_reader_prefix() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("#!/usr/bin/env emacs --script\n(setq lread-er-shebang 'ok)\n");
@@ -281,7 +281,7 @@ fn eval_region_accepts_shebang_reader_prefix() {
 
 #[test]
 fn eval_region_single_line_shebang_signals_end_of_file() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("#!/usr/bin/env emacs --script");
@@ -299,7 +299,7 @@ fn eval_region_single_line_shebang_signals_end_of_file() {
 
 #[test]
 fn eval_region_preserves_utf8_bom_reader_error_shape() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("\u{feff}(setq lread-er-bom 'ok)\n");
@@ -317,14 +317,14 @@ fn eval_region_preserves_utf8_bom_reader_error_shape() {
 
 #[test]
 fn read_event_returns_nil() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn read_event_rejects_non_string_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_event(&mut ev, vec![Value::Int(123)]);
     assert!(matches!(
         result,
@@ -334,7 +334,7 @@ fn read_event_rejects_non_string_prompt() {
 
 #[test]
 fn read_event_consumes_unread_command_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
@@ -344,7 +344,7 @@ fn read_event_consumes_unread_command_event() {
 
 #[test]
 fn read_event_sets_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let _ = builtin_read_event(&mut ev, vec![]).unwrap();
@@ -353,7 +353,7 @@ fn read_event_sets_command_keys_when_empty() {
 
 #[test]
 fn read_event_preserves_existing_command_keys_context() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -366,7 +366,7 @@ fn read_event_preserves_existing_command_keys_context() {
 
 #[test]
 fn read_event_with_seconds_does_not_set_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let _ = builtin_read_event(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
@@ -375,7 +375,7 @@ fn read_event_with_seconds_does_not_set_command_keys_when_empty() {
 
 #[test]
 fn read_event_with_positive_seconds_does_not_set_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let _ = builtin_read_event(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(1)]).unwrap();
@@ -384,7 +384,7 @@ fn read_event_with_positive_seconds_does_not_set_command_keys_when_empty() {
 
 #[test]
 fn read_event_with_float_seconds_does_not_set_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let _ = builtin_read_event(
@@ -397,7 +397,7 @@ fn read_event_with_float_seconds_does_not_set_command_keys_when_empty() {
 
 #[test]
 fn read_event_with_non_nil_seconds_preserves_existing_command_keys_context() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(98)]));
@@ -411,7 +411,7 @@ fn read_event_with_non_nil_seconds_preserves_existing_command_keys_context() {
 
 #[test]
 fn read_event_with_nil_seconds_sets_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let _ = builtin_read_event(&mut ev, vec![Value::Nil, Value::Nil, Value::Nil]).unwrap();
@@ -420,7 +420,7 @@ fn read_event_with_nil_seconds_sets_command_keys_when_empty() {
 
 #[test]
 fn read_event_consumes_non_character_event_and_preserves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo"), Value::Int(97)]),
@@ -435,7 +435,7 @@ fn read_event_consumes_non_character_event_and_preserves_tail() {
 
 #[test]
 fn read_event_consumes_character_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Char('a')]));
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
@@ -448,7 +448,7 @@ fn read_event_consumes_character_event() {
 
 #[test]
 fn read_event_preserves_trailing_events_after_non_character() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo"), Value::Char('a')]),
@@ -463,7 +463,7 @@ fn read_event_preserves_trailing_events_after_non_character() {
 
 #[test]
 fn read_event_rejects_more_than_three_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_event(
         &mut ev,
         vec![
@@ -481,14 +481,14 @@ fn read_event_rejects_more_than_three_args() {
 
 #[test]
 fn read_char_exclusive_returns_nil() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_char_exclusive(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn read_char_exclusive_rejects_non_string_prompt() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_char_exclusive(&mut ev, vec![Value::Int(123)]);
     assert!(matches!(
         result,
@@ -498,7 +498,7 @@ fn read_char_exclusive_rejects_non_string_prompt() {
 
 #[test]
 fn read_char_exclusive_consumes_unread_command_event() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result = builtin_read_char_exclusive(&mut ev, vec![]).unwrap();
@@ -508,7 +508,7 @@ fn read_char_exclusive_consumes_unread_command_event() {
 
 #[test]
 fn read_char_exclusive_with_seconds_does_not_set_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result =
@@ -519,7 +519,7 @@ fn read_char_exclusive_with_seconds_does_not_set_command_keys_when_empty() {
 
 #[test]
 fn read_char_exclusive_with_nil_seconds_sets_command_keys_when_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
     let result =
@@ -530,7 +530,7 @@ fn read_char_exclusive_with_nil_seconds_sets_command_keys_when_empty() {
 
 #[test]
 fn read_char_exclusive_preserves_existing_command_keys_context() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);
     ev.obarray
         .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(98)]));
@@ -542,7 +542,7 @@ fn read_char_exclusive_preserves_existing_command_keys_context() {
 
 #[test]
 fn read_char_exclusive_rejects_more_than_three_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_read_char_exclusive(
         &mut ev,
         vec![
@@ -560,7 +560,7 @@ fn read_char_exclusive_rejects_more_than_three_args() {
 
 #[test]
 fn read_char_exclusive_skips_non_character_events() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo"), Value::Int(97)]),
@@ -575,7 +575,7 @@ fn read_char_exclusive_skips_non_character_events() {
 
 #[test]
 fn read_char_exclusive_skips_non_character_and_empty_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo"), Value::Int(97)]),
@@ -591,7 +591,7 @@ fn read_char_exclusive_skips_non_character_and_empty_tail() {
 
 #[test]
 fn read_char_exclusive_skips_non_character_and_leaves_tail() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::symbol("foo"), Value::Int(97), Value::Int(98)]),

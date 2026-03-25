@@ -261,7 +261,7 @@ pub(crate) fn builtin_set_standard_case_table(args: Vec<Value>) -> EvalResult {
 
 /// `(current-case-table)` -- evaluator-backed current buffer case table object.
 pub(crate) fn builtin_current_case_table_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_current_case_table_in_state(&mut eval.obarray, &mut eval.buffers, args)
@@ -269,7 +269,7 @@ pub(crate) fn builtin_current_case_table_eval(
 
 /// `(standard-case-table)` -- evaluator-backed standard case table object.
 pub(crate) fn builtin_standard_case_table_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_standard_case_table_in_state(&mut eval.obarray, args)
@@ -277,7 +277,7 @@ pub(crate) fn builtin_standard_case_table_eval(
 
 /// `(set-case-table TABLE)` -- evaluator-backed current buffer case table set.
 pub(crate) fn builtin_set_case_table_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_case_table_in_state(&mut eval.obarray, &mut eval.buffers, args)
@@ -285,7 +285,7 @@ pub(crate) fn builtin_set_case_table_eval(
 
 /// `(set-standard-case-table TABLE)` -- evaluator-backed standard table set.
 pub(crate) fn builtin_set_standard_case_table_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_standard_case_table_in_state(&mut eval.obarray, args)

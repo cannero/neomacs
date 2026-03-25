@@ -313,7 +313,7 @@ fn char_table_wrong_type_signals() {
 
 #[test]
 fn char_table_wrong_arg_count() {
-    // builtin_make_char_table arity is validated by the Evaluator dispatch
+    // builtin_make_char_table arity is validated by the Context dispatch
     // layer; make_char_table_value doesn't validate, so skip that assertion.
     assert!(builtin_char_table_p(vec![]).is_err());
     assert!(builtin_char_table_range(vec![Value::Nil]).is_err());

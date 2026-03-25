@@ -1,5 +1,5 @@
 use super::*;
-pub(crate) fn builtin_apply(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -49,7 +49,7 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Evaluator, args: Vec<Value>)
     eval.apply(func, call_args)
 }
 
-pub(crate) fn builtin_funcall(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_funcall(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("funcall", &args, 1)?;
     let func = args[0];
     let call_args = args[1..].to_vec();
@@ -57,7 +57,7 @@ pub(crate) fn builtin_funcall(eval: &mut super::eval::Evaluator, args: Vec<Value
 }
 
 pub(crate) fn builtin_funcall_interactively(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("funcall-interactively", &args, 1)?;
@@ -67,7 +67,7 @@ pub(crate) fn builtin_funcall_interactively(
 }
 
 pub(crate) fn builtin_funcall_with_delayed_message(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("funcall-with-delayed-message", &args, 3)?;
@@ -140,7 +140,7 @@ where
     }
 }
 
-pub(crate) fn builtin_mapcar(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -190,7 +190,7 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Evaluator, args: Vec<Value>
     Ok(Value::list(results))
 }
 
-pub(crate) fn builtin_mapc(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -238,7 +238,7 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Evaluator, args: Vec<Value>) 
     Ok(seq)
 }
 
-pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("mapconcat", &args, 2, 3)?;
     let func = args[0];
     let sequence = args[1];
@@ -273,7 +273,7 @@ pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Evaluator, args: Vec<Val
     builtin_concat(concat_args)
 }
 
-pub(crate) fn builtin_mapcan(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mapcan(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
@@ -309,7 +309,7 @@ pub(crate) trait SortRuntime {
     fn root_sort_value(&mut self, value: Value);
 }
 
-impl SortRuntime for super::eval::Evaluator {
+impl SortRuntime for super::eval::Context {
     fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow> {
         self.apply(function, args)
     }
@@ -393,7 +393,7 @@ pub(crate) fn parse_sort_options(args: &[Value]) -> Result<SortOptions, Flow> {
     })
 }
 
-pub(crate) fn builtin_sort(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let SortOptions {
         key_fn,
         lessp_fn,

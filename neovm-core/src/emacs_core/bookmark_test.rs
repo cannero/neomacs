@@ -242,7 +242,7 @@ fn modified_flag() {
 // Builtin-level tests
 // -----------------------------------------------------------------------
 
-fn set_current_buffer_file(eval: &mut super::super::eval::Evaluator, path: &str) {
+fn set_current_buffer_file(eval: &mut super::super::eval::Context, path: &str) {
     if let Some(buffer) = eval.buffers.current_buffer_mut() {
         buffer.file_name = Some(path.to_string());
     }
@@ -250,9 +250,9 @@ fn set_current_buffer_file(eval: &mut super::super::eval::Evaluator, path: &str)
 
 #[test]
 fn test_builtin_bookmark_set_and_jump() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/test.el");
 
     // bookmark-set
@@ -273,9 +273,9 @@ fn test_builtin_bookmark_set_and_jump() {
 
 #[test]
 fn test_builtin_bookmark_jump_permissive_designators() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // nil designator is a dedicated error in GNU Emacs.
     let nil_result = builtin_bookmark_jump(&mut eval, vec![Value::Nil]);
@@ -297,9 +297,9 @@ fn test_builtin_bookmark_jump_permissive_designators() {
 
 #[test]
 fn test_builtin_bookmark_delete() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/delete.el");
 
     // Set a bookmark
@@ -329,9 +329,9 @@ fn test_builtin_bookmark_delete() {
 
 #[test]
 fn test_builtin_bookmark_rename() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/rename.el");
 
     builtin_bookmark_set(&mut eval, vec![Value::string("old-name")]).unwrap();
@@ -350,9 +350,9 @@ fn test_builtin_bookmark_rename() {
 
 #[test]
 fn test_builtin_bookmark_rename_permissive_designators() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/rename-permissive.el");
     builtin_bookmark_set(&mut eval, vec![Value::string("old-name")]).unwrap();
 
@@ -396,9 +396,9 @@ fn test_builtin_bookmark_rename_permissive_designators() {
 
 #[test]
 fn test_builtin_bookmark_all_names() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/all-names.el");
     builtin_bookmark_set(&mut eval, vec![Value::string("z-bookmark")]).unwrap();
     builtin_bookmark_set(&mut eval, vec![Value::string("a-bookmark")]).unwrap();
@@ -412,9 +412,9 @@ fn test_builtin_bookmark_all_names() {
 
 #[test]
 fn test_builtin_bookmark_get_filename() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/file.el");
     builtin_bookmark_set(&mut eval, vec![Value::string("with-file")]).unwrap();
 
@@ -427,9 +427,9 @@ fn test_builtin_bookmark_get_filename() {
 
 #[test]
 fn test_builtin_bookmark_get_position() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/position.el");
     builtin_bookmark_set(&mut eval, vec![Value::string("at-point")]).unwrap();
 
@@ -442,9 +442,9 @@ fn test_builtin_bookmark_get_position() {
 
 #[test]
 fn test_builtin_bookmark_get_annotation() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/annotation.el");
     builtin_bookmark_set(&mut eval, vec![Value::string("with-note")]).unwrap();
     builtin_bookmark_set_annotation(
@@ -464,9 +464,9 @@ fn test_builtin_bookmark_get_annotation() {
 
 #[test]
 fn test_builtin_bookmark_set_annotation() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     set_current_buffer_file(&mut eval, "/tmp/set-annotation.el");
     builtin_bookmark_set(&mut eval, vec![Value::string("entry")]).unwrap();
 
@@ -490,9 +490,9 @@ fn test_builtin_bookmark_set_annotation() {
 
 #[test]
 fn test_builtin_bookmark_save_load() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let save_file = "/tmp/neovm-bookmark-save-load.data";
 
     set_current_buffer_file(&mut eval, "/file1.el");
@@ -540,9 +540,9 @@ fn test_builtin_bookmark_save_load() {
 
 #[test]
 fn test_wrong_arg_count() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // bookmark-set needs between 1 and 2 args.
     let result = builtin_bookmark_set(&mut eval, vec![]);

@@ -440,7 +440,7 @@ fn builtin_category_set_mnemonics_wrong_args() {
 
 #[test]
 fn builtin_define_category_eval_sets_docstring() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_define_category_eval(
         &mut eval,
         vec![Value::Char('Z'), Value::string("neovm-category-doc")],
@@ -454,7 +454,7 @@ fn builtin_define_category_eval_sets_docstring() {
 
 #[test]
 fn builtin_get_unused_category_eval_tracks_defined_values() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let first = builtin_get_unused_category_eval(&mut eval, vec![]).unwrap();
     assert!(matches!(first, Value::Char('a')));
 
@@ -465,7 +465,7 @@ fn builtin_get_unused_category_eval_tracks_defined_values() {
 
 #[test]
 fn builtin_category_table_eval_defaults_to_standard() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let current = builtin_category_table_eval(&mut eval, vec![]).unwrap();
     let standard = builtin_standard_category_table_eval(&mut eval, vec![]).unwrap();
     assert!(equal_value(&current, &standard, 0));
@@ -473,7 +473,7 @@ fn builtin_category_table_eval_defaults_to_standard() {
 
 #[test]
 fn builtin_set_category_table_eval_roundtrip() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let custom = builtin_make_category_table(vec![]).unwrap();
 
     let out = builtin_set_category_table_eval(&mut eval, vec![custom]).unwrap();
@@ -485,7 +485,7 @@ fn builtin_set_category_table_eval_roundtrip() {
 
 #[test]
 fn builtin_set_category_table_eval_nil_after_custom_clones_standard() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let standard = builtin_standard_category_table_eval(&mut eval, vec![]).unwrap();
     let custom = builtin_make_category_table(vec![]).unwrap();
 
@@ -502,7 +502,7 @@ fn builtin_set_category_table_eval_nil_after_custom_clones_standard() {
 
 #[test]
 fn builtin_set_category_table_eval_rejects_non_tables() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = builtin_set_category_table_eval(&mut eval, vec![Value::Int(1)]);
     assert!(result.is_err());
 }

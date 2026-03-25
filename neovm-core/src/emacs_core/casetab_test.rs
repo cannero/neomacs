@@ -217,7 +217,7 @@ fn builtin_set_standard_case_table_wrong_args() {
 
 #[test]
 fn evaluator_case_table_roundtrip_and_isolation() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let standard = builtin_standard_case_table_eval(&mut eval, vec![]).unwrap();
     let current = builtin_current_case_table_eval(&mut eval, vec![]).unwrap();
     assert_eq!(standard, current);

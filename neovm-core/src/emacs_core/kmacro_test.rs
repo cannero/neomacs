@@ -1,7 +1,7 @@
 use super::super::intern::intern;
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
     create_bootstrap_evaluator_cached,
@@ -18,8 +18,8 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .collect()
 }
 
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
-    let mut eval = Evaluator::new();
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
+    let mut eval = Context::new();
     for name in names {
         eval.obarray_mut().fmakunbound(name);
     }
@@ -191,9 +191,9 @@ fn format_counter_unknown_format() {
 
 #[test]
 fn test_start_and_end_macro() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Start recording
     let result = builtin_start_kbd_macro(&mut eval, vec![]);
@@ -222,9 +222,9 @@ fn test_start_and_end_macro() {
 
 #[test]
 fn test_defining_kbd_macro_builtin_contract() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Arity contract.
     assert!(builtin_defining_kbd_macro(&mut eval, vec![]).is_err());
@@ -260,9 +260,9 @@ fn test_defining_kbd_macro_builtin_contract() {
 
 #[test]
 fn test_start_with_append() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Record a macro
     let _ = builtin_start_kbd_macro(&mut eval, vec![]);
@@ -280,9 +280,9 @@ fn test_start_with_append() {
 
 #[test]
 fn test_call_last_macro_no_macro() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // No macro defined -- should error
     let result = builtin_call_last_kbd_macro(&mut eval, vec![]);
@@ -291,9 +291,9 @@ fn test_call_last_macro_no_macro() {
 
 #[test]
 fn test_store_event_wrong_args() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // Wrong arg count
     let result = builtin_store_kbd_macro_event(&mut eval, vec![]);
@@ -302,9 +302,9 @@ fn test_store_event_wrong_args() {
 
 #[test]
 fn test_defining_executing_kbd_macro_p_builtins() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     assert_eq!(
         builtin_defining_kbd_macro_p(&mut eval, vec![]).unwrap(),
@@ -334,9 +334,9 @@ fn test_defining_executing_kbd_macro_p_builtins() {
 
 #[test]
 fn test_last_kbd_macro_builtin() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     assert_eq!(
         builtin_last_kbd_macro(&mut eval, vec![]).unwrap(),
@@ -374,9 +374,9 @@ fn test_kmacro_p_builtin_subset() {
 
 #[test]
 fn test_kmacro_set_counter_builtin() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     assert_eq!(
         builtin_kmacro_set_counter(&mut eval, vec![Value::Int(42)]).unwrap(),
         Value::Nil
@@ -398,9 +398,9 @@ fn test_kmacro_set_counter_builtin() {
 
 #[test]
 fn test_kmacro_add_counter_builtin() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.kmacro.counter = 10;
     assert_eq!(
         builtin_kmacro_add_counter(&mut eval, vec![Value::Int(5)]).unwrap(),
@@ -421,9 +421,9 @@ fn test_kmacro_add_counter_builtin() {
 
 #[test]
 fn test_kmacro_set_format_builtin() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     assert_eq!(eval.kmacro.counter_format, "%d");
 
     assert_eq!(
@@ -445,9 +445,9 @@ fn test_kmacro_set_format_builtin() {
 
 #[test]
 fn test_kmacro_builtin_arity_contracts() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     assert_eq!(
         builtin_start_kbd_macro(&mut eval, vec![Value::Nil, Value::Nil]).unwrap(),
@@ -475,9 +475,9 @@ fn test_kmacro_builtin_arity_contracts() {
 
 #[test]
 fn test_name_last_kbd_macro() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // No macro -- should error
     let result = builtin_name_last_kbd_macro(&mut eval, vec![Value::symbol("my-macro")]);
@@ -507,9 +507,9 @@ fn test_name_last_kbd_macro() {
 
 #[test]
 fn test_name_last_kbd_macro_wrong_type() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     let result = builtin_name_last_kbd_macro(&mut eval, vec![Value::Int(42)]);
     assert!(result.is_err());

@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
-use crate::emacs_core::eval::Evaluator;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
     create_bootstrap_evaluator_cached,
@@ -17,8 +17,8 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
         .collect()
 }
 
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
-    let mut eval = Evaluator::new();
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
+    let mut eval = Context::new();
     for name in names {
         eval.obarray_mut().fmakunbound(name);
     }

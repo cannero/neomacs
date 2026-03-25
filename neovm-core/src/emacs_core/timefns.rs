@@ -375,7 +375,7 @@ thread_local! {
     static TIME_ZONE_RULE: RefCell<ZoneRule> = RefCell::new(ZoneRule::Local);
 }
 
-/// Reset timezone rule to default (called from Evaluator::new).
+/// Reset timezone rule to default (called from Context::new).
 pub(crate) fn reset_timefns_thread_locals() {
     TIME_ZONE_RULE.with(|slot| *slot.borrow_mut() = ZoneRule::Local);
 }

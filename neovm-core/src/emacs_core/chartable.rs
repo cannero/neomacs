@@ -17,7 +17,7 @@
 //!   `Value::Int(0)` or `Value::Int(1)`.
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::Evaluator;
+use super::eval::Context;
 use super::intern::resolve_sym;
 use super::value::*;
 
@@ -225,7 +225,7 @@ pub fn ct_set_single(table: &Value, ch: i64, value: Value) {
 ///
 /// If SUB-TYPE has a `char-table-extra-slots` property, its value
 /// specifies how many extra slots the char-table has (0..10).
-pub(crate) fn builtin_make_char_table(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_make_char_table(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     builtin_make_char_table_in_state(eval.obarray(), args)
 }
 
@@ -559,7 +559,7 @@ pub(crate) fn for_each_char_table_mapping(
     Ok(())
 }
 
-pub(crate) fn builtin_map_char_table(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_map_char_table(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_args("map-char-table", &args, 2)?;
     let func = args[0];
     let table = args[1];

@@ -1,6 +1,6 @@
 //! Buffer navigation, line operations, and mark/region management builtins.
 //!
-//! All functions here take `(eval: &mut Evaluator, args: Vec<Value>) -> EvalResult`
+//! All functions here take `(eval: &mut Context, args: Vec<Value>) -> EvalResult`
 //! and are dispatched from `builtins.rs` via `dispatch_builtin`.
 
 use super::error::{EvalResult, Flow, signal};
@@ -65,7 +65,7 @@ fn current_buffer_in_manager(buffers: &BufferManager) -> Result<&crate::buffer::
     buffers.current_buffer().ok_or_else(no_buffer)
 }
 
-fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
     let name_id = intern(name);
     if eval.lexical_binding() && !eval.obarray.is_special(name) {
         if let Some(v) = lexenv_lookup(eval.lexenv, name_id) {
@@ -208,22 +208,22 @@ fn line_end_byte_narrowed(text: &str, byte_pos: usize, zv: usize) -> usize {
 // ===========================================================================
 
 /// (bobp) -- at beginning of buffer?
-pub(crate) fn builtin_bobp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_bobp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
     builtin_bobp_in_manager(&eval.buffers, _args)
 }
 
 /// (eobp) -- at end of buffer?
-pub(crate) fn builtin_eobp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_eobp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
     builtin_eobp_in_manager(&eval.buffers, _args)
 }
 
 /// (bolp) -- at beginning of line?
-pub(crate) fn builtin_bolp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_bolp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
     builtin_bolp_in_manager(&eval.buffers, _args)
 }
 
 /// (eolp) -- at end of line?
-pub(crate) fn builtin_eolp(eval: &mut super::eval::Evaluator, _args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_eolp(eval: &mut super::eval::Context, _args: Vec<Value>) -> EvalResult {
     builtin_eolp_in_manager(&eval.buffers, _args)
 }
 
@@ -233,7 +233,7 @@ pub(crate) fn builtin_eolp(eval: &mut super::eval::Evaluator, _args: Vec<Value>)
 
 /// (line-beginning-position &optional N)
 pub(crate) fn builtin_line_beginning_position(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_line_beginning_position_in_manager(&eval.buffers, args)
@@ -300,7 +300,7 @@ pub(crate) fn builtin_line_beginning_position_in_manager(
 
 /// (line-end-position &optional N)
 pub(crate) fn builtin_line_end_position(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_line_end_position_in_manager(&eval.buffers, args)
@@ -337,7 +337,7 @@ pub(crate) fn builtin_line_end_position_in_manager(
 
 /// (line-number-at-pos &optional POS ABSOLUTE)
 pub(crate) fn builtin_line_number_at_pos(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
@@ -356,7 +356,7 @@ pub(crate) fn builtin_line_number_at_pos(
 
 /// (count-lines BEG END)
 pub(crate) fn builtin_count_lines(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("count-lines", &args, 2)?;
@@ -384,7 +384,7 @@ pub(crate) fn builtin_count_lines(
 
 /// (forward-line &optional N) -> integer
 pub(crate) fn builtin_forward_line(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_forward_line_in_manager(&mut eval.buffers, args)
@@ -431,7 +431,7 @@ pub(crate) fn builtin_forward_line_in_manager(
 
 /// (beginning-of-line &optional N)
 pub(crate) fn builtin_beginning_of_line(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_beginning_of_line_in_manager(&mut eval.buffers, args)
@@ -464,7 +464,7 @@ pub(crate) fn builtin_beginning_of_line_in_manager(
 
 /// (end-of-line &optional N)
 pub(crate) fn builtin_end_of_line(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_end_of_line_in_manager(&mut eval.buffers, args)
@@ -507,7 +507,7 @@ pub(crate) fn builtin_end_of_line_in_manager(
 
 /// (forward-char &optional N)
 pub(crate) fn builtin_forward_char(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_forward_char_in_manager(&mut eval.buffers, args)
@@ -550,7 +550,7 @@ pub(crate) fn builtin_forward_char_in_manager(
 
 /// (backward-char &optional N)
 pub(crate) fn builtin_backward_char(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_backward_char_in_manager(&mut eval.buffers, args)
@@ -618,7 +618,7 @@ fn parse_skip_chars_set(s: &str) -> (bool, Vec<char>) {
 
 /// (skip-chars-forward STRING &optional LIM)
 pub(crate) fn builtin_skip_chars_forward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_skip_chars_forward_in_manager(&mut eval.buffers, args)
@@ -680,7 +680,7 @@ pub(crate) fn builtin_skip_chars_forward_in_manager(
 
 /// (skip-chars-backward STRING &optional LIM)
 pub(crate) fn builtin_skip_chars_backward(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_skip_chars_backward_in_manager(&mut eval.buffers, args)
@@ -742,7 +742,7 @@ pub(crate) fn builtin_skip_chars_backward_in_manager(
 // ===========================================================================
 
 /// (mark &optional FORCE) -> integer or signal
-pub(crate) fn builtin_mark_nav(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_mark_nav(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let _force = args.first().is_some_and(|v| v.is_truthy());
     let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
     match buf.mark() {
@@ -753,7 +753,7 @@ pub(crate) fn builtin_mark_nav(eval: &mut super::eval::Evaluator, args: Vec<Valu
 
 /// (region-beginning) -> integer
 pub(crate) fn builtin_region_beginning(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     _args: Vec<Value>,
 ) -> EvalResult {
     builtin_region_beginning_in_manager(&eval.buffers, _args)
@@ -780,7 +780,7 @@ pub(crate) fn builtin_region_beginning_in_manager(
 
 /// (region-end) -> integer
 pub(crate) fn builtin_region_end(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     _args: Vec<Value>,
 ) -> EvalResult {
     builtin_region_end_in_manager(&eval.buffers, _args)
@@ -817,7 +817,7 @@ pub(crate) fn builtin_region_end_in_manager(
 /// - zero or negative → disable (set to nil)
 /// - 'toggle         → flip current value
 pub(crate) fn builtin_transient_mark_mode(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     if args.len() > 1 {

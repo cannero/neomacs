@@ -59,7 +59,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
     }
 }
 
-fn expect_int_eval(eval: &super::eval::Evaluator, value: &Value) -> Result<i64, Flow> {
+fn expect_int_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Flow> {
     match value {
         Value::Int(n) => Ok(*n),
         Value::Char(c) => Ok(*c as i64),
@@ -86,7 +86,7 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_integer_or_marker_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
 ) -> Result<i64, Flow> {
     match value {
@@ -181,7 +181,7 @@ fn byte_to_elisp_pos(buf: &crate::buffer::buffer::Buffer, byte_pos: usize) -> i6
 /// Resolve the optional OBJECT argument to a buffer id.
 /// If nil or absent, uses the current buffer.
 fn resolve_buffer_id(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     object: Option<&Value>,
 ) -> Result<BufferId, Flow> {
     resolve_buffer_id_in_buffers(&eval.buffers, object)
@@ -310,7 +310,7 @@ fn ordered_pairs_to_plist(pairs: &[(String, Value)]) -> Value {
 
 /// (put-text-property BEG END PROP VAL &optional OBJECT)
 pub(crate) fn builtin_put_text_property(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_put_text_property_in_buffers(&mut eval.buffers, args)
@@ -350,7 +350,7 @@ pub(crate) fn builtin_put_text_property_in_buffers(
 
 /// (get-text-property POS PROP &optional OBJECT)
 pub(crate) fn builtin_get_text_property(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_text_property_in_buffers(&eval.buffers, args)
@@ -416,7 +416,7 @@ pub(crate) fn buffer_overlay_property_for_inserted_char_at_byte_pos(
 /// (get-char-property POS PROP &optional OBJECT)
 /// For strings, same as get-text-property (no overlays).
 pub(crate) fn builtin_get_char_property(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_char_property_in_buffers(&eval.buffers, args)
@@ -453,7 +453,7 @@ pub(crate) fn builtin_get_char_property_in_buffers(
 
 /// (add-text-properties BEG END PROPS &optional OBJECT)
 pub(crate) fn builtin_add_text_properties(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_add_text_properties_in_buffers(&mut eval.buffers, args)
@@ -527,7 +527,7 @@ fn merge_face_property(existing: Option<Value>, new_face: Value, append: bool) -
 
 /// `(add-face-text-property START END FACE &optional APPENDP OBJECT)`
 pub(crate) fn builtin_add_face_text_property(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_add_face_text_property_in_buffers(&mut eval.buffers, args)
@@ -583,7 +583,7 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
 
 /// (remove-text-properties BEG END PROPS &optional OBJECT)
 pub(crate) fn builtin_remove_text_properties(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_remove_text_properties_in_buffers(&mut eval.buffers, args)
@@ -635,7 +635,7 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
 
 /// (set-text-properties BEG END PROPS &optional OBJECT)
 pub(crate) fn builtin_set_text_properties(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_set_text_properties_in_buffers(&mut eval.buffers, args)
@@ -685,7 +685,7 @@ pub(crate) fn builtin_set_text_properties_in_buffers(
 
 /// (remove-list-of-text-properties BEG END LIST &optional OBJECT)
 pub(crate) fn builtin_remove_list_of_text_properties(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_remove_list_of_text_properties_in_buffers(&mut eval.buffers, args)
@@ -751,7 +751,7 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
 
 /// (text-properties-at POS &optional OBJECT)
 pub(crate) fn builtin_text_properties_at(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_text_properties_at_in_buffers(&eval.buffers, args)
@@ -787,7 +787,7 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
 
 /// (next-single-property-change POS PROP &optional OBJECT LIMIT)
 pub(crate) fn builtin_next_single_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_next_single_property_change_in_buffers(&eval.buffers, args)
@@ -906,7 +906,7 @@ pub(crate) fn builtin_next_single_property_change_in_buffers(
 
 /// (previous-single-property-change POS PROP &optional OBJECT LIMIT)
 pub(crate) fn builtin_previous_single_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_previous_single_property_change_in_buffers(&eval.buffers, args)
@@ -1027,7 +1027,7 @@ pub(crate) fn builtin_previous_single_property_change_in_buffers(
 
 /// (next-property-change POS &optional OBJECT LIMIT)
 pub(crate) fn builtin_next_property_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_next_property_change_in_buffers(&eval.buffers, args)
@@ -1127,7 +1127,7 @@ pub(crate) fn builtin_next_property_change_in_buffers(
 
 /// (text-property-any BEG END PROP VAL &optional OBJECT)
 pub(crate) fn builtin_text_property_any(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_text_property_any_in_buffers(&eval.buffers, args)
@@ -1192,7 +1192,7 @@ pub(crate) fn builtin_text_property_any_in_buffers(
 
 /// (text-property-not-all BEG END PROP VAL &optional OBJECT)
 pub(crate) fn builtin_text_property_not_all(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_text_property_not_all_in_buffers(&eval.buffers, args)
@@ -1261,7 +1261,7 @@ pub(crate) fn builtin_text_property_not_all_in_buffers(
 
 /// (get-char-property-and-overlay POS PROP &optional OBJECT)
 pub(crate) fn builtin_get_char_property_and_overlay(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_char_property_and_overlay_in_buffers(&eval.buffers, args)
@@ -1298,7 +1298,7 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_buffers(
 
 /// (get-display-property POS PROP &optional OBJECT PROPERTIES)
 pub(crate) fn builtin_get_display_property(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_get_display_property_in_buffers(&eval.buffers, args)
@@ -1327,7 +1327,7 @@ pub(crate) fn builtin_get_display_property_in_buffers(
 
 /// (next-overlay-change POS)
 pub(crate) fn builtin_next_overlay_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_next_overlay_change_in_buffers(&eval.buffers, args)
@@ -1368,7 +1368,7 @@ pub(crate) fn builtin_next_overlay_change_in_buffers(
 
 /// (previous-overlay-change POS)
 pub(crate) fn builtin_previous_overlay_change(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_previous_overlay_change_in_buffers(&eval.buffers, args)
@@ -1409,7 +1409,7 @@ pub(crate) fn builtin_previous_overlay_change_in_buffers(
 
 /// (make-overlay BEG END &optional BUFFER FRONT-ADVANCE REAR-ADVANCE)
 pub(crate) fn builtin_make_overlay(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_make_overlay_in_buffers(&mut eval.buffers, args)
@@ -1466,7 +1466,7 @@ fn expect_overlay(value: &Value) -> Result<(u64, BufferId), Flow> {
 
 /// (delete-overlay OVERLAY)
 pub(crate) fn builtin_delete_overlay(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_delete_overlay_in_buffers(&mut eval.buffers, args)
@@ -1484,7 +1484,7 @@ pub(crate) fn builtin_delete_overlay_in_buffers(
 
 /// (overlay-put OVERLAY PROP VAL)
 pub(crate) fn builtin_overlay_put(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlay_put_in_buffers(&mut eval.buffers, args)
@@ -1505,7 +1505,7 @@ pub(crate) fn builtin_overlay_put_in_buffers(
 
 /// (overlay-get OVERLAY PROP)
 pub(crate) fn builtin_overlay_get(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlay_get_in_buffers(&eval.buffers, args)
@@ -1532,7 +1532,7 @@ pub(crate) fn builtin_overlay_get_in_buffers(
 }
 
 /// (overlayp OBJ)
-pub(crate) fn builtin_overlayp(_eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_overlayp(_eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_overlayp_pure(args)
 }
 
@@ -1549,7 +1549,7 @@ pub(crate) fn builtin_overlayp_pure(args: Vec<Value>) -> EvalResult {
 
 /// (overlays-at POS &optional SORTED)
 pub(crate) fn builtin_overlays_at(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlays_at_in_buffers(&eval.buffers, args)
@@ -1581,7 +1581,7 @@ pub(crate) fn builtin_overlays_at_in_buffers(
 
 /// (overlays-in BEG END)
 pub(crate) fn builtin_overlays_in(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlays_in_in_buffers(&eval.buffers, args)
@@ -1611,7 +1611,7 @@ pub(crate) fn builtin_overlays_in_in_buffers(
 
 /// (move-overlay OVERLAY BEG END &optional BUFFER)
 pub(crate) fn builtin_move_overlay(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_move_overlay_in_buffers(&mut eval.buffers, args)
@@ -1701,7 +1701,7 @@ pub(crate) fn builtin_move_overlay_in_buffers(
 
 /// (overlay-start OVERLAY)
 pub(crate) fn builtin_overlay_start(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlay_start_in_buffers(&eval.buffers, args)
@@ -1726,7 +1726,7 @@ pub(crate) fn builtin_overlay_start_in_buffers(
 
 /// (overlay-end OVERLAY)
 pub(crate) fn builtin_overlay_end(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlay_end_in_buffers(&eval.buffers, args)
@@ -1751,7 +1751,7 @@ pub(crate) fn builtin_overlay_end_in_buffers(
 
 /// (overlay-buffer OVERLAY)
 pub(crate) fn builtin_overlay_buffer(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlay_buffer_in_buffers(&eval.buffers, args)
@@ -1775,7 +1775,7 @@ pub(crate) fn builtin_overlay_buffer_in_buffers(
 
 /// (overlay-properties OVERLAY)
 pub(crate) fn builtin_overlay_properties(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_overlay_properties_in_buffers(&eval.buffers, args)
@@ -1798,7 +1798,7 @@ pub(crate) fn builtin_overlay_properties_in_buffers(
 
 /// (remove-overlays &optional BEG END NAME VAL)
 pub(crate) fn builtin_remove_overlays(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("remove-overlays", &args, 4)?;

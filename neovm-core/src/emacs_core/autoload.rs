@@ -347,7 +347,7 @@ pub(crate) fn finish_autoload_do_load_in_state(
 }
 
 pub(crate) fn builtin_autoload_do_load(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     match plan_autoload_do_load_in_state(&eval.obarray, &args)? {
@@ -361,19 +361,19 @@ pub(crate) fn builtin_autoload_do_load(
 }
 
 pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
-    shared: &mut super::eval::VmSharedState<'_>,
+    shared: &mut super::eval::Context,
     vm_gc_roots: &[Value],
     args: &[Value],
     extra_roots: &[Value],
 ) -> EvalResult {
-    match plan_autoload_do_load_in_state(&*shared.obarray, args)? {
+    match plan_autoload_do_load_in_state(&shared.obarray, args)? {
         AutoloadDoLoadPlan::Return(value) => Ok(value),
         AutoloadDoLoadPlan::Load { file, funname } => {
-            let path = resolve_autoload_load_path(&*shared.obarray, &file)?;
+            let path = resolve_autoload_load_path(&shared.obarray, &file)?;
             shared.with_parent_evaluator_vm_roots(vm_gc_roots, extra_roots, move |eval| {
                 eval.load_file_internal(&path)
             })?;
-            finish_autoload_do_load_in_state(&*shared.obarray, funname.as_deref())
+            finish_autoload_do_load_in_state(&shared.obarray, funname.as_deref())
         }
     }
 }
@@ -457,7 +457,7 @@ pub(crate) fn register_autoload_in_state(
 ///
 /// Callable builtin form used by `funcall`/`apply` and direct function calls.
 /// Arguments are already evaluated.
-pub(crate) fn builtin_autoload(eval: &mut super::eval::Evaluator, args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_autoload(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
 }
 
@@ -517,7 +517,7 @@ pub(crate) fn builtin_symbol_file_in_state(
     Ok(Value::Nil)
 }
 
-/// Evaluator-aware `(symbol-file SYMBOL &optional TYPE)`.
+/// Context-aware `(symbol-file SYMBOL &optional TYPE)`.
 ///
 /// NeoVM currently tracks symbol origin only for autoloaded function symbols.
 /// This matches GNU Emacs behavior for the currently supported subset:
@@ -525,7 +525,7 @@ pub(crate) fn builtin_symbol_file_in_state(
 /// - TYPE nil/missing/`defun` queries function definition origin
 /// - other TYPE values return nil
 pub(crate) fn builtin_symbol_file_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_symbol_file_in_state(&eval.obarray, &eval.autoloads, &args)
@@ -542,7 +542,7 @@ pub(crate) fn builtin_symbol_file_eval(
 /// cell of the symbol.  Also registers an [`AutoloadEntry`] with the
 /// evaluator's [`AutoloadManager`].  Returns the function name symbol.
 pub(crate) fn sf_autoload(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
     let mut args = Vec::with_capacity(tail.len());
@@ -564,7 +564,7 @@ pub(crate) fn sf_autoload(
 /// `(eval-when-compile (require 'cl-lib))` actually running; if they fail,
 /// the failure must surface so bootstrap can be fixed rather than masked.
 pub(crate) fn sf_eval_when_compile(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
     // In GNU Emacs, eval-when-compile evaluates BODY during byte-compilation
@@ -596,7 +596,7 @@ pub(crate) fn sf_eval_when_compile(
 /// In the interpreter, simply evaluates BODY sequentially and returns the last
 /// result (identical to `progn`).
 pub(crate) fn sf_eval_and_compile(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
     eval.sf_progn(tail)

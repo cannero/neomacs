@@ -285,7 +285,7 @@ fn preserve_upcase_case_string_payload(code: i64) -> bool {
     )
 }
 
-fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> Option<Value> {
+fn dynamic_or_global_symbol_value(eval: &super::eval::Context, name: &str) -> Option<Value> {
     let name_id = intern(name);
     for frame in eval.dynamic.iter().rev() {
         if let Some(value) = frame.get(&name_id) {
@@ -300,7 +300,7 @@ fn dynamic_or_global_symbol_value(eval: &super::eval::Evaluator, name: &str) -> 
     eval.obarray.symbol_value(name).cloned()
 }
 
-fn region_case_read_only(eval: &super::eval::Evaluator, buf: &Buffer) -> bool {
+fn region_case_read_only(eval: &super::eval::Context, buf: &Buffer) -> bool {
     if buf.read_only {
         return true;
     }
@@ -351,7 +351,7 @@ fn resolve_case_region_in_buffers(
 }
 
 fn resolve_case_region(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     beg: i64,
     end: i64,
     arg: Option<&Value>,
@@ -380,7 +380,7 @@ fn replace_current_buffer_region_in_buffers(
 }
 
 fn replace_current_buffer_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     beg: usize,
     end: usize,
     replacement: &str,
@@ -619,7 +619,7 @@ pub(crate) fn apply_replace_match_case(replacement: &str, matched: &str) -> Stri
 }
 
 pub(crate) fn builtin_downcase_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_downcase_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -642,7 +642,7 @@ pub(crate) fn builtin_downcase_region_in_state(
 }
 
 pub(crate) fn builtin_upcase_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_upcase_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -665,7 +665,7 @@ pub(crate) fn builtin_upcase_region_in_state(
 }
 
 pub(crate) fn builtin_capitalize_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_capitalize_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -688,7 +688,7 @@ pub(crate) fn builtin_capitalize_region_in_state(
 }
 
 pub(crate) fn builtin_upcase_initials_region(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_upcase_initials_region_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -711,7 +711,7 @@ pub(crate) fn builtin_upcase_initials_region_in_state(
 }
 
 pub(crate) fn builtin_downcase_word(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_downcase_word_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -734,7 +734,7 @@ pub(crate) fn builtin_downcase_word_in_state(
 }
 
 pub(crate) fn builtin_upcase_word(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_upcase_word_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)
@@ -757,7 +757,7 @@ pub(crate) fn builtin_upcase_word_in_state(
 }
 
 pub(crate) fn builtin_capitalize_word(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_capitalize_word_in_state(&eval.obarray, &eval.dynamic, &mut eval.buffers, args)

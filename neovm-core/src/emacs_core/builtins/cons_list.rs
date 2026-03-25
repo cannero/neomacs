@@ -749,7 +749,7 @@ pub(crate) fn builtin_assoc(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_assoc_eval(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Assoc, || {
@@ -773,7 +773,7 @@ pub(crate) fn builtin_assoc_eval(
 }
 
 fn builtin_assoc_eval_inner(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     key: &Value,
     list: Value,
     test_fn: &Option<Value>,

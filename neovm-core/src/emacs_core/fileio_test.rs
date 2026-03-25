@@ -376,7 +376,7 @@ fn test_builtin_delete_directory_eval_resolves_default_directory() {
     let base = std::env::temp_dir().join("neovm-delete-dir-eval");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
@@ -438,7 +438,7 @@ fn test_builtin_make_symbolic_link_eval_uses_default_directory() {
     let base = std::env::temp_dir().join("neovm-symlink-eval");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
@@ -752,7 +752,7 @@ fn test_builtin_expand_file_name() {
 
 #[test]
 fn test_builtin_expand_file_name_eval_uses_default_directory() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/neovm-expand/"));
 
@@ -778,7 +778,7 @@ fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
     fs::create_dir_all(base.join("subdir")).unwrap();
     fs::write(base.join("alpha.txt"), "alpha").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
     let current = eval.buffers.current_buffer_id().expect("current buffer");
@@ -851,7 +851,7 @@ fn test_builtin_file_truename_counter_validation() {
 
 #[test]
 fn test_builtin_file_truename_eval_uses_default_directory() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string("/tmp/neovm-file-truename/"),
@@ -909,7 +909,7 @@ fn test_builtin_make_temp_file_validation() {
 
 #[test]
 fn test_builtin_make_temp_file_eval_honors_temp_directory() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let dir = std::env::temp_dir().join("neovm-mtf-eval");
     let _ = fs::create_dir_all(&dir);
     eval.obarray.set_symbol_value(
@@ -959,7 +959,7 @@ fn test_builtin_make_nearby_temp_file_eval_relative_prefix_uses_temp_dir() {
     let sub = base.join("sub");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&sub).unwrap();
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
@@ -1058,7 +1058,7 @@ fn test_builtin_file_modes_eval_respects_default_directory() {
     let file = base.join("alpha.txt");
     fs::write(&file, b"x").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
@@ -1105,7 +1105,7 @@ fn test_builtin_set_file_modes_eval_respects_default_directory() {
     let file = base.join("alpha.txt");
     fs::write(&file, b"x").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", base.to_string_lossy())),
@@ -1223,7 +1223,7 @@ fn test_builtin_directory_files_eval_respects_default_directory() {
     fs::write(fixture.join("alpha.txt"), "").unwrap();
     fs::write(fixture.join("beta.el"), "").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let base_str = format!("{}/", base.to_string_lossy());
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
@@ -1280,7 +1280,7 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
     fs::create_dir_all(&base).unwrap();
     fs::write(base.join("alpha.txt"), "x").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let base_str = format!("{}/", base.to_string_lossy());
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
@@ -1326,7 +1326,7 @@ fn test_builtin_rename_file_eval_overwrite_semantics() {
     fs::write(base.join("src.txt"), "x").unwrap();
     fs::write(base.join("dst.txt"), "y").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let base_str = format!("{}/", base.to_string_lossy());
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
@@ -1367,7 +1367,7 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
     fs::write(base.join("src.txt"), "src").unwrap();
     fs::write(base.join("dst.txt"), "dst").unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let base_str = format!("{}/", base.to_string_lossy());
     eval.obarray
         .set_symbol_value("default-directory", Value::string(&base_str));
@@ -1654,14 +1654,14 @@ fn test_builtin_file_predicates_strict_types() {
 
 #[test]
 fn test_eval_file_predicates_respect_default_directory() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_fileio_eval_default_dir");
     let subdir = dir.join("subdir");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&subdir).expect("create test subdir");
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray
         .set_symbol_value("default-directory", Value::string(dir.to_string_lossy()));
 
@@ -1678,7 +1678,7 @@ fn test_eval_file_predicates_respect_default_directory() {
 
 #[test]
 fn test_file_name_case_insensitive_eval_respects_default_directory() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_fileio_case_insensitive_eval");
     let _ = fs::remove_dir_all(&dir);
@@ -1690,7 +1690,7 @@ fn test_file_name_case_insensitive_eval_respects_default_directory() {
         builtin_file_name_case_insensitive_p(vec![Value::string(file.to_string_lossy())])
             .expect("absolute case-insensitive query");
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", dir.to_string_lossy())),
@@ -1755,7 +1755,7 @@ fn test_builtin_file_newer_than_file_p_semantics() {
 
 #[test]
 fn test_file_newer_than_file_p_eval_respects_default_directory() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm-file-newer-than-file-p-eval");
     let _ = fs::remove_dir_all(&dir);
@@ -1767,7 +1767,7 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
     std::thread::sleep(std::time::Duration::from_millis(1200));
     fs::write(&new, b"new").expect("write new file");
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", dir.to_string_lossy())),
@@ -1822,7 +1822,7 @@ fn test_builtin_set_file_times_semantics() {
 
 #[test]
 fn test_set_file_times_eval_respects_default_directory() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm-set-file-times-eval");
     let _ = fs::remove_dir_all(&dir);
@@ -1830,7 +1830,7 @@ fn test_set_file_times_eval_respects_default_directory() {
     let file = dir.join("alpha.txt");
     fs::write(&file, b"alpha").expect("write file");
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
         Value::string(format!("{}/", dir.to_string_lossy())),
@@ -1855,7 +1855,7 @@ fn test_set_file_times_eval_respects_default_directory() {
 
 #[test]
 fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let current = eval.buffers.current_buffer_id().expect("current buffer");
 
     assert_eq!(
@@ -1935,12 +1935,12 @@ fn test_builtin_wrong_arg_count() {
 }
 
 // -----------------------------------------------------------------------
-// Evaluator-dependent builtins
+// Context-dependent builtins
 // -----------------------------------------------------------------------
 
 #[test]
 fn test_insert_file_contents_and_write_region() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_fileio_test");
     let _ = fs::create_dir_all(&dir);
@@ -1950,7 +1950,7 @@ fn test_insert_file_contents_and_write_region() {
     // Write a test file to disk
     write_string_to_file("hello from file", &path_str, false).unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // insert-file-contents
     let result = builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str)]);
@@ -1978,7 +1978,7 @@ fn test_insert_file_contents_and_write_region() {
 
 #[test]
 fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_visit");
     let _ = fs::remove_dir_all(&dir);
@@ -1988,7 +1988,7 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
     let path_str = path.to_string_lossy().to_string();
     write_string_to_file("visited text", &path_str, false).unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result =
         builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str), Value::True])
             .expect("insert-file-contents with visit should succeed");
@@ -2005,7 +2005,7 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
 
 #[test]
 fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_visit_errors");
     let _ = fs::remove_dir_all(&dir);
@@ -2015,7 +2015,7 @@ fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
     let path_str = path.to_string_lossy().to_string();
     write_string_to_file("visited text", &path_str, false).unwrap();
 
-    let mut eval_partial = Evaluator::new();
+    let mut eval_partial = Context::new();
     let partial = builtin_insert_file_contents(
         &mut eval_partial,
         vec![Value::string(&path_str), Value::True, Value::Int(0)],
@@ -2032,7 +2032,7 @@ fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let mut eval_nonempty = Evaluator::new();
+    let mut eval_nonempty = Context::new();
     eval_nonempty
         .buffers
         .current_buffer_mut()
@@ -2061,7 +2061,7 @@ fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
 
 #[test]
 fn test_insert_file_contents_beg_end_semantics() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_beg_end");
     let _ = fs::remove_dir_all(&dir);
@@ -2070,7 +2070,7 @@ fn test_insert_file_contents_beg_end_semantics() {
     let path_str = path.to_string_lossy().to_string();
     write_string_to_file("abcdef", &path_str, false).unwrap();
 
-    let mut eval_slice = Evaluator::new();
+    let mut eval_slice = Context::new();
     let inserted = builtin_insert_file_contents(
         &mut eval_slice,
         vec![
@@ -2092,7 +2092,7 @@ fn test_insert_file_contents_beg_end_semantics() {
         "slice 2..4 should insert 'cd'"
     );
 
-    let mut eval_empty = Evaluator::new();
+    let mut eval_empty = Context::new();
     let inserted_zero = builtin_insert_file_contents(
         &mut eval_empty,
         vec![
@@ -2109,7 +2109,7 @@ fn test_insert_file_contents_beg_end_semantics() {
         ""
     );
 
-    let mut eval_tail = Evaluator::new();
+    let mut eval_tail = Context::new();
     let inserted_tail = builtin_insert_file_contents(
         &mut eval_tail,
         vec![
@@ -2126,7 +2126,7 @@ fn test_insert_file_contents_beg_end_semantics() {
         "cdef"
     );
 
-    let mut eval_bad = Evaluator::new();
+    let mut eval_bad = Context::new();
     let bad_offset = builtin_insert_file_contents(
         &mut eval_bad,
         vec![
@@ -2150,7 +2150,7 @@ fn test_insert_file_contents_beg_end_semantics() {
 
 #[test]
 fn test_insert_file_contents_and_write_region_arity_bounds() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_fileio_arity_bounds");
     let _ = fs::remove_dir_all(&dir);
@@ -2160,7 +2160,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
     let file_str = file_path.to_string_lossy().to_string();
     write_string_to_file("", &file_str, false).unwrap();
 
-    let mut eval_insert_ok = Evaluator::new();
+    let mut eval_insert_ok = Context::new();
     let insert_ok = builtin_insert_file_contents(
         &mut eval_insert_ok,
         vec![
@@ -2174,7 +2174,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
     .expect("5-arg insert-file-contents should succeed");
     assert_eq!(list_to_vec(&insert_ok).unwrap()[1], Value::Int(0));
 
-    let mut eval_insert_bad = Evaluator::new();
+    let mut eval_insert_bad = Context::new();
     let insert_bad = builtin_insert_file_contents(
         &mut eval_insert_bad,
         vec![
@@ -2201,7 +2201,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
     let out_path = dir.join("arity-out.txt");
     let out_str = out_path.to_string_lossy().to_string();
 
-    let mut eval_write_ok = Evaluator::new();
+    let mut eval_write_ok = Context::new();
     eval_write_ok
         .buffers
         .current_buffer_mut()
@@ -2221,7 +2221,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
     )
     .expect("7-arg write-region should succeed");
 
-    let mut eval_write_bad = Evaluator::new();
+    let mut eval_write_bad = Context::new();
     eval_write_bad
         .buffers
         .current_buffer_mut()
@@ -2254,7 +2254,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
 
 #[test]
 fn test_find_file_noselect_arity_bounds() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_find_file_noselect_arity");
     let _ = fs::remove_dir_all(&dir);
@@ -2264,7 +2264,7 @@ fn test_find_file_noselect_arity_bounds() {
     let file_str = file_path.to_string_lossy().to_string();
     write_string_to_file("", &file_str, false).unwrap();
 
-    let mut eval_ok = Evaluator::new();
+    let mut eval_ok = Context::new();
     let ok = builtin_find_file_noselect(
         &mut eval_ok,
         vec![Value::string(&file_str), Value::Nil, Value::Nil, Value::Nil],
@@ -2272,7 +2272,7 @@ fn test_find_file_noselect_arity_bounds() {
     .expect("4-arg find-file-noselect should succeed");
     assert!(matches!(ok, Value::Buffer(_)));
 
-    let mut eval_bad = Evaluator::new();
+    let mut eval_bad = Context::new();
     let bad = builtin_find_file_noselect(
         &mut eval_bad,
         vec![
@@ -2300,7 +2300,7 @@ fn test_find_file_noselect_arity_bounds() {
 
 #[test]
 fn test_eval_fileio_relative_paths_respect_default_directory() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_fileio_relative");
     let _ = fs::remove_dir_all(&dir);
@@ -2313,7 +2313,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
     let out_str = out_path.to_string_lossy().to_string();
     let default_dir = format!("{}/", dir.to_string_lossy());
 
-    let mut eval_insert = Evaluator::new();
+    let mut eval_insert = Context::new();
     eval_insert
         .obarray
         .set_symbol_value("default-directory", Value::string(&default_dir));
@@ -2324,7 +2324,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
     let ibuf = eval_insert.buffers.current_buffer().unwrap();
     assert_eq!(ibuf.buffer_string(), "alpha\n");
 
-    let mut eval_write = Evaluator::new();
+    let mut eval_write = Context::new();
     eval_write
         .obarray
         .set_symbol_value("default-directory", Value::string(&default_dir));
@@ -2340,7 +2340,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
     .unwrap();
     assert_eq!(read_file_contents(&out_str).unwrap(), "neo");
 
-    let mut eval_find = Evaluator::new();
+    let mut eval_find = Context::new();
     eval_find
         .obarray
         .set_symbol_value("default-directory", Value::string(&default_dir));
@@ -2358,7 +2358,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
 
 #[test]
 fn test_write_region_bounds_and_order_semantics() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_write_region_bounds");
     let _ = fs::remove_dir_all(&dir);
@@ -2367,7 +2367,7 @@ fn test_write_region_bounds_and_order_semantics() {
     let out_path = dir.join("out.txt");
     let out_str = out_path.to_string_lossy().to_string();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.buffers.current_buffer_mut().unwrap().insert("abc");
     let current = Value::Buffer(eval.buffers.current_buffer().unwrap().id);
 
@@ -2398,7 +2398,7 @@ fn test_write_region_bounds_and_order_semantics() {
 
 #[test]
 fn test_write_region_visit_sets_file_name_and_clears_modified() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_write_region_visit");
     let _ = fs::remove_dir_all(&dir);
@@ -2407,7 +2407,7 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
     let out_path = dir.join("visited.txt");
     let out_str = out_path.to_string_lossy().to_string();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.buffers.current_buffer_mut().unwrap().insert("neo");
     assert!(eval.buffers.current_buffer().unwrap().is_modified());
 
@@ -2433,7 +2433,7 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
 
 #[test]
 fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_write_region_string_append");
     let _ = fs::remove_dir_all(&dir);
@@ -2445,7 +2445,7 @@ fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
     let visit_str = visit_path.to_string_lossy().to_string();
     write_string_to_file("abcde", &out_str, false).unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.buffers
         .current_buffer_mut()
         .unwrap()
@@ -2474,7 +2474,7 @@ fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
 
 #[test]
 fn test_find_file_noselect() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_findfile_test");
     let _ = fs::create_dir_all(&dir);
@@ -2483,7 +2483,7 @@ fn test_find_file_noselect() {
 
     write_string_to_file("file content here", &path_str, false).unwrap();
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
 
     // find-file-noselect
     let result = builtin_find_file_noselect(&mut eval, vec![Value::string(&path_str)]);
@@ -2513,9 +2513,9 @@ fn test_find_file_noselect() {
 
 #[test]
 fn test_find_file_noselect_nonexistent() {
-    use super::super::eval::Evaluator;
+    use super::super::eval::Context;
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let result = builtin_find_file_noselect(
         &mut eval,
         vec![Value::string("/tmp/neovm_nonexistent_file_xyz.txt")],

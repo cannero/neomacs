@@ -39,7 +39,7 @@ use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
     TerminalRuntimeConfig, configure_terminal_runtime, reset_terminal_runtime,
 };
-use neovm_core::emacs_core::{DisplayHost, Evaluator, GuiFrameHostRequest};
+use neovm_core::emacs_core::{DisplayHost, Context, GuiFrameHostRequest};
 use neovm_core::face::{FaceHeight, FontSlant, FontWeight, FontWidth};
 use neovm_core::window::{FrameId, Window};
 
@@ -658,7 +658,7 @@ fn main() {
     // values that are still referenced by unwind-protect cleanup forms.
     evaluator.set_gc_threshold(usize::MAX);
     evaluator.set_variable("dump-mode", Value::Nil);
-    tracing::info!("Evaluator initialized");
+    tracing::info!("Context initialized");
 
     // 3. Bootstrap the host-side initial frame/buffers.
     let _bootstrap = bootstrap_buffers(&mut evaluator, width, height, bootstrap_display);
@@ -742,7 +742,7 @@ fn main() {
                 record_primary_window_resize(&primary_window_size_for_input, &event);
                 if let Some(kb_event) = input_bridge::convert_display_event(event) {
                     if input_tx.send(kb_event).is_err() {
-                        break; // Evaluator dropped
+                        break; // Context dropped
                     }
                 }
             }
@@ -755,7 +755,7 @@ fn main() {
 
     // 9. Set up redisplay callback (layout engine + send frame)
     let frame_tx = emacs_comms.frame_tx;
-    evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Evaluator| {
+    evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
         eval.setup_thread_locals();
         run_layout(eval, &mut frame_glyphs);
         let _ = frame_tx.try_send(frame_glyphs.clone());
@@ -939,13 +939,13 @@ fn bootstrap_frame_metrics() -> BootstrapFrameMetrics {
 }
 
 fn bootstrap_buffers(
-    eval: &mut Evaluator,
+    eval: &mut Context,
     width: u32,
     height: u32,
     display: BootstrapDisplayConfig,
 ) -> BootstrapResult {
     let frame_metrics = bootstrap_frame_metrics();
-    let find_or_create_buffer = |eval: &mut Evaluator, name: &str| {
+    let find_or_create_buffer = |eval: &mut Context, name: &str| {
         eval.buffer_manager()
             .find_buffer_by_name(name)
             .unwrap_or_else(|| eval.buffer_manager_mut().create_buffer(name))
@@ -1102,7 +1102,7 @@ fn bootstrap_buffers(
     }
 }
 
-fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup: &StartupOptions) {
+fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &StartupOptions) {
     let argv_strings = startup.forwarded_args.iter().cloned().collect::<Vec<_>>();
     let argv = argv_strings
         .iter()
@@ -1185,7 +1185,7 @@ fn configure_gnu_startup_state(eval: &mut Evaluator, frame_id: FrameId, startup:
         .set_symbol_function("function-get", Value::Subr(intern("function-get")));
 }
 
-fn ensure_gnu_startup_terminal_frame(eval: &mut Evaluator, opening_frame_id: FrameId) -> FrameId {
+fn ensure_gnu_startup_terminal_frame(eval: &mut Context, opening_frame_id: FrameId) -> FrameId {
     if let Some(existing) = eval
         .frame_manager()
         .frame_list()
@@ -1235,7 +1235,7 @@ fn ensure_gnu_startup_terminal_frame(eval: &mut Evaluator, opening_frame_id: Fra
     terminal_frame_id
 }
 
-fn opening_frame_initial_alist(eval: &Evaluator, window_system: Value) -> Value {
+fn opening_frame_initial_alist(eval: &Context, window_system: Value) -> Value {
     let mut params = vec![Value::cons(Value::symbol("window-system"), window_system)];
     for symbol_name in ["initial-frame-alist", "default-frame-alist"] {
         if let Some(value) = eval.obarray().symbol_value(symbol_name)
@@ -1248,7 +1248,7 @@ fn opening_frame_initial_alist(eval: &Evaluator, window_system: Value) -> Value 
 }
 
 #[cfg(test)]
-fn run_gnu_startup(eval: &mut Evaluator) {
+fn run_gnu_startup(eval: &mut Context) {
     eval.setup_thread_locals();
     let _ = std::fs::write("/tmp/neomacs-startup-phases.trace", "");
     maybe_install_startup_phase_trace(eval);
@@ -1299,7 +1299,7 @@ fn run_gnu_startup(eval: &mut Evaluator) {
     }
 }
 
-fn maybe_install_startup_phase_trace(eval: &mut Evaluator) {
+fn maybe_install_startup_phase_trace(eval: &mut Context) {
     if !cfg!(test) && std::env::var("NEOMACS_TRACE_STARTUP_PHASES").unwrap_or_default() != "1" {
         return;
     }
@@ -1387,7 +1387,7 @@ fn ensure_dir_string(path: &Path) -> String {
     dir
 }
 
-fn current_layout_frame_id(evaluator: &Evaluator) -> Option<FrameId> {
+fn current_layout_frame_id(evaluator: &Context) -> Option<FrameId> {
     evaluator
         .frame_manager()
         .selected_frame()
@@ -1395,7 +1395,7 @@ fn current_layout_frame_id(evaluator: &Evaluator) -> Option<FrameId> {
 }
 
 /// Run the layout engine on the selected live frame.
-fn run_layout(evaluator: &mut Evaluator, frame_glyphs: &mut FrameGlyphBuffer) {
+fn run_layout(evaluator: &mut Context, frame_glyphs: &mut FrameGlyphBuffer) {
     use neomacs_display_runtime::layout::LayoutEngine;
 
     let Some(frame_id) = current_layout_frame_id(evaluator) else {

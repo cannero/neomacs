@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::bytecode::compiler::Compiler;
-use crate::emacs_core::eval::{Evaluator, GuiFrameHostSize, VmSharedState};
+use crate::emacs_core::eval::{Context, GuiFrameHostSize};
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
 use crate::window::SplitDirection;
@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-fn new_vm(eval: &mut Evaluator) -> Vm<'_> {
-    Vm::new(VmSharedState::from_evaluator(eval))
+fn new_vm(eval: &mut Context) -> Vm<'_> {
+    Vm::from_context(eval)
 }
 
 fn find_bin(name: &str) -> String {
@@ -25,7 +25,7 @@ fn find_bin(name: &str) -> String {
 }
 
 fn with_vm_eval<R>(src: &str, lexical: bool, f: impl FnOnce(Result<Value, EvalError>) -> R) -> R {
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     eval.set_lexical_binding(lexical);
     let forms = parse_forms(src).expect("parse");
     let mut compiler = Compiler::new(lexical);
@@ -54,8 +54,8 @@ fn vm_eval_lexical_str(src: &str) -> String {
     })
 }
 
-fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Evaluator)) -> String {
-    let mut eval = Evaluator::new_vm_harness();
+fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
+    let mut eval = Context::new_vm_harness();
     init(&mut eval);
     let forms = parse_forms(src).expect("parse");
     let mut compiler = Compiler::new(false);
@@ -431,7 +431,7 @@ fn execute_manual_vm<T>(
     mut func: ByteCodeFunction,
     init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,
 ) -> (Value, crate::buffer::BufferManager, T) {
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let init_state = init(&mut func, &mut eval.buffers);
 
     let result = {
@@ -450,7 +450,7 @@ fn execute_manual_vm<T>(
 fn execute_manual_vm_built<T>(
     build: impl FnOnce(&mut crate::buffer::BufferManager) -> (ByteCodeFunction, T),
 ) -> (Value, crate::buffer::BufferManager, T) {
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let (func, init_state) = build(&mut eval.buffers);
 
     let result = {
@@ -759,7 +759,7 @@ fn vm_unbind_restores_saved_restriction() {
 
 #[test]
 fn vm_eval_shared_runtime_path_preserves_active_catch_tags() {
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     eval.catch_tags.push(Value::symbol("vm-bridge-catch"));
     let mut vm = new_vm(&mut eval);
 
@@ -911,7 +911,7 @@ fn vm_concat() {
 fn vm_switch_branches_using_hash_table_jump_table() {
     // Build all Values AFTER the evaluator is initialized to avoid
     // stale ObjId/SymId from thread-local heap/interner replacement.
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
 
     let table = Value::hash_table(HashTableTest::Eq);
     let Value::HashTable(table_id) = table else {
@@ -1086,7 +1086,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         interactive: None,
     };
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let mut vm = new_vm(&mut eval);
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
@@ -1992,7 +1992,7 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
         .to_string_lossy()
         .replace('\\', "\\\\")
         .replace('"', "\\\"");
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let kill_only = parse_forms("(kill-emacs 7)").expect("parse");
     let precompile_only =
         parse_forms(&format!("(neovm-precompile-file \"{}\")", source_lisp)).expect("parse");
@@ -3323,7 +3323,7 @@ fn vm_case_table_builtins_use_shared_buffer_state() {
 
 #[test]
 fn vm_undo_boundary_uses_shared_buffer_state() {
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
@@ -3648,7 +3648,7 @@ fn vm_stale_process_status_builtins_use_shared_runtime_state() {
 fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
     use crate::emacs_core::process::ProcessStatus;
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
 
     let buffer_id = eval.buffers.create_buffer("*vm-proc-control*");
     eval.buffers.set_current(buffer_id);
@@ -4371,7 +4371,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     let out = base.join("out.txt").to_string_lossy().to_string();
     let visit = base.join("visit.txt").to_string_lossy().to_string();
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/neovm-global/"));
     let current = eval.buffers.current_buffer_id().expect("current buffer");
@@ -5814,7 +5814,7 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
     )
     .expect("write autoload-do-load fixture");
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
@@ -5848,7 +5848,7 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
     )
     .expect("write autoload call fixture");
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
@@ -6542,7 +6542,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
     func.ops = vec![Op::Constant(0), Op::Return];
     func.max_stack = 1;
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let mut vm = new_vm(&mut eval);
 
     let err = vm
@@ -7470,7 +7470,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         interactive: None,
     };
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let mut vm = new_vm(&mut eval);
 
     let result = vm
@@ -7494,7 +7494,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
 
 #[test]
 fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let forms =
         parse_forms("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")").expect("parse");
     let mut compiler = Compiler::new(false);
@@ -7516,7 +7516,7 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
 
 #[test]
 fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     eval.set_read_command_keys(vec![Value::Int(97)]);
 
     let forms = parse_forms("(this-single-command-keys)").expect("parse");
@@ -7542,7 +7542,7 @@ fn vm_compiled_require_respects_recursive_require_guard() {
     )
     .expect("write require fixture");
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let forms = parse_forms(
         "(progn
            (setq vm-bytecode-required-ran nil)
@@ -7581,7 +7581,7 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
     )
     .expect("write require fixture");
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let forms = parse_forms(
         "(progn
            (setq vm-bytecode-required-ran nil)
@@ -7629,7 +7629,7 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
     std::fs::write(&fixture, "(setq vm-bytecode-load-seen load-file-name)\n")
         .expect("write load fixture");
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let forms = parse_forms(
         "(list
            (load \"vm-bytecode-shared-load\" nil nil nil nil)
@@ -7671,7 +7671,7 @@ fn vm_compiled_load_respects_loads_in_progress_guard() {
     std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
     let fixture = fixture.canonicalize().expect("canonical load fixture");
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let forms = parse_forms(&format!(
         "(progn
            (setq vm-bytecode-load-ran nil)
@@ -7727,7 +7727,7 @@ fn vm_interactive_form_uses_shared_autoload_load_bridge() {
     )
     .expect("write interactive-form autoload fixture");
 
-    let mut eval = Evaluator::new_vm_harness();
+    let mut eval = Context::new_vm_harness();
     let forms = parse_forms(
         "(progn
            (autoload 'vm-interactive-form-auto \"vm-interactive-form-auto\")

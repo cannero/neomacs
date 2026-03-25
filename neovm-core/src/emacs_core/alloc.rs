@@ -30,7 +30,7 @@ pub fn register_bootstrap_vars(obarray: &mut Obarray) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::emacs_core::eval::Evaluator;
+    use crate::emacs_core::eval::Context;
 
     #[test]
     fn register_bootstrap_vars_matches_gnu_alloc_defaults() {
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn evaluator_binds_alloc_bootstrap_vars() {
-        let eval = Evaluator::new();
+        let eval = Context::new();
         let obarray = eval.obarray();
 
         assert_eq!(

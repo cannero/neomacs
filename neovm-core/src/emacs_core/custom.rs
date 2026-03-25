@@ -171,7 +171,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 /// `(custom-variable-p SYMBOL)` -- returns t if SYMBOL is a custom variable.
 pub(crate) fn builtin_custom_variable_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("custom-variable-p", &args, 1)?;
@@ -185,7 +185,7 @@ pub(crate) fn builtin_custom_variable_p(
 }
 
 // ---------------------------------------------------------------------------
-// Evaluator-dependent builtins
+// Context-dependent builtins
 // ---------------------------------------------------------------------------
 
 /// `(custom-set-variables &rest ARGS)` -- batch-set custom variables.
@@ -193,7 +193,7 @@ pub(crate) fn builtin_custom_variable_p(
 /// Each ARG is (SYMBOL EXP [NOW [REQUEST [COMMENT]]]).
 /// For now we just evaluate EXP and set the variable value.
 pub(crate) fn builtin_custom_set_variables(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     for arg in &args {
@@ -270,7 +270,7 @@ pub(crate) fn builtin_custom_set_faces(args: Vec<Value>) -> EvalResult {
 
 /// `(make-variable-buffer-local VARIABLE)` -- mark variable as automatically buffer-local.
 pub(crate) fn builtin_make_variable_buffer_local(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let (obarray, custom) = (&mut eval.obarray, &mut eval.custom);
@@ -314,7 +314,7 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
 
 /// `(make-local-variable VARIABLE)` -- make variable local in current buffer.
 pub(crate) fn builtin_make_local_variable(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let obarray = &eval.obarray;
@@ -393,7 +393,7 @@ pub(crate) fn builtin_make_local_variable_in_state(
 
 /// `(local-variable-p VARIABLE &optional BUFFER)` -- test if variable is local.
 pub(crate) fn builtin_local_variable_p(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_local_variable_p_in_state(eval.obarray(), &eval.buffers, args)
@@ -437,7 +437,7 @@ pub(crate) fn builtin_local_variable_p_in_state(
 
 /// `(buffer-local-variables &optional BUFFER)` -- list all local variables.
 pub(crate) fn builtin_buffer_local_variables(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_buffer_local_variables_in_state(&eval.buffers, args)
@@ -486,7 +486,7 @@ pub(crate) fn builtin_buffer_local_variables_in_state(
 
 /// `(kill-local-variable VARIABLE)` -- remove local binding in current buffer.
 pub(crate) fn builtin_kill_local_variable(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     let obarray = &eval.obarray;
@@ -551,7 +551,7 @@ pub(crate) fn builtin_kill_local_variable_in_state(
 
 /// `(default-value SYMBOL)` -- get the default (global) value of a variable.
 pub(crate) fn builtin_default_value(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     builtin_default_value_in_state(eval.obarray(), eval.dynamic.as_slice(), args)
@@ -598,7 +598,7 @@ pub(crate) fn builtin_default_value_in_state(
 /// For buffer-local variables, `set-default` writes to the obarray
 /// (default cell) directly, not to the dynamic frame or buffer-local slot.
 pub(crate) fn builtin_set_default(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("set-default", &args, 2)?;
@@ -678,7 +678,7 @@ pub(crate) fn builtin_set_default_in_obarray(
 /// as special (dynamically scoped).  Registers a [`CustomVariable`] with the
 /// evaluator's [`CustomManager`].  Returns the symbol name.
 pub(crate) fn sf_defcustom(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
     use super::eval::quote_to_value;
@@ -784,7 +784,7 @@ pub(crate) fn sf_defcustom(
 /// Registers a [`CustomGroup`] with the evaluator's [`CustomManager`].
 /// Returns the symbol name.
 pub(crate) fn sf_defgroup(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
     use super::eval::quote_to_value;
@@ -889,7 +889,7 @@ pub(crate) fn sf_defgroup(
 /// any dynamic bindings.  Processes symbol/value pairs.  Returns the last
 /// value.
 pub(crate) fn sf_setq_default(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
     use super::eval::quote_to_value;
@@ -932,7 +932,7 @@ pub(crate) fn sf_setq_default(
 /// automatically buffer-local via the [`CustomManager`].  Returns the symbol
 /// name.
 pub(crate) fn sf_defvar_local(
-    eval: &mut super::eval::Evaluator,
+    eval: &mut super::eval::Context,
     tail: &[super::expr::Expr],
 ) -> super::error::EvalResult {
     use super::eval::quote_to_value;

@@ -108,7 +108,7 @@ pub fn clear_current_interner() {
 }
 
 /// Save and restore the current interner pointer around a closure.
-/// Used when a temporary Evaluator is created that would overwrite the thread-local.
+/// Used when a temporary Context is created that would overwrite the thread-local.
 pub(crate) fn with_saved_interner<R>(f: impl FnOnce() -> R) -> R {
     let saved = CURRENT_INTERNER.with(|h| h.get());
     let result = f();
@@ -177,7 +177,7 @@ pub fn lookup_interned(s: &str) -> Option<SymId> {
 /// The returned `&str` borrows from the interner's internal `Vec<String>`.
 /// Each `String`'s heap buffer is stable (append-only interner never removes
 /// entries, and `String` data lives on the heap not inline in the Vec).
-/// The interner outlives all Values (owned by Evaluator).
+/// The interner outlives all Values (owned by Context).
 /// Same unsafe-pointer pattern as `as_str()` / `get_lambda_data()` in value.rs.
 #[inline]
 pub fn resolve_sym(id: SymId) -> &'static str {
@@ -187,7 +187,7 @@ pub fn resolve_sym(id: SymId) -> &'static str {
     // Safety: The String's heap buffer is stable because:
     // 1. StringInterner is append-only (strings never removed)
     // 2. String data lives on the heap, not inline in the Vec
-    // 3. The interner outlives all Values (owned by Evaluator)
+    // 3. The interner outlives all Values (owned by Context)
     unsafe { &*(s as *const str) }
 }
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::eval::{Evaluator, value_to_expr};
+use crate::emacs_core::eval::{Context, value_to_expr};
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
@@ -204,7 +204,7 @@ fn bootstrap_fixture_path(
     None
 }
 
-fn format_eval_error(eval: &Evaluator, err: &EvalError) -> String {
+fn format_eval_error(eval: &Context, err: &EvalError) -> String {
     match err {
         EvalError::Signal { symbol, data } => {
             let mut items = Vec::with_capacity(data.len() + 1);
@@ -220,7 +220,7 @@ fn format_eval_error(eval: &Evaluator, err: &EvalError) -> String {
     }
 }
 
-fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Evaluator {
+fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let lisp_dir = project_root.join("lisp");
@@ -230,7 +230,7 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Eva
         lisp_dir.display()
     );
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.set_variable(
         "load-path",
         Value::list(bootstrap_load_path_entries(&lisp_dir)),
@@ -1646,7 +1646,7 @@ fn bootstrap_runtime_cl_transform_lambda_cl_quote_key_defaults_matches_gnu() {
     );
 }
 
-fn eval_rendered(eval: &mut Evaluator, form: &str) -> String {
+fn eval_rendered(eval: &mut Context, form: &str) -> String {
     let parsed = crate::emacs_core::parser::parse_forms(form).expect("parse eval form");
     match eval.eval_expr(&parsed[0]) {
         Ok(value) => format!(
@@ -2366,7 +2366,7 @@ fn load_file_records_load_history() {
     let file = dir.join("probe.el");
     fs::write(&file, "(setq vm-load-history-probe t)\n").expect("write fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load file");
     assert_eq!(loaded, Value::True);
 
@@ -2396,7 +2396,7 @@ fn load_file_records_load_history() {
 
 #[test]
 fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     for name in [
         "face-filters-always-match",
         "face--new-frame-defaults",
@@ -2512,7 +2512,7 @@ fn nested_load_restores_parent_load_file_name() {
     .expect("write parent fixture");
     fs::write(&child, "(setq vm-child-seen load-file-name)\n").expect("write child fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &parent).expect("load parent fixture");
     assert_eq!(loaded, Value::True);
 
@@ -2563,7 +2563,7 @@ fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
     )
     .expect("write shebang fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load shebang fixture");
     assert_eq!(loaded, Value::True);
     assert_eq!(
@@ -2606,7 +2606,7 @@ fn load_file_does_not_enable_lexical_binding_from_non_cookie_second_line_text() 
     )
     .expect("write shebang non-cookie fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load shebang non-cookie fixture");
     assert_eq!(loaded, Value::True);
     assert_eq!(
@@ -2649,7 +2649,7 @@ fn load_file_accepts_utf8_bom_prefixed_source() {
     )
     .expect("write bom fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load bom fixture");
     assert_eq!(loaded, Value::True);
     assert_eq!(
@@ -2676,7 +2676,7 @@ fn load_file_single_line_shebang_signals_end_of_file() {
     let file = dir.join("probe.el");
     fs::write(&file, "#!/usr/bin/env emacs --script").expect("write shebang-only fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let err = load_file(&mut eval, &file).expect_err("shebang-only source should signal EOF");
     match err {
         EvalError::Signal { symbol, data } => {
@@ -2701,7 +2701,7 @@ fn load_file_writes_and_invalidates_neoc_cache() {
     let source_v1 = "(setq vm-load-cache-probe 'v1)\n";
     fs::write(&file, source_v1).expect("write source fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load source file");
     assert_eq!(loaded, Value::True);
     assert_eq!(
@@ -2760,7 +2760,7 @@ fn load_file_ignores_corrupt_neoc_cache_and_loads_source() {
     let cache = cache_sidecar_path(&file);
     fs::write(&cache, "corrupt-neoc-cache").expect("write corrupt cache");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load should ignore corrupt cache");
     assert_eq!(loaded, Value::True);
     assert_eq!(
@@ -2788,7 +2788,7 @@ fn load_file_ignores_cache_write_failures_before_write() {
     fs::write(&file, "(setq vm-load-neoc-write-fail-pre 'ok)\n").expect("write source fixture");
 
     let _guard = CacheWriteFailGuard::set(CACHE_WRITE_PHASE_BEFORE_WRITE);
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded =
         load_file(&mut eval, &file).expect("load should succeed despite cache write failure");
     assert_eq!(loaded, Value::True);
@@ -2818,7 +2818,7 @@ fn load_file_cleans_tmp_after_cache_write_failure_before_rename() {
     fs::write(&file, "(setq vm-load-neoc-write-fail-post 'ok)\n").expect("write source fixture");
 
     let _guard = CacheWriteFailGuard::set(CACHE_WRITE_PHASE_AFTER_WRITE);
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let loaded =
         load_file(&mut eval, &file).expect("load should succeed despite cache rename failure");
     assert_eq!(loaded, Value::True);
@@ -2853,7 +2853,7 @@ fn load_elc_is_supported() {
     // Write a minimal .elc with valid Elisp content (no magic header — just a setq).
     fs::write(&compiled, "(setq vm-elc-loaded t)\n").expect("write compiled fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let result = load_file(&mut eval, &compiled);
     assert!(
         result.is_ok(),
@@ -2880,7 +2880,7 @@ fn load_elc_gz_is_rejected() {
     let compiled = dir.join("probe.elc.gz");
     fs::write(&compiled, "gzipped-data").expect("write compiled fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let err = load_file(&mut eval, &compiled).expect_err("load should reject .elc.gz");
     match err {
         EvalError::Signal { symbol, .. } => assert_eq!(resolve_sym(symbol), "error"),
@@ -2922,7 +2922,7 @@ fn load_elc_gz_is_explicitly_unsupported() {
     let compiled = dir.join("probe.elc.gz");
     fs::write(&compiled, "compiled-data").expect("write compiled fixture");
 
-    let mut eval = super::super::eval::Evaluator::new();
+    let mut eval = super::super::eval::Context::new();
     let err = load_file(&mut eval, &compiled).expect_err("load should reject .elc.gz");
     match err {
         EvalError::Signal { symbol, .. } => assert_eq!(resolve_sym(symbol), "error"),
@@ -4346,7 +4346,7 @@ conveniently adding tool bar items."
 
 #[test]
 fn evaluator_bootstrap_binds_default_frame_scroll_bars_like_gnu_frame_c() {
-    let eval = Evaluator::new();
+    let eval = Context::new();
     assert_eq!(
         eval.obarray.symbol_value("default-frame-scroll-bars"),
         Some(&Value::symbol("right"))
@@ -5356,7 +5356,7 @@ fn macroexpand_all_pcase_terminates() {
     let project_root = manifest.parent().expect("root");
     let lisp_dir = project_root.join("lisp");
     assert!(lisp_dir.is_dir());
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let subdirs = ["", "emacs-lisp"];
     let mut load_path_entries = Vec::new();
     for sub in &subdirs {
@@ -5376,7 +5376,7 @@ fn macroexpand_all_pcase_terminates() {
 
     let load_path = get_load_path(&eval.obarray());
     let load_and_report =
-        |eval: &mut crate::emacs_core::eval::Evaluator, name: &str, load_path: &[String]| {
+        |eval: &mut crate::emacs_core::eval::Context, name: &str, load_path: &[String]| {
             let path = find_file_in_load_path(name, load_path).expect(name);
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
@@ -5446,7 +5446,7 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
     let lisp_dir = project_root.join("lisp");
     assert!(lisp_dir.is_dir());
 
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let subdirs = ["", "emacs-lisp"];
     let mut load_path_entries = Vec::new();
     for sub in &subdirs {
@@ -5468,7 +5468,7 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
     );
 
     let load_path = get_load_path(&eval.obarray());
-    let load = |eval: &mut crate::emacs_core::eval::Evaluator, name: &str| {
+    let load = |eval: &mut crate::emacs_core::eval::Context, name: &str| {
         let path = find_file_in_load_path(name, &load_path).expect(name);
         load_file(eval, &path).unwrap_or_else(|e| panic!("failed to load {name}: {e:?}"));
     };
@@ -5542,7 +5542,7 @@ fn function_get_only_exposes_cxxr_compiler_macro_on_cxxr_symbols() {
     let lisp_dir = project_root.join("lisp");
     assert!(lisp_dir.is_dir());
 
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let mut load_path_entries = Vec::new();
     for sub in ["", "emacs-lisp"] {
         let dir = if sub.is_empty() {
@@ -5597,7 +5597,7 @@ fn pcase_integer_literal_pattern() {
     let project_root = manifest.parent().expect("root");
     let lisp_dir = project_root.join("lisp");
     assert!(lisp_dir.is_dir());
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
     let subdirs = ["", "emacs-lisp"];
     let mut load_path_entries = Vec::new();
     for sub in &subdirs {
@@ -5617,7 +5617,7 @@ fn pcase_integer_literal_pattern() {
 
     let load_path = get_load_path(&eval.obarray());
     let load_and_report =
-        |eval: &mut crate::emacs_core::eval::Evaluator, name: &str, load_path: &[String]| {
+        |eval: &mut crate::emacs_core::eval::Context, name: &str, load_path: &[String]| {
             let path = find_file_in_load_path(name, load_path).expect(name);
             load_file(eval, &path).unwrap_or_else(|e| {
                 let msg = match &e {
@@ -5765,7 +5765,7 @@ fn key_parse_modifier_bits() {
         return;
     }
 
-    let mut eval = crate::emacs_core::eval::Evaluator::new();
+    let mut eval = crate::emacs_core::eval::Context::new();
 
     // Set up load-path
     let subdirs = ["", "emacs-lisp"];
@@ -5976,7 +5976,7 @@ fn expanded_cache_preserves_uninterned_symbol_identity() {
     let source = "(let* ((#:exp 1) (x #:exp)) x)\n";
     fs::write(&file, source).expect("write fixture");
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     let exp = crate::emacs_core::intern::intern_uninterned("exp");
     let forms = vec![Expr::List(vec![
         Expr::Symbol(intern("let*")),
@@ -6153,7 +6153,7 @@ fn generated_loaddefs_replays_metadata_forms_without_generic_eval_overhead() {
 "#;
     fs::write(&file, source).expect("write generated loaddefs fixture");
 
-    let mut eval = Evaluator::new();
+    let mut eval = Context::new();
     eval.set_variable(
         "definition-prefixes",
         Value::hash_table(HashTableTest::Equal),

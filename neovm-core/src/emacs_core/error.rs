@@ -592,7 +592,7 @@ fn append_cons_bytes_in_state(
 }
 
 /// Render a value with evaluator-context-aware opaque handle formatting.
-pub fn print_value_with_eval(eval: &super::eval::Evaluator, value: &Value) -> String {
+pub fn print_value_with_eval(eval: &super::eval::Context, value: &Value) -> String {
     print_value_in_state(
         &eval.obarray,
         &eval.buffers,
@@ -603,7 +603,7 @@ pub fn print_value_with_eval(eval: &super::eval::Evaluator, value: &Value) -> St
 }
 
 /// Render a value as bytes with evaluator-context-aware opaque handle formatting.
-pub fn print_value_bytes_with_eval(eval: &super::eval::Evaluator, value: &Value) -> Vec<u8> {
+pub fn print_value_bytes_with_eval(eval: &super::eval::Context, value: &Value) -> Vec<u8> {
     print_value_bytes_in_state(
         &eval.obarray,
         &eval.buffers,
@@ -613,7 +613,7 @@ pub fn print_value_bytes_with_eval(eval: &super::eval::Evaluator, value: &Value)
     )
 }
 
-fn print_data_payload_with_eval(eval: &super::eval::Evaluator, data: &[Value]) -> String {
+fn print_data_payload_with_eval(eval: &super::eval::Context, data: &[Value]) -> String {
     if data.is_empty() {
         "nil".to_string()
     } else {
@@ -626,7 +626,7 @@ fn print_data_payload_with_eval(eval: &super::eval::Evaluator, data: &[Value]) -
 }
 
 fn append_print_value_bytes_with_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     value: &Value,
     out: &mut Vec<u8>,
 ) {
@@ -636,7 +636,7 @@ fn append_print_value_bytes_with_eval(
 /// Format an eval result for harnesses that have evaluator context and need
 /// opaque handle rendering for thread/mutex/condvar/terminal values.
 pub fn format_eval_result_with_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     result: &Result<Value, EvalError>,
 ) -> String {
     match result {
@@ -661,7 +661,7 @@ pub fn format_eval_result_with_eval(
 /// vm-compat corpus checks while still applying evaluator-aware opaque-handle
 /// rendering for thread/mutex/condvar/terminal values.
 pub fn format_eval_result_bytes_with_eval(
-    eval: &super::eval::Evaluator,
+    eval: &super::eval::Context,
     result: &Result<Value, EvalError>,
 ) -> Vec<u8> {
     let mut out = Vec::new();

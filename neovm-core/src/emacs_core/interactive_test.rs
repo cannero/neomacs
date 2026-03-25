@@ -3,13 +3,13 @@ use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, bootstrap_load_path_entries,
     create_bootstrap_evaluator_cached,
 };
-use crate::emacs_core::{Evaluator, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
 
 /// Create evaluator with minimal Elisp shims for interactive testing.
-fn eval_with_interactive_shims() -> Evaluator {
-    let mut ev = Evaluator::new();
+fn eval_with_interactive_shims() -> Context {
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     let shims = r#"
 (defalias 'set-mark #'(lambda (pos)
@@ -45,7 +45,7 @@ fn eval_one(src: &str) -> String {
     eval_all(src).into_iter().next().expect("at least one form")
 }
 
-fn eval_all_with(ev: &mut Evaluator, src: &str) -> Vec<String> {
+fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -59,8 +59,8 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
-    let mut ev = Evaluator::new();
+fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
+    let mut ev = Context::new();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let lisp_dir = project_root.join("lisp");
@@ -75,7 +75,7 @@ fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Evaluator {
     ev
 }
 
-fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str) {
+fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU subr.el marker: {marker}"));
@@ -90,7 +90,7 @@ fn eval_first_form_after_marker(eval: &mut Evaluator, source: &str, marker: &str
 
 /// Install minimal `defun`/`defmacro`/`when`/`unless` shims so a bare
 /// evaluator can evaluate forms extracted from GNU `.el` source files.
-fn install_bare_elisp_shims(ev: &mut Evaluator) {
+fn install_bare_elisp_shims(ev: &mut Context) {
     let shims = r#"
 (defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
   (list 'defalias (list 'quote name) (cons 'function (list (cons 'lambda (cons arglist body))))))))
@@ -114,7 +114,7 @@ fn gnu_subr_keymap_eval_all(src: &str) -> Vec<String> {
     let subr_path = project_root.join("lisp/subr.el");
     let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
 
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
     for marker in [
@@ -136,7 +136,7 @@ fn gnu_subr_keymap_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
-fn gnu_simple_command_execute_eval() -> Evaluator {
+fn gnu_simple_command_execute_eval() -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let simple_path = project_root.join("lisp/simple.el");
@@ -144,7 +144,7 @@ fn gnu_simple_command_execute_eval() -> Evaluator {
     let subr_path = project_root.join("lisp/subr.el");
     let subr_source = fs::read_to_string(&subr_path).expect("read GNU subr.el");
 
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     let setup_forms = parse_forms(
         r#"
@@ -191,7 +191,7 @@ fn gnu_simple_command_execute_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
-fn gnu_simple_execute_extended_command_eval() -> Evaluator {
+fn gnu_simple_execute_extended_command_eval() -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let simple_path = project_root.join("lisp/simple.el");
@@ -219,7 +219,7 @@ fn gnu_simple_execute_extended_command_eval() -> Evaluator {
     ev
 }
 
-fn gnu_files_command_eval() -> Evaluator {
+fn gnu_files_command_eval() -> Context {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let files_path = project_root.join("lisp/files.el");
@@ -246,7 +246,7 @@ fn gnu_simple_execute_extended_command_eval_all(src: &str) -> Vec<String> {
     eval_all_with(&mut ev, src)
 }
 
-fn load_gnu_eval_expression_into(ev: &mut Evaluator) {
+fn load_gnu_eval_expression_into(ev: &mut Context) {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let simple_path = project_root.join("lisp/simple.el");
@@ -268,14 +268,14 @@ fn load_gnu_eval_expression_into(ev: &mut Evaluator) {
     );
 }
 
-fn gnu_simple_eval_expression_eval() -> Evaluator {
-    let mut ev = Evaluator::new();
+fn gnu_simple_eval_expression_eval() -> Context {
+    let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     load_gnu_eval_expression_into(&mut ev);
     ev
 }
 
-fn read_first_object(ev: &mut Evaluator, src: &str) -> Value {
+fn read_first_object(ev: &mut Context, src: &str) -> Value {
     let result = crate::emacs_core::reader::builtin_read_from_string(ev, vec![Value::string(src)])
         .unwrap_or_else(|err| panic!("read-from-string failed for {src:?}: {err:?}"));
     let Value::Cons(cell) = result else {
@@ -284,7 +284,7 @@ fn read_first_object(ev: &mut Evaluator, src: &str) -> Value {
     crate::emacs_core::value::read_cons(cell).car
 }
 
-fn gnu_simple_command_execute_with_eval_expression_eval() -> Evaluator {
+fn gnu_simple_command_execute_with_eval_expression_eval() -> Context {
     let mut ev = gnu_simple_command_execute_eval();
     load_gnu_eval_expression_into(&mut ev);
     ev
@@ -455,7 +455,7 @@ fn mode_definition_macros_start_as_gnu_autoloads() {
 
 #[test]
 fn commandp_non_interactive() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     eval_all_with(&mut ev, r#"(defalias 'my-plain-fn #'(lambda () 42))"#);
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("my-plain-fn")]);
     assert!(result.unwrap().is_nil());
@@ -463,7 +463,7 @@ fn commandp_non_interactive() {
 
 #[test]
 fn commandp_true_for_builtin_ignore() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("ignore")]);
     assert!(result.unwrap().is_truthy());
 }
@@ -510,14 +510,14 @@ fn commandp_true_for_defun_with_declare_before_interactive() {
 
 #[test]
 fn commandp_true_for_builtin_forward_char() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("forward-char")]);
     assert!(result.unwrap().is_truthy());
 }
 
 #[test]
 fn commandp_handles_keyboard_macros_and_bytecode_interactive_slots() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let bytecode = crate::emacs_core::builtins::symbols::make_byte_code_from_parts(
         &Value::Nil,
         &Value::string(""),
@@ -560,7 +560,7 @@ fn commandp_handles_keyboard_macros_and_bytecode_interactive_slots() {
 
 #[test]
 fn commandp_true_for_builtin_editing_commands() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     for name in [
         "backward-char",
         "delete-char",
@@ -866,7 +866,7 @@ fn remove_hook_is_available_after_bootstrap() {
 
 #[test]
 fn commandp_true_for_additional_builtin_commands() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     for name in [
         "base64-decode-region",
         "base64-encode-region",
@@ -927,14 +927,14 @@ fn commandp_true_for_loaded_lisp_commands_after_bootstrap() {
 
 #[test]
 fn commandp_false_for_noninteractive_builtin() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("car")]);
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn commandp_rejects_overflow_arity() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_commandp_interactive(
         &mut ev,
         vec![Value::symbol("ignore"), Value::Nil, Value::Nil],
@@ -948,7 +948,7 @@ fn commandp_rejects_overflow_arity() {
 
 #[test]
 fn commandp_resolves_aliases_and_symbol_designators() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     // Register forward-char as an interactive command for testing.
     ev.interactive
         .register_interactive("forward-char", InteractiveSpec::new("p"));
@@ -978,7 +978,7 @@ fn commandp_resolves_aliases_and_symbol_designators() {
 
 #[test]
 fn commandp_true_for_lambda_with_interactive_form() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let lambda = eval_all_with(&mut ev, "(lambda () (interactive) 1)");
     let parsed = super::super::parser::parse_forms("(lambda () (interactive) 1)")
         .expect("lambda form should parse");
@@ -990,7 +990,7 @@ fn commandp_true_for_lambda_with_interactive_form() {
 
 #[test]
 fn commandp_true_for_quoted_lambda_with_interactive_form() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let forms = super::super::parser::parse_forms("'(lambda () \"doc\" (interactive) 1)")
         .expect("quoted lambda form should parse");
     let quoted_lambda = ev.eval(&forms[0]).expect("quoted lambda should evaluate");
@@ -1000,7 +1000,7 @@ fn commandp_true_for_quoted_lambda_with_interactive_form() {
 
 #[test]
 fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("current-prefix-arg", Value::list(vec![Value::Int(4)]));
 
@@ -1052,7 +1052,7 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
 
 #[test]
 fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let lambda_forms =
         super::super::parser::parse_forms("(lambda (x) (interactive \"sPrompt: \") x)")
             .expect("parse prompting lambda");
@@ -1080,7 +1080,7 @@ fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
 
 #[test]
 fn call_interactively_state_resolution_handles_simple_string_codes_without_eval() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("current-prefix-arg", Value::list(vec![Value::Int(4)]));
     let current = ev.buffers.current_buffer_id().expect("current buffer");
@@ -1144,7 +1144,7 @@ i\")
 
 #[test]
 fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let current = ev.buffers.current_buffer_id().expect("current buffer");
     let _ = ev.buffers.replace_buffer_contents(current, "abcd");
     let _ = ev.buffers.goto_buffer_byte(current, 2);
@@ -1184,7 +1184,7 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
 
 #[test]
 fn call_interactively_state_resolution_handles_optional_coding_without_prefix() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let lambda_forms =
         super::super::parser::parse_forms("(lambda (coding) (interactive \"ZCoding: \") coding)")
             .expect("parse lambda");
@@ -1213,7 +1213,7 @@ fn call_interactively_state_resolution_handles_optional_coding_without_prefix() 
 
 #[test]
 fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let current = ev.buffers.current_buffer_id().expect("current buffer");
     let _ = ev.buffers.replace_buffer_contents(current, "abcd");
     let _ = ev.buffers.goto_buffer_byte(current, 2);
@@ -1253,14 +1253,14 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
 
 #[test]
 fn interactive_p_false_by_default() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_interactive_p(&mut ev, vec![]);
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn interactive_p_nil_when_interactive() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_interactive_p(&mut ev, vec![]);
     ev.interactive.pop_interactive_call();
@@ -1269,21 +1269,21 @@ fn interactive_p_nil_when_interactive() {
 
 #[test]
 fn called_interactively_p_false_by_default() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_called_interactively_p(&mut ev, vec![]);
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn called_interactively_p_with_kind() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("any")]);
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn called_interactively_p_kind_interactive_is_nil_when_interactive() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("interactive")]);
     ev.interactive.pop_interactive_call();
@@ -1292,7 +1292,7 @@ fn called_interactively_p_kind_interactive_is_nil_when_interactive() {
 
 #[test]
 fn called_interactively_p_kind_any_is_t_when_interactive() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("any")]);
     ev.interactive.pop_interactive_call();
@@ -1301,7 +1301,7 @@ fn called_interactively_p_kind_any_is_t_when_interactive() {
 
 #[test]
 fn called_interactively_p_unknown_kind_is_t_when_interactive() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("foo")]);
     ev.interactive.pop_interactive_call();
@@ -1310,7 +1310,7 @@ fn called_interactively_p_unknown_kind_is_t_when_interactive() {
 
 #[test]
 fn called_interactively_p_too_many_args() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result =
         builtin_called_interactively_p(&mut ev, vec![Value::symbol("any"), Value::symbol("extra")]);
     assert!(result.is_err());
@@ -1322,14 +1322,14 @@ fn called_interactively_p_too_many_args() {
 
 #[test]
 fn this_command_keys_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_str(), Some(""));
 }
 
 #[test]
 fn this_command_keys_after_set() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive
         .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
@@ -1338,14 +1338,14 @@ fn this_command_keys_after_set() {
 
 #[test]
 fn this_command_keys_vector_empty() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     assert!(matches!(result, Value::Vector(_)));
 }
 
 #[test]
 fn this_command_keys_vector_after_set() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive
         .set_this_command_keys(vec!["M-x".to_string()]);
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
@@ -1359,7 +1359,7 @@ fn this_command_keys_vector_after_set() {
 
 #[test]
 fn this_command_keys_prefers_read_command_key_chars() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive
         .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
     ev.set_read_command_keys(vec![Value::Int(97)]);
@@ -1379,7 +1379,7 @@ fn this_command_keys_prefers_read_command_key_chars() {
 
 #[test]
 fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::list(vec![Value::symbol("mouse-1")])]);
 
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
@@ -1395,7 +1395,7 @@ fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
 
 #[test]
 fn this_single_command_keys_prefers_read_command_key_vector() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);
 
     let result = builtin_this_single_command_keys(&mut ev, vec![]).unwrap();
@@ -1410,7 +1410,7 @@ fn this_single_command_keys_prefers_read_command_key_vector() {
 
 #[test]
 fn this_single_command_keys_falls_back_to_interactive_descriptions() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive
         .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
 
@@ -1426,7 +1426,7 @@ fn this_single_command_keys_falls_back_to_interactive_descriptions() {
 
 #[test]
 fn clear_this_command_keys_clears_read_key_context() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::Int(97)]);
 
     let result = builtin_clear_this_command_keys(&mut ev, vec![]).unwrap();
@@ -1445,7 +1445,7 @@ fn clear_this_command_keys_clears_read_key_context() {
 
 #[test]
 fn clear_this_command_keys_clears_interactive_fallback_context() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.interactive
         .set_this_command_keys(vec!["C-x".to_string(), "C-f".to_string()]);
 
@@ -1458,7 +1458,7 @@ fn clear_this_command_keys_clears_interactive_fallback_context() {
 
 #[test]
 fn clear_this_command_keys_without_keep_record_clears_recent_input_history() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.record_input_event(Value::Int(97));
     assert_eq!(ev.recent_input_events(), &[Value::Int(97)]);
 
@@ -1469,7 +1469,7 @@ fn clear_this_command_keys_without_keep_record_clears_recent_input_history() {
 
 #[test]
 fn clear_this_command_keys_with_nil_keep_record_clears_recent_input_history() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.record_input_event(Value::Int(98));
     assert_eq!(ev.recent_input_events(), &[Value::Int(98)]);
 
@@ -1480,7 +1480,7 @@ fn clear_this_command_keys_with_nil_keep_record_clears_recent_input_history() {
 
 #[test]
 fn clear_this_command_keys_with_keep_record_preserves_recent_input_history() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     ev.record_input_event(Value::Int(99));
     assert_eq!(ev.recent_input_events(), &[Value::Int(99)]);
 
@@ -1491,7 +1491,7 @@ fn clear_this_command_keys_with_keep_record_preserves_recent_input_history() {
 
 #[test]
 fn clear_this_command_keys_rejects_more_than_one_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_clear_this_command_keys(&mut ev, vec![Value::Int(1), Value::Int(2)]);
     assert!(matches!(
         result,
@@ -1508,7 +1508,7 @@ fn clear_this_command_keys_rejects_more_than_one_arg() {
 
 #[test]
 fn key_binding_global() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let km = make_list_keymap();
     ev.obarray.set_symbol_value("global-map", km);
     // ctrl-f = char 6
@@ -1611,7 +1611,7 @@ fn key_binding_applies_command_remapping_unless_no_remap() {
 
 #[test]
 fn key_binding_unbound() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_key_binding(&mut ev, vec![Value::string("\x1a")]).unwrap();
     assert!(result.is_nil());
 }
@@ -1631,14 +1631,14 @@ fn key_binding_empty_vector_is_nil() {
 
 #[test]
 fn key_binding_default_plain_char_self_insert() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_key_binding(&mut ev, vec![Value::string("a")]).unwrap();
     assert_eq!(result.as_symbol_name(), Some("self-insert-command"));
 }
 
 #[test]
 fn key_binding_too_many_args_errors() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_key_binding(
         &mut ev,
         vec![
@@ -1800,14 +1800,14 @@ fn define_key_sequence_preserves_gnu_prefix_symbol_bindings() {
 
 #[test]
 fn local_key_binding_nil_when_no_local_map() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_local_key_binding(&mut ev, vec![Value::string("\x03")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn local_key_binding_too_many_args_errors() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result =
         builtin_local_key_binding(&mut ev, vec![Value::string("\x03"), Value::Nil, Value::Nil]);
     assert!(result.is_err());
@@ -1815,7 +1815,7 @@ fn local_key_binding_too_many_args_errors() {
 
 #[test]
 fn minor_mode_key_binding_returns_nil_when_no_modes_are_active() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_minor_mode_key_binding(&mut ev, vec![Value::string("\x03")]).unwrap();
     assert!(result.is_nil());
 }
@@ -1918,7 +1918,7 @@ fn minor_mode_key_binding_invalid_emulation_keymap_id_errors() {
 
 #[test]
 fn minor_mode_key_binding_too_many_args_errors() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_minor_mode_key_binding(
         &mut ev,
         vec![Value::string("\x03"), Value::True, Value::symbol("extra")],
@@ -2011,7 +2011,7 @@ fn thingatpt_startup_functions_are_autoloaded() {
 
 #[test]
 fn word_at_point_starts_unbound_before_thingatpt_load() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = eval_all_with(
         &mut ev,
         r#"(progn
@@ -2215,7 +2215,7 @@ fn command_execute_builtin_delete_char_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_delete_char_uses_default_prefix_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -2229,7 +2229,7 @@ fn call_interactively_builtin_delete_char_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_rejects_non_vector_keys_argument() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
         vec![Value::symbol("ignore"), Value::Nil, Value::string("b")],
@@ -2246,7 +2246,7 @@ fn call_interactively_rejects_non_vector_keys_argument() {
 
 #[test]
 fn call_interactively_accepts_vector_keys_argument() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
         vec![
@@ -2261,7 +2261,7 @@ fn call_interactively_accepts_vector_keys_argument() {
 
 #[test]
 fn call_interactively_does_not_record_keys_argument_in_recent_history() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
         vec![
@@ -2277,7 +2277,7 @@ fn call_interactively_does_not_record_keys_argument_in_recent_history() {
 
 #[test]
 fn call_interactively_keys_vector_keeps_this_command_keys_empty_in_batch() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let _ = eval_all_with(
         &mut ev,
         "(fset 'neo-rk-loop-probe
@@ -2302,7 +2302,7 @@ fn call_interactively_keys_vector_keeps_this_command_keys_empty_in_batch() {
 
 #[test]
 fn call_interactively_rejects_list_keys_argument_without_recording_recent_history() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let keys = Value::list(vec![Value::Int(97), Value::Int(98)]);
     let result =
         builtin_call_interactively(&mut ev, vec![Value::symbol("ignore"), Value::Nil, keys])
@@ -2319,7 +2319,7 @@ fn call_interactively_rejects_list_keys_argument_without_recording_recent_histor
 
 #[test]
 fn call_interactively_rejects_too_many_arguments() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
         vec![Value::symbol("ignore"), Value::Nil, Value::Nil, Value::Nil],
@@ -2345,7 +2345,7 @@ fn command_execute_builtin_upcase_word_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_capitalize_word_uses_default_prefix_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -2689,7 +2689,7 @@ fn command_execute_builtin_kill_ring_save_without_mark_signals_error() {
 
 #[test]
 fn call_interactively_builtin_kill_ring_save_without_mark_signals_error() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -2723,7 +2723,7 @@ fn command_execute_builtin_copy_region_as_kill_without_mark_signals_error() {
 
 #[test]
 fn call_interactively_builtin_copy_region_as_kill_without_mark_signals_error() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -2861,14 +2861,14 @@ fn command_execute_non_command_signals_commandp_error() {
 
 #[test]
 fn call_interactively_builtin_ignore() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_call_interactively(&mut ev, vec![Value::symbol("ignore")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn call_interactively_lambda_interactive_p_uses_current_prefix_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(let ((f (lambda (n) (interactive "p") n))
@@ -2897,7 +2897,7 @@ fn command_execute_lambda_interactive_p_uses_prefix_arg() {
 
 #[test]
 fn call_interactively_lambda_interactive_p_prefers_current_prefix_arg() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(let ((f (lambda (n) (interactive "p") n))
@@ -2931,7 +2931,7 @@ fn interactive_lambda_forms_support_p_p_and_expression_specs() {
 
 #[test]
 fn call_interactively_accepts_quoted_lambda_commands() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(let ((current-prefix-arg 3))
@@ -3221,7 +3221,7 @@ U") (list keys up)))))"#,
 
 #[test]
 fn interactive_lambda_invalid_control_letter_signals_error() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(list
@@ -3258,7 +3258,7 @@ fn interactive_lambda_invalid_control_letter_signals_error() {
 
 #[test]
 fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("abcd");
@@ -3473,7 +3473,7 @@ fn interactive_lambda_e_spec_does_not_use_unread_queue_without_command_key_conte
 
 #[test]
 fn interactive_lambda_e_spec_prefers_existing_command_keys_context() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(list
@@ -3498,7 +3498,7 @@ fn interactive_lambda_e_spec_prefers_existing_command_keys_context() {
 
 #[test]
 fn call_interactively_non_command_signals_commandp_error() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let result = builtin_call_interactively(&mut ev, vec![Value::symbol("car")])
         .expect_err("call-interactively should reject non-command symbols");
     match result {
@@ -3623,7 +3623,7 @@ fn call_interactively_eval_expression_executes_read_expression_result() {
 
 #[test]
 fn self_insert_command_argument_validation() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
 
     let missing = builtin_self_insert_command(&mut ev, vec![])
         .expect_err("self-insert-command should require one arg");
@@ -3678,7 +3678,7 @@ fn self_insert_command_argument_validation() {
 
 #[test]
 fn self_insert_command_uses_last_command_event_character() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -3691,7 +3691,7 @@ fn self_insert_command_uses_last_command_event_character() {
 
 #[test]
 fn self_insert_command_non_nil_second_arg_is_noop() {
-    let mut ev = Evaluator::new();
+    let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
