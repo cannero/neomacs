@@ -334,12 +334,30 @@ pub(crate) fn resolve_autoload_load_path(obarray: &Obarray, file: &str) -> Resul
     }
 }
 
+/// After loading an autoload file, check whether the function was defined.
+/// Matches GNU Emacs eval.c:Fautoload_do_load lines 2501-2508: if the
+/// function cell is still the same autoload, signal an error.
 pub(crate) fn finish_autoload_do_load_in_state(
     obarray: &Obarray,
     funname: Option<&str>,
+    original_autoload: Option<&Value>,
 ) -> EvalResult {
     if let Some(name) = funname {
         if let Some(func) = obarray.symbol_function(name).cloned() {
+            // GNU Emacs: if function is still the same autoload form after
+            // loading, signal "Autoloading file failed to define function".
+            if let Some(orig) = original_autoload {
+                if is_autoload_value(&func) {
+                    // The loaded file didn't define this function.
+                    return Err(signal(
+                        "error",
+                        vec![Value::string(format!(
+                            "Autoloading failed to define function {}",
+                            name
+                        ))],
+                    ));
+                }
+            }
             return Ok(func);
         }
     }
@@ -350,12 +368,17 @@ pub(crate) fn builtin_autoload_do_load(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    let original_fundef = args.first().copied();
     match plan_autoload_do_load_in_state(&eval.obarray, &args)? {
         AutoloadDoLoadPlan::Return(value) => Ok(value),
         AutoloadDoLoadPlan::Load { file, funname } => {
             let path = resolve_autoload_load_path(&eval.obarray, &file)?;
             eval.load_file_internal(&path)?;
-            finish_autoload_do_load_in_state(&eval.obarray, funname.as_deref())
+            finish_autoload_do_load_in_state(
+                &eval.obarray,
+                funname.as_deref(),
+                original_fundef.as_ref(),
+            )
         }
     }
 }
@@ -366,6 +389,7 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
     args: &[Value],
     extra_roots: &[Value],
 ) -> EvalResult {
+    let original_fundef = args.first().copied();
     match plan_autoload_do_load_in_state(&shared.obarray, args)? {
         AutoloadDoLoadPlan::Return(value) => Ok(value),
         AutoloadDoLoadPlan::Load { file, funname } => {
@@ -373,7 +397,11 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
             shared.with_parent_evaluator_vm_roots(vm_gc_roots, extra_roots, move |eval| {
                 eval.load_file_internal(&path)
             })?;
-            finish_autoload_do_load_in_state(&shared.obarray, funname.as_deref())
+            finish_autoload_do_load_in_state(
+                &shared.obarray,
+                funname.as_deref(),
+                original_fundef.as_ref(),
+            )
         }
     }
 }
