@@ -899,184 +899,6 @@ pub(crate) fn dispatch_builtin(
         return Some(result);
     }
 
-    // Legacy dispatch — will shrink as builtins migrate to defsubr.
-    match name {
-        // Symbol/obarray
-        // Hooks
-        "run-hooks" => {
-            let hook_names: Vec<String> = args
-                .iter()
-                .filter_map(|a| a.as_symbol_name().map(|s| s.to_string()))
-                .collect();
-            // Only log important hooks at info; the rest at debug to avoid
-            // flooding the log with custom-define-hook during bootstrap.
-            let dominated_by_noise = hook_names
-                .iter()
-                .all(|h| h == "custom-define-hook" || h == "change-major-mode-hook");
-            if dominated_by_noise {
-                tracing::debug!(hooks = ?hook_names, "run-hooks");
-            } else {
-                tracing::info!(hooks = ?hook_names, "run-hooks called");
-            }
-            let result = builtin_run_hooks(eval, args);
-            if !dominated_by_noise {
-                tracing::info!(hooks = ?hook_names, "run-hooks returned");
-            }
-            if hook_names.iter().any(|h| h == "window-setup-hook") {
-                tracing::info!("Enabling post-startup builtin tracing");
-                TRACE_ALL_BUILTINS.store(true, Ordering::Relaxed);
-            }
-            return Some(result);
-        }
-        // GC
-        // Loading
-        "load" => {
-            let file_name = args.first().map(|a| format!("{}", a)).unwrap_or_default();
-            tracing::info!(file = %file_name, "load called");
-            let result = builtin_load(eval, args);
-            tracing::info!(file = %file_name, ok = result.is_ok(), "load returned");
-            return Some(result);
-        }
-        // Buffer operations
-        // set-mark and mark are now in navigation module (below)
-        // Search / regex operations
-        // charset (evaluator-dependent)
-        // composite (evaluator-dependent)
-        // xdisp (evaluator-dependent)
-
-        // Font (evaluator-dependent — frame designator validation)
-
-        // File I/O (evaluator-dependent)
-        // Keymap operations
-        // Process operations (evaluator-dependent)
-        // Timer operations (evaluator-dependent)
-        // Variable watchers
-        // Syntax table operations (evaluator-dependent)
-        // Register operations (evaluator-dependent)
-        // Keyboard macro operations (evaluator-dependent)
-        // Bookmark operations (evaluator-dependent)
-        // Abbreviation operations (evaluator-dependent)
-        // Text property operations (evaluator-dependent — buffer access)
-
-        // Navigation / mark / region (evaluator-dependent — buffer access)
-        // Custom system (evaluator-dependent)
-
-        // Autoload (evaluator-dependent)
-
-        // Kill ring / text editing (evaluator-dependent — buffer access)
-
-        // Rectangle operations (evaluator-dependent — buffer access)
-        // Window/frame operations (evaluator-dependent)
-
-        // Interactive / command system (evaluator-dependent)
-        // Error hierarchy (evaluator-dependent — reads obarray)
-
-        // Reader/printer (evaluator-dependent)
-        "message" => {
-            let msg_preview: String = args
-                .first()
-                .map(|a| {
-                    let s = format!("{}", a);
-                    if s.len() > 120 {
-                        format!("{}...", &s[..120])
-                    } else {
-                        s
-                    }
-                })
-                .unwrap_or_default();
-            tracing::info!(msg = %msg_preview, "message");
-            return Some(builtin_message_eval(eval, args));
-        }
-
-        // Misc (evaluator-dependent)
-
-        // Threading (evaluator-dependent)
-
-        // Undo system (evaluator-dependent)
-        // Hash-table / obarray (evaluator-dependent)
-
-        // Marker (evaluator-dependent)
-
-        // Case table (evaluator-dependent)
-
-        // Category (evaluator-dependent)
-
-        // Char-table (evaluator-dependent — applies function)
-
-        // Coding system (evaluator-dependent — uses coding_systems manager)
-        "coding-system-aliases" => {
-            return Some(super::coding::builtin_coding_system_aliases(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-plist" => {
-            return Some(super::coding::builtin_coding_system_plist(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-put" => {
-            return Some(super::coding::builtin_coding_system_put(
-                &mut eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-base" => {
-            return Some(super::coding::builtin_coding_system_base(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-eol-type" => {
-            return Some(super::coding::builtin_coding_system_eol_type(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "detect-coding-string" => {
-            return Some(super::coding::builtin_detect_coding_string(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "detect-coding-region" => {
-            return Some(super::coding::builtin_detect_coding_region(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "keyboard-coding-system" => {
-            return Some(super::coding::builtin_keyboard_coding_system(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "terminal-coding-system" => {
-            return Some(super::coding::builtin_terminal_coding_system(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-        "coding-system-priority-list" => {
-            return Some(super::coding::builtin_coding_system_priority_list(
-                &eval.coding_systems,
-                args,
-            ));
-        }
-
-        // Documentation/help (evaluator-dependent)
-
-        // Indentation (evaluator-dependent)
-        // Case/char (evaluator-dependent)
-
-        // Search (evaluator-dependent)
-        // Lread (evaluator-dependent)
-
-        // Editfns (evaluator-dependent)
-
-        _ => {}
-    }
 
     if let Ok(id) = name.parse::<PureBuiltinId>() {
         return Some(dispatch_builtin_id_eval(eval, id, args));
@@ -2845,6 +2667,89 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
 #[cfg(test)]
 mod tests;
 
+// -----------------------------------------------------------------------
+// Wrapper functions for builtins that need tracing or non-standard access
+// -----------------------------------------------------------------------
+
+fn defsubr_run_hooks(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    let hook_names: Vec<String> = args
+        .iter()
+        .filter_map(|a| a.as_symbol_name().map(|s| s.to_string()))
+        .collect();
+    let dominated_by_noise = hook_names
+        .iter()
+        .all(|h| h == "custom-define-hook" || h == "change-major-mode-hook");
+    if dominated_by_noise {
+        tracing::debug!(hooks = ?hook_names, "run-hooks");
+    } else {
+        tracing::info!(hooks = ?hook_names, "run-hooks called");
+    }
+    let result = builtin_run_hooks(eval, args);
+    if !dominated_by_noise {
+        tracing::info!(hooks = ?hook_names, "run-hooks returned");
+    }
+    if hook_names.iter().any(|h| h == "window-setup-hook") {
+        tracing::info!("Enabling post-startup builtin tracing");
+        TRACE_ALL_BUILTINS.store(true, Ordering::Relaxed);
+    }
+    result
+}
+
+fn defsubr_load(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    let file_name = args.first().map(|a| format!("{}", a)).unwrap_or_default();
+    tracing::info!(file = %file_name, "load called");
+    let result = builtin_load(eval, args);
+    tracing::info!(file = %file_name, ok = result.is_ok(), "load returned");
+    result
+}
+
+fn defsubr_message(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    let msg_preview: String = args
+        .first()
+        .map(|a| {
+            let s = format!("{}", a);
+            if s.len() > 120 {
+                format!("{}...", &s[..120])
+            } else {
+                s
+            }
+        })
+        .unwrap_or_default();
+    tracing::info!(msg = %msg_preview, "message");
+    builtin_message_eval(eval, args)
+}
+
+fn defsubr_coding_system_aliases(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_coding_system_aliases(&eval.coding_systems, args)
+}
+fn defsubr_coding_system_plist(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_coding_system_plist(&eval.coding_systems, args)
+}
+fn defsubr_coding_system_put(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_coding_system_put(&mut eval.coding_systems, args)
+}
+fn defsubr_coding_system_base(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_coding_system_base(&eval.coding_systems, args)
+}
+fn defsubr_coding_system_eol_type(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_coding_system_eol_type(&eval.coding_systems, args)
+}
+fn defsubr_detect_coding_string(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_detect_coding_string(&eval.coding_systems, args)
+}
+fn defsubr_detect_coding_region(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_detect_coding_region(&eval.coding_systems, args)
+}
+fn defsubr_keyboard_coding_system(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_keyboard_coding_system(&eval.coding_systems, args)
+}
+fn defsubr_terminal_coding_system(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_terminal_coding_system(&eval.coding_systems, args)
+}
+fn defsubr_coding_system_priority_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    super::coding::builtin_coding_system_priority_list(&eval.coding_systems, args)
+}
+
 /// Register all builtins via defsubr — function pointer dispatch.
 ///
 /// This replaces the giant match-by-name block in dispatch_builtin.
@@ -3465,6 +3370,19 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx.defsubr("posix-search-forward", builtin_re_search_forward, 0, None);
         ctx.defsubr("posix-search-backward", builtin_re_search_backward, 0, None);
         ctx.defsubr("read-event", super::lread::builtin_read_event, 0, None);
+        ctx.defsubr("run-hooks", defsubr_run_hooks, 0, None);
+        ctx.defsubr("load", defsubr_load, 0, None);
+        ctx.defsubr("message", defsubr_message, 0, None);
+        ctx.defsubr("coding-system-aliases", defsubr_coding_system_aliases, 0, None);
+        ctx.defsubr("coding-system-plist", defsubr_coding_system_plist, 0, None);
+        ctx.defsubr("coding-system-put", defsubr_coding_system_put, 0, None);
+        ctx.defsubr("coding-system-base", defsubr_coding_system_base, 0, None);
+        ctx.defsubr("coding-system-eol-type", defsubr_coding_system_eol_type, 0, None);
+        ctx.defsubr("detect-coding-string", defsubr_detect_coding_string, 0, None);
+        ctx.defsubr("detect-coding-region", defsubr_detect_coding_region, 0, None);
+        ctx.defsubr("keyboard-coding-system", defsubr_keyboard_coding_system, 0, None);
+        ctx.defsubr("terminal-coding-system", defsubr_terminal_coding_system, 0, None);
+        ctx.defsubr("coding-system-priority-list", defsubr_coding_system_priority_list, 0, None);
         ctx.defsubr("obarrayp", |_ctx, args| builtin_obarrayp(args), 0, None);
         ctx.defsubr("ntake", |_ctx, args| builtin_ntake(args), 0, None);
         ctx.defsubr("default-file-modes", |_ctx, args| super::fileio::builtin_default_file_modes(args), 0, None);
