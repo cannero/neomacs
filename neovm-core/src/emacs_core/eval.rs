@@ -8155,15 +8155,21 @@ impl Evaluator {
     // -----------------------------------------------------------------------
 
     /// Save the current value of a special variable and set a new value.
-    /// Matches GNU Emacs's specbind() in eval.c.
+    /// Matches GNU Emacs's specbind() in eval.c — follows SYMBOL_VARALIAS
+    /// to the final target before saving/setting.
     pub(crate) fn specbind(&mut self, sym_id: SymId, value: Value) {
-        let old_value = self.obarray.symbol_value_id(sym_id).copied();
-        self.specpdl.push(SpecBinding::Let { sym_id, old_value });
-        let name = resolve_sym(sym_id);
+        let resolved =
+            builtins::resolve_variable_alias_id_in_obarray(&self.obarray, sym_id).unwrap_or(sym_id);
+        let old_value = self.obarray.symbol_value_id(resolved).copied();
+        self.specpdl.push(SpecBinding::Let {
+            sym_id: resolved,
+            old_value,
+        });
+        let name = resolve_sym(resolved);
         if self.watchers.has_watchers(name) {
             let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
         }
-        self.obarray.set_symbol_value_id(sym_id, value);
+        self.obarray.set_symbol_value_id(resolved, value);
     }
 
     /// Restore all specpdl bindings back to `count`.
@@ -8191,15 +8197,21 @@ impl Evaluator {
 
 /// Save the current value of a special variable and set a new value (standalone version).
 /// Used by bytecode VM and other split-state paths.
+/// Follows variable aliases like GNU's specbind().
 pub(crate) fn specbind_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
     sym_id: SymId,
     value: Value,
 ) {
-    let old_value = obarray.symbol_value_id(sym_id).copied();
-    specpdl.push(SpecBinding::Let { sym_id, old_value });
-    obarray.set_symbol_value_id(sym_id, value);
+    let resolved =
+        super::builtins::resolve_variable_alias_id_in_obarray(obarray, sym_id).unwrap_or(sym_id);
+    let old_value = obarray.symbol_value_id(resolved).copied();
+    specpdl.push(SpecBinding::Let {
+        sym_id: resolved,
+        old_value,
+    });
+    obarray.set_symbol_value_id(resolved, value);
 }
 
 /// Restore all specpdl bindings back to `count` (standalone version).
