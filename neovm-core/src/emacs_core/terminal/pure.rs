@@ -367,18 +367,6 @@ pub(crate) fn builtin_terminal_name_eval(
     Ok(Value::string(TERMINAL_NAME))
 }
 
-pub(crate) fn builtin_terminal_name_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("terminal-name", &args, 1)?;
-    if let Some(term) = args.first() {
-        if !term.is_nil() {
-            expect_terminal_designator_in_state(frames, term)?;
-        }
-    }
-    Ok(Value::string(TERMINAL_NAME))
-}
 
 /// (terminal-list) -> list containing one opaque terminal handle.
 pub(crate) fn builtin_terminal_list(args: Vec<Value>) -> EvalResult {
@@ -421,23 +409,6 @@ pub(crate) fn builtin_frame_terminal_eval(
     Ok(terminal_handle_value())
 }
 
-pub(crate) fn builtin_frame_terminal_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("frame-terminal", &args, 1)?;
-    if let Some(frame) = args.first() {
-        if !frame.is_nil()
-            && !crate::emacs_core::display::live_frame_designator_p_in_state(frames, frame)
-        {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *frame],
-            ));
-        }
-    }
-    Ok(terminal_handle_value())
-}
 
 /// (terminal-live-p TERMINAL) -> t
 pub(crate) fn builtin_terminal_live_p(args: Vec<Value>) -> EvalResult {
@@ -468,24 +439,6 @@ pub(crate) fn builtin_terminal_live_p_eval(
     }
 }
 
-pub(crate) fn builtin_terminal_live_p_in_state(
-    frames: &crate::window::FrameManager,
-    obarray: &crate::emacs_core::symbol::Obarray,
-    dynamic: &[crate::emacs_core::value::OrderedRuntimeBindingMap],
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("terminal-live-p", &args, 1, 1)?;
-    if !terminal_designator_in_state_p(frames, &args[0]) {
-        return Ok(Value::Nil);
-    }
-    if crate::emacs_core::display::x_window_system_active_in_state(obarray, dynamic) {
-        Ok(Value::symbol(
-            crate::emacs_core::display::gui_window_system_symbol(),
-        ))
-    } else {
-        Ok(Value::True)
-    }
-}
 
 /// (terminal-parameter TERMINAL PARAMETER) -> value
 pub(crate) fn builtin_terminal_parameter(args: Vec<Value>) -> EvalResult {
@@ -508,15 +461,6 @@ pub(crate) fn builtin_terminal_parameter_eval(
     TERMINAL_PARAMS.with(|slot| Ok(lookup_terminal_parameter_value(&slot.borrow(), &key)))
 }
 
-pub(crate) fn builtin_terminal_parameter_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("terminal-parameter", &args, 2)?;
-    expect_terminal_designator_in_state(frames, &args[0])?;
-    let key = expect_symbol_key(&args[1])?;
-    TERMINAL_PARAMS.with(|slot| Ok(lookup_terminal_parameter_value(&slot.borrow(), &key)))
-}
 
 /// (terminal-parameters &optional TERMINAL) -> alist of terminal parameters
 pub(crate) fn builtin_terminal_parameters(args: Vec<Value>) -> EvalResult {
@@ -551,21 +495,6 @@ pub(crate) fn builtin_terminal_parameters_eval(
     })
 }
 
-pub(crate) fn builtin_terminal_parameters_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("terminal-parameters", &args, 1)?;
-    if let Some(term) = args.first() {
-        if !term.is_nil() {
-            expect_terminal_designator_in_state(frames, term)?;
-        }
-    }
-    TERMINAL_PARAMS.with(|slot| {
-        let merged = terminal_parameters_with_defaults(&slot.borrow());
-        Ok(make_alist(merged))
-    })
-}
 
 /// (set-terminal-parameter TERMINAL PARAMETER VALUE) -> previous value
 pub(crate) fn builtin_set_terminal_parameter(args: Vec<Value>) -> EvalResult {
@@ -622,32 +551,6 @@ pub(crate) fn builtin_set_terminal_parameter_eval(
     })
 }
 
-pub(crate) fn builtin_set_terminal_parameter_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("set-terminal-parameter", &args, 3)?;
-    expect_terminal_designator_in_state(frames, &args[0])?;
-    if matches!(args[1], Value::Str(_)) {
-        return Ok(Value::Nil);
-    }
-    let key = args[1];
-    TERMINAL_PARAMS.with(|slot| {
-        let mut params = slot.borrow_mut();
-        if let Some((_, stored_value)) = params
-            .iter_mut()
-            .find(|(stored_key, _)| eq_value(stored_key, &key))
-        {
-            let previous = *stored_value;
-            *stored_value = args[2];
-            return Ok(previous);
-        }
-
-        let previous = terminal_parameter_default_value(&key).unwrap_or(Value::Nil);
-        params.push((key, args[2]));
-        Ok(previous)
-    })
-}
 
 // ---------------------------------------------------------------------------
 // TTY builtins (we are not a TTY, so these return nil)
@@ -722,23 +625,6 @@ pub(crate) fn builtin_tty_top_frame_eval(
     })
 }
 
-pub(crate) fn builtin_tty_top_frame_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("tty-top-frame", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
-    }
-    Ok(if terminal_runtime().active {
-        frames
-            .selected_frame()
-            .map(|frame| Value::Frame(frame.id.0))
-            .unwrap_or(Value::Nil)
-    } else {
-        Value::Nil
-    })
-}
 
 /// (tty-display-color-p &optional TERMINAL) -> nil
 pub(crate) fn builtin_tty_display_color_p(args: Vec<Value>) -> EvalResult {
@@ -761,16 +647,6 @@ pub(crate) fn builtin_tty_display_color_p_eval(
     Ok(Value::bool(terminal_runtime().supports_color()))
 }
 
-pub(crate) fn builtin_tty_display_color_p_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("tty-display-color-p", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
-    }
-    Ok(Value::bool(terminal_runtime().supports_color()))
-}
 
 /// (tty-display-color-cells &optional TERMINAL) -> 0
 pub(crate) fn builtin_tty_display_color_cells(args: Vec<Value>) -> EvalResult {
@@ -793,16 +669,6 @@ pub(crate) fn builtin_tty_display_color_cells_eval(
     Ok(Value::Int(terminal_runtime().color_cells))
 }
 
-pub(crate) fn builtin_tty_display_color_cells_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("tty-display-color-cells", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
-    }
-    Ok(Value::Int(terminal_runtime().color_cells))
-}
 
 /// (tty-no-underline &optional TERMINAL) -> nil
 pub(crate) fn builtin_tty_no_underline(args: Vec<Value>) -> EvalResult {
@@ -825,16 +691,6 @@ pub(crate) fn builtin_tty_no_underline_eval(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_tty_no_underline_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("tty-no-underline", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
-    }
-    Ok(Value::Nil)
-}
 
 /// (controlling-tty-p &optional TERMINAL) -> nil
 pub(crate) fn builtin_controlling_tty_p(args: Vec<Value>) -> EvalResult {
@@ -857,16 +713,6 @@ pub(crate) fn builtin_controlling_tty_p_eval(
     Ok(Value::bool(terminal_runtime().controlling_tty))
 }
 
-pub(crate) fn builtin_controlling_tty_p_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("controlling-tty-p", &args, 1)?;
-    if let Some(terminal) = args.first() {
-        expect_terminal_designator_in_state(frames, terminal)?;
-    }
-    Ok(Value::bool(terminal_runtime().controlling_tty))
-}
 
 /// (suspend-tty &optional TTY) -> error in GUI/non-text terminal context.
 pub(crate) fn builtin_suspend_tty(args: Vec<Value>) -> EvalResult {

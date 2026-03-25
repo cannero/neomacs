@@ -472,19 +472,6 @@ pub(crate) fn builtin_provide(eval: &mut super::eval::Context, args: Vec<Value>)
     eval.provide_value(args[0], args.get(1).cloned())
 }
 
-pub(crate) fn builtin_provide_in_state(
-    obarray: &mut Obarray,
-    features: &mut Vec<SymId>,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("provide", &args, 1, 2)?;
-    crate::emacs_core::eval::provide_value_in_state(
-        obarray,
-        features,
-        args[0],
-        args.get(1).cloned(),
-    )
-}
 
 pub(crate) fn builtin_require(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("require", &args, 1, 3)?;

@@ -296,24 +296,6 @@ pub(crate) fn builtin_send_string_to_terminal_eval(
     }
 }
 
-pub(crate) fn builtin_send_string_to_terminal_in_state(
-    frames: &crate::window::FrameManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("send-string-to-terminal", &args, 1, 2)?;
-    match &args[0] {
-        Value::Str(_) => {
-            if let Some(terminal) = args.get(1) {
-                expect_terminal_designator_in_state(frames, terminal)?;
-            }
-            Ok(Value::Nil)
-        }
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("stringp"), *other],
-        )),
-    }
-}
 
 /// (internal-show-cursor WINDOW SHOW) -> nil
 pub(crate) fn builtin_internal_show_cursor(args: Vec<Value>) -> EvalResult {
@@ -341,23 +323,6 @@ pub(crate) fn builtin_internal_show_cursor_eval(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_internal_show_cursor_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("internal-show-cursor", &args, 2)?;
-    expect_window_designator_in_state(frames, &args[0])?;
-    let visible = !args[1].is_nil();
-    if let Some(window_id) =
-        resolve_internal_show_cursor_window_id_in_state(frames, buffers, &args[0])
-    {
-        set_window_cursor_visible(window_id, visible);
-    } else {
-        CURSOR_VISIBLE.with(|slot| slot.set(visible));
-    }
-    Ok(Value::Nil)
-}
 
 /// (internal-show-cursor-p &optional WINDOW) -> t/nil
 pub(crate) fn builtin_internal_show_cursor_p(args: Vec<Value>) -> EvalResult {
@@ -386,23 +351,6 @@ pub(crate) fn builtin_internal_show_cursor_p_eval(
     Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))
 }
 
-pub(crate) fn builtin_internal_show_cursor_p_in_state(
-    frames: &mut crate::window::FrameManager,
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_range_args("internal-show-cursor-p", &args, 0, 1)?;
-    if let Some(window) = args.first() {
-        expect_window_designator_in_state(frames, window)?;
-    }
-    let query_window = args.first().unwrap_or(&Value::Nil);
-    if let Some(window_id) =
-        resolve_internal_show_cursor_window_id_in_state(frames, buffers, query_window)
-    {
-        return Ok(Value::bool(window_cursor_visible(window_id)));
-    }
-    Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))
-}
 
 /// (force-window-update &optional OBJECT) -> t/nil
 pub(crate) fn builtin_force_window_update(args: Vec<Value>) -> EvalResult {

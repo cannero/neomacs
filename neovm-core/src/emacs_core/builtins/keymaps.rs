@@ -405,20 +405,6 @@ pub(super) fn builtin_use_local_map(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_use_local_map_in_state(
-    obarray: &Obarray,
-    buffers: &mut crate::buffer::BufferManager,
-    args: &[Value],
-) -> EvalResult {
-    expect_args("use-local-map", args, 1)?;
-    let keymap = if args[0].is_nil() {
-        Value::Nil
-    } else {
-        expect_keymap_in_obarray(obarray, &args[0])?
-    };
-    let _ = buffers.set_current_local_map(keymap);
-    Ok(Value::Nil)
-}
 
 /// (use-global-map KEYMAP)
 pub(super) fn builtin_use_global_map(

@@ -215,20 +215,6 @@ pub(crate) fn builtin_add_variable_watcher(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_add_variable_watcher_in_state(
-    obarray: &Obarray,
-    watchers: &mut VariableWatcherList,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("add-variable-watcher", &args, 2)?;
-
-    let var_name = expect_symbol_name(&args[0])?;
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, &var_name)?;
-    let callback = args[1];
-
-    watchers.add_watcher(&resolved, callback);
-    Ok(Value::Nil)
-}
 
 /// `(remove-variable-watcher SYMBOL WATCH-FUNCTION)`
 ///
@@ -248,20 +234,6 @@ pub(crate) fn builtin_remove_variable_watcher(
     Ok(Value::Nil)
 }
 
-pub(crate) fn builtin_remove_variable_watcher_in_state(
-    obarray: &Obarray,
-    watchers: &mut VariableWatcherList,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("remove-variable-watcher", &args, 2)?;
-
-    let var_name = expect_symbol_name(&args[0])?;
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(obarray, &var_name)?;
-    let callback = args[1];
-
-    watchers.remove_watcher(&resolved, &callback);
-    Ok(Value::Nil)
-}
 
 /// `(get-variable-watchers SYMBOL)`
 ///

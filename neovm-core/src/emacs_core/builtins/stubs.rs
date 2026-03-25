@@ -1545,43 +1545,6 @@ pub(crate) fn builtin_font_at(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-pub(crate) fn builtin_font_at_in_state(frames: &FrameManager, args: Vec<Value>) -> EvalResult {
-    expect_range_args("font-at", &args, 1, 3)?;
-
-    if let Some(window) = args.get(1) {
-        expect_window_live_or_nil_in_state(frames, window)?;
-    }
-
-    if let Some(string_value) = args.get(2) {
-        if !string_value.is_nil() {
-            let Value::Str(s) = string_value else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("stringp"), *string_value],
-                ));
-            };
-            let pos = match args[0] {
-                Value::Int(n) => n,
-                Value::Char(c) => c as i64,
-                _ => 1,
-            };
-            return Err(signal(
-                "args-out-of-range",
-                vec![
-                    Value::string(with_heap(|h| h.get_string(*s).to_owned())),
-                    Value::Int(pos),
-                ],
-            ));
-        }
-    }
-
-    Err(signal(
-        "error",
-        vec![Value::string(
-            "Specified window is not displaying the current buffer",
-        )],
-    ))
-}
 
 pub(crate) fn builtin_font_face_attributes(args: Vec<Value>) -> EvalResult {
     expect_range_args("font-face-attributes", &args, 1, 2)?;

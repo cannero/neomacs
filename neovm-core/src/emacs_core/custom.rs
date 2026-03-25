@@ -643,30 +643,6 @@ pub(crate) fn builtin_set_default(
     Ok(value)
 }
 
-pub(crate) fn builtin_set_default_in_obarray(
-    obarray: &mut crate::emacs_core::symbol::Obarray,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("set-default", &args, 2)?;
-    let symbol = match args[0] {
-        Value::Nil => intern("nil"),
-        Value::True => intern("t"),
-        Value::Symbol(id) | Value::Keyword(id) => id,
-        _ => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            ));
-        }
-    };
-    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(obarray, symbol)?;
-    if obarray.is_constant_id(resolved) {
-        return Err(signal("setting-constant", vec![args[0]]));
-    }
-    let value = args[1];
-    obarray.set_symbol_value_id(resolved, value);
-    Ok(value)
-}
 
 // ---------------------------------------------------------------------------
 // Special form handlers (called from eval.rs try_special_form dispatch)
