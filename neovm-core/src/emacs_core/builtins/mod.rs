@@ -1317,6 +1317,7 @@ pub(crate) fn dispatch_builtin(
             return Some(super::process::builtin_make_network_process(eval, args));
         }
         "make-pipe-process" => return Some(super::process::builtin_make_pipe_process(eval, args)),
+        "gnutls-boot" => return Some(super::process::builtin_gnutls_boot(eval, args)),
         "make-serial-process" => {
             return Some(super::process::builtin_make_serial_process(eval, args));
         }
@@ -1427,7 +1428,7 @@ pub(crate) fn dispatch_builtin(
         "process-name" => return Some(super::process::builtin_process_name(eval, args)),
         "process-buffer" => return Some(super::process::builtin_process_buffer(eval, args)),
         // Timer operations (evaluator-dependent)
-        "sleep-for" => return Some(super::timer::builtin_sleep_for(args)),
+        "sleep-for" => return Some(super::timer::builtin_sleep_for(eval, args)),
         // Variable watchers
         "add-variable-watcher" => {
             return Some(super::advice::builtin_add_variable_watcher(eval, args));
@@ -3134,7 +3135,7 @@ pub(crate) fn dispatch_builtin(
         "get-unicode-property-internal" => builtin_get_unicode_property_internal(args),
         "gnutls-available-p" => builtin_gnutls_available_p(args),
         "gnutls-asynchronous-parameters" => builtin_gnutls_asynchronous_parameters(args),
-        "gnutls-boot" => builtin_gnutls_boot(args),
+        "gnutls-boot" => return None, // dispatched through eval path in process.rs
         "gnutls-bye" => builtin_gnutls_bye(args),
         "gnutls-ciphers" => builtin_gnutls_ciphers(args),
         "gnutls-deinit" => builtin_gnutls_deinit(args),
@@ -4039,7 +4040,7 @@ pub(crate) fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<Eval
         "get-unicode-property-internal" => builtin_get_unicode_property_internal(args),
         "gnutls-available-p" => builtin_gnutls_available_p(args),
         "gnutls-asynchronous-parameters" => builtin_gnutls_asynchronous_parameters(args),
-        "gnutls-boot" => builtin_gnutls_boot(args),
+        "gnutls-boot" => return None, // dispatched through eval path in process.rs
         "gnutls-bye" => builtin_gnutls_bye(args),
         "gnutls-ciphers" => builtin_gnutls_ciphers(args),
         "gnutls-deinit" => builtin_gnutls_deinit(args),

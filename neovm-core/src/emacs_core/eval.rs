@@ -4801,25 +4801,98 @@ impl Evaluator {
             // Check if child exited.
             let exited = self.processes.check_child_exit(pid);
 
-            // Read available stdout.
-            if let Some(data) = self.processes.read_child_stdout(pid) {
-                if !data.is_empty() {
+            // Read available output (child stdout or network socket).
+            let read_result = self.processes.read_process_output(pid);
+            let is_network = self
+                .processes
+                .get(pid)
+                .map(|p| p.kind == super::process::ProcessKind::Network)
+                .unwrap_or(false);
+
+            match read_result {
+                Some(ref data) if !data.is_empty() => {
                     let filter = self
                         .processes
                         .get(pid)
                         .map(|p| p.filter)
                         .unwrap_or(Value::Nil);
-                    if !filter.is_nil()
-                        && !filter.is_symbol_named("internal-default-process-filter")
-                        && filter.is_truthy()
+
+                    // Save match-data and current-buffer before calling filter
+                    // (GNU Emacs does this in read_process_output).
+                    let saved_match_data = self.match_data.clone();
+                    let saved_current_buffer = self.buffers.current_buffer_id();
+
+                    if filter.is_nil()
+                        || filter.is_symbol_named("internal-default-process-filter")
                     {
+                        // Default filter: insert output into the process buffer.
                         let proc_val = Value::Int(pid as i64);
-                        let output_val = Value::string(&data);
+                        let output_val = Value::string(data);
+                        if let Err(e) =
+                            super::process::builtin_internal_default_process_filter(
+                                self,
+                                vec![proc_val, output_val],
+                            )
+                        {
+                            tracing::warn!(
+                                "Default process filter error for pid {}: {:?}",
+                                pid,
+                                e
+                            );
+                        }
+                    } else if filter.is_truthy() {
+                        // Custom filter: call user function.
+                        let proc_val = Value::Int(pid as i64);
+                        let output_val = Value::string(data);
                         if let Err(e) = self.apply(filter, vec![proc_val, output_val]) {
                             tracing::warn!("Process filter error for pid {}: {:?}", pid, e);
                         }
                     }
+
+                    // Restore match-data and current-buffer.
+                    self.match_data = saved_match_data;
+                    if let Some(buf_id) = saved_current_buffer {
+                        self.buffers.set_current(buf_id);
+                    }
                 }
+                None if is_network => {
+                    // Network connection closed (EOF). Mark as exited and
+                    // call sentinel with the standard "connection broken" message.
+                    if let Some(proc) = self.processes.get_mut(pid) {
+                        proc.status = super::process::ProcessStatus::Exit(0);
+                    }
+                    let sentinel = self
+                        .processes
+                        .get(pid)
+                        .map(|p| p.sentinel)
+                        .unwrap_or(Value::Nil);
+                    if !sentinel.is_nil()
+                        && !sentinel.is_symbol_named("internal-default-process-sentinel")
+                        && sentinel.is_truthy()
+                    {
+                        let saved_match_data = self.match_data.clone();
+                        let saved_current_buffer = self.buffers.current_buffer_id();
+
+                        let proc_val = Value::Int(pid as i64);
+                        let msg_val =
+                            Value::string("connection broken by remote peer\n");
+                        if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
+                            tracing::warn!(
+                                "Network sentinel error for pid {}: {:?}",
+                                pid,
+                                e
+                            );
+                        }
+
+                        self.match_data = saved_match_data;
+                        if let Some(buf_id) = saved_current_buffer {
+                            self.buffers.set_current(buf_id);
+                        }
+                    }
+                    // Skip the normal exited check below — we already handled it.
+                    continue;
+                }
+                _ => {}
             }
 
             // If process exited, call sentinel.
@@ -4850,10 +4923,20 @@ impl Evaluator {
                     && !sentinel.is_symbol_named("internal-default-process-sentinel")
                     && sentinel.is_truthy()
                 {
+                    // Save match-data and current-buffer before calling sentinel.
+                    let saved_match_data = self.match_data.clone();
+                    let saved_current_buffer = self.buffers.current_buffer_id();
+
                     let proc_val = Value::Int(pid as i64);
                     let msg_val = Value::string(&exit_msg);
                     if let Err(e) = self.apply(sentinel, vec![proc_val, msg_val]) {
                         tracing::warn!("Process sentinel error for pid {}: {:?}", pid, e);
+                    }
+
+                    // Restore match-data and current-buffer.
+                    self.match_data = saved_match_data;
+                    if let Some(buf_id) = saved_current_buffer {
+                        self.buffers.set_current(buf_id);
                     }
                 }
             }

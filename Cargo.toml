@@ -99,6 +99,11 @@ os_pipe = "1.1"
 # I/O multiplexing (epoll/kqueue/wepoll)
 polling = "3"
 
+# TLS
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
+webpki-roots = "0.26"
+rustls-pki-types = "1"
+
 # Windows
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes"] }
 

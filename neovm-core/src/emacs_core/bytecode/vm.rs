@@ -8790,7 +8790,8 @@ impl<'a> Vm<'a> {
             ),
             "internal-default-process-filter" => Some(
                 crate::emacs_core::process::builtin_internal_default_process_filter_in_state(
-                    &*self.shared.processes,
+                    self.shared.processes,
+                    &mut *self.shared.buffers,
                     args.to_vec(),
                 ),
             ),
@@ -8939,7 +8940,9 @@ impl<'a> Vm<'a> {
             "print--preprocess" => Some(
                 crate::emacs_core::process::builtin_print_preprocess_in_state(args.to_vec()),
             ),
-            "sleep-for" => Some(crate::emacs_core::timer::builtin_sleep_for(args.to_vec())),
+            "sleep-for" => Some(self.shared.with_parent_evaluator(|eval| {
+                crate::emacs_core::timer::builtin_sleep_for(eval, args.to_vec())
+            })),
             "top-level" => Some(crate::emacs_core::minibuffer::builtin_top_level(args.to_vec())),
             "neovm-precompile-file" => Some(
                 crate::emacs_core::builtins::builtin_neovm_precompile_file_in_state(

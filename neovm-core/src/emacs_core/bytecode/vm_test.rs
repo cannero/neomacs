@@ -3595,6 +3595,8 @@ fn vm_process_status_builtins_use_shared_runtime_state() {
                 ProcessKind::Network,
             );
             assert_eq!(network, 3);
+            // Mark as server so process-status returns 'listen (not 'open).
+            eval.processes.get_mut(network).unwrap().network_server = true;
             let stopped = eval.processes.create_process(
                 "vm-status-stop".into(),
                 None,

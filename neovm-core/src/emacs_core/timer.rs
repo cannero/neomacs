@@ -562,7 +562,14 @@ pub(crate) fn builtin_timer_activate(
 }
 
 /// (sleep-for SECONDS &optional MILLISECONDS) -> nil
-pub(crate) fn builtin_sleep_for(args: Vec<Value>) -> EvalResult {
+///
+/// Sleep for the given duration, but poll process output every 50ms so that
+/// subprocess filters/sentinels run promptly (matching GNU Emacs behavior
+/// where `sleep-for` services process output while waiting).
+pub(crate) fn builtin_sleep_for(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("sleep-for", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -585,8 +592,19 @@ pub(crate) fn builtin_sleep_for(args: Vec<Value>) -> EvalResult {
 
     let total_secs = secs + millis / 1000.0;
     if total_secs > 0.0 {
-        // GNU Emacs sleep-for is non-interruptible — just sleep.
-        std::thread::sleep(Duration::from_secs_f64(total_secs));
+        let total = Duration::from_secs_f64(total_secs);
+        let chunk = Duration::from_millis(50);
+        let start = std::time::Instant::now();
+        loop {
+            let elapsed = start.elapsed();
+            if elapsed >= total {
+                break;
+            }
+            let remaining = total - elapsed;
+            let sleep_time = remaining.min(chunk);
+            std::thread::sleep(sleep_time);
+            eval.poll_process_output();
+        }
     }
 
     Ok(Value::Nil)

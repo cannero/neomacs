@@ -304,27 +304,31 @@ fn sit_for_is_not_dispatch_builtin() {
 
 #[test]
 fn test_builtin_sleep_for() {
-    let result = builtin_sleep_for(vec![Value::Int(0)]);
+    use super::super::eval::Evaluator;
+
+    let mut eval = Evaluator::new();
+
+    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 
-    let result = builtin_sleep_for(vec![Value::Int(0), Value::Int(0)]);
+    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0), Value::Int(0)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 
-    let result = builtin_sleep_for(vec![]);
+    let result = builtin_sleep_for(&mut eval, vec![]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
-    let result = builtin_sleep_for(vec![Value::Int(0), Value::Int(0), Value::Int(0)]);
+    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0), Value::Int(0), Value::Int(0)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
-    let result = builtin_sleep_for(vec![Value::string("1")]);
+    let result = builtin_sleep_for(&mut eval, vec![Value::string("1")]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -332,7 +336,7 @@ fn test_builtin_sleep_for() {
                 && sig.data == vec![Value::symbol("numberp"), Value::string("1")]
     ));
 
-    let result = builtin_sleep_for(vec![Value::Int(0), Value::Float(0.5, next_float_id())]);
+    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0), Value::Float(0.5, next_float_id())]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))

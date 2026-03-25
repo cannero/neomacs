@@ -4,6 +4,18 @@
 //! communicating with subprocesses.  `start-process` creates a tracked
 //! record; `call-process` and `shell-command-to-string` run real OS
 //! commands via `std::process::Command`.
+//!
+//! ## Network processes
+//!
+//! `make-network-process` supports TCP client connections. The socket fd
+//! is registered with the same `polling::Poller` used for child process
+//! stdout, so `accept-process-output` and `poll_process_output` wake on
+//! incoming data.
+//!
+//! **TLS**: `gnutls-boot` upgrades a network process to TLS using `rustls`.
+//! The `TcpStream` is moved into a `rustls::StreamOwned` stored in
+//! `Process.tls_stream`. Read/write/send automatically use the TLS layer
+//! when present. Mozilla root certificates are used for verification.
 
 use std::collections::HashMap;
 #[cfg(not(target_os = "windows"))]
@@ -12,7 +24,15 @@ use std::fs::OpenOptions;
 use std::io::Read as IoRead;
 use std::net::IpAddr;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// A TLS-wrapped TCP stream using rustls.
+/// The underlying `TcpStream` is owned by `StreamOwned`, so when TLS is active
+/// the `Process.socket` field is `None`.
+#[cfg(unix)]
+pub type TlsStream =
+    rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
@@ -104,6 +124,19 @@ pub struct Process {
     pub child_stdout: Option<std::process::ChildStdout>,
     /// OS-level stderr pipe for non-blocking reads.
     pub child_stderr: Option<std::process::ChildStderr>,
+    /// TCP socket for network processes (client or accepted connection).
+    /// When TLS is active, this is `None` (the socket is owned by `tls_stream`).
+    #[cfg(unix)]
+    pub socket: Option<std::net::TcpStream>,
+    /// TLS-wrapped stream for encrypted network connections.
+    /// When `Some`, reads/writes go through this instead of `socket`.
+    #[cfg(unix)]
+    pub tls_stream: Option<TlsStream>,
+    /// Whether this is a server (listener) or client network process.
+    pub network_server: bool,
+    /// Marker position in the process buffer (byte offset), matching GNU's `p->mark`.
+    /// `None` means "use end of buffer".
+    pub mark_byte_pos: Option<usize>,
 }
 
 /// Manages the set of live processes.
@@ -205,6 +238,11 @@ impl ProcessManager {
             child: None,
             child_stdout: None,
             child_stderr: None,
+            #[cfg(unix)]
+            socket: None,
+            tls_stream: None,
+            network_server: false,
+            mark_byte_pos: None,
         };
         self.processes.insert(id, proc);
         id
@@ -372,9 +410,13 @@ impl ProcessManager {
     /// Kill (remove) a process by id.  Returns true if found.
     pub fn kill_process(&mut self, id: ProcessId) -> bool {
         if let Some(proc) = self.processes.get_mut(&id) {
-            // Kill the actual OS child if it exists.
             if let Some(child) = proc.child.as_mut() {
                 let _ = child.kill();
+            }
+            #[cfg(unix)]
+            {
+                proc.tls_stream.take();
+                proc.socket.take();
             }
             proc.status = ProcessStatus::Signal(9);
             true
@@ -386,9 +428,13 @@ impl ProcessManager {
     /// Delete a process entirely.
     pub fn delete_process(&mut self, id: ProcessId) -> bool {
         if let Some(mut proc) = self.processes.remove(&id) {
-            // Kill the actual OS child if it exists.
             if let Some(child) = proc.child.as_mut() {
                 let _ = child.kill();
+            }
+            #[cfg(unix)]
+            {
+                proc.tls_stream.take();
+                proc.socket.take();
             }
             proc.status = ProcessStatus::Signal(9);
             self.deleted_processes.insert(id, proc);
@@ -442,11 +488,23 @@ impl ProcessManager {
         self.processes.keys().copied().collect()
     }
 
-    /// Return IDs of processes that have a live OS child.
+    /// Return IDs of processes that have a live OS child or network socket.
     pub fn live_process_ids(&self) -> Vec<ProcessId> {
         self.processes
             .iter()
-            .filter(|(_, p)| p.child.is_some() && matches!(p.status, ProcessStatus::Run))
+            .filter(|(_, p)| {
+                if !matches!(p.status, ProcessStatus::Run) {
+                    return false;
+                }
+                if p.child.is_some() {
+                    return true;
+                }
+                #[cfg(unix)]
+                if p.socket.is_some() || p.tls_stream.is_some() {
+                    return true;
+                }
+                false
+            })
             .map(|(id, _)| *id)
             .collect()
     }
@@ -484,10 +542,109 @@ impl ProcessManager {
                     let _ = stdin.flush();
                 }
             }
+            // Write to TLS stream or plain socket for network processes.
+            #[cfg(unix)]
+            if let Some(ref mut tls) = proc.tls_stream {
+                use std::io::Write;
+                let _ = tls.write_all(input.as_bytes());
+                let _ = tls.flush();
+            } else if let Some(ref mut socket) = proc.socket {
+                use std::io::Write;
+                let _ = socket.write_all(input.as_bytes());
+                let _ = socket.flush();
+            }
             true
         } else {
             false
         }
+    }
+
+    /// Register a network socket's fd with the I/O poller so that
+    /// `wait_for_output` wakes up when data arrives.
+    #[cfg(unix)]
+    pub fn register_socket_fd(&self, id: ProcessId) -> Result<(), String> {
+        let proc = self.processes.get(&id).ok_or("Process not found")?;
+        let socket = proc.socket.as_ref().ok_or("No socket")?;
+        if let Some(ref poller) = self.poller {
+            use std::os::unix::io::AsRawFd;
+            let fd = socket.as_raw_fd();
+            unsafe {
+                let borrowed = std::os::unix::io::BorrowedFd::borrow_raw(fd);
+                poller
+                    .add_with_mode(
+                        &borrowed,
+                        polling::Event::readable(id as usize),
+                        polling::PollMode::Level,
+                    )
+                    .map_err(|e| format!("Failed to register socket fd: {}", e))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Read available output from a process — child stdout or network socket.
+    /// Returns `Some(data)` with available data (possibly empty on WouldBlock),
+    /// or `None` on EOF / connection closed.
+    pub fn read_process_output(&mut self, id: ProcessId) -> Option<String> {
+        // Check what kind of I/O source this process has, without holding
+        // a long-lived mutable borrow.
+        let has_child_stdout = self
+            .processes
+            .get(&id)
+            .map(|p| p.child_stdout.is_some())
+            .unwrap_or(false);
+
+        if has_child_stdout {
+            return self.read_child_stdout(id);
+        }
+
+        // Try TLS stream first (encrypted network process), then plain socket.
+        #[cfg(unix)]
+        {
+            let proc = self.processes.get_mut(&id)?;
+
+            // TLS stream has priority over plain socket.
+            if let Some(ref mut tls) = proc.tls_stream {
+                use std::io::Read;
+                let mut buf = vec![0u8; 4096];
+                match tls.read(&mut buf) {
+                    Ok(0) => return None,
+                    Ok(n) => {
+                        let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                        proc.stdout.push_str(&s);
+                        return Some(s);
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        return Some(String::new())
+                    }
+                    Err(_) => return None,
+                }
+            }
+
+            if let Some(ref mut socket) = proc.socket {
+                use std::io::Read;
+                let mut buf = vec![0u8; 4096];
+                match socket.read(&mut buf) {
+                    Ok(0) => return None,
+                    Ok(n) => {
+                        let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                        proc.stdout.push_str(&s);
+                        return Some(s);
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        return Some(String::new())
+                    }
+                    Err(_) => return None,
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = self.processes.get(&id)?;
+        }
+
+        None
     }
 
     /// Get stdout output from a process.
@@ -2427,19 +2584,159 @@ pub(crate) fn builtin_internal_default_signal_process_in_state(
 }
 
 /// (internal-default-process-filter PROCESS STRING) -> nil
+///
+/// When no custom filter is set, insert output into the process's associated
+/// buffer at the process mark position (or end of buffer when mark is None).
+/// This matches GNU Emacs's `internal-default-process-filter` behavior.
 pub(crate) fn builtin_internal_default_process_filter(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_internal_default_process_filter_in_state(&eval.processes, args)
+    expect_args("internal-default-process-filter", &args, 2)?;
+    let id = resolve_process_or_wrong_type_any_in_manager(&eval.processes, &args[0])?;
+    let text = expect_string_strict(&args[1])?;
+    if text.is_empty() {
+        return Ok(Value::Nil);
+    }
+
+    // Look up the process buffer name.
+    let buf_name = match eval.processes.get(id) {
+        Some(proc) => proc.buffer_name.clone(),
+        None => return Ok(Value::Nil),
+    };
+    let Some(buf_name) = buf_name else {
+        return Ok(Value::Nil);
+    };
+    let Some(buf_id) = eval.buffers.find_buffer_by_name(&buf_name) else {
+        return Ok(Value::Nil);
+    };
+
+    // Get mark position or end of buffer (ZV in GNU terms).
+    let mark_pos = eval.processes.get(id).and_then(|p| p.mark_byte_pos);
+    let insert_pos = match mark_pos {
+        Some(pos) => pos,
+        None => eval
+            .buffers
+            .get(buf_id)
+            .map(|b| b.text.len())
+            .unwrap_or(0),
+    };
+
+    // Save current point, move point to insert position, insert, then restore.
+    let saved_pt = eval.buffers.get(buf_id).map(|b| b.pt);
+    let old_read_only = eval.buffers.get(buf_id).map(|b| b.read_only);
+
+    // Temporarily clear read-only so process output can be inserted.
+    if let Some(buf) = eval.buffers.get_mut(buf_id) {
+        buf.read_only = false;
+        buf.goto_byte(insert_pos);
+    }
+
+    // Insert text at point (which is now at the mark position).
+    let text_byte_len = text.len();
+    eval.buffers.insert_into_buffer(buf_id, &text);
+
+    // The new mark is at point after insertion (insert advances point).
+    let new_mark = eval
+        .buffers
+        .get(buf_id)
+        .map(|b| b.pt)
+        .unwrap_or(insert_pos + text_byte_len);
+
+    // Restore read-only flag.
+    if let (Some(buf), Some(ro)) = (eval.buffers.get_mut(buf_id), old_read_only) {
+        buf.read_only = ro;
+    }
+
+    // Restore original point, adjusted for the insertion.
+    if let (Some(buf), Some(old_pt)) = (eval.buffers.get_mut(buf_id), saved_pt) {
+        let adjusted_pt = if old_pt >= insert_pos {
+            old_pt + text_byte_len
+        } else {
+            old_pt
+        };
+        buf.goto_byte(adjusted_pt);
+    }
+
+    // Advance process mark.
+    if let Some(proc) = eval.processes.get_mut(id) {
+        proc.mark_byte_pos = Some(new_mark);
+    }
+
+    Ok(Value::Nil)
 }
 
+/// Stub `_in_state` variant for the bytecode VM path.
+///
+/// The bytecode VM has mutable access to both `ProcessManager` and
+/// `BufferManager`, so it can call the real implementation via the parent
+/// evaluator.  This stub exists so the bytecode dispatch table compiles;
+/// it delegates through the parent evaluator for the actual buffer insertion.
 pub(crate) fn builtin_internal_default_process_filter_in_state(
-    processes: &ProcessManager,
+    processes: &mut ProcessManager,
+    buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal-default-process-filter", &args, 2)?;
-    let _id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
+    let text = expect_string_strict(&args[1])?;
+    if text.is_empty() {
+        return Ok(Value::Nil);
+    }
+
+    // Look up the process buffer name.
+    let buf_name = match processes.get(id) {
+        Some(proc) => proc.buffer_name.clone(),
+        None => return Ok(Value::Nil),
+    };
+    let Some(buf_name) = buf_name else {
+        return Ok(Value::Nil);
+    };
+    let Some(buf_id) = buffers.find_buffer_by_name(&buf_name) else {
+        return Ok(Value::Nil);
+    };
+
+    // Get mark position or end of buffer.
+    let mark_pos = processes.get(id).and_then(|p| p.mark_byte_pos);
+    let insert_pos = match mark_pos {
+        Some(pos) => pos,
+        None => buffers.get(buf_id).map(|b| b.text.len()).unwrap_or(0),
+    };
+
+    // Save current point, move point to insert position, insert, then restore.
+    let saved_pt = buffers.get(buf_id).map(|b| b.pt);
+    let old_read_only = buffers.get(buf_id).map(|b| b.read_only);
+
+    if let Some(buf) = buffers.get_mut(buf_id) {
+        buf.read_only = false;
+        buf.goto_byte(insert_pos);
+    }
+
+    let text_byte_len = text.len();
+    buffers.insert_into_buffer(buf_id, &text);
+
+    let new_mark = buffers
+        .get(buf_id)
+        .map(|b| b.pt)
+        .unwrap_or(insert_pos + text_byte_len);
+
+    if let (Some(buf), Some(ro)) = (buffers.get_mut(buf_id), old_read_only) {
+        buf.read_only = ro;
+    }
+
+    if let (Some(buf), Some(old_pt)) = (buffers.get_mut(buf_id), saved_pt) {
+        let adjusted_pt = if old_pt >= insert_pos {
+            old_pt + text_byte_len
+        } else {
+            old_pt
+        };
+        buf.goto_byte(adjusted_pt);
+    }
+
+    if let Some(proc) = processes.get_mut(id) {
+        proc.mark_byte_pos = Some(new_mark);
+    }
+
     Ok(Value::Nil)
 }
 
@@ -2457,6 +2754,115 @@ pub(crate) fn builtin_internal_default_process_sentinel_in_state(
 ) -> EvalResult {
     expect_args("internal-default-process-sentinel", &args, 2)?;
     let _id = resolve_live_process_or_wrong_type_in_manager(processes, &args[0])?;
+    Ok(Value::Nil)
+}
+
+/// (gnutls-boot PROCESS TYPE PROPLIST) -> t or error
+///
+/// Upgrade a network process to TLS using rustls (matching GNU's GnuTLS binding).
+/// PROCESS must be a network process with an open TCP socket.
+/// TYPE is ignored (GNU uses it for credential type).
+/// PROPLIST is a keyword plist; we extract `:hostname` for SNI.
+#[cfg(unix)]
+pub(crate) fn builtin_gnutls_boot(
+    eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("gnutls-boot", &args, 3)?;
+    let id = resolve_process_or_wrong_type_any_in_manager(&eval.processes, &args[0])?;
+
+    // Extract :hostname from plist for SNI.
+    let plist = &args[2];
+    let mut hostname: Option<String> = None;
+    if let Some(items) = list_to_vec(plist) {
+        let mut i = 0;
+        while i + 1 < items.len() {
+            if let Some(kw) = keyword_name(&items[i]) {
+                if kw == ":hostname" {
+                    hostname = items[i + 1].as_str().map(|s| s.to_string());
+                }
+            }
+            i += 2;
+        }
+    }
+
+    let proc = eval.processes.get_mut(id).ok_or_else(|| {
+        signal("error", vec![Value::string("Process not found")])
+    })?;
+
+    if proc.kind != ProcessKind::Network {
+        return Err(signal(
+            "error",
+            vec![Value::string("gnutls-boot: not a network process")],
+        ));
+    }
+
+    // Take the plain TCP socket — it will be owned by the TLS stream.
+    let tcp_stream = proc.socket.take().ok_or_else(|| {
+        signal("error", vec![Value::string("gnutls-boot: no socket (already TLS or closed)")])
+    })?;
+
+    let host = hostname.unwrap_or_else(|| "localhost".to_string());
+
+    // Build rustls config with Mozilla root certificates.
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let server_name: rustls_pki_types::ServerName<'_> = host
+        .clone()
+        .try_into()
+        .map_err(|_| signal("error", vec![Value::string(format!("Invalid hostname for TLS: {}", host))]))?;
+
+    let tls_conn = rustls::ClientConnection::new(Arc::new(config), server_name)
+        .map_err(|e| signal("error", vec![Value::string(format!("TLS handshake failed: {}", e))]))?;
+
+    // Temporarily set the stream to blocking for the handshake.
+    tcp_stream.set_nonblocking(false).ok();
+    let mut tls_stream = rustls::StreamOwned::new(tls_conn, tcp_stream);
+
+    // Drive the handshake to completion by doing a zero-length read.
+    // This forces rustls to exchange TLS records over the socket.
+    {
+        use std::io::Read;
+        let mut dummy = [0u8; 0];
+        match tls_stream.read(&mut dummy) {
+            Ok(_) => {}
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Err(signal(
+                    "gnutls-error",
+                    vec![Value::Int(-1), Value::string("TLS handshake: unexpected EOF")],
+                ));
+            }
+            Err(e) => {
+                return Err(signal(
+                    "gnutls-error",
+                    vec![Value::Int(-1), Value::string(format!("TLS handshake: {}", e))],
+                ));
+            }
+        }
+    }
+
+    // Switch back to non-blocking for async I/O.
+    tls_stream.sock.set_nonblocking(true).ok();
+
+    // Store the TLS stream. The poller still watches the underlying fd
+    // (which is the same fd that was registered for the plain socket).
+    proc.tls_stream = Some(tls_stream);
+
+    Ok(Value::True)
+}
+
+/// Stub for non-unix platforms.
+#[cfg(not(unix))]
+pub(crate) fn builtin_gnutls_boot(
+    _eval: &mut super::eval::Evaluator,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("gnutls-boot", &args, 3)?;
     Ok(Value::Nil)
 }
 
@@ -2918,9 +3324,198 @@ pub(crate) fn builtin_make_network_process(
     eval: &mut super::eval::Evaluator,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_make_network_process_in_state(&mut eval.processes, &eval.threads, args)
+    if args.is_empty() {
+        return Ok(Value::Nil);
+    }
+
+    // ---- Parse all keyword arguments ----
+    let mut name: Option<String> = None;
+    let mut host: Option<String> = None;
+    let mut service: Option<Value> = None;
+    let mut server = false;
+    let mut _family: Option<String> = None;
+    let mut _type_kw: Option<String> = None;
+    let mut _nowait = false;
+    let mut filter_val = Value::Nil;
+    let mut sentinel_val = Value::Nil;
+    let mut buffer_val = Value::Nil;
+    let mut _coding_val = Value::Nil;
+    let mut noquery = false;
+
+    let mut i = 0usize;
+    while i < args.len() {
+        let key = &args[i];
+        let value = args.get(i + 1).cloned().unwrap_or(Value::Nil);
+        let Some(key_name) = keyword_name(key) else {
+            i += 1;
+            continue;
+        };
+        match key_name {
+            ":name" => name = Some(expect_process_name_string(&value)?),
+            ":host" => {
+                if !value.is_nil() {
+                    host = Some(expect_string(&value)?);
+                }
+            }
+            ":service" => service = Some(value),
+            ":server" => server = value.is_truthy(),
+            ":family" => {
+                if !value.is_nil() {
+                    _family = value.as_symbol_name().map(|s| s.to_string());
+                }
+            }
+            ":type" => {
+                if !value.is_nil() {
+                    _type_kw = value.as_symbol_name().map(|s| s.to_string());
+                }
+            }
+            ":nowait" => _nowait = value.is_truthy(),
+            ":filter" => filter_val = value,
+            ":sentinel" => sentinel_val = value,
+            ":buffer" => buffer_val = value,
+            ":coding" => _coding_val = value,
+            ":noquery" => noquery = value.is_truthy(),
+            _ => {}
+        }
+        i += 2;
+    }
+
+    let Some(name) = name else {
+        return Err(signal(
+            "error",
+            vec![Value::string("Missing :name keyword parameter")],
+        ));
+    };
+
+    let service = service.unwrap_or(Value::Nil);
+    if service.is_nil() {
+        return Err(signal_wrong_type_string(Value::Nil));
+    }
+
+    // Resolve :buffer to a buffer name (creating buffer if needed).
+    let buffer_name = if !buffer_val.is_nil() {
+        parse_make_process_buffer(eval, &buffer_val)?
+    } else {
+        None
+    };
+
+    if server {
+        // ---- Server mode: create record, no actual listener yet ----
+        let id = eval.processes.create_process_with_kind(
+            name,
+            buffer_name,
+            "network".to_string(),
+            Vec::new(),
+            ProcessKind::Network,
+        );
+        if let Some(proc) = eval.processes.get_mut(id) {
+            proc.network_server = true;
+            proc.thread = current_thread_handle(&eval.threads);
+            if !filter_val.is_nil() {
+                proc.filter = filter_val;
+            }
+            if !sentinel_val.is_nil() {
+                proc.sentinel = sentinel_val;
+            }
+            if noquery {
+                proc.query_on_exit_flag = false;
+            }
+        }
+        return Ok(Value::Int(id as i64));
+    }
+
+    // ---- Client mode: establish TCP connection ----
+    let host_str = host.unwrap_or_else(|| "localhost".to_string());
+    let port: u16 = match &service {
+        Value::Int(n) => *n as u16,
+        _ => {
+            let s = expect_string(&service)?;
+            s.parse::<u16>().unwrap_or(0)
+        }
+    };
+    if port == 0 {
+        return Err(signal(
+            "error",
+            vec![Value::string("Invalid service/port")],
+        ));
+    }
+
+    let addr = format!("{}:{}", host_str, port);
+    let stream = std::net::TcpStream::connect(&addr).map_err(|e| {
+        signal(
+            "file-error",
+            vec![
+                Value::string("make client process failed"),
+                Value::string(format!("{}", e)),
+                Value::string(&host_str),
+                Value::Int(port as i64),
+            ],
+        )
+    })?;
+    stream.set_nonblocking(true).map_err(|e| {
+        signal(
+            "file-error",
+            vec![Value::string(format!("set_nonblocking: {}", e))],
+        )
+    })?;
+
+    let id = eval.processes.create_process_with_kind(
+        name,
+        buffer_name,
+        "network".to_string(),
+        Vec::new(),
+        ProcessKind::Network,
+    );
+    if let Some(proc) = eval.processes.get_mut(id) {
+        #[cfg(unix)]
+        {
+            proc.socket = Some(stream);
+        }
+        #[cfg(not(unix))]
+        {
+            drop(stream);
+        }
+        proc.network_server = false;
+        proc.status = ProcessStatus::Run;
+        proc.thread = current_thread_handle(&eval.threads);
+        if !filter_val.is_nil() {
+            proc.filter = filter_val;
+        }
+        if !sentinel_val.is_nil() {
+            proc.sentinel = sentinel_val;
+        }
+        if noquery {
+            proc.query_on_exit_flag = false;
+        }
+    }
+
+    // Register socket fd with the poller for I/O notification.
+    #[cfg(unix)]
+    eval.processes.register_socket_fd(id).ok();
+
+    // Call sentinel with "open\n" to signal successful connection
+    // (GNU Emacs calls the sentinel when a network connection opens).
+    let sentinel = eval
+        .processes
+        .get(id)
+        .map(|p| p.sentinel)
+        .unwrap_or(Value::Nil);
+    if !sentinel.is_nil()
+        && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
+        && sentinel.is_truthy()
+    {
+        let proc_val = Value::Int(id as i64);
+        let msg_val = Value::string("open\n");
+        if let Err(e) = eval.apply(sentinel, vec![proc_val, msg_val]) {
+            tracing::warn!("Network sentinel open error for pid {}: {:?}", id, e);
+        }
+    }
+
+    Ok(Value::Int(id as i64))
 }
 
+/// Inner helper for `builtin_make_network_process` — server-only path that
+/// does not require the full Evaluator (used by tests).
 pub(crate) fn builtin_make_network_process_in_state(
     processes: &mut ProcessManager,
     threads: &ThreadManager,
@@ -2968,14 +3563,17 @@ pub(crate) fn builtin_make_network_process_in_state(
     if service.is_nil() {
         return Err(signal_wrong_type_string(Value::Nil));
     }
+
     if !server {
+        // Client mode requires the full Evaluator; fall through to a
+        // minimal "not yet connected" error so existing tests still pass.
         return Err(signal(
             "file-error",
             vec![
                 Value::string("make client process failed"),
                 Value::string("Connection refused"),
                 Value::keyword(":name"),
-                Value::string(name),
+                Value::string(&name),
                 Value::keyword(":service"),
                 service,
             ],
@@ -2990,6 +3588,7 @@ pub(crate) fn builtin_make_network_process_in_state(
         ProcessKind::Network,
     );
     if let Some(proc) = processes.get_mut(id) {
+        proc.network_server = true;
         proc.thread = current_thread_handle(threads);
     }
     Ok(Value::Int(id as i64))
@@ -4247,8 +4846,14 @@ pub(crate) fn builtin_accept_process_output_collect(
         for &pid in &proc_ids {
             let exited = processes.check_child_exit(pid);
 
-            if let Some(data) = processes.read_child_stdout(pid) {
-                if !data.is_empty() {
+            let read_result = processes.read_process_output(pid);
+            let is_network = processes
+                .get(pid)
+                .map(|p| p.kind == ProcessKind::Network)
+                .unwrap_or(false);
+
+            match &read_result {
+                Some(data) if !data.is_empty() => {
                     got_output = true;
                     let filter = processes.get(pid).map(|p| p.filter).unwrap_or(Value::Nil);
                     if !filter.is_nil()
@@ -4256,9 +4861,31 @@ pub(crate) fn builtin_accept_process_output_collect(
                         && filter.is_truthy()
                     {
                         callbacks
-                            .push((filter, vec![Value::Int(pid as i64), Value::string(&data)]));
+                            .push((filter, vec![Value::Int(pid as i64), Value::string(data)]));
                     }
                 }
+                None if is_network => {
+                    // Network connection closed (EOF).
+                    if let Some(proc) = processes.get_mut(pid) {
+                        proc.status = ProcessStatus::Exit(0);
+                    }
+                    let sentinel =
+                        processes.get(pid).map(|p| p.sentinel).unwrap_or(Value::Nil);
+                    if !sentinel.is_nil()
+                        && !sentinel.is_symbol_named(DEFAULT_PROCESS_SENTINEL_SYMBOL)
+                        && sentinel.is_truthy()
+                    {
+                        callbacks.push((
+                            sentinel,
+                            vec![
+                                Value::Int(pid as i64),
+                                Value::string("connection broken by remote peer\n"),
+                            ],
+                        ));
+                    }
+                    continue;
+                }
+                _ => {}
             }
 
             if exited {
@@ -4374,7 +5001,13 @@ pub(crate) fn builtin_process_status_in_state(
     match processes.get_any(id) {
         Some(proc) => match proc.status {
             ProcessStatus::Run => match proc.kind {
-                ProcessKind::Network => Ok(Value::symbol("listen")),
+                ProcessKind::Network => {
+                    if proc.network_server {
+                        Ok(Value::symbol("listen"))
+                    } else {
+                        Ok(Value::symbol("open"))
+                    }
+                }
                 ProcessKind::Pipe => Ok(Value::symbol("open")),
                 _ => Ok(Value::symbol("run")),
             },
