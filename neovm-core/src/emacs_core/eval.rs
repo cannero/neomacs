@@ -3325,6 +3325,10 @@ impl Evaluator {
             defvar_per_buffer!("overwrite-mode", Value::Nil);
             defvar_per_buffer!("auto-fill-function", Value::Nil);
 
+            // Search (GNU buffer.c DEFVAR_PER_BUFFER)
+            defvar_per_buffer!("case-fold-search", Value::True);
+            defvar_per_buffer!("indent-tabs-mode", Value::True);
+
             // Display
             defvar_per_buffer!("tab-width", Value::Int(8));
             defvar_per_buffer!("fill-column", Value::Int(70));
