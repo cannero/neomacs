@@ -1263,6 +1263,7 @@ fn interactive_args_from_string_code_in_state(
     dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     buffers: &mut crate::buffer::BufferManager,
     custom: &crate::emacs_core::custom::CustomManager,
+    specpdl: &[crate::emacs_core::eval::SpecBinding],
     code: &str,
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
@@ -1273,6 +1274,7 @@ fn interactive_args_from_string_code_in_state(
         dynamic.as_mut_slice(),
         buffers,
         custom,
+        specpdl,
         &parsed.prefix_flags,
     )?;
     if parsed.entries.is_empty() {
@@ -1346,6 +1348,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
         shared.dynamic.as_mut_slice(),
         shared.buffers,
         &*shared.custom,
+        shared.specpdl.as_slice(),
         &parsed.prefix_flags,
     )?;
     if parsed.entries.is_empty() {
@@ -1811,6 +1814,7 @@ fn interactive_apply_shift_selection_prefix(eval: &mut Evaluator) {
         eval.dynamic.as_mut_slice(),
         &mut eval.buffers,
         &eval.custom,
+        eval.specpdl.as_slice(),
     );
 }
 
@@ -1819,6 +1823,7 @@ fn interactive_apply_shift_selection_prefix_in_state(
     dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
     custom: &crate::emacs_core::custom::CustomManager,
+    specpdl: &[crate::emacs_core::eval::SpecBinding],
 ) {
     let shifted = dynamic_or_global_symbol_value_in_state(
         obarray,
@@ -1846,6 +1851,7 @@ fn interactive_apply_shift_selection_prefix_in_state(
             dynamic,
             buffers,
             custom,
+            specpdl,
             intern("mark-active"),
             Value::True,
         );
@@ -1858,6 +1864,7 @@ fn interactive_apply_prefix_flags(eval: &mut Evaluator, prefix_flags: &[char]) -
         eval.dynamic.as_mut_slice(),
         &mut eval.buffers,
         &eval.custom,
+        eval.specpdl.as_slice(),
         prefix_flags,
     )
 }
@@ -1867,6 +1874,7 @@ fn interactive_apply_prefix_flags_in_state(
     dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
     custom: &crate::emacs_core::custom::CustomManager,
+    specpdl: &[crate::emacs_core::eval::SpecBinding],
     prefix_flags: &[char],
 ) -> Result<(), Flow> {
     for prefix_flag in prefix_flags {
@@ -1876,9 +1884,9 @@ fn interactive_apply_prefix_flags_in_state(
                 // Selecting the window from the first mouse event requires command-loop
                 // event context; current batch paths have no such events yet.
             }
-            '^' => {
-                interactive_apply_shift_selection_prefix_in_state(obarray, dynamic, buffers, custom)
-            }
+            '^' => interactive_apply_shift_selection_prefix_in_state(
+                obarray, dynamic, buffers, custom, specpdl,
+            ),
             _ => {}
         }
     }
@@ -2377,6 +2385,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     dynamic: &mut Vec<OrderedRuntimeBindingMap>,
     buffers: &mut crate::buffer::BufferManager,
     custom: &crate::emacs_core::custom::CustomManager,
+    specpdl: &[crate::emacs_core::eval::SpecBinding],
     frames: &crate::window::FrameManager,
     interactive: &InteractiveRegistry,
     plan: &mut CallInteractivelyPlan,
@@ -2391,6 +2400,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
             dynamic,
             buffers,
             custom,
+            specpdl,
             code,
             CommandInvocationKind::CallInteractively,
             &mut plan.context,
@@ -2410,6 +2420,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
                 dynamic,
                 buffers,
                 custom,
+                specpdl,
                 &code,
                 CommandInvocationKind::CallInteractively,
                 &mut plan.context,
@@ -2442,6 +2453,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
                 dynamic,
                 buffers,
                 custom,
+                specpdl,
                 code,
                 CommandInvocationKind::CallInteractively,
                 &mut plan.context,

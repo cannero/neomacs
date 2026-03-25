@@ -62,6 +62,13 @@ pub(crate) enum SpecBinding {
         old_value: Value,
         buffer_id: crate::buffer::BufferId,
     },
+    /// Default-value let-binding for buffer-local variables without a local
+    /// binding in the current buffer. Saves/restores the obarray default value.
+    /// Matches GNU's SPECPDL_LET_DEFAULT.
+    LetDefault {
+        sym_id: SymId,
+        old_value: Option<Value>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -584,6 +591,10 @@ impl<'a> VmSharedState<'a> {
                     ..
                 } => roots.push(*val),
                 SpecBinding::LetLocal { old_value, .. } => roots.push(*old_value),
+                SpecBinding::LetDefault {
+                    old_value: Some(val),
+                    ..
+                } => roots.push(*val),
                 _ => {}
             }
         }
@@ -846,6 +857,7 @@ impl<'a> VmSharedState<'a> {
         finish_macro_expansion_scope_in_state(
             self.obarray,
             self.dynamic,
+            &self.specpdl,
             self.buffers,
             &*self.custom,
             self.temp_roots,
@@ -896,6 +908,7 @@ impl<'a> VmSharedState<'a> {
             self.dynamic.as_mut_slice(),
             self.buffers,
             &*self.custom,
+            &self.specpdl,
             intern("last-input-event"),
             event,
         );
@@ -911,6 +924,7 @@ impl<'a> VmSharedState<'a> {
             self.dynamic.as_mut_slice(),
             self.buffers,
             &*self.custom,
+            &self.specpdl,
             intern("last-nonmenu-event"),
             event,
         );
@@ -950,6 +964,7 @@ impl<'a> VmSharedState<'a> {
                     self.dynamic.as_mut_slice(),
                     self.buffers,
                     &*self.custom,
+                    &self.specpdl,
                     name_id,
                     tail,
                 );
@@ -984,6 +999,7 @@ impl<'a> VmSharedState<'a> {
             self.dynamic.as_mut_slice(),
             self.buffers,
             &*self.custom,
+            &self.specpdl,
             name_id,
             Value::cons(event, current),
         );
@@ -995,6 +1011,7 @@ impl<'a> VmSharedState<'a> {
             self.dynamic.as_mut_slice(),
             self.buffers,
             &*self.custom,
+            &self.specpdl,
             intern("unread-command-events"),
             Value::list(vec![event]),
         );
@@ -1852,7 +1869,9 @@ fn begin_macro_expansion_scope_in_state(
     // Collect symbols from the specpdl (replaces dynamic frame iteration).
     for entry in specpdl.iter().rev() {
         let sym_id = match entry {
-            SpecBinding::Let { sym_id, .. } | SpecBinding::LetLocal { sym_id, .. } => sym_id,
+            SpecBinding::Let { sym_id, .. }
+            | SpecBinding::LetLocal { sym_id, .. }
+            | SpecBinding::LetDefault { sym_id, .. } => sym_id,
         };
         let name = resolve_sym(*sym_id);
         if name == "t" || name == "nil" {
@@ -1867,6 +1886,7 @@ fn begin_macro_expansion_scope_in_state(
         dynamic.as_mut_slice(),
         buffers,
         custom,
+        specpdl,
         intern("macroexp--dynvars"),
         dynvars,
     );
@@ -1881,6 +1901,7 @@ fn begin_macro_expansion_scope_in_state(
 fn finish_macro_expansion_scope_in_state(
     obarray: &mut Obarray,
     dynamic: &mut Vec<OrderedRuntimeBindingMap>,
+    specpdl: &[SpecBinding],
     buffers: &mut BufferManager,
     custom: &CustomManager,
     temp_roots: &mut Vec<Value>,
@@ -1891,6 +1912,7 @@ fn finish_macro_expansion_scope_in_state(
         dynamic.as_mut_slice(),
         buffers,
         custom,
+        specpdl,
         intern("macroexp--dynvars"),
         state.old_dynvars,
     );
@@ -3564,6 +3586,10 @@ impl Evaluator {
                     ..
                 } => roots.push(*val),
                 SpecBinding::LetLocal { old_value, .. } => roots.push(*old_value),
+                SpecBinding::LetDefault {
+                    old_value: Some(val),
+                    ..
+                } => roots.push(*val),
                 _ => {}
             }
         }
@@ -8130,6 +8156,7 @@ impl Evaluator {
         finish_macro_expansion_scope_in_state(
             &mut self.obarray,
             &mut self.dynamic,
+            &self.specpdl,
             &mut self.buffers,
             &self.custom,
             &mut self.temp_roots,
@@ -8186,19 +8213,20 @@ impl Evaluator {
     /// Save the current value of a special variable and set a new value.
     /// Matches GNU Emacs's specbind() in eval.c:
     /// - Follows SYMBOL_VARALIAS to the final target
-    /// - For buffer-local variables, saves/restores the buffer-local value
-    ///   (SPECPDL_LET_LOCAL), not the global default
+    /// - For buffer-local variables with a local binding: SPECPDL_LET_LOCAL
+    /// - For buffer-local variables without local binding: SPECPDL_LET_DEFAULT
+    /// - For plain variables: SPECPDL_LET
     pub(crate) fn specbind(&mut self, sym_id: SymId, value: Value) {
         let resolved =
             builtins::resolve_variable_alias_id_in_obarray(&self.obarray, sym_id).unwrap_or(sym_id);
         let name = resolve_sym(resolved);
 
-        // Check if this is a buffer-local variable with a local binding
-        // in the current buffer (GNU: SYMBOL_LOCALIZED path)
+        // Check if this is a buffer-local variable (GNU: SYMBOL_LOCALIZED path)
         if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local(name) {
             if let Some(buf_id) = self.buffers.current_buffer_id() {
                 if let Some(buf) = self.buffers.get(buf_id) {
                     if let Some(binding) = buf.get_buffer_local_binding(name) {
+                        // Buffer HAS local binding → SPECPDL_LET_LOCAL
                         let old_val = binding.as_value().unwrap_or(Value::Nil);
                         self.specpdl.push(SpecBinding::LetLocal {
                             sym_id: resolved,
@@ -8213,6 +8241,19 @@ impl Evaluator {
                     }
                 }
             }
+            // Buffer has NO local binding → SPECPDL_LET_DEFAULT
+            // Save/restore the default value, don't create a buffer-local binding.
+            // This matches GNU: let-binding doesn't auto-create locals.
+            let old_default = self.obarray.default_value_id(resolved).copied();
+            self.specpdl.push(SpecBinding::LetDefault {
+                sym_id: resolved,
+                old_value: old_default,
+            });
+            if self.watchers.has_watchers(name) {
+                let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
+            }
+            self.obarray.set_symbol_value_id(resolved, value);
+            return;
         }
 
         // Plain value path (GNU: SYMBOL_PLAINVAL)
@@ -8225,6 +8266,17 @@ impl Evaluator {
             let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
         }
         self.obarray.set_symbol_value_id(resolved, value);
+    }
+
+    /// Check if a `let` is currently shadowing a buffer-local variable's
+    /// default value. Matches GNU's `let_shadows_buffer_binding_p()`.
+    /// When true, `setq` inside the `let` should modify the default,
+    /// NOT auto-create a buffer-local binding.
+    pub(crate) fn let_shadows_buffer_binding_p(&self, sym_id: SymId) -> bool {
+        self.specpdl
+            .iter()
+            .rev()
+            .any(|entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id))
     }
 
     /// Restore all specpdl bindings back to `count`.
@@ -8260,6 +8312,19 @@ impl Evaluator {
                         let _ = self
                             .buffers
                             .set_buffer_local_property(buffer_id, name, old_value);
+                    }
+                }
+                SpecBinding::LetDefault { sym_id, old_value } => {
+                    // Restore the default value (GNU: set_default_internal)
+                    let name = resolve_sym(sym_id);
+                    if self.watchers.has_watchers(name) {
+                        let restore_val = old_value.unwrap_or(Value::Nil);
+                        let _ =
+                            self.run_variable_watchers(name, &restore_val, &Value::Nil, "unlet");
+                    }
+                    match old_value {
+                        Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
+                        None => self.obarray.makunbound_id(sym_id),
                     }
                 }
             }
@@ -8314,6 +8379,10 @@ pub(crate) fn unbind_to_in_state(
                 );
                 obarray.set_symbol_value_id(sym_id, old_value);
             }
+            SpecBinding::LetDefault { sym_id, old_value } => match old_value {
+                Some(val) => obarray.set_symbol_value_id(sym_id, val),
+                None => obarray.makunbound_id(sym_id),
+            },
         }
     }
 }
@@ -8323,14 +8392,14 @@ pub(crate) fn set_runtime_binding_in_state(
     dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     custom: &CustomManager,
+    specpdl: &[SpecBinding],
     sym_id: SymId,
     value: Value,
 ) -> Option<crate::buffer::BufferId> {
     let name = resolve_sym(sym_id);
     let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
 
-    // specbind writes directly to obarray, so no dynamic frame lookup needed.
-
+    // If the buffer already has a local binding, always write to it.
     if symbol_is_canonical
         && let Some(current_id) = buffers.current_buffer_id()
         && let Some(buf) = buffers.get(current_id)
@@ -8341,10 +8410,19 @@ pub(crate) fn set_runtime_binding_in_state(
         }
     }
 
+    // If the variable is buffer-local (local_if_set=true) and no local
+    // binding exists yet, auto-create one — UNLESS a `let` is currently
+    // shadowing the default value (GNU: let_shadows_buffer_binding_p).
     if symbol_is_canonical && (obarray.is_buffer_local(name) || custom.is_auto_buffer_local(name)) {
-        if let Some(current_id) = buffers.current_buffer_id() {
-            let _ = buffers.set_buffer_local_property(current_id, name, value);
-            return Some(current_id);
+        // Check if a let is shadowing the default value
+        let let_shadows = specpdl.iter().rev().any(
+            |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
+        );
+        if !let_shadows {
+            if let Some(current_id) = buffers.current_buffer_id() {
+                let _ = buffers.set_buffer_local_property(current_id, name, value);
+                return Some(current_id);
+            }
         }
     }
 
@@ -8357,6 +8435,7 @@ pub(crate) fn makunbound_runtime_binding_in_state(
     dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
     custom: &CustomManager,
+    _specpdl: &[SpecBinding],
     sym_id: SymId,
 ) {
     let name = resolve_sym(sym_id);
@@ -8413,6 +8492,7 @@ impl Evaluator {
             self.dynamic.as_mut_slice(),
             &mut self.buffers,
             &self.custom,
+            &self.specpdl,
             sym_id,
             value,
         )
@@ -8432,6 +8512,7 @@ impl Evaluator {
             self.dynamic.as_mut_slice(),
             &mut self.buffers,
             &self.custom,
+            &self.specpdl,
             sym_id,
             value,
         )
@@ -8443,6 +8524,7 @@ impl Evaluator {
             self.dynamic.as_mut_slice(),
             &mut self.buffers,
             &self.custom,
+            &[],
             sym_id,
         );
     }

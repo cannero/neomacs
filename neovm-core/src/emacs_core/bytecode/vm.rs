@@ -2153,6 +2153,7 @@ impl<'a> Vm<'a> {
             self.shared.dynamic.as_mut_slice(),
             self.shared.buffers,
             &*self.shared.custom,
+            self.shared.specpdl.as_slice(),
             resolved,
             value,
         );
@@ -2407,6 +2408,7 @@ impl<'a> Vm<'a> {
             self.shared.dynamic.as_mut_slice(),
             self.shared.buffers,
             &*self.shared.custom,
+            self.shared.specpdl.as_slice(),
             resolved,
             value,
         )
@@ -2459,6 +2461,7 @@ impl<'a> Vm<'a> {
                 self.shared.dynamic.as_mut_slice(),
                 self.shared.buffers,
                 &*self.shared.custom,
+                self.shared.specpdl.as_slice(),
                 resolved,
                 value,
             );
@@ -2561,6 +2564,7 @@ impl<'a> Vm<'a> {
             self.shared.dynamic.as_mut_slice(),
             self.shared.buffers,
             &*self.shared.custom,
+            &[],
             resolved,
         );
         self.run_variable_watchers(
@@ -9399,6 +9403,7 @@ impl<'a> Vm<'a> {
             self.shared.dynamic.as_mut_slice(),
             self.shared.buffers,
             &*self.shared.custom,
+            self.shared.specpdl.as_slice(),
             args.to_vec(),
         )
     }

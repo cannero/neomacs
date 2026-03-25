@@ -1149,6 +1149,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
     dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
     custom: &crate::emacs_core::custom::CustomManager,
+    specpdl: &[crate::emacs_core::eval::SpecBinding],
     args: &[Value],
     mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
@@ -1158,6 +1159,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         dynamic,
         buffers,
         custom,
+        specpdl,
         intern("minibuffer-completion-table"),
         args[1],
     );
@@ -1166,6 +1168,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         dynamic,
         buffers,
         custom,
+        specpdl,
         intern("minibuffer-completion-predicate"),
         args.get(2).copied().unwrap_or(Value::Nil),
     );
@@ -1177,6 +1180,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         dynamic,
         buffers,
         custom,
+        specpdl,
         intern("minibuffer-completion-table"),
         Value::Nil,
     );
@@ -1185,6 +1189,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         dynamic,
         buffers,
         custom,
+        specpdl,
         intern("minibuffer-completion-predicate"),
         Value::Nil,
     );
@@ -1384,6 +1389,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         shared.dynamic.as_mut_slice(),
         shared.buffers,
         &*shared.custom,
+        shared.specpdl.as_slice(),
         intern("minibuffer-completion-table"),
         args[1],
     );
@@ -1392,6 +1398,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         shared.dynamic.as_mut_slice(),
         shared.buffers,
         &*shared.custom,
+        shared.specpdl.as_slice(),
         intern("minibuffer-completion-predicate"),
         args.get(2).copied().unwrap_or(Value::Nil),
     );
@@ -1401,6 +1408,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         shared.dynamic.as_mut_slice(),
         shared.buffers,
         &*shared.custom,
+        shared.specpdl.as_slice(),
         intern("minibuffer-completion-table"),
         Value::Nil,
     );
@@ -1409,6 +1417,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         shared.dynamic.as_mut_slice(),
         shared.buffers,
         &*shared.custom,
+        shared.specpdl.as_slice(),
         intern("minibuffer-completion-predicate"),
         Value::Nil,
     );
@@ -1624,6 +1633,7 @@ pub(crate) fn builtin_discard_input(
         eval.dynamic.as_mut_slice(),
         &mut eval.buffers,
         &eval.custom,
+        eval.specpdl.as_slice(),
         args,
     )
 }
@@ -1633,6 +1643,7 @@ pub(crate) fn builtin_discard_input_in_state(
     dynamic: &mut [OrderedRuntimeBindingMap],
     buffers: &mut crate::buffer::BufferManager,
     custom: &CustomManager,
+    specpdl: &[super::eval::SpecBinding],
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("discard-input", &args, 0)?;
@@ -1641,6 +1652,7 @@ pub(crate) fn builtin_discard_input_in_state(
         dynamic,
         buffers,
         custom,
+        specpdl,
         intern("unread-command-events"),
         Value::Nil,
     );
